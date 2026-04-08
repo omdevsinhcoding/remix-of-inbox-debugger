@@ -214,8 +214,8 @@ Deno.serve(async (req) => {
         candidateUids.sort((a, b) => b - a);
 
         // Skip already cached UIDs
-        const uncachedUids = candidateUids.filter(uid => !cachedIds.has(buildCacheId(uid)));
-        const alreadyCachedUids = candidateUids.filter(uid => cachedIds.has(buildCacheId(uid)));
+        const uncachedUids = candidateUids.filter(uid => !cachedIds.has(String(uid)));
+        const alreadyCachedUids = candidateUids.filter(uid => cachedIds.has(String(uid)));
         console.log("New UIDs to fetch:", uncachedUids.length, "| Already cached:", alreadyCachedUids.length);
 
         // Only fetch NEW uncached emails — cached ones are already in DB

@@ -1036,11 +1036,11 @@ function EmailViewer() {
   // syncIntervalRef removed — no more auto IMAP sync
 
   // Load cached emails from DB (instant)
-  const loadCachedEmails = async () => {
+  const loadCachedEmails = async (forceDirect = false) => {
     try {
       const cfUrl = getCloudflareWorkerUrl();
       let res: Response;
-      if (cfUrl) {
+      if (cfUrl && !forceDirect) {
         // Use Cloudflare Worker (zero Supabase egress)
         res = await fetch(`${cfUrl}/api/emails`);
       } else {
@@ -1083,19 +1083,16 @@ function EmailViewer() {
       
       if (cfUrl) {
         // Use Cloudflare Worker to trigger sync
-        const res = await fetch(`${cfUrl}/api/emails/sync`, {
+        const syncRes = await fetch(`${cfUrl}/api/emails/sync`, {
           method: "POST",
           signal: controller.signal,
         });
-        const raw = await res.text();
-        let data: any = null;
-        if (raw) { try { data = JSON.parse(raw); } catch {} }
-        if (!res.ok || data?.success === false) {
-          const errMsg = data?.error || "Failed to sync emails.";
-          setError(errMsg);
-          return;
+        if (!syncRes.ok) {
+          const raw = await syncRes.text();
+          let data: any = null;
+          if (raw) { try { data = JSON.parse(raw); } catch {} }
+          throw new Error(data?.error || `Worker sync failed (${syncRes.status})`);
         }
-        syncSucceeded = true;
       } else {
         // Fallback to Supabase directly
         const res = await fetch(`${getApiBase()}/functions/v1/fetch-emails`, {
@@ -1118,9 +1115,10 @@ function EmailViewer() {
         }
         syncSucceeded = true;
       }
-      // After sync, reload from cache
-      await loadCachedEmails();
-      if (syncSucceeded) setLastImapSync(new Date());
+      clearTimeout(timeout);
+      // After sync, bypass worker KV once and read latest cache directly from Supabase
+      await loadCachedEmails(true);
+      setLastImapSync(new Date());
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
         console.log("[syncIMAP] Timeout - will retry next cycle");
