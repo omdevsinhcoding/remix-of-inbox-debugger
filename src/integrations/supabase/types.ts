@@ -96,7 +96,6 @@ export type Database = {
       }
       cached_emails: {
         Row: {
-          account_label: string | null
           cached_at: string
           date: string | null
           from_address: string | null
@@ -108,7 +107,6 @@ export type Database = {
           to_address: string | null
         }
         Insert: {
-          account_label?: string | null
           cached_at?: string
           date?: string | null
           from_address?: string | null
@@ -120,7 +118,6 @@ export type Database = {
           to_address?: string | null
         }
         Update: {
-          account_label?: string | null
           cached_at?: string
           date?: string | null
           from_address?: string | null
