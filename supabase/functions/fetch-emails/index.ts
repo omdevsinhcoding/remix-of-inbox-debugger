@@ -146,56 +146,34 @@ Deno.serve(async (req) => {
           .select("id");
         const cachedIds = new Set((cachedRows || []).map((r: any) => String(r.id)));
         console.log("Already cached:", cachedIds.size, "emails");
+        const uidValidity = String((client.mailbox as any)?.uidValidity || "0");
+        const mailboxIdentity = `${imapUser.toLowerCase()}:${uidValidity}`;
+        const buildCacheId = (uid: number) => `${mailboxIdentity}:${uid}`;
 
         // Use IMAP SEARCH to find matching emails from configured lookback window (server-side, fast)
         const since = new Date();
         since.setDate(since.getDate() - lookbackDays);
         
-        const senderHitUids = new Set<number>();
-        const subjectHitUids = new Set<number>();
+        const allCandidateUids = new Set<number>();
         try {
           console.log(
-            "Using IMAP SEARCH for sender allowlist since",
+            "Using IMAP SEARCH for all inbox emails since",
             since.toISOString().split("T")[0],
-            senderAllowlist
+            "(password reset emails will be excluded later)"
           );
-          for (const sender of senderAllowlist) {
-            const searchResults = await client.search({
-              from: sender,
-              since: since,
-            }, { uid: true });
-            for (const uid of (searchResults || [])) {
-              senderHitUids.add(uid as number);
-            }
+          const searchResults = await client.search({
+            since: since,
+          }, { uid: true });
+          for (const uid of (searchResults || [])) {
+            allCandidateUids.add(uid as number);
           }
-          console.log("Sender search hits:", senderHitUids.size);
+          console.log("All-email search hits:", allCandidateUids.size);
         } catch (searchErr) {
-          console.log("Sender IMAP SEARCH failed, falling back to envelope scan:", searchErr);
-        }
-
-        // Expand search via subject heuristics only when sender-only search has no hits
-        if (senderHitUids.size === 0) {
-          try {
-            console.log("Sender search returned no hits; trying subject heuristics:", subjectKeywords);
-            for (const keyword of subjectKeywords) {
-              const subjectSearch = await client.search({
-                subject: keyword,
-                since: since,
-              }, { uid: true });
-              for (const uid of (subjectSearch || [])) {
-                subjectHitUids.add(uid as number);
-              }
-            }
-            console.log("Subject search hits:", subjectHitUids.size);
-          } catch (subjectSearchErr) {
-            console.log("Subject IMAP SEARCH failed, will use envelope scan:", subjectSearchErr);
-          }
-        } else {
-          console.log("Skipping subject heuristics because sender search already found matches");
+          console.log("All-email IMAP SEARCH failed, falling back to envelope scan:", searchErr);
         }
 
         // Fallback: if SEARCH didn't work or returned nothing, scan last 500 envelopes
-        if (senderHitUids.size === 0 && subjectHitUids.size === 0) {
+        if (allCandidateUids.size === 0) {
           const totalMessages = (client.mailbox as any)?.exists || 0;
           console.log("Fallback: scanning last 500 of", totalMessages, "messages");
           
@@ -209,41 +187,35 @@ Deno.serve(async (req) => {
               const subject = (message.envelope?.subject || "").toLowerCase();
               const isInLookback = !!message.envelope?.date && message.envelope.date >= since;
               if (!isInLookback) continue;
-
-              if (senderAllowlist.includes(fromAddr)) {
-                senderHitUids.add(message.uid);
-              } else if (subjectKeywords.some((keyword) => subject.includes(keyword))) {
-                subjectHitUids.add(message.uid);
+              // Keep all in-lookback emails as candidates.
+              // Password reset messages are excluded when parsing full content.
+              if (fromAddr || subject || message.uid) {
+                allCandidateUids.add(message.uid);
               }
             }
             console.log(
-              "Envelope scan hits — sender:",
-              senderHitUids.size,
-              "| subject:",
-              subjectHitUids.size
+              "Envelope scan hits — all candidates:",
+              allCandidateUids.size
             );
           }
         }
 
-        const netflixUids = Array.from(new Set<number>([
-          ...Array.from(senderHitUids),
-          ...Array.from(subjectHitUids),
+        const candidateUids = Array.from(new Set<number>([
+          ...Array.from(allCandidateUids),
         ]));
         console.log(
-          "Filter branch counts — sender-hit:",
-          senderHitUids.size,
-          "| subject-hit:",
-          subjectHitUids.size,
+          "Filter branch counts — all-candidates:",
+          allCandidateUids.size,
           "| combined:",
-          netflixUids.length
+          candidateUids.length
         );
 
         // Process NEWEST first (reverse order) so latest emails are always fetched
-        netflixUids.sort((a, b) => b - a);
+        candidateUids.sort((a, b) => b - a);
 
         // Skip already cached UIDs
-        const uncachedUids = netflixUids.filter(uid => !cachedIds.has(String(uid)));
-        const alreadyCachedUids = netflixUids.filter(uid => cachedIds.has(String(uid)));
+        const uncachedUids = candidateUids.filter(uid => !cachedIds.has(buildCacheId(uid)));
+        const alreadyCachedUids = candidateUids.filter(uid => cachedIds.has(buildCacheId(uid)));
         console.log("New UIDs to fetch:", uncachedUids.length, "| Already cached:", alreadyCachedUids.length);
 
         // Only fetch NEW uncached emails — cached ones are already in DB
@@ -275,7 +247,7 @@ Deno.serve(async (req) => {
             const otp = otpMatch ? otpMatch[0] : null;
 
             emails.push({
-              id: String(uid),
+              id: buildCacheId(uid),
               subject: parsed.subject || fullMsg.envelope?.subject || "",
               from: parsed.from?.text || "Netflix <info@account.netflix.com>",
               to: parsed.to
