@@ -2,6 +2,9 @@ name = "email-cache-proxy"
 main = "worker.js"
 compatibility_date = "2024-01-01"
 
+[triggers]
+crons = ["*/5 * * * *"]
+
 # KV Namespace — create via: npx wrangler kv namespace create EMAIL_CACHE
 # Then paste the id below
 [[kv_namespaces]]
