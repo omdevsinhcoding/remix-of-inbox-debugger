@@ -1074,10 +1074,11 @@ function EmailViewer() {
     if (isFetchingRef.current) return;
     isFetchingRef.current = true;
     setSyncing(true);
+    let timeout: ReturnType<typeof setTimeout> | null = null;
     try {
       const cfUrl = getCloudflareWorkerUrl();
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 50000);
+      timeout = setTimeout(() => controller.abort(), 50000);
       
       if (cfUrl) {
         // Use Cloudflare Worker to trigger sync
@@ -1105,7 +1106,6 @@ function EmailViewer() {
           setError(errMsg);
         }
       }
-      clearTimeout(timeout);
       // After sync, reload from cache
       await loadCachedEmails();
       setLastImapSync(new Date());
@@ -1116,6 +1116,7 @@ function EmailViewer() {
         console.error("[syncIMAP] Error:", err);
       }
     } finally {
+      if (timeout) clearTimeout(timeout);
       setSyncing(false);
       isFetchingRef.current = false;
     }
@@ -1151,10 +1152,11 @@ function EmailViewer() {
       });
     }, 1000);
 
-    // NO more IMAP sync interval — Cloudflare Worker handles Supabase DB refresh
-    // Keep a lightweight periodic IMAP sync, independent from 10s cache refresh cadence.
+    // Periodic IMAP sync is independent from the 10s cache refresh cadence.
     const imapSyncInterval = setInterval(() => {
-      syncFromImap();
+      if (!isFetchingRef.current) {
+        syncFromImap();
+      }
     }, 45_000);
 
     const handleVisibility = () => {
@@ -1227,11 +1229,11 @@ function EmailViewer() {
                 <p className="text-xs text-slate-500">Monitoring emails securely</p>
                 <p className="text-[10px] text-slate-400 mt-0.5">
                   Cache updated: {lastUpdated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true })}
-                </p>
-                <p className="text-[10px] text-slate-400">
+                  {" • "}
                   Last IMAP sync: {lastImapSync
                     ? lastImapSync.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true })
                     : "Not synced yet"}
+                  {lastImapSync ? " (sync)" : " (cache only)"}
                 </p>
               </div>
             </section>
