@@ -1075,6 +1075,7 @@ function EmailViewer() {
     isFetchingRef.current = true;
     setSyncing(true);
     let timeout: ReturnType<typeof setTimeout> | null = null;
+    let syncSucceeded = false;
     try {
       const cfUrl = getCloudflareWorkerUrl();
       const controller = new AbortController();
@@ -1082,10 +1083,19 @@ function EmailViewer() {
       
       if (cfUrl) {
         // Use Cloudflare Worker to trigger sync
-        await fetch(`${cfUrl}/api/emails/sync`, {
+        const res = await fetch(`${cfUrl}/api/emails/sync`, {
           method: "POST",
           signal: controller.signal,
         });
+        const raw = await res.text();
+        let data: any = null;
+        if (raw) { try { data = JSON.parse(raw); } catch {} }
+        if (!res.ok || data?.success === false) {
+          const errMsg = data?.error || "Failed to sync emails.";
+          setError(errMsg);
+          return;
+        }
+        syncSucceeded = true;
       } else {
         // Fallback to Supabase directly
         const res = await fetch(`${getApiBase()}/functions/v1/fetch-emails`, {
@@ -1104,11 +1114,13 @@ function EmailViewer() {
         if (!res.ok) {
           const errMsg = data?.error || "Failed to sync emails.";
           setError(errMsg);
+          return;
         }
+        syncSucceeded = true;
       }
       // After sync, reload from cache
       await loadCachedEmails();
-      setLastImapSync(new Date());
+      if (syncSucceeded) setLastImapSync(new Date());
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
         console.log("[syncIMAP] Timeout - will retry next cycle");
