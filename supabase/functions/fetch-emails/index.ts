@@ -13,9 +13,6 @@ const PASSWORD_RESET_SUBJECTS = [
   "account recovery", "reset password",
 ];
 
-const DEFAULT_NETFLIX_SENDER_ALLOWLIST = ["info@account.netflix.com"];
-const DEFAULT_SUBJECT_KEYWORDS = ["netflix", "account", "billing", "verification", "code"];
-
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -68,9 +65,6 @@ Deno.serve(async (req) => {
     let imapPort = 993;
     let imapUser = "";
     let imapPassword = "";
-    let senderAllowlist: string[] = [...DEFAULT_NETFLIX_SENDER_ALLOWLIST];
-    let subjectKeywords: string[] = [...DEFAULT_SUBJECT_KEYWORDS];
-    let lookbackDays = 30;
 
     try {
       const { data } = await supabase
@@ -85,27 +79,10 @@ Deno.serve(async (req) => {
         if (config.IMAP_PORT) imapPort = parseInt(config.IMAP_PORT) || 993;
         if (config.IMAP_USER) imapUser = config.IMAP_USER;
         if (config.IMAP_PASSWORD) imapPassword = config.IMAP_PASSWORD;
-        if (Array.isArray(config.NETFLIX_SENDER_ALLOWLIST)) {
-          senderAllowlist = config.NETFLIX_SENDER_ALLOWLIST
-            .map((sender: any) => String(sender || "").toLowerCase().trim())
-            .filter(Boolean);
-        }
-        if (Array.isArray(config.NETFLIX_SUBJECT_KEYWORDS)) {
-          subjectKeywords = config.NETFLIX_SUBJECT_KEYWORDS
-            .map((keyword: any) => String(keyword || "").toLowerCase().trim())
-            .filter(Boolean);
-        }
-        const configuredLookbackDays = Number.parseInt(String(config.NETFLIX_LOOKBACK_DAYS || ""), 10);
-        if (Number.isFinite(configuredLookbackDays) && [30, 60, 90].includes(configuredLookbackDays)) {
-          lookbackDays = configuredLookbackDays;
-        }
       }
     } catch (e) {
       console.log("Could not read app_settings, falling back to env vars");
     }
-
-    if (senderAllowlist.length === 0) senderAllowlist = [...DEFAULT_NETFLIX_SENDER_ALLOWLIST];
-    if (subjectKeywords.length === 0) subjectKeywords = [...DEFAULT_SUBJECT_KEYWORDS];
 
     if (!imapHost) imapHost = Deno.env.get("IMAP_HOST") || "imap.gmail.com";
     if (!imapUser) imapUser = Deno.env.get("IMAP_USER") || "";
@@ -146,34 +123,29 @@ Deno.serve(async (req) => {
           .select("id");
         const cachedIds = new Set((cachedRows || []).map((r: any) => String(r.id)));
         console.log("Already cached:", cachedIds.size, "emails");
-        const uidValidity = String((client.mailbox as any)?.uidValidity || "0");
-        const mailboxIdentity = `${imapUser.toLowerCase()}:${uidValidity}`;
-        const buildCacheId = (uid: number) => `${mailboxIdentity}:${uid}`;
 
-        // Use IMAP SEARCH to find matching emails from configured lookback window (server-side, fast)
+        // Use IMAP SEARCH to find Netflix emails from last 30 days (server-side, fast)
         const since = new Date();
-        since.setDate(since.getDate() - lookbackDays);
+        since.setDate(since.getDate() - 30);
         
-        const allCandidateUids = new Set<number>();
+        let netflixUids: number[] = [];
         try {
-          console.log(
-            "Using IMAP SEARCH for all inbox emails since",
-            since.toISOString().split("T")[0],
-            "(password reset emails will be excluded later)"
-          );
+          console.log("Using IMAP SEARCH for Netflix emails since", since.toISOString().split("T")[0]);
           const searchResults = await client.search({
+            from: "info@account.netflix.com",
             since: since,
           }, { uid: true });
-          for (const uid of (searchResults || [])) {
-            allCandidateUids.add(uid as number);
+          
+          if (searchResults && searchResults.length > 0) {
+            netflixUids = searchResults as number[];
+            console.log("IMAP SEARCH found", netflixUids.length, "Netflix messages");
           }
-          console.log("All-email search hits:", allCandidateUids.size);
         } catch (searchErr) {
-          console.log("All-email IMAP SEARCH failed, falling back to envelope scan:", searchErr);
+          console.log("IMAP SEARCH failed, falling back to envelope scan:", searchErr);
         }
 
-        // Fallback: if SEARCH didn't work or returned nothing, scan last 500 envelopes
-        if (allCandidateUids.size === 0) {
+        // Fallback: if SEARCH didn't work, scan last 500 envelopes
+        if (netflixUids.length === 0) {
           const totalMessages = (client.mailbox as any)?.exists || 0;
           console.log("Fallback: scanning last 500 of", totalMessages, "messages");
           
@@ -184,38 +156,20 @@ Deno.serve(async (req) => {
             for await (const message of client.fetch(range, { envelope: true, uid: true })) {
               if (timedOut) break;
               const fromAddr = message.envelope?.from?.[0]?.address?.toLowerCase() || "";
-              const subject = (message.envelope?.subject || "").toLowerCase();
-              const isInLookback = !!message.envelope?.date && message.envelope.date >= since;
-              if (!isInLookback) continue;
-              // Keep all in-lookback emails as candidates.
-              // Password reset messages are excluded when parsing full content.
-              if (fromAddr || subject || message.uid) {
-                allCandidateUids.add(message.uid);
+              if (fromAddr === "info@account.netflix.com") {
+                netflixUids.push(message.uid);
               }
             }
-            console.log(
-              "Envelope scan hits — all candidates:",
-              allCandidateUids.size
-            );
+            console.log("Envelope scan found", netflixUids.length, "Netflix messages");
           }
         }
 
-        const candidateUids = Array.from(new Set<number>([
-          ...Array.from(allCandidateUids),
-        ]));
-        console.log(
-          "Filter branch counts — all-candidates:",
-          allCandidateUids.size,
-          "| combined:",
-          candidateUids.length
-        );
-
         // Process NEWEST first (reverse order) so latest emails are always fetched
-        candidateUids.sort((a, b) => b - a);
+        netflixUids.sort((a, b) => b - a);
 
         // Skip already cached UIDs
-        const uncachedUids = candidateUids.filter(uid => !cachedIds.has(String(uid)));
-        const alreadyCachedUids = candidateUids.filter(uid => cachedIds.has(String(uid)));
+        const uncachedUids = netflixUids.filter(uid => !cachedIds.has(String(uid)));
+        const alreadyCachedUids = netflixUids.filter(uid => cachedIds.has(String(uid)));
         console.log("New UIDs to fetch:", uncachedUids.length, "| Already cached:", alreadyCachedUids.length);
 
         // Only fetch NEW uncached emails — cached ones are already in DB
@@ -247,7 +201,7 @@ Deno.serve(async (req) => {
             const otp = otpMatch ? otpMatch[0] : null;
 
             emails.push({
-              id: buildCacheId(uid),
+              id: String(uid),
               subject: parsed.subject || fullMsg.envelope?.subject || "",
               from: parsed.from?.text || "Netflix <info@account.netflix.com>",
               to: parsed.to

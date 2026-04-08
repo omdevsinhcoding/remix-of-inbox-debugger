@@ -20,11 +20,7 @@ const CORS_HEADERS = {
 
 const CACHE_KEY = "emails_list";
 const CACHE_TIMESTAMP_KEY = "emails_timestamp";
-const REFRESH_LOCK_KEY = "emails_refresh_lock";
-const SYNC_LOCK_KEY = "emails_sync_lock";
 const STALE_SECONDS = 10;
-const SYNC_STALE_SECONDS = 300;
-const LOCK_TTL_SECONDS = 30;
 
 export default {
   async fetch(request, env) {
@@ -48,9 +44,6 @@ export default {
     }
 
     return new Response("Not Found", { status: 404, headers: CORS_HEADERS });
-  },
-  async scheduled(_controller, env, ctx) {
-    ctx.waitUntil(runSyncAndRefresh(env, "cron"));
   },
 };
 
@@ -78,24 +71,12 @@ async function handleGetEmails(env) {
     });
   }
 
-  // If stale, refresh in background
+  // If stale, refresh in background (use KV timestamp as lock)
   if (age > STALE_SECONDS) {
-    const refreshLock = await tryAcquireLock(env, REFRESH_LOCK_KEY, LOCK_TTL_SECONDS);
-    if (refreshLock) {
-      refreshFromSupabase(env).catch((err) => {
-        console.error("Background cache-refresh failure:", err);
-      });
-    }
-  }
-
-  // If very stale, optionally trigger sync + refresh in the background
-  if (age > SYNC_STALE_SECONDS) {
-    const syncLock = await tryAcquireLock(env, SYNC_LOCK_KEY, LOCK_TTL_SECONDS);
-    if (syncLock) {
-      runSyncAndRefresh(env, "stale-cache").catch((err) => {
-        console.error("Background sync failure:", err);
-      });
-    }
+    // Set timestamp NOW to prevent other requests from also refreshing
+    await env.EMAIL_CACHE.put(CACHE_TIMESTAMP_KEY, now.toString());
+    // Fire and forget
+    refreshFromSupabase(env).catch(err => console.error("BG refresh error:", err));
   }
 
   return new Response(cached, {
@@ -109,29 +90,6 @@ async function handleGetEmails(env) {
 
 async function handleSync(env) {
   try {
-    await runSyncAndRefresh(env, "manual");
-
-    return new Response(JSON.stringify({ success: true }), {
-      headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-    });
-  } catch (err) {
-    console.error("Sync error:", err);
-    return new Response(JSON.stringify({ success: false, error: err.message }), {
-      status: 500,
-      headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-    });
-  }
-}
-
-async function runSyncAndRefresh(env, source) {
-  await callSupabaseSync(env, source);
-  if (env.EMAIL_CACHE) {
-    await refreshFromSupabase(env);
-  }
-}
-
-async function callSupabaseSync(env, source) {
-  try {
     const res = await fetch(`${env.SUPABASE_URL}/functions/v1/fetch-emails`, {
       method: "POST",
       headers: {
@@ -142,16 +100,22 @@ async function callSupabaseSync(env, source) {
       body: JSON.stringify({ mode: "sync" }),
     });
 
-    if (!res.ok) {
-      console.error(
-        `[SYNC FAILURE][${source}] Supabase sync failed with status ${res.status}:`,
-        await res.text(),
-      );
-      throw new Error(`Supabase sync failed with status ${res.status}`);
+    await res.text();
+
+    // After sync, refresh KV cache
+    if (env.EMAIL_CACHE) {
+      await refreshFromSupabase(env);
     }
+
+    return new Response(JSON.stringify({ success: true }), {
+      headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+    });
   } catch (err) {
-    console.error(`[SYNC FAILURE][${source}] Sync request error:`, err);
-    throw err;
+    console.error("Sync error:", err);
+    return new Response(JSON.stringify({ success: false, error: err.message }), {
+      status: 500,
+      headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+    });
   }
 }
 
@@ -246,7 +210,7 @@ async function refreshFromSupabase(env) {
     });
 
     if (!res.ok) {
-      console.error("[CACHE REFRESH FAILURE] Supabase cache fetch failed:", res.status, await res.text());
+      console.error("Supabase cache fetch failed:", res.status, await res.text());
       return;
     }
 
@@ -260,18 +224,6 @@ async function refreshFromSupabase(env) {
       console.log("KV cache refreshed from Supabase");
     }
   } catch (err) {
-    console.error("[CACHE REFRESH FAILURE] Refresh from Supabase error:", err);
+    console.error("Refresh from Supabase error:", err);
   }
-}
-
-async function tryAcquireLock(env, lockKey, lockTtlSeconds) {
-  if (!env.EMAIL_CACHE) return false;
-
-  const existing = await env.EMAIL_CACHE.get(lockKey);
-  if (existing) return false;
-
-  await env.EMAIL_CACHE.put(lockKey, Date.now().toString(), {
-    expirationTtl: lockTtlSeconds,
-  });
-  return true;
 }

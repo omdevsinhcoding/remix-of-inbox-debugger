@@ -1,5 +1,5 @@
-import React, { useState, useEffect, createContext, useContext, useCallback } from "react";
-import { Mail, RefreshCw, ShieldCheck, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, KeyRound } from "lucide-react";
+import React, { useState, useEffect, createContext, useContext } from "react";
+import { Mail, RefreshCw, ShieldCheck, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { Toaster, toast } from "sonner";
@@ -118,43 +118,6 @@ const PROFILE_COLORS = [
   "bg-orange-500", "bg-pink-500", "bg-teal-500", "bg-indigo-500",
 ];
 
-// ==================== CAPTCHA MODAL (shared) ====================
-function CaptchaModal({ siteKey, onVerify, onCancel }: { siteKey: string; onVerify: (token: string) => void; onCancel: () => void }) {
-  return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
-        className="bg-white w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden">
-        <div className="p-6 pb-4">
-          <div className="flex items-center gap-3 mb-1">
-            <div className="bg-blue-600 p-2 rounded-xl">
-              <ShieldCheck className="text-white w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="font-black text-slate-900 text-lg">Security Check</h3>
-              <p className="text-slate-500 text-xs">Verify you're human</p>
-            </div>
-          </div>
-        </div>
-        <div className="flex justify-center px-6 pb-4">
-          <ReCAPTCHA sitekey={siteKey} onChange={(token) => { if (token) onVerify(token); }} />
-        </div>
-        <div className="flex border-t border-slate-100">
-          <button onClick={onCancel}
-            className="flex-1 py-4 text-sm font-bold text-slate-500 hover:bg-slate-50 transition-colors">
-            Cancel
-          </button>
-          <div className="w-px bg-slate-100" />
-          <button onClick={onCancel}
-            className="flex-1 py-4 text-sm font-bold text-red-600 hover:bg-red-50 transition-colors">
-            Login
-          </button>
-        </div>
-      </motion.div>
-    </motion.div>
-  );
-}
-
 // ==================== NETFLIX-STYLE PROFILE LOGIN ====================
 function ProfileSelectPage() {
   const [profiles, setProfiles] = useState<UserData[]>([]);
@@ -163,20 +126,14 @@ function ProfileSelectPage() {
   const [loading, setLoading] = useState(true);
   const [loginLoading, setLoginLoading] = useState(false);
   const [error, setError] = useState("");
-  const [siteKey, setSiteKey] = useState<string | null>(null);
-  const [showCaptcha, setShowCaptcha] = useState(false);
   const navigate = useNavigate();
   const { checkAuth } = useAuth();
 
   useEffect(() => {
     (async () => {
       try {
-        const [usersData, recaptchaData] = await Promise.all([
-          apiCall("manage-app", { action: "list" }),
-          apiCall("manage-app", { action: "get_settings", key: "recaptcha" }).catch(() => ({ value: null })),
-        ]);
-        setProfiles((usersData.users || []).filter((u: UserData) => u.role === "user"));
-        if (recaptchaData.value?.siteKey) setSiteKey(recaptchaData.value.siteKey);
+        const data = await apiCall("manage-app", { action: "list" });
+        setProfiles((data.users || []).filter((u: UserData) => u.role === "user"));
       } catch (err) {
         console.error("Failed to load profiles:", err);
       } finally {
@@ -185,12 +142,8 @@ function ProfileSelectPage() {
     })();
   }, []);
 
-  const initiateLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (siteKey) { setShowCaptcha(true); } else { executeLogin(); }
-  };
-
-  const executeLogin = async () => {
     if (!selectedProfile) return;
     setLoginLoading(true);
     setError("");
@@ -210,6 +163,7 @@ function ProfileSelectPage() {
       localStorage.setItem("user", JSON.stringify(data.user));
       checkAuth();
 
+      // Send login notification
       try {
         await apiCall("send-login-notification", {
           username: data.user.username,
@@ -245,8 +199,13 @@ function ProfileSelectPage() {
 
       <AnimatePresence mode="wait">
         {!selectedProfile ? (
-          <motion.div key="profiles" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
-            className="relative z-10 w-full max-w-lg">
+          <motion.div
+            key="profiles"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="relative z-10 w-full max-w-lg"
+          >
             <div className="flex justify-center mb-6">
               <div className="bg-red-600 p-3 rounded-2xl shadow-lg shadow-red-900/30">
                 <Mail className="text-white w-7 h-7" />
@@ -262,59 +221,83 @@ function ProfileSelectPage() {
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 justify-items-center">
                 {profiles.map((profile, i) => (
-                  <motion.button key={profile.id} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
-                    onClick={() => setSelectedProfile(profile)} className="flex flex-col items-center gap-3 group">
+                  <motion.button
+                    key={profile.id}
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => setSelectedProfile(profile)}
+                    className="flex flex-col items-center gap-3 group"
+                  >
                     <div className={`w-20 h-20 sm:w-24 sm:h-24 rounded-2xl ${PROFILE_COLORS[i % PROFILE_COLORS.length]} flex items-center justify-center shadow-lg group-hover:ring-2 group-hover:ring-white/50 transition-all`}>
-                      <span className="text-white text-2xl sm:text-3xl font-black">{profile.name.charAt(0).toUpperCase()}</span>
+                      <span className="text-white text-2xl sm:text-3xl font-black">
+                        {profile.name.charAt(0).toUpperCase()}
+                      </span>
                     </div>
-                    <span className="text-slate-300 font-bold text-sm group-hover:text-white transition-colors">{profile.name}</span>
+                    <span className="text-slate-300 font-bold text-sm group-hover:text-white transition-colors">
+                      {profile.name}
+                    </span>
                   </motion.button>
                 ))}
               </div>
             )}
+
+            {/* Admin access hidden - use /admin directly */}
           </motion.div>
         ) : (
-          <motion.div key="password" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
-            className="relative z-10 w-full max-w-sm">
-            <button onClick={() => { setSelectedProfile(null); setPassword(""); setError(""); }}
-              className="text-slate-400 hover:text-white text-sm font-bold mb-6 flex items-center gap-1 transition-colors">
+          <motion.div
+            key="password"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="relative z-10 w-full max-w-sm"
+          >
+            <button
+              onClick={() => { setSelectedProfile(null); setPassword(""); setError(""); }}
+              className="text-slate-400 hover:text-white text-sm font-bold mb-6 flex items-center gap-1 transition-colors"
+            >
               <ArrowLeft className="w-4 h-4" /> Back
             </button>
 
             <div className="flex flex-col items-center mb-6">
               <div className={`w-20 h-20 rounded-2xl ${PROFILE_COLORS[profiles.indexOf(selectedProfile) % PROFILE_COLORS.length]} flex items-center justify-center shadow-lg mb-3`}>
-                <span className="text-white text-2xl font-black">{selectedProfile.name.charAt(0).toUpperCase()}</span>
+                <span className="text-white text-2xl font-black">
+                  {selectedProfile.name.charAt(0).toUpperCase()}
+                </span>
               </div>
               <h2 className="text-xl font-black text-white">{selectedProfile.name}</h2>
               <p className="text-slate-400 text-sm">@{selectedProfile.username}</p>
             </div>
 
-            <form onSubmit={initiateLogin} className="space-y-4">
+            <form onSubmit={handleLogin} className="space-y-4">
               <div className="relative">
                 <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 w-5 h-5" />
-                <input type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
                   className="w-full bg-slate-900 border border-slate-700 text-white rounded-2xl py-4 pl-12 pr-4 focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all outline-none placeholder:text-slate-600"
-                  placeholder="Enter password" autoFocus required />
+                  placeholder="Enter password"
+                  autoFocus
+                  required
+                />
               </div>
 
               {error && (
                 <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-xs p-3 rounded-xl flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 flex-shrink-0" />{error}
+                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                  {error}
                 </div>
               )}
 
-              <button type="submit" disabled={loginLoading}
-                className="w-full bg-red-600 text-white font-bold py-4 rounded-2xl hover:bg-red-700 transition-all active:scale-95 disabled:opacity-50">
+              <button
+                type="submit"
+                disabled={loginLoading}
+                className="w-full bg-red-600 text-white font-bold py-4 rounded-2xl hover:bg-red-700 transition-all active:scale-95 disabled:opacity-50"
+              >
                 {loginLoading ? "Verifying..." : "Sign In"}
               </button>
             </form>
           </motion.div>
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {showCaptcha && siteKey && (
-          <CaptchaModal siteKey={siteKey} onVerify={() => { setShowCaptcha(false); executeLogin(); }} onCancel={() => setShowCaptcha(false)} />
         )}
       </AnimatePresence>
     </div>
@@ -328,7 +311,7 @@ function AdminLoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [siteKey, setSiteKey] = useState<string | null>(null);
-  const [showCaptcha, setShowCaptcha] = useState(false);
+  const [showCaptchaModal, setShowCaptchaModal] = useState(false);
   const navigate = useNavigate();
   const { checkAuth } = useAuth();
 
@@ -343,10 +326,10 @@ function AdminLoginPage() {
 
   const initiateLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (siteKey) { setShowCaptcha(true); } else { executeLogin(); }
+    if (siteKey) { setShowCaptchaModal(true); } else { executeLogin(); }
   };
 
-  const executeLogin = async () => {
+  const executeLogin = async (captchaToken?: string) => {
     setLoading(true);
     setError("");
     try {
@@ -377,10 +360,17 @@ function AdminLoginPage() {
     }
   };
 
+  const handleCaptchaSolve = (token: string | null) => {
+    if (token) { setShowCaptchaModal(false); executeLogin(token); }
+  };
+
   return (
     <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
-        className="bg-white w-full max-w-md rounded-2xl sm:rounded-3xl p-5 sm:p-8 shadow-2xl border-t-4 sm:border-t-8 border-red-600 mx-2 sm:mx-0">
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="bg-white w-full max-w-md rounded-2xl sm:rounded-3xl p-5 sm:p-8 shadow-2xl border-t-4 sm:border-t-8 border-red-600 mx-2 sm:mx-0"
+      >
         <div className="flex justify-center mb-8">
           <div className="bg-slate-900 p-3 sm:p-4 rounded-2xl shadow-lg">
             <ShieldCheck className="text-white w-6 h-6 sm:w-8 sm:h-8" />
@@ -428,8 +418,21 @@ function AdminLoginPage() {
       </motion.div>
 
       <AnimatePresence>
-        {showCaptcha && siteKey && (
-          <CaptchaModal siteKey={siteKey} onVerify={() => { setShowCaptcha(false); executeLogin(); }} onCancel={() => setShowCaptcha(false)} />
+        {showCaptchaModal && siteKey && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white p-6 rounded-3xl shadow-2xl relative">
+              <button onClick={() => setShowCaptchaModal(false)}
+                className="absolute -top-3 -right-3 bg-white text-slate-400 hover:text-slate-900 rounded-full p-1 shadow-md border">
+                <X className="w-5 h-5" />
+              </button>
+              <h3 className="text-center font-bold text-slate-800 mb-4">Security Check</h3>
+              <div className="flex justify-center">
+                <ReCAPTCHA sitekey={siteKey} onChange={handleCaptchaSolve} />
+              </div>
+            </motion.div>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>
@@ -598,18 +601,15 @@ function AdminPanel() {
   const [newName, setNewName] = useState("");
   const [siteKey, setSiteKey] = useState("");
   const [secretKeyVal, setSecretKeyVal] = useState("");
-  const [captchaEnabled, setCaptchaEnabled] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newAdminPassword, setNewAdminPassword] = useState("");
   const [changingPassword, setChangingPassword] = useState(false);
-  const [changingUserPass, setChangingUserPass] = useState<string | null>(null);
-  const [userNewPass, setUserNewPass] = useState("");
   const [serverConfig, setServerConfig] = useState({
     TELEGRAM_BOT_TOKEN: "", TELEGRAM_CHAT_ID: "", IMAP_HOST: "", IMAP_PORT: "", IMAP_USER: "", IMAP_PASSWORD: "",
   });
   const [savingConfig, setSavingConfig] = useState(false);
   const navigate = useNavigate();
-  const { user: currentUser, checkAuth } = useAuth();
+  const { user: currentUser } = useAuth();
 
   useEffect(() => {
     (async () => {
@@ -620,11 +620,7 @@ function AdminPanel() {
 
       try {
         const recaptcha = await apiCall("manage-app", { action: "get_settings", key: "recaptcha" });
-        if (recaptcha.value) {
-          setSiteKey(recaptcha.value.siteKey || "");
-          setSecretKeyVal(recaptcha.value.secretKey || "");
-          setCaptchaEnabled(!!(recaptcha.value.siteKey));
-        }
+        if (recaptcha.value) { setSiteKey(recaptcha.value.siteKey || ""); setSecretKeyVal(recaptcha.value.secretKey || ""); }
       } catch {}
 
       try {
@@ -634,24 +630,8 @@ function AdminPanel() {
     })();
   }, []);
 
-  const toggleCaptcha = async () => {
-    if (captchaEnabled) {
-      // Disable: clear keys
-      await apiCall("manage-app", { action: "set_settings", key: "recaptcha", value: { siteKey: "", secretKey: "" } });
-      setSiteKey(""); setSecretKeyVal("");
-      setCaptchaEnabled(false);
-      toast.success("CAPTCHA disabled!");
-    } else {
-      if (!siteKey || !secretKeyVal) { toast.error("Enter both Site Key and Secret Key first"); return; }
-      await apiCall("manage-app", { action: "set_settings", key: "recaptcha", value: { siteKey, secretKey: secretKeyVal } });
-      setCaptchaEnabled(true);
-      toast.success("CAPTCHA enabled!");
-    }
-  };
-
   const saveRecaptchaSettings = async () => {
     await apiCall("manage-app", { action: "set_settings", key: "recaptcha", value: { siteKey, secretKey: secretKeyVal } });
-    setCaptchaEnabled(!!(siteKey));
     toast.success("ReCAPTCHA settings saved!");
   };
 
@@ -686,23 +666,6 @@ function AdminPanel() {
     }
   };
 
-  const changeUserPassword = async (userId: string) => {
-    if (!userNewPass || userNewPass.length < 6) { toast.error("Password must be at least 6 characters"); return; }
-    try {
-      await apiCall("manage-app", { action: "change_password", id: userId, new_password: userNewPass });
-      setUserNewPass(""); setChangingUserPass(null);
-      toast.success("User password changed!");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to change password");
-    }
-  };
-
-  const loginAsUser = (user: UserData) => {
-    localStorage.setItem("user", JSON.stringify({ ...user, mustChangePassword: false }));
-    checkAuth();
-    navigate("/viewer");
-    toast.success(`Logged in as ${user.name}`);
-  };
 
   const createUser = async () => {
     if (!newUsername || !newPassword || !newName) { toast.error("Please fill all fields"); return; }
@@ -743,32 +706,25 @@ function AdminPanel() {
 
       <main className="max-w-6xl mx-auto p-2 sm:p-4 py-4 sm:py-8 grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-8">
         <div className="lg:col-span-1 space-y-6">
-          {/* ReCAPTCHA with toggle */}
+          {/* ReCAPTCHA */}
           <section className="bg-white p-4 sm:p-6 rounded-2xl border shadow-sm">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="font-black text-base sm:text-lg flex items-center gap-2">
-                <ShieldCheck className="w-5 h-5 text-red-600" />CAPTCHA
-              </h2>
-              <button onClick={toggleCaptcha}
-                className={`relative w-12 h-6 rounded-full transition-colors ${captchaEnabled ? "bg-green-500" : "bg-slate-300"}`}>
-                <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${captchaEnabled ? "translate-x-6" : "translate-x-0.5"}`} />
-              </button>
-            </div>
-            <p className="text-xs text-slate-500 mb-3">{captchaEnabled ? "CAPTCHA is active on all logins" : "CAPTCHA is disabled"}</p>
-            <div className="space-y-3">
+            <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
+              <ShieldCheck className="w-5 h-5 text-red-600" />ReCAPTCHA Settings
+            </h2>
+            <div className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Site Key</label>
+                <label className="block text-xs font-bold text-slate-400 uppercase mb-2 ml-1">Site Key</label>
                 <input type="text" placeholder="Enter Site Key" value={siteKey} onChange={(e) => setSiteKey(e.target.value)}
-                  className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                  className="w-full bg-slate-50 border rounded-2xl p-4 outline-none focus:ring-2 focus:ring-red-500" />
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Secret Key</label>
+                <label className="block text-xs font-bold text-slate-400 uppercase mb-2 ml-1">Secret Key</label>
                 <input type="password" placeholder="Enter Secret Key" value={secretKeyVal} onChange={(e) => setSecretKeyVal(e.target.value)}
-                  className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                  className="w-full bg-slate-50 border rounded-2xl p-4 outline-none focus:ring-2 focus:ring-red-500" />
               </div>
               <button onClick={saveRecaptchaSettings}
-                className="w-full bg-red-600 text-white font-bold py-3 rounded-xl hover:bg-red-700 transition-all text-sm">
-                Save Keys
+                className="w-full bg-red-600 text-white font-bold py-3 rounded-2xl hover:bg-red-700 transition-all">
+                Save ReCAPTCHA
               </button>
             </div>
           </section>
@@ -784,13 +740,13 @@ function AdminPanel() {
               <input type="password" placeholder="New Password" value={newAdminPassword} onChange={(e) => setNewAdminPassword(e.target.value)}
                 className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
               <button onClick={changeAdminPassword} disabled={changingPassword}
-                className="w-full bg-red-600 text-white font-bold py-3 rounded-xl hover:bg-red-700 transition-all disabled:opacity-50 text-sm">
+                className="w-full bg-red-600 text-white font-bold py-3 rounded-2xl hover:bg-red-700 transition-all disabled:opacity-50">
                 {changingPassword ? "Changing..." : "Change Password"}
               </button>
             </div>
           </section>
 
-          {/* Create User */}
+
           <section className="bg-white p-4 sm:p-6 rounded-2xl border shadow-sm">
             <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
               <Plus className="w-5 h-5 text-red-600" />Create User
@@ -803,7 +759,7 @@ function AdminPanel() {
               <input type="password" placeholder="Password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)}
                 className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
               <button onClick={createUser}
-                className="w-full bg-slate-900 text-white font-bold py-3 rounded-xl hover:bg-slate-800 transition-all text-sm">
+                className="w-full bg-slate-900 text-white font-bold py-3 rounded-2xl hover:bg-slate-800 transition-all">
                 Create User
               </button>
             </div>
@@ -869,45 +825,22 @@ function AdminPanel() {
             </button>
           </section>
 
-          {/* Users List with actions */}
+          {/* Users List */}
           <section className="bg-white p-4 sm:p-6 rounded-2xl border shadow-sm">
             <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
               <Users className="w-5 h-5 text-red-600" />Active Users
             </h2>
             <div className="space-y-3">
               {users.map(u => (
-                <div key={u.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-bold text-slate-900">{u.name}</p>
-                      <p className="text-xs text-slate-500">@{u.username} • {u.role}</p>
-                    </div>
-                    {u.role !== "admin" && (
-                      <div className="flex items-center gap-1">
-                        <button onClick={() => loginAsUser(u)} title="Login as user"
-                          className="p-2 hover:bg-blue-50 text-blue-400 hover:text-blue-600 rounded-lg transition-colors">
-                          <Eye className="w-4 h-4" />
-                        </button>
-                        <button onClick={() => { setChangingUserPass(changingUserPass === u.id ? null : u.id); setUserNewPass(""); }} title="Change password"
-                          className="p-2 hover:bg-amber-50 text-amber-400 hover:text-amber-600 rounded-lg transition-colors">
-                          <KeyRound className="w-4 h-4" />
-                        </button>
-                        <button onClick={() => deleteUser(u.id)} title="Delete user"
-                          className="p-2 hover:bg-red-50 text-red-400 hover:text-red-600 rounded-lg transition-colors">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    )}
+                <div key={u.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                  <div>
+                    <p className="font-bold text-slate-900">{u.name}</p>
+                    <p className="text-xs text-slate-500">@{u.username} • {u.role}</p>
                   </div>
-                  {changingUserPass === u.id && u.role !== "admin" && (
-                    <div className="mt-3 flex gap-2">
-                      <input type="password" placeholder="New password (min 6)" value={userNewPass} onChange={(e) => setUserNewPass(e.target.value)}
-                        className="flex-1 bg-white border rounded-lg p-2 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
-                      <button onClick={() => changeUserPassword(u.id)}
-                        className="px-4 py-2 bg-red-600 text-white text-xs font-bold rounded-lg hover:bg-red-700 transition-all">
-                        Save
-                      </button>
-                    </div>
+                  {u.role !== "admin" && (
+                    <button onClick={() => deleteUser(u.id)} className="p-2 hover:bg-red-50 text-red-400 hover:text-red-600 rounded-lg transition-colors">
+                      <Trash2 className="w-5 h-5" />
+                    </button>
                   )}
                 </div>
               ))}
@@ -921,8 +854,7 @@ function AdminPanel() {
 }
 
 // ==================== CHANGE PASSWORD MODAL ====================
-function ChangePasswordModal({ user, onDone, forced = false }: { user: UserData; onDone: () => void; forced?: boolean }) {
-  const [currentPass, setCurrentPass] = useState("");
+function ChangePasswordModal({ user, onDone }: { user: UserData; onDone: () => void }) {
   const [newPass, setNewPass] = useState("");
   const [confirmPass, setConfirmPass] = useState("");
   const [loading, setLoading] = useState(false);
@@ -931,17 +863,12 @@ function ChangePasswordModal({ user, onDone, forced = false }: { user: UserData;
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    if (!forced && !currentPass) { setError("Enter your current password"); return; }
     if (newPass.length < 6) { setError("Password must be at least 6 characters"); return; }
     if (newPass !== confirmPass) { setError("Passwords do not match"); return; }
     setLoading(true);
     try {
-      await apiCall("manage-app", {
-        action: "change_password",
-        id: user.id,
-        ...(forced ? {} : { current_password: currentPass }),
-        new_password: newPass,
-      });
+      await apiCall("manage-app", { action: "change_password", id: user.id, new_password: newPass });
+      // Update local storage to remove mustChangePassword flag
       const stored = JSON.parse(localStorage.getItem("user") || "{}");
       stored.mustChangePassword = false;
       localStorage.setItem("user", JSON.stringify(stored));
@@ -959,36 +886,24 @@ function ChangePasswordModal({ user, onDone, forced = false }: { user: UserData;
       <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
         className="bg-white w-full max-w-sm rounded-2xl p-6 shadow-2xl">
         <div className="flex justify-center mb-4">
-          <div className="bg-gradient-to-br from-violet-500 to-purple-600 p-3 rounded-2xl shadow-lg shadow-purple-200">
+          <div className="bg-red-600 p-3 rounded-2xl">
             <Key className="text-white w-6 h-6" />
           </div>
         </div>
-        <h2 className="text-xl font-black text-center text-slate-900 mb-1">
-          {forced ? "Set Your Password" : "Change Password"}
-        </h2>
-        <p className="text-slate-500 text-center text-xs mb-6">
-          {forced ? "For security, set a private password only you know." : "Update your password to keep your account secure."}
-        </p>
+        <h2 className="text-xl font-black text-center text-slate-900 mb-1">Change Your Password</h2>
+        <p className="text-slate-500 text-center text-xs mb-6">For your security, please set a new password that only you know.</p>
 
-        <form onSubmit={handleSubmit} className="space-y-3">
-          {!forced && (
-            <div className="relative">
-              <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
-              <input type="password" value={currentPass} onChange={(e) => setCurrentPass(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 pl-12 pr-4 focus:ring-2 focus:ring-purple-500 outline-none text-sm"
-                placeholder="Current password" required autoFocus />
-            </div>
-          )}
+        <form onSubmit={handleSubmit} className="space-y-4">
           <div className="relative">
-            <Key className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
+            <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
             <input type="password" value={newPass} onChange={(e) => setNewPass(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 pl-12 pr-4 focus:ring-2 focus:ring-purple-500 outline-none text-sm"
-              placeholder="New password (min 6 chars)" required {...(forced ? { autoFocus: true } : {})} />
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 pl-12 pr-4 focus:ring-2 focus:ring-red-500 outline-none text-sm"
+              placeholder="New password (min 6 chars)" required autoFocus />
           </div>
           <div className="relative">
-            <ShieldCheck className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
+            <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
             <input type="password" value={confirmPass} onChange={(e) => setConfirmPass(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 pl-12 pr-4 focus:ring-2 focus:ring-purple-500 outline-none text-sm"
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 pl-12 pr-4 focus:ring-2 focus:ring-red-500 outline-none text-sm"
               placeholder="Confirm new password" required />
           </div>
           {error && (
@@ -996,20 +911,12 @@ function ChangePasswordModal({ user, onDone, forced = false }: { user: UserData;
               <AlertCircle className="w-4 h-4 flex-shrink-0" />{error}
             </div>
           )}
-          <div className={`flex gap-3 pt-1 ${forced ? "" : ""}`}>
-            {!forced && (
-              <button type="button" onClick={onDone}
-                className="flex-1 bg-slate-100 text-slate-700 font-bold py-3 rounded-xl hover:bg-slate-200 transition-all active:scale-95">
-                Cancel
-              </button>
-            )}
-            <button type="submit" disabled={loading}
-              className={`${forced ? "w-full" : "flex-1"} bg-gradient-to-r from-violet-500 to-purple-600 text-white font-bold py-3 rounded-xl hover:from-violet-600 hover:to-purple-700 transition-all active:scale-95 disabled:opacity-50 shadow-md shadow-purple-200`}>
-              {loading ? "Saving..." : forced ? "Set Password" : "Update Password"}
-            </button>
-          </div>
+          <button type="submit" disabled={loading}
+            className="w-full bg-red-600 text-white font-bold py-3 rounded-xl hover:bg-red-700 transition-all active:scale-95 disabled:opacity-50">
+            {loading ? "Saving..." : "Set New Password"}
+          </button>
         </form>
-        <p className="text-[10px] text-slate-400 text-center mt-4">🔒 Your password is encrypted and secure.</p>
+        <p className="text-[10px] text-slate-400 text-center mt-4">This ensures no one else knows your password.</p>
       </motion.div>
     </motion.div>
   );
@@ -1022,7 +929,6 @@ function EmailViewer() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
-  const [lastImapSync, setLastImapSync] = useState<Date | null>(null);
   const [otpCopied, setOtpCopied] = useState(false);
   const refreshIntervalSeconds = 10;
   const [countdown, setCountdown] = useState(refreshIntervalSeconds);
@@ -1030,17 +936,16 @@ function EmailViewer() {
   const navigate = useNavigate();
   const user = JSON.parse(localStorage.getItem("user") || "{}");
   const [showChangePassword, setShowChangePassword] = useState(!!user.mustChangePassword);
-  const [forcedPasswordChange] = useState(!!user.mustChangePassword);
 
   const [syncing, setSyncing] = useState(false);
   // syncIntervalRef removed — no more auto IMAP sync
 
   // Load cached emails from DB (instant)
-  const loadCachedEmails = async (forceDirect = false) => {
+  const loadCachedEmails = async () => {
     try {
       const cfUrl = getCloudflareWorkerUrl();
       let res: Response;
-      if (cfUrl && !forceDirect) {
+      if (cfUrl) {
         // Use Cloudflare Worker (zero Supabase egress)
         res = await fetch(`${cfUrl}/api/emails`);
       } else {
@@ -1074,25 +979,17 @@ function EmailViewer() {
     if (isFetchingRef.current) return;
     isFetchingRef.current = true;
     setSyncing(true);
-    let timeout: ReturnType<typeof setTimeout> | null = null;
-    let syncSucceeded = false;
     try {
       const cfUrl = getCloudflareWorkerUrl();
       const controller = new AbortController();
-      timeout = setTimeout(() => controller.abort(), 50000);
+      const timeout = setTimeout(() => controller.abort(), 50000);
       
       if (cfUrl) {
         // Use Cloudflare Worker to trigger sync
-        const syncRes = await fetch(`${cfUrl}/api/emails/sync`, {
+        await fetch(`${cfUrl}/api/emails/sync`, {
           method: "POST",
           signal: controller.signal,
         });
-        if (!syncRes.ok) {
-          const raw = await syncRes.text();
-          let data: any = null;
-          if (raw) { try { data = JSON.parse(raw); } catch {} }
-          throw new Error(data?.error || `Worker sync failed (${syncRes.status})`);
-        }
       } else {
         // Fallback to Supabase directly
         const res = await fetch(`${getApiBase()}/functions/v1/fetch-emails`, {
@@ -1111,14 +1008,11 @@ function EmailViewer() {
         if (!res.ok) {
           const errMsg = data?.error || "Failed to sync emails.";
           setError(errMsg);
-          return;
         }
-        syncSucceeded = true;
       }
       clearTimeout(timeout);
-      // After sync, bypass worker KV once and read latest cache directly from Supabase
-      await loadCachedEmails(true);
-      setLastImapSync(new Date());
+      // After sync, reload from cache
+      await loadCachedEmails();
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
         console.log("[syncIMAP] Timeout - will retry next cycle");
@@ -1126,7 +1020,6 @@ function EmailViewer() {
         console.error("[syncIMAP] Error:", err);
       }
     } finally {
-      if (timeout) clearTimeout(timeout);
       setSyncing(false);
       isFetchingRef.current = false;
     }
@@ -1162,12 +1055,8 @@ function EmailViewer() {
       });
     }, 1000);
 
-    // Periodic IMAP sync is independent from the 10s cache refresh cadence.
-    const imapSyncInterval = setInterval(() => {
-      if (!isFetchingRef.current) {
-        syncFromImap();
-      }
-    }, 45_000);
+    // NO more IMAP sync interval — Cloudflare Worker handles Supabase DB refresh
+    // IMAP sync only happens on manual refresh button click
 
     const handleVisibility = () => {
       if (document.visibilityState === "visible") {
@@ -1177,7 +1066,6 @@ function EmailViewer() {
     document.addEventListener("visibilitychange", handleVisibility);
     return () => {
       clearInterval(cacheInterval);
-      clearInterval(imapSyncInterval);
       document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, []);
@@ -1191,34 +1079,25 @@ function EmailViewer() {
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
       {showChangePassword && (
-        <ChangePasswordModal user={user} onDone={() => setShowChangePassword(false)} forced={forcedPasswordChange && showChangePassword} />
+        <ChangePasswordModal user={user} onDone={() => setShowChangePassword(false)} />
       )}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-20 shadow-sm">
         <div className="max-w-6xl mx-auto px-3 sm:px-4 h-14 sm:h-16 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-            <div className="flex-shrink-0">
-              <svg viewBox="0 0 24 24" className="w-8 h-8 sm:w-10 sm:h-10" fill="none">
-                <rect width="24" height="24" rx="6" fill="#E50914"/>
-                <path d="M7 5h2.5l3.5 8V5H15.5v14H13L9.5 11v8H7V5z" fill="white"/>
-              </svg>
+            <div className="bg-red-600 p-2 rounded-xl flex-shrink-0">
+              <Mail className="text-white w-5 h-5 sm:w-6 sm:h-6" />
             </div>
             <div className="min-w-0">
-              <h1 className="font-bold text-base sm:text-xl tracking-tight leading-tight text-red-600">Netflix Mail</h1>
+              <h1 className="font-bold text-base sm:text-xl tracking-tight leading-tight">Mail</h1>
               <span className="text-[10px] sm:text-xs text-slate-500 truncate block max-w-[80px] sm:max-w-[150px]">{user.name}</span>
             </div>
           </div>
-          <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
+          <div className="flex items-center gap-2 flex-shrink-0">
             <button onClick={() => fetchEmails()}
               disabled={syncing}
               className="flex items-center p-2.5 sm:px-4 sm:py-2 bg-slate-900 text-white rounded-full text-sm font-bold hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-60">
               <RefreshCw className={`w-4 h-4 sm:w-5 sm:h-5 ${syncing ? "animate-spin" : ""}`} />
               <span className="hidden sm:inline ml-1.5">Refresh</span>
-            </button>
-            <button onClick={() => setShowChangePassword(true)}
-              className="flex items-center p-2.5 sm:px-3 sm:py-2 bg-gradient-to-r from-violet-500 to-purple-600 text-white rounded-full text-sm font-bold hover:from-violet-600 hover:to-purple-700 transition-all active:scale-95 shadow-md shadow-purple-200"
-              title="Change Password">
-              <Key className="w-4 h-4 sm:w-5 sm:h-5" />
-              <span className="hidden sm:inline ml-1.5">Password</span>
             </button>
             <button onClick={() => { localStorage.clear(); navigate("/"); }} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
               <LogOut className="w-5 h-5 text-slate-400" />
@@ -1237,14 +1116,6 @@ function EmailViewer() {
               <div>
                 <h2 className="text-sm font-bold text-slate-800">System Active</h2>
                 <p className="text-xs text-slate-500">Monitoring emails securely</p>
-                <p className="text-[10px] text-slate-400 mt-0.5">
-                  Cache updated: {lastUpdated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true })}
-                  {" • "}
-                  Last IMAP sync: {lastImapSync
-                    ? lastImapSync.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true })
-                    : "Not synced yet"}
-                  {lastImapSync ? " (sync)" : " (cache only)"}
-                </p>
               </div>
             </section>
 
@@ -1402,30 +1273,71 @@ import { QRCodeSVG } from "qrcode.react";
 // ==================== MAIN APP ====================
 export default function App() {
   useEffect(() => {
-    // Anti-inspect: block right-click and keyboard shortcuts only
+    // Anti-devtools: detect and crash
     const handleContextMenu = (e: MouseEvent) => e.preventDefault();
     document.addEventListener("contextmenu", handleContextMenu);
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "F12" || (e.ctrlKey && e.shiftKey && (e.key === "I" || e.key === "J" || e.key === "C")) || (e.ctrlKey && e.key === "U")) {
         e.preventDefault();
+        _nuke();
       }
     };
     document.addEventListener("keydown", handleKeyDown);
 
-    // Disable text selection & drag (prevent copy-paste of content)
+    // Devtools size detection (works on desktop browsers)
+    const _threshold = 160;
+    const _checkDevtools = () => {
+      const w = window.outerWidth - window.innerWidth > _threshold;
+      const h = window.outerHeight - window.innerHeight > _threshold;
+      if (w || h) _nuke();
+    };
+
+    // Debugger trap via console timing
+    const _checkDebugger = () => {
+      const start = performance.now();
+      // eslint-disable-next-line no-debugger
+      debugger;
+      if (performance.now() - start > 100) _nuke();
+    };
+
+    // Nuke: wipe everything and crash
+    function _nuke() {
+      try { localStorage.clear(); sessionStorage.clear(); } catch {}
+      document.head.innerHTML = "";
+      document.body.innerHTML = '<div style="background:#000;color:#f00;height:100vh;display:flex;align-items:center;justify-content:center;font-family:monospace;font-size:24px;text-align:center;padding:20px">⛔ ACCESS DENIED ⛔<br><br>Unauthorized activity detected.<br>Session terminated.</div>';
+      // Prevent recovery
+      setTimeout(() => { window.location.href = "about:blank"; }, 1500);
+    }
+
+    // Disable text selection & drag
     document.body.style.userSelect = "none";
-    (document.body.style as any).webkitUserSelect = "none";
-    const preventSelect = (e: Event) => e.preventDefault();
-    const preventDrag = (e: Event) => e.preventDefault();
-    document.addEventListener("selectstart", preventSelect);
-    document.addEventListener("dragstart", preventDrag);
+    document.body.style.webkitUserSelect = "none";
+    document.addEventListener("selectstart", (e) => e.preventDefault());
+    document.addEventListener("dragstart", (e) => e.preventDefault());
+
+    // Console log trap - overwrite console to prevent extraction
+    const _origLog = console.log;
+    const _origWarn = console.warn;
+    const _origError = console.error;
+    console.log = () => {};
+    console.warn = () => {};
+    console.error = () => {};
+    console.table = () => {};
+    console.dir = () => {};
+    console.trace = () => {};
+
+    const devtoolsInterval = setInterval(_checkDevtools, 1000);
+    const debuggerInterval = setInterval(_checkDebugger, 3000);
 
     return () => {
       document.removeEventListener("contextmenu", handleContextMenu);
       document.removeEventListener("keydown", handleKeyDown);
-      document.removeEventListener("selectstart", preventSelect);
-      document.removeEventListener("dragstart", preventDrag);
+      clearInterval(devtoolsInterval);
+      clearInterval(debuggerInterval);
+      console.log = _origLog;
+      console.warn = _origWarn;
+      console.error = _origError;
     };
   }, []);
 
