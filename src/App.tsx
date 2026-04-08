@@ -1022,6 +1022,7 @@ function EmailViewer() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
+  const [lastImapSync, setLastImapSync] = useState<Date | null>(null);
   const [otpCopied, setOtpCopied] = useState(false);
   const refreshIntervalSeconds = 10;
   const [countdown, setCountdown] = useState(refreshIntervalSeconds);
@@ -1107,6 +1108,7 @@ function EmailViewer() {
       clearTimeout(timeout);
       // After sync, reload from cache
       await loadCachedEmails();
+      setLastImapSync(new Date());
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
         console.log("[syncIMAP] Timeout - will retry next cycle");
@@ -1150,7 +1152,10 @@ function EmailViewer() {
     }, 1000);
 
     // NO more IMAP sync interval — Cloudflare Worker handles Supabase DB refresh
-    // IMAP sync only happens on manual refresh button click
+    // Keep a lightweight periodic IMAP sync, independent from 10s cache refresh cadence.
+    const imapSyncInterval = setInterval(() => {
+      syncFromImap();
+    }, 45_000);
 
     const handleVisibility = () => {
       if (document.visibilityState === "visible") {
@@ -1160,6 +1165,7 @@ function EmailViewer() {
     document.addEventListener("visibilitychange", handleVisibility);
     return () => {
       clearInterval(cacheInterval);
+      clearInterval(imapSyncInterval);
       document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, []);
@@ -1219,6 +1225,14 @@ function EmailViewer() {
               <div>
                 <h2 className="text-sm font-bold text-slate-800">System Active</h2>
                 <p className="text-xs text-slate-500">Monitoring emails securely</p>
+                <p className="text-[10px] text-slate-400 mt-0.5">
+                  Cache updated: {lastUpdated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true })}
+                </p>
+                <p className="text-[10px] text-slate-400">
+                  Last IMAP sync: {lastImapSync
+                    ? lastImapSync.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true })
+                    : "Not synced yet"}
+                </p>
               </div>
             </section>
 
