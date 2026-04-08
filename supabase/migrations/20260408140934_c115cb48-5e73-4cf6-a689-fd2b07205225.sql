@@ -1,0 +1,1 @@
+ALTER TABLE public.cached_emails ADD COLUMN IF NOT EXISTS account_label text DEFAULT NULL;

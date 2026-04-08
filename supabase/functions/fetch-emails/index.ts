@@ -13,6 +13,122 @@ const PASSWORD_RESET_SUBJECTS = [
   "account recovery", "reset password",
 ];
 
+const SIGN_IN_CODE_SUBJECTS = [
+  "enter this code", "sign-in code", "sign in to", "sign-in activity",
+  "verification code", "login code", "sign in code",
+];
+
+async function fetchFromAccount(
+  supabase: any,
+  imapHost: string,
+  imapPort: number,
+  imapUser: string,
+  imapPassword: string,
+  accountLabel: string,
+  cachedIds: Set<string>,
+  filterSignInCodes: boolean,
+): Promise<any[]> {
+  const emails: any[] = [];
+  let timedOut = false;
+  const timeout = setTimeout(() => { timedOut = true; }, 25000);
+
+  const client = new ImapFlow({
+    host: imapHost,
+    port: imapPort,
+    secure: true,
+    auth: { user: imapUser, pass: imapPassword },
+    logger: false,
+  });
+
+  try {
+    await client.connect();
+    console.log(`[${accountLabel}] IMAP connected to ${imapHost}`);
+    const lock = await client.getMailboxLock("INBOX");
+
+    try {
+      const since = new Date();
+      since.setDate(since.getDate() - 30);
+
+      let netflixUids: number[] = [];
+      try {
+        const searchResults = await client.search({
+          from: "info@account.netflix.com",
+          since: since,
+        }, { uid: true });
+        if (searchResults && searchResults.length > 0) {
+          netflixUids = searchResults as number[];
+          console.log(`[${accountLabel}] SEARCH found ${netflixUids.length} Netflix messages`);
+        }
+      } catch (searchErr) {
+        console.log(`[${accountLabel}] SEARCH failed, fallback:`, searchErr);
+      }
+
+      if (netflixUids.length === 0) {
+        const totalMessages = (client.mailbox as any)?.exists || 0;
+        if (totalMessages > 0) {
+          const startSeq = Math.max(1, totalMessages - 499);
+          const range = `${startSeq}:${totalMessages}`;
+          for await (const message of client.fetch(range, { envelope: true, uid: true })) {
+            if (timedOut) break;
+            const fromAddr = message.envelope?.from?.[0]?.address?.toLowerCase() || "";
+            if (fromAddr === "info@account.netflix.com") {
+              netflixUids.push(message.uid);
+            }
+          }
+        }
+      }
+
+      netflixUids.sort((a, b) => b - a);
+      const uncachedUids = netflixUids.filter(uid => !cachedIds.has(String(uid)));
+
+      for (const uid of uncachedUids) {
+        if (timedOut) break;
+        try {
+          const fullMsg = await client.fetchOne(uid, { source: true, envelope: true }, { uid: true });
+          if (!fullMsg?.source) continue;
+
+          const envSubject = (fullMsg.envelope?.subject || "").toLowerCase();
+
+          // Skip password reset emails
+          if (PASSWORD_RESET_SUBJECTS.some(kw => envSubject.includes(kw))) continue;
+
+          // Skip sign-in code emails if filter is on
+          if (filterSignInCodes && SIGN_IN_CODE_SUBJECTS.some(kw => envSubject.includes(kw))) {
+            console.log(`[${accountLabel}] Filtered sign-in code: ${fullMsg.envelope?.subject}`);
+            continue;
+          }
+
+          const parsed = await simpleParser(fullMsg.source, { skipImageLinks: true, skipTextLinks: true });
+          const bodyText = (parsed.text || "").trim();
+          const otpMatch = bodyText.match(/\b\d{4,8}\b/);
+
+          emails.push({
+            id: String(uid),
+            subject: parsed.subject || fullMsg.envelope?.subject || "",
+            from: parsed.from?.text || "Netflix <info@account.netflix.com>",
+            to: parsed.to ? (Array.isArray(parsed.to) ? parsed.to[0]?.text : parsed.to.text) : undefined,
+            date: parsed.date,
+            otp: otpMatch ? otpMatch[0] : null,
+            preview: bodyText.length > 100 ? `${bodyText.substring(0, 100)}...` : bodyText,
+            html: parsed.html || parsed.textAsHtml || `<pre>${bodyText}</pre>`,
+            account_label: accountLabel,
+          });
+        } catch (parseErr) {
+          console.error(`[${accountLabel}] Parse error UID ${uid}:`, parseErr);
+        }
+      }
+    } finally {
+      lock.release();
+    }
+
+    try { await client.logout(); } catch {}
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  return emails;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -28,12 +144,27 @@ Deno.serve(async (req) => {
     try { body = await req.json(); } catch {}
     const mode = body.mode || "sync";
 
-    // MODE: CACHE — return cached emails instantly from database
+    // MODE: CACHE
     if (mode === "cache") {
-      const { data: cached, error: cacheErr } = await supabase
+      // Check if sign-in code filter is active
+      let filterSignInCodes = false;
+      try {
+        const { data: filterData } = await supabase
+          .from("app_settings")
+          .select("value")
+          .eq("key", "email_filters")
+          .single();
+        if (filterData?.value?.showSignInCodes === false) {
+          filterSignInCodes = true;
+        }
+      } catch {}
+
+      let query = supabase
         .from("cached_emails")
         .select("*")
         .order("date", { ascending: false });
+
+      const { data: cached, error: cacheErr } = await query;
 
       if (cacheErr) {
         console.error("Cache read error:", cacheErr);
@@ -42,7 +173,7 @@ Deno.serve(async (req) => {
         });
       }
 
-      const emails = (cached || []).map((e: any) => ({
+      let emails = (cached || []).map((e: any) => ({
         id: e.id,
         subject: e.subject,
         from: e.from_address,
@@ -51,191 +182,117 @@ Deno.serve(async (req) => {
         otp: e.otp,
         preview: e.preview,
         html: e.html,
+        account_label: e.account_label,
       }));
+
+      // Filter sign-in codes client-side from cache
+      if (filterSignInCodes) {
+        emails = emails.filter((e: any) => {
+          const sub = (e.subject || "").toLowerCase();
+          return !SIGN_IN_CODE_SUBJECTS.some(kw => sub.includes(kw));
+        });
+      }
 
       return new Response(JSON.stringify(emails), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // MODE: SYNC — fetch from IMAP using SEARCH, save to cache
-    console.log("Sync mode: fetching from IMAP server");
+    // MODE: SYNC
+    console.log("Sync mode: fetching from IMAP server(s)");
 
-    let imapHost = "";
-    let imapPort = 993;
-    let imapUser = "";
-    let imapPassword = "";
+    // Get cached IDs
+    const { data: cachedRows } = await supabase.from("cached_emails").select("id");
+    const cachedIds = new Set((cachedRows || []).map((r: any) => String(r.id)));
 
+    // Check sign-in code filter
+    let filterSignInCodes = false;
     try {
-      const { data } = await supabase
+      const { data: filterData } = await supabase
         .from("app_settings")
         .select("value")
-        .eq("key", "config")
+        .eq("key", "email_filters")
         .single();
+      if (filterData?.value?.showSignInCodes === false) filterSignInCodes = true;
+    } catch {}
 
+    // Build list of accounts to fetch from
+    const accounts: Array<{ label: string; host: string; port: number; user: string; password: string }> = [];
+
+    // 1. Check for multi-account config
+    try {
+      const { data: accountsData } = await supabase
+        .from("app_settings")
+        .select("value")
+        .eq("key", "email_accounts")
+        .single();
+      if (accountsData?.value && Array.isArray(accountsData.value) && accountsData.value.length > 0) {
+        for (const acc of accountsData.value) {
+          if (acc.user && acc.password) {
+            accounts.push({
+              label: acc.label || acc.user,
+              host: acc.host || "imap.gmail.com",
+              port: parseInt(acc.port) || 993,
+              user: acc.user,
+              password: acc.password,
+            });
+          }
+        }
+      }
+    } catch {}
+
+    // 2. Primary config from app_settings or env vars
+    let primaryHost = "", primaryPort = 993, primaryUser = "", primaryPassword = "";
+    try {
+      const { data } = await supabase.from("app_settings").select("value").eq("key", "config").single();
       if (data?.value) {
         const config = data.value as any;
-        if (config.IMAP_HOST) imapHost = config.IMAP_HOST;
-        if (config.IMAP_PORT) imapPort = parseInt(config.IMAP_PORT) || 993;
-        if (config.IMAP_USER) imapUser = config.IMAP_USER;
-        if (config.IMAP_PASSWORD) imapPassword = config.IMAP_PASSWORD;
+        if (config.IMAP_HOST) primaryHost = config.IMAP_HOST;
+        if (config.IMAP_PORT) primaryPort = parseInt(config.IMAP_PORT) || 993;
+        if (config.IMAP_USER) primaryUser = config.IMAP_USER;
+        if (config.IMAP_PASSWORD) primaryPassword = config.IMAP_PASSWORD;
       }
-    } catch (e) {
-      console.log("Could not read app_settings, falling back to env vars");
+    } catch {}
+
+    if (!primaryHost) primaryHost = Deno.env.get("IMAP_HOST") || "imap.gmail.com";
+    if (!primaryUser) primaryUser = Deno.env.get("IMAP_USER") || "";
+    if (!primaryPassword) primaryPassword = Deno.env.get("IMAP_PASSWORD") || "";
+    const envPort = Deno.env.get("IMAP_PORT");
+    if (primaryPort === 993 && envPort) primaryPort = parseInt(envPort) || 993;
+
+    if (primaryUser && primaryPassword) {
+      // Only add primary if it's not already in the accounts list
+      const alreadyAdded = accounts.some(a => a.user === primaryUser);
+      if (!alreadyAdded) {
+        accounts.unshift({ label: "Primary", host: primaryHost, port: primaryPort, user: primaryUser, password: primaryPassword });
+      }
     }
 
-    if (!imapHost) imapHost = Deno.env.get("IMAP_HOST") || "imap.gmail.com";
-    if (!imapUser) imapUser = Deno.env.get("IMAP_USER") || "";
-    if (!imapPassword) imapPassword = Deno.env.get("IMAP_PASSWORD") || "";
-    const envPort = Deno.env.get("IMAP_PORT");
-    if (imapPort === 993 && envPort) imapPort = parseInt(envPort) || 993;
-
-    if (!imapUser || !imapPassword) {
+    if (accounts.length === 0) {
       return new Response(
         JSON.stringify({ success: false, error: "Inbox is not configured yet. Add IMAP email and app password in Admin Panel." }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    console.log("Connecting to IMAP:", imapHost, "as", imapUser);
-
-    const client = new ImapFlow({
-      host: imapHost,
-      port: imapPort,
-      secure: true,
-      auth: { user: imapUser, pass: imapPassword },
-      logger: false,
-    });
-
-    const emails: any[] = [];
-    let timedOut = false;
-    const timeout = setTimeout(() => { timedOut = true; }, 25000);
-
-    try {
-      await client.connect();
-      console.log("IMAP connected");
-      const lock = await client.getMailboxLock("INBOX");
-
+    // Fetch from all accounts
+    const allEmails: any[] = [];
+    for (const acc of accounts) {
       try {
-        // Get already cached UIDs to skip them
-        const { data: cachedRows } = await supabase
-          .from("cached_emails")
-          .select("id");
-        const cachedIds = new Set((cachedRows || []).map((r: any) => String(r.id)));
-        console.log("Already cached:", cachedIds.size, "emails");
-
-        // Use IMAP SEARCH to find Netflix emails from last 30 days (server-side, fast)
-        const since = new Date();
-        since.setDate(since.getDate() - 30);
-        
-        let netflixUids: number[] = [];
-        try {
-          console.log("Using IMAP SEARCH for Netflix emails since", since.toISOString().split("T")[0]);
-          const searchResults = await client.search({
-            from: "info@account.netflix.com",
-            since: since,
-          }, { uid: true });
-          
-          if (searchResults && searchResults.length > 0) {
-            netflixUids = searchResults as number[];
-            console.log("IMAP SEARCH found", netflixUids.length, "Netflix messages");
-          }
-        } catch (searchErr) {
-          console.log("IMAP SEARCH failed, falling back to envelope scan:", searchErr);
-        }
-
-        // Fallback: if SEARCH didn't work, scan last 500 envelopes
-        if (netflixUids.length === 0) {
-          const totalMessages = (client.mailbox as any)?.exists || 0;
-          console.log("Fallback: scanning last 500 of", totalMessages, "messages");
-          
-          if (totalMessages > 0) {
-            const startSeq = Math.max(1, totalMessages - 499);
-            const range = `${startSeq}:${totalMessages}`;
-            
-            for await (const message of client.fetch(range, { envelope: true, uid: true })) {
-              if (timedOut) break;
-              const fromAddr = message.envelope?.from?.[0]?.address?.toLowerCase() || "";
-              if (fromAddr === "info@account.netflix.com") {
-                netflixUids.push(message.uid);
-              }
-            }
-            console.log("Envelope scan found", netflixUids.length, "Netflix messages");
-          }
-        }
-
-        // Process NEWEST first (reverse order) so latest emails are always fetched
-        netflixUids.sort((a, b) => b - a);
-
-        // Skip already cached UIDs
-        const uncachedUids = netflixUids.filter(uid => !cachedIds.has(String(uid)));
-        const alreadyCachedUids = netflixUids.filter(uid => cachedIds.has(String(uid)));
-        console.log("New UIDs to fetch:", uncachedUids.length, "| Already cached:", alreadyCachedUids.length);
-
-        // Only fetch NEW uncached emails — cached ones are already in DB
-        // Fetch full content for each new Netflix email
-        for (const uid of uncachedUids) {
-          if (timedOut) {
-            console.log("Timeout reached, returning what we have");
-            break;
-          }
-          try {
-            const fullMsg = await client.fetchOne(uid, { source: true, envelope: true }, { uid: true });
-            if (!fullMsg?.source) continue;
-
-            // Check subject for password reset BEFORE parsing (faster)
-            const envSubject = (fullMsg.envelope?.subject || "").toLowerCase();
-            const isPasswordReset = PASSWORD_RESET_SUBJECTS.some(kw => envSubject.includes(kw));
-            if (isPasswordReset) {
-              console.log("Skipping password reset:", fullMsg.envelope?.subject);
-              continue;
-            }
-
-            const parsed = await simpleParser(fullMsg.source, {
-              skipImageLinks: true,
-              skipTextLinks: true,
-            });
-
-            const bodyText = (parsed.text || "").trim();
-            const otpMatch = bodyText.match(/\b\d{4,8}\b/);
-            const otp = otpMatch ? otpMatch[0] : null;
-
-            emails.push({
-              id: String(uid),
-              subject: parsed.subject || fullMsg.envelope?.subject || "",
-              from: parsed.from?.text || "Netflix <info@account.netflix.com>",
-              to: parsed.to
-                ? Array.isArray(parsed.to) ? parsed.to[0]?.text : parsed.to.text
-                : undefined,
-              date: parsed.date,
-              otp,
-              preview: bodyText.length > 100 ? `${bodyText.substring(0, 100)}...` : bodyText,
-              html: parsed.html || parsed.textAsHtml || `<pre>${bodyText}</pre>`,
-            });
-          } catch (parseErr) {
-            console.error("Parse error for UID", uid, ":", parseErr);
-          }
-        }
-
-        console.log("Collected", emails.length, "Netflix emails (password resets excluded)");
-      } finally {
-        lock.release();
+        console.log(`Fetching from account: ${acc.label} (${acc.user})`);
+        const emails = await fetchFromAccount(supabase, acc.host, acc.port, acc.user, acc.password, acc.label, cachedIds, filterSignInCodes);
+        allEmails.push(...emails);
+      } catch (err) {
+        console.error(`Error fetching from ${acc.label}:`, err);
       }
-
-      try { await client.logout(); } catch {}
-    } catch (connErr) {
-      if (emails.length === 0) throw connErr;
-      console.error("IMAP error (returning partial):", connErr);
-    } finally {
-      clearTimeout(timeout);
     }
 
-    emails.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    allEmails.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
     // Save to cache
-    if (emails.length > 0) {
-      console.log("Caching", emails.length, "emails to database");
-      const rows = emails.map((e: any) => ({
+    if (allEmails.length > 0) {
+      console.log("Caching", allEmails.length, "emails to database");
+      const rows = allEmails.map((e: any) => ({
         id: String(e.id),
         subject: e.subject,
         from_address: e.from,
@@ -244,6 +301,7 @@ Deno.serve(async (req) => {
         otp: e.otp || null,
         preview: e.preview || null,
         html: e.html || null,
+        account_label: e.account_label || null,
         cached_at: new Date().toISOString(),
       }));
 
@@ -253,12 +311,10 @@ Deno.serve(async (req) => {
 
       if (upsertErr) {
         console.error("Cache upsert error:", upsertErr);
-      } else {
-        console.log("Cache updated successfully");
       }
     }
 
-    return new Response(JSON.stringify(emails), {
+    return new Response(JSON.stringify(allEmails), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err) {

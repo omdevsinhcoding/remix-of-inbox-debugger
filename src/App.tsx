@@ -1,5 +1,5 @@
 import React, { useState, useEffect, createContext, useContext, useCallback } from "react";
-import { Mail, RefreshCw, ShieldCheck, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, KeyRound } from "lucide-react";
+import { Mail, RefreshCw, ShieldCheck, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, KeyRound, Filter, Server, BarChart3, Globe } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { Toaster, toast } from "sonner";
@@ -592,6 +592,7 @@ function AdminAuthPage() {
 
 // ==================== ADMIN PANEL ====================
 function AdminPanel() {
+  const [activeTab, setActiveTab] = useState<"users" | "security" | "emails" | "settings">("users");
   const [users, setUsers] = useState<UserData[]>([]);
   const [newUsername, setNewUsername] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -604,18 +605,28 @@ function AdminPanel() {
   const [changingPassword, setChangingPassword] = useState(false);
   const [changingUserPass, setChangingUserPass] = useState<string | null>(null);
   const [userNewPass, setUserNewPass] = useState("");
+  const [showSignInCodes, setShowSignInCodes] = useState(true);
   const [serverConfig, setServerConfig] = useState({
     TELEGRAM_BOT_TOKEN: "", TELEGRAM_CHAT_ID: "", IMAP_HOST: "", IMAP_PORT: "", IMAP_USER: "", IMAP_PASSWORD: "",
   });
   const [savingConfig, setSavingConfig] = useState(false);
+  // Multi-account IMAP
+  const [emailAccounts, setEmailAccounts] = useState<Array<{ label: string; host: string; port: string; user: string; password: string }>>([]);
+  const [newAccount, setNewAccount] = useState({ label: "", host: "imap.gmail.com", port: "993", user: "", password: "" });
+  const [savingAccounts, setSavingAccounts] = useState(false);
   const navigate = useNavigate();
   const { user: currentUser, checkAuth } = useAuth();
+
+  // Stats
+  const [stats, setStats] = useState({ totalUsers: 0, totalEmails: 0 });
 
   useEffect(() => {
     (async () => {
       try {
         const usersData = await apiCall("manage-app", { action: "list" });
-        setUsers(usersData.users || []);
+        const usersList = usersData.users || [];
+        setUsers(usersList);
+        setStats(prev => ({ ...prev, totalUsers: usersList.length }));
       } catch {}
 
       try {
@@ -629,14 +640,54 @@ function AdminPanel() {
 
       try {
         const config = await apiCall("manage-app", { action: "get_settings", key: "config" });
-        if (config.value) setServerConfig(prev => ({ ...prev, ...config.value }));
+        if (config.value) {
+          const c = config.value as any;
+          setServerConfig({
+            TELEGRAM_BOT_TOKEN: c.TELEGRAM_BOT_TOKEN || "",
+            TELEGRAM_CHAT_ID: c.TELEGRAM_CHAT_ID || "",
+            IMAP_HOST: c.IMAP_HOST || "",
+            IMAP_PORT: c.IMAP_PORT || "",
+            IMAP_USER: c.IMAP_USER || "",
+            IMAP_PASSWORD: c.IMAP_PASSWORD || "",
+          });
+        }
+      } catch {}
+
+      try {
+        const filters = await apiCall("manage-app", { action: "get_settings", key: "email_filters" });
+        if (filters.value) {
+          setShowSignInCodes(filters.value.showSignInCodes !== false);
+        }
+      } catch {}
+
+      try {
+        const accounts = await apiCall("manage-app", { action: "get_settings", key: "email_accounts" });
+        if (accounts.value && Array.isArray(accounts.value)) {
+          setEmailAccounts(accounts.value);
+        }
+      } catch {}
+
+      // Get email count
+      try {
+        const cfUrl = getCloudflareWorkerUrl();
+        let res: Response;
+        if (cfUrl) {
+          res = await fetch(`${cfUrl}/api/emails`);
+        } else {
+          res = await fetch(`${getApiBase()}/functions/v1/fetch-emails`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${getApiKey()}`, "apikey": getApiKey() },
+            body: JSON.stringify({ mode: "cache" }),
+          });
+        }
+        const data = await res.json();
+        if (Array.isArray(data)) setStats(prev => ({ ...prev, totalEmails: data.length }));
       } catch {}
     })();
   }, []);
 
   const toggleCaptcha = async () => {
     if (captchaEnabled) {
-      // Disable: clear keys
       await apiCall("manage-app", { action: "set_settings", key: "recaptcha", value: { siteKey: "", secretKey: "" } });
       setSiteKey(""); setSecretKeyVal("");
       setCaptchaEnabled(false);
@@ -653,6 +704,18 @@ function AdminPanel() {
     await apiCall("manage-app", { action: "set_settings", key: "recaptcha", value: { siteKey, secretKey: secretKeyVal } });
     setCaptchaEnabled(!!(siteKey));
     toast.success("ReCAPTCHA settings saved!");
+  };
+
+  const toggleSignInCodeFilter = async () => {
+    const newVal = !showSignInCodes;
+    setShowSignInCodes(newVal);
+    try {
+      await apiCall("manage-app", { action: "set_settings", key: "email_filters", value: { showSignInCodes: newVal } });
+      toast.success(newVal ? "Sign-in code emails will be shown" : "Sign-in code emails will be hidden");
+    } catch (err) {
+      toast.error("Failed to save filter setting");
+      setShowSignInCodes(!newVal);
+    }
   };
 
   const saveServerConfig = async () => {
@@ -727,194 +790,383 @@ function AdminPanel() {
     }
   };
 
+  const addEmailAccount = async () => {
+    if (!newAccount.label || !newAccount.user || !newAccount.password) {
+      toast.error("Fill label, email, and password"); return;
+    }
+    const updated = [...emailAccounts, { ...newAccount }];
+    setEmailAccounts(updated);
+    setNewAccount({ label: "", host: "imap.gmail.com", port: "993", user: "", password: "" });
+    try {
+      await apiCall("manage-app", { action: "set_settings", key: "email_accounts", value: updated });
+      toast.success("Email account added!");
+    } catch (err) {
+      toast.error("Failed to save account");
+    }
+  };
+
+  const removeEmailAccount = async (index: number) => {
+    const updated = emailAccounts.filter((_, i) => i !== index);
+    setEmailAccounts(updated);
+    try {
+      await apiCall("manage-app", { action: "set_settings", key: "email_accounts", value: updated });
+      toast.success("Account removed!");
+    } catch (err) {
+      toast.error("Failed to remove account");
+    }
+  };
+
+  const tabs = [
+    { id: "users" as const, label: "Users", icon: Users },
+    { id: "security" as const, label: "Security", icon: ShieldCheck },
+    { id: "emails" as const, label: "Email Accounts", icon: Mail },
+    { id: "settings" as const, label: "Settings", icon: Settings },
+  ];
+
   return (
     <div className="min-h-screen bg-slate-50">
-      <header className="bg-white border-b px-2 sm:px-4 py-3 sm:py-4 sticky top-0 z-10">
+      <header className="bg-white border-b px-3 sm:px-6 py-3 sm:py-4 sticky top-0 z-10 shadow-sm">
         <div className="max-w-6xl mx-auto flex justify-between items-center gap-2">
-          <h1 className="text-sm sm:text-xl font-black flex items-center gap-1.5 sm:gap-2 min-w-0 truncate">
-            <Settings className="w-5 h-5 sm:w-6 sm:h-6 text-red-600 flex-shrink-0" />
-            Admin Control Panel
+          <h1 className="text-sm sm:text-xl font-black flex items-center gap-2 min-w-0 truncate">
+            <div className="bg-red-600 p-1.5 sm:p-2 rounded-xl">
+              <Settings className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+            </div>
+            <span className="hidden sm:inline">Admin Control Panel</span>
+            <span className="sm:hidden">Admin</span>
           </h1>
-          <button onClick={() => { localStorage.clear(); navigate("/"); }} className="p-2 hover:bg-slate-100 rounded-full">
+          <button onClick={() => { localStorage.clear(); navigate("/"); }} className="p-2 hover:bg-slate-100 rounded-full transition-colors" title="Logout">
             <LogOut className="w-5 h-5 text-slate-400" />
           </button>
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto p-2 sm:p-4 py-4 sm:py-8 grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-8">
-        <div className="lg:col-span-1 space-y-6">
-          {/* ReCAPTCHA with toggle */}
-          <section className="bg-white p-4 sm:p-6 rounded-2xl border shadow-sm">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="font-black text-base sm:text-lg flex items-center gap-2">
-                <ShieldCheck className="w-5 h-5 text-red-600" />CAPTCHA
-              </h2>
-              <button onClick={toggleCaptcha}
-                className={`relative w-12 h-6 rounded-full transition-colors ${captchaEnabled ? "bg-green-500" : "bg-slate-300"}`}>
-                <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${captchaEnabled ? "translate-x-6" : "translate-x-0.5"}`} />
-              </button>
-            </div>
-            <p className="text-xs text-slate-500 mb-3">{captchaEnabled ? "CAPTCHA is active on all logins" : "CAPTCHA is disabled"}</p>
-            <div className="space-y-3">
-              <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Site Key</label>
-                <input type="text" placeholder="Enter Site Key" value={siteKey} onChange={(e) => setSiteKey(e.target.value)}
-                  className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Secret Key</label>
-                <input type="password" placeholder="Enter Secret Key" value={secretKeyVal} onChange={(e) => setSecretKeyVal(e.target.value)}
-                  className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
-              </div>
-              <button onClick={saveRecaptchaSettings}
-                className="w-full bg-red-600 text-white font-bold py-3 rounded-xl hover:bg-red-700 transition-all text-sm">
-                Save Keys
-              </button>
-            </div>
-          </section>
-
-          {/* Change Admin Password */}
-          <section className="bg-white p-4 sm:p-6 rounded-2xl border shadow-sm">
-            <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
-              <Key className="w-5 h-5 text-red-600" />Change Password
-            </h2>
-            <div className="space-y-3">
-              <input type="password" placeholder="Current Password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)}
-                className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
-              <input type="password" placeholder="New Password" value={newAdminPassword} onChange={(e) => setNewAdminPassword(e.target.value)}
-                className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
-              <button onClick={changeAdminPassword} disabled={changingPassword}
-                className="w-full bg-red-600 text-white font-bold py-3 rounded-xl hover:bg-red-700 transition-all disabled:opacity-50 text-sm">
-                {changingPassword ? "Changing..." : "Change Password"}
-              </button>
-            </div>
-          </section>
-
-          {/* Create User */}
-          <section className="bg-white p-4 sm:p-6 rounded-2xl border shadow-sm">
-            <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
-              <Plus className="w-5 h-5 text-red-600" />Create User
-            </h2>
-            <div className="space-y-3">
-              <input type="text" placeholder="Display Name" value={newName} onChange={(e) => setNewName(e.target.value)}
-                className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
-              <input type="text" placeholder="Username" value={newUsername} onChange={(e) => setNewUsername(e.target.value)}
-                className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
-              <input type="password" placeholder="Password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)}
-                className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
-              <button onClick={createUser}
-                className="w-full bg-slate-900 text-white font-bold py-3 rounded-xl hover:bg-slate-800 transition-all text-sm">
-                Create User
-              </button>
-            </div>
-          </section>
+      {/* Stats Bar */}
+      <div className="max-w-6xl mx-auto px-3 sm:px-6 pt-4 sm:pt-6">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="bg-white rounded-2xl border p-4 flex items-center gap-3">
+            <div className="bg-blue-50 p-2.5 rounded-xl"><Users className="w-5 h-5 text-blue-600" /></div>
+            <div><p className="text-2xl font-black text-slate-900">{stats.totalUsers}</p><p className="text-xs text-slate-500">Total Users</p></div>
+          </div>
+          <div className="bg-white rounded-2xl border p-4 flex items-center gap-3">
+            <div className="bg-green-50 p-2.5 rounded-xl"><Mail className="w-5 h-5 text-green-600" /></div>
+            <div><p className="text-2xl font-black text-slate-900">{stats.totalEmails}</p><p className="text-xs text-slate-500">Cached Emails</p></div>
+          </div>
+          <div className="bg-white rounded-2xl border p-4 flex items-center gap-3">
+            <div className="bg-purple-50 p-2.5 rounded-xl"><Globe className="w-5 h-5 text-purple-600" /></div>
+            <div><p className="text-2xl font-black text-slate-900">{emailAccounts.length || 1}</p><p className="text-xs text-slate-500">Email Accounts</p></div>
+          </div>
+          <div className="bg-white rounded-2xl border p-4 flex items-center gap-3">
+            <div className="bg-amber-50 p-2.5 rounded-xl"><ShieldCheck className="w-5 h-5 text-amber-600" /></div>
+            <div><p className="text-2xl font-black text-slate-900">{captchaEnabled ? "ON" : "OFF"}</p><p className="text-xs text-slate-500">CAPTCHA</p></div>
+          </div>
         </div>
+      </div>
 
-        <div className="lg:col-span-2 space-y-6">
-          {/* Server Config */}
-          <section className="bg-white p-4 sm:p-6 rounded-2xl border shadow-sm">
-            <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
-              <Settings className="w-5 h-5 text-red-600" />Server Configuration
-            </h2>
-            <div className="space-y-6">
+      {/* Tab Navigation */}
+      <div className="max-w-6xl mx-auto px-3 sm:px-6 pt-4 sm:pt-6">
+        <div className="flex gap-1 bg-white rounded-2xl border p-1.5 overflow-x-auto">
+          {tabs.map(tab => (
+            <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+              className={`flex items-center gap-1.5 px-3 sm:px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap ${
+                activeTab === tab.id ? "bg-red-600 text-white shadow-md" : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"
+              }`}>
+              <tab.icon className="w-4 h-4" />
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <main className="max-w-6xl mx-auto p-3 sm:p-6 pt-4 sm:pt-6">
+        {/* ===== USERS TAB ===== */}
+        {activeTab === "users" && (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
+            {/* Create User */}
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
+                <div className="bg-green-50 p-1.5 rounded-lg"><Plus className="w-4 h-4 text-green-600" /></div>
+                Create User
+              </h2>
+              <div className="space-y-3">
+                <input type="text" placeholder="Display Name" value={newName} onChange={(e) => setNewName(e.target.value)}
+                  className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                <input type="text" placeholder="Username" value={newUsername} onChange={(e) => setNewUsername(e.target.value)}
+                  className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                <input type="password" placeholder="Password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)}
+                  className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                <button onClick={createUser}
+                  className="w-full bg-slate-900 text-white font-bold py-3 rounded-xl hover:bg-slate-800 transition-all text-sm">
+                  Create User
+                </button>
+              </div>
+            </section>
+
+            {/* Users List */}
+            <section className="lg:col-span-2 bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
+                <div className="bg-blue-50 p-1.5 rounded-lg"><Users className="w-4 h-4 text-blue-600" /></div>
+                Active Users
+                <span className="bg-slate-100 text-slate-600 text-xs px-2 py-0.5 rounded-full ml-auto">{users.length}</span>
+              </h2>
+              <div className="space-y-3">
+                {users.map(u => (
+                  <div key={u.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 hover:border-slate-200 transition-colors">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-10 h-10 rounded-xl ${u.role === "admin" ? "bg-red-500" : "bg-blue-500"} flex items-center justify-center`}>
+                          <span className="text-white font-black text-sm">{u.name.charAt(0).toUpperCase()}</span>
+                        </div>
+                        <div>
+                          <p className="font-bold text-slate-900">{u.name}</p>
+                          <p className="text-xs text-slate-500">@{u.username} • <span className={u.role === "admin" ? "text-red-600 font-bold" : "text-blue-600"}>{u.role}</span></p>
+                        </div>
+                      </div>
+                      {u.role !== "admin" && (
+                        <div className="flex items-center gap-1">
+                          <button onClick={() => loginAsUser(u)} title="Login as user"
+                            className="p-2 hover:bg-blue-50 text-blue-400 hover:text-blue-600 rounded-lg transition-colors">
+                            <Eye className="w-4 h-4" />
+                          </button>
+                          <button onClick={() => { setChangingUserPass(changingUserPass === u.id ? null : u.id); setUserNewPass(""); }} title="Change password"
+                            className="p-2 hover:bg-amber-50 text-amber-400 hover:text-amber-600 rounded-lg transition-colors">
+                            <KeyRound className="w-4 h-4" />
+                          </button>
+                          <button onClick={() => deleteUser(u.id)} title="Delete user"
+                            className="p-2 hover:bg-red-50 text-red-400 hover:text-red-600 rounded-lg transition-colors">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                    {changingUserPass === u.id && u.role !== "admin" && (
+                      <div className="mt-3 flex gap-2">
+                        <input type="password" placeholder="New password (min 6)" value={userNewPass} onChange={(e) => setUserNewPass(e.target.value)}
+                          className="flex-1 bg-white border rounded-lg p-2 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                        <button onClick={() => changeUserPassword(u.id)}
+                          className="px-4 py-2 bg-red-600 text-white text-xs font-bold rounded-lg hover:bg-red-700 transition-all">
+                          Save
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+                {users.length === 0 && <p className="text-slate-400 text-sm text-center py-8">No users yet. Create one above.</p>}
+              </div>
+            </section>
+          </div>
+        )}
+
+        {/* ===== SECURITY TAB ===== */}
+        {activeTab === "security" && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+            {/* CAPTCHA */}
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="font-black text-base sm:text-lg flex items-center gap-2">
+                  <div className="bg-blue-50 p-1.5 rounded-lg"><ShieldCheck className="w-4 h-4 text-blue-600" /></div>
+                  CAPTCHA Protection
+                </h2>
+                <button onClick={toggleCaptcha}
+                  className={`relative w-12 h-6 rounded-full transition-colors ${captchaEnabled ? "bg-green-500" : "bg-slate-300"}`}>
+                  <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${captchaEnabled ? "translate-x-6" : "translate-x-0.5"}`} />
+                </button>
+              </div>
+              <p className="text-xs text-slate-500 mb-4">{captchaEnabled ? "✅ CAPTCHA is active on all logins" : "⚠️ CAPTCHA is disabled — logins are unprotected"}</p>
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Site Key</label>
+                  <input type="text" placeholder="Enter Site Key" value={siteKey} onChange={(e) => setSiteKey(e.target.value)}
+                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Secret Key</label>
+                  <input type="password" placeholder="Enter Secret Key" value={secretKeyVal} onChange={(e) => setSecretKeyVal(e.target.value)}
+                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                </div>
+                <button onClick={saveRecaptchaSettings}
+                  className="w-full bg-red-600 text-white font-bold py-3 rounded-xl hover:bg-red-700 transition-all text-sm">
+                  Save Keys
+                </button>
+              </div>
+            </section>
+
+            {/* Email Filter */}
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
+                <div className="bg-purple-50 p-1.5 rounded-lg"><Filter className="w-4 h-4 text-purple-600" /></div>
+                Email Filters
+              </h2>
               <div className="space-y-4">
-                <h3 className="font-bold text-slate-800 border-b pb-2">Telegram Notifications</h3>
+                <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border">
+                  <div>
+                    <p className="font-bold text-sm text-slate-900">Show Sign-In Code Emails</p>
+                    <p className="text-xs text-slate-500 mt-1">When OFF, "sign-in code" and "sign-in activity" emails are hidden from the inbox</p>
+                  </div>
+                  <button onClick={toggleSignInCodeFilter}
+                    className={`relative w-12 h-6 rounded-full transition-colors flex-shrink-0 ml-3 ${showSignInCodes ? "bg-green-500" : "bg-slate-300"}`}>
+                    <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${showSignInCodes ? "translate-x-6" : "translate-x-0.5"}`} />
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            {/* Change Admin Password */}
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
+                <div className="bg-amber-50 p-1.5 rounded-lg"><Key className="w-4 h-4 text-amber-600" /></div>
+                Change Admin Password
+              </h2>
+              <div className="space-y-3">
+                <input type="password" placeholder="Current Password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)}
+                  className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                <input type="password" placeholder="New Password" value={newAdminPassword} onChange={(e) => setNewAdminPassword(e.target.value)}
+                  className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                <button onClick={changeAdminPassword} disabled={changingPassword}
+                  className="w-full bg-red-600 text-white font-bold py-3 rounded-xl hover:bg-red-700 transition-all disabled:opacity-50 text-sm">
+                  {changingPassword ? "Changing..." : "Change Password"}
+                </button>
+              </div>
+            </section>
+          </div>
+        )}
+
+        {/* ===== EMAIL ACCOUNTS TAB ===== */}
+        {activeTab === "emails" && (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
+            {/* Add New Account */}
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
+                <div className="bg-green-50 p-1.5 rounded-lg"><Plus className="w-4 h-4 text-green-600" /></div>
+                Add Email Account
+              </h2>
+              <div className="space-y-3">
+                <input type="text" placeholder="Account Label (e.g. Gmail Main)" value={newAccount.label} onChange={(e) => setNewAccount({ ...newAccount, label: e.target.value })}
+                  className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                <div className="grid grid-cols-2 gap-2">
+                  <input type="text" placeholder="IMAP Host" value={newAccount.host} onChange={(e) => setNewAccount({ ...newAccount, host: e.target.value })}
+                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                  <input type="text" placeholder="Port" value={newAccount.port} onChange={(e) => setNewAccount({ ...newAccount, port: e.target.value })}
+                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                </div>
+                <input type="text" placeholder="Email Address" value={newAccount.user} onChange={(e) => setNewAccount({ ...newAccount, user: e.target.value })}
+                  className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                <input type="password" placeholder="App Password" value={newAccount.password} onChange={(e) => setNewAccount({ ...newAccount, password: e.target.value })}
+                  className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                <button onClick={addEmailAccount}
+                  className="w-full bg-slate-900 text-white font-bold py-3 rounded-xl hover:bg-slate-800 transition-all text-sm">
+                  Add Account
+                </button>
+              </div>
+            </section>
+
+            {/* Existing Accounts */}
+            <section className="lg:col-span-2 bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
+                <div className="bg-blue-50 p-1.5 rounded-lg"><Mail className="w-4 h-4 text-blue-600" /></div>
+                Connected Accounts
+                <span className="bg-slate-100 text-slate-600 text-xs px-2 py-0.5 rounded-full ml-auto">{emailAccounts.length}</span>
+              </h2>
+              {emailAccounts.length === 0 ? (
+                <div className="text-center py-8">
+                  <div className="bg-slate-50 w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-3">
+                    <Mail className="text-slate-300 w-6 h-6" />
+                  </div>
+                  <p className="text-slate-400 text-sm">No extra accounts added.</p>
+                  <p className="text-slate-400 text-xs mt-1">The primary IMAP config in Settings tab is used by default.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {emailAccounts.map((acc, i) => (
+                    <div key={i} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="bg-green-100 p-2 rounded-xl">
+                          <Server className="w-4 h-4 text-green-600" />
+                        </div>
+                        <div>
+                          <p className="font-bold text-sm text-slate-900">{acc.label}</p>
+                          <p className="text-xs text-slate-500">{acc.user} • {acc.host}:{acc.port}</p>
+                        </div>
+                      </div>
+                      <button onClick={() => removeEmailAccount(i)} className="p-2 hover:bg-red-50 text-red-400 hover:text-red-600 rounded-lg transition-colors">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          </div>
+        )}
+
+        {/* ===== SETTINGS TAB ===== */}
+        {activeTab === "settings" && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+            {/* Telegram */}
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
+                <div className="bg-blue-50 p-1.5 rounded-lg"><Server className="w-4 h-4 text-blue-600" /></div>
+                Telegram Notifications
+              </h2>
+              <div className="space-y-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Bot Token</label>
                   <input type="password" placeholder="e.g. 8575582532:AAE..." value={serverConfig.TELEGRAM_BOT_TOKEN}
-                    onChange={(e) => setServerConfig({...serverConfig, TELEGRAM_BOT_TOKEN: e.target.value})}
+                    onChange={(e) => setServerConfig({ ...serverConfig, TELEGRAM_BOT_TOKEN: e.target.value })}
                     className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Chat ID</label>
                   <input type="text" placeholder="e.g. 769748540" value={serverConfig.TELEGRAM_CHAT_ID}
-                    onChange={(e) => setServerConfig({...serverConfig, TELEGRAM_CHAT_ID: e.target.value})}
+                    onChange={(e) => setServerConfig({ ...serverConfig, TELEGRAM_CHAT_ID: e.target.value })}
                     className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
                 </div>
               </div>
+            </section>
 
-              <div className="space-y-4">
-                <h3 className="font-bold text-slate-800 border-b pb-2">IMAP Server (Email Fetching)</h3>
+            {/* IMAP */}
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
+                <div className="bg-red-50 p-1.5 rounded-lg"><Mail className="w-4 h-4 text-red-600" /></div>
+                Primary IMAP Server
+              </h2>
+              <div className="space-y-3">
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Host</label>
                     <input type="text" placeholder="imap.gmail.com" value={serverConfig.IMAP_HOST}
-                      onChange={(e) => setServerConfig({...serverConfig, IMAP_HOST: e.target.value})}
+                      onChange={(e) => setServerConfig({ ...serverConfig, IMAP_HOST: e.target.value })}
                       className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Port</label>
                     <input type="text" placeholder="993" value={serverConfig.IMAP_PORT}
-                      onChange={(e) => setServerConfig({...serverConfig, IMAP_PORT: e.target.value})}
+                      onChange={(e) => setServerConfig({ ...serverConfig, IMAP_PORT: e.target.value })}
                       className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
                   </div>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">IMAP User (Email)</label>
+                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">IMAP Email</label>
                   <input type="text" placeholder="Email Address" value={serverConfig.IMAP_USER}
-                    onChange={(e) => setServerConfig({...serverConfig, IMAP_USER: e.target.value})}
+                    onChange={(e) => setServerConfig({ ...serverConfig, IMAP_USER: e.target.value })}
                     className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">IMAP App Password</label>
+                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">App Password</label>
                   <input type="password" placeholder="16-digit App Password" value={serverConfig.IMAP_PASSWORD}
-                    onChange={(e) => setServerConfig({...serverConfig, IMAP_PASSWORD: e.target.value})}
+                    onChange={(e) => setServerConfig({ ...serverConfig, IMAP_PASSWORD: e.target.value })}
                     className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
                 </div>
               </div>
-            </div>
-            <button onClick={saveServerConfig} disabled={savingConfig}
-              className="w-full mt-6 bg-slate-900 text-white font-bold py-4 rounded-2xl hover:bg-slate-800 transition-all disabled:opacity-50">
-              {savingConfig ? "Saving..." : "Save Server Configuration"}
-            </button>
-          </section>
+            </section>
 
-          {/* Users List with actions */}
-          <section className="bg-white p-4 sm:p-6 rounded-2xl border shadow-sm">
-            <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
-              <Users className="w-5 h-5 text-red-600" />Active Users
-            </h2>
-            <div className="space-y-3">
-              {users.map(u => (
-                <div key={u.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-bold text-slate-900">{u.name}</p>
-                      <p className="text-xs text-slate-500">@{u.username} • {u.role}</p>
-                    </div>
-                    {u.role !== "admin" && (
-                      <div className="flex items-center gap-1">
-                        <button onClick={() => loginAsUser(u)} title="Login as user"
-                          className="p-2 hover:bg-blue-50 text-blue-400 hover:text-blue-600 rounded-lg transition-colors">
-                          <Eye className="w-4 h-4" />
-                        </button>
-                        <button onClick={() => { setChangingUserPass(changingUserPass === u.id ? null : u.id); setUserNewPass(""); }} title="Change password"
-                          className="p-2 hover:bg-amber-50 text-amber-400 hover:text-amber-600 rounded-lg transition-colors">
-                          <KeyRound className="w-4 h-4" />
-                        </button>
-                        <button onClick={() => deleteUser(u.id)} title="Delete user"
-                          className="p-2 hover:bg-red-50 text-red-400 hover:text-red-600 rounded-lg transition-colors">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                  {changingUserPass === u.id && u.role !== "admin" && (
-                    <div className="mt-3 flex gap-2">
-                      <input type="password" placeholder="New password (min 6)" value={userNewPass} onChange={(e) => setUserNewPass(e.target.value)}
-                        className="flex-1 bg-white border rounded-lg p-2 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
-                      <button onClick={() => changeUserPassword(u.id)}
-                        className="px-4 py-2 bg-red-600 text-white text-xs font-bold rounded-lg hover:bg-red-700 transition-all">
-                        Save
-                      </button>
-                    </div>
-                  )}
-                </div>
-              ))}
-              {users.length === 0 && <p className="text-slate-400 text-sm text-center py-4">No users yet</p>}
+            <div className="lg:col-span-2">
+              <button onClick={saveServerConfig} disabled={savingConfig}
+                className="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl hover:bg-slate-800 transition-all disabled:opacity-50 shadow-sm">
+                {savingConfig ? "Saving..." : "Save All Configuration"}
+              </button>
             </div>
-          </section>
-        </div>
+          </div>
+        )}
       </main>
     </div>
   );
