@@ -63,7 +63,6 @@ export type Database = {
       }
       app_users: {
         Row: {
-          assigned_accounts: Json | null
           created_at: string
           id: string
           must_change_password: boolean
@@ -74,7 +73,6 @@ export type Database = {
           username: string
         }
         Insert: {
-          assigned_accounts?: Json | null
           created_at?: string
           id?: string
           must_change_password?: boolean
@@ -85,7 +83,6 @@ export type Database = {
           username: string
         }
         Update: {
-          assigned_accounts?: Json | null
           created_at?: string
           id?: string
           must_change_password?: boolean
@@ -97,39 +94,8 @@ export type Database = {
         }
         Relationships: []
       }
-      audit_logs: {
-        Row: {
-          action: string
-          actor_id: string | null
-          created_at: string
-          details: Json | null
-          id: string
-          ip: string | null
-          target_id: string | null
-        }
-        Insert: {
-          action: string
-          actor_id?: string | null
-          created_at?: string
-          details?: Json | null
-          id?: string
-          ip?: string | null
-          target_id?: string | null
-        }
-        Update: {
-          action?: string
-          actor_id?: string | null
-          created_at?: string
-          details?: Json | null
-          id?: string
-          ip?: string | null
-          target_id?: string | null
-        }
-        Relationships: []
-      }
       cached_emails: {
         Row: {
-          account_label: string | null
           cached_at: string
           date: string | null
           from_address: string | null
@@ -141,7 +107,6 @@ export type Database = {
           to_address: string | null
         }
         Insert: {
-          account_label?: string | null
           cached_at?: string
           date?: string | null
           from_address?: string | null
@@ -153,7 +118,6 @@ export type Database = {
           to_address?: string | null
         }
         Update: {
-          account_label?: string | null
           cached_at?: string
           date?: string | null
           from_address?: string | null
