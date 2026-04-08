@@ -146,6 +146,9 @@ Deno.serve(async (req) => {
           .select("id");
         const cachedIds = new Set((cachedRows || []).map((r: any) => String(r.id)));
         console.log("Already cached:", cachedIds.size, "emails");
+        const uidValidity = String((client.mailbox as any)?.uidValidity || "0");
+        const mailboxIdentity = `${imapUser.toLowerCase()}:${uidValidity}`;
+        const buildCacheId = (uid: number) => `${mailboxIdentity}:${uid}`;
 
         // Use IMAP SEARCH to find matching emails from configured lookback window (server-side, fast)
         const since = new Date();
@@ -211,8 +214,8 @@ Deno.serve(async (req) => {
         candidateUids.sort((a, b) => b - a);
 
         // Skip already cached UIDs
-        const uncachedUids = candidateUids.filter(uid => !cachedIds.has(String(uid)));
-        const alreadyCachedUids = candidateUids.filter(uid => cachedIds.has(String(uid)));
+        const uncachedUids = candidateUids.filter(uid => !cachedIds.has(buildCacheId(uid)));
+        const alreadyCachedUids = candidateUids.filter(uid => cachedIds.has(buildCacheId(uid)));
         console.log("New UIDs to fetch:", uncachedUids.length, "| Already cached:", alreadyCachedUids.length);
 
         // Only fetch NEW uncached emails — cached ones are already in DB
@@ -244,7 +247,7 @@ Deno.serve(async (req) => {
             const otp = otpMatch ? otpMatch[0] : null;
 
             emails.push({
-              id: String(uid),
+              id: buildCacheId(uid),
               subject: parsed.subject || fullMsg.envelope?.subject || "",
               from: parsed.from?.text || "Netflix <info@account.netflix.com>",
               to: parsed.to
