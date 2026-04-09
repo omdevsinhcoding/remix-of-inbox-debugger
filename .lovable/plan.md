@@ -1,96 +1,63 @@
 
 
-# Remove ALL Supabase Egress from Frontend
+# Fix: Remove Setup Screen for Users, Bootstrap Worker URLs from Login
 
-## Current Supabase egress points (frontend → Supabase directly)
+## Problems
 
-1. **`apiCall("manage-app", ...)`** — ALL login, settings, user management calls go through `supabase.co/functions/v1/manage-app`. This is the BIGGEST egress consumer. Every page load makes 5-8 calls.
-2. **`rest/v1/cached_emails?select=id`** (line 734) — direct REST API call for email stats count.
-3. **Realtime subscription** (line 1785) — WebSocket to `supabaseClient.channel()`.
-4. **EmailViewer `useEffect`** (line 1670) — calls `apiCall("manage-app")` to load worker URLs before it can even start fetching from Cloudflare.
+1. **"Setup Required" screen shows to ALL users** — including regular users who should never see it. Only admin should configure this, and it's already configured in admin panel.
 
-## Target Architecture
+2. **Circular dependency** — EmailViewer calls `apiCall("manage-app", { action: "get_settings" })` to get worker URLs, but `apiCall()` itself needs worker URLs from localStorage to work. If localStorage is empty (new browser/device), everything breaks.
 
-```text
-Frontend
-   ↓ (ALL calls)
-Cloudflare Worker (multiple URLs + KV cache)
-   ↓
-For emails: IMAP fetch → insert to Supabase DB via REST (ingress only)
-For manage-app: proxy to Supabase edge function (server-to-server)
-   ↓
-Frontend NEVER talks to supabase.co directly
-```
+3. **"No Cloudflare Worker responded" error** — Even though admin saved URLs in settings, the EmailViewer's `resolvedWorkerUrls` might be empty because the bootstrap `apiCall` failed (due to the circular dependency above).
+
+## How it should work
+
+The admin already added worker URLs in the admin panel. When any user (admin or regular) logs in, the login response should include the worker URLs. The frontend stores them in localStorage. No "Setup Required" screen needed.
 
 ## Plan
 
-### Step 1: Add manage-app proxy route to Cloudflare Worker
+### Step 1: Remove WorkerUrlSetup screen entirely
 
-**File:** `cloudflare-worker/worker.js`
+Remove the `WorkerUrlSetup` component and the check at line 2110 that blocks the entire app. Users should never configure worker URLs — that's admin's job.
 
-Add a new route `/api/manage-app` that proxies requests to `SUPABASE_URL/functions/v1/manage-app`. This moves all manage-app traffic through the Cloudflare Worker instead of the frontend calling Supabase directly.
+### Step 2: Make apiCall work without localStorage on first call
 
-```text
-POST /api/manage-app → proxy to SUPABASE_URL/functions/v1/manage-app
-```
+Change `apiCall()` to accept an optional `workerUrl` parameter override. For the very first login call, the frontend needs ONE hardcoded or user-provided worker URL. Two approaches:
 
-The worker forwards the request body, session token, and auth headers. Response is passed back to the frontend.
+**Approach: Store initial worker URL in environment variable**
 
-### Step 2: Replace `apiCall()` with Cloudflare Worker calls
+Add `VITE_WORKER_URL` env var. `apiCall()` falls back to this when localStorage is empty. This way:
+- First login call uses `VITE_WORKER_URL`
+- Login response includes all worker URLs from settings
+- Frontend stores them in localStorage
+- All subsequent calls use localStorage URLs
 
-**File:** `src/App.tsx`
+### Step 3: Return worker URLs in login response
 
-Change `apiCall()` to route through Cloudflare Workers instead of calling `getApiBase()/functions/v1/...` directly:
+**File:** `supabase/functions/manage-app/index.ts`
 
-- Remove `getApiBase()` and `getApiKey()` functions (no more direct Supabase calls)
-- `apiCall()` now calls `fetchFromWorkers("/api/manage-app", "POST", body)` instead of `fetch(supabase.co/functions/v1/manage-app)`
-- This requires the worker URLs to be known before any API call. Store worker URLs in `localStorage` so they're available on app load (before settings are fetched).
+In the `login` action handler, after successful auth, also fetch `primary_cloudflare_urls` and `email_accounts` from settings and include them in the response.
 
-### Step 3: Remove direct Supabase REST call for stats
-
-**File:** `src/App.tsx` (line 733-741)
-
-Remove the `fetch(getApiBase()/rest/v1/cached_emails?select=id...)` call. Instead, get the email count from the Cloudflare Worker response (which already returns all emails).
-
-### Step 4: Remove Supabase Realtime subscription
-
-**File:** `src/App.tsx` (lines 1783-1816)
-
-Remove the `supabaseClient.channel()` Realtime subscription entirely. Replace with polling from Cloudflare Workers (already polling every 30s at line 1818). The polling via workers is sufficient.
-
-### Step 5: Remove Supabase client import
+### Step 4: Store worker URLs on login
 
 **File:** `src/App.tsx`
 
-Remove `import { supabase as supabaseClient } from "@/src/integrations/supabase/client"` — no longer needed since we don't use Realtime or REST directly.
+In both `ProfileSelectPage.executeLogin()` and `AdminLoginPage.executeLogin()`, after successful login, extract worker URLs from response data and call `storeWorkerUrls()`.
 
-### Step 6: Worker URL bootstrap from localStorage
+### Step 5: Also store worker URLs when admin saves settings
 
 **File:** `src/App.tsx`
 
-Since `apiCall()` now needs Cloudflare Worker URLs, but worker URLs are stored in settings (which require `apiCall()`), we need a bootstrap mechanism:
-
-- On first setup (admin adds worker URLs), save them to `localStorage` as well as to the backend
-- On subsequent loads, read worker URLs from `localStorage` first, then verify against backend
-- Admin Settings page: when saving Cloudflare URLs, also persist to `localStorage`
-- Login page: after successful login, store the worker URLs returned in the login response
-
-### Step 7: Update worker.js to return worker URLs in login response
-
-**File:** `cloudflare-worker/worker.js`
-
-When the `/api/manage-app` proxy handles a `login` action response, optionally include the `primary_cloudflare_urls` and `email_accounts` cloudflare URLs in the response so the frontend can bootstrap itself.
+When admin saves Primary IMAP Cloudflare URLs or email account URLs in settings, also update localStorage via `storeWorkerUrls()` so the current browser session stays in sync.
 
 ---
 
-## What changes
+## Summary
 
-| Before (Supabase egress) | After (Cloudflare only) |
-|---|---|
-| Frontend → supabase.co/functions/v1/manage-app | Frontend → Cloudflare Worker → supabase.co (server-side) |
-| Frontend → supabase.co/rest/v1/cached_emails | Removed, use worker data |
-| Frontend → supabase.co Realtime WebSocket | Removed, polling via worker |
-| `import supabaseClient` in App.tsx | Removed entirely |
-
-After this change, the frontend will have ZERO direct calls to `supabase.co`. All traffic goes through your Cloudflare Workers. Supabase is only accessed server-to-server from the worker.
+| Before | After |
+|--------|-------|
+| "Setup Required" screen blocks all users | Removed entirely |
+| apiCall needs localStorage to work | Falls back to `VITE_WORKER_URL` env var |
+| Worker URLs not returned on login | Login response includes all worker URLs |
+| Users must manually enter worker URL | Automatic — admin configures once, all users get URLs on login |
 
