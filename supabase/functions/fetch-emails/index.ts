@@ -18,7 +18,7 @@ const SIGN_IN_CODE_SUBJECTS = [
   "verification code", "login code", "sign in code",
 ];
 
-const FULL_SYNC_MAX_UIDS = 5;
+const FULL_SYNC_MAX_UIDS = 50;
 const PER_ACCOUNT_TIMEOUT_MS = 25000;
 const STALE_DAYS = 60;
 

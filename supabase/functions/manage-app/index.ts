@@ -136,6 +136,48 @@ Deno.serve(async (req) => {
     const { action, ...params } = await req.json();
 
     // --- Public actions (no session needed) ---
+
+    // Bootstrap: returns profiles, recaptcha config, and worker URLs for fresh browsers
+    if (action === "bootstrap_public") {
+      const { data: users, error: usersErr } = await supabase
+        .from("app_users")
+        .select("id, username, name, role, assigned_accounts")
+        .order("created_at", { ascending: true });
+      if (usersErr) throw usersErr;
+
+      // Get recaptcha config
+      let recaptcha = null;
+      try {
+        const { data: rcData } = await supabase.from("app_settings").select("value").eq("key", "recaptcha").single();
+        if (rcData?.value?.enabled === true && rcData?.value?.siteKey) {
+          recaptcha = { enabled: true, siteKey: rcData.value.siteKey };
+        }
+      } catch {}
+
+      // Get worker URLs
+      let workerUrls: string[] = [];
+      try {
+        const { data: pcf } = await supabase.from("app_settings").select("value").eq("key", "primary_cloudflare_urls").single();
+        if (pcf?.value && Array.isArray(pcf.value)) {
+          workerUrls = pcf.value.filter((u: any) => typeof u === "string" && u.length > 0);
+        }
+        const { data: ea } = await supabase.from("app_settings").select("value").eq("key", "email_accounts").single();
+        if (ea?.value && Array.isArray(ea.value)) {
+          for (const acct of ea.value) {
+            if (acct.cloudflareUrls && Array.isArray(acct.cloudflareUrls)) {
+              for (const u of acct.cloudflareUrls) {
+                if (typeof u === "string" && u.length > 0 && !workerUrls.includes(u)) workerUrls.push(u);
+              }
+            }
+          }
+        }
+      } catch {}
+
+      return new Response(JSON.stringify({ success: true, users, recaptcha, workerUrls }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     if (action === "list") {
       const { data, error } = await supabase
         .from("app_users")
@@ -410,6 +452,13 @@ Deno.serve(async (req) => {
 
     if (action === "get_settings") {
       const { key } = params;
+
+      // Sensitive keys require admin session
+      const sensitiveKeys = ["config", "email_accounts", "cron_config", "primary_cloudflare_urls"];
+      if (sensitiveKeys.includes(key)) {
+        await requireAdmin(req);
+      }
+
       const { data } = await supabase
         .from("app_settings")
         .select("value")

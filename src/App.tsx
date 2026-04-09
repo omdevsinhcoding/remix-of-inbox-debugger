@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { Toaster, toast } from "sonner";
 import ReCAPTCHA from "react-google-recaptcha";
-// supabaseClient removed — all calls go through Cloudflare Workers now
+import { supabase } from "./integrations/supabase/client";
 import { QRCodeSVG } from "qrcode.react";
 
 // --- Worker URL Bootstrap ---
@@ -84,6 +84,22 @@ async function apiCall(functionName: string, body: any) {
   }
 
   throw new Error("All Cloudflare Workers are unreachable. Check your Worker URLs.");
+}
+
+// --- Direct Supabase bootstrap (bypasses worker requirement) ---
+async function bootstrapFromSupabase(): Promise<{ users: any[]; recaptcha: any; workerUrls: string[] }> {
+  const { data, error } = await supabase.functions.invoke("manage-app", {
+    body: { action: "bootstrap_public" },
+  });
+  if (error) throw error;
+  if (!data?.success) throw new Error(data?.error || "Bootstrap failed");
+
+  // Store worker URLs immediately so apiCall works for subsequent calls
+  if (data.workerUrls && Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
+    storeWorkerUrls(data.workerUrls);
+  }
+
+  return { users: data.users || [], recaptcha: data.recaptcha, workerUrls: data.workerUrls || [] };
 }
 
 // --- Rate Limiter ---
@@ -220,8 +236,6 @@ function ProfileSelectPage() {
   const [error, setError] = useState("");
   const [siteKey, setSiteKey] = useState<string | null>(null);
   const [showCaptcha, setShowCaptcha] = useState(false);
-  const [needsWorkerUrl, setNeedsWorkerUrl] = useState(false);
-  const [workerUrlInput, setWorkerUrlInput] = useState("");
   const navigate = useNavigate();
   const { checkAuth } = useAuth();
 
@@ -229,34 +243,21 @@ function ProfileSelectPage() {
     try {
       setLoading(true);
       setError("");
-      const [usersData, recaptchaData] = await Promise.all([
-        apiCall("manage-app", { action: "list" }),
-        apiCall("manage-app", { action: "get_settings", key: "recaptcha" }).catch(() => ({ value: null })),
-      ]);
-      setProfiles((usersData.users || []).filter((u: UserData) => u.role === "user"));
-      if (recaptchaData.value?.enabled === true && recaptchaData.value?.siteKey) setSiteKey(recaptchaData.value.siteKey);
-      setNeedsWorkerUrl(false);
-    } catch (err: any) {
-      if (err?.message === "NO_WORKER_URL") {
-        setNeedsWorkerUrl(true);
-      } else {
-        console.error("Failed to load profiles:", err);
+      // Use direct Supabase bootstrap — no worker URL needed
+      const bootstrap = await bootstrapFromSupabase();
+      setProfiles((bootstrap.users || []).filter((u: UserData) => u.role === "user"));
+      if (bootstrap.recaptcha?.enabled === true && bootstrap.recaptcha?.siteKey) {
+        setSiteKey(bootstrap.recaptcha.siteKey);
       }
+    } catch (err: any) {
+      console.error("Failed to load profiles:", err);
+      setError("Failed to load profiles. Please try again.");
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => { loadProfiles(); }, [loadProfiles]);
-
-  const handleWorkerUrlSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const url = workerUrlInput.trim().replace(/\/+$/, "");
-    if (!url) return;
-    storeWorkerUrls([url]);
-    setNeedsWorkerUrl(false);
-    loadProfiles();
-  };
 
   const initiateLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -274,11 +275,25 @@ function ProfileSelectPage() {
       }
 
       const loc = await getPreciseLocation();
-      const data = await apiCall("manage-app", {
-        action: "login",
-        username: selectedProfile.username,
-        password,
-      });
+
+      // Login via worker if available, otherwise direct Supabase
+      let data: any;
+      const workerUrls = getStoredWorkerUrls();
+      if (workerUrls.length > 0) {
+        data = await apiCall("manage-app", {
+          action: "login",
+          username: selectedProfile.username,
+          password,
+        });
+      } else {
+        const result = await supabase.functions.invoke("manage-app", {
+          body: { action: "login", username: selectedProfile.username, password },
+        });
+        if (result.error) throw result.error;
+        data = result.data;
+        if (!data?.success) throw new Error(data?.error || "Login failed");
+        if (data.sessionToken) localStorage.setItem("session_token", data.sessionToken);
+      }
 
       // Store worker URLs returned from login response
       if (data.workerUrls && Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
@@ -304,37 +319,6 @@ function ProfileSelectPage() {
     }
   };
 
-  if (needsWorkerUrl) {
-    return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4 relative overflow-hidden">
-        <div className="absolute inset-0 bg-[linear-gradient(to_right,#4f4f4f2e_1px,transparent_1px),linear-gradient(to_bottom,#4f4f4f2e_1px,transparent_1px)] bg-[size:14px_24px] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_0%,#000_70%,transparent_100%)]" />
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="relative z-10 w-full max-w-sm">
-          <div className="flex justify-center mb-6">
-            <div className="bg-red-600 p-3 rounded-2xl shadow-lg shadow-red-900/30">
-              <Server className="text-white w-7 h-7" />
-            </div>
-          </div>
-          <h1 className="text-xl font-black text-white text-center mb-2">Connect to Server</h1>
-          <p className="text-slate-400 text-center text-xs mb-6">Enter your Cloudflare Worker URL to get started</p>
-          <form onSubmit={handleWorkerUrlSubmit} className="space-y-4">
-            <div className="relative">
-              <Globe className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 w-5 h-5" />
-              <input type="url" value={workerUrlInput} onChange={(e) => setWorkerUrlInput(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 text-white rounded-2xl py-4 pl-12 pr-4 focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all outline-none placeholder:text-slate-600 text-sm"
-                placeholder="https://your-worker.workers.dev" autoFocus required />
-            </div>
-            <button type="submit" className="w-full bg-red-600 text-white font-bold py-4 rounded-2xl hover:bg-red-700 transition-all active:scale-95">
-              Connect
-            </button>
-          </form>
-          <button onClick={() => navigate("/admin")}
-            className="w-full text-slate-500 text-[10px] font-bold uppercase tracking-widest hover:text-white transition-colors mt-4 text-center">
-            Admin Login
-          </button>
-        </motion.div>
-      </div>
-    );
-  }
 
   if (loading) {
     return (
@@ -435,29 +419,20 @@ function AdminLoginPage() {
   const [error, setError] = useState("");
   const [siteKey, setSiteKey] = useState<string | null>(null);
   const [showCaptcha, setShowCaptcha] = useState(false);
-  const [needsWorkerUrl, setNeedsWorkerUrl] = useState(false);
-  const [workerUrlInput, setWorkerUrlInput] = useState("");
   const navigate = useNavigate();
   const { checkAuth } = useAuth();
 
   useEffect(() => {
     (async () => {
       try {
-        const data = await apiCall("manage-app", { action: "get_settings", key: "recaptcha" });
-        if (data.value?.enabled === true && data.value?.siteKey) setSiteKey(data.value.siteKey);
-      } catch (err: any) {
-        if (err?.message === "NO_WORKER_URL") setNeedsWorkerUrl(true);
-      }
+        // Use bootstrap to get recaptcha config without needing worker URLs
+        const bootstrap = await bootstrapFromSupabase();
+        if (bootstrap.recaptcha?.enabled === true && bootstrap.recaptcha?.siteKey) {
+          setSiteKey(bootstrap.recaptcha.siteKey);
+        }
+      } catch {}
     })();
   }, []);
-
-  const handleWorkerUrlSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const url = workerUrlInput.trim().replace(/\/+$/, "");
-    if (!url) return;
-    storeWorkerUrls([url]);
-    setNeedsWorkerUrl(false);
-  };
 
   const initiateLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -471,7 +446,21 @@ function AdminLoginPage() {
       if (!checkRateLimit(`admin_${username}`)) throw new Error("Too many attempts. Wait 1 minute.");
 
       const loc = await getPreciseLocation();
-      const data = await apiCall("manage-app", { action: "login", username, password });
+
+      // Login via Supabase directly if no worker URLs available, otherwise via worker
+      let data: any;
+      const workerUrls = getStoredWorkerUrls();
+      if (workerUrls.length > 0) {
+        data = await apiCall("manage-app", { action: "login", username, password });
+      } else {
+        const result = await supabase.functions.invoke("manage-app", {
+          body: { action: "login", username, password },
+        });
+        if (result.error) throw result.error;
+        data = result.data;
+        if (!data?.success) throw new Error(data?.error || "Login failed");
+        if (data.sessionToken) localStorage.setItem("session_token", data.sessionToken);
+      }
 
       if (data.user.role !== "admin") throw new Error("Access denied");
 
@@ -499,34 +488,6 @@ function AdminLoginPage() {
       setLoading(false);
     }
   };
-
-  if (needsWorkerUrl) {
-    return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
-          className="bg-white w-full max-w-md rounded-2xl sm:rounded-3xl p-5 sm:p-8 shadow-2xl border-t-4 sm:border-t-8 border-red-600 mx-2 sm:mx-0">
-          <div className="flex justify-center mb-6">
-            <div className="bg-slate-900 p-3 rounded-2xl shadow-lg">
-              <Server className="text-white w-7 h-7" />
-            </div>
-          </div>
-          <h2 className="text-xl font-black text-center text-slate-900 mb-2">Connect to Server</h2>
-          <p className="text-slate-500 text-center text-xs mb-6">Enter your Cloudflare Worker URL</p>
-          <form onSubmit={handleWorkerUrlSubmit} className="space-y-4">
-            <div className="relative">
-              <Globe className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
-              <input type="url" value={workerUrlInput} onChange={(e) => setWorkerUrlInput(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 pl-12 pr-4 focus:ring-2 focus:ring-red-500 transition-all outline-none text-sm"
-                placeholder="https://your-worker.workers.dev" autoFocus required />
-            </div>
-            <button type="submit" className="w-full bg-red-600 text-white font-bold py-4 rounded-2xl hover:bg-red-700 transition-all active:scale-95">
-              Connect
-            </button>
-          </form>
-        </motion.div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
@@ -1895,23 +1856,18 @@ function EmailViewer() {
   const fetchEmails = async () => {
     if (refreshing) return;
     setRefreshing(true);
-    const toastId = toast.loading("Fetching latest emails...");
+    const toastId = toast.loading("Syncing new emails...");
     try {
-      // Show cached emails instantly
+      // 1. Sync IMAP immediately and wait for it
+      await syncViaWorker();
+      // 2. Reload cached emails after sync completes
       await loadCachedEmails();
-      toast.success("Emails loaded!", { id: toastId });
-
-      // Sync new emails in background — don't block UI
-      syncViaWorker()
-        .then(() => loadCachedEmails())
-        .then(() => toast.success("New emails synced!"))
-        .catch((err) => {
-          const msg = err instanceof Error ? err.message : "Background sync failed";
-          console.warn("[sync]", msg);
-        });
+      toast.success("Emails synced!", { id: toastId });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Failed to load emails";
+      const msg = err instanceof Error ? err.message : "Sync failed";
       toast.error(msg, { id: toastId });
+      // Still try to show cached emails even if sync failed
+      await loadCachedEmails().catch(() => {});
     } finally {
       setRefreshing(false);
     }
