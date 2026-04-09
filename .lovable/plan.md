@@ -1,54 +1,65 @@
 
 
-# Fix: Latest Emails Not Appearing + Cleanup
+# Fix: Instant Email Fetch on Refresh + Cleanup + DB Schema Guide
 
-## Root Cause
+## Issues to Fix
 
-The IMAP connection drops (TLS `UnexpectedEof`) before any email body can be downloaded. The edge function finds 71 UIDs, but `fetchOne(uid, { source: true })` downloads the FULL raw email (~100KB+) which is too slow for the edge function's constrained environment. The connection dies mid-download, so 0 emails are fetched every sync cycle.
+1. **Runtime crash**: Import path `@/src/integrations/supabase/client` is wrong -- should be `@/integrations/supabase/client`. This causes the `useEffect` null error that breaks the entire app.
 
-Additionally, there's an ID format mismatch: DB stores plain UIDs (`95367`) but new code generates `Primary:95367`, which would create duplicates if it ever succeeded.
+2. **Refresh button always spinning + "Syncing..." text**: The Refresh button calls `syncFromImap()` which does a full IMAP sync (slow, often fails with TLS drops). User wants instant results. On Refresh, we should just trigger the edge function sync and immediately reload cached emails, showing a toast instead of inline "Syncing..." text.
+
+3. **Cron not needed**: User wants to remove cron dependency. Instead, Refresh button triggers IMAP sync + cache reload. Realtime subscription handles instant display when new emails arrive in DB.
+
+4. **Unwanted UI elements**: "Syncing..." text, stale banner, Cloudflare KV instructions, always-rotating refresh icon.
+
+5. **User wants DB schema documentation** for setting up on another Supabase project.
+
+---
 
 ## Plan
 
-### Step 1: Fix IMAP fetch to use lightweight envelope-only approach
+### Step 1: Fix the import crash (critical)
 
-**File:** `supabase/functions/fetch-emails/index.ts`
+**File:** `src/App.tsx` line 7
 
-Instead of downloading full email source (huge, slow, causes TLS drops), fetch only `{ envelope: true, bodyStructure: true }` for metadata, and use a targeted body part fetch for just the text content. Key changes:
+Change `@/src/integrations/supabase/client` to `@/integrations/supabase/client`.
 
-- Reduce `FULL_SYNC_MAX_UIDS` from 30 to 5 (fetch fewer emails per cycle)
-- Reduce `PER_ACCOUNT_TIMEOUT_MS` from 15000 to 12000
-- Add `socketTimeout: 10000` to ImapFlow config
-- Wrap each `fetchOne` in its own try/catch with a per-message timeout
-- Use plain UID (not `accountLabel:uid`) as the `id` to match existing DB format
-- Add a retry: if 0 emails fetched but uncached UIDs exist, retry once with a fresh connection fetching only 3 UIDs
-
-### Step 2: Add Supabase Realtime for instant email display
-
-**Database migration:** Enable realtime on `cached_emails` table:
-```sql
-ALTER PUBLICATION supabase_realtime ADD TABLE cached_emails;
-```
+### Step 2: Rewrite Refresh button behavior
 
 **File:** `src/App.tsx`
-- Add a Supabase Realtime subscription on `cached_emails` table for `INSERT` events
-- When a new row is inserted, immediately add it to the email list (no polling needed)
-- Remove the countdown timer and "Next sync" display
-- Keep the 5-second polling as a fallback, but remove the visible countdown
-- Remove `syncFromImap()` calls from the polling loop (cron handles sync)
 
-### Step 3: Clean up UI
+- On Refresh click: call `syncFromImap()` in background + immediately `loadCachedEmails()` to show current data
+- Show `toast.loading("Fetching latest emails...")` instead of inline "Syncing..." text
+- When sync completes, show `toast.success("Emails updated!")` or `toast.error(...)` 
+- Remove the `syncing` state from disabling the button (just show a brief animation)
+- Remove the "Syncing..." text from the inbox header (line 2111)
+- Remove the `stale` banner (lines 2114-2118)
+- Stop the refresh icon from continuously spinning -- just a brief spin on click
+
+### Step 3: Remove cron dependency from viewer
 
 **File:** `src/App.tsx`
-- Remove countdown state and display
-- Remove any "cached", "stale", or "next sync" text
-- Remove the `syncFromImap` auto-calls from the interval (let cron handle it)
-- Keep manual Refresh button that triggers sync + reload
-- Remove `console.error("[loadCached]"` log labels
 
-### Step 4: Deploy edge function
+- Keep Realtime subscription (it works when emails are inserted by any source)
+- Keep fallback polling every 30s (lightweight cache read)
+- Remove `SYNC_THROTTLE_MS` and related throttle logic
+- Remove `syncing` inline indicator
 
-Deploy updated `fetch-emails` function.
+### Step 4: Clean up Admin Panel
+
+**File:** `src/App.tsx`
+
+- Remove "Cloudflare KV Setup" section (lines 1580-1603) -- irrelevant instructions
+- Keep CronManagerSection in admin as optional tool (admin can still toggle cron if they want background sync)
+
+### Step 5: Generate DB schema documentation
+
+Create a markdown file at `/mnt/documents/database-schema.md` with:
+- All table definitions (app_users, app_otps, app_settings, audit_logs, cached_emails)
+- RLS policies
+- Database functions (schedule_email_sync, unschedule_email_sync, get_cron_status)
+- Edge function secrets needed (IMAP_HOST, IMAP_PORT, IMAP_USER, IMAP_PASSWORD, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
+- Step-by-step setup guide for a new Supabase project
 
 ---
 
@@ -56,14 +67,9 @@ Deploy updated `fetch-emails` function.
 
 | Change | Why |
 |--------|-----|
-| Fetch only 5 emails, add socket timeout, retry logic | Prevent TLS drops |
-| Use plain UID as ID | Match existing DB format, prevent duplicates |
-| Add Supabase Realtime subscription | Instant email display when cron inserts new emails |
-| Remove countdown/next sync UI | User doesn't want to see internals |
-| Keep cron + manual refresh | Reliable background sync |
-
-## Result
-- Cron syncs every 3 min, successfully downloads new emails (fewer per cycle = no TLS drop)
-- New emails appear instantly via Realtime subscription (no waiting for poll)
-- UI is clean with no implementation details
+| Fix import path | App crashes with `useEffect` null error |
+| Toast instead of "Syncing..." | Cleaner UX, no inline status text |
+| Instant cache load on Refresh | Show existing emails immediately, sync in background |
+| Remove KV instructions | Irrelevant to current architecture |
+| DB schema doc | User can replicate on another Supabase project |
 
