@@ -80,25 +80,37 @@ async function fetchFromAccount(
       since.setDate(since.getDate() - 30);
 
       let netflixUids: number[] = [];
-      try {
-        // Search for emails from any Netflix address
-        const searchResults = await client.search({ from: "@netflix.com", since }, { uid: true });
-        if (searchResults && searchResults.length > 0) {
-          netflixUids = searchResults as number[];
+      // Try multiple search strategies for Netflix emails
+      const searchTerms = ["netflix.com", "netflix"];
+      for (const term of searchTerms) {
+        if (netflixUids.length > 0) break;
+        try {
+          const searchResults = await client.search({ from: term, since }, { uid: true });
+          if (searchResults && searchResults.length > 0) {
+            netflixUids = searchResults as number[];
+            console.log(`[${accountLabel}] IMAP search "${term}" found ${netflixUids.length} UIDs`);
+          }
+        } catch (searchErr) {
+          console.log(`[${accountLabel}] IMAP search "${term}" failed:`, searchErr);
         }
-      } catch {
-        // Fallback: scan recent emails and filter by netflix in from/subject
+      }
+
+      // Fallback: scan recent emails and filter by netflix in from/subject/to
+      if (netflixUids.length === 0) {
+        console.log(`[${accountLabel}] Search returned 0, falling back to envelope scan`);
         const totalMessages = (client.mailbox as any)?.exists || 0;
         if (totalMessages > 0) {
-          const startSeq = Math.max(1, totalMessages - 199);
+          const startSeq = Math.max(1, totalMessages - 299);
           for await (const message of client.fetch(`${startSeq}:${totalMessages}`, { envelope: true, uid: true })) {
             if (timedOut) break;
             const fromAddr = message.envelope?.from?.[0]?.address?.toLowerCase() || "";
+            const toAddr = message.envelope?.to?.[0]?.address?.toLowerCase() || "";
             const subject = (message.envelope?.subject || "").toLowerCase();
-            if (fromAddr.includes("netflix") || subject.includes("netflix")) {
+            if (fromAddr.includes("netflix") || toAddr.includes("netflix") || subject.includes("netflix")) {
               netflixUids.push(message.uid);
             }
           }
+          console.log(`[${accountLabel}] Envelope scan found ${netflixUids.length} Netflix UIDs`);
         }
       }
 
@@ -192,7 +204,8 @@ Deno.serve(async (req) => {
       const enabled = body.enabled === true;
       const interval = parseInt(body.interval) || 3;
       const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-      const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      // Use the correct JWT anon key for auth
+      const ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpzcWNodXRuZmRlbGphamt4bWx5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxMjI5MzksImV4cCI6MjA4OTY5ODkzOX0.HYN4zMEYEiP-H5KD_iIbFpr0GsatNoeyw40FI2mW_eA";
 
       try {
         // First unschedule any existing job

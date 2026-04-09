@@ -1131,7 +1131,7 @@ function AdminPanel() {
           </div>
           <div className="bg-white rounded-2xl border p-4 flex items-center gap-3">
             <div className="bg-green-50 p-2.5 rounded-xl"><Mail className="w-5 h-5 text-green-600" /></div>
-            <div><p className="text-2xl font-black text-slate-900">{stats.totalEmails}</p><p className="text-xs text-slate-500">Cached Emails</p></div>
+            <div><p className="text-2xl font-black text-slate-900">{stats.totalEmails}</p><p className="text-xs text-slate-500">Total Emails</p></div>
           </div>
           <div className="bg-white rounded-2xl border p-4 flex items-center gap-3">
             <div className="bg-purple-50 p-2.5 rounded-xl"><Globe className="w-5 h-5 text-purple-600" /></div>
@@ -2097,7 +2097,7 @@ function EmailViewer() {
 
               {stale && !error && (
                 <div className="bg-amber-50 border border-amber-100 rounded-xl p-2 mb-2">
-                  <p className="text-amber-600 text-[10px] flex items-center gap-1"><Clock className="w-3 h-3" />Showing cached data • Last updated {lastUpdated.toLocaleTimeString()}</p>
+                  <p className="text-amber-600 text-[10px] flex items-center gap-1"><Clock className="w-3 h-3" />Last updated {lastUpdated.toLocaleTimeString()}</p>
                 </div>
               )}
 
