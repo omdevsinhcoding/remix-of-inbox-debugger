@@ -702,6 +702,13 @@ function AdminPanel() {
       } catch { }
 
       try {
+        const pcf = await apiCall("manage-app", { action: "get_settings", key: "primary_cloudflare_urls" });
+        if (pcf.value && Array.isArray(pcf.value)) {
+          setPrimaryCfUrls(pcf.value);
+        }
+      } catch { }
+
+      try {
         const filters = await apiCall("manage-app", { action: "get_settings", key: "email_filters" });
         if (filters.value) {
           setShowSignInCodes(filters.value.showSignInCodes !== false);
