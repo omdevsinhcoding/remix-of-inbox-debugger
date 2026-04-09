@@ -118,6 +118,9 @@ async function fetchFromAccount(
       netflixUids.sort((a, b) => b - a);
       const uidsToFetch = netflixUids.slice(0, FULL_SYNC_MAX_UIDS);
 
+      // Start timeout AFTER search completes (search alone can take 5-10s)
+      timeout = setTimeout(() => { timedOut = true; }, PER_ACCOUNT_TIMEOUT_MS);
+
       // Determine uncached UIDs using plain UID format
       const uncachedUids: number[] = [];
       for (const uid of uidsToFetch) {
