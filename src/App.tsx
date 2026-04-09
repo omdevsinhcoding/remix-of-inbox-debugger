@@ -1970,7 +1970,6 @@ function EmailViewer() {
     try {
       await syncFromImap();
       await loadCachedEmails({ direct: true });
-      setCountdown(refreshIntervalSeconds);
     } finally {
       setRefreshing(false);
     }
