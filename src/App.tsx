@@ -1670,60 +1670,127 @@ function AdminPanel() {
                   <p className="text-[10px] text-slate-400 mt-1">Multiple URLs are shuffled randomly for load balancing — not sequential failover</p>
                 </div>
 
-                {/* Cloudflare Setup Guide */}
+                {/* Cloudflare Setup Guide - Mobile Friendly (No PC needed) */}
                 <details className="mt-4 bg-blue-50 border border-blue-200 rounded-xl overflow-hidden">
-                  <summary className="text-xs sm:text-sm font-bold text-blue-700 cursor-pointer select-none flex items-center gap-2 p-3 sm:p-4 active:bg-blue-100 transition-colors">
+                  <summary className="text-xs font-bold text-blue-700 cursor-pointer select-none flex items-center gap-2 p-3 active:bg-blue-100 transition-colors">
                     <Info className="w-4 h-4 flex-shrink-0" />
-                    <span>📘 Cloudflare Worker Setup Guide</span>
+                    <span>📘 Cloudflare Worker Setup (No PC Needed)</span>
                   </summary>
-                  <div className="px-3 sm:px-4 pb-4 space-y-2">
+                  <div className="px-2.5 pb-3 space-y-2">
+                    <p className="text-[11px] text-blue-800 bg-blue-100 rounded-lg p-2">✅ Sab kuch phone browser se hoga — koi terminal ya PC ki zaroorat nahi!</p>
+
                     {[
-                      { step: "1", title: "Create Cloudflare Account", desc: "Go to dash.cloudflare.com and sign up for free.", cmd: null },
-                      { step: "2", title: "Install Wrangler CLI", desc: "Install globally, then login to your account.", cmd: "npm install -g wrangler\nnpx wrangler login" },
-                      { step: "3", title: "Create KV Namespace", desc: "Copy the namespace ID into wrangler.toml → id field.", cmd: "cd cloudflare-worker\nnpx wrangler kv namespace create EMAIL_CACHE" },
-                      { step: "4", title: "Set 3 Required Secrets", desc: "SUPABASE_URL (project URL), SUPABASE_KEY (anon key), SESSION_SECRET (service role key).", cmd: "npx wrangler secret put SUPABASE_URL\nnpx wrangler secret put SUPABASE_KEY\nnpx wrangler secret put SESSION_SECRET" },
-                      { step: "5", title: "Deploy Worker", desc: "Copy the deployed URL and paste it in the Worker URLs field above.", cmd: "npx wrangler deploy" },
-                      { step: "6", title: "Verify Setup", desc: "Visit /api/debug on your worker URL. All 3 values must be true.", cmd: "https://your-worker.workers.dev/api/debug" },
+                      {
+                        step: "1",
+                        title: "Cloudflare Account Banao",
+                        points: [
+                          "Browser me jaao → dash.cloudflare.com",
+                          "Sign Up karo (free hai)",
+                          "Email verify karo aur login karo",
+                        ],
+                      },
+                      {
+                        step: "2",
+                        title: "Worker Create Karo",
+                        points: [
+                          "Left menu me 'Workers & Pages' pe click karo",
+                          "'Create' button dabao",
+                          "'Create Worker' select karo",
+                          "Worker ka naam do (e.g. email-worker)",
+                          "'Deploy' pe click karo",
+                        ],
+                      },
+                      {
+                        step: "3",
+                        title: "Worker Code Paste Karo",
+                        points: [
+                          "Deploy ke baad 'Edit Code' pe click karo",
+                          "Pura existing code select karke DELETE karo",
+                          "Apne project ka cloudflare-worker/worker.js file ka code copy karke PASTE karo",
+                          "'Save and Deploy' pe click karo",
+                        ],
+                      },
+                      {
+                        step: "4",
+                        title: "KV Storage Banao",
+                        points: [
+                          "Left menu → 'Workers & Pages' → 'KV' pe jaao",
+                          "'Create a namespace' pe click karo",
+                          "Naam do: EMAIL_CACHE",
+                          "'Add' pe click karo",
+                          "Wapas worker pe jaao → 'Settings' tab → 'Bindings'",
+                          "'Add' → 'KV Namespace' select karo",
+                          "Variable name: EMAIL_CACHE, namespace: jo abhi banaya",
+                          "'Save' karo",
+                        ],
+                      },
+                      {
+                        step: "5",
+                        title: "3 Secrets Set Karo (IMPORTANT!)",
+                        points: [
+                          "Worker → 'Settings' tab → 'Variables and Secrets'",
+                          "'Add' pe click karo aur ye 3 secrets ek-ek karke add karo:",
+                          "🔑 SUPABASE_URL → apna Supabase project URL",
+                          "🔑 SUPABASE_KEY → apna Supabase anon key",
+                          "🔑 SESSION_SECRET → apna Supabase service_role key",
+                          "'Save and Deploy' pe click karo",
+                        ],
+                        warning: "⚠️ Bina SESSION_SECRET ke worker kaam nahi karega!",
+                      },
+                      {
+                        step: "6",
+                        title: "Worker URL Copy Karo",
+                        points: [
+                          "Worker page pe jaao — top pe URL dikhega:",
+                          "e.g. https://email-worker.yourname.workers.dev",
+                          "Ye URL copy karo",
+                          "Is app me Settings → Worker URLs me paste karo",
+                          "✅ Done! Ab emails worker se aayenge",
+                        ],
+                      },
                     ].map((s) => (
                       <details key={s.step} className="bg-white rounded-lg border border-blue-100 overflow-hidden">
-                        <summary className="flex items-center gap-2 p-2.5 sm:p-3 cursor-pointer active:bg-blue-50 transition-colors">
+                        <summary className="flex items-center gap-2 p-2.5 cursor-pointer active:bg-blue-50 transition-colors">
                           <span className="bg-blue-600 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0">{s.step}</span>
-                          <span className="text-xs sm:text-sm font-bold text-slate-800">{s.title}</span>
+                          <span className="text-xs font-bold text-slate-800">{s.title}</span>
                         </summary>
-                        <div className="px-2.5 sm:px-3 pb-2.5 sm:pb-3">
-                          <p className="text-[11px] sm:text-xs text-slate-600 mb-1.5">{s.desc}</p>
-                          {s.cmd && (
-                            <pre className="text-[10px] sm:text-[11px] bg-slate-900 text-green-400 p-2 sm:p-2.5 rounded-lg overflow-x-auto whitespace-pre-wrap break-all">{s.cmd}</pre>
-                          )}
-                          {s.step === "4" && (
-                            <p className="text-[10px] sm:text-[11px] text-red-600 font-bold mt-1.5">⚠️ Without SESSION_SECRET, worker rejects all requests!</p>
+                        <div className="px-2.5 pb-2.5">
+                          <ul className="space-y-1">
+                            {s.points.map((p, i) => (
+                              <li key={i} className="text-[11px] text-slate-700 flex gap-1.5">
+                                <span className="text-blue-400 mt-0.5 flex-shrink-0">•</span>
+                                <span>{p}</span>
+                              </li>
+                            ))}
+                          </ul>
+                          {"warning" in s && s.warning && (
+                            <p className="text-[10px] text-red-600 font-bold mt-1.5 bg-red-50 p-1.5 rounded">{s.warning}</p>
                           )}
                         </div>
                       </details>
                     ))}
 
                     <details className="bg-yellow-50 rounded-lg border border-yellow-200 overflow-hidden">
-                      <summary className="flex items-center gap-2 p-2.5 sm:p-3 cursor-pointer active:bg-yellow-100 transition-colors">
-                        <span className="text-xs sm:text-sm font-bold text-yellow-800">🔄 Adding a new email account with its own worker</span>
+                      <summary className="flex items-center gap-2 p-2.5 cursor-pointer active:bg-yellow-100 transition-colors">
+                        <span className="text-xs font-bold text-yellow-800">🔄 Naya Email Account Add Karna?</span>
                       </summary>
-                      <div className="px-2.5 sm:px-3 pb-2.5 sm:pb-3">
-                        <ol className="text-[11px] sm:text-xs text-yellow-900 space-y-1 ml-4 list-decimal">
-                          <li>Create a new Cloudflare Worker (repeat Steps 2-5 with a different name)</li>
-                          <li>Set the same 3 secrets on the new worker</li>
-                          <li>Go to "Email Accounts" tab → Add the account with IMAP details</li>
-                          <li>Add the new worker URL in that account's "Worker URLs" field</li>
-                          <li>Emails will be fetched through the dedicated worker</li>
+                      <div className="px-2.5 pb-2.5">
+                        <ol className="text-[11px] text-yellow-900 space-y-1.5 ml-4 list-decimal">
+                          <li>Cloudflare me ek naya Worker banao (Step 2-6 repeat karo, alag naam do)</li>
+                          <li>Same 3 secrets set karo naye worker pe</li>
+                          <li>Is app me "Email Accounts" tab pe jaao</li>
+                          <li>Naya account add karo IMAP details ke saath</li>
+                          <li>Us account me naye worker ka URL add karo</li>
                         </ol>
                       </div>
                     </details>
 
-                    <div className="bg-green-50 rounded-lg border border-green-200 p-2.5 sm:p-3">
-                      <p className="text-xs sm:text-sm font-bold text-green-800 mb-1">💡 Tips</p>
-                      <ul className="text-[11px] sm:text-xs text-green-900 space-y-0.5 ml-4 list-disc">
-                        <li>Multiple primary URLs = random load balancing</li>
-                        <li>Per-account URLs = dedicated routing</li>
-                        <li>Workers down? App falls back to direct Supabase</li>
-                        <li>KV full? Add new namespace as EMAIL_CACHE_V2</li>
+                    <div className="bg-green-50 rounded-lg border border-green-200 p-2.5">
+                      <p className="text-xs font-bold text-green-800 mb-1">💡 Tips</p>
+                      <ul className="text-[11px] text-green-900 space-y-0.5 ml-3 list-disc">
+                        <li>Multiple URLs = random load balancing</li>
+                        <li>Per-account URL = dedicated routing</li>
+                        <li>Worker down? App direct Supabase use karega</li>
                       </ul>
                     </div>
                   </div>
