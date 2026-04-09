@@ -19,7 +19,7 @@ const SIGN_IN_CODE_SUBJECTS = [
 ];
 
 const FULL_SYNC_MAX_UIDS = 5;
-const PER_ACCOUNT_TIMEOUT_MS = 12000;
+const PER_ACCOUNT_TIMEOUT_MS = 25000;
 const STALE_DAYS = 60;
 
 async function verifySessionToken(token: string, secret: string): Promise<Record<string, any> | null> {
