@@ -313,7 +313,7 @@ Deno.serve(async (req) => {
     }
 
     // MODE: SYNC — fetch from IMAP and update cache
-    console.log("[sync] Starting IMAP sync");
+    console.log(`[sync] Starting IMAP sync (source: ${source})`);
 
     const { data: cachedRows } = await supabase.from("cached_emails").select("id, account_label, date");
     const cachedIds = new Set((cachedRows || []).map((r: any) => String(r.id)));

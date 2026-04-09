@@ -609,7 +609,188 @@ function AdminAuthPage() {
   );
 }
 
-// ==================== ADMIN PANEL ====================
+// ==================== CRON MANAGER SECTION ====================
+function CronManagerSection() {
+  const [cronActive, setCronActive] = useState(false);
+  const [cronInterval, setCronInterval] = useState(3);
+  const [cronLoading, setCronLoading] = useState(true);
+  const [cronToggling, setCronToggling] = useState(false);
+  const [lastSync, setLastSync] = useState<string | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
+  const loadCronStatus = useCallback(async () => {
+    try {
+      const res = await apiCall("fetch-emails", { mode: "cron_status" });
+      setCronActive(res.active || false);
+      setCronInterval(res.interval || 3);
+      if (res.lastSync) setLastSync(res.lastSync);
+    } catch {
+      // Fallback: not configured
+    } finally {
+      setCronLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadCronStatus();
+    // Also fetch last sync time from cached_emails
+    (async () => {
+      try {
+        const res = await fetch(`${getApiBase()}/rest/v1/cached_emails?select=cached_at&order=cached_at.desc&limit=1`, {
+          headers: { "apikey": getApiKey(), "Authorization": `Bearer ${getApiKey()}` },
+        });
+        const data = await res.json();
+        if (data?.[0]?.cached_at) setLastSync(data[0].cached_at);
+      } catch {}
+    })();
+  }, [loadCronStatus]);
+
+  const toggleCron = async (enabled: boolean) => {
+    setCronToggling(true);
+    try {
+      const res = await apiCall("fetch-emails", {
+        mode: "cron_toggle",
+        enabled,
+        interval: cronInterval,
+      });
+      if (res.success) {
+        setCronActive(res.active);
+        toast.success(enabled ? `Auto-sync enabled (every ${cronInterval} min)` : "Auto-sync disabled");
+      } else {
+        toast.error(res.error || "Failed to toggle cron");
+      }
+    } catch (err) {
+      toast.error("Failed to toggle auto-sync");
+    } finally {
+      setCronToggling(false);
+    }
+  };
+
+  const updateInterval = async (newInterval: number) => {
+    setCronInterval(newInterval);
+    if (cronActive) {
+      setCronToggling(true);
+      try {
+        const res = await apiCall("fetch-emails", {
+          mode: "cron_toggle",
+          enabled: true,
+          interval: newInterval,
+        });
+        if (res.success) {
+          toast.success(`Sync interval updated to every ${newInterval} minutes`);
+        }
+      } catch {
+        toast.error("Failed to update interval");
+      } finally {
+        setCronToggling(false);
+      }
+    }
+  };
+
+  return (
+    <section className="lg:col-span-2 bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+      <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
+        <div className="bg-green-50 p-1.5 rounded-lg"><Clock className="w-4 h-4 text-green-600" /></div>
+        Automatic Email Sync
+      </h2>
+
+      {cronLoading ? (
+        <div className="flex items-center gap-2 text-sm text-slate-500">
+          <RefreshCw className="w-4 h-4 animate-spin" /> Loading cron status...
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {/* Status + Toggle */}
+          <div className="flex items-center justify-between bg-slate-50 p-4 rounded-xl">
+            <div>
+              <p className="font-bold text-sm text-slate-900">
+                {cronActive ? "✅ Auto-sync is active" : "⏸️ Auto-sync is disabled"}
+              </p>
+              <p className="text-xs text-slate-500 mt-1">
+                {cronActive
+                  ? `Emails sync automatically every ${cronInterval} minutes via Supabase cron`
+                  : "Enable to automatically fetch new emails on a schedule"}
+              </p>
+              {lastSync && (
+                <p className="text-xs text-slate-400 mt-1">
+                  Last sync: {new Date(lastSync).toLocaleString()}
+                </p>
+              )}
+            </div>
+            <button
+              onClick={() => toggleCron(!cronActive)}
+              disabled={cronToggling}
+              className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors ${
+                cronActive
+                  ? "bg-red-100 text-red-700 hover:bg-red-200"
+                  : "bg-green-100 text-green-700 hover:bg-green-200"
+              } disabled:opacity-50`}
+            >
+              {cronToggling ? "..." : cronActive ? "Disable" : "Enable"}
+            </button>
+          </div>
+
+          {/* Interval Selector */}
+          <div>
+            <p className="text-sm font-bold text-slate-700 mb-2">Sync Interval</p>
+            <div className="flex gap-2">
+              {[1, 3, 5, 10].map((min) => (
+                <button
+                  key={min}
+                  onClick={() => updateInterval(min)}
+                  disabled={cronToggling}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                    cronInterval === min
+                      ? "bg-green-600 text-white"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  } disabled:opacity-50`}
+                >
+                  {min} min
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Advanced / Manual Instructions */}
+          <div>
+            <button
+              onClick={() => setShowAdvanced(!showAdvanced)}
+              className="text-xs text-slate-400 hover:text-slate-600 flex items-center gap-1"
+            >
+              {showAdvanced ? "▼" : "▶"} Advanced / Manual Setup
+            </button>
+            {showAdvanced && (
+              <div className="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div className="space-y-3 text-sm text-slate-600">
+                  <p className="font-bold text-slate-900">Cloudflare Worker Cron (backup)</p>
+                  <p className="text-xs">Edit <code className="bg-slate-100 px-1 rounded">wrangler.toml</code> and uncomment:</p>
+                  <div className="bg-slate-900 text-green-400 p-4 rounded-xl font-mono text-xs space-y-1 overflow-x-auto">
+                    <p>[triggers]</p>
+                    <p>crons = ["*/5 * * * *"]</p>
+                  </div>
+                  <p className="text-xs text-slate-500">Then redeploy: <code className="bg-slate-100 px-1 rounded">npx wrangler deploy</code></p>
+                </div>
+                <div className="space-y-3 text-sm text-slate-600">
+                  <p className="font-bold text-slate-900">External Cron (curl)</p>
+                  <p className="text-xs">Call the sync endpoint on a schedule:</p>
+                  <div className="bg-slate-900 text-green-400 p-4 rounded-xl font-mono text-xs space-y-1 overflow-x-auto">
+                    <p>curl -X POST \</p>
+                    <p>  YOUR_SUPABASE_URL/functions/v1/fetch-emails \</p>
+                    <p>  -H "Authorization: Bearer ANON_KEY" \</p>
+                    <p>  -H "Content-Type: application/json" \</p>
+                    <p>  -d '{`{"mode":"sync"}`}'</p>
+                  </div>
+                  <p className="text-xs text-slate-500">Use cron-job.org, GitHub Actions, or any scheduler.</p>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function AdminPanel() {
   const [activeTab, setActiveTab] = useState<"users" | "security" | "emails" | "settings" | "infra">("users");
   const [users, setUsers] = useState<UserData[]>([]);
@@ -1420,43 +1601,8 @@ function AdminPanel() {
               </div>
             </section>
 
-            {/* Cron Setup Instructions */}
-            <section className="lg:col-span-2 bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
-              <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
-                <div className="bg-green-50 p-1.5 rounded-lg"><Clock className="w-4 h-4 text-green-600" /></div>
-                Scheduled Sync (Cron)
-              </h2>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="space-y-3 text-sm text-slate-600">
-                  <p className="font-bold text-slate-900">Option 1: Cloudflare Worker Cron</p>
-                  <p className="text-xs">Edit <code className="bg-slate-100 px-1 rounded">wrangler.toml</code> and uncomment:</p>
-                  <div className="bg-slate-900 text-green-400 p-4 rounded-xl font-mono text-xs space-y-1 overflow-x-auto">
-                    <p>[triggers]</p>
-                    <p>crons = ["*/5 * * * *"]</p>
-                  </div>
-                  <p className="text-xs text-slate-500">Then redeploy: <code className="bg-slate-100 px-1 rounded">npx wrangler deploy</code></p>
-                </div>
-                <div className="space-y-3 text-sm text-slate-600">
-                  <p className="font-bold text-slate-900">Option 2: External Cron (curl)</p>
-                  <p className="text-xs">Call the sync endpoint every 5 minutes:</p>
-                  <div className="bg-slate-900 text-green-400 p-4 rounded-xl font-mono text-xs space-y-1 overflow-x-auto">
-                    <p>curl -X POST \</p>
-                    <p>  https://YOUR_WORKER/api/emails/sync \</p>
-                    <p>  -H "X-Session-Token: YOUR_TOKEN"</p>
-                  </div>
-                  <p className="text-xs text-slate-500">Or directly call the Supabase function:</p>
-                  <div className="bg-slate-900 text-green-400 p-4 rounded-xl font-mono text-xs space-y-1 overflow-x-auto">
-                    <p>curl -X POST \</p>
-                    <p>  YOUR_SUPABASE_URL/functions/v1/fetch-emails \</p>
-                    <p>  -H "Authorization: Bearer ANON_KEY" \</p>
-                    <p>  -H "apikey: ANON_KEY" \</p>
-                    <p>  -H "Content-Type: application/json" \</p>
-                    <p>  -d '{`{"mode":"sync"}`}'</p>
-                  </div>
-                  <p className="text-xs text-slate-500">Use services like cron-job.org, GitHub Actions, or any scheduler.</p>
-                </div>
-              </div>
-            </section>
+            {/* Scheduled Sync (Cron) */}
+            <CronManagerSection />
           </div>
         )}
         {activeTab === "settings" && (

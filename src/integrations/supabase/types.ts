@@ -174,7 +174,12 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      get_cron_status: { Args: never; Returns: Json }
+      schedule_email_sync: {
+        Args: { auth_key: string; cron_expr: string; function_url: string }
+        Returns: undefined
+      }
+      unschedule_email_sync: { Args: never; Returns: undefined }
     }
     Enums: {
       [_ in never]: never
