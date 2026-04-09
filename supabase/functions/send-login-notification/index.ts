@@ -5,6 +5,44 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-session-token',
 };
 
+function getClientIp(req: Request): string | null {
+  const forwardedFor = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim();
+  const realIp = req.headers.get('x-real-ip')?.trim();
+  const cfIp = req.headers.get('cf-connecting-ip')?.trim();
+  const candidate = forwardedFor || cfIp || realIp || null;
+  if (!candidate || candidate === '127.0.0.1' || candidate === '::1') return null;
+  return candidate;
+}
+
+async function resolveCoordsFromIp(ip: string): Promise<{ lat: number; lon: number; city?: string; state?: string } | null> {
+  try {
+    const ipRes = await fetch(`https://ipapi.co/${encodeURIComponent(ip)}/json/`, {
+      headers: { 'Accept': 'application/json', 'User-Agent': 'SecureOTPViewer/1.0' },
+    });
+
+    if (!ipRes.ok) {
+      console.error('IP geolocation failed with status:', ipRes.status);
+      return null;
+    }
+
+    const ipData = await ipRes.json();
+    const lat = Number(ipData?.latitude);
+    const lon = Number(ipData?.longitude);
+
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+
+    return {
+      lat,
+      lon,
+      city: typeof ipData?.city === 'string' ? ipData.city : '',
+      state: typeof ipData?.region === 'string' ? ipData.region : '',
+    };
+  } catch (err) {
+    console.error('IP geolocation request failed:', err);
+    return null;
+  }
+}
+
 async function getTelegramConfig(): Promise<{ botToken: string; chatId: string } | null> {
   try {
     const supabase = createClient(
@@ -37,6 +75,7 @@ Deno.serve(async (req) => {
 
   try {
     const { username, name, status, lat, lon, city, state } = await req.json();
+    const clientIp = getClientIp(req);
 
     const tgConfig = await getTelegramConfig();
     if (!tgConfig) {
@@ -49,9 +88,20 @@ Deno.serve(async (req) => {
 
     let resolvedCity = city || '';
     let resolvedState = state || '';
-    const numLat = Number(lat);
-    const numLon = Number(lon);
-    const hasCoords = Number.isFinite(numLat) && Number.isFinite(numLon);
+    let numLat = Number(lat);
+    let numLon = Number(lon);
+    let hasCoords = Number.isFinite(numLat) && Number.isFinite(numLon);
+
+    if (!hasCoords && clientIp) {
+      const ipLocation = await resolveCoordsFromIp(clientIp);
+      if (ipLocation) {
+        numLat = ipLocation.lat;
+        numLon = ipLocation.lon;
+        hasCoords = true;
+        resolvedCity ||= ipLocation.city || '';
+        resolvedState ||= ipLocation.state || '';
+      }
+    }
 
     if (hasCoords && (!resolvedCity || !resolvedState)) {
       try {
@@ -72,7 +122,9 @@ Deno.serve(async (req) => {
 
     const locationData = resolvedCity || resolvedState
       ? `${resolvedCity || 'Unknown City'}, ${resolvedState || 'Unknown State'}`
-      : 'Unknown Location';
+      : clientIp
+        ? `Approximate location via IP (${clientIp})`
+        : 'Unknown Location';
 
     const displayName = name || username || 'Unknown User';
     const actionText = status === 'success' ? 'logged in' : 'had a failed login attempt';
