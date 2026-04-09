@@ -1763,7 +1763,8 @@ function EmailViewer() {
   const isImpersonating = !!localStorage.getItem("admin_backup");
 
   const [refreshing, setRefreshing] = useState(false);
-  const [resolvedWorkerUrls, setResolvedWorkerUrls] = useState<string[]>([]);
+  const [resolvedWorkerUrls, setResolvedWorkerUrls] = useState<string[]>(() => getStoredWorkerUrls());
+  const [workerUrlsLoading, setWorkerUrlsLoading] = useState(true);
   const workerUrlLoaded = React.useRef(false);
 
   const backToAdmin = () => {
@@ -1784,7 +1785,7 @@ function EmailViewer() {
     if (workerUrlLoaded.current) return;
     workerUrlLoaded.current = true;
     (async () => {
-      const urls: string[] = [];
+      const urls: string[] = getStoredWorkerUrls();
       try {
         const pcf = await apiCall("manage-app", { action: "get_settings", key: "primary_cloudflare_urls" });
         if (pcf.value && Array.isArray(pcf.value)) {
@@ -1811,12 +1812,19 @@ function EmailViewer() {
           }
         }
       } catch { }
-      setResolvedWorkerUrls(urls);
-      if (urls.length > 0) storeWorkerUrls(urls);
+
+      const normalizedUrls = urls
+        .map((u) => u.trim().replace(/\/+$/, ""))
+        .filter(Boolean)
+        .filter((u, i, arr) => arr.indexOf(u) === i);
+
+      setResolvedWorkerUrls(normalizedUrls);
+      if (normalizedUrls.length > 0) storeWorkerUrls(normalizedUrls);
+      setWorkerUrlsLoading(false);
     })();
   }, []);
 
-  const fetchFromWorkers = async (path: string, method: string, body?: any): Promise<Response | null> => {
+  const fetchFromWorkers = useCallback(async (path: string, method: string, body?: any): Promise<Response | null> => {
     const token = getSessionToken();
     for (const cfUrl of resolvedWorkerUrls) {
       try {
@@ -1835,31 +1843,44 @@ function EmailViewer() {
       }
     }
     return null;
-  };
+  }, [resolvedWorkerUrls]);
 
-  const loadCachedEmails = async () => {
+  const loadCachedEmails = useCallback(async () => {
     try {
-      const workerRes = await fetchFromWorkers("/api/emails", "GET");
-      if (workerRes && workerRes.ok) {
-        const data = await workerRes.json();
-        const emailList = (Array.isArray(data) ? data : []) as Email[];
-        emailList.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-        setEmails(emailList);
-        setError(null);
-        setLastUpdated(new Date());
-        return emailList.length;
+      if (resolvedWorkerUrls.length === 0) {
+        if (!workerUrlsLoading) {
+          setError("No Cloudflare Worker URLs configured. Ask admin to save them in settings.");
+        }
+        return 0;
       }
 
-      setError("No Cloudflare Worker responded. Check your Worker URLs in Email Accounts settings.");
-      return 0;
+      const workerRes = await fetchFromWorkers("/api/emails", "GET");
+      if (!workerRes) {
+        setError("No Cloudflare Worker responded. Check your saved Worker URLs.");
+        return 0;
+      }
+
+      if (!workerRes.ok) {
+        const data = await workerRes.json().catch(() => ({}));
+        setError(data?.error || `Failed to load emails (${workerRes.status})`);
+        return 0;
+      }
+
+      const data = await workerRes.json();
+      const emailList = (Array.isArray(data) ? data : []) as Email[];
+      emailList.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      setEmails(emailList);
+      setError(null);
+      setLastUpdated(new Date());
+      return emailList.length;
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to load emails";
       setError(msg);
       return 0;
     }
-  };
+  }, [fetchFromWorkers, resolvedWorkerUrls.length, workerUrlsLoading]);
 
-  const syncViaWorker = async () => {
+  const syncViaWorker = useCallback(async () => {
     if (resolvedWorkerUrls.length === 0) {
       throw new Error("No Cloudflare Worker URLs configured. Add them in Admin Panel → Email Accounts.");
     }
@@ -1869,7 +1890,7 @@ function EmailViewer() {
       const data = await res.json().catch(() => ({}));
       throw new Error(data?.error || `Sync failed (${res.status})`);
     }
-  };
+  }, [fetchFromWorkers, resolvedWorkerUrls.length]);
 
   const fetchEmails = async () => {
     if (refreshing) return;
@@ -1889,12 +1910,19 @@ function EmailViewer() {
   };
 
   useEffect(() => {
+    if (workerUrlsLoading) return;
+
+    if (resolvedWorkerUrls.length === 0) {
+      setLoading(false);
+      return;
+    }
+
+    let cancelled = false;
     setLoading(true);
     loadCachedEmails().then(() => {
-      setLoading(false);
+      if (!cancelled) setLoading(false);
     });
 
-    // Polling via Cloudflare Workers (no Supabase Realtime)
     const pollInterval = setInterval(() => {
       void loadCachedEmails();
     }, 30000);
@@ -1904,12 +1932,14 @@ function EmailViewer() {
         void loadCachedEmails();
       }
     };
+
     document.addEventListener("visibilitychange", handleVisibility);
     return () => {
+      cancelled = true;
       clearInterval(pollInterval);
       document.removeEventListener("visibilitychange", handleVisibility);
     };
-  }, []);
+  }, [workerUrlsLoading, resolvedWorkerUrls.length, loadCachedEmails]);
 
   const copyOtp = (otp: string) => {
     navigator.clipboard.writeText(otp);
