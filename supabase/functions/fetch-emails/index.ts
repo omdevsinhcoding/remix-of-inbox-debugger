@@ -291,23 +291,21 @@ Deno.serve(async (req) => {
         if (session?.role === "admin") {
           isAdmin = true;
         }
-        if (session?.assignedAccounts && Array.isArray(session.assignedAccounts)) {
-          accountFilter = session.assignedAccounts;
+        // Always fetch fresh assigned_accounts from DB instead of stale session token
+        if (session?.userId && !isAdmin) {
+          const { data: userData } = await supabase
+            .from("app_users").select("assigned_accounts").eq("id", session.userId).single();
+          if (userData?.assigned_accounts && Array.isArray(userData.assigned_accounts) && userData.assigned_accounts.length > 0) {
+            accountFilter = userData.assigned_accounts;
+          }
         }
-      }
-
-      // If body has accountLabels override (from worker), use those
-      if (body.accountLabels && Array.isArray(body.accountLabels) && body.accountLabels.length > 0) {
-        accountFilter = body.accountLabels;
       }
 
       let query = supabase.from("cached_emails").select("*").order("date", { ascending: false }).limit(500);
 
       if (accountFilter && accountFilter.length > 0) {
-        // Filter to assigned accounts
         query = query.in("account_label", accountFilter);
       } else if (!isAdmin) {
-        // Non-admin with no assigned accounts — return empty
         return new Response(JSON.stringify([]), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
@@ -352,8 +350,13 @@ Deno.serve(async (req) => {
       if (sessionToken) {
         const session = await verifySessionToken(sessionToken, SESSION_SECRET);
         if (session?.role === "admin") isAdmin = true;
-        if (session?.assignedAccounts && Array.isArray(session.assignedAccounts)) {
-          accountFilter = session.assignedAccounts;
+        // Always fetch fresh assigned_accounts from DB
+        if (session?.userId && !isAdmin) {
+          const { data: userData } = await supabase
+            .from("app_users").select("assigned_accounts").eq("id", session.userId).single();
+          if (userData?.assigned_accounts && Array.isArray(userData.assigned_accounts) && userData.assigned_accounts.length > 0) {
+            accountFilter = userData.assigned_accounts;
+          }
         }
       }
       if (!isAdmin && (!accountFilter || accountFilter.length === 0)) {
