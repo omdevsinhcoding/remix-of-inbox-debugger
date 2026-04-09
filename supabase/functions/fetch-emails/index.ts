@@ -116,9 +116,8 @@ async function fetchFromAccount(
           const bodyText = (parsed.text || "").trim();
           const otpMatch = bodyText.match(/\b\d{4,8}\b/);
 
-          // Use Message-ID as stable dedup key when available, fallback to account:uid
-          const messageId = parsed.messageId || emailId;
-          const stableId = messageId.startsWith("<") ? `${accountLabel}:${messageId}` : emailId;
+          // Always use accountLabel:uid for consistent dedup
+          const stableId = emailId;
 
           emails.push({
             id: stableId,
