@@ -379,12 +379,19 @@ async function handleFunctionProxy(request, env, fnName) {
     const body = await request.text();
     const sessionToken = request.headers.get("X-Session-Token") || request.headers.get("x-session-token");
 
+    // Resolve real client IP from Cloudflare headers
+    const clientIp = request.headers.get("cf-connecting-ip")
+      || request.headers.get("x-real-ip")
+      || (request.headers.get("x-forwarded-for") || "").split(",")[0].trim()
+      || "";
+
     const headers = {
       "Content-Type": "application/json",
       "Authorization": `Bearer ${env.SUPABASE_KEY}`,
       "apikey": env.SUPABASE_KEY,
     };
     if (sessionToken) headers["X-Session-Token"] = sessionToken;
+    if (clientIp) headers["X-Client-IP"] = clientIp;
 
     const res = await fetch(`${env.SUPABASE_URL}/functions/v1/${fnName}`, {
       method: "POST",
