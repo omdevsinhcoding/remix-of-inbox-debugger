@@ -459,7 +459,8 @@ function AdminLoginPage() {
     try {
       if (!checkRateLimit(`admin_${username}`)) throw new Error("Too many attempts. Wait 1 minute.");
 
-      const loc = await getPreciseLocation();
+      // Do not block admin login on geolocation permission/network delay
+      const locationPromise = getPreciseLocation().catch(() => null);
 
       // Login via Supabase directly if no worker URLs available, otherwise via worker
       let data: any;
@@ -486,11 +487,17 @@ function AdminLoginPage() {
       localStorage.setItem("user", JSON.stringify(data.user));
       checkAuth();
 
-      try {
-        await apiCall("send-login-notification", {
-          username: data.user.username, name: data.user.name, status: "success", lat: loc.lat, lon: loc.lon,
-        });
-      } catch { }
+      void (async () => {
+        try {
+          const loc = await locationPromise;
+          await apiCall("send-login-notification", {
+            username: data.user.username,
+            name: data.user.name,
+            status: "success",
+            ...(loc ? { lat: loc.lat, lon: loc.lon } : {}),
+          });
+        } catch { }
+      })();
 
       toast.success("Login successful. Proceeding to 2FA.");
       navigate("/admin-auth");
