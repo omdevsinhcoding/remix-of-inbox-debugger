@@ -2106,6 +2106,16 @@ export default function App() {
     };
   }, []);
 
+  // If no worker URLs configured, show setup screen
+  if (getStoredWorkerUrls().length === 0) {
+    return (
+      <>
+        <Toaster position="top-center" richColors />
+        <WorkerUrlSetup />
+      </>
+    );
+  }
+
   return (
     <Router>
       <AuthProvider>
