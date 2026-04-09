@@ -1914,7 +1914,6 @@ function EmailViewer() {
       const msg = err instanceof Error ? err.message : "Failed to load emails";
       if (emails.length > 0) setStale(true);
       setError(msg);
-      console.error("[loadCached] Error:", err);
       return 0;
     }
   };
