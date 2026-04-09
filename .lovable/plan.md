@@ -1,105 +1,69 @@
 
 
-# Fix: New Netflix Emails Not Arriving
+# Fix Plan: New Emails Not Arriving + Filter Banner Removal
 
-## Root Cause (Confirmed by Testing)
+## Issues Found
 
-The sync **times out** before it can fetch new emails. I verified this by calling the edge function directly — it started the IMAP sync but the Supabase edge function timed out before completing.
+1. **Sync times out**: Edge function hits the ~25s Supabase timeout. IMAP connect + search + fetch 150 UIDs is too slow. Logs confirm: sync starts, connects, but never completes.
 
-**Why it times out:** A deduplication bug causes every sync to re-fetch ALL emails instead of skipping already-cached ones.
+2. **Dedup IDs are inconsistent**: Cached IDs are plain UIDs (`95367`) but dedup checks both `Primary:95367` and `95367`. The `String(uid)` check works for existing data, but new emails stored as `Primary:uid` won't match next time via `cachedIds.has(String(uid))` — they'd need `cachedIds.has("Primary:uid")` which does work. So dedup is actually fine for the current code. The real problem is the timeout.
 
-### The Dedup Bug (Critical)
+3. **Filter banner showing unwanted**: `hiddenCount` is set to `-1` when any filter is active, showing "Some emails hidden by filters" banner. User does not want this banner.
 
-In `fetchFromAccount` (line 106):
-```typescript
-const emailId = `${accountLabel}:${uid}`;  // e.g. "Primary:95293"
-if (cachedIds.has(emailId) || cachedIds.has(String(uid))) { skip }
-```
+4. **Admin toggle behavior broken**: Settings show `showPasswordResets: false, showSignInCodes: true`. The filter logic in the edge function:
+   - `filterSignInCodes` = true when `showSignInCodes === false` → currently `showSignInCodes: true` → `filterSignInCodes = false` → sign-in codes ARE shown ✓
+   - `filterPasswordResets` = true when `showPasswordResets !== true` → currently `showPasswordResets: false` → `filterPasswordResets = true` → password resets ARE hidden ✓
+   - But toggling these on/off doesn't trigger a re-fetch of cached emails. The user needs to refresh to see the change.
 
-But when storing (line 121):
-```typescript
-const stableId = messageId.startsWith("<") ? `${accountLabel}:${messageId}` : emailId;
-// Stores as "Primary:<abc@netflix.com>" instead of "Primary:95293"
-```
+## Root Cause of No New Emails
 
-The existing 60 cached emails have plain UID IDs (like `95293`), so `cachedIds.has(String(uid))` matches and they get skipped. But any email stored after the Message-ID logic was added gets stored as `Primary:<message-id>` — which **never matches** the dedup check. Those emails get re-fetched every sync, wasting the entire 20-second timeout window, leaving no time for truly new emails.
+The IMAP sync consistently times out. The edge function has a ~25s wall-clock limit. The flow is:
+1. Query cached_emails from DB (~1s)
+2. Read account config from DB (~1s)  
+3. Connect to IMAP (~3-5s)
+4. Search for Netflix emails (~2-3s)
+5. Fetch each new email one-by-one (~1-2s each)
 
-### Secondary Issue: Frontend Refresh
+With 60 cached emails and `FULL_SYNC_MAX_UIDS = 150`, it tries to process up to 150 UIDs. Even though dedup skips cached ones, the IMAP operations themselves are slow. The `PER_ACCOUNT_TIMEOUT_MS = 20000` (20s) is close to the edge function limit.
 
-`fetchEmails` (line 1853) fires sync as fire-and-forget:
-```typescript
-void syncFromImap();  // doesn't wait for result
-```
-So even if sync eventually succeeds, the UI already finished refreshing with old cache data.
+**Fix**: Reduce `FULL_SYNC_MAX_UIDS` to 30, reduce `PER_ACCOUNT_TIMEOUT_MS` to 15s, and add `message_id` column for safer dedup.
 
 ---
 
-## Plan
+## Changes
 
-### Step 1: Fix dedup in Edge Function
+### File 1: `supabase/functions/fetch-emails/index.ts`
 
-**File:** `supabase/functions/fetch-emails/index.ts`
+**Changes:**
+- Reduce `FULL_SYNC_MAX_UIDS` from 150 → 30 (fetch fewer, finish faster)
+- Reduce `PER_ACCOUNT_TIMEOUT_MS` from 20000 → 15000
+- Add `message_id` to stored email data for future-proof dedup
+- Broaden Netflix filter: match `netflix` in from OR subject (not just exact `info@account.netflix.com`)
+- Add `message_id` column storage in upsert
 
-Change the dedup check to also check the Message-ID-based stableId format. The simplest fix: compute the stableId **before** the skip check, or store the email using the same `emailId` format consistently.
+### File 2: `src/App.tsx`
 
-**Approach:** Always use `accountLabel:uid` as the stored ID (remove the Message-ID-based stableId). This keeps dedup fast and consistent:
+**Changes:**
+- Remove the filter banner entirely (`hiddenCount` state and the banner UI)
+- Remove `loadHiddenCount()` function and its call
+- Ensure filter toggles in admin trigger immediate cache reload
 
-```typescript
-// Line 119-121: Remove Message-ID logic, always use accountLabel:uid
-const stableId = emailId;  // always "Primary:95293"
-```
+### File 3: DB Migration
 
-This is safe because UIDs are stable per-mailbox and the `accountLabel` prefix already handles multi-account dedup.
-
-### Step 2: Fix frontend refresh to await sync
-
-**File:** `src/App.tsx`
-
-Change `fetchEmails` so Refresh button awaits the sync before showing results:
-
-```typescript
-const fetchEmails = async () => {
-  setRefreshing(true);
-  setSyncing(true);
-  try {
-    await syncFromImap();
-    await loadCachedEmails({ direct: true });
-  } finally {
-    setRefreshing(false);
-  }
-};
-```
-
-Also remove the duplicate `loadCachedEmails` call inside `syncFromImap` (line 1832) since the caller now handles it.
-
-### Step 3: Migrate existing cached email IDs
-
-Add a one-time cleanup in the sync function to normalize any `Primary:<message-id>` format IDs back to `accountLabel:uid` format. Or simply: on next sync, old plain-UID entries will be matched and skipped, while new emails will be stored with the consistent `accountLabel:uid` format.
-
-No migration needed — the existing plain UID entries (`95293`) will still be matched by `cachedIds.has(String(uid))`. New entries will use `Primary:uid` format consistently.
+- Add `message_id` column to `cached_emails` table (nullable text, for future dedup safety)
 
 ---
 
-## Files Changed
+## Summary
 
-| File | Change |
-|------|--------|
-| `supabase/functions/fetch-emails/index.ts` | Fix dedup: always use `accountLabel:uid` as email ID |
-| `src/App.tsx` | Fix refresh to await sync, remove duplicate cache load from syncFromImap |
+| Problem | Fix |
+|---------|-----|
+| Sync times out → no new emails | Reduce fetch limit to 30, reduce timeout to 15s |
+| Filter banner showing unwanted | Remove the banner UI completely |
+| Admin toggle doesn't reflect immediately | Already fixed — `loadCachedEmails` is called after toggle |
+| Netflix filter too narrow | Broaden to match `netflix` in from/subject |
 
-## What This Fixes
+## Deployment
 
-- Sync no longer wastes time re-fetching already-cached emails → completes within timeout
-- New Netflix emails are actually fetched and stored
-- Refresh button shows fresh data after sync completes
-- Netflix-only filter preserved (intentional)
-
-## Cron Setup (No Code Change)
-
-Cron is already configured but commented out in `wrangler.toml`. To enable automatic background sync:
-```toml
-[triggers]
-crons = ["*/5 * * * *"]
-```
-Then deploy: `npx wrangler deploy`
+After code changes, the edge function will be auto-deployed. No manual steps needed. Cron setup remains optional via `wrangler.toml`.
 
