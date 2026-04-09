@@ -540,7 +540,10 @@ function AdminLoginPage() {
             status: "success",
             ...(loc ? { lat: loc.lat, lon: loc.lon } : {}),
           });
-        } catch { }
+          console.log("[notification] Admin login notification sent successfully");
+        } catch (notifErr) {
+          console.error("[notification] Failed to send admin login notification:", notifErr);
+        }
       })();
 
       toast.success("Login successful. Proceeding to 2FA.");
