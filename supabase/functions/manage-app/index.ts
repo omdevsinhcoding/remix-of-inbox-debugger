@@ -453,10 +453,16 @@ Deno.serve(async (req) => {
     if (action === "get_settings") {
       const { key } = params;
 
-      // Sensitive keys require admin session
-      const sensitiveKeys = ["config", "email_accounts", "cron_config", "primary_cloudflare_urls"];
-      if (sensitiveKeys.includes(key)) {
+      // Fully admin-only keys
+      const adminOnlyKeys = ["config", "cron_config"];
+      if (adminOnlyKeys.includes(key)) {
         await requireAdmin(req);
+      }
+
+      // Keys that any authenticated user can read (with masked sensitive data)
+      const authenticatedKeys = ["primary_cloudflare_urls", "email_accounts", "recaptcha", "email_filters"];
+      if (authenticatedKeys.includes(key)) {
+        await requireSession(req);
       }
 
       const { data } = await supabase
@@ -467,11 +473,15 @@ Deno.serve(async (req) => {
 
       let value = data?.value || null;
 
-      // Mask IMAP passwords in email_accounts for frontend
+      // Mask IMAP passwords in email_accounts for non-admin users
       if (key === "email_accounts" && Array.isArray(value)) {
+        const session = await requireSession(req);
+        const isAdmin = session.role === "admin";
         value = value.map((acc: any) => ({
           ...acc,
-          password: acc.password ? "••••••••" : "",
+          password: isAdmin ? acc.password : "••••••••",
+          // Non-admin users only see cloudflare URLs and label
+          ...(isAdmin ? {} : { host: undefined, port: undefined, user: undefined }),
         }));
       }
 
