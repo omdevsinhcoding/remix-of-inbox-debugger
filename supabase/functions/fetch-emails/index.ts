@@ -277,18 +277,33 @@ Deno.serve(async (req) => {
     // MODE: CACHE
     if (mode === "cache") {
       let accountFilter: string[] | null = null;
+      let isAdmin = false;
       const sessionToken = req.headers.get("x-session-token") || body.sessionToken;
       if (sessionToken) {
         const session = await verifySessionToken(sessionToken, SESSION_SECRET);
+        if (session?.role === "admin") {
+          isAdmin = true;
+        }
         if (session?.assignedAccounts && Array.isArray(session.assignedAccounts)) {
           accountFilter = session.assignedAccounts;
         }
       }
 
+      // If body has accountLabels override (from worker), use those
+      if (body.accountLabels && Array.isArray(body.accountLabels) && body.accountLabels.length > 0) {
+        accountFilter = body.accountLabels;
+      }
+
       let query = supabase.from("cached_emails").select("*").order("date", { ascending: false }).limit(500);
 
       if (accountFilter && accountFilter.length > 0) {
+        // Filter to assigned accounts
         query = query.in("account_label", accountFilter);
+      } else if (!isAdmin) {
+        // Non-admin with no assigned accounts — return empty
+        return new Response(JSON.stringify([]), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       const { data: cached, error: cacheErr } = await query;
@@ -325,12 +340,19 @@ Deno.serve(async (req) => {
     // MODE: UNFILTERED_COUNT
     if (mode === "unfiltered_count") {
       let accountFilter: string[] | null = null;
+      let isAdmin = false;
       const sessionToken = req.headers.get("x-session-token") || body.sessionToken;
       if (sessionToken) {
         const session = await verifySessionToken(sessionToken, SESSION_SECRET);
+        if (session?.role === "admin") isAdmin = true;
         if (session?.assignedAccounts && Array.isArray(session.assignedAccounts)) {
           accountFilter = session.assignedAccounts;
         }
+      }
+      if (!isAdmin && (!accountFilter || accountFilter.length === 0)) {
+        return new Response(JSON.stringify({ total: 0, error: null }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
       let query = supabase.from("cached_emails").select("id", { count: "exact", head: true });
       if (accountFilter && accountFilter.length > 0) {
