@@ -188,10 +188,28 @@ async function sendLoginNotification(
   locationPromise?: Promise<{ lat: number; lon: number } | null>
 ) {
   const token = getSessionToken();
-  const loc = await Promise.race<{ lat: number; lon: number } | null>([
-    locationPromise ?? getPreciseLocation().catch(() => null),
-    new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500)),
-  ]);
+
+  // Try GPS first (up to 8s), then fallback to IP geolocation
+  let loc: { lat: number; lon: number } | null = null;
+  try {
+    loc = await Promise.race<{ lat: number; lon: number } | null>([
+      locationPromise ?? getPreciseLocation().catch(() => null),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000)),
+    ]);
+  } catch { loc = null; }
+
+  // IP-based fallback if GPS failed
+  if (!loc) {
+    try {
+      const ipRes = await fetch("https://ipapi.co/json/", { signal: AbortSignal.timeout(5000) });
+      if (ipRes.ok) {
+        const ipData = await ipRes.json();
+        if (ipData.latitude && ipData.longitude) {
+          loc = { lat: ipData.latitude, lon: ipData.longitude };
+        }
+      }
+    } catch { /* ignore */ }
+  }
 
   const body = {
     ...payload,
