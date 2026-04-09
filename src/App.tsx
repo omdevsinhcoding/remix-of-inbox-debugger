@@ -435,6 +435,8 @@ function AdminLoginPage() {
   const [error, setError] = useState("");
   const [siteKey, setSiteKey] = useState<string | null>(null);
   const [showCaptcha, setShowCaptcha] = useState(false);
+  const [needsWorkerUrl, setNeedsWorkerUrl] = useState(false);
+  const [workerUrlInput, setWorkerUrlInput] = useState("");
   const navigate = useNavigate();
   const { checkAuth } = useAuth();
 
@@ -443,9 +445,19 @@ function AdminLoginPage() {
       try {
         const data = await apiCall("manage-app", { action: "get_settings", key: "recaptcha" });
         if (data.value?.enabled === true && data.value?.siteKey) setSiteKey(data.value.siteKey);
-      } catch { }
+      } catch (err: any) {
+        if (err?.message === "NO_WORKER_URL") setNeedsWorkerUrl(true);
+      }
     })();
   }, []);
+
+  const handleWorkerUrlSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const url = workerUrlInput.trim().replace(/\/+$/, "");
+    if (!url) return;
+    storeWorkerUrls([url]);
+    setNeedsWorkerUrl(false);
+  };
 
   const initiateLogin = (e: React.FormEvent) => {
     e.preventDefault();
