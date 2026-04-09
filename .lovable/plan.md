@@ -1,73 +1,96 @@
 
 
-# Fix: Add Cloudflare URLs to Primary IMAP + Edit Existing Accounts
+# Remove ALL Supabase Egress from Frontend
 
-## Current State
+## Current Supabase egress points (frontend → Supabase directly)
 
-The code already has Cloudflare URL support when **adding a new account** (Email Accounts tab, "Add Account" form has the URL list UI). But:
+1. **`apiCall("manage-app", ...)`** — ALL login, settings, user management calls go through `supabase.co/functions/v1/manage-app`. This is the BIGGEST egress consumer. Every page load makes 5-8 calls.
+2. **`rest/v1/cached_emails?select=id`** (line 734) — direct REST API call for email stats count.
+3. **Realtime subscription** (line 1785) — WebSocket to `supabaseClient.channel()`.
+4. **EmailViewer `useEffect`** (line 1670) — calls `apiCall("manage-app")` to load worker URLs before it can even start fetching from Cloudflare.
 
-1. **Primary IMAP Server** (Settings tab) -- has NO Cloudflare URL fields. This is the account you're looking at in the screenshot. The Primary account is stored separately in `serverConfig` and has no `cloudflareUrls` property.
+## Target Architecture
 
-2. **Existing accounts** -- once added, you can only view their Cloudflare URLs (read-only in the expanded card) or delete the whole account. There's no way to edit/add URLs to an already-saved account.
-
-3. **How emails are fetched currently**: The viewer (`EmailViewer`) loads `email_accounts` from `manage-app` edge function, extracts all `cloudflareUrls` from all accounts, then calls those Cloudflare Worker URLs. The Cloudflare Worker (`worker.js`) then calls the Supabase edge function internally. The frontend also still calls `supabase.co/rest/v1/cached_emails` directly for ID lookups. So Supabase is still used for: (a) `manage-app` edge function for login/settings/user management, (b) `cached_emails` REST reads, (c) Realtime subscription.
-
-**Important**: You said you removed Supabase completely, but the app still calls `jsqchutnfdeljajkxmly.supabase.co` for ALL operations (login, settings, user list, etc.) -- those are Supabase edge functions. The only thing we removed was the email sync going through Supabase edge functions. The `manage-app` function still runs on Supabase.
+```text
+Frontend
+   ↓ (ALL calls)
+Cloudflare Worker (multiple URLs + KV cache)
+   ↓
+For emails: IMAP fetch → insert to Supabase DB via REST (ingress only)
+For manage-app: proxy to Supabase edge function (server-to-server)
+   ↓
+Frontend NEVER talks to supabase.co directly
+```
 
 ## Plan
 
-### Step 1: Add Cloudflare URL fields to Primary IMAP Server section
+### Step 1: Add manage-app proxy route to Cloudflare Worker
 
-**File:** `src/App.tsx` (Settings tab, lines 1386-1421)
+**File:** `cloudflare-worker/worker.js`
 
-Add a new state `primaryCfUrls: string[]` and `primaryCfInput: string`. Below the App Password field in the "Primary IMAP Server" section, add the same Cloudflare Worker URLs UI (list + add/remove + input) that exists in the "Add Account" form.
-
-Save these URLs alongside the existing `serverConfig` in a new setting key `primary_cloudflare_urls`, or store them in the `email_accounts` array as a special "Primary" entry.
-
-### Step 2: Allow editing Cloudflare URLs on existing accounts
-
-**File:** `src/App.tsx` (Connected Accounts section, lines 1315-1350)
-
-In the expanded account card view, add an "Edit URLs" button that shows an inline add/remove UI for `cloudflareUrls`. When URLs are changed, save the updated `email_accounts` array back to settings.
-
-### Step 3: Include Primary account's Cloudflare URLs in the viewer
-
-**File:** `src/App.tsx` (EmailViewer, lines 1562-1584)
-
-When loading worker URLs, also fetch `primary_cloudflare_urls` (or read the Primary entry from `email_accounts`) and include those URLs in `resolvedWorkerUrls`.
-
-### Step 4: Fix import path
-
-**File:** `src/App.tsx` line 7 -- change `@/src/integrations/supabase/client` to `@/integrations/supabase/client`.
-
----
-
-## How email fetching works (explanation)
+Add a new route `/api/manage-app` that proxies requests to `SUPABASE_URL/functions/v1/manage-app`. This moves all manage-app traffic through the Cloudflare Worker instead of the frontend calling Supabase directly.
 
 ```text
-User clicks Refresh
-    ↓
-Frontend calls Cloudflare Worker URLs (from email_accounts settings)
-    ↓
-Cloudflare Worker calls Supabase Edge Function (server-to-server, invisible to you)
-    ↓
-Supabase Edge Function connects to IMAP server, downloads emails
-    ↓
-Emails stored in Supabase DB (cached_emails table)
-    ↓
-Cloudflare Worker returns emails to frontend
+POST /api/manage-app → proxy to SUPABASE_URL/functions/v1/manage-app
 ```
 
-The frontend no longer calls the Supabase edge function directly. But the Cloudflare Worker still uses it internally -- this is unavoidable because Cloudflare Workers cannot do raw IMAP connections. Your Supabase project is still needed as the backend for `manage-app` (login, settings, users) and `cached_emails` storage.
+The worker forwards the request body, session token, and auth headers. Response is passed back to the frontend.
+
+### Step 2: Replace `apiCall()` with Cloudflare Worker calls
+
+**File:** `src/App.tsx`
+
+Change `apiCall()` to route through Cloudflare Workers instead of calling `getApiBase()/functions/v1/...` directly:
+
+- Remove `getApiBase()` and `getApiKey()` functions (no more direct Supabase calls)
+- `apiCall()` now calls `fetchFromWorkers("/api/manage-app", "POST", body)` instead of `fetch(supabase.co/functions/v1/manage-app)`
+- This requires the worker URLs to be known before any API call. Store worker URLs in `localStorage` so they're available on app load (before settings are fetched).
+
+### Step 3: Remove direct Supabase REST call for stats
+
+**File:** `src/App.tsx` (line 733-741)
+
+Remove the `fetch(getApiBase()/rest/v1/cached_emails?select=id...)` call. Instead, get the email count from the Cloudflare Worker response (which already returns all emails).
+
+### Step 4: Remove Supabase Realtime subscription
+
+**File:** `src/App.tsx` (lines 1783-1816)
+
+Remove the `supabaseClient.channel()` Realtime subscription entirely. Replace with polling from Cloudflare Workers (already polling every 30s at line 1818). The polling via workers is sufficient.
+
+### Step 5: Remove Supabase client import
+
+**File:** `src/App.tsx`
+
+Remove `import { supabase as supabaseClient } from "@/src/integrations/supabase/client"` — no longer needed since we don't use Realtime or REST directly.
+
+### Step 6: Worker URL bootstrap from localStorage
+
+**File:** `src/App.tsx`
+
+Since `apiCall()` now needs Cloudflare Worker URLs, but worker URLs are stored in settings (which require `apiCall()`), we need a bootstrap mechanism:
+
+- On first setup (admin adds worker URLs), save them to `localStorage` as well as to the backend
+- On subsequent loads, read worker URLs from `localStorage` first, then verify against backend
+- Admin Settings page: when saving Cloudflare URLs, also persist to `localStorage`
+- Login page: after successful login, store the worker URLs returned in the login response
+
+### Step 7: Update worker.js to return worker URLs in login response
+
+**File:** `cloudflare-worker/worker.js`
+
+When the `/api/manage-app` proxy handles a `login` action response, optionally include the `primary_cloudflare_urls` and `email_accounts` cloudflare URLs in the response so the frontend can bootstrap itself.
 
 ---
 
-## Summary
+## What changes
 
-| Change | What |
-|--------|------|
-| Cloudflare URLs on Primary IMAP | Add URL list UI to Settings tab Primary section |
-| Edit URLs on existing accounts | Inline edit UI in expanded account cards |
-| Include Primary URLs in viewer | Fetch and merge Primary account's worker URLs |
-| Fix import crash | `@/src/` to `@/` |
+| Before (Supabase egress) | After (Cloudflare only) |
+|---|---|
+| Frontend → supabase.co/functions/v1/manage-app | Frontend → Cloudflare Worker → supabase.co (server-side) |
+| Frontend → supabase.co/rest/v1/cached_emails | Removed, use worker data |
+| Frontend → supabase.co Realtime WebSocket | Removed, polling via worker |
+| `import supabaseClient` in App.tsx | Removed entirely |
+
+After this change, the frontend will have ZERO direct calls to `supabase.co`. All traffic goes through your Cloudflare Workers. Supabase is only accessed server-to-server from the worker.
 
