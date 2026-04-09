@@ -1761,13 +1761,15 @@ function EmailViewer() {
     if (workerUrlLoaded.current) return;
     workerUrlLoaded.current = true;
     (async () => {
-      const urls: string[] = getStoredWorkerUrls();
+      const primaryUrls: string[] = [...getStoredWorkerUrls()];
+      const accountUrls: Record<string, string[]> = {};
+
       try {
         const pcf = await apiCall("manage-app", { action: "get_settings", key: "primary_cloudflare_urls" });
         if (pcf.value && Array.isArray(pcf.value)) {
           for (const u of pcf.value) {
             const trimmed = u.trim().replace(/\/+$/, "");
-            if (trimmed && !urls.includes(trimmed)) urls.push(trimmed);
+            if (trimmed && !primaryUrls.includes(trimmed)) primaryUrls.push(trimmed);
           }
         }
       } catch { }
@@ -1775,26 +1777,44 @@ function EmailViewer() {
         const data = await apiCall("manage-app", { action: "get_settings", key: "email_accounts" });
         if (data.value && Array.isArray(data.value)) {
           for (const acc of data.value) {
+            const label = acc.label || acc.user;
+            const accUrls: string[] = [];
             if (acc.cloudflareUrls && Array.isArray(acc.cloudflareUrls)) {
               for (const u of acc.cloudflareUrls) {
                 const trimmed = u.trim().replace(/\/+$/, "");
-                if (trimmed && !urls.includes(trimmed)) urls.push(trimmed);
+                if (trimmed) accUrls.push(trimmed);
               }
             }
             if (acc.cloudflareUrl && acc.cloudflareUrl.trim()) {
               const trimmed = acc.cloudflareUrl.trim().replace(/\/+$/, "");
-              if (!urls.includes(trimmed)) urls.push(trimmed);
+              if (!accUrls.includes(trimmed)) accUrls.push(trimmed);
+            }
+            if (accUrls.length > 0 && label) {
+              accountUrls[label] = accUrls;
             }
           }
         }
       } catch { }
 
-      const normalizedUrls = urls
+      // Build flat list for general use (primary + all account URLs deduplicated)
+      const allUrls = [...primaryUrls];
+      for (const urls of Object.values(accountUrls)) {
+        for (const u of urls) {
+          if (!allUrls.includes(u)) allUrls.push(u);
+        }
+      }
+      const normalizedUrls = allUrls
+        .map((u) => u.trim().replace(/\/+$/, ""))
+        .filter(Boolean)
+        .filter((u, i, arr) => arr.indexOf(u) === i);
+
+      const normalizedPrimary = primaryUrls
         .map((u) => u.trim().replace(/\/+$/, ""))
         .filter(Boolean)
         .filter((u, i, arr) => arr.indexOf(u) === i);
 
       setResolvedWorkerUrls(normalizedUrls);
+      setWorkerUrlMap({ primary: normalizedPrimary, byAccount: accountUrls });
       if (normalizedUrls.length > 0) storeWorkerUrls(normalizedUrls);
       setWorkerUrlsLoading(false);
     })();
