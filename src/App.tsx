@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { Toaster, toast } from "sonner";
 import ReCAPTCHA from "react-google-recaptcha";
-import { supabase as supabaseClient } from "@/src/integrations/supabase/client";
+import { supabase as supabaseClient } from "@/integrations/supabase/client";
 
 // --- API Helper ---
 
@@ -1577,30 +1577,6 @@ function AdminPanel() {
               </div>
             </section>
 
-            {/* KV Setup Instructions */}
-            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
-              <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
-                <div className="bg-cyan-50 p-1.5 rounded-lg"><Database className="w-4 h-4 text-cyan-600" /></div>
-                Cloudflare KV Setup
-              </h2>
-              <div className="space-y-3 text-sm text-slate-600">
-                <p className="font-bold text-slate-900">When KV is full, create a new namespace:</p>
-                <div className="bg-slate-900 text-green-400 p-4 rounded-xl font-mono text-xs space-y-1 overflow-x-auto">
-                  <p>npx wrangler kv namespace create EMAIL_CACHE_V2</p>
-                </div>
-                <p className="text-xs text-slate-500">Copy the new namespace ID and update <code className="bg-slate-100 px-1 rounded">wrangler.toml</code>:</p>
-                <div className="bg-slate-900 text-green-400 p-4 rounded-xl font-mono text-xs space-y-1 overflow-x-auto">
-                  <p>[[kv_namespaces]]</p>
-                  <p>binding = "EMAIL_CACHE_V2"</p>
-                  <p>id = "YOUR_NEW_KV_ID"</p>
-                </div>
-                <p className="text-xs text-slate-500">The worker automatically uses V2 first, falls back to V1.</p>
-                <div className="bg-amber-50 border border-amber-100 p-3 rounded-xl">
-                  <p className="text-xs text-amber-700"><strong>Redeploy after changes:</strong></p>
-                  <div className="bg-slate-900 text-green-400 p-3 rounded-lg font-mono text-xs mt-2">npx wrangler deploy</div>
-                </div>
-              </div>
-            </section>
 
             {/* Scheduled Sync (Cron) */}
             <CronManagerSection />
@@ -1795,9 +1771,6 @@ function EmailViewer() {
   const [resolvedWorkerUrls, setResolvedWorkerUrls] = useState<string[]>([]);
   const workerUrlLoaded = React.useRef(false);
   const lastSyncTime = React.useRef(0);
-  const SYNC_THROTTLE_MS = 20 * 1000;
-  
-  const [stale, setStale] = useState(false);
 
   const backToAdmin = () => {
     try {
@@ -1895,10 +1868,6 @@ function EmailViewer() {
 
       if (!res.ok) {
         const errMsg = data?.error || `Failed to load emails (${res.status})`;
-        // Keep old emails visible but mark as stale
-        if (emails.length > 0) {
-          setStale(true);
-        }
         setError(errMsg);
         return 0;
       }
@@ -1907,12 +1876,10 @@ function EmailViewer() {
       emailList.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
       setEmails(emailList);
       setError(null);
-      setStale(false);
       setLastUpdated(new Date());
       return emailList.length;
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to load emails";
-      if (emails.length > 0) setStale(true);
       setError(msg);
       return 0;
     }
@@ -1923,53 +1890,37 @@ function EmailViewer() {
   const syncFromImap = async () => {
     if (isFetchingRef.current) return;
     isFetchingRef.current = true;
-    setSyncing(true);
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 50000);
-
-      let syncRes: Response;
-      // Use multi-worker fallback for sync too
-      syncRes = await fetchWithFallback("/api/emails/sync", "POST", { mode: "sync" });
-      clearTimeout(timeout);
-
+      const syncRes = await fetchWithFallback("/api/emails/sync", "POST", { mode: "sync" });
       const raw = await syncRes.text();
       let data: any = null;
       if (raw) { try { data = JSON.parse(raw); } catch {} }
 
       if (!syncRes.ok) {
         const errMsg = data?.error || `Sync failed (${syncRes.status})`;
-        // Don't clear existing emails on sync error
-        if (emails.length > 0) setStale(true);
-        setError(errMsg);
-      } else {
-        setError(null);
-        setStale(false);
-        lastSyncTime.current = Date.now();
+        throw new Error(errMsg);
       }
-
-      // Cache reload moved to fetchEmails caller
-    } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") {
-        console.log("[syncIMAP] Timeout - will retry next cycle");
-      } else {
-        const msg = err instanceof Error ? err.message : "Sync failed";
-        if (emails.length > 0) setStale(true);
-        setError(msg);
-        console.error("[syncIMAP] Error:", err);
-      }
+      lastSyncTime.current = Date.now();
     } finally {
-      setSyncing(false);
       isFetchingRef.current = false;
     }
   };
 
   const fetchEmails = async () => {
+    if (refreshing) return;
     setRefreshing(true);
-    setSyncing(true);
+    const toastId = toast.loading("Fetching latest emails...");
     try {
-      await syncFromImap();
+      // Load cached emails immediately so UI updates fast
       await loadCachedEmails({ direct: true });
+      // Then trigger IMAP sync in background
+      await syncFromImap();
+      // Reload after sync to pick up any new emails
+      await loadCachedEmails({ direct: true });
+      toast.success("Emails updated!", { id: toastId });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Sync failed";
+      toast.error(msg, { id: toastId });
     } finally {
       setRefreshing(false);
     }
@@ -2066,9 +2017,9 @@ function EmailViewer() {
               </button>
             )}
             <button onClick={() => fetchEmails()}
-              disabled={syncing}
+              disabled={refreshing}
               className="flex items-center p-2.5 sm:px-4 sm:py-2 bg-slate-900 text-white rounded-full text-sm font-bold hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-60">
-              <RefreshCw className={`w-4 h-4 sm:w-5 sm:h-5 ${syncing ? "animate-spin" : ""}`} />
+              <RefreshCw className={`w-4 h-4 sm:w-5 sm:h-5 ${refreshing ? "animate-spin" : ""}`} />
               <span className="hidden sm:inline ml-1.5">Refresh</span>
             </button>
             {!isImpersonating && (
@@ -2108,14 +2059,9 @@ function EmailViewer() {
                   Inbox
                   <span className="bg-slate-200 text-slate-600 text-[10px] px-2 py-0.5 rounded-full">{emails.length}</span>
                 </h3>
-                {syncing && <span className="text-[10px] text-blue-500 font-bold animate-pulse">Syncing...</span>}
+                
               </div>
 
-              {stale && !error && (
-                <div className="bg-amber-50 border border-amber-100 rounded-xl p-2 mb-2">
-                  <p className="text-amber-600 text-[10px] flex items-center gap-1"><Clock className="w-3 h-3" />Last updated {lastUpdated.toLocaleTimeString()}</p>
-                </div>
-              )}
 
               
 
@@ -2129,14 +2075,10 @@ function EmailViewer() {
                 {emails.length === 0 && !error ? (
                   <div className="bg-white border border-dashed border-slate-200 rounded-xl p-12 text-center">
                     <div className="bg-slate-50 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3">
-                      {syncing ? (
-                        <RefreshCw className="text-red-400 w-6 h-6 animate-spin" />
-                      ) : (
-                        <Mail className="text-slate-200 w-6 h-6" />
-                      )}
+                      <Mail className="text-slate-200 w-6 h-6" />
                     </div>
                     <p className="text-[10px] sm:text-xs text-slate-400 font-medium">
-                      {syncing ? "Syncing emails from server..." : "No Netflix emails found"}
+                      No Netflix emails found
                     </p>
                   </div>
                 ) : (
