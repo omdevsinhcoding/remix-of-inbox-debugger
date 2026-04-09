@@ -1,75 +1,52 @@
 
 
-# Fix: Instant Email Fetch on Refresh + Cleanup + DB Schema Guide
-
-## Issues to Fix
-
-1. **Runtime crash**: Import path `@/src/integrations/supabase/client` is wrong -- should be `@/integrations/supabase/client`. This causes the `useEffect` null error that breaks the entire app.
-
-2. **Refresh button always spinning + "Syncing..." text**: The Refresh button calls `syncFromImap()` which does a full IMAP sync (slow, often fails with TLS drops). User wants instant results. On Refresh, we should just trigger the edge function sync and immediately reload cached emails, showing a toast instead of inline "Syncing..." text.
-
-3. **Cron not needed**: User wants to remove cron dependency. Instead, Refresh button triggers IMAP sync + cache reload. Realtime subscription handles instant display when new emails arrive in DB.
-
-4. **Unwanted UI elements**: "Syncing..." text, stale banner, Cloudflare KV instructions, always-rotating refresh icon.
-
-5. **User wants DB schema documentation** for setting up on another Supabase project.
-
----
+# Fix: Eye Icons, Multiple Cloudflare URLs, Remove Supabase Edge Function Completely
 
 ## Plan
 
-### Step 1: Fix the import crash (critical)
+### Step 1: Fix import crash
+**File:** `src/App.tsx` line 7 — change `@/src/integrations/supabase/client` to `@/integrations/supabase/client`.
 
-**File:** `src/App.tsx` line 7
+### Step 2: Add eye toggle icons to all password/secret fields
+**File:** `src/App.tsx`
 
-Change `@/src/integrations/supabase/client` to `@/integrations/supabase/client`.
+Add `EyeOff` import. Add show/hide toggle button (Eye/EyeOff) to every sensitive input:
+- Login password
+- Bot Token, App Password in Admin Settings
+- App Password in Add Account form
+- Password in expanded account cards
+- Change Password modal (current, new, confirm)
 
-### Step 2: Rewrite Refresh button behavior
+### Step 3: Multiple Cloudflare URLs per email account
+**File:** `src/App.tsx`
+
+Change account schema from `cloudflareUrl: string` to `cloudflareUrls: string[]`. Add UI to add/remove multiple URLs per account. Auto-migrate old `cloudflareUrl` → `cloudflareUrls: [cloudflareUrl]`.
+
+### Step 4: Remove ALL Supabase edge function calls for email fetching
 
 **File:** `src/App.tsx`
 
-- On Refresh click: call `syncFromImap()` in background + immediately `loadCachedEmails()` to show current data
-- Show `toast.loading("Fetching latest emails...")` instead of inline "Syncing..." text
-- When sync completes, show `toast.success("Emails updated!")` or `toast.error(...)` 
-- Remove the `syncing` state from disabling the button (just show a brief animation)
-- Remove the "Syncing..." text from the inbox header (line 2111)
-- Remove the `stale` banner (lines 2114-2118)
-- Stop the refresh icon from continuously spinning -- just a brief spin on click
+- Remove `syncFromImap()` function (it calls Supabase edge function)
+- Remove `fetchWithFallback` Supabase fallback branch — Cloudflare Workers only
+- `loadCachedEmails`: fetch from Cloudflare Worker URLs only (no Supabase edge function call)
+- Refresh button: calls Cloudflare Worker to sync + fetch, no Supabase edge function involved
+- Keep Supabase Realtime subscription (it's a websocket to the DB, not an edge function)
+- Keep Supabase DB reads via `supabase.from("cached_emails")` (direct DB query, not edge function)
+- Remove cron toggle that calls Supabase edge function
 
-### Step 3: Remove cron dependency from viewer
-
-**File:** `src/App.tsx`
-
-- Keep Realtime subscription (it works when emails are inserted by any source)
-- Keep fallback polling every 30s (lightweight cache read)
-- Remove `SYNC_THROTTLE_MS` and related throttle logic
-- Remove `syncing` inline indicator
-
-### Step 4: Clean up Admin Panel
-
-**File:** `src/App.tsx`
-
-- Remove "Cloudflare KV Setup" section (lines 1580-1603) -- irrelevant instructions
-- Keep CronManagerSection in admin as optional tool (admin can still toggle cron if they want background sync)
-
-### Step 5: Generate DB schema documentation
-
-Create a markdown file at `/mnt/documents/database-schema.md` with:
-- All table definitions (app_users, app_otps, app_settings, audit_logs, cached_emails)
-- RLS policies
-- Database functions (schedule_email_sync, unschedule_email_sync, get_cron_status)
-- Edge function secrets needed (IMAP_HOST, IMAP_PORT, IMAP_USER, IMAP_PASSWORD, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
-- Step-by-step setup guide for a new Supabase project
+### Step 5: Update Infrastructure tab
+- Remove "Cloudflare Worker URLs" as a separate global section — URLs now live on each account
+- Remove any references to Supabase edge function sync
+- Keep the Cloudflare Worker deployment instructions (worker.js)
 
 ---
 
-## Summary
+## What stays vs what goes
 
-| Change | Why |
-|--------|-----|
-| Fix import path | App crashes with `useEffect` null error |
-| Toast instead of "Syncing..." | Cleaner UX, no inline status text |
-| Instant cache load on Refresh | Show existing emails immediately, sync in background |
-| Remove KV instructions | Irrelevant to current architecture |
-| DB schema doc | User can replicate on another Supabase project |
+| Stays | Goes |
+|-------|------|
+| Supabase DB for storage (cached_emails, app_settings, etc.) | Supabase edge function calls (`/functions/v1/fetch-emails`) |
+| Supabase Realtime subscription | `syncFromImap()` function |
+| Cloudflare Workers for IMAP fetch + cache | Cron toggle (edge function based) |
+| Direct DB reads via supabase client | `fetchWithFallback` Supabase fallback |
 
