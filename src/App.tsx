@@ -33,9 +33,16 @@ function getSessionToken(): string | null {
 // --- API Helper (routes ALL calls through Cloudflare Workers) ---
 
 async function apiCall(functionName: string, body: any) {
-  const workerUrls = getStoredWorkerUrls();
+  let workerUrls = getStoredWorkerUrls();
+  // Fallback to env var for bootstrap (first login before localStorage has URLs)
   if (workerUrls.length === 0) {
-    throw new Error("No Cloudflare Worker URLs configured. Add them in Admin Panel → Settings → Primary IMAP → Cloudflare Worker URLs, or set them in localStorage.");
+    const envUrl = (import.meta as any).env?.VITE_WORKER_URL;
+    if (envUrl) {
+      workerUrls = [envUrl.replace(/\/+$/, "")];
+    }
+  }
+  if (workerUrls.length === 0) {
+    throw new Error("No Cloudflare Worker URLs configured. Set VITE_WORKER_URL environment variable or login from a device that has URLs cached.");
   }
 
   const token = getSessionToken();
@@ -167,58 +174,6 @@ function PasswordInput({ value, onChange, placeholder, className, autoFocus, req
   );
 }
 
-// --- Worker URL Bootstrap Screen ---
-function WorkerUrlSetup() {
-  const [url, setUrl] = useState("");
-  const [testing, setTesting] = useState(false);
-  const [error, setError] = useState("");
-
-  const handleSave = async () => {
-    const trimmed = url.trim().replace(/\/+$/, "");
-    if (!trimmed) { setError("Enter a Cloudflare Worker URL"); return; }
-    setTesting(true);
-    setError("");
-    try {
-      const res = await fetch(`${trimmed}/api/debug`);
-      if (!res.ok) throw new Error(`Worker returned ${res.status}`);
-      storeWorkerUrls([trimmed]);
-      window.location.reload();
-    } catch (err) {
-      setError(`Cannot reach worker: ${err instanceof Error ? err.message : "Unknown error"}. Check the URL and try again.`);
-    } finally {
-      setTesting(false);
-    }
-  };
-
-  return (
-    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
-      <div className="bg-white w-full max-w-md rounded-2xl p-6 shadow-2xl">
-        <div className="flex justify-center mb-4">
-          <div className="bg-slate-900 p-3 rounded-2xl">
-            <Globe className="text-white w-6 h-6" />
-          </div>
-        </div>
-        <h2 className="text-xl font-black text-center text-slate-900 mb-1">Setup Required</h2>
-        <p className="text-slate-500 text-center text-xs mb-6">
-          Enter your Cloudflare Worker URL to connect. All traffic will go through your worker.
-        </p>
-        <input type="url" value={url} onChange={(e) => setUrl(e.target.value)}
-          placeholder="https://your-worker.workers.dev"
-          className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 px-4 focus:ring-2 focus:ring-blue-500 outline-none text-sm mb-3" />
-        {error && (
-          <div className="bg-red-50 text-red-600 text-xs p-3 rounded-xl mb-3 flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 flex-shrink-0" />{error}
-          </div>
-        )}
-        <button onClick={handleSave} disabled={testing}
-          className="w-full bg-slate-900 text-white font-bold py-3 rounded-xl hover:bg-slate-800 transition-all disabled:opacity-50">
-          {testing ? "Testing connection..." : "Connect & Continue"}
-        </button>
-      </div>
-    </div>
-  );
-}
-
 // --- Profile Colors ---
 const PROFILE_COLORS = [
   "bg-red-500", "bg-blue-500", "bg-green-500", "bg-purple-500",
@@ -313,6 +268,11 @@ function ProfileSelectPage() {
         username: selectedProfile.username,
         password,
       });
+
+      // Store worker URLs returned from login response
+      if (data.workerUrls && Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
+        storeWorkerUrls(data.workerUrls);
+      }
 
       localStorage.setItem("user", JSON.stringify(data.user));
       checkAuth();
@@ -459,6 +419,11 @@ function AdminLoginPage() {
       const data = await apiCall("manage-app", { action: "login", username, password });
 
       if (data.user.role !== "admin") throw new Error("Access denied");
+
+      // Store worker URLs returned from login response
+      if (data.workerUrls && Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
+        storeWorkerUrls(data.workerUrls);
+      }
 
       localStorage.setItem("user", JSON.stringify(data.user));
       checkAuth();
@@ -2105,16 +2070,6 @@ export default function App() {
       document.removeEventListener("dragstart", preventDrag);
     };
   }, []);
-
-  // If no worker URLs configured, show setup screen
-  if (getStoredWorkerUrls().length === 0) {
-    return (
-      <>
-        <Toaster position="top-center" richColors />
-        <WorkerUrlSetup />
-      </>
-    );
-  }
 
   return (
     <Router>
