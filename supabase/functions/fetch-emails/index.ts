@@ -18,8 +18,8 @@ const SIGN_IN_CODE_SUBJECTS = [
   "verification code", "login code", "sign in code",
 ];
 
-const FULL_SYNC_MAX_UIDS = 50;
-const PER_ACCOUNT_TIMEOUT_MS = 25000;
+const FULL_SYNC_MAX_UIDS = 10;
+const PER_ACCOUNT_TIMEOUT_MS = 15000;
 const STALE_DAYS = 60;
 
 async function verifySessionToken(token: string, secret: string): Promise<Record<string, any> | null> {
