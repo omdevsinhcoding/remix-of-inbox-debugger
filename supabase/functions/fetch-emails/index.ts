@@ -63,7 +63,7 @@ async function fetchFromAccount(
   const emails: any[] = [];
   let timedOut = false;
   let skipped = 0;
-  const timeout = setTimeout(() => { timedOut = true; }, PER_ACCOUNT_TIMEOUT_MS);
+  let timeout: ReturnType<typeof setTimeout> | null = null;
 
   const client = new ImapFlow({
     host: imapHost, port: imapPort, secure: true,
