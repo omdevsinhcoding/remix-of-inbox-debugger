@@ -1829,7 +1829,7 @@ function EmailViewer() {
         lastSyncTime.current = Date.now();
       }
 
-      await loadCachedEmails({ direct: true });
+      // Cache reload moved to fetchEmails caller
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
         console.log("[syncIMAP] Timeout - will retry next cycle");
@@ -1847,10 +1847,11 @@ function EmailViewer() {
 
   const fetchEmails = async () => {
     setRefreshing(true);
+    setSyncing(true);
     try {
-      await loadCachedEmails();
+      await syncFromImap();
+      await loadCachedEmails({ direct: true });
       setCountdown(refreshIntervalSeconds);
-      void syncFromImap();
     } finally {
       setRefreshing(false);
     }
