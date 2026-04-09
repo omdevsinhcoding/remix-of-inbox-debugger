@@ -162,6 +162,75 @@ Deno.serve(async (req) => {
     let body: any = {};
     try { body = await req.json(); } catch {}
     const mode = body.mode || "sync";
+    const source = body.source || "manual";
+
+    // MODE: CRON_STATUS — check if cron job exists
+    if (mode === "cron_status") {
+      try {
+        const { data, error } = await supabase.rpc("get_cron_status");
+        if (error) {
+          // Fallback: try direct query
+          const { data: fallback } = await supabase.from("app_settings").select("value").eq("key", "cron_config").single();
+          return new Response(JSON.stringify({
+            active: fallback?.value?.active || false,
+            interval: fallback?.value?.interval || 3,
+            lastSync: null,
+          }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+        return new Response(JSON.stringify(data), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      } catch {
+        return new Response(JSON.stringify({ active: false, interval: 3, lastSync: null }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+
+    // MODE: CRON_TOGGLE — enable/disable cron job
+    if (mode === "cron_toggle") {
+      const enabled = body.enabled === true;
+      const interval = parseInt(body.interval) || 3;
+      const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+      const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+      try {
+        // First unschedule any existing job
+        try {
+          await supabase.rpc("unschedule_email_sync");
+        } catch { /* no existing job */ }
+
+        if (enabled) {
+          // Schedule new cron job
+          const cronExpr = `*/${interval} * * * *`;
+          const { error: schedErr } = await supabase.rpc("schedule_email_sync", {
+            cron_expr: cronExpr,
+            function_url: `${SUPABASE_URL}/functions/v1/fetch-emails`,
+            auth_key: ANON_KEY,
+          });
+          if (schedErr) throw schedErr;
+          console.log(`[cron] Scheduled email sync every ${interval} minutes`);
+        } else {
+          console.log("[cron] Disabled email sync cron");
+        }
+
+        // Save config to app_settings for UI state persistence
+        await supabase.from("app_settings").upsert({
+          key: "cron_config",
+          value: { active: enabled, interval },
+        }, { onConflict: "key" });
+
+        return new Response(JSON.stringify({ success: true, active: enabled, interval }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("[cron] Toggle error:", msg);
+        return new Response(JSON.stringify({ success: false, error: msg }), {
+          status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
 
     let filterSignInCodes = false;
     let filterPasswordResets = true;
