@@ -1,15 +1,17 @@
 /**
- * Cloudflare Worker — Email Cache Proxy (Security Hardened)
+ * Cloudflare Worker — Email Cache Proxy
  * 
+ * Features:
  * - Validates session tokens (HMAC-SHA256)
- * - Passes user's assigned accounts to backend
- * - Forwards real errors instead of masking them
+ * - Multi-KV namespace support (EMAIL_CACHE_V2 -> EMAIL_CACHE fallback)
+ * - Cron/scheduled sync support
+ * - Proper error logging for KV failures
  * 
  * Environment Variables:
  *   SUPABASE_URL, SUPABASE_KEY, SESSION_SECRET
  * 
- * KV Namespace Binding:
- *   EMAIL_CACHE
+ * KV Namespace Bindings:
+ *   EMAIL_CACHE (primary), EMAIL_CACHE_V2 (optional secondary)
  */
 
 const CORS_HEADERS = {
@@ -22,6 +24,45 @@ const CACHE_KEY = "emails_list";
 const CACHE_TIMESTAMP_KEY = "emails_timestamp";
 const STALE_SECONDS = 3;
 
+// --- KV helpers: use V2 if available, fallback to V1 ---
+function getKV(env) {
+  return env.EMAIL_CACHE_V2 || env.EMAIL_CACHE || null;
+}
+
+async function kvGet(env, key) {
+  const kv = getKV(env);
+  if (!kv) return null;
+  try {
+    return await kv.get(key);
+  } catch (err) {
+    console.error(`KV read error (key=${key}):`, err.message || err);
+    return null;
+  }
+}
+
+async function kvPut(env, key, value) {
+  const kv = getKV(env);
+  if (!kv) return false;
+  try {
+    await kv.put(key, value);
+    return true;
+  } catch (err) {
+    console.error(`KV write error (key=${key}):`, err.message || err);
+    // Try the other KV if V2 failed
+    if (env.EMAIL_CACHE_V2 && env.EMAIL_CACHE) {
+      try {
+        await env.EMAIL_CACHE.put(key, value);
+        console.log(`KV fallback write succeeded for key=${key}`);
+        return true;
+      } catch (err2) {
+        console.error(`KV fallback write also failed:`, err2.message || err2);
+      }
+    }
+    return false;
+  }
+}
+
+// --- Session verification ---
 async function verifySessionToken(token, secret) {
   try {
     const [dataB64, sigHex] = token.split(".");
@@ -54,15 +95,11 @@ function mergeEmailPayloads(existingRaw, incomingRaw) {
   const existingEmails = parseEmailList(existingRaw);
   const incomingEmails = parseEmailList(incomingRaw);
 
-  if (!existingEmails || !incomingEmails) {
-    return null;
-  }
+  if (!existingEmails || !incomingEmails) return null;
 
   const emailMap = new Map();
   for (const email of [...incomingEmails, ...existingEmails]) {
-    if (email?.id) {
-      emailMap.set(email.id, email);
-    }
+    if (email?.id) emailMap.set(email.id, email);
   }
 
   return JSON.stringify(
@@ -72,7 +109,7 @@ function mergeEmailPayloads(existingRaw, incomingRaw) {
   );
 }
 
-
+// --- Main handler ---
 export default {
   async fetch(request, env) {
     if (request.method === "OPTIONS") {
@@ -80,7 +117,6 @@ export default {
     }
 
     const url = new URL(request.url);
-    // Get the raw session token from the request header (forward as-is)
     const sessionToken = request.headers.get("X-Session-Token") || request.headers.get("x-session-token");
     let session = null;
 
@@ -110,10 +146,57 @@ export default {
 
     return new Response("Not Found", { status: 404, headers: CORS_HEADERS });
   },
+
+  // Cron/scheduled handler — triggers an IMAP sync automatically
+  async scheduled(event, env, ctx) {
+    console.log("[cron] Scheduled sync triggered at", new Date().toISOString());
+    try {
+      const headers = {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${env.SUPABASE_KEY}`,
+        "apikey": env.SUPABASE_KEY,
+      };
+
+      const res = await fetch(`${env.SUPABASE_URL}/functions/v1/fetch-emails`, {
+        method: "POST", headers, body: JSON.stringify({ mode: "sync" }),
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        console.error("[cron] Sync failed:", res.status, text);
+        return;
+      }
+
+      const data = await res.text();
+      console.log("[cron] Sync completed, updating cache");
+
+      // Update cache for "all" users
+      const cacheKey = `${CACHE_KEY}:all`;
+      const tsKey = `${CACHE_TIMESTAMP_KEY}:all`;
+
+      // Fetch fresh cache to store
+      const cacheRes = await fetch(`${env.SUPABASE_URL}/functions/v1/fetch-emails`, {
+        method: "POST", headers, body: JSON.stringify({ mode: "cache" }),
+      });
+
+      if (cacheRes.ok) {
+        const cacheData = await cacheRes.text();
+        await Promise.all([
+          kvPut(env, cacheKey, cacheData),
+          kvPut(env, tsKey, Date.now().toString()),
+        ]);
+        console.log("[cron] Cache updated successfully");
+      }
+    } catch (err) {
+      console.error("[cron] Error:", err);
+    }
+  },
 };
 
 async function handleGetEmails(env, session, rawToken) {
-  if (!env.EMAIL_CACHE) {
+  const hasKV = !!getKV(env);
+
+  if (!hasKV) {
     return fetchDirectFromSupabase(env, session, rawToken);
   }
 
@@ -122,31 +205,27 @@ async function handleGetEmails(env, session, rawToken) {
   const tsKey = `${CACHE_TIMESTAMP_KEY}:${userAccountsKey}`;
 
   const [cached, timestamp] = await Promise.all([
-    env.EMAIL_CACHE.get(cacheKey),
-    env.EMAIL_CACHE.get(tsKey),
+    kvGet(env, cacheKey),
+    kvGet(env, tsKey),
   ]);
 
   const now = Date.now();
   const age = timestamp ? (now - parseInt(timestamp)) / 1000 : Infinity;
 
   if (!cached) {
-    // No cache — fetch directly and return real result (including errors)
     const result = await fetchDirectFromSupabase(env, session, rawToken);
-    // Also populate cache if successful
     if (result.status === 200) {
       const body = await result.clone().text();
-      if (env.EMAIL_CACHE) {
-        await Promise.all([
-          env.EMAIL_CACHE.put(cacheKey, body),
-          env.EMAIL_CACHE.put(tsKey, now.toString()),
-        ]);
-      }
+      await Promise.all([
+        kvPut(env, cacheKey, body),
+        kvPut(env, tsKey, now.toString()),
+      ]);
     }
     return result;
   }
 
   if (age > STALE_SECONDS) {
-    await env.EMAIL_CACHE.put(tsKey, now.toString());
+    await kvPut(env, tsKey, now.toString());
     refreshFromSupabase(env, session, rawToken, cacheKey, tsKey).catch(err => console.error("BG refresh error:", err));
   }
 
@@ -162,10 +241,7 @@ async function handleSync(env, session, rawToken) {
       "Authorization": `Bearer ${env.SUPABASE_KEY}`,
       "apikey": env.SUPABASE_KEY,
     };
-    // Forward the raw signed session token so backend can verify it
-    if (rawToken) {
-      headers["X-Session-Token"] = rawToken;
-    }
+    if (rawToken) headers["X-Session-Token"] = rawToken;
 
     const res = await fetch(`${env.SUPABASE_URL}/functions/v1/fetch-emails`, {
       method: "POST", headers, body: JSON.stringify({ mode: "sync" }),
@@ -184,21 +260,14 @@ async function handleSync(env, session, rawToken) {
       });
     }
 
-    if (env.EMAIL_CACHE) {
+    // Update KV cache after successful sync
+    if (getKV(env)) {
       const userAccountsKey = session?.assignedAccounts ? JSON.stringify(session.assignedAccounts.sort()) : "all";
       const cacheKey = `${CACHE_KEY}:${userAccountsKey}`;
       const tsKey = `${CACHE_TIMESTAMP_KEY}:${userAccountsKey}`;
-      const existingCached = await env.EMAIL_CACHE.get(cacheKey);
-      const mergedPayload = mergeEmailPayloads(existingCached, responseText);
 
-      if (mergedPayload) {
-        await Promise.all([
-          env.EMAIL_CACHE.put(cacheKey, mergedPayload),
-          env.EMAIL_CACHE.put(tsKey, Date.now().toString()),
-        ]);
-      } else {
-        await refreshFromSupabase(env, session, rawToken, cacheKey, tsKey);
-      }
+      // Fetch fresh cache data since sync response may contain extra metadata
+      await refreshFromSupabase(env, session, rawToken, cacheKey, tsKey);
     }
 
     return new Response(responseText, {
@@ -216,7 +285,9 @@ async function handleDebug(env) {
     has_supabase_url: !!env.SUPABASE_URL,
     has_supabase_key: !!env.SUPABASE_KEY,
     has_session_secret: !!env.SESSION_SECRET,
-    has_kv_binding: !!env.EMAIL_CACHE,
+    has_kv_v1: !!env.EMAIL_CACHE,
+    has_kv_v2: !!env.EMAIL_CACHE_V2,
+    active_kv: env.EMAIL_CACHE_V2 ? "V2" : env.EMAIL_CACHE ? "V1" : "none",
     timestamp: new Date().toISOString(),
   };
   return new Response(JSON.stringify(info, null, 2), {
@@ -236,10 +307,7 @@ async function fetchDirectFromSupabase(env, session, rawToken) {
       "Authorization": `Bearer ${env.SUPABASE_KEY}`,
       "apikey": env.SUPABASE_KEY,
     };
-    // Forward the real signed token
-    if (rawToken) {
-      headers["X-Session-Token"] = rawToken;
-    }
+    if (rawToken) headers["X-Session-Token"] = rawToken;
 
     const res = await fetch(`${env.SUPABASE_URL}/functions/v1/fetch-emails`, {
       method: "POST", headers, body: JSON.stringify(bodyPayload),
@@ -247,15 +315,8 @@ async function fetchDirectFromSupabase(env, session, rawToken) {
 
     const data = await res.text();
 
-    if (!res.ok) {
-      // Return real error instead of masking it
-      return new Response(data, {
-        status: res.status,
-        headers: { ...CORS_HEADERS, "Content-Type": "application/json", "X-Cache": "bypass" },
-      });
-    }
-
     return new Response(data, {
+      status: res.status,
       headers: { ...CORS_HEADERS, "Content-Type": "application/json", "X-Cache": "bypass" },
     });
   } catch (err) {
@@ -277,9 +338,7 @@ async function refreshFromSupabase(env, session, rawToken, cacheKey, tsKey) {
       "Authorization": `Bearer ${env.SUPABASE_KEY}`,
       "apikey": env.SUPABASE_KEY,
     };
-    if (rawToken) {
-      headers["X-Session-Token"] = rawToken;
-    }
+    if (rawToken) headers["X-Session-Token"] = rawToken;
 
     const res = await fetch(`${env.SUPABASE_URL}/functions/v1/fetch-emails`, {
       method: "POST", headers, body: JSON.stringify(bodyPayload),
@@ -291,13 +350,10 @@ async function refreshFromSupabase(env, session, rawToken, cacheKey, tsKey) {
     }
 
     const data = await res.text();
-
-    if (env.EMAIL_CACHE) {
-      await Promise.all([
-        env.EMAIL_CACHE.put(cacheKey, data),
-        env.EMAIL_CACHE.put(tsKey, Date.now().toString()),
-      ]);
-    }
+    await Promise.all([
+      kvPut(env, cacheKey, data),
+      kvPut(env, tsKey, Date.now().toString()),
+    ]);
   } catch (err) {
     console.error("Refresh from Supabase error:", err);
   }
