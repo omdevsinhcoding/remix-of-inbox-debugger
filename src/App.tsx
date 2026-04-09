@@ -1,10 +1,11 @@
 import React, { useState, useEffect, createContext, useContext, useCallback } from "react";
-import { Mail, RefreshCw, ShieldCheck, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, KeyRound, Filter, Server, BarChart3, Globe, Edit, Database, Wifi } from "lucide-react";
+import { Mail, RefreshCw, ShieldCheck, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, BarChart3, Globe, Edit, Database, Wifi } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { Toaster, toast } from "sonner";
 import ReCAPTCHA from "react-google-recaptcha";
 import { supabase as supabaseClient } from "@/src/integrations/supabase/client";
+import { QRCodeSVG } from "qrcode.react";
 
 // --- API Helper ---
 
@@ -22,14 +23,6 @@ function getApiKey(): string {
     throw new Error("Backend not configured. Set VITE_SUPABASE_PUBLISHABLE_KEY in your environment.");
   }
   return key;
-}
-
-function getCloudflareWorkerUrl(): string | null {
-  try {
-    const url = import.meta.env.VITE_CLOUDFLARE_WORKER_URL;
-    if (!url || url === "undefined" || url === "null") return null;
-    return url;
-  } catch { return null; }
 }
 
 function getSessionToken(): string | null {
@@ -68,7 +61,6 @@ async function apiCall(functionName: string, body: any) {
     throw new Error(data?.error || `Request failed with status ${res.status}`);
   }
 
-  // Auto-store session token from login
   if (data.sessionToken) {
     localStorage.setItem("session_token", data.sessionToken);
   }
@@ -136,6 +128,24 @@ interface Email {
 }
 interface UserData {
   id: string; username: string; name: string; role: "admin" | "user"; totpSecret?: string; mustChangePassword?: boolean; assignedAccounts?: string[] | null;
+}
+
+// --- Password Toggle Helper ---
+function PasswordInput({ value, onChange, placeholder, className, autoFocus, required }: {
+  value: string; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  placeholder?: string; className?: string; autoFocus?: boolean; required?: boolean;
+}) {
+  const [show, setShow] = useState(false);
+  return (
+    <div className="relative">
+      <input type={show ? "text" : "password"} value={value} onChange={onChange}
+        placeholder={placeholder} className={className} autoFocus={autoFocus} required={required} />
+      <button type="button" onClick={() => setShow(!show)}
+        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors p-1">
+        {show ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+      </button>
+    </div>
+  );
 }
 
 // --- Profile Colors ---
@@ -240,7 +250,7 @@ function ProfileSelectPage() {
         await apiCall("send-login-notification", {
           username: data.user.username, name: data.user.name, status: "success", lat: loc.lat, lon: loc.lon,
         });
-      } catch {}
+      } catch { }
 
       navigate("/viewer");
     } catch (err) {
@@ -313,9 +323,9 @@ function ProfileSelectPage() {
 
             <form onSubmit={initiateLogin} className="space-y-4">
               <div className="relative">
-                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 w-5 h-5" />
-                <input type="password" value={password} onChange={(e) => setPassword(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-700 text-white rounded-2xl py-4 pl-12 pr-4 focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all outline-none placeholder:text-slate-600"
+                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 w-5 h-5 z-10" />
+                <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 text-white rounded-2xl py-4 pl-12 pr-12 focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all outline-none placeholder:text-slate-600"
                   placeholder="Enter password" autoFocus required />
               </div>
 
@@ -359,7 +369,7 @@ function AdminLoginPage() {
       try {
         const data = await apiCall("manage-app", { action: "get_settings", key: "recaptcha" });
         if (data.value?.enabled === true && data.value?.siteKey) setSiteKey(data.value.siteKey);
-      } catch {}
+      } catch { }
     })();
   }, []);
 
@@ -386,7 +396,7 @@ function AdminLoginPage() {
         await apiCall("send-login-notification", {
           username: data.user.username, name: data.user.name, status: "success", lat: loc.lat, lon: loc.lon,
         });
-      } catch {}
+      } catch { }
 
       toast.success("Login successful. Proceeding to 2FA.");
       navigate("/admin-auth");
@@ -424,9 +434,9 @@ function AdminLoginPage() {
           <div>
             <label className="block text-xs font-bold text-slate-400 uppercase mb-2 ml-1">Admin Password</label>
             <div className="relative">
-              <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
-              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 pl-12 pr-4 focus:ring-2 focus:ring-red-500 transition-all outline-none"
+              <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5 z-10" />
+              <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)}
+                className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 pl-12 pr-12 focus:ring-2 focus:ring-red-500 transition-all outline-none"
                 placeholder="••••••••" required />
             </div>
           </div>
@@ -610,190 +620,9 @@ function AdminAuthPage() {
   );
 }
 
-// ==================== CRON MANAGER SECTION ====================
-function CronManagerSection() {
-  const [cronActive, setCronActive] = useState(false);
-  const [cronInterval, setCronInterval] = useState(3);
-  const [cronLoading, setCronLoading] = useState(true);
-  const [cronToggling, setCronToggling] = useState(false);
-  const [lastSync, setLastSync] = useState<string | null>(null);
-  const [showAdvanced, setShowAdvanced] = useState(false);
-
-  const loadCronStatus = useCallback(async () => {
-    try {
-      const res = await apiCall("fetch-emails", { mode: "cron_status" });
-      setCronActive(res.active || false);
-      setCronInterval(res.interval || 3);
-      if (res.lastSync) setLastSync(res.lastSync);
-    } catch {
-      // Fallback: not configured
-    } finally {
-      setCronLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    loadCronStatus();
-    // Also fetch last sync time from cached_emails
-    (async () => {
-      try {
-        const res = await fetch(`${getApiBase()}/rest/v1/cached_emails?select=cached_at&order=cached_at.desc&limit=1`, {
-          headers: { "apikey": getApiKey(), "Authorization": `Bearer ${getApiKey()}` },
-        });
-        const data = await res.json();
-        if (data?.[0]?.cached_at) setLastSync(data[0].cached_at);
-      } catch {}
-    })();
-  }, [loadCronStatus]);
-
-  const toggleCron = async (enabled: boolean) => {
-    setCronToggling(true);
-    try {
-      const res = await apiCall("fetch-emails", {
-        mode: "cron_toggle",
-        enabled,
-        interval: cronInterval,
-      });
-      if (res.success) {
-        setCronActive(res.active);
-        toast.success(enabled ? `Auto-sync enabled (every ${cronInterval} min)` : "Auto-sync disabled");
-      } else {
-        toast.error(res.error || "Failed to toggle cron");
-      }
-    } catch (err) {
-      toast.error("Failed to toggle auto-sync");
-    } finally {
-      setCronToggling(false);
-    }
-  };
-
-  const updateInterval = async (newInterval: number) => {
-    setCronInterval(newInterval);
-    if (cronActive) {
-      setCronToggling(true);
-      try {
-        const res = await apiCall("fetch-emails", {
-          mode: "cron_toggle",
-          enabled: true,
-          interval: newInterval,
-        });
-        if (res.success) {
-          toast.success(`Sync interval updated to every ${newInterval} minutes`);
-        }
-      } catch {
-        toast.error("Failed to update interval");
-      } finally {
-        setCronToggling(false);
-      }
-    }
-  };
-
-  return (
-    <section className="lg:col-span-2 bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
-      <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
-        <div className="bg-green-50 p-1.5 rounded-lg"><Clock className="w-4 h-4 text-green-600" /></div>
-        Automatic Email Sync
-      </h2>
-
-      {cronLoading ? (
-        <div className="flex items-center gap-2 text-sm text-slate-500">
-          <RefreshCw className="w-4 h-4 animate-spin" /> Loading cron status...
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {/* Status + Toggle */}
-          <div className="flex items-center justify-between bg-slate-50 p-4 rounded-xl">
-            <div>
-              <p className="font-bold text-sm text-slate-900">
-                {cronActive ? "✅ Auto-sync is active" : "⏸️ Auto-sync is disabled"}
-              </p>
-              <p className="text-xs text-slate-500 mt-1">
-                {cronActive
-                  ? `Emails sync automatically every ${cronInterval} minutes via Supabase cron`
-                  : "Enable to automatically fetch new emails on a schedule"}
-              </p>
-              {lastSync && (
-                <p className="text-xs text-slate-400 mt-1">
-                  Last sync: {new Date(lastSync).toLocaleString()}
-                </p>
-              )}
-            </div>
-            <button
-              onClick={() => toggleCron(!cronActive)}
-              disabled={cronToggling}
-              className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors ${
-                cronActive
-                  ? "bg-red-100 text-red-700 hover:bg-red-200"
-                  : "bg-green-100 text-green-700 hover:bg-green-200"
-              } disabled:opacity-50`}
-            >
-              {cronToggling ? "..." : cronActive ? "Disable" : "Enable"}
-            </button>
-          </div>
-
-          {/* Interval Selector */}
-          <div>
-            <p className="text-sm font-bold text-slate-700 mb-2">Sync Interval</p>
-            <div className="flex gap-2">
-              {[1, 3, 5, 10].map((min) => (
-                <button
-                  key={min}
-                  onClick={() => updateInterval(min)}
-                  disabled={cronToggling}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
-                    cronInterval === min
-                      ? "bg-green-600 text-white"
-                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                  } disabled:opacity-50`}
-                >
-                  {min} min
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Advanced / Manual Instructions */}
-          <div>
-            <button
-              onClick={() => setShowAdvanced(!showAdvanced)}
-              className="text-xs text-slate-400 hover:text-slate-600 flex items-center gap-1"
-            >
-              {showAdvanced ? "▼" : "▶"} Advanced / Manual Setup
-            </button>
-            {showAdvanced && (
-              <div className="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div className="space-y-3 text-sm text-slate-600">
-                  <p className="font-bold text-slate-900">Cloudflare Worker Cron (backup)</p>
-                  <p className="text-xs">Edit <code className="bg-slate-100 px-1 rounded">wrangler.toml</code> and uncomment:</p>
-                  <div className="bg-slate-900 text-green-400 p-4 rounded-xl font-mono text-xs space-y-1 overflow-x-auto">
-                    <p>[triggers]</p>
-                    <p>crons = ["*/5 * * * *"]</p>
-                  </div>
-                  <p className="text-xs text-slate-500">Then redeploy: <code className="bg-slate-100 px-1 rounded">npx wrangler deploy</code></p>
-                </div>
-                <div className="space-y-3 text-sm text-slate-600">
-                  <p className="font-bold text-slate-900">External Cron (curl)</p>
-                  <p className="text-xs">Call the sync endpoint on a schedule:</p>
-                  <div className="bg-slate-900 text-green-400 p-4 rounded-xl font-mono text-xs space-y-1 overflow-x-auto">
-                    <p>curl -X POST \</p>
-                    <p>  YOUR_SUPABASE_URL/functions/v1/fetch-emails \</p>
-                    <p>  -H "Authorization: Bearer ANON_KEY" \</p>
-                    <p>  -H "Content-Type: application/json" \</p>
-                    <p>  -d '{`{"mode":"sync"}`}'</p>
-                  </div>
-                  <p className="text-xs text-slate-500">Use cron-job.org, GitHub Actions, or any scheduler.</p>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-    </section>
-  );
-}
-
+// ==================== ADMIN PANEL ====================
 function AdminPanel() {
-  const [activeTab, setActiveTab] = useState<"users" | "security" | "emails" | "settings" | "infra">("users");
+  const [activeTab, setActiveTab] = useState<"users" | "security" | "emails" | "settings">("users");
   const [users, setUsers] = useState<UserData[]>([]);
   const [newUsername, setNewUsername] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -815,20 +644,17 @@ function AdminPanel() {
     TELEGRAM_BOT_TOKEN: "", TELEGRAM_CHAT_ID: "", IMAP_HOST: "", IMAP_PORT: "", IMAP_USER: "", IMAP_PASSWORD: "",
   });
   const [savingConfig, setSavingConfig] = useState(false);
-  const [emailAccounts, setEmailAccounts] = useState<Array<{ label: string; host: string; port: string; user: string; password: string; cloudflareUrl: string }>>([]);
-  const [newAccount, setNewAccount] = useState({ label: "", host: "imap.gmail.com", port: "993", user: "", password: "", cloudflareUrl: "" });
+  const [emailAccounts, setEmailAccounts] = useState<Array<{ label: string; host: string; port: string; user: string; password: string; cloudflareUrls: string[] }>>([]);
+  const [newAccount, setNewAccount] = useState({ label: "", host: "imap.gmail.com", port: "993", user: "", password: "" });
+  const [newAccountCfUrls, setNewAccountCfUrls] = useState<string[]>([]);
+  const [newAccountCfInput, setNewAccountCfInput] = useState("");
   const [savingAccounts, setSavingAccounts] = useState(false);
-  // Infrastructure state
-  const [workerUrls, setWorkerUrls] = useState<string[]>([]);
-  const [newWorkerUrl, setNewWorkerUrl] = useState("");
-  const [savingInfra, setSavingInfra] = useState(false);
   const [expandedAccount, setExpandedAccount] = useState<number | null>(null);
   const navigate = useNavigate();
   const { user: currentUser, checkAuth } = useAuth();
 
   const [stats, setStats] = useState({ totalUsers: 0, totalEmails: 0 });
 
-  // Get all available account labels for assignment
   const getAvailableAccounts = (): string[] => {
     const labels = ["Primary"];
     emailAccounts.forEach(acc => {
@@ -844,7 +670,7 @@ function AdminPanel() {
         const usersList = usersData.users || [];
         setUsers(usersList);
         setStats(prev => ({ ...prev, totalUsers: usersList.length }));
-      } catch {}
+      } catch { }
 
       try {
         const recaptcha = await apiCall("manage-app", { action: "get_settings", key: "recaptcha" });
@@ -853,7 +679,7 @@ function AdminPanel() {
           setSecretKeyVal(recaptcha.value.secretKey || "");
           setCaptchaEnabled(recaptcha.value.enabled === true);
         }
-      } catch {}
+      } catch { }
 
       try {
         const config = await apiCall("manage-app", { action: "get_settings", key: "config" });
@@ -868,7 +694,7 @@ function AdminPanel() {
             IMAP_PASSWORD: c.IMAP_PASSWORD || "",
           });
         }
-      } catch {}
+      } catch { }
 
       try {
         const filters = await apiCall("manage-app", { action: "get_settings", key: "email_filters" });
@@ -876,46 +702,31 @@ function AdminPanel() {
           setShowSignInCodes(filters.value.showSignInCodes !== false);
           setShowPasswordResets(filters.value.showPasswordResets === true);
         }
-      } catch {}
+      } catch { }
 
       try {
         const accounts = await apiCall("manage-app", { action: "get_settings", key: "email_accounts" });
         if (accounts.value && Array.isArray(accounts.value)) {
-          setEmailAccounts(accounts.value);
-        }
-      } catch {}
-
-      // Load worker URLs
-      try {
-        const wUrls = await apiCall("manage-app", { action: "get_settings", key: "worker_urls" });
-        if (wUrls.value && Array.isArray(wUrls.value)) setWorkerUrls(wUrls.value);
-      } catch {}
-
-      try {
-        // Use dynamic worker URL from email accounts if available
-        let cfUrl = getCloudflareWorkerUrl();
-        if (emailAccounts.length > 0) {
-          const accWithUrl = emailAccounts.find(a => a.cloudflareUrl && a.cloudflareUrl.trim());
-          if (accWithUrl) cfUrl = accWithUrl.cloudflareUrl.trim().replace(/\/+$/, "");
-        }
-        const token = getSessionToken();
-        let res: Response;
-        if (cfUrl) {
-          const headers: Record<string, string> = {};
-          if (token) headers["X-Session-Token"] = token;
-          res = await fetch(`${cfUrl}/api/emails`, { headers });
-        } else {
-          res = await fetch(`${getApiBase()}/functions/v1/fetch-emails`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${getApiKey()}`, "apikey": getApiKey() },
-            body: JSON.stringify({ mode: "cache" }),
+          const migrated = accounts.value.map((acc: any) => {
+            if (acc.cloudflareUrls && Array.isArray(acc.cloudflareUrls)) return acc;
+            const urls: string[] = [];
+            if (acc.cloudflareUrl && acc.cloudflareUrl.trim()) urls.push(acc.cloudflareUrl.trim());
+            const { cloudflareUrl, ...rest } = acc;
+            return { ...rest, cloudflareUrls: urls };
           });
+          setEmailAccounts(migrated);
         }
+      } catch { }
+
+      try {
+        const res = await fetch(`${getApiBase()}/rest/v1/cached_emails?select=id&order=date.desc&limit=500`, {
+          headers: { "apikey": getApiKey(), "Authorization": `Bearer ${getApiKey()}` },
+        });
         if (res.ok) {
           const data = await res.json();
           if (Array.isArray(data)) setStats(prev => ({ ...prev, totalEmails: data.length }));
         }
-      } catch {}
+      } catch { }
     })();
   }, []);
 
@@ -924,7 +735,6 @@ function AdminPanel() {
       const newEnabled = !captchaEnabled;
       if (newEnabled && (!siteKey || !secretKeyVal)) { toast.error("Enter both Site Key and Secret Key first"); return; }
       await apiCall("manage-app", { action: "set_settings", key: "recaptcha", value: { siteKey, secretKey: secretKeyVal, enabled: newEnabled } });
-      // Re-read from backend to confirm
       const fresh = await apiCall("manage-app", { action: "get_settings", key: "recaptcha" });
       setCaptchaEnabled(fresh.value?.enabled === true);
       setSiteKey(fresh.value?.siteKey || "");
@@ -1012,21 +822,14 @@ function AdminPanel() {
 
   const loginAsUser = async (targetUser: UserData) => {
     try {
-      // Get impersonation token from backend FIRST
       const data = await apiCall("manage-app", { action: "impersonate", target_user_id: targetUser.id });
-
-      // Store admin session backup
       const adminUser = localStorage.getItem("user");
       const adminToken = localStorage.getItem("session_token");
       const adminAuth = localStorage.getItem("admin_auth");
       localStorage.setItem("admin_backup", JSON.stringify({ user: adminUser, token: adminToken, adminAuth }));
-
-      // Set impersonated user state
       localStorage.setItem("user", JSON.stringify(data.user));
       if (data.sessionToken) localStorage.setItem("session_token", data.sessionToken);
       localStorage.removeItem("admin_auth");
-
-      // Navigate atomically — use window.location to avoid route guard race
       toast.success(`Viewing as ${targetUser.name}`);
       window.location.href = "/viewer";
     } catch (err) {
@@ -1064,9 +867,11 @@ function AdminPanel() {
     if (!newAccount.label || !newAccount.user || !newAccount.password) {
       toast.error("Fill label, email, and password"); return;
     }
-    const updated = [...emailAccounts, { ...newAccount }];
+    const updated = [...emailAccounts, { ...newAccount, cloudflareUrls: [...newAccountCfUrls] }];
     setEmailAccounts(updated);
-    setNewAccount({ label: "", host: "imap.gmail.com", port: "993", user: "", password: "", cloudflareUrl: "" });
+    setNewAccount({ label: "", host: "imap.gmail.com", port: "993", user: "", password: "" });
+    setNewAccountCfUrls([]);
+    setNewAccountCfInput("");
     try {
       await apiCall("manage-app", { action: "set_settings", key: "email_accounts", value: updated });
       toast.success("Email account added!");
@@ -1102,7 +907,6 @@ function AdminPanel() {
     { id: "users" as const, label: "Users", icon: Users },
     { id: "security" as const, label: "Security", icon: ShieldCheck },
     { id: "emails" as const, label: "Email Accounts", icon: Mail },
-    { id: "infra" as const, label: "Infrastructure", icon: Database },
     { id: "settings" as const, label: "Settings", icon: Settings },
   ];
 
@@ -1123,7 +927,6 @@ function AdminPanel() {
         </div>
       </header>
 
-      {/* Stats Bar */}
       <div className="max-w-6xl mx-auto px-3 sm:px-6 pt-4 sm:pt-6">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div className="bg-white rounded-2xl border p-4 flex items-center gap-3">
@@ -1145,7 +948,6 @@ function AdminPanel() {
         </div>
       </div>
 
-      {/* Tab Navigation */}
       <div className="max-w-6xl mx-auto px-3 sm:px-6 pt-4 sm:pt-6">
         <div className="flex gap-1 bg-white rounded-2xl border p-1.5 overflow-x-auto">
           {tabs.map(tab => (
@@ -1161,10 +963,8 @@ function AdminPanel() {
       </div>
 
       <main className="max-w-6xl mx-auto p-3 sm:p-6 pt-4 sm:pt-6">
-        {/* ===== USERS TAB ===== */}
         {activeTab === "users" && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
-            {/* Create User */}
             <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
               <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
                 <div className="bg-green-50 p-1.5 rounded-lg"><Plus className="w-4 h-4 text-green-600" /></div>
@@ -1175,10 +975,10 @@ function AdminPanel() {
                   className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
                 <input type="text" placeholder="Username" value={newUsername} onChange={(e) => setNewUsername(e.target.value)}
                   className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
-                <input type="password" placeholder="Password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)}
-                  className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                <PasswordInput value={newPassword} onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="Password"
+                  className="w-full bg-slate-50 border rounded-xl p-3 pr-12 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
 
-                {/* IMAP Account Assignment */}
                 <div>
                   <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Assign IMAP Accounts</label>
                   <div className="space-y-1.5">
@@ -1204,7 +1004,6 @@ function AdminPanel() {
               </div>
             </section>
 
-            {/* Users List */}
             <section className="lg:col-span-2 bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
               <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
                 <div className="bg-blue-50 p-1.5 rounded-lg"><Users className="w-4 h-4 text-blue-600" /></div>
@@ -1256,7 +1055,6 @@ function AdminPanel() {
                       )}
                     </div>
 
-                    {/* Edit Assigned Accounts */}
                     {editingUserAccounts === u.id && u.role !== "admin" && (
                       <div className="mt-3 p-3 bg-white rounded-xl border">
                         <p className="text-xs font-bold text-slate-500 mb-2">Assign IMAP Accounts</p>
@@ -1282,8 +1080,9 @@ function AdminPanel() {
 
                     {changingUserPass === u.id && u.role !== "admin" && (
                       <div className="mt-3 flex gap-2">
-                        <input type="password" placeholder="New password (min 6)" value={userNewPass} onChange={(e) => setUserNewPass(e.target.value)}
-                          className="flex-1 bg-white border rounded-lg p-2 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                        <PasswordInput value={userNewPass} onChange={(e) => setUserNewPass(e.target.value)}
+                          placeholder="New password (min 6)"
+                          className="flex-1 bg-white border rounded-lg p-2 pr-10 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
                         <button onClick={() => changeUserPassword(u.id)}
                           className="px-4 py-2 bg-red-600 text-white text-xs font-bold rounded-lg hover:bg-red-700 transition-all">
                           Save
@@ -1298,10 +1097,8 @@ function AdminPanel() {
           </div>
         )}
 
-        {/* ===== SECURITY TAB ===== */}
         {activeTab === "security" && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
-            {/* CAPTCHA */}
             <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="font-black text-base sm:text-lg flex items-center gap-2">
@@ -1322,8 +1119,9 @@ function AdminPanel() {
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Secret Key</label>
-                  <input type="password" placeholder="Enter Secret Key" value={secretKeyVal} onChange={(e) => setSecretKeyVal(e.target.value)}
-                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                  <PasswordInput value={secretKeyVal} onChange={(e) => setSecretKeyVal(e.target.value)}
+                    placeholder="Enter Secret Key"
+                    className="w-full bg-slate-50 border rounded-xl p-3 pr-12 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
                 </div>
                 <button onClick={saveRecaptchaSettings}
                   className="w-full bg-red-600 text-white font-bold py-3 rounded-xl hover:bg-red-700 transition-all text-sm">
@@ -1332,7 +1130,6 @@ function AdminPanel() {
               </div>
             </section>
 
-            {/* Email Filters */}
             <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
               <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
                 <div className="bg-purple-50 p-1.5 rounded-lg"><Filter className="w-4 h-4 text-purple-600" /></div>
@@ -1362,17 +1159,18 @@ function AdminPanel() {
               </div>
             </section>
 
-            {/* Change Admin Password */}
             <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
               <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
                 <div className="bg-amber-50 p-1.5 rounded-lg"><Key className="w-4 h-4 text-amber-600" /></div>
                 Change Admin Password
               </h2>
               <div className="space-y-3">
-                <input type="password" placeholder="Current Password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)}
-                  className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
-                <input type="password" placeholder="New Password" value={newAdminPassword} onChange={(e) => setNewAdminPassword(e.target.value)}
-                  className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                <PasswordInput value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)}
+                  placeholder="Current Password"
+                  className="w-full bg-slate-50 border rounded-xl p-3 pr-12 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                <PasswordInput value={newAdminPassword} onChange={(e) => setNewAdminPassword(e.target.value)}
+                  placeholder="New Password"
+                  className="w-full bg-slate-50 border rounded-xl p-3 pr-12 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
                 <button onClick={changeAdminPassword} disabled={changingPassword}
                   className="w-full bg-red-600 text-white font-bold py-3 rounded-xl hover:bg-red-700 transition-all disabled:opacity-50 text-sm">
                   {changingPassword ? "Changing..." : "Change Password"}
@@ -1382,10 +1180,8 @@ function AdminPanel() {
           </div>
         )}
 
-        {/* ===== EMAIL ACCOUNTS TAB ===== */}
         {activeTab === "emails" && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
-            {/* Add New Account */}
             <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
               <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
                 <div className="bg-green-50 p-1.5 rounded-lg"><Plus className="w-4 h-4 text-green-600" /></div>
@@ -1402,11 +1198,39 @@ function AdminPanel() {
                 </div>
                 <input type="text" placeholder="Email Address" value={newAccount.user} onChange={(e) => setNewAccount({ ...newAccount, user: e.target.value })}
                   className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
-                <input type="password" placeholder="App Password" value={newAccount.password} onChange={(e) => setNewAccount({ ...newAccount, password: e.target.value })}
-                  className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
-                <input type="text" placeholder="Cloudflare Worker URL (optional)" value={newAccount.cloudflareUrl} onChange={(e) => setNewAccount({ ...newAccount, cloudflareUrl: e.target.value })}
-                  className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
-                <p className="text-[10px] text-slate-400">If empty, uses default worker URL</p>
+                <PasswordInput value={newAccount.password} onChange={(e) => setNewAccount({ ...newAccount, password: e.target.value })}
+                  placeholder="App Password"
+                  className="w-full bg-slate-50 border rounded-xl p-3 pr-12 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Cloudflare Worker URLs</label>
+                  <div className="space-y-1.5 mb-2">
+                    {newAccountCfUrls.map((url, i) => (
+                      <div key={i} className="flex items-center gap-2 p-2 bg-slate-50 rounded-lg border">
+                        <Globe className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                        <span className="text-xs text-slate-700 flex-1 break-all">{url}</span>
+                        <button onClick={() => setNewAccountCfUrls(newAccountCfUrls.filter((_, idx) => idx !== i))}
+                          className="p-1 hover:bg-red-50 text-red-400 hover:text-red-600 rounded transition-colors">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex gap-2">
+                    <input type="text" placeholder="https://worker.workers.dev" value={newAccountCfInput}
+                      onChange={(e) => setNewAccountCfInput(e.target.value)}
+                      className="flex-1 bg-slate-50 border rounded-lg p-2 outline-none focus:ring-2 focus:ring-red-500 text-xs" />
+                    <button onClick={() => {
+                      if (!newAccountCfInput.trim()) return;
+                      setNewAccountCfUrls([...newAccountCfUrls, newAccountCfInput.trim().replace(/\/+$/, "")]);
+                      setNewAccountCfInput("");
+                    }} className="px-3 py-1.5 bg-slate-800 text-white text-xs font-bold rounded-lg hover:bg-slate-700">
+                      Add
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-1">Add multiple worker URLs for redundancy</p>
+                </div>
+
                 <button onClick={addEmailAccount}
                   className="w-full bg-slate-900 text-white font-bold py-3 rounded-xl hover:bg-slate-800 transition-all text-sm">
                   Add Account
@@ -1414,7 +1238,6 @@ function AdminPanel() {
               </div>
             </section>
 
-            {/* Existing Accounts */}
             <section className="lg:col-span-2 bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
               <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
                 <div className="bg-blue-50 p-1.5 rounded-lg"><Mail className="w-4 h-4 text-blue-600" /></div>
@@ -1422,7 +1245,6 @@ function AdminPanel() {
                 <span className="bg-slate-100 text-slate-600 text-xs px-2 py-0.5 rounded-full ml-auto">{emailAccounts.length + 1}</span>
               </h2>
 
-              {/* Primary Account (from Settings) */}
               <div
                 className={`p-4 rounded-2xl border mb-3 cursor-pointer transition-all ${expandedAccount === -1 ? "bg-green-100 border-green-300 shadow-md" : "bg-green-50 border-green-100 hover:border-green-200"}`}
                 onClick={() => setExpandedAccount(expandedAccount === -1 ? null : -1)}
@@ -1458,42 +1280,37 @@ function AdminPanel() {
                       </div>
                     </div>
                     <div>
-                      <p className="text-[10px] font-bold text-green-600 uppercase">Cloudflare Worker</p>
-                      <p className="text-sm text-green-900 font-medium break-all">{getCloudflareWorkerUrl() || "Not configured"}</p>
+                      <p className="text-[10px] font-bold text-green-600 uppercase">Configured via</p>
+                      <p className="text-sm text-green-900 font-medium">Settings tab</p>
                     </div>
-                    <p className="text-[10px] text-green-500 italic mt-1">⚙️ Edit this in the Settings tab</p>
                   </div>
                 )}
               </div>
 
               {emailAccounts.length === 0 ? (
-                <div className="text-center py-6">
-                  <p className="text-slate-400 text-sm">No additional accounts. Add one using the form.</p>
-                </div>
+                <p className="text-slate-400 text-sm text-center py-6">No additional accounts. Add one from the left panel.</p>
               ) : (
                 <div className="space-y-3">
                   {emailAccounts.map((acc, i) => (
-                    <div
-                      key={i}
+                    <div key={i}
                       className={`p-4 rounded-2xl border cursor-pointer transition-all ${expandedAccount === i ? "bg-blue-50 border-blue-200 shadow-md" : "bg-slate-50 border-slate-100 hover:border-slate-200"}`}
                       onClick={() => setExpandedAccount(expandedAccount === i ? null : i)}
                     >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className={`p-2 rounded-xl ${expandedAccount === i ? "bg-blue-200" : "bg-blue-100"}`}>
-                            <Server className="w-4 h-4 text-blue-600" />
-                          </div>
-                          <div>
-                            <p className="font-bold text-sm text-slate-900">{acc.label}</p>
-                            <p className="text-xs text-slate-500">{acc.user} • {acc.host}:{acc.port}</p>
-                          </div>
+                      <div className="flex items-center gap-3">
+                        <div className="bg-blue-100 p-2 rounded-xl">
+                          <Mail className="w-4 h-4 text-blue-600" />
                         </div>
-                        <div className="flex items-center gap-1">
-                          <Eye className={`w-4 h-4 transition-transform ${expandedAccount === i ? "text-blue-600" : "text-slate-400"}`} />
-                          <button onClick={(e) => { e.stopPropagation(); removeEmailAccount(i); }} className="p-2 hover:bg-red-50 text-red-400 hover:text-red-600 rounded-lg transition-colors">
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-bold text-sm text-slate-900">{acc.label}</p>
+                          <p className="text-xs text-slate-500 truncate">{acc.user} • {acc.host}:{acc.port}</p>
+                          {acc.cloudflareUrls && acc.cloudflareUrls.length > 0 && (
+                            <p className="text-[10px] text-orange-600 font-bold mt-0.5">{acc.cloudflareUrls.length} Worker URL{acc.cloudflareUrls.length > 1 ? "s" : ""}</p>
+                          )}
                         </div>
+                        <button onClick={(e) => { e.stopPropagation(); removeEmailAccount(i); }}
+                          className="p-2 hover:bg-red-50 text-red-400 hover:text-red-600 rounded-lg transition-colors">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
                       {expandedAccount === i && (
                         <div className="mt-4 pt-3 border-t border-blue-200 space-y-2">
@@ -1516,8 +1333,16 @@ function AdminPanel() {
                             </div>
                           </div>
                           <div>
-                            <p className="text-[10px] font-bold text-blue-500 uppercase">Cloudflare Worker URL</p>
-                            <p className="text-sm text-slate-800 font-medium break-all">{acc.cloudflareUrl || getCloudflareWorkerUrl() || "Not configured"}</p>
+                            <p className="text-[10px] font-bold text-blue-500 uppercase">Cloudflare Worker URLs</p>
+                            {acc.cloudflareUrls && acc.cloudflareUrls.length > 0 ? (
+                              <div className="space-y-1 mt-1">
+                                {acc.cloudflareUrls.map((url, ui) => (
+                                  <p key={ui} className="text-sm text-slate-800 font-medium break-all">• {url}</p>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-sm text-slate-400 font-medium">Not configured</p>
+                            )}
                           </div>
                           <div>
                             <p className="text-[10px] font-bold text-blue-500 uppercase">Label</p>
@@ -1533,58 +1358,8 @@ function AdminPanel() {
           </div>
         )}
 
-        {/* ===== INFRASTRUCTURE TAB ===== */}
-        {activeTab === "infra" && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
-            {/* Worker URLs */}
-            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
-              <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
-                <div className="bg-orange-50 p-1.5 rounded-lg"><Wifi className="w-4 h-4 text-orange-600" /></div>
-                Cloudflare Worker URLs
-              </h2>
-              <p className="text-xs text-slate-500 mb-3">Add multiple worker URLs. The app tries each one in order until one works.</p>
-              <div className="space-y-2 mb-3">
-                {workerUrls.map((url, i) => (
-                  <div key={i} className="flex items-center gap-2 p-3 bg-slate-50 rounded-xl border">
-                    <Globe className="w-4 h-4 text-slate-400 flex-shrink-0" />
-                    <span className="text-sm text-slate-700 flex-1 break-all">{url}</span>
-                    <button onClick={() => {
-                      const updated = workerUrls.filter((_, idx) => idx !== i);
-                      setWorkerUrls(updated);
-                      apiCall("manage-app", { action: "set_settings", key: "worker_urls", value: updated }).then(() => toast.success("Worker URL removed")).catch(() => toast.error("Failed to remove"));
-                    }} className="p-1.5 hover:bg-red-50 text-red-400 hover:text-red-600 rounded-lg transition-colors">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                ))}
-                {workerUrls.length === 0 && <p className="text-xs text-slate-400 text-center py-4">No worker URLs configured. Will use direct backend.</p>}
-              </div>
-              <div className="flex gap-2">
-                <input type="text" placeholder="https://your-worker.workers.dev" value={newWorkerUrl} onChange={(e) => setNewWorkerUrl(e.target.value)}
-                  className="flex-1 bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
-                <button onClick={async () => {
-                  if (!newWorkerUrl.trim()) return;
-                  const updated = [...workerUrls, newWorkerUrl.trim().replace(/\/+$/, "")];
-                  setWorkerUrls(updated);
-                  setNewWorkerUrl("");
-                  try {
-                    await apiCall("manage-app", { action: "set_settings", key: "worker_urls", value: updated });
-                    toast.success("Worker URL added!");
-                  } catch (err) { toast.error(err instanceof Error ? err.message : "Failed"); }
-                }} className="px-4 py-2 bg-slate-900 text-white text-sm font-bold rounded-xl hover:bg-slate-800 transition-all">
-                  Add
-                </button>
-              </div>
-            </section>
-
-
-            {/* Scheduled Sync (Cron) */}
-            <CronManagerSection />
-          </div>
-        )}
         {activeTab === "settings" && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
-            {/* Telegram */}
             <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
               <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
                 <div className="bg-blue-50 p-1.5 rounded-lg"><Server className="w-4 h-4 text-blue-600" /></div>
@@ -1594,9 +1369,10 @@ function AdminPanel() {
               <div className="space-y-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Bot Token</label>
-                  <input type="password" placeholder="e.g. 8575582532:AAE..." value={serverConfig.TELEGRAM_BOT_TOKEN}
+                  <PasswordInput value={serverConfig.TELEGRAM_BOT_TOKEN}
                     onChange={(e) => setServerConfig({ ...serverConfig, TELEGRAM_BOT_TOKEN: e.target.value })}
-                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                    placeholder="e.g. 8575582532:AAE..."
+                    className="w-full bg-slate-50 border rounded-xl p-3 pr-12 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Chat ID</label>
@@ -1607,7 +1383,6 @@ function AdminPanel() {
               </div>
             </section>
 
-            {/* IMAP */}
             <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
               <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
                 <div className="bg-red-50 p-1.5 rounded-lg"><Mail className="w-4 h-4 text-red-600" /></div>
@@ -1637,9 +1412,10 @@ function AdminPanel() {
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">App Password</label>
-                  <input type="password" placeholder="16-digit App Password" value={serverConfig.IMAP_PASSWORD}
+                  <PasswordInput value={serverConfig.IMAP_PASSWORD}
                     onChange={(e) => setServerConfig({ ...serverConfig, IMAP_PASSWORD: e.target.value })}
-                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                    placeholder="16-digit App Password"
+                    className="w-full bg-slate-50 border rounded-xl p-3 pr-12 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
                 </div>
               </div>
             </section>
@@ -1709,22 +1485,22 @@ function ChangePasswordModal({ user, onDone, forced = false }: { user: UserData;
         <form onSubmit={handleSubmit} className="space-y-3">
           {!forced && (
             <div className="relative">
-              <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
-              <input type="password" value={currentPass} onChange={(e) => setCurrentPass(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 pl-12 pr-4 focus:ring-2 focus:ring-purple-500 outline-none text-sm"
+              <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5 z-10" />
+              <PasswordInput value={currentPass} onChange={(e) => setCurrentPass(e.target.value)}
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 pl-12 pr-12 focus:ring-2 focus:ring-purple-500 outline-none text-sm"
                 placeholder="Current password" required autoFocus />
             </div>
           )}
           <div className="relative">
-            <Key className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
-            <input type="password" value={newPass} onChange={(e) => setNewPass(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 pl-12 pr-4 focus:ring-2 focus:ring-purple-500 outline-none text-sm"
+            <Key className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5 z-10" />
+            <PasswordInput value={newPass} onChange={(e) => setNewPass(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 pl-12 pr-12 focus:ring-2 focus:ring-purple-500 outline-none text-sm"
               placeholder="New password (min 6 chars)" required {...(forced ? { autoFocus: true } : {})} />
           </div>
           <div className="relative">
-            <ShieldCheck className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
-            <input type="password" value={confirmPass} onChange={(e) => setConfirmPass(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 pl-12 pr-4 focus:ring-2 focus:ring-purple-500 outline-none text-sm"
+            <ShieldCheck className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5 z-10" />
+            <PasswordInput value={confirmPass} onChange={(e) => setConfirmPass(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 pl-12 pr-12 focus:ring-2 focus:ring-purple-500 outline-none text-sm"
               placeholder="Confirm new password" required />
           </div>
           {error && (
@@ -1759,18 +1535,15 @@ function EmailViewer() {
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
   const [otpCopied, setOtpCopied] = useState(false);
-  const isFetchingRef = React.useRef(false);
   const navigate = useNavigate();
   const user = JSON.parse(localStorage.getItem("user") || "{}");
   const [showChangePassword, setShowChangePassword] = useState(!!user.mustChangePassword);
   const [forcedPasswordChange] = useState(!!user.mustChangePassword);
   const isImpersonating = !!localStorage.getItem("admin_backup");
 
-  const [syncing, setSyncing] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [resolvedWorkerUrls, setResolvedWorkerUrls] = useState<string[]>([]);
   const workerUrlLoaded = React.useRef(false);
-  const lastSyncTime = React.useRef(0);
 
   const backToAdmin = () => {
     try {
@@ -1786,93 +1559,78 @@ function EmailViewer() {
     }
   };
 
-  // Load dynamic worker URLs from DB settings on mount
   useEffect(() => {
     if (workerUrlLoaded.current) return;
     workerUrlLoaded.current = true;
     (async () => {
       const urls: string[] = [];
-      // 1. Check worker_urls setting (primary source)
       try {
-        const wData = await apiCall("manage-app", { action: "get_settings", key: "worker_urls" });
-        if (wData.value && Array.isArray(wData.value)) {
-          urls.push(...wData.value.map((u: string) => u.trim().replace(/\/+$/, "")));
-        }
-      } catch {}
-      // 2. Fallback: check email_accounts cloudflareUrl fields
-      if (urls.length === 0) {
-        try {
-          const data = await apiCall("manage-app", { action: "get_settings", key: "email_accounts" });
-          if (data.value && Array.isArray(data.value)) {
-            for (const acc of data.value) {
-              if (acc.cloudflareUrl && acc.cloudflareUrl.trim()) {
-                urls.push(acc.cloudflareUrl.trim().replace(/\/+$/, ""));
-                break;
+        const data = await apiCall("manage-app", { action: "get_settings", key: "email_accounts" });
+        if (data.value && Array.isArray(data.value)) {
+          for (const acc of data.value) {
+            if (acc.cloudflareUrls && Array.isArray(acc.cloudflareUrls)) {
+              for (const u of acc.cloudflareUrls) {
+                const trimmed = u.trim().replace(/\/+$/, "");
+                if (trimmed && !urls.includes(trimmed)) urls.push(trimmed);
               }
             }
+            if (acc.cloudflareUrl && acc.cloudflareUrl.trim()) {
+              const trimmed = acc.cloudflareUrl.trim().replace(/\/+$/, "");
+              if (!urls.includes(trimmed)) urls.push(trimmed);
+            }
           }
-        } catch {}
-      }
-      // 3. Fallback: env variable
-      if (urls.length === 0) {
-        const envUrl = getCloudflareWorkerUrl();
-        if (envUrl) urls.push(envUrl);
-      }
+        }
+      } catch { }
       setResolvedWorkerUrls(urls);
     })();
   }, []);
 
-  // Try multiple worker URLs in order, fallback to direct backend
-  const fetchWithFallback = async (path: string, method: string, body?: any): Promise<Response> => {
+  const fetchFromWorkers = async (path: string, method: string, body?: any): Promise<Response | null> => {
     const token = getSessionToken();
     for (const cfUrl of resolvedWorkerUrls) {
       try {
         const headers: Record<string, string> = {};
         if (token) headers["X-Session-Token"] = token;
+        if (body) headers["Content-Type"] = "application/json";
         const res = await fetch(`${cfUrl}${path}`, { method, headers, ...(body ? { body: JSON.stringify(body) } : {}) });
         if (res.status === 404 || res.status === 405 || res.status === 502) {
-          console.warn(`[fallback] Worker ${cfUrl} returned ${res.status}, trying next`);
+          console.warn(`[worker] ${cfUrl} returned ${res.status}, trying next`);
           continue;
         }
         return res;
       } catch (err) {
-        console.warn(`[fallback] Worker ${cfUrl} unreachable, trying next:`, err);
+        console.warn(`[worker] ${cfUrl} unreachable, trying next:`, err);
         continue;
       }
     }
-    return fetchDirect(method, body);
+    return null;
   };
 
-  const fetchDirect = async (method: string, body?: any): Promise<Response> => {
-    const token = getSessionToken();
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${getApiKey()}`,
-      "apikey": getApiKey(),
-    };
-    if (token) headers["X-Session-Token"] = token;
-    const mode = body?.mode || "cache";
-    return fetch(`${getApiBase()}/functions/v1/fetch-emails`, {
-      method: "POST", headers, body: JSON.stringify({ mode, ...body }),
-    });
-  };
-
-  const loadCachedEmails = async (options?: { direct?: boolean }) => {
+  const loadCachedEmails = async () => {
     try {
-      const res = options?.direct
-        ? await fetchDirect("POST", { mode: "cache" })
-        : await fetchWithFallback("/api/emails", "GET");
-      const raw = await res.text();
-      let data: any = null;
-      if (raw) { try { data = JSON.parse(raw); } catch {} }
-
-      if (!res.ok) {
-        const errMsg = data?.error || `Failed to load emails (${res.status})`;
-        setError(errMsg);
-        return 0;
+      const workerRes = await fetchFromWorkers("/api/emails", "GET");
+      if (workerRes && workerRes.ok) {
+        const data = await workerRes.json();
+        const emailList = (Array.isArray(data) ? data : []) as Email[];
+        emailList.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        setEmails(emailList);
+        setError(null);
+        setLastUpdated(new Date());
+        return emailList.length;
       }
 
-      const emailList = (Array.isArray(data) ? data : []) as Email[];
+      const res = await fetch(`${getApiBase()}/rest/v1/cached_emails?select=*&order=date.desc&limit=500`, {
+        headers: { "apikey": getApiKey(), "Authorization": `Bearer ${getApiKey()}` },
+      });
+      if (!res.ok) {
+        setError(`Failed to load emails (${res.status})`);
+        return 0;
+      }
+      const data = await res.json();
+      const emailList = (Array.isArray(data) ? data : []).map((e: any) => ({
+        id: e.id, subject: e.subject, from: e.from_address, to: e.to_address,
+        date: e.date, otp: e.otp, preview: e.preview, html: e.html,
+      })) as Email[];
       emailList.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
       setEmails(emailList);
       setError(null);
@@ -1885,24 +1643,15 @@ function EmailViewer() {
     }
   };
 
-  
-
-  const syncFromImap = async () => {
-    if (isFetchingRef.current) return;
-    isFetchingRef.current = true;
-    try {
-      const syncRes = await fetchWithFallback("/api/emails/sync", "POST", { mode: "sync" });
-      const raw = await syncRes.text();
-      let data: any = null;
-      if (raw) { try { data = JSON.parse(raw); } catch {} }
-
-      if (!syncRes.ok) {
-        const errMsg = data?.error || `Sync failed (${syncRes.status})`;
-        throw new Error(errMsg);
-      }
-      lastSyncTime.current = Date.now();
-    } finally {
-      isFetchingRef.current = false;
+  const syncViaWorker = async () => {
+    if (resolvedWorkerUrls.length === 0) {
+      throw new Error("No Cloudflare Worker URLs configured. Add them in Admin Panel → Email Accounts.");
+    }
+    const res = await fetchFromWorkers("/api/emails/sync", "POST", { mode: "sync" });
+    if (!res) throw new Error("All Cloudflare Workers are unreachable");
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data?.error || `Sync failed (${res.status})`);
     }
   };
 
@@ -1911,12 +1660,9 @@ function EmailViewer() {
     setRefreshing(true);
     const toastId = toast.loading("Fetching latest emails...");
     try {
-      // Load cached emails immediately so UI updates fast
-      await loadCachedEmails({ direct: true });
-      // Then trigger IMAP sync in background
-      await syncFromImap();
-      // Reload after sync to pick up any new emails
-      await loadCachedEmails({ direct: true });
+      await loadCachedEmails();
+      await syncViaWorker();
+      await loadCachedEmails();
       toast.success("Emails updated!", { id: toastId });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Sync failed";
@@ -1932,7 +1678,6 @@ function EmailViewer() {
       setLoading(false);
     });
 
-    // Supabase Realtime: listen for new emails inserted by cron
     const channel = supabaseClient
       .channel('cached_emails_realtime')
       .on(
@@ -1952,7 +1697,6 @@ function EmailViewer() {
               html: newEmail.html,
             };
             setEmails(prev => {
-              // Avoid duplicates
               if (prev.some(e => e.id === mapped.id)) return prev;
               const updated = [mapped, ...prev];
               updated.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -1964,7 +1708,6 @@ function EmailViewer() {
       )
       .subscribe();
 
-    // Fallback polling every 30s (light)
     const pollInterval = setInterval(() => {
       void loadCachedEmails();
     }, 30000);
@@ -2059,11 +1802,7 @@ function EmailViewer() {
                   Inbox
                   <span className="bg-slate-200 text-slate-600 text-[10px] px-2 py-0.5 rounded-full">{emails.length}</span>
                 </h3>
-                
               </div>
-
-
-              
 
               {error && (
                 <div className="bg-red-50 border border-red-100 rounded-xl p-3 mb-2">
@@ -2201,9 +1940,6 @@ function EmailViewer() {
   );
 }
 
-// --- QR Code import ---
-import { QRCodeSVG } from "qrcode.react";
-
 // ==================== MAIN APP ====================
 export default function App() {
   useEffect(() => {
@@ -2253,7 +1989,6 @@ const ProtectedRoute = ({ children, role }: { children: React.ReactNode; role: "
   if (loading) return <div className="min-h-screen bg-slate-950 flex items-center justify-center"><div className="w-8 h-8 border-2 border-red-500 border-t-transparent rounded-full animate-spin" /></div>;
   if (!user) return <Navigate to={role === "admin" ? "/admin" : "/"} />;
   if (role === "admin" && user.role !== "admin") return <Navigate to="/" />;
-  // Allow admin impersonation: if admin_backup exists, allow user role access
   if (role === "user" && user.role === "admin" && !localStorage.getItem("admin_backup")) return <Navigate to="/admin/dashboard" />;
   return <>{children}</>;
 };
