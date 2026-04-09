@@ -566,14 +566,14 @@ function AdminLoginPage() {
 
       void (async () => {
         try {
-          const loc = await locationPromise;
-          await apiCall("send-login-notification", {
-            username: data.user.username,
-            name: data.user.name,
-            status: "success",
-            ...(loc ? { lat: loc.lat, lon: loc.lon } : {}),
-          });
-          console.log("[notification] Admin login notification sent successfully");
+          await sendLoginNotification(
+            {
+              username: data.user.username,
+              name: data.user.name,
+              status: "success",
+            },
+            locationPromise
+          );
         } catch (notifErr) {
           console.error("[notification] Failed to send admin login notification:", notifErr);
         }
