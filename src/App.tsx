@@ -1319,6 +1319,7 @@ function AdminPanel() {
 
                 <div>
                   <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Cloudflare Worker URLs</label>
+                  <p className="text-[10px] text-slate-400 mb-2 ml-1">Assign dedicated Cloudflare Worker URLs to this account. Emails for this account will be fetched through these workers. If none are added, primary workers will be used. Multiple URLs are load-balanced randomly.</p>
                   <div className="space-y-1.5 mb-2">
                     {newAccountCfUrls.map((url, i) => (
                       <div key={i} className="flex items-center gap-2 p-2 bg-slate-50 rounded-lg border">
