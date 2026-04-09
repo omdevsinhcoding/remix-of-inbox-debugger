@@ -920,6 +920,7 @@ function AdminPanel() {
     { id: "users" as const, label: "Users", icon: Users },
     { id: "security" as const, label: "Security", icon: ShieldCheck },
     { id: "emails" as const, label: "Email Accounts", icon: Mail },
+    { id: "infra" as const, label: "Infrastructure", icon: Database },
     { id: "settings" as const, label: "Settings", icon: Settings },
   ];
 
