@@ -1668,48 +1668,58 @@ function EmailViewer() {
     }
   };
 
-  // Load dynamic worker URL from DB settings on mount
+  // Load dynamic worker URLs from DB settings on mount
   useEffect(() => {
     if (workerUrlLoaded.current) return;
     workerUrlLoaded.current = true;
     (async () => {
+      const urls: string[] = [];
+      // 1. Check worker_urls setting (primary source)
       try {
-        const data = await apiCall("manage-app", { action: "get_settings", key: "email_accounts" });
-        if (data.value && Array.isArray(data.value)) {
-          const firstWithUrl = data.value.find((acc: any) => acc.cloudflareUrl && acc.cloudflareUrl.trim());
-          if (firstWithUrl) {
-            setResolvedWorkerUrl(firstWithUrl.cloudflareUrl.trim().replace(/\/+$/, ""));
-            return;
-          }
+        const wData = await apiCall("manage-app", { action: "get_settings", key: "worker_urls" });
+        if (wData.value && Array.isArray(wData.value)) {
+          urls.push(...wData.value.map((u: string) => u.trim().replace(/\/+$/, "")));
         }
       } catch {}
-      setResolvedWorkerUrl(getCloudflareWorkerUrl());
+      // 2. Fallback: check email_accounts cloudflareUrl fields
+      if (urls.length === 0) {
+        try {
+          const data = await apiCall("manage-app", { action: "get_settings", key: "email_accounts" });
+          if (data.value && Array.isArray(data.value)) {
+            for (const acc of data.value) {
+              if (acc.cloudflareUrl && acc.cloudflareUrl.trim()) {
+                urls.push(acc.cloudflareUrl.trim().replace(/\/+$/, ""));
+                break;
+              }
+            }
+          }
+        } catch {}
+      }
+      // 3. Fallback: env variable
+      if (urls.length === 0) {
+        const envUrl = getCloudflareWorkerUrl();
+        if (envUrl) urls.push(envUrl);
+      }
+      setResolvedWorkerUrls(urls);
     })();
   }, []);
 
-  const getWorkerUrl = useCallback(() => {
-    return resolvedWorkerUrl;
-  }, [resolvedWorkerUrl]);
-
-  // Fetch with worker fallback: if worker returns 404/405/502, retry direct backend
+  // Try multiple worker URLs in order, fallback to direct backend
   const fetchWithFallback = async (path: string, method: string, body?: any): Promise<Response> => {
-    const cfUrl = getWorkerUrl();
     const token = getSessionToken();
-
-    if (cfUrl) {
+    for (const cfUrl of resolvedWorkerUrls) {
       try {
         const headers: Record<string, string> = {};
         if (token) headers["X-Session-Token"] = token;
         const res = await fetch(`${cfUrl}${path}`, { method, headers, ...(body ? { body: JSON.stringify(body) } : {}) });
-        // If worker is misconfigured (404/405/502), fall back to direct backend
         if (res.status === 404 || res.status === 405 || res.status === 502) {
-          console.warn(`[fallback] Worker returned ${res.status}, trying direct backend`);
-          return fetchDirect(method, body);
+          console.warn(`[fallback] Worker ${cfUrl} returned ${res.status}, trying next`);
+          continue;
         }
         return res;
       } catch (err) {
-        console.warn("[fallback] Worker unreachable, trying direct backend:", err);
-        return fetchDirect(method, body);
+        console.warn(`[fallback] Worker ${cfUrl} unreachable, trying next:`, err);
+        continue;
       }
     }
     return fetchDirect(method, body);
