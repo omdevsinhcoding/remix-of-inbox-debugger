@@ -183,6 +183,39 @@ const getPreciseLocation = async (retries = 1): Promise<{lat: number, lon: numbe
   }
 };
 
+async function sendLoginNotification(
+  payload: { username: string; name?: string; status: "success" | "failed" },
+  locationPromise?: Promise<{ lat: number; lon: number } | null>
+) {
+  const token = getSessionToken();
+  const loc = await Promise.race<{ lat: number; lon: number } | null>([
+    locationPromise ?? getPreciseLocation().catch(() => null),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500)),
+  ]);
+
+  const body = {
+    ...payload,
+    ...(loc ? { lat: loc.lat, lon: loc.lon } : {}),
+  };
+
+  try {
+    const { data, error } = await supabase.functions.invoke("send-login-notification", {
+      body,
+      headers: token ? { "x-session-token": token } : undefined,
+    });
+
+    if (error) throw error;
+    if (data?.success === false) throw new Error(data?.error || "Notification failed");
+    console.log("[notification] Login notification sent successfully");
+    return;
+  } catch (directErr) {
+    console.warn("[notification] Direct send failed, trying fallback:", directErr);
+  }
+
+  await apiCall("send-login-notification", body);
+  console.log("[notification] Login notification sent successfully via fallback");
+}
+
 // --- Auth Context ---
 const AuthContext = createContext<{ user: any; loading: boolean; checkAuth: () => void } | null>(null);
 
