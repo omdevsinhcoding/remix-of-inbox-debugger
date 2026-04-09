@@ -1,77 +1,69 @@
 
 
-# Fix: New Emails Not Arriving + Near-Real-Time Display
+# Fix: Latest Emails Not Appearing + Cleanup
 
-## Issues Found
+## Root Cause
 
-### 1. Cron job has WRONG auth key (critical)
-The pg_cron job is using `sb_publishable_UVau5jxvUHy9EfSvRTVZ-w_pFefVCI6` as the Bearer token — this is NOT the real Supabase anon key. The real key is the JWT starting with `eyJhbGci...`. Every cron-triggered sync fails silently with a 401 auth error.
+The IMAP connection drops (TLS `UnexpectedEof`) before any email body can be downloaded. The edge function finds 71 UIDs, but `fetchOne(uid, { source: true })` downloads the FULL raw email (~100KB+) which is too slow for the edge function's constrained environment. The connection dies mid-download, so 0 emails are fetched every sync cycle.
 
-### 2. IMAP search returns 0 Netflix emails
-Logs show `[sync] Complete: 0 new, 0 skipped` — meaning the IMAP search `{ from: "@netflix.com" }` returns empty results. This partial-domain search may not work reliably on all IMAP servers. Need to broaden the search and add fallback.
-
-### 3. Frontend cache polling already works (5s interval)
-`loadCachedEmails()` runs every 5 seconds via countdown timer. Once emails are in the DB, they show up within 5 seconds. The bottleneck is getting them INTO the DB.
-
----
+Additionally, there's an ID format mismatch: DB stores plain UIDs (`95367`) but new code generates `Primary:95367`, which would create duplicates if it ever succeeded.
 
 ## Plan
 
-### Step 1: Fix cron job with correct auth key
+### Step 1: Fix IMAP fetch to use lightweight envelope-only approach
 
-**Database migration** to:
-1. Unschedule the broken cron job
-2. Re-schedule with the correct anon key (the JWT `eyJhbGci...`)
+**File:** `supabase/functions/fetch-emails/index.ts`
 
+Instead of downloading full email source (huge, slow, causes TLS drops), fetch only `{ envelope: true, bodyStructure: true }` for metadata, and use a targeted body part fetch for just the text content. Key changes:
+
+- Reduce `FULL_SYNC_MAX_UIDS` from 30 to 5 (fetch fewer emails per cycle)
+- Reduce `PER_ACCOUNT_TIMEOUT_MS` from 15000 to 12000
+- Add `socketTimeout: 10000` to ImapFlow config
+- Wrap each `fetchOne` in its own try/catch with a per-message timeout
+- Use plain UID (not `accountLabel:uid`) as the `id` to match existing DB format
+- Add a retry: if 0 emails fetched but uncached UIDs exist, retry once with a fresh connection fetching only 3 UIDs
+
+### Step 2: Add Supabase Realtime for instant email display
+
+**Database migration:** Enable realtime on `cached_emails` table:
 ```sql
-SELECT cron.unschedule('sync-netflix-emails');
-SELECT cron.schedule(
-  'sync-netflix-emails',
-  '*/3 * * * *',
-  $$ SELECT net.http_post(
-    url := 'https://jsqchutnfdeljajkxmly.supabase.co/functions/v1/fetch-emails',
-    headers := '{"Content-Type":"application/json","Authorization":"Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpzcWNodXRuZmRlbGphamt4bWx5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxMjI5MzksImV4cCI6MjA4OTY5ODkzOX0.HYN4zMEYEiP-H5KD_iIbFpr0GsatNoeyw40FI2mW_eA"}'::jsonb,
-    body := '{"mode":"sync","source":"cron"}'::jsonb
-  ) AS request_id; $$
-);
+ALTER PUBLICATION supabase_realtime ADD TABLE cached_emails;
 ```
 
-### Step 2: Fix IMAP Netflix search in edge function
+**File:** `src/App.tsx`
+- Add a Supabase Realtime subscription on `cached_emails` table for `INSERT` events
+- When a new row is inserted, immediately add it to the email list (no polling needed)
+- Remove the countdown timer and "Next sync" display
+- Keep the 5-second polling as a fallback, but remove the visible countdown
+- Remove `syncFromImap()` calls from the polling loop (cron handles sync)
 
-**File:** `supabase/functions/fetch-emails/index.ts`
-
-The search `{ from: "@netflix.com" }` returns 0 results. Fix by:
-- Try searching for `netflix.com` first (without `@`)
-- If that returns 0, try broader search with just `netflix`
-- Add detailed logging: log how many UIDs the search found
-- In the fallback scanner, also check `to` address (in case Netflix sends from subdomains)
-
-### Step 3: Fix cron_toggle to use correct anon key
-
-**File:** `supabase/functions/fetch-emails/index.ts`
-
-The `cron_toggle` mode reads `SUPABASE_ANON_KEY` env var, which resolved to the wrong value. Fix to use the hardcoded correct anon key, or read it from `app_settings` config.
-
-### Step 4: Clean up UI — remove "cached" references
+### Step 3: Clean up UI
 
 **File:** `src/App.tsx`
+- Remove countdown state and display
+- Remove any "cached", "stale", or "next sync" text
+- Remove the `syncFromImap` auto-calls from the interval (let cron handle it)
+- Keep manual Refresh button that triggers sync + reload
+- Remove `console.error("[loadCached]"` log labels
 
-- Remove any "cached" text from the UI (the user doesn't want to see internal implementation details)
-- Ensure the email list just shows emails without mentioning they're cached
+### Step 4: Deploy edge function
+
+Deploy updated `fetch-emails` function.
 
 ---
 
 ## Summary
 
-| Problem | Root Cause | Fix |
-|---------|-----------|-----|
-| Cron not working | Wrong auth key in pg_cron job | Re-schedule with correct JWT anon key |
-| 0 new emails from IMAP | `@netflix.com` search returns empty | Broaden search + add logging |
-| cron_toggle sets wrong key | `SUPABASE_ANON_KEY` env has wrong value | Use correct key |
-| "cached" text in UI | Internal detail shown to user | Remove it |
+| Change | Why |
+|--------|-----|
+| Fetch only 5 emails, add socket timeout, retry logic | Prevent TLS drops |
+| Use plain UID as ID | Match existing DB format, prevent duplicates |
+| Add Supabase Realtime subscription | Instant email display when cron inserts new emails |
+| Remove countdown/next sync UI | User doesn't want to see internals |
+| Keep cron + manual refresh | Reliable background sync |
 
 ## Result
-- Cron syncs every 3 minutes with correct auth
-- New Netflix emails appear within ~5 seconds of being synced
-- UI is clean, no "cached" or implementation details shown
+- Cron syncs every 3 min, successfully downloads new emails (fewer per cycle = no TLS drop)
+- New emails appear instantly via Realtime subscription (no waiting for poll)
+- UI is clean with no implementation details
 
