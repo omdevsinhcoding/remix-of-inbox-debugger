@@ -144,6 +144,12 @@ export default {
       return handleDebug(env);
     }
 
+    // Proxy manage-app and other edge functions through worker
+    if (url.pathname.startsWith("/api/fn/") && request.method === "POST") {
+      const fnName = url.pathname.replace("/api/fn/", "");
+      return handleFunctionProxy(request, env, fnName);
+    }
+
     return new Response("Not Found", { status: 404, headers: CORS_HEADERS });
   },
 
@@ -356,5 +362,38 @@ async function refreshFromSupabase(env, session, rawToken, cacheKey, tsKey) {
     ]);
   } catch (err) {
     console.error("Refresh from Supabase error:", err);
+  }
+}
+
+// --- Proxy any Supabase edge function through the worker ---
+async function handleFunctionProxy(request, env, fnName) {
+  try {
+    const body = await request.text();
+    const sessionToken = request.headers.get("X-Session-Token") || request.headers.get("x-session-token");
+
+    const headers = {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${env.SUPABASE_KEY}`,
+      "apikey": env.SUPABASE_KEY,
+    };
+    if (sessionToken) headers["X-Session-Token"] = sessionToken;
+
+    const res = await fetch(`${env.SUPABASE_URL}/functions/v1/${fnName}`, {
+      method: "POST",
+      headers,
+      body,
+    });
+
+    const responseText = await res.text();
+
+    return new Response(responseText, {
+      status: res.status,
+      headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: "Proxy error: " + (err.message || "Unknown") }), {
+      status: 502,
+      headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+    });
   }
 }

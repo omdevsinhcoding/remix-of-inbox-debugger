@@ -4,25 +4,24 @@ import { motion, AnimatePresence } from "motion/react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { Toaster, toast } from "sonner";
 import ReCAPTCHA from "react-google-recaptcha";
-import { supabase as supabaseClient } from "@/src/integrations/supabase/client";
+// supabaseClient removed — all calls go through Cloudflare Workers now
 import { QRCodeSVG } from "qrcode.react";
 
-// --- API Helper ---
+// --- Worker URL Bootstrap ---
+const WORKER_URLS_KEY = "cloudflare_worker_urls";
 
-function getApiBase(): string {
-  const url = import.meta.env.VITE_SUPABASE_URL;
-  if (!url || url === "undefined" || url === "null") {
-    throw new Error("Backend not configured. Set VITE_SUPABASE_URL in your environment.");
-  }
-  return url;
+function getStoredWorkerUrls(): string[] {
+  try {
+    const stored = localStorage.getItem(WORKER_URLS_KEY);
+    if (stored) return JSON.parse(stored);
+  } catch {}
+  return [];
 }
 
-function getApiKey(): string {
-  const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-  if (!key || key === "undefined" || key === "null") {
-    throw new Error("Backend not configured. Set VITE_SUPABASE_PUBLISHABLE_KEY in your environment.");
-  }
-  return key;
+function storeWorkerUrls(urls: string[]) {
+  try {
+    localStorage.setItem(WORKER_URLS_KEY, JSON.stringify(urls));
+  } catch {}
 }
 
 function getSessionToken(): string | null {
@@ -31,40 +30,60 @@ function getSessionToken(): string | null {
   } catch { return null; }
 }
 
+// --- API Helper (routes ALL calls through Cloudflare Workers) ---
+
 async function apiCall(functionName: string, body: any) {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    "Authorization": `Bearer ${getApiKey()}`,
-  };
+  const workerUrls = getStoredWorkerUrls();
+  if (workerUrls.length === 0) {
+    throw new Error("No Cloudflare Worker URLs configured. Add them in Admin Panel → Settings → Primary IMAP → Cloudflare Worker URLs, or set them in localStorage.");
+  }
+
   const token = getSessionToken();
-  if (token) headers["X-Session-Token"] = token;
 
-  let res: Response;
-  try {
-    res = await fetch(`${getApiBase()}/functions/v1/${functionName}`, {
-      method: "POST", headers, body: JSON.stringify(body),
-    });
-  } catch (networkErr) {
-    throw new Error("Network error. Check your connection and backend URL.");
+  for (const cfUrl of workerUrls) {
+    try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      if (token) headers["X-Session-Token"] = token;
+
+      const res = await fetch(`${cfUrl}/api/fn/${functionName}`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+      });
+
+      if (res.status === 404 || res.status === 405 || res.status === 502) {
+        console.warn(`[apiCall] ${cfUrl} returned ${res.status}, trying next worker`);
+        continue;
+      }
+
+      const text = await res.text();
+      let data: any;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new Error(`Request failed (${res.status}). Server returned non-JSON response.`);
+      }
+
+      if (!res.ok) {
+        throw new Error(data?.error || `Request failed with status ${res.status}`);
+      }
+
+      if (data.sessionToken) {
+        localStorage.setItem("session_token", data.sessionToken);
+      }
+      return data;
+    } catch (err: any) {
+      if (err.message && !err.message.includes("trying next worker")) {
+        throw err;
+      }
+      console.warn(`[apiCall] ${cfUrl} failed:`, err);
+      continue;
+    }
   }
 
-  const text = await res.text();
-
-  let data: any;
-  try {
-    data = JSON.parse(text);
-  } catch {
-    throw new Error(`Request failed (${res.status}). Server returned non-JSON response.`);
-  }
-
-  if (!res.ok) {
-    throw new Error(data?.error || `Request failed with status ${res.status}`);
-  }
-
-  if (data.sessionToken) {
-    localStorage.setItem("session_token", data.sessionToken);
-  }
-  return data;
+  throw new Error("All Cloudflare Workers are unreachable. Check your Worker URLs.");
 }
 
 // --- Rate Limiter ---
@@ -144,6 +163,58 @@ function PasswordInput({ value, onChange, placeholder, className, autoFocus, req
         className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors p-1">
         {show ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
       </button>
+    </div>
+  );
+}
+
+// --- Worker URL Bootstrap Screen ---
+function WorkerUrlSetup() {
+  const [url, setUrl] = useState("");
+  const [testing, setTesting] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleSave = async () => {
+    const trimmed = url.trim().replace(/\/+$/, "");
+    if (!trimmed) { setError("Enter a Cloudflare Worker URL"); return; }
+    setTesting(true);
+    setError("");
+    try {
+      const res = await fetch(`${trimmed}/api/debug`);
+      if (!res.ok) throw new Error(`Worker returned ${res.status}`);
+      storeWorkerUrls([trimmed]);
+      window.location.reload();
+    } catch (err) {
+      setError(`Cannot reach worker: ${err instanceof Error ? err.message : "Unknown error"}. Check the URL and try again.`);
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
+      <div className="bg-white w-full max-w-md rounded-2xl p-6 shadow-2xl">
+        <div className="flex justify-center mb-4">
+          <div className="bg-slate-900 p-3 rounded-2xl">
+            <Globe className="text-white w-6 h-6" />
+          </div>
+        </div>
+        <h2 className="text-xl font-black text-center text-slate-900 mb-1">Setup Required</h2>
+        <p className="text-slate-500 text-center text-xs mb-6">
+          Enter your Cloudflare Worker URL to connect. All traffic will go through your worker.
+        </p>
+        <input type="url" value={url} onChange={(e) => setUrl(e.target.value)}
+          placeholder="https://your-worker.workers.dev"
+          className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 px-4 focus:ring-2 focus:ring-blue-500 outline-none text-sm mb-3" />
+        {error && (
+          <div className="bg-red-50 text-red-600 text-xs p-3 rounded-xl mb-3 flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 flex-shrink-0" />{error}
+          </div>
+        )}
+        <button onClick={handleSave} disabled={testing}
+          className="w-full bg-slate-900 text-white font-bold py-3 rounded-xl hover:bg-slate-800 transition-all disabled:opacity-50">
+          {testing ? "Testing connection..." : "Connect & Continue"}
+        </button>
+      </div>
     </div>
   );
 }
@@ -730,15 +801,7 @@ function AdminPanel() {
         }
       } catch { }
 
-      try {
-        const res = await fetch(`${getApiBase()}/rest/v1/cached_emails?select=id&order=date.desc&limit=500`, {
-          headers: { "apikey": getApiKey(), "Authorization": `Bearer ${getApiKey()}` },
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (Array.isArray(data)) setStats(prev => ({ ...prev, totalEmails: data.length }));
-        }
-      } catch { }
+      // Stats are now derived from worker-fetched emails, no direct Supabase REST call
     })();
   }, []);
 
@@ -798,6 +861,8 @@ function AdminPanel() {
     try {
       await apiCall("manage-app", { action: "set_settings", key: "config", value: serverConfig });
       await apiCall("manage-app", { action: "set_settings", key: "primary_cloudflare_urls", value: primaryCfUrls });
+      // Persist worker URLs to localStorage for bootstrap
+      storeWorkerUrls(primaryCfUrls);
       toast.success("Server configuration saved!");
     } catch (err) {
       toast.error("Failed to save: " + (err instanceof Error ? err.message : String(err)));
@@ -1699,6 +1764,7 @@ function EmailViewer() {
         }
       } catch { }
       setResolvedWorkerUrls(urls);
+      if (urls.length > 0) storeWorkerUrls(urls);
     })();
   }, []);
 
@@ -1780,41 +1846,7 @@ function EmailViewer() {
       setLoading(false);
     });
 
-    let channel: any = null;
-    try {
-      channel = supabaseClient
-        .channel('cached_emails_realtime')
-        .on(
-          'postgres_changes',
-          { event: 'INSERT', schema: 'public', table: 'cached_emails' },
-          (payload: any) => {
-            const newEmail = payload.new;
-            if (newEmail) {
-              const mapped: Email = {
-                id: newEmail.id,
-                subject: newEmail.subject,
-                from: newEmail.from_address,
-                to: newEmail.to_address,
-                date: newEmail.date,
-                otp: newEmail.otp,
-                preview: newEmail.preview,
-                html: newEmail.html,
-              };
-              setEmails(prev => {
-                if (prev.some(e => e.id === mapped.id)) return prev;
-                const updated = [mapped, ...prev];
-                updated.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-                return updated;
-              });
-              setLastUpdated(new Date());
-            }
-          }
-        )
-        .subscribe();
-    } catch (err) {
-      console.warn("Realtime subscription unavailable, using polling only:", err);
-    }
-
+    // Polling via Cloudflare Workers (no Supabase Realtime)
     const pollInterval = setInterval(() => {
       void loadCachedEmails();
     }, 30000);
@@ -1826,7 +1858,6 @@ function EmailViewer() {
     };
     document.addEventListener("visibilitychange", handleVisibility);
     return () => {
-      if (channel) try { supabaseClient.removeChannel(channel); } catch {}
       clearInterval(pollInterval);
       document.removeEventListener("visibilitychange", handleVisibility);
     };
@@ -2074,6 +2105,16 @@ export default function App() {
       document.removeEventListener("dragstart", preventDrag);
     };
   }, []);
+
+  // If no worker URLs configured, show setup screen
+  if (getStoredWorkerUrls().length === 0) {
+    return (
+      <>
+        <Toaster position="top-center" richColors />
+        <WorkerUrlSetup />
+      </>
+    );
+  }
 
   return (
     <Router>
