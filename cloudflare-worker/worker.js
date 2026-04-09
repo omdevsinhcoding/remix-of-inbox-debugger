@@ -137,7 +137,9 @@ export default {
     }
 
     if (url.pathname === "/api/emails/sync" && request.method === "POST") {
-      return handleSync(env, session, sessionToken);
+      let reqBody = {};
+      try { reqBody = await request.clone().json(); } catch {}
+      return handleSync(env, session, sessionToken, reqBody);
     }
 
     if (url.pathname === "/api/debug" && request.method === "GET") {
@@ -240,7 +242,7 @@ async function handleGetEmails(env, session, rawToken) {
   });
 }
 
-async function handleSync(env, session, rawToken) {
+async function handleSync(env, session, rawToken, requestBody) {
   try {
     const headers = {
       "Content-Type": "application/json",
@@ -249,8 +251,14 @@ async function handleSync(env, session, rawToken) {
     };
     if (rawToken) headers["X-Session-Token"] = rawToken;
 
+    // Pass through accountLabels from the request body for per-account routing
+    const syncPayload = { mode: "sync" };
+    if (requestBody?.accountLabels && Array.isArray(requestBody.accountLabels)) {
+      syncPayload.accountLabels = requestBody.accountLabels;
+    }
+
     const res = await fetch(`${env.SUPABASE_URL}/functions/v1/fetch-emails`, {
-      method: "POST", headers, body: JSON.stringify({ mode: "sync" }),
+      method: "POST", headers, body: JSON.stringify(syncPayload),
     });
 
     const responseText = await res.text();

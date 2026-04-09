@@ -395,6 +395,13 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Filter to specific accounts if requested (per-account worker routing)
+    if (body.accountLabels && Array.isArray(body.accountLabels) && body.accountLabels.length > 0) {
+      const requestedLabels: string[] = body.accountLabels;
+      accounts = accounts.filter(a => requestedLabels.includes(a.label));
+      console.log(`[sync] Filtered to ${accounts.length} accounts: ${requestedLabels.join(", ")}`);
+    }
+
     if (accounts.length === 0) {
       return new Response(
         JSON.stringify({ success: false, error: "Inbox not configured. Add IMAP email in Admin Panel." }),

@@ -7,8 +7,22 @@ import ReCAPTCHA from "react-google-recaptcha";
 import { supabase } from "./integrations/supabase/client";
 import { QRCodeSVG } from "qrcode.react";
 
-// --- Worker URL Bootstrap ---
+// --- Worker URL Types & Helpers ---
 const WORKER_URLS_KEY = "cloudflare_worker_urls";
+
+type WorkerUrlMap = {
+  primary: string[];
+  byAccount: Record<string, string[]>;
+};
+
+function shuffleArray<T>(arr: T[]): T[] {
+  const shuffled = [...arr];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+}
 
 function getStoredWorkerUrls(): string[] {
   try {
@@ -1725,6 +1739,7 @@ function EmailViewer() {
 
   const [refreshing, setRefreshing] = useState(false);
   const [resolvedWorkerUrls, setResolvedWorkerUrls] = useState<string[]>(() => getStoredWorkerUrls());
+  const [workerUrlMap, setWorkerUrlMap] = useState<WorkerUrlMap>({ primary: [], byAccount: {} });
   const [workerUrlsLoading, setWorkerUrlsLoading] = useState(true);
   const workerUrlLoaded = React.useRef(false);
 
@@ -1746,13 +1761,15 @@ function EmailViewer() {
     if (workerUrlLoaded.current) return;
     workerUrlLoaded.current = true;
     (async () => {
-      const urls: string[] = getStoredWorkerUrls();
+      const primaryUrls: string[] = [...getStoredWorkerUrls()];
+      const accountUrls: Record<string, string[]> = {};
+
       try {
         const pcf = await apiCall("manage-app", { action: "get_settings", key: "primary_cloudflare_urls" });
         if (pcf.value && Array.isArray(pcf.value)) {
           for (const u of pcf.value) {
             const trimmed = u.trim().replace(/\/+$/, "");
-            if (trimmed && !urls.includes(trimmed)) urls.push(trimmed);
+            if (trimmed && !primaryUrls.includes(trimmed)) primaryUrls.push(trimmed);
           }
         }
       } catch { }
@@ -1760,34 +1777,53 @@ function EmailViewer() {
         const data = await apiCall("manage-app", { action: "get_settings", key: "email_accounts" });
         if (data.value && Array.isArray(data.value)) {
           for (const acc of data.value) {
+            const label = acc.label || acc.user;
+            const accUrls: string[] = [];
             if (acc.cloudflareUrls && Array.isArray(acc.cloudflareUrls)) {
               for (const u of acc.cloudflareUrls) {
                 const trimmed = u.trim().replace(/\/+$/, "");
-                if (trimmed && !urls.includes(trimmed)) urls.push(trimmed);
+                if (trimmed) accUrls.push(trimmed);
               }
             }
             if (acc.cloudflareUrl && acc.cloudflareUrl.trim()) {
               const trimmed = acc.cloudflareUrl.trim().replace(/\/+$/, "");
-              if (!urls.includes(trimmed)) urls.push(trimmed);
+              if (!accUrls.includes(trimmed)) accUrls.push(trimmed);
+            }
+            if (accUrls.length > 0 && label) {
+              accountUrls[label] = accUrls;
             }
           }
         }
       } catch { }
 
-      const normalizedUrls = urls
+      // Build flat list for general use (primary + all account URLs deduplicated)
+      const allUrls = [...primaryUrls];
+      for (const urls of Object.values(accountUrls)) {
+        for (const u of urls) {
+          if (!allUrls.includes(u)) allUrls.push(u);
+        }
+      }
+      const normalizedUrls = allUrls
+        .map((u) => u.trim().replace(/\/+$/, ""))
+        .filter(Boolean)
+        .filter((u, i, arr) => arr.indexOf(u) === i);
+
+      const normalizedPrimary = primaryUrls
         .map((u) => u.trim().replace(/\/+$/, ""))
         .filter(Boolean)
         .filter((u, i, arr) => arr.indexOf(u) === i);
 
       setResolvedWorkerUrls(normalizedUrls);
+      setWorkerUrlMap({ primary: normalizedPrimary, byAccount: accountUrls });
       if (normalizedUrls.length > 0) storeWorkerUrls(normalizedUrls);
       setWorkerUrlsLoading(false);
     })();
   }, []);
 
-  const fetchFromWorkers = useCallback(async (path: string, method: string, body?: any): Promise<Response | null> => {
+  const fetchFromWorkers = useCallback(async (path: string, method: string, body?: any, urlOverride?: string[]): Promise<Response | null> => {
     const token = getSessionToken();
-    for (const cfUrl of resolvedWorkerUrls) {
+    const urls = shuffleArray(urlOverride || resolvedWorkerUrls);
+    for (const cfUrl of urls) {
       try {
         const headers: Record<string, string> = {};
         if (token) headers["X-Session-Token"] = token;
@@ -1815,7 +1851,9 @@ function EmailViewer() {
         return 0;
       }
 
-      const workerRes = await fetchFromWorkers("/api/emails", "GET");
+      // Use shuffled primary URLs for cache reads (any worker can serve cached data)
+      const cacheUrls = workerUrlMap.primary.length > 0 ? workerUrlMap.primary : resolvedWorkerUrls;
+      const workerRes = await fetchFromWorkers("/api/emails", "GET", undefined, cacheUrls);
       if (!workerRes) {
         setError("No Cloudflare Worker responded. Check your saved Worker URLs.");
         return 0;
@@ -1839,19 +1877,60 @@ function EmailViewer() {
       setError(msg);
       return 0;
     }
-  }, [fetchFromWorkers, resolvedWorkerUrls.length, workerUrlsLoading]);
+  }, [fetchFromWorkers, resolvedWorkerUrls.length, workerUrlsLoading, workerUrlMap.primary]);
 
   const syncViaWorker = useCallback(async () => {
     if (resolvedWorkerUrls.length === 0) {
       throw new Error("No Cloudflare Worker URLs configured. Add them in Admin Panel → Email Accounts.");
     }
-    const res = await fetchFromWorkers("/api/emails/sync", "POST", { mode: "sync" });
-    if (!res) throw new Error("All Cloudflare Workers are unreachable");
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data?.error || `Sync failed (${res.status})`);
+
+    const { primary, byAccount } = workerUrlMap;
+    const accountLabelsWithWorkers = Object.keys(byAccount);
+
+    // Build sync promises: one per account-specific worker group + one for remaining accounts via primary
+    const syncPromises: Promise<void>[] = [];
+
+    // Per-account syncs through their dedicated workers
+    for (const label of accountLabelsWithWorkers) {
+      const accountWorkerUrls = byAccount[label];
+      syncPromises.push((async () => {
+        // Try account-specific workers first, fall back to primary
+        const urlsToTry = [...accountWorkerUrls, ...primary];
+        const res = await fetchFromWorkers("/api/emails/sync", "POST", { mode: "sync", accountLabels: [label] }, urlsToTry);
+        if (!res) console.warn(`[sync] No worker responded for account "${label}"`);
+        else if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          console.warn(`[sync] Sync failed for "${label}": ${data?.error || res.status}`);
+        } else {
+          console.log(`[sync] Account "${label}" synced via dedicated worker`);
+        }
+      })());
     }
-  }, [fetchFromWorkers, resolvedWorkerUrls.length]);
+
+    // Remaining accounts (without dedicated workers) sync through primary workers
+    if (primary.length > 0) {
+      syncPromises.push((async () => {
+        // Don't filter accounts — let primary workers sync everything not covered
+        const res = await fetchFromWorkers("/api/emails/sync", "POST", { mode: "sync" }, primary);
+        if (!res) throw new Error("All primary Cloudflare Workers are unreachable");
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data?.error || `Sync failed (${res.status})`);
+        }
+      })());
+    } else if (accountLabelsWithWorkers.length === 0) {
+      // No primary and no per-account workers — use any available
+      const res = await fetchFromWorkers("/api/emails/sync", "POST", { mode: "sync" });
+      if (!res) throw new Error("All Cloudflare Workers are unreachable");
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.error || `Sync failed (${res.status})`);
+      }
+    }
+
+    // Run all syncs in parallel
+    await Promise.allSettled(syncPromises);
+  }, [fetchFromWorkers, resolvedWorkerUrls.length, workerUrlMap]);
 
   const fetchEmails = async () => {
     if (refreshing) return;
