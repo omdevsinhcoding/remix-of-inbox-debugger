@@ -180,7 +180,7 @@ async function fetchFromAccount(
     }
     try { await client.logout(); } catch {}
   } finally {
-    clearTimeout(timeout);
+    if (timeout) clearTimeout(timeout);
   }
   return { emails, fetched: emails.length, skipped };
 }
