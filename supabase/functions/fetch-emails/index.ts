@@ -18,8 +18,8 @@ const SIGN_IN_CODE_SUBJECTS = [
   "verification code", "login code", "sign in code",
 ];
 
-const FULL_SYNC_MAX_UIDS = 50;
-const PER_ACCOUNT_TIMEOUT_MS = 25000;
+const FULL_SYNC_MAX_UIDS = 10;
+const PER_ACCOUNT_TIMEOUT_MS = 15000;
 const STALE_DAYS = 60;
 
 async function verifySessionToken(token: string, secret: string): Promise<Record<string, any> | null> {
@@ -78,8 +78,9 @@ async function fetchFromAccount(
     const lock = await client.getMailboxLock("INBOX");
 
     try {
+      // Only search last 7 days instead of 30 for speed
       const since = new Date();
-      since.setDate(since.getDate() - 30);
+      since.setDate(since.getDate() - 7);
 
       let netflixUids: number[] = [];
       const searchTerms = ["netflix.com", "netflix"];
@@ -96,12 +97,12 @@ async function fetchFromAccount(
         }
       }
 
-      // Fallback: scan recent emails
+      // Fallback: scan only last 30 emails (not 300)
       if (netflixUids.length === 0) {
-        console.log(`[${accountLabel}] Search returned 0, falling back to envelope scan`);
+        console.log(`[${accountLabel}] Search returned 0, falling back to quick envelope scan`);
         const totalMessages = (client.mailbox as any)?.exists || 0;
         if (totalMessages > 0) {
-          const startSeq = Math.max(1, totalMessages - 299);
+          const startSeq = Math.max(1, totalMessages - 29);
           for await (const message of client.fetch(`${startSeq}:${totalMessages}`, { envelope: true, uid: true })) {
             if (timedOut) break;
             const fromAddr = message.envelope?.from?.[0]?.address?.toLowerCase() || "";
@@ -115,13 +116,14 @@ async function fetchFromAccount(
         }
       }
 
+      // Sort newest first, take only top 10
       netflixUids.sort((a, b) => b - a);
       const uidsToFetch = netflixUids.slice(0, FULL_SYNC_MAX_UIDS);
 
-      // Start timeout AFTER search completes (search alone can take 5-10s)
+      // Start timeout AFTER search completes
       timeout = setTimeout(() => { timedOut = true; }, PER_ACCOUNT_TIMEOUT_MS);
 
-      // Determine uncached UIDs using plain UID format
+      // Determine uncached UIDs
       const uncachedUids: number[] = [];
       for (const uid of uidsToFetch) {
         const plainId = String(uid);
@@ -133,7 +135,12 @@ async function fetchFromAccount(
         }
       }
 
-      console.log(`[${accountLabel}] ${uncachedUids.length} uncached UIDs to fetch, ${skipped} already cached`);
+      // If all recent UIDs are cached, skip IMAP fetch entirely
+      if (uncachedUids.length === 0) {
+        console.log(`[${accountLabel}] All ${skipped} recent UIDs already cached — skipping fetch`);
+      } else {
+        console.log(`[${accountLabel}] ${uncachedUids.length} uncached UIDs to fetch, ${skipped} already cached`);
+      }
 
       for (const uid of uncachedUids) {
         if (timedOut) {
