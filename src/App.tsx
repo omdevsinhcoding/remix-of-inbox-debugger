@@ -650,6 +650,11 @@ function AdminPanel() {
   const [newAccountCfInput, setNewAccountCfInput] = useState("");
   const [savingAccounts, setSavingAccounts] = useState(false);
   const [expandedAccount, setExpandedAccount] = useState<number | null>(null);
+  const [primaryCfUrls, setPrimaryCfUrls] = useState<string[]>([]);
+  const [primaryCfInput, setPrimaryCfInput] = useState("");
+  const [editingAccountUrls, setEditingAccountUrls] = useState<number | null>(null);
+  const [editCfUrls, setEditCfUrls] = useState<string[]>([]);
+  const [editCfInput, setEditCfInput] = useState("");
   const navigate = useNavigate();
   const { user: currentUser, checkAuth } = useAuth();
 
@@ -693,6 +698,13 @@ function AdminPanel() {
             IMAP_USER: c.IMAP_USER || "",
             IMAP_PASSWORD: c.IMAP_PASSWORD || "",
           });
+        }
+      } catch { }
+
+      try {
+        const pcf = await apiCall("manage-app", { action: "get_settings", key: "primary_cloudflare_urls" });
+        if (pcf.value && Array.isArray(pcf.value)) {
+          setPrimaryCfUrls(pcf.value);
         }
       } catch { }
 
@@ -785,6 +797,7 @@ function AdminPanel() {
     setSavingConfig(true);
     try {
       await apiCall("manage-app", { action: "set_settings", key: "config", value: serverConfig });
+      await apiCall("manage-app", { action: "set_settings", key: "primary_cloudflare_urls", value: primaryCfUrls });
       toast.success("Server configuration saved!");
     } catch (err) {
       toast.error("Failed to save: " + (err instanceof Error ? err.message : String(err)));
@@ -1280,6 +1293,18 @@ function AdminPanel() {
                       </div>
                     </div>
                     <div>
+                      <p className="text-[10px] font-bold text-green-600 uppercase">Cloudflare Worker URLs</p>
+                      {primaryCfUrls.length > 0 ? (
+                        <div className="space-y-1 mt-1">
+                          {primaryCfUrls.map((url, ui) => (
+                            <p key={ui} className="text-sm text-green-900 font-medium break-all">• {url}</p>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-green-700 font-medium">Not configured — add in Settings tab</p>
+                      )}
+                    </div>
+                    <div>
                       <p className="text-[10px] font-bold text-green-600 uppercase">Configured via</p>
                       <p className="text-sm text-green-900 font-medium">Settings tab</p>
                     </div>
@@ -1333,15 +1358,69 @@ function AdminPanel() {
                             </div>
                           </div>
                           <div>
-                            <p className="text-[10px] font-bold text-blue-500 uppercase">Cloudflare Worker URLs</p>
-                            {acc.cloudflareUrls && acc.cloudflareUrls.length > 0 ? (
+                            <div className="flex items-center justify-between">
+                              <p className="text-[10px] font-bold text-blue-500 uppercase">Cloudflare Worker URLs</p>
+                              <button onClick={(e) => {
+                                e.stopPropagation();
+                                if (editingAccountUrls === i) {
+                                  setEditingAccountUrls(null);
+                                } else {
+                                  setEditingAccountUrls(i);
+                                  setEditCfUrls([...(acc.cloudflareUrls || [])]);
+                                  setEditCfInput("");
+                                }
+                              }} className="text-[10px] font-bold text-blue-600 hover:text-blue-800 transition-colors">
+                                {editingAccountUrls === i ? "Cancel" : "Edit URLs"}
+                              </button>
+                            </div>
+                            {editingAccountUrls === i ? (
+                              <div className="mt-1 space-y-1.5">
+                                {editCfUrls.map((url, ui) => (
+                                  <div key={ui} className="flex items-center gap-2 p-1.5 bg-white rounded-lg border">
+                                    <Globe className="w-3 h-3 text-slate-400 flex-shrink-0" />
+                                    <span className="text-xs text-slate-700 flex-1 break-all">{url}</span>
+                                    <button onClick={(e) => { e.stopPropagation(); setEditCfUrls(editCfUrls.filter((_, idx) => idx !== ui)); }}
+                                      className="p-0.5 hover:bg-red-50 text-red-400 hover:text-red-600 rounded transition-colors">
+                                      <X className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                ))}
+                                <div className="flex gap-1.5" onClick={(e) => e.stopPropagation()}>
+                                  <input type="text" placeholder="https://worker.workers.dev" value={editCfInput}
+                                    onChange={(e) => setEditCfInput(e.target.value)}
+                                    className="flex-1 bg-white border rounded-lg p-1.5 outline-none focus:ring-2 focus:ring-blue-500 text-xs" />
+                                  <button onClick={() => {
+                                    if (!editCfInput.trim()) return;
+                                    setEditCfUrls([...editCfUrls, editCfInput.trim().replace(/\/+$/, "")]);
+                                    setEditCfInput("");
+                                  }} className="px-2 py-1 bg-slate-800 text-white text-[10px] font-bold rounded-lg hover:bg-slate-700">
+                                    Add
+                                  </button>
+                                </div>
+                                <button onClick={async (e) => {
+                                  e.stopPropagation();
+                                  const updated = [...emailAccounts];
+                                  updated[i] = { ...updated[i], cloudflareUrls: [...editCfUrls] };
+                                  setEmailAccounts(updated);
+                                  setEditingAccountUrls(null);
+                                  try {
+                                    await apiCall("manage-app", { action: "set_settings", key: "email_accounts", value: updated });
+                                    toast.success("Worker URLs updated!");
+                                  } catch (err) {
+                                    toast.error(err instanceof Error ? err.message : "Failed to save URLs");
+                                  }
+                                }} className="w-full bg-blue-600 text-white text-xs font-bold py-1.5 rounded-lg hover:bg-blue-700 transition-all">
+                                  Save URLs
+                                </button>
+                              </div>
+                            ) : acc.cloudflareUrls && acc.cloudflareUrls.length > 0 ? (
                               <div className="space-y-1 mt-1">
                                 {acc.cloudflareUrls.map((url, ui) => (
                                   <p key={ui} className="text-sm text-slate-800 font-medium break-all">• {url}</p>
                                 ))}
                               </div>
                             ) : (
-                              <p className="text-sm text-slate-400 font-medium">Not configured</p>
+                              <p className="text-sm text-slate-400 font-medium">Not configured — click Edit URLs to add</p>
                             )}
                           </div>
                           <div>
@@ -1416,6 +1495,35 @@ function AdminPanel() {
                     onChange={(e) => setServerConfig({ ...serverConfig, IMAP_PASSWORD: e.target.value })}
                     placeholder="16-digit App Password"
                     className="w-full bg-slate-50 border rounded-xl p-3 pr-12 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Cloudflare Worker URLs</label>
+                  <div className="space-y-1.5 mb-2">
+                    {primaryCfUrls.map((url, i) => (
+                      <div key={i} className="flex items-center gap-2 p-2 bg-slate-50 rounded-lg border">
+                        <Globe className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                        <span className="text-xs text-slate-700 flex-1 break-all">{url}</span>
+                        <button onClick={() => setPrimaryCfUrls(primaryCfUrls.filter((_, idx) => idx !== i))}
+                          className="p-1 hover:bg-red-50 text-red-400 hover:text-red-600 rounded transition-colors">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex gap-2">
+                    <input type="text" placeholder="https://worker.workers.dev" value={primaryCfInput}
+                      onChange={(e) => setPrimaryCfInput(e.target.value)}
+                      className="flex-1 bg-slate-50 border rounded-lg p-2 outline-none focus:ring-2 focus:ring-red-500 text-xs" />
+                    <button onClick={() => {
+                      if (!primaryCfInput.trim()) return;
+                      setPrimaryCfUrls([...primaryCfUrls, primaryCfInput.trim().replace(/\/+$/, "")]);
+                      setPrimaryCfInput("");
+                    }} className="px-3 py-1.5 bg-slate-800 text-white text-xs font-bold rounded-lg hover:bg-slate-700">
+                      Add
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-1">Add Cloudflare Worker URLs for this primary account</p>
                 </div>
               </div>
             </section>
@@ -1564,6 +1672,15 @@ function EmailViewer() {
     workerUrlLoaded.current = true;
     (async () => {
       const urls: string[] = [];
+      try {
+        const pcf = await apiCall("manage-app", { action: "get_settings", key: "primary_cloudflare_urls" });
+        if (pcf.value && Array.isArray(pcf.value)) {
+          for (const u of pcf.value) {
+            const trimmed = u.trim().replace(/\/+$/, "");
+            if (trimmed && !urls.includes(trimmed)) urls.push(trimmed);
+          }
+        }
+      } catch { }
       try {
         const data = await apiCall("manage-app", { action: "get_settings", key: "email_accounts" });
         if (data.value && Array.isArray(data.value)) {
