@@ -1,113 +1,44 @@
 
 
-# Worker URL Routing & Load Balancing
+# Fix: Worker URL Routing Logic
 
-## What's changing
+## Problem
 
-Currently all worker URLs are pooled into one flat list and used as failover-only proxies to the same Supabase backend. Every worker fetches ALL IMAP accounts regardless of which account it's assigned to.
+The app merges ALL worker URLs (primary + per-account) into a single flat list. When `apiCall` makes a request (e.g., `manage-app`), it randomly picks from this combined list. So the broken account-specific worker (`netflix.testbyop.workers.dev`) gets tried for general API calls, causing 502 errors and slowness.
 
-This plan makes two changes:
-1. **Per-account worker routing**: When a worker URL is assigned to a specific email account, email fetching for that account goes through that specific worker.
-2. **Random load balancing**: When multiple worker URLs exist (primary or per-account), they are shuffled randomly instead of always trying the first one.
+The `netflix.testbyop.workers.dev` worker returns `"Invalid URL: undefined/functions/v1/manage-app"` even though its `/api/debug` shows `has_supabase_url: true`. This suggests the deployed worker code on that instance is outdated or corrupted.
 
-## Architecture
+## Solution
 
-```text
-Current:
-  Worker1 → Supabase → ALL IMAP accounts
-  Worker2 → (failover only)
+Separate worker URL routing so that:
+- **General API calls** (`apiCall`) only use PRIMARY worker URLs
+- **Email fetch/sync calls** use account-specific URLs when available, falling back to primary
+- Account-specific URLs are NOT mixed into the general pool
 
-New:
-  Primary Workers (shuffled) → Supabase → ALL accounts
-  Account-specific Worker → Supabase → Only that account's emails
-```
+## Changes
 
-## Implementation
+### 1. Fix `apiCall` to use only primary URLs (src/App.tsx)
 
-### 1. Cloudflare Worker — accept `accountLabels` filter in sync
+Modify `getStoredWorkerUrls()` to store primary and account URLs separately. `apiCall` should only read primary URLs.
 
-**File**: `cloudflare-worker/worker.js`
+### 2. Fix the URL merge logic (lines 2014-2033)
 
-In `handleSync()`, pass through the request body (which already contains `mode: "sync"`) to the Supabase function. Add support for an `accountLabels` field so the worker can request sync for specific accounts only.
+Instead of building a flat list of all URLs, store them separately:
+- `localStorage` key `cloudflare_worker_urls` = primary URLs only
+- Account-specific URLs stay in the `workerUrlMap` state, used only by `fetchFromWorkers` for email operations
 
-No major changes needed here — the worker already passes the body through. The filtering happens in `fetch-emails`.
+### 3. Fix initial localStorage seeding (line 1979)
 
-### 2. `fetch-emails` — support `accountLabels` filter in sync mode
+Line 1979 starts with `const primaryUrls = [...getStoredWorkerUrls()]` which includes stale/old URLs. After fetching fresh settings, it should REPLACE rather than merge with old cached URLs.
 
-**File**: `supabase/functions/fetch-emails/index.ts`
+### 4. Clean stale URLs on save
 
-In the SYNC section (around line 345), read `body.accountLabels`. If present, filter the `accounts` array to only sync those specific labels. This way, when a per-account worker triggers sync, only that account is synced.
+When admin saves new `primary_cloudflare_urls`, the stored URLs should be replaced entirely (already done at line 975, but the email viewer's useEffect re-adds account URLs on next load).
 
-```typescript
-// After building accounts array (~line 397)
-if (body.accountLabels && Array.isArray(body.accountLabels)) {
-  accounts = accounts.filter(a => body.accountLabels.includes(a.label));
-}
-```
+## Expected Result
 
-### 3. Frontend — separate per-account vs primary worker URLs
-
-**File**: `src/App.tsx`
-
-Changes to `EmailViewer`:
-
-**a) Resolve worker URLs with account mapping**
-
-Instead of merging all URLs into one flat `resolvedWorkerUrls` array, build a structured map:
-
-```typescript
-type WorkerUrlMap = {
-  primary: string[];                    // shared/global workers
-  byAccount: Record<string, string[]>; // account label → its specific workers
-};
-```
-
-**b) Shuffle for load balancing**
-
-Add a simple shuffle utility. When making requests, shuffle the URL list so traffic distributes randomly across workers.
-
-```typescript
-function shuffleArray<T>(arr: T[]): T[] {
-  const shuffled = [...arr];
-  for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-  }
-  return shuffled;
-}
-```
-
-**c) `fetchFromWorkers` — use shuffled URLs**
-
-Modify `fetchFromWorkers` to accept an optional URL list override. Default to shuffled primary URLs. For account-specific requests, pass account-specific URLs.
-
-**d) `syncViaWorker` — sync each account group separately**
-
-When syncing:
-- For accounts with dedicated workers: call sync through their specific worker with `accountLabels: [label]`
-- For accounts without dedicated workers: call sync through primary workers (all remaining accounts)
-- Run all sync calls in parallel
-
-**e) `loadCachedEmails` — unchanged**
-
-Cache loading always goes through primary workers (or any available worker) since it reads from the shared Supabase DB, not IMAP directly.
-
-### 4. No backend migration needed
-
-All changes are frontend routing logic + a small filter addition in `fetch-emails`.
-
-## Files to modify
-
-| File | Change |
-|------|--------|
-| `src/App.tsx` | Structured worker URL map, shuffle, per-account sync routing |
-| `supabase/functions/fetch-emails/index.ts` | Accept `accountLabels` filter in sync mode |
-| `cloudflare-worker/worker.js` | No changes needed (already passes body through) |
-
-## Result
-
-- If you add 10 worker URLs as primary → they are randomly load-balanced
-- If you assign a worker URL to a specific email account → sync for that account goes through that worker only
-- If a per-account worker fails → falls back to primary workers
-- Cache reads (loading emails to display) always use primary workers
+- `manage-app` and other general calls go ONLY to primary worker (`netflixfetch.opgohils.workers.dev`)
+- Email fetch goes to account-specific worker when configured
+- No more random 502 errors from broken account workers being used for admin operations
+- Faster page loads since no wasted requests to broken workers
 
