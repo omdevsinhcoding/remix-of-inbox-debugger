@@ -1,69 +1,87 @@
 
 
-# Fix Plan: New Emails Not Arriving + Filter Banner Removal
+# Add Supabase Cron for Automatic Email Sync
 
-## Issues Found
+## Current State
+- Sync works correctly when triggered manually
+- No server-side scheduler exists — emails only arrive on user refresh or Cloudflare cron (which isn't deployed)
+- `pg_cron` and `pg_net` extensions are available but not enabled
+- Admin panel already has a "Scheduled Sync (Cron)" section with manual instructions only
 
-1. **Sync times out**: Edge function hits the ~25s Supabase timeout. IMAP connect + search + fetch 150 UIDs is too slow. Logs confirm: sync starts, connects, but never completes.
+## Plan
 
-2. **Dedup IDs are inconsistent**: Cached IDs are plain UIDs (`95367`) but dedup checks both `Primary:95367` and `95367`. The `String(uid)` check works for existing data, but new emails stored as `Primary:uid` won't match next time via `cachedIds.has(String(uid))` — they'd need `cachedIds.has("Primary:uid")` which does work. So dedup is actually fine for the current code. The real problem is the timeout.
+### Step 1: Enable pg_cron and pg_net extensions + create cron job
 
-3. **Filter banner showing unwanted**: `hiddenCount` is set to `-1` when any filter is active, showing "Some emails hidden by filters" banner. User does not want this banner.
+**Database migration** to:
+1. Enable `pg_cron` and `pg_net` extensions
+2. Create a cron job that calls `fetch-emails` edge function with `{"mode":"sync"}` every 3 minutes using `net.http_post()`
 
-4. **Admin toggle behavior broken**: Settings show `showPasswordResets: false, showSignInCodes: true`. The filter logic in the edge function:
-   - `filterSignInCodes` = true when `showSignInCodes === false` → currently `showSignInCodes: true` → `filterSignInCodes = false` → sign-in codes ARE shown ✓
-   - `filterPasswordResets` = true when `showPasswordResets !== true` → currently `showPasswordResets: false` → `filterPasswordResets = true` → password resets ARE hidden ✓
-   - But toggling these on/off doesn't trigger a re-fetch of cached emails. The user needs to refresh to see the change.
+```sql
+CREATE EXTENSION IF NOT EXISTS pg_cron WITH SCHEMA pg_catalog;
+CREATE EXTENSION IF NOT EXISTS pg_net WITH SCHEMA extensions;
 
-## Root Cause of No New Emails
+SELECT cron.schedule(
+  'sync-emails-every-3min',
+  '*/3 * * * *',
+  $$
+  SELECT net.http_post(
+    url := 'https://jsqchutnfdeljajkxmly.supabase.co/functions/v1/fetch-emails',
+    headers := '{"Content-Type":"application/json","Authorization":"Bearer <ANON_KEY>"}'::jsonb,
+    body := '{"mode":"sync"}'::jsonb
+  ) AS request_id;
+  $$
+);
+```
 
-The IMAP sync consistently times out. The edge function has a ~25s wall-clock limit. The flow is:
-1. Query cached_emails from DB (~1s)
-2. Read account config from DB (~1s)  
-3. Connect to IMAP (~3-5s)
-4. Search for Netflix emails (~2-3s)
-5. Fetch each new email one-by-one (~1-2s each)
+### Step 2: Add admin panel UI for cron management
 
-With 60 cached emails and `FULL_SYNC_MAX_UIDS = 150`, it tries to process up to 150 UIDs. Even though dedup skips cached ones, the IMAP operations themselves are slow. The `PER_ACCOUNT_TIMEOUT_MS = 20000` (20s) is close to the edge function limit.
+**File:** `src/App.tsx`
 
-**Fix**: Reduce `FULL_SYNC_MAX_UIDS` to 30, reduce `PER_ACCOUNT_TIMEOUT_MS` to 15s, and add `message_id` column for safer dedup.
+Replace the static "Scheduled Sync (Cron)" section (lines 1423-1459) with an interactive panel that:
+- Shows current cron status (active/inactive) by querying a new edge function endpoint
+- Has an **Enable/Disable** toggle button that calls the edge function to manage the cron job
+- Shows interval selector (1, 3, 5, 10 minutes)
+- Keeps the manual setup instructions (Cloudflare, curl) as collapsible "Advanced" section
+- Shows last sync time from `cached_emails` table
+
+### Step 3: Add cron management to edge function
+
+**File:** `supabase/functions/fetch-emails/index.ts`
+
+Add two new modes:
+- `mode: "cron_status"` — returns whether the cron job exists and its schedule
+- `mode: "cron_toggle"` — enables/disables the cron job (admin only, requires service role)
+
+These modes use `supabase.rpc()` or direct SQL to query/manage `cron.job` table.
+
+### Step 4: Add logging for cron-triggered syncs
+
+**File:** `supabase/functions/fetch-emails/index.ts`
+
+Add a `source` field to sync logs:
+```
+[sync] Triggered by: cron | manual | worker
+```
+
+Log start, completion, and errors with timestamps.
+
+### Step 5: Keep Cloudflare cron as secondary
+
+No code changes needed. The `wrangler.toml` already has cron config commented out. Admin panel will show instructions for enabling it as backup.
 
 ---
 
-## Changes
+## Files Changed
 
-### File 1: `supabase/functions/fetch-emails/index.ts`
+| File | Change |
+|------|--------|
+| DB migration | Enable pg_cron + pg_net, create scheduled job |
+| `supabase/functions/fetch-emails/index.ts` | Add `cron_status` and `cron_toggle` modes |
+| `src/App.tsx` | Replace static cron section with interactive enable/disable UI + interval selector |
 
-**Changes:**
-- Reduce `FULL_SYNC_MAX_UIDS` from 150 → 30 (fetch fewer, finish faster)
-- Reduce `PER_ACCOUNT_TIMEOUT_MS` from 20000 → 15000
-- Add `message_id` to stored email data for future-proof dedup
-- Broaden Netflix filter: match `netflix` in from OR subject (not just exact `info@account.netflix.com`)
-- Add `message_id` column storage in upsert
-
-### File 2: `src/App.tsx`
-
-**Changes:**
-- Remove the filter banner entirely (`hiddenCount` state and the banner UI)
-- Remove `loadHiddenCount()` function and its call
-- Ensure filter toggles in admin trigger immediate cache reload
-
-### File 3: DB Migration
-
-- Add `message_id` column to `cached_emails` table (nullable text, for future dedup safety)
-
----
-
-## Summary
-
-| Problem | Fix |
-|---------|-----|
-| Sync times out → no new emails | Reduce fetch limit to 30, reduce timeout to 15s |
-| Filter banner showing unwanted | Remove the banner UI completely |
-| Admin toggle doesn't reflect immediately | Already fixed — `loadCachedEmails` is called after toggle |
-| Netflix filter too narrow | Broaden to match `netflix` in from/subject |
-
-## Deployment
-
-After code changes, the edge function will be auto-deployed. No manual steps needed. Cron setup remains optional via `wrangler.toml`.
+## What This Achieves
+- Emails sync automatically every 3 minutes via Supabase pg_cron — no frontend or Cloudflare needed
+- Admin can enable/disable and change interval from the UI
+- Manual instructions preserved for advanced users
+- Cloudflare cron remains as optional backup
 
