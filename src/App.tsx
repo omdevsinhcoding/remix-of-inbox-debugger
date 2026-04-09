@@ -34,15 +34,8 @@ function getSessionToken(): string | null {
 
 async function apiCall(functionName: string, body: any) {
   let workerUrls = getStoredWorkerUrls();
-  // Fallback to env var for bootstrap (first login before localStorage has URLs)
   if (workerUrls.length === 0) {
-    const envUrl = (import.meta as any).env?.VITE_WORKER_URL;
-    if (envUrl) {
-      workerUrls = [envUrl.replace(/\/+$/, "")];
-    }
-  }
-  if (workerUrls.length === 0) {
-    throw new Error("No Cloudflare Worker URLs configured. Set VITE_WORKER_URL environment variable or login from a device that has URLs cached.");
+    throw new Error("NO_WORKER_URL");
   }
 
   const token = getSessionToken();
