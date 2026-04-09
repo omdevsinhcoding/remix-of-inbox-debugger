@@ -1669,6 +1669,70 @@ function AdminPanel() {
                   </div>
                   <p className="text-[10px] text-slate-400 mt-1">Multiple URLs are shuffled randomly for load balancing — not sequential failover</p>
                 </div>
+
+                {/* Cloudflare Setup Guide */}
+                <details className="mt-4 bg-blue-50 border border-blue-200 rounded-xl p-4">
+                  <summary className="text-xs font-bold text-blue-700 cursor-pointer select-none flex items-center gap-2">
+                    <Info className="w-3.5 h-3.5" />
+                    📘 How to set up a Cloudflare Worker (Step-by-Step)
+                  </summary>
+                  <div className="mt-3 space-y-3 text-[11px] text-blue-900 leading-relaxed">
+                    <div>
+                      <p className="font-bold text-blue-800">Step 1: Create Cloudflare Account</p>
+                      <p>Go to <span className="font-mono bg-blue-100 px-1 rounded">dash.cloudflare.com</span> and sign up for free.</p>
+                    </div>
+                    <div>
+                      <p className="font-bold text-blue-800">Step 2: Install Wrangler CLI</p>
+                      <p className="font-mono bg-blue-100 p-1.5 rounded mt-1">npm install -g wrangler</p>
+                      <p className="mt-1">Then login:</p>
+                      <p className="font-mono bg-blue-100 p-1.5 rounded mt-1">npx wrangler login</p>
+                    </div>
+                    <div>
+                      <p className="font-bold text-blue-800">Step 3: Create KV Namespace</p>
+                      <p className="font-mono bg-blue-100 p-1.5 rounded mt-1">cd cloudflare-worker<br/>npx wrangler kv namespace create EMAIL_CACHE</p>
+                      <p className="mt-1">Copy the namespace ID and paste it in <span className="font-mono">wrangler.toml</span> → <span className="font-mono">id</span> field.</p>
+                    </div>
+                    <div>
+                      <p className="font-bold text-blue-800">Step 4: Set Secrets (Required!)</p>
+                      <p className="font-mono bg-blue-100 p-1.5 rounded mt-1">npx wrangler secret put SUPABASE_URL<br/>npx wrangler secret put SUPABASE_KEY<br/>npx wrangler secret put SESSION_SECRET</p>
+                      <ul className="mt-1 space-y-0.5 ml-3 list-disc">
+                        <li><b>SUPABASE_URL</b> — Your Supabase project URL</li>
+                        <li><b>SUPABASE_KEY</b> — Supabase anon/publishable key</li>
+                        <li><b>SESSION_SECRET</b> — Supabase <b>Service Role Key</b> (for token verification)</li>
+                      </ul>
+                      <p className="mt-1 text-red-600 font-bold">⚠️ Without SESSION_SECRET, the worker will reject all authenticated requests!</p>
+                    </div>
+                    <div>
+                      <p className="font-bold text-blue-800">Step 5: Deploy</p>
+                      <p className="font-mono bg-blue-100 p-1.5 rounded mt-1">npx wrangler deploy</p>
+                      <p className="mt-1">After deployment, copy the URL (e.g. <span className="font-mono">https://email-cache-proxy.your-account.workers.dev</span>) and paste it above.</p>
+                    </div>
+                    <div>
+                      <p className="font-bold text-blue-800">Step 6: Verify</p>
+                      <p>Visit <span className="font-mono bg-blue-100 px-1 rounded">https://your-worker.workers.dev/api/debug</span> in browser. You should see:</p>
+                      <p className="font-mono bg-blue-100 p-1.5 rounded mt-1">has_supabase_url: true<br/>has_supabase_key: true<br/>has_session_secret: true ← Must be true!</p>
+                    </div>
+                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-2">
+                      <p className="font-bold text-yellow-800">🔄 Adding a NEW email account with its own worker:</p>
+                      <ol className="mt-1 space-y-0.5 ml-3 list-decimal">
+                        <li>Create a new Cloudflare Worker (repeat Steps 2-5 with a different name in <span className="font-mono">wrangler.toml</span>)</li>
+                        <li>Set the same 3 secrets on the new worker</li>
+                        <li>Go to "Email Accounts" tab → Add the account with IMAP details</li>
+                        <li>Add the new worker URL in that account's "Cloudflare Worker URLs" field</li>
+                        <li>Emails for that account will be fetched through its dedicated worker</li>
+                      </ol>
+                    </div>
+                    <div className="bg-green-50 border border-green-200 rounded-lg p-2">
+                      <p className="font-bold text-green-800">💡 Tips:</p>
+                      <ul className="mt-1 space-y-0.5 ml-3 list-disc">
+                        <li>Multiple primary worker URLs = random load balancing</li>
+                        <li>Per-account worker URLs = dedicated routing for that email account</li>
+                        <li>If all workers fail, app automatically falls back to direct Supabase</li>
+                        <li>If KV storage fills up, create a new KV namespace and add it as <span className="font-mono">EMAIL_CACHE_V2</span></li>
+                      </ul>
+                    </div>
+                  </div>
+                </details>
               </div>
             </section>
 
