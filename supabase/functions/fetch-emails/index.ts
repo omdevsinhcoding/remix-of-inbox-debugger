@@ -381,7 +381,7 @@ Deno.serve(async (req) => {
     const cachedIds = new Set((cachedRows || []).map((r: any) => String(r.id)));
     const hasLegacyNullLabels = (cachedRows || []).some((row: any) => row.account_label == null);
 
-    const accounts: Array<{ label: string; host: string; port: number; user: string; password: string }> = [];
+    let accounts: Array<{ label: string; host: string; port: number; user: string; password: string }> = [];
 
     try {
       const { data: accountsData } = await supabase
