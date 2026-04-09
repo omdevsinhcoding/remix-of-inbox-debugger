@@ -275,11 +275,25 @@ function ProfileSelectPage() {
       }
 
       const loc = await getPreciseLocation();
-      const data = await apiCall("manage-app", {
-        action: "login",
-        username: selectedProfile.username,
-        password,
-      });
+
+      // Login via worker if available, otherwise direct Supabase
+      let data: any;
+      const workerUrls = getStoredWorkerUrls();
+      if (workerUrls.length > 0) {
+        data = await apiCall("manage-app", {
+          action: "login",
+          username: selectedProfile.username,
+          password,
+        });
+      } else {
+        const result = await supabase.functions.invoke("manage-app", {
+          body: { action: "login", username: selectedProfile.username, password },
+        });
+        if (result.error) throw result.error;
+        data = result.data;
+        if (!data?.success) throw new Error(data?.error || "Login failed");
+        if (data.sessionToken) localStorage.setItem("session_token", data.sessionToken);
+      }
 
       // Store worker URLs returned from login response
       if (data.workerUrls && Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
