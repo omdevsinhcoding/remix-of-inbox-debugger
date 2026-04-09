@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { Toaster, toast } from "sonner";
 import ReCAPTCHA from "react-google-recaptcha";
+import { supabase as supabaseClient } from "@/src/integrations/supabase/client";
 
 // --- API Helper ---
 
@@ -1782,8 +1783,6 @@ function EmailViewer() {
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
   const [otpCopied, setOtpCopied] = useState(false);
-  const refreshIntervalSeconds = 5;
-  const [countdown, setCountdown] = useState(refreshIntervalSeconds);
   const isFetchingRef = React.useRef(false);
   const navigate = useNavigate();
   const user = JSON.parse(localStorage.getItem("user") || "{}");
@@ -1915,7 +1914,6 @@ function EmailViewer() {
       const msg = err instanceof Error ? err.message : "Failed to load emails";
       if (emails.length > 0) setStale(true);
       setError(msg);
-      console.error("[loadCached] Error:", err);
       return 0;
     }
   };
@@ -1972,7 +1970,6 @@ function EmailViewer() {
     try {
       await syncFromImap();
       await loadCachedEmails({ direct: true });
-      setCountdown(refreshIntervalSeconds);
     } finally {
       setRefreshing(false);
     }
@@ -1982,35 +1979,54 @@ function EmailViewer() {
     setLoading(true);
     loadCachedEmails().then(() => {
       setLoading(false);
-      void syncFromImap();
     });
-    
 
-    const cacheInterval = setInterval(() => {
-      setCountdown(prev => {
-        if (prev <= 1) {
-          void loadCachedEmails();
-          // Auto background sync if enough time passed
-          if (document.visibilityState === "visible" && Date.now() - lastSyncTime.current > SYNC_THROTTLE_MS) {
-            void syncFromImap();
+    // Supabase Realtime: listen for new emails inserted by cron
+    const channel = supabaseClient
+      .channel('cached_emails_realtime')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'cached_emails' },
+        (payload: any) => {
+          const newEmail = payload.new;
+          if (newEmail) {
+            const mapped: Email = {
+              id: newEmail.id,
+              subject: newEmail.subject,
+              from: newEmail.from_address,
+              to: newEmail.to_address,
+              date: newEmail.date,
+              otp: newEmail.otp,
+              preview: newEmail.preview,
+              html: newEmail.html,
+            };
+            setEmails(prev => {
+              // Avoid duplicates
+              if (prev.some(e => e.id === mapped.id)) return prev;
+              const updated = [mapped, ...prev];
+              updated.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+              return updated;
+            });
+            setLastUpdated(new Date());
           }
-          return refreshIntervalSeconds;
         }
-        return prev - 1;
-      });
-    }, 1000);
+      )
+      .subscribe();
+
+    // Fallback polling every 30s (light)
+    const pollInterval = setInterval(() => {
+      void loadCachedEmails();
+    }, 30000);
 
     const handleVisibility = () => {
       if (document.visibilityState === "visible") {
         void loadCachedEmails();
-        if (Date.now() - lastSyncTime.current > SYNC_THROTTLE_MS) {
-          void syncFromImap();
-        }
       }
     };
     document.addEventListener("visibilitychange", handleVisibility);
     return () => {
-      clearInterval(cacheInterval);
+      supabaseClient.removeChannel(channel);
+      clearInterval(pollInterval);
       document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, []);
