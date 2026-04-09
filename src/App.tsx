@@ -1619,23 +1619,8 @@ function EmailViewer() {
         return emailList.length;
       }
 
-      const res = await fetch(`${getApiBase()}/rest/v1/cached_emails?select=*&order=date.desc&limit=500`, {
-        headers: { "apikey": getApiKey(), "Authorization": `Bearer ${getApiKey()}` },
-      });
-      if (!res.ok) {
-        setError(`Failed to load emails (${res.status})`);
-        return 0;
-      }
-      const data = await res.json();
-      const emailList = (Array.isArray(data) ? data : []).map((e: any) => ({
-        id: e.id, subject: e.subject, from: e.from_address, to: e.to_address,
-        date: e.date, otp: e.otp, preview: e.preview, html: e.html,
-      })) as Email[];
-      emailList.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-      setEmails(emailList);
-      setError(null);
-      setLastUpdated(new Date());
-      return emailList.length;
+      setError("No Cloudflare Worker responded. Check your Worker URLs in Email Accounts settings.");
+      return 0;
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to load emails";
       setError(msg);
@@ -1678,35 +1663,40 @@ function EmailViewer() {
       setLoading(false);
     });
 
-    const channel = supabaseClient
-      .channel('cached_emails_realtime')
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'cached_emails' },
-        (payload: any) => {
-          const newEmail = payload.new;
-          if (newEmail) {
-            const mapped: Email = {
-              id: newEmail.id,
-              subject: newEmail.subject,
-              from: newEmail.from_address,
-              to: newEmail.to_address,
-              date: newEmail.date,
-              otp: newEmail.otp,
-              preview: newEmail.preview,
-              html: newEmail.html,
-            };
-            setEmails(prev => {
-              if (prev.some(e => e.id === mapped.id)) return prev;
-              const updated = [mapped, ...prev];
-              updated.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-              return updated;
-            });
-            setLastUpdated(new Date());
+    let channel: any = null;
+    try {
+      channel = supabaseClient
+        .channel('cached_emails_realtime')
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'cached_emails' },
+          (payload: any) => {
+            const newEmail = payload.new;
+            if (newEmail) {
+              const mapped: Email = {
+                id: newEmail.id,
+                subject: newEmail.subject,
+                from: newEmail.from_address,
+                to: newEmail.to_address,
+                date: newEmail.date,
+                otp: newEmail.otp,
+                preview: newEmail.preview,
+                html: newEmail.html,
+              };
+              setEmails(prev => {
+                if (prev.some(e => e.id === mapped.id)) return prev;
+                const updated = [mapped, ...prev];
+                updated.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+                return updated;
+              });
+              setLastUpdated(new Date());
+            }
           }
-        }
-      )
-      .subscribe();
+        )
+        .subscribe();
+    } catch (err) {
+      console.warn("Realtime subscription unavailable, using polling only:", err);
+    }
 
     const pollInterval = setInterval(() => {
       void loadCachedEmails();
@@ -1719,7 +1709,7 @@ function EmailViewer() {
     };
     document.addEventListener("visibilitychange", handleVisibility);
     return () => {
-      supabaseClient.removeChannel(channel);
+      if (channel) try { supabaseClient.removeChannel(channel); } catch {}
       clearInterval(pollInterval);
       document.removeEventListener("visibilitychange", handleVisibility);
     };
