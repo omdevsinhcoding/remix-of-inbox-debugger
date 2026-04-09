@@ -305,37 +305,6 @@ function ProfileSelectPage() {
     }
   };
 
-  if (needsWorkerUrl) {
-    return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4 relative overflow-hidden">
-        <div className="absolute inset-0 bg-[linear-gradient(to_right,#4f4f4f2e_1px,transparent_1px),linear-gradient(to_bottom,#4f4f4f2e_1px,transparent_1px)] bg-[size:14px_24px] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_0%,#000_70%,transparent_100%)]" />
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="relative z-10 w-full max-w-sm">
-          <div className="flex justify-center mb-6">
-            <div className="bg-red-600 p-3 rounded-2xl shadow-lg shadow-red-900/30">
-              <Server className="text-white w-7 h-7" />
-            </div>
-          </div>
-          <h1 className="text-xl font-black text-white text-center mb-2">Connect to Server</h1>
-          <p className="text-slate-400 text-center text-xs mb-6">Enter your Cloudflare Worker URL to get started</p>
-          <form onSubmit={handleWorkerUrlSubmit} className="space-y-4">
-            <div className="relative">
-              <Globe className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 w-5 h-5" />
-              <input type="url" value={workerUrlInput} onChange={(e) => setWorkerUrlInput(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 text-white rounded-2xl py-4 pl-12 pr-4 focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all outline-none placeholder:text-slate-600 text-sm"
-                placeholder="https://your-worker.workers.dev" autoFocus required />
-            </div>
-            <button type="submit" className="w-full bg-red-600 text-white font-bold py-4 rounded-2xl hover:bg-red-700 transition-all active:scale-95">
-              Connect
-            </button>
-          </form>
-          <button onClick={() => navigate("/admin")}
-            className="w-full text-slate-500 text-[10px] font-bold uppercase tracking-widest hover:text-white transition-colors mt-4 text-center">
-            Admin Login
-          </button>
-        </motion.div>
-      </div>
-    );
-  }
 
   if (loading) {
     return (
