@@ -1856,23 +1856,18 @@ function EmailViewer() {
   const fetchEmails = async () => {
     if (refreshing) return;
     setRefreshing(true);
-    const toastId = toast.loading("Fetching latest emails...");
+    const toastId = toast.loading("Syncing new emails...");
     try {
-      // Show cached emails instantly
+      // 1. Sync IMAP immediately and wait for it
+      await syncViaWorker();
+      // 2. Reload cached emails after sync completes
       await loadCachedEmails();
-      toast.success("Emails loaded!", { id: toastId });
-
-      // Sync new emails in background — don't block UI
-      syncViaWorker()
-        .then(() => loadCachedEmails())
-        .then(() => toast.success("New emails synced!"))
-        .catch((err) => {
-          const msg = err instanceof Error ? err.message : "Background sync failed";
-          console.warn("[sync]", msg);
-        });
+      toast.success("Emails synced!", { id: toastId });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Failed to load emails";
+      const msg = err instanceof Error ? err.message : "Sync failed";
       toast.error(msg, { id: toastId });
+      // Still try to show cached emails even if sync failed
+      await loadCachedEmails().catch(() => {});
     } finally {
       setRefreshing(false);
     }
