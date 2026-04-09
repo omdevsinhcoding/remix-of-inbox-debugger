@@ -749,15 +749,7 @@ function AdminPanel() {
         }
       } catch { }
 
-      try {
-        const res = await fetch(`${getApiBase()}/rest/v1/cached_emails?select=id&order=date.desc&limit=500`, {
-          headers: { "apikey": getApiKey(), "Authorization": `Bearer ${getApiKey()}` },
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (Array.isArray(data)) setStats(prev => ({ ...prev, totalEmails: data.length }));
-        }
-      } catch { }
+      // Stats are now derived from worker-fetched emails, no direct Supabase REST call
     })();
   }, []);
 
