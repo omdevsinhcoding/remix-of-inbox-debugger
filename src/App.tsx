@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { Toaster, toast } from "sonner";
 import ReCAPTCHA from "react-google-recaptcha";
-import { supabase as supabaseClient } from "@/src/integrations/supabase/client";
+import { supabase as supabaseClient } from "@/integrations/supabase/client";
 import { QRCodeSVG } from "qrcode.react";
 
 // --- API Helper ---
