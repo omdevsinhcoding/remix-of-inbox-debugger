@@ -1671,64 +1671,59 @@ function AdminPanel() {
                 </div>
 
                 {/* Cloudflare Setup Guide */}
-                <details className="mt-4 bg-blue-50 border border-blue-200 rounded-xl p-4">
-                  <summary className="text-xs font-bold text-blue-700 cursor-pointer select-none flex items-center gap-2">
-                    <Info className="w-3.5 h-3.5" />
-                    📘 How to set up a Cloudflare Worker (Step-by-Step)
+                <details className="mt-4 bg-blue-50 border border-blue-200 rounded-xl overflow-hidden">
+                  <summary className="text-xs sm:text-sm font-bold text-blue-700 cursor-pointer select-none flex items-center gap-2 p-3 sm:p-4 active:bg-blue-100 transition-colors">
+                    <Info className="w-4 h-4 flex-shrink-0" />
+                    <span>📘 Cloudflare Worker Setup Guide</span>
                   </summary>
-                  <div className="mt-3 space-y-3 text-[11px] text-blue-900 leading-relaxed">
-                    <div>
-                      <p className="font-bold text-blue-800">Step 1: Create Cloudflare Account</p>
-                      <p>Go to <span className="font-mono bg-blue-100 px-1 rounded">dash.cloudflare.com</span> and sign up for free.</p>
-                    </div>
-                    <div>
-                      <p className="font-bold text-blue-800">Step 2: Install Wrangler CLI</p>
-                      <p className="font-mono bg-blue-100 p-1.5 rounded mt-1">npm install -g wrangler</p>
-                      <p className="mt-1">Then login:</p>
-                      <p className="font-mono bg-blue-100 p-1.5 rounded mt-1">npx wrangler login</p>
-                    </div>
-                    <div>
-                      <p className="font-bold text-blue-800">Step 3: Create KV Namespace</p>
-                      <p className="font-mono bg-blue-100 p-1.5 rounded mt-1">cd cloudflare-worker<br/>npx wrangler kv namespace create EMAIL_CACHE</p>
-                      <p className="mt-1">Copy the namespace ID and paste it in <span className="font-mono">wrangler.toml</span> → <span className="font-mono">id</span> field.</p>
-                    </div>
-                    <div>
-                      <p className="font-bold text-blue-800">Step 4: Set Secrets (Required!)</p>
-                      <p className="font-mono bg-blue-100 p-1.5 rounded mt-1">npx wrangler secret put SUPABASE_URL<br/>npx wrangler secret put SUPABASE_KEY<br/>npx wrangler secret put SESSION_SECRET</p>
-                      <ul className="mt-1 space-y-0.5 ml-3 list-disc">
-                        <li><b>SUPABASE_URL</b> — Your Supabase project URL</li>
-                        <li><b>SUPABASE_KEY</b> — Supabase anon/publishable key</li>
-                        <li><b>SESSION_SECRET</b> — Supabase <b>Service Role Key</b> (for token verification)</li>
-                      </ul>
-                      <p className="mt-1 text-red-600 font-bold">⚠️ Without SESSION_SECRET, the worker will reject all authenticated requests!</p>
-                    </div>
-                    <div>
-                      <p className="font-bold text-blue-800">Step 5: Deploy</p>
-                      <p className="font-mono bg-blue-100 p-1.5 rounded mt-1">npx wrangler deploy</p>
-                      <p className="mt-1">After deployment, copy the URL (e.g. <span className="font-mono">https://email-cache-proxy.your-account.workers.dev</span>) and paste it above.</p>
-                    </div>
-                    <div>
-                      <p className="font-bold text-blue-800">Step 6: Verify</p>
-                      <p>Visit <span className="font-mono bg-blue-100 px-1 rounded">https://your-worker.workers.dev/api/debug</span> in browser. You should see:</p>
-                      <p className="font-mono bg-blue-100 p-1.5 rounded mt-1">has_supabase_url: true<br/>has_supabase_key: true<br/>has_session_secret: true ← Must be true!</p>
-                    </div>
-                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-2">
-                      <p className="font-bold text-yellow-800">🔄 Adding a NEW email account with its own worker:</p>
-                      <ol className="mt-1 space-y-0.5 ml-3 list-decimal">
-                        <li>Create a new Cloudflare Worker (repeat Steps 2-5 with a different name in <span className="font-mono">wrangler.toml</span>)</li>
-                        <li>Set the same 3 secrets on the new worker</li>
-                        <li>Go to "Email Accounts" tab → Add the account with IMAP details</li>
-                        <li>Add the new worker URL in that account's "Cloudflare Worker URLs" field</li>
-                        <li>Emails for that account will be fetched through its dedicated worker</li>
-                      </ol>
-                    </div>
-                    <div className="bg-green-50 border border-green-200 rounded-lg p-2">
-                      <p className="font-bold text-green-800">💡 Tips:</p>
-                      <ul className="mt-1 space-y-0.5 ml-3 list-disc">
-                        <li>Multiple primary worker URLs = random load balancing</li>
-                        <li>Per-account worker URLs = dedicated routing for that email account</li>
-                        <li>If all workers fail, app automatically falls back to direct Supabase</li>
-                        <li>If KV storage fills up, create a new KV namespace and add it as <span className="font-mono">EMAIL_CACHE_V2</span></li>
+                  <div className="px-3 sm:px-4 pb-4 space-y-2">
+                    {[
+                      { step: "1", title: "Create Cloudflare Account", desc: "Go to dash.cloudflare.com and sign up for free.", cmd: null },
+                      { step: "2", title: "Install Wrangler CLI", desc: "Install globally, then login to your account.", cmd: "npm install -g wrangler\nnpx wrangler login" },
+                      { step: "3", title: "Create KV Namespace", desc: "Copy the namespace ID into wrangler.toml → id field.", cmd: "cd cloudflare-worker\nnpx wrangler kv namespace create EMAIL_CACHE" },
+                      { step: "4", title: "Set 3 Required Secrets", desc: "SUPABASE_URL (project URL), SUPABASE_KEY (anon key), SESSION_SECRET (service role key).", cmd: "npx wrangler secret put SUPABASE_URL\nnpx wrangler secret put SUPABASE_KEY\nnpx wrangler secret put SESSION_SECRET" },
+                      { step: "5", title: "Deploy Worker", desc: "Copy the deployed URL and paste it in the Worker URLs field above.", cmd: "npx wrangler deploy" },
+                      { step: "6", title: "Verify Setup", desc: "Visit /api/debug on your worker URL. All 3 values must be true.", cmd: "https://your-worker.workers.dev/api/debug" },
+                    ].map((s) => (
+                      <details key={s.step} className="bg-white rounded-lg border border-blue-100 overflow-hidden">
+                        <summary className="flex items-center gap-2 p-2.5 sm:p-3 cursor-pointer active:bg-blue-50 transition-colors">
+                          <span className="bg-blue-600 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0">{s.step}</span>
+                          <span className="text-xs sm:text-sm font-bold text-slate-800">{s.title}</span>
+                        </summary>
+                        <div className="px-2.5 sm:px-3 pb-2.5 sm:pb-3">
+                          <p className="text-[11px] sm:text-xs text-slate-600 mb-1.5">{s.desc}</p>
+                          {s.cmd && (
+                            <pre className="text-[10px] sm:text-[11px] bg-slate-900 text-green-400 p-2 sm:p-2.5 rounded-lg overflow-x-auto whitespace-pre-wrap break-all">{s.cmd}</pre>
+                          )}
+                          {s.step === "4" && (
+                            <p className="text-[10px] sm:text-[11px] text-red-600 font-bold mt-1.5">⚠️ Without SESSION_SECRET, worker rejects all requests!</p>
+                          )}
+                        </div>
+                      </details>
+                    ))}
+
+                    <details className="bg-yellow-50 rounded-lg border border-yellow-200 overflow-hidden">
+                      <summary className="flex items-center gap-2 p-2.5 sm:p-3 cursor-pointer active:bg-yellow-100 transition-colors">
+                        <span className="text-xs sm:text-sm font-bold text-yellow-800">🔄 Adding a new email account with its own worker</span>
+                      </summary>
+                      <div className="px-2.5 sm:px-3 pb-2.5 sm:pb-3">
+                        <ol className="text-[11px] sm:text-xs text-yellow-900 space-y-1 ml-4 list-decimal">
+                          <li>Create a new Cloudflare Worker (repeat Steps 2-5 with a different name)</li>
+                          <li>Set the same 3 secrets on the new worker</li>
+                          <li>Go to "Email Accounts" tab → Add the account with IMAP details</li>
+                          <li>Add the new worker URL in that account's "Worker URLs" field</li>
+                          <li>Emails will be fetched through the dedicated worker</li>
+                        </ol>
+                      </div>
+                    </details>
+
+                    <div className="bg-green-50 rounded-lg border border-green-200 p-2.5 sm:p-3">
+                      <p className="text-xs sm:text-sm font-bold text-green-800 mb-1">💡 Tips</p>
+                      <ul className="text-[11px] sm:text-xs text-green-900 space-y-0.5 ml-4 list-disc">
+                        <li>Multiple primary URLs = random load balancing</li>
+                        <li>Per-account URLs = dedicated routing</li>
+                        <li>Workers down? App falls back to direct Supabase</li>
+                        <li>KV full? Add new namespace as EMAIL_CACHE_V2</li>
                       </ul>
                     </div>
                   </div>
