@@ -80,10 +80,10 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { username, name, status, lat, lon, city, state, locationSource } = await req.json();
+    const { username, name, status, lat, lon, city, state, locationSource, accuracy } = await req.json();
     const clientIp = getClientIp(req);
 
-    console.log(`[notification] Received: locationSource=${locationSource || 'unknown'}, lat=${lat}, lon=${lon}, clientIp=${clientIp || 'none'}`);
+    console.log(`[notification] Received: locationSource=${locationSource || 'unknown'}, lat=${lat}, lon=${lon}, accuracy=${accuracy}, clientIp=${clientIp || 'none'}`);
 
     const tgConfig = await getTelegramConfig();
     if (!tgConfig) {
@@ -100,6 +100,7 @@ Deno.serve(async (req) => {
     let numLon = Number(lon);
     let hasCoords = Number.isFinite(numLat) && Number.isFinite(numLon);
     let finalSource = locationSource || (hasCoords ? 'client' : 'none');
+    const isApproximateLocation = finalSource === 'server-ip';
 
     // Server-side IP fallback if no coords from client
     if (!hasCoords && clientIp) {
@@ -137,12 +138,15 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Build location string - never show "Unknown Location" if we have any data
+    // Build location string - mark IP-based results as approximate so they are never mistaken for exact GPS
     let locationData: string;
     if (resolvedCity || resolvedState) {
-      locationData = `${resolvedCity || 'Unknown City'}, ${resolvedState || 'Unknown State'}`;
+      const cityState = `${resolvedCity || 'Unknown City'}, ${resolvedState || 'Unknown State'}`;
+      locationData = isApproximateLocation ? `Approximate: ${cityState}` : cityState;
     } else if (hasCoords) {
-      locationData = `Coordinates: ${numLat.toFixed(4)}, ${numLon.toFixed(4)}`;
+      locationData = isApproximateLocation
+        ? `Approximate coordinates: ${numLat.toFixed(4)}, ${numLon.toFixed(4)}`
+        : `Coordinates: ${numLat.toFixed(4)}, ${numLon.toFixed(4)}`;
     } else if (clientIp) {
       locationData = `IP: ${clientIp} (geolocation unavailable)`;
     } else {
@@ -153,7 +157,7 @@ Deno.serve(async (req) => {
     const actionText = status === 'success' ? 'logged in' : 'had a failed login attempt';
     const statusEmoji = status === 'success' ? '✅ Success' : '❌ Failed';
     const mapsLink = hasCoords
-      ? `\n<b>Maps:</b> <a href="https://www.google.com/maps?q=${numLat},${numLon}">View on Map</a>`
+      ? `\n<b>${isApproximateLocation ? 'Approx. Map' : 'Maps'}:</b> <a href="https://www.google.com/maps?q=${numLat},${numLon}">View on Map</a>`
       : '';
 
     const message = `
