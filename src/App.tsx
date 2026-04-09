@@ -1,52 +1,77 @@
 import React, { useState, useEffect, createContext, useContext, useCallback } from "react";
-import { Mail, RefreshCw, ShieldCheck, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, KeyRound } from "lucide-react";
+import { Mail, RefreshCw, ShieldCheck, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, KeyRound, Filter, Server, BarChart3, Globe, Edit } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { Toaster, toast } from "sonner";
 import ReCAPTCHA from "react-google-recaptcha";
 
 // --- API Helper ---
-const OTP_SERVICE_FALLBACK = {
-  url: "https://osxinhctzabxeycyeflg.supabase.co",
-  key: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9zeGluaGN0emFieGV5Y3llZmxnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1NjY1MTUsImV4cCI6MjA5MTE0MjUxNX0.0_8_c1rxRXVOFUzC2aLjoRubLViSVo1qgeNvkbBMvFQ",
-};
 
-// --- Obfuscated endpoint ---
-const _0x1a = [104,116,116,112,115,58,47,47,110,101,116,102,108,105,120,102,101,116,99,104,46,111,112,103,111,104,105,108,115,46,119,111,114,107,101,114,115,46,100,101,118];
-function getCloudflareWorkerUrl() {
-  return String.fromCharCode(..._0x1a);
+function getApiBase(): string {
+  const url = import.meta.env.VITE_SUPABASE_URL;
+  if (!url || url === "undefined" || url === "null") {
+    throw new Error("Backend not configured. Set VITE_SUPABASE_URL in your environment.");
+  }
+  return url;
 }
 
-function getRuntimeValue(value: string | undefined, fallback: string) {
-  if (!value || value === "undefined" || value === "null") return fallback;
-  return value;
+function getApiKey(): string {
+  const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+  if (!key || key === "undefined" || key === "null") {
+    throw new Error("Backend not configured. Set VITE_SUPABASE_PUBLISHABLE_KEY in your environment.");
+  }
+  return key;
 }
 
-function getApiBase() {
-  return getRuntimeValue(import.meta.env.VITE_SUPABASE_URL, OTP_SERVICE_FALLBACK.url);
+function getCloudflareWorkerUrl(): string | null {
+  try {
+    const url = import.meta.env.VITE_CLOUDFLARE_WORKER_URL;
+    if (!url || url === "undefined" || url === "null") return null;
+    return url;
+  } catch { return null; }
 }
 
-function getApiKey() {
-  return getRuntimeValue(import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY, OTP_SERVICE_FALLBACK.key);
+function getSessionToken(): string | null {
+  try {
+    return localStorage.getItem("session_token");
+  } catch { return null; }
 }
 
 async function apiCall(functionName: string, body: any) {
-  const res = await fetch(`${getApiBase()}/functions/v1/${functionName}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${getApiKey()}`,
-    },
-    body: JSON.stringify(body),
-  });
-  const text = await res.text();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "Authorization": `Bearer ${getApiKey()}`,
+  };
+  const token = getSessionToken();
+  if (token) headers["X-Session-Token"] = token;
+
+  let res: Response;
   try {
-    const data = JSON.parse(text);
-    if (!res.ok) throw new Error(data?.error || "Request failed");
-    return data;
-  } catch {
-    throw new Error("Something went wrong. Please try again.");
+    res = await fetch(`${getApiBase()}/functions/v1/${functionName}`, {
+      method: "POST", headers, body: JSON.stringify(body),
+    });
+  } catch (networkErr) {
+    throw new Error("Network error. Check your connection and backend URL.");
   }
+
+  const text = await res.text();
+
+  let data: any;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error(`Request failed (${res.status}). Server returned non-JSON response.`);
+  }
+
+  if (!res.ok) {
+    throw new Error(data?.error || `Request failed with status ${res.status}`);
+  }
+
+  // Auto-store session token from login
+  if (data.sessionToken) {
+    localStorage.setItem("session_token", data.sessionToken);
+  }
+  return data;
 }
 
 // --- Rate Limiter ---
@@ -109,7 +134,7 @@ interface Email {
   id: string; subject: string; from: string; to?: string; date: string; otp: string | null; preview: string; html: string;
 }
 interface UserData {
-  id: string; username: string; name: string; role: "admin" | "user"; totpSecret?: string; mustChangePassword?: boolean;
+  id: string; username: string; name: string; role: "admin" | "user"; totpSecret?: string; mustChangePassword?: boolean; assignedAccounts?: string[] | null;
 }
 
 // --- Profile Colors ---
@@ -176,7 +201,7 @@ function ProfileSelectPage() {
           apiCall("manage-app", { action: "get_settings", key: "recaptcha" }).catch(() => ({ value: null })),
         ]);
         setProfiles((usersData.users || []).filter((u: UserData) => u.role === "user"));
-        if (recaptchaData.value?.siteKey) setSiteKey(recaptchaData.value.siteKey);
+        if (recaptchaData.value?.enabled === true && recaptchaData.value?.siteKey) setSiteKey(recaptchaData.value.siteKey);
       } catch (err) {
         console.error("Failed to load profiles:", err);
       } finally {
@@ -212,11 +237,7 @@ function ProfileSelectPage() {
 
       try {
         await apiCall("send-login-notification", {
-          username: data.user.username,
-          name: data.user.name,
-          status: "success",
-          lat: loc.lat,
-          lon: loc.lon,
+          username: data.user.username, name: data.user.name, status: "success", lat: loc.lat, lon: loc.lon,
         });
       } catch {}
 
@@ -336,7 +357,7 @@ function AdminLoginPage() {
     (async () => {
       try {
         const data = await apiCall("manage-app", { action: "get_settings", key: "recaptcha" });
-        if (data.value?.siteKey) setSiteKey(data.value.siteKey);
+        if (data.value?.enabled === true && data.value?.siteKey) setSiteKey(data.value.siteKey);
       } catch {}
     })();
   }, []);
@@ -458,9 +479,7 @@ function AdminAuthPage() {
       setLoading(true);
       (async () => {
         try {
-          const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
-          await apiCall("manage-app", { action: "create_otp", user_id: user.id, otp: otpCode });
-          await apiCall("send-telegram-otp", { otp: otpCode, userId: user.id });
+          await apiCall("manage-app", { action: "request_admin_otp", user_id: user.id });
           toast.success("Secure OTP sent to your Telegram.");
         } catch (err) {
           const msg = err instanceof Error ? err.message : "Failed to send OTP";
@@ -592,10 +611,12 @@ function AdminAuthPage() {
 
 // ==================== ADMIN PANEL ====================
 function AdminPanel() {
+  const [activeTab, setActiveTab] = useState<"users" | "security" | "emails" | "settings">("users");
   const [users, setUsers] = useState<UserData[]>([]);
   const [newUsername, setNewUsername] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [newName, setNewName] = useState("");
+  const [newUserAccounts, setNewUserAccounts] = useState<string[]>([]);
   const [siteKey, setSiteKey] = useState("");
   const [secretKeyVal, setSecretKeyVal] = useState("");
   const [captchaEnabled, setCaptchaEnabled] = useState(false);
@@ -604,18 +625,39 @@ function AdminPanel() {
   const [changingPassword, setChangingPassword] = useState(false);
   const [changingUserPass, setChangingUserPass] = useState<string | null>(null);
   const [userNewPass, setUserNewPass] = useState("");
+  const [showSignInCodes, setShowSignInCodes] = useState(true);
+  const [showPasswordResets, setShowPasswordResets] = useState(false);
+  const [editingUserAccounts, setEditingUserAccounts] = useState<string | null>(null);
+  const [editAccountsList, setEditAccountsList] = useState<string[]>([]);
   const [serverConfig, setServerConfig] = useState({
     TELEGRAM_BOT_TOKEN: "", TELEGRAM_CHAT_ID: "", IMAP_HOST: "", IMAP_PORT: "", IMAP_USER: "", IMAP_PASSWORD: "",
   });
   const [savingConfig, setSavingConfig] = useState(false);
+  const [emailAccounts, setEmailAccounts] = useState<Array<{ label: string; host: string; port: string; user: string; password: string; cloudflareUrl: string }>>([]);
+  const [newAccount, setNewAccount] = useState({ label: "", host: "imap.gmail.com", port: "993", user: "", password: "", cloudflareUrl: "" });
+  const [savingAccounts, setSavingAccounts] = useState(false);
+  const [expandedAccount, setExpandedAccount] = useState<number | null>(null);
   const navigate = useNavigate();
   const { user: currentUser, checkAuth } = useAuth();
+
+  const [stats, setStats] = useState({ totalUsers: 0, totalEmails: 0 });
+
+  // Get all available account labels for assignment
+  const getAvailableAccounts = (): string[] => {
+    const labels = ["Primary"];
+    emailAccounts.forEach(acc => {
+      if (acc.label && !labels.includes(acc.label)) labels.push(acc.label);
+    });
+    return labels;
+  };
 
   useEffect(() => {
     (async () => {
       try {
         const usersData = await apiCall("manage-app", { action: "list" });
-        setUsers(usersData.users || []);
+        const usersList = usersData.users || [];
+        setUsers(usersList);
+        setStats(prev => ({ ...prev, totalUsers: usersList.length }));
       } catch {}
 
       try {
@@ -623,36 +665,118 @@ function AdminPanel() {
         if (recaptcha.value) {
           setSiteKey(recaptcha.value.siteKey || "");
           setSecretKeyVal(recaptcha.value.secretKey || "");
-          setCaptchaEnabled(!!(recaptcha.value.siteKey));
+          setCaptchaEnabled(recaptcha.value.enabled === true);
         }
       } catch {}
 
       try {
         const config = await apiCall("manage-app", { action: "get_settings", key: "config" });
-        if (config.value) setServerConfig(prev => ({ ...prev, ...config.value }));
+        if (config.value) {
+          const c = config.value as any;
+          setServerConfig({
+            TELEGRAM_BOT_TOKEN: c.TELEGRAM_BOT_TOKEN || "",
+            TELEGRAM_CHAT_ID: c.TELEGRAM_CHAT_ID || "",
+            IMAP_HOST: c.IMAP_HOST || "",
+            IMAP_PORT: c.IMAP_PORT || "",
+            IMAP_USER: c.IMAP_USER || "",
+            IMAP_PASSWORD: c.IMAP_PASSWORD || "",
+          });
+        }
+      } catch {}
+
+      try {
+        const filters = await apiCall("manage-app", { action: "get_settings", key: "email_filters" });
+        if (filters.value) {
+          setShowSignInCodes(filters.value.showSignInCodes !== false);
+          setShowPasswordResets(filters.value.showPasswordResets === true);
+        }
+      } catch {}
+
+      try {
+        const accounts = await apiCall("manage-app", { action: "get_settings", key: "email_accounts" });
+        if (accounts.value && Array.isArray(accounts.value)) {
+          setEmailAccounts(accounts.value);
+        }
+      } catch {}
+
+      try {
+        // Use dynamic worker URL from email accounts if available
+        let cfUrl = getCloudflareWorkerUrl();
+        if (emailAccounts.length > 0) {
+          const accWithUrl = emailAccounts.find(a => a.cloudflareUrl && a.cloudflareUrl.trim());
+          if (accWithUrl) cfUrl = accWithUrl.cloudflareUrl.trim().replace(/\/+$/, "");
+        }
+        const token = getSessionToken();
+        let res: Response;
+        if (cfUrl) {
+          const headers: Record<string, string> = {};
+          if (token) headers["X-Session-Token"] = token;
+          res = await fetch(`${cfUrl}/api/emails`, { headers });
+        } else {
+          res = await fetch(`${getApiBase()}/functions/v1/fetch-emails`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${getApiKey()}`, "apikey": getApiKey() },
+            body: JSON.stringify({ mode: "cache" }),
+          });
+        }
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data)) setStats(prev => ({ ...prev, totalEmails: data.length }));
+        }
       } catch {}
     })();
   }, []);
 
   const toggleCaptcha = async () => {
-    if (captchaEnabled) {
-      // Disable: clear keys
-      await apiCall("manage-app", { action: "set_settings", key: "recaptcha", value: { siteKey: "", secretKey: "" } });
-      setSiteKey(""); setSecretKeyVal("");
-      setCaptchaEnabled(false);
-      toast.success("CAPTCHA disabled!");
-    } else {
-      if (!siteKey || !secretKeyVal) { toast.error("Enter both Site Key and Secret Key first"); return; }
-      await apiCall("manage-app", { action: "set_settings", key: "recaptcha", value: { siteKey, secretKey: secretKeyVal } });
-      setCaptchaEnabled(true);
-      toast.success("CAPTCHA enabled!");
+    try {
+      const newEnabled = !captchaEnabled;
+      if (newEnabled && (!siteKey || !secretKeyVal)) { toast.error("Enter both Site Key and Secret Key first"); return; }
+      await apiCall("manage-app", { action: "set_settings", key: "recaptcha", value: { siteKey, secretKey: secretKeyVal, enabled: newEnabled } });
+      // Re-read from backend to confirm
+      const fresh = await apiCall("manage-app", { action: "get_settings", key: "recaptcha" });
+      setCaptchaEnabled(fresh.value?.enabled === true);
+      setSiteKey(fresh.value?.siteKey || "");
+      setSecretKeyVal(fresh.value?.secretKey || "");
+      toast.success(newEnabled ? "CAPTCHA enabled!" : "CAPTCHA disabled!");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to toggle CAPTCHA");
     }
   };
 
   const saveRecaptchaSettings = async () => {
-    await apiCall("manage-app", { action: "set_settings", key: "recaptcha", value: { siteKey, secretKey: secretKeyVal } });
-    setCaptchaEnabled(!!(siteKey));
-    toast.success("ReCAPTCHA settings saved!");
+    try {
+      const newEnabled = !!(siteKey && secretKeyVal);
+      await apiCall("manage-app", { action: "set_settings", key: "recaptcha", value: { siteKey, secretKey: secretKeyVal, enabled: newEnabled } });
+      const fresh = await apiCall("manage-app", { action: "get_settings", key: "recaptcha" });
+      setCaptchaEnabled(fresh.value?.enabled === true);
+      toast.success("ReCAPTCHA settings saved!");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save settings");
+    }
+  };
+
+  const toggleSignInCodeFilter = async () => {
+    const newVal = !showSignInCodes;
+    setShowSignInCodes(newVal);
+    try {
+      await apiCall("manage-app", { action: "set_settings", key: "email_filters", value: { showSignInCodes: newVal, showPasswordResets } });
+      toast.success(newVal ? "Sign-in code emails will be shown" : "Sign-in code emails will be hidden");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save filter setting");
+      setShowSignInCodes(!newVal);
+    }
+  };
+
+  const togglePasswordResetFilter = async () => {
+    const newVal = !showPasswordResets;
+    setShowPasswordResets(newVal);
+    try {
+      await apiCall("manage-app", { action: "set_settings", key: "email_filters", value: { showSignInCodes, showPasswordResets: newVal } });
+      toast.success(newVal ? "Password reset emails will be shown" : "Password reset emails will be hidden");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save filter setting");
+      setShowPasswordResets(!newVal);
+    }
   };
 
   const saveServerConfig = async () => {
@@ -672,10 +796,7 @@ function AdminPanel() {
     setChangingPassword(true);
     try {
       await apiCall("manage-app", {
-        action: "change_password",
-        id: currentUser?.id,
-        current_password: currentPassword,
-        new_password: newAdminPassword,
+        action: "change_password", id: currentUser?.id, current_password: currentPassword, new_password: newAdminPassword,
       });
       setCurrentPassword(""); setNewAdminPassword("");
       toast.success("Password changed successfully!");
@@ -697,18 +818,38 @@ function AdminPanel() {
     }
   };
 
-  const loginAsUser = (user: UserData) => {
-    localStorage.setItem("user", JSON.stringify({ ...user, mustChangePassword: false }));
-    checkAuth();
-    navigate("/viewer");
-    toast.success(`Logged in as ${user.name}`);
+  const loginAsUser = async (targetUser: UserData) => {
+    try {
+      // Get impersonation token from backend FIRST
+      const data = await apiCall("manage-app", { action: "impersonate", target_user_id: targetUser.id });
+
+      // Store admin session backup
+      const adminUser = localStorage.getItem("user");
+      const adminToken = localStorage.getItem("session_token");
+      const adminAuth = localStorage.getItem("admin_auth");
+      localStorage.setItem("admin_backup", JSON.stringify({ user: adminUser, token: adminToken, adminAuth }));
+
+      // Set impersonated user state
+      localStorage.setItem("user", JSON.stringify(data.user));
+      if (data.sessionToken) localStorage.setItem("session_token", data.sessionToken);
+      localStorage.removeItem("admin_auth");
+
+      // Navigate atomically — use window.location to avoid route guard race
+      toast.success(`Viewing as ${targetUser.name}`);
+      window.location.href = "/viewer";
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to impersonate user");
+    }
   };
 
   const createUser = async () => {
     if (!newUsername || !newPassword || !newName) { toast.error("Please fill all fields"); return; }
     try {
-      await apiCall("manage-app", { action: "create", username: newUsername, password: newPassword, name: newName, role: "user" });
-      setNewUsername(""); setNewPassword(""); setNewName("");
+      await apiCall("manage-app", {
+        action: "create", username: newUsername, password: newPassword, name: newName, role: "user",
+        assigned_accounts: newUserAccounts.length > 0 ? newUserAccounts : null,
+      });
+      setNewUsername(""); setNewPassword(""); setNewName(""); setNewUserAccounts([]);
       toast.success("User created!");
       const data = await apiCall("manage-app", { action: "list" });
       setUsers(data.users || []);
@@ -727,194 +868,549 @@ function AdminPanel() {
     }
   };
 
+  const addEmailAccount = async () => {
+    if (!newAccount.label || !newAccount.user || !newAccount.password) {
+      toast.error("Fill label, email, and password"); return;
+    }
+    const updated = [...emailAccounts, { ...newAccount }];
+    setEmailAccounts(updated);
+    setNewAccount({ label: "", host: "imap.gmail.com", port: "993", user: "", password: "", cloudflareUrl: "" });
+    try {
+      await apiCall("manage-app", { action: "set_settings", key: "email_accounts", value: updated });
+      toast.success("Email account added!");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save account");
+    }
+  };
+
+  const removeEmailAccount = async (index: number) => {
+    const updated = emailAccounts.filter((_, i) => i !== index);
+    setEmailAccounts(updated);
+    try {
+      await apiCall("manage-app", { action: "set_settings", key: "email_accounts", value: updated });
+      toast.success("Account removed!");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to remove account");
+    }
+  };
+
+  const updateUserAccounts = async (userId: string) => {
+    try {
+      await apiCall("manage-app", { action: "update_user", id: userId, assigned_accounts: editAccountsList.length > 0 ? editAccountsList : null });
+      setEditingUserAccounts(null);
+      const data = await apiCall("manage-app", { action: "list" });
+      setUsers(data.users || []);
+      toast.success("User accounts updated!");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to update");
+    }
+  };
+
+  const tabs = [
+    { id: "users" as const, label: "Users", icon: Users },
+    { id: "security" as const, label: "Security", icon: ShieldCheck },
+    { id: "emails" as const, label: "Email Accounts", icon: Mail },
+    { id: "settings" as const, label: "Settings", icon: Settings },
+  ];
+
   return (
     <div className="min-h-screen bg-slate-50">
-      <header className="bg-white border-b px-2 sm:px-4 py-3 sm:py-4 sticky top-0 z-10">
+      <header className="bg-white border-b px-3 sm:px-6 py-3 sm:py-4 sticky top-0 z-10 shadow-sm">
         <div className="max-w-6xl mx-auto flex justify-between items-center gap-2">
-          <h1 className="text-sm sm:text-xl font-black flex items-center gap-1.5 sm:gap-2 min-w-0 truncate">
-            <Settings className="w-5 h-5 sm:w-6 sm:h-6 text-red-600 flex-shrink-0" />
-            Admin Control Panel
+          <h1 className="text-sm sm:text-xl font-black flex items-center gap-2 min-w-0 truncate">
+            <div className="bg-red-600 p-1.5 sm:p-2 rounded-xl">
+              <Settings className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+            </div>
+            <span className="hidden sm:inline">Admin Control Panel</span>
+            <span className="sm:hidden">Admin</span>
           </h1>
-          <button onClick={() => { localStorage.clear(); navigate("/"); }} className="p-2 hover:bg-slate-100 rounded-full">
+          <button onClick={() => { localStorage.clear(); navigate("/"); }} className="p-2 hover:bg-slate-100 rounded-full transition-colors" title="Logout">
             <LogOut className="w-5 h-5 text-slate-400" />
           </button>
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto p-2 sm:p-4 py-4 sm:py-8 grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-8">
-        <div className="lg:col-span-1 space-y-6">
-          {/* ReCAPTCHA with toggle */}
-          <section className="bg-white p-4 sm:p-6 rounded-2xl border shadow-sm">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="font-black text-base sm:text-lg flex items-center gap-2">
-                <ShieldCheck className="w-5 h-5 text-red-600" />CAPTCHA
-              </h2>
-              <button onClick={toggleCaptcha}
-                className={`relative w-12 h-6 rounded-full transition-colors ${captchaEnabled ? "bg-green-500" : "bg-slate-300"}`}>
-                <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${captchaEnabled ? "translate-x-6" : "translate-x-0.5"}`} />
-              </button>
-            </div>
-            <p className="text-xs text-slate-500 mb-3">{captchaEnabled ? "CAPTCHA is active on all logins" : "CAPTCHA is disabled"}</p>
-            <div className="space-y-3">
-              <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Site Key</label>
-                <input type="text" placeholder="Enter Site Key" value={siteKey} onChange={(e) => setSiteKey(e.target.value)}
-                  className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Secret Key</label>
-                <input type="password" placeholder="Enter Secret Key" value={secretKeyVal} onChange={(e) => setSecretKeyVal(e.target.value)}
-                  className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
-              </div>
-              <button onClick={saveRecaptchaSettings}
-                className="w-full bg-red-600 text-white font-bold py-3 rounded-xl hover:bg-red-700 transition-all text-sm">
-                Save Keys
-              </button>
-            </div>
-          </section>
-
-          {/* Change Admin Password */}
-          <section className="bg-white p-4 sm:p-6 rounded-2xl border shadow-sm">
-            <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
-              <Key className="w-5 h-5 text-red-600" />Change Password
-            </h2>
-            <div className="space-y-3">
-              <input type="password" placeholder="Current Password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)}
-                className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
-              <input type="password" placeholder="New Password" value={newAdminPassword} onChange={(e) => setNewAdminPassword(e.target.value)}
-                className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
-              <button onClick={changeAdminPassword} disabled={changingPassword}
-                className="w-full bg-red-600 text-white font-bold py-3 rounded-xl hover:bg-red-700 transition-all disabled:opacity-50 text-sm">
-                {changingPassword ? "Changing..." : "Change Password"}
-              </button>
-            </div>
-          </section>
-
-          {/* Create User */}
-          <section className="bg-white p-4 sm:p-6 rounded-2xl border shadow-sm">
-            <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
-              <Plus className="w-5 h-5 text-red-600" />Create User
-            </h2>
-            <div className="space-y-3">
-              <input type="text" placeholder="Display Name" value={newName} onChange={(e) => setNewName(e.target.value)}
-                className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
-              <input type="text" placeholder="Username" value={newUsername} onChange={(e) => setNewUsername(e.target.value)}
-                className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
-              <input type="password" placeholder="Password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)}
-                className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
-              <button onClick={createUser}
-                className="w-full bg-slate-900 text-white font-bold py-3 rounded-xl hover:bg-slate-800 transition-all text-sm">
-                Create User
-              </button>
-            </div>
-          </section>
+      {/* Stats Bar */}
+      <div className="max-w-6xl mx-auto px-3 sm:px-6 pt-4 sm:pt-6">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="bg-white rounded-2xl border p-4 flex items-center gap-3">
+            <div className="bg-blue-50 p-2.5 rounded-xl"><Users className="w-5 h-5 text-blue-600" /></div>
+            <div><p className="text-2xl font-black text-slate-900">{stats.totalUsers}</p><p className="text-xs text-slate-500">Total Users</p></div>
+          </div>
+          <div className="bg-white rounded-2xl border p-4 flex items-center gap-3">
+            <div className="bg-green-50 p-2.5 rounded-xl"><Mail className="w-5 h-5 text-green-600" /></div>
+            <div><p className="text-2xl font-black text-slate-900">{stats.totalEmails}</p><p className="text-xs text-slate-500">Cached Emails</p></div>
+          </div>
+          <div className="bg-white rounded-2xl border p-4 flex items-center gap-3">
+            <div className="bg-purple-50 p-2.5 rounded-xl"><Globe className="w-5 h-5 text-purple-600" /></div>
+            <div><p className="text-2xl font-black text-slate-900">{emailAccounts.length + 1}</p><p className="text-xs text-slate-500">Email Accounts</p></div>
+          </div>
+          <div className="bg-white rounded-2xl border p-4 flex items-center gap-3">
+            <div className="bg-amber-50 p-2.5 rounded-xl"><ShieldCheck className="w-5 h-5 text-amber-600" /></div>
+            <div><p className="text-2xl font-black text-slate-900">{captchaEnabled ? "ON" : "OFF"}</p><p className="text-xs text-slate-500">CAPTCHA</p></div>
+          </div>
         </div>
+      </div>
 
-        <div className="lg:col-span-2 space-y-6">
-          {/* Server Config */}
-          <section className="bg-white p-4 sm:p-6 rounded-2xl border shadow-sm">
-            <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
-              <Settings className="w-5 h-5 text-red-600" />Server Configuration
-            </h2>
-            <div className="space-y-6">
+      {/* Tab Navigation */}
+      <div className="max-w-6xl mx-auto px-3 sm:px-6 pt-4 sm:pt-6">
+        <div className="flex gap-1 bg-white rounded-2xl border p-1.5 overflow-x-auto">
+          {tabs.map(tab => (
+            <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+              className={`flex items-center gap-1.5 px-3 sm:px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap ${
+                activeTab === tab.id ? "bg-red-600 text-white shadow-md" : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"
+              }`}>
+              <tab.icon className="w-4 h-4" />
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <main className="max-w-6xl mx-auto p-3 sm:p-6 pt-4 sm:pt-6">
+        {/* ===== USERS TAB ===== */}
+        {activeTab === "users" && (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
+            {/* Create User */}
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
+                <div className="bg-green-50 p-1.5 rounded-lg"><Plus className="w-4 h-4 text-green-600" /></div>
+                Create User
+              </h2>
+              <div className="space-y-3">
+                <input type="text" placeholder="Display Name" value={newName} onChange={(e) => setNewName(e.target.value)}
+                  className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                <input type="text" placeholder="Username" value={newUsername} onChange={(e) => setNewUsername(e.target.value)}
+                  className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                <input type="password" placeholder="Password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)}
+                  className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+
+                {/* IMAP Account Assignment */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Assign IMAP Accounts</label>
+                  <div className="space-y-1.5">
+                    {getAvailableAccounts().map(label => (
+                      <label key={label} className="flex items-center gap-2 p-2 bg-slate-50 rounded-lg cursor-pointer hover:bg-slate-100 transition-colors">
+                        <input type="checkbox" checked={newUserAccounts.includes(label)}
+                          onChange={(e) => {
+                            if (e.target.checked) setNewUserAccounts([...newUserAccounts, label]);
+                            else setNewUserAccounts(newUserAccounts.filter(a => a !== label));
+                          }}
+                          className="w-4 h-4 rounded border-slate-300 text-red-600 focus:ring-red-500" />
+                        <span className="text-sm text-slate-700">{label}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-1">Leave empty = access all accounts</p>
+                </div>
+
+                <button onClick={createUser}
+                  className="w-full bg-slate-900 text-white font-bold py-3 rounded-xl hover:bg-slate-800 transition-all text-sm">
+                  Create User
+                </button>
+              </div>
+            </section>
+
+            {/* Users List */}
+            <section className="lg:col-span-2 bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
+                <div className="bg-blue-50 p-1.5 rounded-lg"><Users className="w-4 h-4 text-blue-600" /></div>
+                Active Users
+                <span className="bg-slate-100 text-slate-600 text-xs px-2 py-0.5 rounded-full ml-auto">{users.length}</span>
+              </h2>
+              <div className="space-y-3">
+                {users.map(u => (
+                  <div key={u.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 hover:border-slate-200 transition-colors">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-10 h-10 rounded-xl ${u.role === "admin" ? "bg-red-500" : "bg-blue-500"} flex items-center justify-center`}>
+                          <span className="text-white font-black text-sm">{u.name.charAt(0).toUpperCase()}</span>
+                        </div>
+                        <div>
+                          <p className="font-bold text-slate-900">{u.name}</p>
+                          <p className="text-xs text-slate-500">@{u.username} • <span className={u.role === "admin" ? "text-red-600 font-bold" : "text-blue-600"}>{u.role}</span></p>
+                          {u.assignedAccounts && u.assignedAccounts.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {u.assignedAccounts.map((a: string) => (
+                                <span key={a} className="bg-blue-100 text-blue-700 text-[10px] px-1.5 py-0.5 rounded-md font-bold">{a}</span>
+                              ))}
+                            </div>
+                          )}
+                          {(!u.assignedAccounts || u.assignedAccounts.length === 0) && u.role !== "admin" && (
+                            <p className="text-[10px] text-slate-400 mt-0.5">All accounts</p>
+                          )}
+                        </div>
+                      </div>
+                      {u.role !== "admin" && (
+                        <div className="flex items-center gap-1">
+                          <button onClick={() => loginAsUser(u)} title="View as user"
+                            className="p-2 hover:bg-blue-50 text-blue-400 hover:text-blue-600 rounded-lg transition-colors">
+                            <Eye className="w-4 h-4" />
+                          </button>
+                          <button onClick={() => { setEditingUserAccounts(editingUserAccounts === u.id ? null : u.id); setEditAccountsList((u as any).assignedAccounts || []); }} title="Edit accounts"
+                            className="p-2 hover:bg-green-50 text-green-400 hover:text-green-600 rounded-lg transition-colors">
+                            <Edit className="w-4 h-4" />
+                          </button>
+                          <button onClick={() => { setChangingUserPass(changingUserPass === u.id ? null : u.id); setUserNewPass(""); }} title="Change password"
+                            className="p-2 hover:bg-amber-50 text-amber-400 hover:text-amber-600 rounded-lg transition-colors">
+                            <KeyRound className="w-4 h-4" />
+                          </button>
+                          <button onClick={() => deleteUser(u.id)} title="Delete user"
+                            className="p-2 hover:bg-red-50 text-red-400 hover:text-red-600 rounded-lg transition-colors">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Edit Assigned Accounts */}
+                    {editingUserAccounts === u.id && u.role !== "admin" && (
+                      <div className="mt-3 p-3 bg-white rounded-xl border">
+                        <p className="text-xs font-bold text-slate-500 mb-2">Assign IMAP Accounts</p>
+                        <div className="space-y-1.5 mb-2">
+                          {getAvailableAccounts().map(label => (
+                            <label key={label} className="flex items-center gap-2 p-1.5 rounded-lg cursor-pointer hover:bg-slate-50 transition-colors">
+                              <input type="checkbox" checked={editAccountsList.includes(label)}
+                                onChange={(e) => {
+                                  if (e.target.checked) setEditAccountsList([...editAccountsList, label]);
+                                  else setEditAccountsList(editAccountsList.filter(a => a !== label));
+                                }}
+                                className="w-4 h-4 rounded border-slate-300 text-red-600 focus:ring-red-500" />
+                              <span className="text-sm text-slate-700">{label}</span>
+                            </label>
+                          ))}
+                        </div>
+                        <button onClick={() => updateUserAccounts(u.id)}
+                          className="w-full bg-green-600 text-white text-xs font-bold py-2 rounded-lg hover:bg-green-700 transition-all">
+                          Save Accounts
+                        </button>
+                      </div>
+                    )}
+
+                    {changingUserPass === u.id && u.role !== "admin" && (
+                      <div className="mt-3 flex gap-2">
+                        <input type="password" placeholder="New password (min 6)" value={userNewPass} onChange={(e) => setUserNewPass(e.target.value)}
+                          className="flex-1 bg-white border rounded-lg p-2 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                        <button onClick={() => changeUserPassword(u.id)}
+                          className="px-4 py-2 bg-red-600 text-white text-xs font-bold rounded-lg hover:bg-red-700 transition-all">
+                          Save
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+                {users.length === 0 && <p className="text-slate-400 text-sm text-center py-8">No users yet. Create one above.</p>}
+              </div>
+            </section>
+          </div>
+        )}
+
+        {/* ===== SECURITY TAB ===== */}
+        {activeTab === "security" && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+            {/* CAPTCHA */}
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="font-black text-base sm:text-lg flex items-center gap-2">
+                  <div className="bg-blue-50 p-1.5 rounded-lg"><ShieldCheck className="w-4 h-4 text-blue-600" /></div>
+                  CAPTCHA Protection
+                </h2>
+                <button onClick={toggleCaptcha}
+                  className={`relative w-12 h-6 rounded-full transition-colors ${captchaEnabled ? "bg-green-500" : "bg-slate-300"}`}>
+                  <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${captchaEnabled ? "translate-x-6" : "translate-x-0.5"}`} />
+                </button>
+              </div>
+              <p className="text-xs text-slate-500 mb-4">{captchaEnabled ? "✅ CAPTCHA is active on all logins" : "⚠️ CAPTCHA is disabled — logins are unprotected"}</p>
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Site Key</label>
+                  <input type="text" placeholder="Enter Site Key" value={siteKey} onChange={(e) => setSiteKey(e.target.value)}
+                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Secret Key</label>
+                  <input type="password" placeholder="Enter Secret Key" value={secretKeyVal} onChange={(e) => setSecretKeyVal(e.target.value)}
+                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                </div>
+                <button onClick={saveRecaptchaSettings}
+                  className="w-full bg-red-600 text-white font-bold py-3 rounded-xl hover:bg-red-700 transition-all text-sm">
+                  Save Keys
+                </button>
+              </div>
+            </section>
+
+            {/* Email Filters */}
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
+                <div className="bg-purple-50 p-1.5 rounded-lg"><Filter className="w-4 h-4 text-purple-600" /></div>
+                Email Filters
+              </h2>
               <div className="space-y-4">
-                <h3 className="font-bold text-slate-800 border-b pb-2">Telegram Notifications</h3>
+                <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border">
+                  <div>
+                    <p className="font-bold text-sm text-slate-900">Show Sign-In Code Emails</p>
+                    <p className="text-xs text-slate-500 mt-1">When OFF, sign-in code & activity emails are hidden</p>
+                  </div>
+                  <button onClick={toggleSignInCodeFilter}
+                    className={`relative w-12 h-6 rounded-full transition-colors flex-shrink-0 ml-3 ${showSignInCodes ? "bg-green-500" : "bg-slate-300"}`}>
+                    <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${showSignInCodes ? "translate-x-6" : "translate-x-0.5"}`} />
+                  </button>
+                </div>
+                <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border">
+                  <div>
+                    <p className="font-bold text-sm text-slate-900">Show Password Reset Emails</p>
+                    <p className="text-xs text-slate-500 mt-1">When OFF, password reset emails are hidden from inbox</p>
+                  </div>
+                  <button onClick={togglePasswordResetFilter}
+                    className={`relative w-12 h-6 rounded-full transition-colors flex-shrink-0 ml-3 ${showPasswordResets ? "bg-green-500" : "bg-slate-300"}`}>
+                    <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${showPasswordResets ? "translate-x-6" : "translate-x-0.5"}`} />
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            {/* Change Admin Password */}
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
+                <div className="bg-amber-50 p-1.5 rounded-lg"><Key className="w-4 h-4 text-amber-600" /></div>
+                Change Admin Password
+              </h2>
+              <div className="space-y-3">
+                <input type="password" placeholder="Current Password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)}
+                  className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                <input type="password" placeholder="New Password" value={newAdminPassword} onChange={(e) => setNewAdminPassword(e.target.value)}
+                  className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                <button onClick={changeAdminPassword} disabled={changingPassword}
+                  className="w-full bg-red-600 text-white font-bold py-3 rounded-xl hover:bg-red-700 transition-all disabled:opacity-50 text-sm">
+                  {changingPassword ? "Changing..." : "Change Password"}
+                </button>
+              </div>
+            </section>
+          </div>
+        )}
+
+        {/* ===== EMAIL ACCOUNTS TAB ===== */}
+        {activeTab === "emails" && (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
+            {/* Add New Account */}
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
+                <div className="bg-green-50 p-1.5 rounded-lg"><Plus className="w-4 h-4 text-green-600" /></div>
+                Add Email Account
+              </h2>
+              <div className="space-y-3">
+                <input type="text" placeholder="Account Label (e.g. Gmail Main)" value={newAccount.label} onChange={(e) => setNewAccount({ ...newAccount, label: e.target.value })}
+                  className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                <div className="grid grid-cols-2 gap-2">
+                  <input type="text" placeholder="IMAP Host" value={newAccount.host} onChange={(e) => setNewAccount({ ...newAccount, host: e.target.value })}
+                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                  <input type="text" placeholder="Port" value={newAccount.port} onChange={(e) => setNewAccount({ ...newAccount, port: e.target.value })}
+                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                </div>
+                <input type="text" placeholder="Email Address" value={newAccount.user} onChange={(e) => setNewAccount({ ...newAccount, user: e.target.value })}
+                  className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                <input type="password" placeholder="App Password" value={newAccount.password} onChange={(e) => setNewAccount({ ...newAccount, password: e.target.value })}
+                  className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                <input type="text" placeholder="Cloudflare Worker URL (optional)" value={newAccount.cloudflareUrl} onChange={(e) => setNewAccount({ ...newAccount, cloudflareUrl: e.target.value })}
+                  className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                <p className="text-[10px] text-slate-400">If empty, uses default worker URL</p>
+                <button onClick={addEmailAccount}
+                  className="w-full bg-slate-900 text-white font-bold py-3 rounded-xl hover:bg-slate-800 transition-all text-sm">
+                  Add Account
+                </button>
+              </div>
+            </section>
+
+            {/* Existing Accounts */}
+            <section className="lg:col-span-2 bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
+                <div className="bg-blue-50 p-1.5 rounded-lg"><Mail className="w-4 h-4 text-blue-600" /></div>
+                Connected Accounts
+                <span className="bg-slate-100 text-slate-600 text-xs px-2 py-0.5 rounded-full ml-auto">{emailAccounts.length + 1}</span>
+              </h2>
+
+              {/* Primary Account (from Settings) */}
+              <div
+                className={`p-4 rounded-2xl border mb-3 cursor-pointer transition-all ${expandedAccount === -1 ? "bg-green-100 border-green-300 shadow-md" : "bg-green-50 border-green-100 hover:border-green-200"}`}
+                onClick={() => setExpandedAccount(expandedAccount === -1 ? null : -1)}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="bg-green-200 p-2 rounded-xl">
+                    <Server className="w-4 h-4 text-green-700" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="font-bold text-sm text-green-900">Primary</p>
+                    <p className="text-xs text-green-700">{serverConfig.IMAP_USER || "Configure in Settings tab"} • {serverConfig.IMAP_HOST || "imap.gmail.com"}:{serverConfig.IMAP_PORT || "993"}</p>
+                  </div>
+                  <Eye className={`w-4 h-4 transition-transform ${expandedAccount === -1 ? "text-green-700" : "text-green-400"}`} />
+                </div>
+                {expandedAccount === -1 && (
+                  <div className="mt-4 pt-3 border-t border-green-200 space-y-2">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <p className="text-[10px] font-bold text-green-600 uppercase">Host</p>
+                        <p className="text-sm text-green-900 font-medium">{serverConfig.IMAP_HOST || "Not set"}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold text-green-600 uppercase">Port</p>
+                        <p className="text-sm text-green-900 font-medium">{serverConfig.IMAP_PORT || "Not set"}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold text-green-600 uppercase">Email</p>
+                        <p className="text-sm text-green-900 font-medium">{serverConfig.IMAP_USER || "Not set"}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold text-green-600 uppercase">Password</p>
+                        <p className="text-sm text-green-900 font-medium">{serverConfig.IMAP_PASSWORD ? "••••••••" : "Not set"}</p>
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold text-green-600 uppercase">Cloudflare Worker</p>
+                      <p className="text-sm text-green-900 font-medium break-all">{getCloudflareWorkerUrl() || "Not configured"}</p>
+                    </div>
+                    <p className="text-[10px] text-green-500 italic mt-1">⚙️ Edit this in the Settings tab</p>
+                  </div>
+                )}
+              </div>
+
+              {emailAccounts.length === 0 ? (
+                <div className="text-center py-6">
+                  <p className="text-slate-400 text-sm">No additional accounts. Add one using the form.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {emailAccounts.map((acc, i) => (
+                    <div
+                      key={i}
+                      className={`p-4 rounded-2xl border cursor-pointer transition-all ${expandedAccount === i ? "bg-blue-50 border-blue-200 shadow-md" : "bg-slate-50 border-slate-100 hover:border-slate-200"}`}
+                      onClick={() => setExpandedAccount(expandedAccount === i ? null : i)}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className={`p-2 rounded-xl ${expandedAccount === i ? "bg-blue-200" : "bg-blue-100"}`}>
+                            <Server className="w-4 h-4 text-blue-600" />
+                          </div>
+                          <div>
+                            <p className="font-bold text-sm text-slate-900">{acc.label}</p>
+                            <p className="text-xs text-slate-500">{acc.user} • {acc.host}:{acc.port}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Eye className={`w-4 h-4 transition-transform ${expandedAccount === i ? "text-blue-600" : "text-slate-400"}`} />
+                          <button onClick={(e) => { e.stopPropagation(); removeEmailAccount(i); }} className="p-2 hover:bg-red-50 text-red-400 hover:text-red-600 rounded-lg transition-colors">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                      {expandedAccount === i && (
+                        <div className="mt-4 pt-3 border-t border-blue-200 space-y-2">
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <p className="text-[10px] font-bold text-blue-500 uppercase">Host</p>
+                              <p className="text-sm text-slate-800 font-medium">{acc.host}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-bold text-blue-500 uppercase">Port</p>
+                              <p className="text-sm text-slate-800 font-medium">{acc.port}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-bold text-blue-500 uppercase">Email</p>
+                              <p className="text-sm text-slate-800 font-medium">{acc.user}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-bold text-blue-500 uppercase">Password</p>
+                              <p className="text-sm text-slate-800 font-medium">{acc.password ? "••••••••" : "Not set"}</p>
+                            </div>
+                          </div>
+                          <div>
+                            <p className="text-[10px] font-bold text-blue-500 uppercase">Cloudflare Worker URL</p>
+                            <p className="text-sm text-slate-800 font-medium break-all">{acc.cloudflareUrl || getCloudflareWorkerUrl() || "Not configured"}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] font-bold text-blue-500 uppercase">Label</p>
+                            <p className="text-sm text-slate-800 font-medium">{acc.label}</p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          </div>
+        )}
+
+        {/* ===== SETTINGS TAB ===== */}
+        {activeTab === "settings" && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+            {/* Telegram */}
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
+                <div className="bg-blue-50 p-1.5 rounded-lg"><Server className="w-4 h-4 text-blue-600" /></div>
+                Telegram Notifications
+              </h2>
+              <p className="text-[10px] text-slate-400 mb-3">💡 Save once to persist these values</p>
+              <div className="space-y-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Bot Token</label>
                   <input type="password" placeholder="e.g. 8575582532:AAE..." value={serverConfig.TELEGRAM_BOT_TOKEN}
-                    onChange={(e) => setServerConfig({...serverConfig, TELEGRAM_BOT_TOKEN: e.target.value})}
+                    onChange={(e) => setServerConfig({ ...serverConfig, TELEGRAM_BOT_TOKEN: e.target.value })}
                     className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Chat ID</label>
                   <input type="text" placeholder="e.g. 769748540" value={serverConfig.TELEGRAM_CHAT_ID}
-                    onChange={(e) => setServerConfig({...serverConfig, TELEGRAM_CHAT_ID: e.target.value})}
+                    onChange={(e) => setServerConfig({ ...serverConfig, TELEGRAM_CHAT_ID: e.target.value })}
                     className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
                 </div>
               </div>
+            </section>
 
-              <div className="space-y-4">
-                <h3 className="font-bold text-slate-800 border-b pb-2">IMAP Server (Email Fetching)</h3>
+            {/* IMAP */}
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
+                <div className="bg-red-50 p-1.5 rounded-lg"><Mail className="w-4 h-4 text-red-600" /></div>
+                Primary IMAP Server
+              </h2>
+              <p className="text-[10px] text-slate-400 mb-3">💡 Save once to persist these values</p>
+              <div className="space-y-3">
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Host</label>
                     <input type="text" placeholder="imap.gmail.com" value={serverConfig.IMAP_HOST}
-                      onChange={(e) => setServerConfig({...serverConfig, IMAP_HOST: e.target.value})}
+                      onChange={(e) => setServerConfig({ ...serverConfig, IMAP_HOST: e.target.value })}
                       className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Port</label>
                     <input type="text" placeholder="993" value={serverConfig.IMAP_PORT}
-                      onChange={(e) => setServerConfig({...serverConfig, IMAP_PORT: e.target.value})}
+                      onChange={(e) => setServerConfig({ ...serverConfig, IMAP_PORT: e.target.value })}
                       className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
                   </div>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">IMAP User (Email)</label>
+                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">IMAP Email</label>
                   <input type="text" placeholder="Email Address" value={serverConfig.IMAP_USER}
-                    onChange={(e) => setServerConfig({...serverConfig, IMAP_USER: e.target.value})}
+                    onChange={(e) => setServerConfig({ ...serverConfig, IMAP_USER: e.target.value })}
                     className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">IMAP App Password</label>
+                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">App Password</label>
                   <input type="password" placeholder="16-digit App Password" value={serverConfig.IMAP_PASSWORD}
-                    onChange={(e) => setServerConfig({...serverConfig, IMAP_PASSWORD: e.target.value})}
+                    onChange={(e) => setServerConfig({ ...serverConfig, IMAP_PASSWORD: e.target.value })}
                     className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
                 </div>
               </div>
-            </div>
-            <button onClick={saveServerConfig} disabled={savingConfig}
-              className="w-full mt-6 bg-slate-900 text-white font-bold py-4 rounded-2xl hover:bg-slate-800 transition-all disabled:opacity-50">
-              {savingConfig ? "Saving..." : "Save Server Configuration"}
-            </button>
-          </section>
+            </section>
 
-          {/* Users List with actions */}
-          <section className="bg-white p-4 sm:p-6 rounded-2xl border shadow-sm">
-            <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
-              <Users className="w-5 h-5 text-red-600" />Active Users
-            </h2>
-            <div className="space-y-3">
-              {users.map(u => (
-                <div key={u.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-bold text-slate-900">{u.name}</p>
-                      <p className="text-xs text-slate-500">@{u.username} • {u.role}</p>
-                    </div>
-                    {u.role !== "admin" && (
-                      <div className="flex items-center gap-1">
-                        <button onClick={() => loginAsUser(u)} title="Login as user"
-                          className="p-2 hover:bg-blue-50 text-blue-400 hover:text-blue-600 rounded-lg transition-colors">
-                          <Eye className="w-4 h-4" />
-                        </button>
-                        <button onClick={() => { setChangingUserPass(changingUserPass === u.id ? null : u.id); setUserNewPass(""); }} title="Change password"
-                          className="p-2 hover:bg-amber-50 text-amber-400 hover:text-amber-600 rounded-lg transition-colors">
-                          <KeyRound className="w-4 h-4" />
-                        </button>
-                        <button onClick={() => deleteUser(u.id)} title="Delete user"
-                          className="p-2 hover:bg-red-50 text-red-400 hover:text-red-600 rounded-lg transition-colors">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                  {changingUserPass === u.id && u.role !== "admin" && (
-                    <div className="mt-3 flex gap-2">
-                      <input type="password" placeholder="New password (min 6)" value={userNewPass} onChange={(e) => setUserNewPass(e.target.value)}
-                        className="flex-1 bg-white border rounded-lg p-2 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
-                      <button onClick={() => changeUserPassword(u.id)}
-                        className="px-4 py-2 bg-red-600 text-white text-xs font-bold rounded-lg hover:bg-red-700 transition-all">
-                        Save
-                      </button>
-                    </div>
-                  )}
-                </div>
-              ))}
-              {users.length === 0 && <p className="text-slate-400 text-sm text-center py-4">No users yet</p>}
+            <div className="lg:col-span-2">
+              <button onClick={saveServerConfig} disabled={savingConfig}
+                className="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl hover:bg-slate-800 transition-all disabled:opacity-50 shadow-sm">
+                {savingConfig ? "Saving..." : "Save All Configuration"}
+              </button>
             </div>
-          </section>
-        </div>
+          </div>
+        )}
       </main>
     </div>
   );
@@ -937,8 +1433,7 @@ function ChangePasswordModal({ user, onDone, forced = false }: { user: UserData;
     setLoading(true);
     try {
       await apiCall("manage-app", {
-        action: "change_password",
-        id: user.id,
+        action: "change_password", id: user.id,
         ...(forced ? {} : { current_password: currentPass }),
         new_password: newPass,
       });
@@ -996,7 +1491,7 @@ function ChangePasswordModal({ user, onDone, forced = false }: { user: UserData;
               <AlertCircle className="w-4 h-4 flex-shrink-0" />{error}
             </div>
           )}
-          <div className={`flex gap-3 pt-1 ${forced ? "" : ""}`}>
+          <div className="flex gap-3 pt-1">
             {!forced && (
               <button type="button" onClick={onDone}
                 className="flex-1 bg-slate-100 text-slate-700 font-bold py-3 rounded-xl hover:bg-slate-200 transition-all active:scale-95">
@@ -1023,94 +1518,223 @@ function EmailViewer() {
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
   const [otpCopied, setOtpCopied] = useState(false);
-  const refreshIntervalSeconds = 10;
+  const refreshIntervalSeconds = 5;
   const [countdown, setCountdown] = useState(refreshIntervalSeconds);
   const isFetchingRef = React.useRef(false);
   const navigate = useNavigate();
   const user = JSON.parse(localStorage.getItem("user") || "{}");
   const [showChangePassword, setShowChangePassword] = useState(!!user.mustChangePassword);
   const [forcedPasswordChange] = useState(!!user.mustChangePassword);
+  const isImpersonating = !!localStorage.getItem("admin_backup");
 
   const [syncing, setSyncing] = useState(false);
-  // syncIntervalRef removed — no more auto IMAP sync
+  const [refreshing, setRefreshing] = useState(false);
+  const [resolvedWorkerUrl, setResolvedWorkerUrl] = useState<string | null>(null);
+  const workerUrlLoaded = React.useRef(false);
+  const lastSyncTime = React.useRef(0);
+  const SYNC_THROTTLE_MS = 20 * 1000; // keep inbox hot without waiting minutes
+  const [hiddenCount, setHiddenCount] = useState(0);
+  const [stale, setStale] = useState(false);
 
-  // Load cached emails from DB (instant)
-  const loadCachedEmails = async () => {
+  const backToAdmin = () => {
     try {
-      const cfUrl = getCloudflareWorkerUrl();
-      let res: Response;
-      if (cfUrl) {
-        // Use Cloudflare Worker (zero Supabase egress)
-        res = await fetch(`${cfUrl}/api/emails`);
-      } else {
-        // Fallback to Supabase directly
-        res = await fetch(`${getApiBase()}/functions/v1/fetch-emails`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${getApiKey()}`,
-            "apikey": getApiKey(),
-          },
-          body: JSON.stringify({ mode: "cache" }),
-        });
+      const backup = JSON.parse(localStorage.getItem("admin_backup") || "{}");
+      if (backup.user) localStorage.setItem("user", backup.user);
+      if (backup.token) localStorage.setItem("session_token", backup.token);
+      if (backup.adminAuth) localStorage.setItem("admin_auth", backup.adminAuth);
+      localStorage.removeItem("admin_backup");
+      navigate("/admin/dashboard");
+      window.location.reload();
+    } catch {
+      navigate("/admin");
+    }
+  };
+
+  // Load dynamic worker URL from DB settings on mount
+  useEffect(() => {
+    if (workerUrlLoaded.current) return;
+    workerUrlLoaded.current = true;
+    (async () => {
+      try {
+        const data = await apiCall("manage-app", { action: "get_settings", key: "email_accounts" });
+        if (data.value && Array.isArray(data.value)) {
+          const firstWithUrl = data.value.find((acc: any) => acc.cloudflareUrl && acc.cloudflareUrl.trim());
+          if (firstWithUrl) {
+            setResolvedWorkerUrl(firstWithUrl.cloudflareUrl.trim().replace(/\/+$/, ""));
+            return;
+          }
+        }
+      } catch {}
+      setResolvedWorkerUrl(getCloudflareWorkerUrl());
+    })();
+  }, []);
+
+  const getWorkerUrl = useCallback(() => {
+    return resolvedWorkerUrl;
+  }, [resolvedWorkerUrl]);
+
+  // Fetch with worker fallback: if worker returns 404/405/502, retry direct backend
+  const fetchWithFallback = async (path: string, method: string, body?: any): Promise<Response> => {
+    const cfUrl = getWorkerUrl();
+    const token = getSessionToken();
+
+    if (cfUrl) {
+      try {
+        const headers: Record<string, string> = {};
+        if (token) headers["X-Session-Token"] = token;
+        const res = await fetch(`${cfUrl}${path}`, { method, headers, ...(body ? { body: JSON.stringify(body) } : {}) });
+        // If worker is misconfigured (404/405/502), fall back to direct backend
+        if (res.status === 404 || res.status === 405 || res.status === 502) {
+          console.warn(`[fallback] Worker returned ${res.status}, trying direct backend`);
+          return fetchDirect(method, body);
+        }
+        return res;
+      } catch (err) {
+        console.warn("[fallback] Worker unreachable, trying direct backend:", err);
+        return fetchDirect(method, body);
       }
+    }
+    return fetchDirect(method, body);
+  };
+
+  const fetchDirect = async (method: string, body?: any): Promise<Response> => {
+    const token = getSessionToken();
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${getApiKey()}`,
+      "apikey": getApiKey(),
+    };
+    if (token) headers["X-Session-Token"] = token;
+    const mode = body?.mode || "cache";
+    return fetch(`${getApiBase()}/functions/v1/fetch-emails`, {
+      method: "POST", headers, body: JSON.stringify({ mode, ...body }),
+    });
+  };
+
+  const loadCachedEmails = async (options?: { direct?: boolean }) => {
+    try {
+      const res = options?.direct
+        ? await fetchDirect("POST", { mode: "cache" })
+        : await fetchWithFallback("/api/emails", "GET");
       const raw = await res.text();
       let data: any = null;
       if (raw) { try { data = JSON.parse(raw); } catch {} }
+
+      if (!res.ok) {
+        const errMsg = data?.error || `Failed to load emails (${res.status})`;
+        // Keep old emails visible but mark as stale
+        if (emails.length > 0) {
+          setStale(true);
+        }
+        setError(errMsg);
+        return 0;
+      }
+
       const emailList = (Array.isArray(data) ? data : []) as Email[];
       emailList.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
       setEmails(emailList);
+      setError(null);
+      setStale(false);
       setLastUpdated(new Date());
       return emailList.length;
     } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to load emails";
+      if (emails.length > 0) setStale(true);
+      setError(msg);
       console.error("[loadCached] Error:", err);
       return 0;
     }
   };
 
-  // Sync from IMAP server (background, silent)
+  // Load hidden email count to show filter banner
+  const loadHiddenCount = async () => {
+    try {
+      // Fetch unfiltered count directly from backend
+      const token = getSessionToken();
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${getApiKey()}`,
+        "apikey": getApiKey(),
+      };
+      if (token) headers["X-Session-Token"] = token;
+      // We'll compute hidden count by comparing: total cached vs displayed
+      // Since we can't easily get unfiltered from worker, just check settings
+      const filterData = await apiCall("manage-app", { action: "get_settings", key: "email_filters" });
+      const filtersActive = filterData?.value?.showSignInCodes === false || filterData?.value?.showPasswordResets !== true;
+      if (!filtersActive) { setHiddenCount(0); return; }
+
+      // Get total email count from DB
+      const res = await fetchDirect("POST", { mode: "cache" });
+      if (res.ok) {
+        // This is filtered server-side. To get unfiltered we'd need a special mode.
+        // For now just show a generic "filters active" banner based on settings
+        setHiddenCount(-1); // -1 = filters active but count unknown
+      }
+    } catch { }
+  };
+
   const syncFromImap = async () => {
     if (isFetchingRef.current) return;
     isFetchingRef.current = true;
     setSyncing(true);
     try {
-      const cfUrl = getCloudflareWorkerUrl();
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 50000);
-      
+
+      const cfUrl = getWorkerUrl();
+      const token = getSessionToken();
+      let syncRes: Response;
+
       if (cfUrl) {
-        // Use Cloudflare Worker to trigger sync
-        await fetch(`${cfUrl}/api/emails/sync`, {
-          method: "POST",
-          signal: controller.signal,
-        });
-      } else {
-        // Fallback to Supabase directly
-        const res = await fetch(`${getApiBase()}/functions/v1/fetch-emails`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${getApiKey()}`,
-            "apikey": getApiKey(),
-          },
-          body: JSON.stringify({ mode: "sync" }),
-          signal: controller.signal,
-        });
-        const raw = await res.text();
-        let data: any = null;
-        if (raw) { try { data = JSON.parse(raw); } catch {} }
-        if (!res.ok) {
-          const errMsg = data?.error || "Failed to sync emails.";
-          setError(errMsg);
+        try {
+          const headers: Record<string, string> = {};
+          if (token) headers["X-Session-Token"] = token;
+          syncRes = await fetch(`${cfUrl}/api/emails/sync`, {
+            method: "POST", signal: controller.signal, headers,
+          });
+          if (syncRes.status === 404 || syncRes.status === 405 || syncRes.status === 502) {
+            console.warn(`[sync fallback] Worker returned ${syncRes.status}`);
+            syncRes = await fetchDirect("POST", { mode: "sync" });
+          }
+        } catch {
+          syncRes = await fetchDirect("POST", { mode: "sync" });
         }
+      } else {
+        const headers: Record<string, string> = {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${getApiKey()}`,
+          "apikey": getApiKey(),
+        };
+        if (token) headers["X-Session-Token"] = token;
+        syncRes = await fetch(`${getApiBase()}/functions/v1/fetch-emails`, {
+          method: "POST", headers, body: JSON.stringify({ mode: "sync" }), signal: controller.signal,
+        });
       }
       clearTimeout(timeout);
-      // After sync, reload from cache
-      await loadCachedEmails();
+
+      const raw = await syncRes.text();
+      let data: any = null;
+      if (raw) { try { data = JSON.parse(raw); } catch {} }
+
+      if (!syncRes.ok) {
+        const errMsg = data?.error || `Sync failed (${syncRes.status})`;
+        // Don't clear existing emails on sync error
+        if (emails.length > 0) setStale(true);
+        setError(errMsg);
+      } else {
+        setError(null);
+        setStale(false);
+        lastSyncTime.current = Date.now();
+      }
+
+      await loadCachedEmails({ direct: true });
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
         console.log("[syncIMAP] Timeout - will retry next cycle");
       } else {
+        const msg = err instanceof Error ? err.message : "Sync failed";
+        if (emails.length > 0) setStale(true);
+        setError(msg);
         console.error("[syncIMAP] Error:", err);
       }
     } finally {
@@ -1119,42 +1743,45 @@ function EmailViewer() {
     }
   };
 
-
-
-  // Manual refresh: instant cache load + background IMAP sync
   const fetchEmails = async () => {
-    setError(null);
-    await loadCachedEmails();
-    setCountdown(refreshIntervalSeconds);
-    // Trigger IMAP sync silently in background
-    syncFromImap();
+    setRefreshing(true);
+    try {
+      await loadCachedEmails();
+      setCountdown(refreshIntervalSeconds);
+      void syncFromImap();
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   useEffect(() => {
-    // On mount: load cache instantly, then do ONE IMAP sync
     setLoading(true);
     loadCachedEmails().then(() => {
       setLoading(false);
-      syncFromImap(); // One-time sync on mount
+      void syncFromImap();
     });
+    loadHiddenCount();
 
-    // Auto-refresh from cache every 10s via Cloudflare Worker (free, instant)
     const cacheInterval = setInterval(() => {
       setCountdown(prev => {
         if (prev <= 1) {
-          loadCachedEmails();
+          void loadCachedEmails();
+          // Auto background sync if enough time passed
+          if (document.visibilityState === "visible" && Date.now() - lastSyncTime.current > SYNC_THROTTLE_MS) {
+            void syncFromImap();
+          }
           return refreshIntervalSeconds;
         }
         return prev - 1;
       });
     }, 1000);
 
-    // NO more IMAP sync interval — Cloudflare Worker handles Supabase DB refresh
-    // IMAP sync only happens on manual refresh button click
-
     const handleVisibility = () => {
       if (document.visibilityState === "visible") {
-        loadCachedEmails();
+        void loadCachedEmails();
+        if (Date.now() - lastSyncTime.current > SYNC_THROTTLE_MS) {
+          void syncFromImap();
+        }
       }
     };
     document.addEventListener("visibilitychange", handleVisibility);
@@ -1190,19 +1817,32 @@ function EmailViewer() {
             </div>
           </div>
           <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
+            {isImpersonating && (
+              <button onClick={backToAdmin}
+                className="flex items-center gap-1.5 px-3 py-2 bg-amber-500 text-white rounded-full text-xs font-bold hover:bg-amber-600 transition-all active:scale-95">
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Back to Admin</span>
+                <span className="sm:hidden">Admin</span>
+              </button>
+            )}
             <button onClick={() => fetchEmails()}
               disabled={syncing}
               className="flex items-center p-2.5 sm:px-4 sm:py-2 bg-slate-900 text-white rounded-full text-sm font-bold hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-60">
               <RefreshCw className={`w-4 h-4 sm:w-5 sm:h-5 ${syncing ? "animate-spin" : ""}`} />
               <span className="hidden sm:inline ml-1.5">Refresh</span>
             </button>
-            <button onClick={() => setShowChangePassword(true)}
-              className="flex items-center p-2.5 sm:px-3 sm:py-2 bg-gradient-to-r from-violet-500 to-purple-600 text-white rounded-full text-sm font-bold hover:from-violet-600 hover:to-purple-700 transition-all active:scale-95 shadow-md shadow-purple-200"
-              title="Change Password">
-              <Key className="w-4 h-4 sm:w-5 sm:h-5" />
-              <span className="hidden sm:inline ml-1.5">Password</span>
-            </button>
-            <button onClick={() => { localStorage.clear(); navigate("/"); }} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
+            {!isImpersonating && (
+              <button onClick={() => setShowChangePassword(true)}
+                className="flex items-center p-2.5 sm:px-3 sm:py-2 bg-gradient-to-r from-violet-500 to-purple-600 text-white rounded-full text-sm font-bold hover:from-violet-600 hover:to-purple-700 transition-all active:scale-95 shadow-md shadow-purple-200"
+                title="Change Password">
+                <Key className="w-4 h-4 sm:w-5 sm:h-5" />
+                <span className="hidden sm:inline ml-1.5">Password</span>
+              </button>
+            )}
+            <button onClick={() => {
+              if (isImpersonating) { backToAdmin(); return; }
+              localStorage.clear(); navigate("/");
+            }} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
               <LogOut className="w-5 h-5 text-slate-400" />
             </button>
           </div>
@@ -1223,15 +1863,28 @@ function EmailViewer() {
             </section>
 
             <section className="mt-4 flex-1 overflow-y-auto min-h-0 flex flex-col">
-              <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center justify-between mb-2">
                 <h3 className="font-bold text-slate-800 flex items-center gap-2">
                   Inbox
                   <span className="bg-slate-200 text-slate-600 text-[10px] px-2 py-0.5 rounded-full">{emails.length}</span>
                 </h3>
+                {syncing && <span className="text-[10px] text-blue-500 font-bold animate-pulse">Syncing...</span>}
               </div>
 
+              {stale && !error && (
+                <div className="bg-amber-50 border border-amber-100 rounded-xl p-2 mb-2">
+                  <p className="text-amber-600 text-[10px] flex items-center gap-1"><Clock className="w-3 h-3" />Showing cached data • Last updated {lastUpdated.toLocaleTimeString()}</p>
+                </div>
+              )}
+
+              {hiddenCount !== 0 && (
+                <div className="bg-blue-50 border border-blue-100 rounded-xl p-2 mb-2">
+                  <p className="text-blue-600 text-[10px] flex items-center gap-1"><Filter className="w-3 h-3" />Some emails hidden by filters (sign-in codes / password resets). Change in Admin → Security.</p>
+                </div>
+              )}
+
               {error && (
-                <div className="bg-red-50 border border-red-100 rounded-xl p-4 mb-4">
+                <div className="bg-red-50 border border-red-100 rounded-xl p-3 mb-2">
                   <p className="text-red-600 text-xs flex items-center gap-2"><AlertCircle className="w-3 h-3" />{error}</p>
                 </div>
               )}
@@ -1376,7 +2029,6 @@ import { QRCodeSVG } from "qrcode.react";
 // ==================== MAIN APP ====================
 export default function App() {
   useEffect(() => {
-    // Anti-inspect: block right-click and keyboard shortcuts only
     const handleContextMenu = (e: MouseEvent) => e.preventDefault();
     document.addEventListener("contextmenu", handleContextMenu);
 
@@ -1387,7 +2039,6 @@ export default function App() {
     };
     document.addEventListener("keydown", handleKeyDown);
 
-    // Disable text selection & drag (prevent copy-paste of content)
     document.body.style.userSelect = "none";
     (document.body.style as any).webkitUserSelect = "none";
     const preventSelect = (e: Event) => e.preventDefault();
@@ -1424,5 +2075,7 @@ const ProtectedRoute = ({ children, role }: { children: React.ReactNode; role: "
   if (loading) return <div className="min-h-screen bg-slate-950 flex items-center justify-center"><div className="w-8 h-8 border-2 border-red-500 border-t-transparent rounded-full animate-spin" /></div>;
   if (!user) return <Navigate to={role === "admin" ? "/admin" : "/"} />;
   if (role === "admin" && user.role !== "admin") return <Navigate to="/" />;
+  // Allow admin impersonation: if admin_backup exists, allow user role access
+  if (role === "user" && user.role === "admin" && !localStorage.getItem("admin_backup")) return <Navigate to="/admin/dashboard" />;
   return <>{children}</>;
 };

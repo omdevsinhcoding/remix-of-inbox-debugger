@@ -2,11 +2,10 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-session-token',
 };
 
 async function getTelegramConfig(): Promise<{ botToken: string; chatId: string } | null> {
-  // Try app_settings first (admin panel saves here)
   try {
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
@@ -25,7 +24,6 @@ async function getTelegramConfig(): Promise<{ botToken: string; chatId: string }
     }
   } catch {}
 
-  // Fallback to env vars
   const botToken = Deno.env.get('TELEGRAM_BOT_TOKEN');
   const chatId = Deno.env.get('TELEGRAM_CHAT_ID');
   if (botToken && chatId) return { botToken, chatId };

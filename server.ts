@@ -7,8 +7,12 @@ import fetch from "node-fetch";
 
 dotenv.config();
 
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL || "https://osxinhctzabxeycyeflg.supabase.co";
-const SUPABASE_KEY = process.env.VITE_SUPABASE_PUBLISHABLE_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9zeGluaGN0emFieGV5Y3llZmxnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1NjY1MTUsImV4cCI6MjA5MTE0MjUxNX0.0_8_c1rxRXVOFUzC2aLjoRubLViSVo1qgeNvkbBMvFQ";
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL;
+const SUPABASE_KEY = process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+
+if (!SUPABASE_URL || !SUPABASE_KEY) {
+  console.error("FATAL: VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY must be set in environment.");
+}
 
 async function callEdgeFunction(functionName: string, body: any) {
   const res = await fetch(`${SUPABASE_URL}/functions/v1/${functionName}`, {
@@ -31,6 +35,9 @@ async function startServer() {
 
   // Proxy: Fetch emails
   app.get("/api/emails", async (_req, res) => {
+    if (!SUPABASE_URL || !SUPABASE_KEY) {
+      return res.status(500).json({ success: false, error: "Server not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY." });
+    }
     try {
       const response = await fetch(`${SUPABASE_URL}/functions/v1/fetch-emails`, {
         method: "POST",
@@ -39,31 +46,45 @@ async function startServer() {
           "Authorization": `Bearer ${SUPABASE_KEY}`,
         },
       });
-      const data = await response.json();
-      res.json(data);
+      const data = await response.text();
+      res.status(response.status).set("Content-Type", "application/json").send(data);
     } catch (err) {
       console.error("Email fetch error:", err);
-      res.status(500).json({ success: false, error: "Failed to fetch emails" });
+      res.status(502).json({ success: false, error: "Cannot reach backend. Check server configuration." });
     }
   });
 
   // Proxy: Login notification
   app.post("/api/auth/notify", async (req, res) => {
+    if (!SUPABASE_URL || !SUPABASE_KEY) {
+      return res.status(500).json({ success: false, error: "Server not configured." });
+    }
     try {
       const data = await callEdgeFunction("send-login-notification", req.body);
       res.json(data);
     } catch (err) {
-      res.status(500).json({ success: false, error: "Failed to send notification" });
+      res.status(502).json({ success: false, error: "Cannot reach backend notification service." });
     }
   });
 
   // Proxy: Manage app (users, settings, otps)
   app.post("/api/manage-app", async (req, res) => {
+    if (!SUPABASE_URL || !SUPABASE_KEY) {
+      return res.status(500).json({ success: false, error: "Server not configured." });
+    }
     try {
-      const data = await callEdgeFunction("manage-app", req.body);
-      res.json(data);
+      const upstream = await fetch(`${SUPABASE_URL}/functions/v1/manage-app`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${SUPABASE_KEY}`,
+        },
+        body: JSON.stringify(req.body),
+      });
+      const data = await upstream.text();
+      res.status(upstream.status).set("Content-Type", "application/json").send(data);
     } catch (err) {
-      res.status(500).json({ success: false, error: "Request failed" });
+      res.status(502).json({ success: false, error: "Cannot reach backend." });
     }
   });
 
