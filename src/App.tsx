@@ -809,6 +809,8 @@ function AdminPanel() {
     try {
       await apiCall("manage-app", { action: "set_settings", key: "config", value: serverConfig });
       await apiCall("manage-app", { action: "set_settings", key: "primary_cloudflare_urls", value: primaryCfUrls });
+      // Persist worker URLs to localStorage for bootstrap
+      storeWorkerUrls(primaryCfUrls);
       toast.success("Server configuration saved!");
     } catch (err) {
       toast.error("Failed to save: " + (err instanceof Error ? err.message : String(err)));
