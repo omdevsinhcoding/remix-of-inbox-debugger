@@ -1,68 +1,106 @@
 
-What I found
 
-- This is not one single bug. It is a mix of refresh logic, filtering, and a broken worker/backend path.
-- The backend cache already has emails and they are recent, so the inbox is not truly empty.
-- Right now `showSignInCodes` is off, and a large chunk of cached emails match that hidden filter. So some “new emails” are already present but not shown.
-- In `src/App.tsx`, the 10-second auto-refresh only reloads cached rows. It does not trigger a fresh IMAP sync. That means new emails will not keep arriving automatically unless a manual sync happens.
-- The Refresh button starts the slow IMAP sync path and keeps the icon spinning for the whole request, with a 50s timeout window.
-- The screenshot pattern (`404` error banner while old emails are still visible) matches the current UI behavior: failed requests set `error`, but old email state stays on screen, so it looks half-working.
-- The viewer still depends on worker URL resolution that can fall back to stale external config. I also found no recent logs for the connected backend function on the failing live path, which strongly suggests the external deployment is still hitting an outdated worker/backend route.
+# Fix: New Emails Not Arriving — Root Cause & Plan
 
-Implementation plan
+## Root Cause (Confirmed)
 
-1. Fix the refresh model in `src/App.tsx`
-- Separate “cache load” from “server sync”.
-- Keep fast cache polling for the UI.
-- Add throttled background syncs so new IMAP emails actually enter the cache without requiring repeated manual refreshes.
-- Prevent overlapping sync requests.
+**The IMAP fetch is hardcoded to only fetch emails from `info@account.netflix.com`.**
 
-2. Fix the long rotating refresh behavior
-- Make Refresh do an immediate cache reload first.
-- Run the slower IMAP sync as a background action with clear status text.
-- Stop using one long blocking spinner for the full sync lifecycle.
+- `supabase/functions/fetch-emails/index.ts`, line 84: `client.search({ from: "info@account.netflix.com", since })`
+- Line 95 fallback: also checks `fromAddr === "info@account.netflix.com"`
+- Database confirms: all 60 cached emails are from `"Netflix" <info@account.netflix.com>` — zero emails from any other sender
 
-3. Make errors and stale data behave correctly
-- If the latest request fails, keep old emails visible but mark them as stale instead of showing a confusing mixed state.
-- Track and show:
-  - last successful cache load
-  - sync in progress
-  - last sync failure
-- Clear error state only when a real successful fetch happens.
+This is the **single biggest reason** new emails are not appearing. Everything else (worker, cache, frontend) is secondary.
 
-4. Fix worker resolution and fallback
-- Normalize resolution order to:
-  assigned account worker -> primary worker setting -> env fallback.
-- If the worker returns `404/405/502`, retry the direct backend path once.
-- Add a small diagnostic indicator so the app shows which worker/backend path is actually being used.
+## Additional Issues Found
 
-5. Fix hidden-email confusion
-- Show an active filter banner when sign-in codes or password resets are hidden.
-- Include a hidden-count message so it is obvious when fresh emails exist but are filtered out.
-- If desired, switch sign-in code visibility back on as part of the fix.
+1. **Frontend refresh fires cache load first, sync in background** — user sees stale data immediately on refresh click
+2. **No cron/scheduled sync exists** — emails only arrive on manual refresh
+3. **Frontend `fetchEmails` doesn't await sync before showing results** (line 1851-1854)
 
-Technical details
-```text
-Current:
-10s timer -> cache only
-manual refresh -> slow IMAP sync
-worker 404 -> error banner + stale old list
-sign-in filter off -> fresh sign-in emails hidden
+---
 
-Target:
-10s timer -> quick cache refresh
-background sync -> actually pulls new mail
-refresh button -> fast feedback, no misleading long spin
-worker failure -> direct backend fallback
-filters -> visible, not silently hiding fresh mail
+## Plan
+
+### Step 1: Remove hardcoded sender filter in Edge Function
+
+**File:** `supabase/functions/fetch-emails/index.ts`
+
+Replace the Netflix-only IMAP search (lines 82-98) with a general search that fetches all emails from the last 30 days:
+
+```typescript
+// BEFORE (broken):
+const searchResults = await client.search({ from: "info@account.netflix.com", since }, { uid: true });
+
+// AFTER (fixed):
+const searchResults = await client.search({ since }, { uid: true });
 ```
 
-Files in scope
-- `src/App.tsx`
-- `cloudflare-worker/worker.js`
-- `supabase/functions/fetch-emails/index.ts`
-- `supabase/functions/manage-app/index.ts` only if I centralize worker source/diagnostics
+Remove the fallback block that also filters by `info@account.netflix.com`. Replace it with a generic sequence-based fallback that doesn't filter by sender.
 
-Database
-- No schema migration needed.
-- No new tables needed.
+Rename `netflixUids` → `allUids` throughout the function.
+
+### Step 2: Fix frontend refresh to sync-then-load
+
+**File:** `src/App.tsx`
+
+Change `fetchEmails` (line 1848) so clicking Refresh does:
+1. Set syncing state
+2. **Await** `syncFromImap()` (not fire-and-forget)
+3. Then load cached emails
+4. Show clear status: syncing → success/failed
+
+```typescript
+const fetchEmails = async () => {
+  setRefreshing(true);
+  setSyncing(true);
+  try {
+    await syncFromImap();
+    await loadCachedEmails({ direct: true });
+  } finally {
+    setRefreshing(false);
+  }
+};
+```
+
+Also fix `syncFromImap` to not call `loadCachedEmails` internally (it currently does on line 1832), to avoid double-fetch.
+
+### Step 3: Improve auto-refresh cycle
+
+Keep the 5-second cache polling for fast UI updates. Keep the 20-second throttled background sync. No changes needed here — the existing logic is sound once the IMAP filter is removed.
+
+### Step 4: Add structured logging to sync
+
+Add clear log messages in the edge function:
+- `[sync] Started for N accounts`
+- `[sync] Account X: fetched Y, skipped Z`
+- `[sync] Complete: N new, M skipped, K upserted`
+
+(Most of this logging already exists — just rename Netflix references.)
+
+### Step 5: Document cron setup (no code change needed)
+
+The `wrangler.toml` already has cron config commented out. The admin panel already shows cron setup instructions. No code change needed — just ensure the user enables it:
+
+```toml
+[triggers]
+crons = ["*/5 * * * *"]
+```
+
+Then `npx wrangler deploy`.
+
+---
+
+## Files Changed
+
+| File | Change |
+|------|--------|
+| `supabase/functions/fetch-emails/index.ts` | Remove Netflix sender filter, fetch all emails |
+| `src/App.tsx` | Fix refresh to await sync before showing results |
+
+## What This Fixes
+
+- New emails from **all senders** will now be fetched (not just Netflix)
+- Refresh button will show fresh data after sync completes
+- Existing cache, worker, KV logic remains unchanged (it works correctly)
+
