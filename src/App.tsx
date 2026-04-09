@@ -1782,8 +1782,6 @@ function EmailViewer() {
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
   const [otpCopied, setOtpCopied] = useState(false);
-  const refreshIntervalSeconds = 5;
-  const [countdown, setCountdown] = useState(refreshIntervalSeconds);
   const isFetchingRef = React.useRef(false);
   const navigate = useNavigate();
   const user = JSON.parse(localStorage.getItem("user") || "{}");
