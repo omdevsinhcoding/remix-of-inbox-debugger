@@ -1791,41 +1791,7 @@ function EmailViewer() {
       setLoading(false);
     });
 
-    let channel: any = null;
-    try {
-      channel = supabaseClient
-        .channel('cached_emails_realtime')
-        .on(
-          'postgres_changes',
-          { event: 'INSERT', schema: 'public', table: 'cached_emails' },
-          (payload: any) => {
-            const newEmail = payload.new;
-            if (newEmail) {
-              const mapped: Email = {
-                id: newEmail.id,
-                subject: newEmail.subject,
-                from: newEmail.from_address,
-                to: newEmail.to_address,
-                date: newEmail.date,
-                otp: newEmail.otp,
-                preview: newEmail.preview,
-                html: newEmail.html,
-              };
-              setEmails(prev => {
-                if (prev.some(e => e.id === mapped.id)) return prev;
-                const updated = [mapped, ...prev];
-                updated.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-                return updated;
-              });
-              setLastUpdated(new Date());
-            }
-          }
-        )
-        .subscribe();
-    } catch (err) {
-      console.warn("Realtime subscription unavailable, using polling only:", err);
-    }
-
+    // Polling via Cloudflare Workers (no Supabase Realtime)
     const pollInterval = setInterval(() => {
       void loadCachedEmails();
     }, 30000);
@@ -1837,7 +1803,6 @@ function EmailViewer() {
     };
     document.addEventListener("visibilitychange", handleVisibility);
     return () => {
-      if (channel) try { supabaseClient.removeChannel(channel); } catch {}
       clearInterval(pollInterval);
       document.removeEventListener("visibilitychange", handleVisibility);
     };
