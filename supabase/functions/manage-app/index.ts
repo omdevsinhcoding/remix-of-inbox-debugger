@@ -186,9 +186,43 @@ Deno.serve(async (req) => {
 
       await auditLog(supabase, "login_success", user.id, null, { username, role: user.role }, ip);
 
+      // Fetch worker URLs from settings to include in login response
+      let workerUrls: string[] = [];
+      try {
+        const { data: primaryCfSetting } = await supabase
+          .from("app_settings")
+          .select("value")
+          .eq("key", "primary_cloudflare_urls")
+          .single();
+        if (primaryCfSetting?.value) {
+          const urls = Array.isArray(primaryCfSetting.value) ? primaryCfSetting.value : [];
+          workerUrls = urls.filter((u: any) => typeof u === "string" && u.length > 0);
+        }
+        // Also collect from email_accounts if they have cloudflare URLs
+        const { data: emailAccountsSetting } = await supabase
+          .from("app_settings")
+          .select("value")
+          .eq("key", "email_accounts")
+          .single();
+        if (emailAccountsSetting?.value && Array.isArray(emailAccountsSetting.value)) {
+          for (const acct of emailAccountsSetting.value) {
+            if (acct.cloudflareUrls && Array.isArray(acct.cloudflareUrls)) {
+              for (const u of acct.cloudflareUrls) {
+                if (typeof u === "string" && u.length > 0 && !workerUrls.includes(u)) {
+                  workerUrls.push(u);
+                }
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.error("Failed to fetch worker URLs for login response:", e);
+      }
+
       return new Response(JSON.stringify({
         success: true,
         sessionToken,
+        workerUrls,
         user: {
           id: user.id, username: user.username, name: user.name, role: user.role,
           totpSecret: user.totp_secret, mustChangePassword: user.must_change_password,
