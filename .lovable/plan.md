@@ -1,54 +1,61 @@
 
 
-# Fix: New Emails Not Arriving — Root Cause & Plan
+# Fix: New Netflix Emails Not Arriving
 
-## Root Cause (Confirmed)
+## Root Cause (Confirmed by Testing)
 
-**The IMAP fetch is hardcoded to only fetch emails from `info@account.netflix.com`.**
+The sync **times out** before it can fetch new emails. I verified this by calling the edge function directly — it started the IMAP sync but the Supabase edge function timed out before completing.
 
-- `supabase/functions/fetch-emails/index.ts`, line 84: `client.search({ from: "info@account.netflix.com", since })`
-- Line 95 fallback: also checks `fromAddr === "info@account.netflix.com"`
-- Database confirms: all 60 cached emails are from `"Netflix" <info@account.netflix.com>` — zero emails from any other sender
+**Why it times out:** A deduplication bug causes every sync to re-fetch ALL emails instead of skipping already-cached ones.
 
-This is the **single biggest reason** new emails are not appearing. Everything else (worker, cache, frontend) is secondary.
+### The Dedup Bug (Critical)
 
-## Additional Issues Found
+In `fetchFromAccount` (line 106):
+```typescript
+const emailId = `${accountLabel}:${uid}`;  // e.g. "Primary:95293"
+if (cachedIds.has(emailId) || cachedIds.has(String(uid))) { skip }
+```
 
-1. **Frontend refresh fires cache load first, sync in background** — user sees stale data immediately on refresh click
-2. **No cron/scheduled sync exists** — emails only arrive on manual refresh
-3. **Frontend `fetchEmails` doesn't await sync before showing results** (line 1851-1854)
+But when storing (line 121):
+```typescript
+const stableId = messageId.startsWith("<") ? `${accountLabel}:${messageId}` : emailId;
+// Stores as "Primary:<abc@netflix.com>" instead of "Primary:95293"
+```
+
+The existing 60 cached emails have plain UID IDs (like `95293`), so `cachedIds.has(String(uid))` matches and they get skipped. But any email stored after the Message-ID logic was added gets stored as `Primary:<message-id>` — which **never matches** the dedup check. Those emails get re-fetched every sync, wasting the entire 20-second timeout window, leaving no time for truly new emails.
+
+### Secondary Issue: Frontend Refresh
+
+`fetchEmails` (line 1853) fires sync as fire-and-forget:
+```typescript
+void syncFromImap();  // doesn't wait for result
+```
+So even if sync eventually succeeds, the UI already finished refreshing with old cache data.
 
 ---
 
 ## Plan
 
-### Step 1: Remove hardcoded sender filter in Edge Function
+### Step 1: Fix dedup in Edge Function
 
 **File:** `supabase/functions/fetch-emails/index.ts`
 
-Replace the Netflix-only IMAP search (lines 82-98) with a general search that fetches all emails from the last 30 days:
+Change the dedup check to also check the Message-ID-based stableId format. The simplest fix: compute the stableId **before** the skip check, or store the email using the same `emailId` format consistently.
+
+**Approach:** Always use `accountLabel:uid` as the stored ID (remove the Message-ID-based stableId). This keeps dedup fast and consistent:
 
 ```typescript
-// BEFORE (broken):
-const searchResults = await client.search({ from: "info@account.netflix.com", since }, { uid: true });
-
-// AFTER (fixed):
-const searchResults = await client.search({ since }, { uid: true });
+// Line 119-121: Remove Message-ID logic, always use accountLabel:uid
+const stableId = emailId;  // always "Primary:95293"
 ```
 
-Remove the fallback block that also filters by `info@account.netflix.com`. Replace it with a generic sequence-based fallback that doesn't filter by sender.
+This is safe because UIDs are stable per-mailbox and the `accountLabel` prefix already handles multi-account dedup.
 
-Rename `netflixUids` → `allUids` throughout the function.
-
-### Step 2: Fix frontend refresh to sync-then-load
+### Step 2: Fix frontend refresh to await sync
 
 **File:** `src/App.tsx`
 
-Change `fetchEmails` (line 1848) so clicking Refresh does:
-1. Set syncing state
-2. **Await** `syncFromImap()` (not fire-and-forget)
-3. Then load cached emails
-4. Show clear status: syncing → success/failed
+Change `fetchEmails` so Refresh button awaits the sync before showing results:
 
 ```typescript
 const fetchEmails = async () => {
@@ -63,31 +70,13 @@ const fetchEmails = async () => {
 };
 ```
 
-Also fix `syncFromImap` to not call `loadCachedEmails` internally (it currently does on line 1832), to avoid double-fetch.
+Also remove the duplicate `loadCachedEmails` call inside `syncFromImap` (line 1832) since the caller now handles it.
 
-### Step 3: Improve auto-refresh cycle
+### Step 3: Migrate existing cached email IDs
 
-Keep the 5-second cache polling for fast UI updates. Keep the 20-second throttled background sync. No changes needed here — the existing logic is sound once the IMAP filter is removed.
+Add a one-time cleanup in the sync function to normalize any `Primary:<message-id>` format IDs back to `accountLabel:uid` format. Or simply: on next sync, old plain-UID entries will be matched and skipped, while new emails will be stored with the consistent `accountLabel:uid` format.
 
-### Step 4: Add structured logging to sync
-
-Add clear log messages in the edge function:
-- `[sync] Started for N accounts`
-- `[sync] Account X: fetched Y, skipped Z`
-- `[sync] Complete: N new, M skipped, K upserted`
-
-(Most of this logging already exists — just rename Netflix references.)
-
-### Step 5: Document cron setup (no code change needed)
-
-The `wrangler.toml` already has cron config commented out. The admin panel already shows cron setup instructions. No code change needed — just ensure the user enables it:
-
-```toml
-[triggers]
-crons = ["*/5 * * * *"]
-```
-
-Then `npx wrangler deploy`.
+No migration needed — the existing plain UID entries (`95293`) will still be matched by `cachedIds.has(String(uid))`. New entries will use `Primary:uid` format consistently.
 
 ---
 
@@ -95,12 +84,22 @@ Then `npx wrangler deploy`.
 
 | File | Change |
 |------|--------|
-| `supabase/functions/fetch-emails/index.ts` | Remove Netflix sender filter, fetch all emails |
-| `src/App.tsx` | Fix refresh to await sync before showing results |
+| `supabase/functions/fetch-emails/index.ts` | Fix dedup: always use `accountLabel:uid` as email ID |
+| `src/App.tsx` | Fix refresh to await sync, remove duplicate cache load from syncFromImap |
 
 ## What This Fixes
 
-- New emails from **all senders** will now be fetched (not just Netflix)
-- Refresh button will show fresh data after sync completes
-- Existing cache, worker, KV logic remains unchanged (it works correctly)
+- Sync no longer wastes time re-fetching already-cached emails → completes within timeout
+- New Netflix emails are actually fetched and stored
+- Refresh button shows fresh data after sync completes
+- Netflix-only filter preserved (intentional)
+
+## Cron Setup (No Code Change)
+
+Cron is already configured but commented out in `wrangler.toml`. To enable automatic background sync:
+```toml
+[triggers]
+crons = ["*/5 * * * *"]
+```
+Then deploy: `npx wrangler deploy`
 
