@@ -86,6 +86,22 @@ async function apiCall(functionName: string, body: any) {
   throw new Error("All Cloudflare Workers are unreachable. Check your Worker URLs.");
 }
 
+// --- Direct Supabase bootstrap (bypasses worker requirement) ---
+async function bootstrapFromSupabase(): Promise<{ users: any[]; recaptcha: any; workerUrls: string[] }> {
+  const { data, error } = await supabase.functions.invoke("manage-app", {
+    body: { action: "bootstrap_public" },
+  });
+  if (error) throw error;
+  if (!data?.success) throw new Error(data?.error || "Bootstrap failed");
+
+  // Store worker URLs immediately so apiCall works for subsequent calls
+  if (data.workerUrls && Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
+    storeWorkerUrls(data.workerUrls);
+  }
+
+  return { users: data.users || [], recaptcha: data.recaptcha, workerUrls: data.workerUrls || [] };
+}
+
 // --- Rate Limiter ---
 const loginAttempts: { [key: string]: number[] } = {};
 function checkRateLimit(key: string): boolean {
