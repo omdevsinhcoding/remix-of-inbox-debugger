@@ -220,25 +220,43 @@ function ProfileSelectPage() {
   const [error, setError] = useState("");
   const [siteKey, setSiteKey] = useState<string | null>(null);
   const [showCaptcha, setShowCaptcha] = useState(false);
+  const [needsWorkerUrl, setNeedsWorkerUrl] = useState(false);
+  const [workerUrlInput, setWorkerUrlInput] = useState("");
   const navigate = useNavigate();
   const { checkAuth } = useAuth();
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const [usersData, recaptchaData] = await Promise.all([
-          apiCall("manage-app", { action: "list" }),
-          apiCall("manage-app", { action: "get_settings", key: "recaptcha" }).catch(() => ({ value: null })),
-        ]);
-        setProfiles((usersData.users || []).filter((u: UserData) => u.role === "user"));
-        if (recaptchaData.value?.enabled === true && recaptchaData.value?.siteKey) setSiteKey(recaptchaData.value.siteKey);
-      } catch (err) {
+  const loadProfiles = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError("");
+      const [usersData, recaptchaData] = await Promise.all([
+        apiCall("manage-app", { action: "list" }),
+        apiCall("manage-app", { action: "get_settings", key: "recaptcha" }).catch(() => ({ value: null })),
+      ]);
+      setProfiles((usersData.users || []).filter((u: UserData) => u.role === "user"));
+      if (recaptchaData.value?.enabled === true && recaptchaData.value?.siteKey) setSiteKey(recaptchaData.value.siteKey);
+      setNeedsWorkerUrl(false);
+    } catch (err: any) {
+      if (err?.message === "NO_WORKER_URL") {
+        setNeedsWorkerUrl(true);
+      } else {
         console.error("Failed to load profiles:", err);
-      } finally {
-        setLoading(false);
       }
-    })();
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => { loadProfiles(); }, [loadProfiles]);
+
+  const handleWorkerUrlSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const url = workerUrlInput.trim().replace(/\/+$/, "");
+    if (!url) return;
+    storeWorkerUrls([url]);
+    setNeedsWorkerUrl(false);
+    loadProfiles();
+  };
 
   const initiateLogin = (e: React.FormEvent) => {
     e.preventDefault();
