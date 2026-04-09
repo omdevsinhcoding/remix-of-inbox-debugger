@@ -18,8 +18,8 @@ const SIGN_IN_CODE_SUBJECTS = [
   "verification code", "login code", "sign in code",
 ];
 
-const FULL_SYNC_MAX_UIDS = 150;
-const PER_ACCOUNT_TIMEOUT_MS = 20000;
+const FULL_SYNC_MAX_UIDS = 30;
+const PER_ACCOUNT_TIMEOUT_MS = 15000;
 const STALE_DAYS = 60;
 
 async function verifySessionToken(token: string, secret: string): Promise<Record<string, any> | null> {
@@ -81,18 +81,23 @@ async function fetchFromAccount(
 
       let netflixUids: number[] = [];
       try {
-        const searchResults = await client.search({ from: "info@account.netflix.com", since }, { uid: true });
+        // Search for emails from any Netflix address
+        const searchResults = await client.search({ from: "@netflix.com", since }, { uid: true });
         if (searchResults && searchResults.length > 0) {
           netflixUids = searchResults as number[];
         }
       } catch {
+        // Fallback: scan recent emails and filter by netflix in from/subject
         const totalMessages = (client.mailbox as any)?.exists || 0;
         if (totalMessages > 0) {
-          const startSeq = Math.max(1, totalMessages - 499);
+          const startSeq = Math.max(1, totalMessages - 199);
           for await (const message of client.fetch(`${startSeq}:${totalMessages}`, { envelope: true, uid: true })) {
             if (timedOut) break;
             const fromAddr = message.envelope?.from?.[0]?.address?.toLowerCase() || "";
-            if (fromAddr === "info@account.netflix.com") netflixUids.push(message.uid);
+            const subject = (message.envelope?.subject || "").toLowerCase();
+            if (fromAddr.includes("netflix") || subject.includes("netflix")) {
+              netflixUids.push(message.uid);
+            }
           }
         }
       }
@@ -118,11 +123,13 @@ async function fetchFromAccount(
 
           // Always use accountLabel:uid for consistent dedup
           const stableId = emailId;
+          const messageId = parsed.messageId || null;
 
           emails.push({
             id: stableId,
+            message_id: messageId,
             subject: parsed.subject || fullMsg.envelope?.subject || "",
-            from: parsed.from?.text || "Netflix <info@account.netflix.com>",
+            from: parsed.from?.text || "Netflix",
             to: parsed.to ? (Array.isArray(parsed.to) ? parsed.to[0]?.text : parsed.to.text) : undefined,
             date: parsed.date, otp: otpMatch ? otpMatch[0] : null,
             preview: bodyText.length > 100 ? `${bodyText.substring(0, 100)}...` : bodyText,
@@ -350,6 +357,7 @@ Deno.serve(async (req) => {
         id: String(e.id), subject: e.subject, from_address: e.from, to_address: e.to || null,
         date: e.date, otp: e.otp || null, preview: e.preview || null, html: e.html || null,
         account_label: e.account_label || "Primary", cached_at: new Date().toISOString(),
+        message_id: e.message_id || null,
       }));
 
       const { error: upsertErr } = await supabase.from("cached_emails").upsert(rows, { onConflict: "id" });

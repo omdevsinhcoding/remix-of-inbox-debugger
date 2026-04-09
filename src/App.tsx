@@ -1651,7 +1651,7 @@ function EmailViewer() {
   const workerUrlLoaded = React.useRef(false);
   const lastSyncTime = React.useRef(0);
   const SYNC_THROTTLE_MS = 20 * 1000;
-  const [hiddenCount, setHiddenCount] = useState(0);
+  
   const [stale, setStale] = useState(false);
 
   const backToAdmin = () => {
@@ -1774,32 +1774,7 @@ function EmailViewer() {
     }
   };
 
-  // Load hidden email count to show filter banner
-  const loadHiddenCount = async () => {
-    try {
-      // Fetch unfiltered count directly from backend
-      const token = getSessionToken();
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${getApiKey()}`,
-        "apikey": getApiKey(),
-      };
-      if (token) headers["X-Session-Token"] = token;
-      // We'll compute hidden count by comparing: total cached vs displayed
-      // Since we can't easily get unfiltered from worker, just check settings
-      const filterData = await apiCall("manage-app", { action: "get_settings", key: "email_filters" });
-      const filtersActive = filterData?.value?.showSignInCodes === false || filterData?.value?.showPasswordResets !== true;
-      if (!filtersActive) { setHiddenCount(0); return; }
-
-      // Get total email count from DB
-      const res = await fetchDirect("POST", { mode: "cache" });
-      if (res.ok) {
-        // This is filtered server-side. To get unfiltered we'd need a special mode.
-        // For now just show a generic "filters active" banner based on settings
-        setHiddenCount(-1); // -1 = filters active but count unknown
-      }
-    } catch { }
-  };
+  
 
   const syncFromImap = async () => {
     if (isFetchingRef.current) return;
@@ -1863,7 +1838,7 @@ function EmailViewer() {
       setLoading(false);
       void syncFromImap();
     });
-    loadHiddenCount();
+    
 
     const cacheInterval = setInterval(() => {
       setCountdown(prev => {
@@ -1980,11 +1955,7 @@ function EmailViewer() {
                 </div>
               )}
 
-              {hiddenCount !== 0 && (
-                <div className="bg-blue-50 border border-blue-100 rounded-xl p-2 mb-2">
-                  <p className="text-blue-600 text-[10px] flex items-center gap-1"><Filter className="w-3 h-3" />Some emails hidden by filters (sign-in codes / password resets). Change in Admin → Security.</p>
-                </div>
-              )}
+              
 
               {error && (
                 <div className="bg-red-50 border border-red-100 rounded-xl p-3 mb-2">
