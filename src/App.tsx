@@ -387,14 +387,14 @@ function ProfileSelectPage() {
 
       void (async () => {
         try {
-          const loc = await locationPromise;
-          await apiCall("send-login-notification", {
-            username: data.user.username,
-            name: data.user.name,
-            status: "success",
-            ...(loc ? { lat: loc.lat, lon: loc.lon } : {}),
-          });
-          console.log("[notification] Login notification sent successfully");
+          await sendLoginNotification(
+            {
+              username: data.user.username,
+              name: data.user.name,
+              status: "success",
+            },
+            locationPromise
+          );
         } catch (notifErr) {
           console.error("[notification] Failed to send login notification:", notifErr);
         }
