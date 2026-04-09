@@ -4,25 +4,24 @@ import { motion, AnimatePresence } from "motion/react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { Toaster, toast } from "sonner";
 import ReCAPTCHA from "react-google-recaptcha";
-import { supabase as supabaseClient } from "@/src/integrations/supabase/client";
+// supabaseClient removed — all calls go through Cloudflare Workers now
 import { QRCodeSVG } from "qrcode.react";
 
-// --- API Helper ---
+// --- Worker URL Bootstrap ---
+const WORKER_URLS_KEY = "cloudflare_worker_urls";
 
-function getApiBase(): string {
-  const url = import.meta.env.VITE_SUPABASE_URL;
-  if (!url || url === "undefined" || url === "null") {
-    throw new Error("Backend not configured. Set VITE_SUPABASE_URL in your environment.");
-  }
-  return url;
+function getStoredWorkerUrls(): string[] {
+  try {
+    const stored = localStorage.getItem(WORKER_URLS_KEY);
+    if (stored) return JSON.parse(stored);
+  } catch {}
+  return [];
 }
 
-function getApiKey(): string {
-  const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-  if (!key || key === "undefined" || key === "null") {
-    throw new Error("Backend not configured. Set VITE_SUPABASE_PUBLISHABLE_KEY in your environment.");
-  }
-  return key;
+function storeWorkerUrls(urls: string[]) {
+  try {
+    localStorage.setItem(WORKER_URLS_KEY, JSON.stringify(urls));
+  } catch {}
 }
 
 function getSessionToken(): string | null {
@@ -31,40 +30,60 @@ function getSessionToken(): string | null {
   } catch { return null; }
 }
 
+// --- API Helper (routes ALL calls through Cloudflare Workers) ---
+
 async function apiCall(functionName: string, body: any) {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    "Authorization": `Bearer ${getApiKey()}`,
-  };
+  const workerUrls = getStoredWorkerUrls();
+  if (workerUrls.length === 0) {
+    throw new Error("No Cloudflare Worker URLs configured. Add them in Admin Panel → Settings → Primary IMAP → Cloudflare Worker URLs, or set them in localStorage.");
+  }
+
   const token = getSessionToken();
-  if (token) headers["X-Session-Token"] = token;
 
-  let res: Response;
-  try {
-    res = await fetch(`${getApiBase()}/functions/v1/${functionName}`, {
-      method: "POST", headers, body: JSON.stringify(body),
-    });
-  } catch (networkErr) {
-    throw new Error("Network error. Check your connection and backend URL.");
+  for (const cfUrl of workerUrls) {
+    try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      if (token) headers["X-Session-Token"] = token;
+
+      const res = await fetch(`${cfUrl}/api/fn/${functionName}`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+      });
+
+      if (res.status === 404 || res.status === 405 || res.status === 502) {
+        console.warn(`[apiCall] ${cfUrl} returned ${res.status}, trying next worker`);
+        continue;
+      }
+
+      const text = await res.text();
+      let data: any;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new Error(`Request failed (${res.status}). Server returned non-JSON response.`);
+      }
+
+      if (!res.ok) {
+        throw new Error(data?.error || `Request failed with status ${res.status}`);
+      }
+
+      if (data.sessionToken) {
+        localStorage.setItem("session_token", data.sessionToken);
+      }
+      return data;
+    } catch (err: any) {
+      if (err.message && !err.message.includes("trying next worker")) {
+        throw err;
+      }
+      console.warn(`[apiCall] ${cfUrl} failed:`, err);
+      continue;
+    }
   }
 
-  const text = await res.text();
-
-  let data: any;
-  try {
-    data = JSON.parse(text);
-  } catch {
-    throw new Error(`Request failed (${res.status}). Server returned non-JSON response.`);
-  }
-
-  if (!res.ok) {
-    throw new Error(data?.error || `Request failed with status ${res.status}`);
-  }
-
-  if (data.sessionToken) {
-    localStorage.setItem("session_token", data.sessionToken);
-  }
-  return data;
+  throw new Error("All Cloudflare Workers are unreachable. Check your Worker URLs.");
 }
 
 // --- Rate Limiter ---
