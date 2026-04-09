@@ -340,12 +340,19 @@ Deno.serve(async (req) => {
     // MODE: UNFILTERED_COUNT
     if (mode === "unfiltered_count") {
       let accountFilter: string[] | null = null;
+      let isAdmin = false;
       const sessionToken = req.headers.get("x-session-token") || body.sessionToken;
       if (sessionToken) {
         const session = await verifySessionToken(sessionToken, SESSION_SECRET);
+        if (session?.role === "admin") isAdmin = true;
         if (session?.assignedAccounts && Array.isArray(session.assignedAccounts)) {
           accountFilter = session.assignedAccounts;
         }
+      }
+      if (!isAdmin && (!accountFilter || accountFilter.length === 0)) {
+        return new Response(JSON.stringify({ total: 0, error: null }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
       let query = supabase.from("cached_emails").select("id", { count: "exact", head: true });
       if (accountFilter && accountFilter.length > 0) {
