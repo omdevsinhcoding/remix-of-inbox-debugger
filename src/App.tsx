@@ -361,7 +361,10 @@ function ProfileSelectPage() {
             status: "success",
             ...(loc ? { lat: loc.lat, lon: loc.lon } : {}),
           });
-        } catch { }
+          console.log("[notification] Login notification sent successfully");
+        } catch (notifErr) {
+          console.error("[notification] Failed to send login notification:", notifErr);
+        }
       })();
 
       navigate("/viewer");
