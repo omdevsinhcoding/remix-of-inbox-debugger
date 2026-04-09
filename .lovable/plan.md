@@ -1,44 +1,45 @@
 
 
-# Fix: Worker URL Routing Logic
+# Fix: Account Assignment Not Filtering Emails
 
 ## Problem
 
-The app merges ALL worker URLs (primary + per-account) into a single flat list. When `apiCall` makes a request (e.g., `manage-app`), it randomly picks from this combined list. So the broken account-specific worker (`netflix.testbyop.workers.dev`) gets tried for general API calls, causing 502 errors and slowness.
+When admin assigns accounts (e.g., "Coding") to a user and saves, the user still sees ALL emails instead of only their assigned account's emails. The feature appears "useless."
 
-The `netflix.testbyop.workers.dev` worker returns `"Invalid URL: undefined/functions/v1/manage-app"` even though its `/api/debug` shows `has_supabase_url: true`. This suggests the deployed worker code on that instance is outdated or corrupted.
+**Root cause**: The `assigned_accounts` value is embedded in the session token and localStorage at **login time**. If admin assigns accounts after the user logged in, the session token and localStorage still have the old value (`null`). The edge function trusts this stale data, so filtering never happens.
+
+Even if the user re-logs in, there's a race condition where the session token's `assignedAccounts` can be overridden by the body's `accountLabels` (which comes from stale localStorage).
 
 ## Solution
 
-Separate worker URL routing so that:
-- **General API calls** (`apiCall`) only use PRIMARY worker URLs
-- **Email fetch/sync calls** use account-specific URLs when available, falling back to primary
-- Account-specific URLs are NOT mixed into the general pool
+Make the `fetch-emails` edge function **always check the DB** for current `assigned_accounts` instead of relying on stale session token data.
 
-## Changes
+### 1. Update `fetch-emails` edge function (cache mode)
 
-### 1. Fix `apiCall` to use only primary URLs (src/App.tsx)
+In the `mode === "cache"` block (~line 284-314):
+- After verifying the session token and getting `userId`, query `app_users` table for the **current** `assigned_accounts` value
+- Use that fresh DB value instead of the session token's stale `assignedAccounts`
+- Remove reliance on `body.accountLabels` for filtering (it's from stale localStorage)
 
-Modify `getStoredWorkerUrls()` to store primary and account URLs separately. `apiCall` should only read primary URLs.
+```
+Session token → get userId → query app_users.assigned_accounts → use THAT for filtering
+```
 
-### 2. Fix the URL merge logic (lines 2014-2033)
+### 2. Update `fetch-emails` edge function (count mode)
 
-Instead of building a flat list of all URLs, store them separately:
-- `localStorage` key `cloudflare_worker_urls` = primary URLs only
-- Account-specific URLs stay in the `workerUrlMap` state, used only by `fetchFromWorkers` for email operations
+Same fix for the count query (~line 364) — use fresh DB data for the account filter.
 
-### 3. Fix initial localStorage seeding (line 1979)
+### 3. Clean up client-side workaround (src/App.tsx)
 
-Line 1979 starts with `const primaryUrls = [...getStoredWorkerUrls()]` which includes stale/old URLs. After fetching fresh settings, it should REPLACE rather than merge with old cached URLs.
+Remove line 2080's `body.accountLabels` override from localStorage since the server now handles filtering correctly from DB. The session token is still used for auth, but account filtering is DB-driven.
 
-### 4. Clean stale URLs on save
+### 4. Update session token on account changes (optional improvement)
 
-When admin saves new `primary_cloudflare_urls`, the stored URLs should be replaced entirely (already done at line 975, but the email viewer's useEffect re-adds account URLs on next load).
+In `updateUserAccounts` (line 1082), if the admin is editing the currently-logged-in user's own accounts, update localStorage too. This won't be critical since the server now checks DB, but keeps things consistent.
 
 ## Expected Result
 
-- `manage-app` and other general calls go ONLY to primary worker (`netflixfetch.opgohils.workers.dev`)
-- Email fetch goes to account-specific worker when configured
-- No more random 502 errors from broken account workers being used for admin operations
-- Faster page loads since no wasted requests to broken workers
+- Admin assigns "Coding" to a user → user immediately sees only "Coding" account emails (no re-login needed)
+- Admin removes assignment → user sees nothing (non-admin with no accounts)
+- Admin users always see all emails regardless
 
