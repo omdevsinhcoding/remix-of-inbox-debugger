@@ -1,87 +1,77 @@
 
 
-# Add Supabase Cron for Automatic Email Sync
+# Fix: New Emails Not Arriving + Near-Real-Time Display
 
-## Current State
-- Sync works correctly when triggered manually
-- No server-side scheduler exists — emails only arrive on user refresh or Cloudflare cron (which isn't deployed)
-- `pg_cron` and `pg_net` extensions are available but not enabled
-- Admin panel already has a "Scheduled Sync (Cron)" section with manual instructions only
+## Issues Found
 
-## Plan
+### 1. Cron job has WRONG auth key (critical)
+The pg_cron job is using `sb_publishable_UVau5jxvUHy9EfSvRTVZ-w_pFefVCI6` as the Bearer token — this is NOT the real Supabase anon key. The real key is the JWT starting with `eyJhbGci...`. Every cron-triggered sync fails silently with a 401 auth error.
 
-### Step 1: Enable pg_cron and pg_net extensions + create cron job
+### 2. IMAP search returns 0 Netflix emails
+Logs show `[sync] Complete: 0 new, 0 skipped` — meaning the IMAP search `{ from: "@netflix.com" }` returns empty results. This partial-domain search may not work reliably on all IMAP servers. Need to broaden the search and add fallback.
 
-**Database migration** to:
-1. Enable `pg_cron` and `pg_net` extensions
-2. Create a cron job that calls `fetch-emails` edge function with `{"mode":"sync"}` every 3 minutes using `net.http_post()`
-
-```sql
-CREATE EXTENSION IF NOT EXISTS pg_cron WITH SCHEMA pg_catalog;
-CREATE EXTENSION IF NOT EXISTS pg_net WITH SCHEMA extensions;
-
-SELECT cron.schedule(
-  'sync-emails-every-3min',
-  '*/3 * * * *',
-  $$
-  SELECT net.http_post(
-    url := 'https://jsqchutnfdeljajkxmly.supabase.co/functions/v1/fetch-emails',
-    headers := '{"Content-Type":"application/json","Authorization":"Bearer <ANON_KEY>"}'::jsonb,
-    body := '{"mode":"sync"}'::jsonb
-  ) AS request_id;
-  $$
-);
-```
-
-### Step 2: Add admin panel UI for cron management
-
-**File:** `src/App.tsx`
-
-Replace the static "Scheduled Sync (Cron)" section (lines 1423-1459) with an interactive panel that:
-- Shows current cron status (active/inactive) by querying a new edge function endpoint
-- Has an **Enable/Disable** toggle button that calls the edge function to manage the cron job
-- Shows interval selector (1, 3, 5, 10 minutes)
-- Keeps the manual setup instructions (Cloudflare, curl) as collapsible "Advanced" section
-- Shows last sync time from `cached_emails` table
-
-### Step 3: Add cron management to edge function
-
-**File:** `supabase/functions/fetch-emails/index.ts`
-
-Add two new modes:
-- `mode: "cron_status"` — returns whether the cron job exists and its schedule
-- `mode: "cron_toggle"` — enables/disables the cron job (admin only, requires service role)
-
-These modes use `supabase.rpc()` or direct SQL to query/manage `cron.job` table.
-
-### Step 4: Add logging for cron-triggered syncs
-
-**File:** `supabase/functions/fetch-emails/index.ts`
-
-Add a `source` field to sync logs:
-```
-[sync] Triggered by: cron | manual | worker
-```
-
-Log start, completion, and errors with timestamps.
-
-### Step 5: Keep Cloudflare cron as secondary
-
-No code changes needed. The `wrangler.toml` already has cron config commented out. Admin panel will show instructions for enabling it as backup.
+### 3. Frontend cache polling already works (5s interval)
+`loadCachedEmails()` runs every 5 seconds via countdown timer. Once emails are in the DB, they show up within 5 seconds. The bottleneck is getting them INTO the DB.
 
 ---
 
-## Files Changed
+## Plan
 
-| File | Change |
-|------|--------|
-| DB migration | Enable pg_cron + pg_net, create scheduled job |
-| `supabase/functions/fetch-emails/index.ts` | Add `cron_status` and `cron_toggle` modes |
-| `src/App.tsx` | Replace static cron section with interactive enable/disable UI + interval selector |
+### Step 1: Fix cron job with correct auth key
 
-## What This Achieves
-- Emails sync automatically every 3 minutes via Supabase pg_cron — no frontend or Cloudflare needed
-- Admin can enable/disable and change interval from the UI
-- Manual instructions preserved for advanced users
-- Cloudflare cron remains as optional backup
+**Database migration** to:
+1. Unschedule the broken cron job
+2. Re-schedule with the correct anon key (the JWT `eyJhbGci...`)
+
+```sql
+SELECT cron.unschedule('sync-netflix-emails');
+SELECT cron.schedule(
+  'sync-netflix-emails',
+  '*/3 * * * *',
+  $$ SELECT net.http_post(
+    url := 'https://jsqchutnfdeljajkxmly.supabase.co/functions/v1/fetch-emails',
+    headers := '{"Content-Type":"application/json","Authorization":"Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpzcWNodXRuZmRlbGphamt4bWx5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxMjI5MzksImV4cCI6MjA4OTY5ODkzOX0.HYN4zMEYEiP-H5KD_iIbFpr0GsatNoeyw40FI2mW_eA"}'::jsonb,
+    body := '{"mode":"sync","source":"cron"}'::jsonb
+  ) AS request_id; $$
+);
+```
+
+### Step 2: Fix IMAP Netflix search in edge function
+
+**File:** `supabase/functions/fetch-emails/index.ts`
+
+The search `{ from: "@netflix.com" }` returns 0 results. Fix by:
+- Try searching for `netflix.com` first (without `@`)
+- If that returns 0, try broader search with just `netflix`
+- Add detailed logging: log how many UIDs the search found
+- In the fallback scanner, also check `to` address (in case Netflix sends from subdomains)
+
+### Step 3: Fix cron_toggle to use correct anon key
+
+**File:** `supabase/functions/fetch-emails/index.ts`
+
+The `cron_toggle` mode reads `SUPABASE_ANON_KEY` env var, which resolved to the wrong value. Fix to use the hardcoded correct anon key, or read it from `app_settings` config.
+
+### Step 4: Clean up UI — remove "cached" references
+
+**File:** `src/App.tsx`
+
+- Remove any "cached" text from the UI (the user doesn't want to see internal implementation details)
+- Ensure the email list just shows emails without mentioning they're cached
+
+---
+
+## Summary
+
+| Problem | Root Cause | Fix |
+|---------|-----------|-----|
+| Cron not working | Wrong auth key in pg_cron job | Re-schedule with correct JWT anon key |
+| 0 new emails from IMAP | `@netflix.com` search returns empty | Broaden search + add logging |
+| cron_toggle sets wrong key | `SUPABASE_ANON_KEY` env has wrong value | Use correct key |
+| "cached" text in UI | Internal detail shown to user | Remove it |
+
+## Result
+- Cron syncs every 3 minutes with correct auth
+- New Netflix emails appear within ~5 seconds of being synced
+- UI is clean, no "cached" or implementation details shown
 
