@@ -1,5 +1,5 @@
 import React, { useState, useEffect, createContext, useContext, useCallback } from "react";
-import { Mail, RefreshCw, ShieldCheck, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, KeyRound, Filter, Server, BarChart3, Globe, Edit } from "lucide-react";
+import { Mail, RefreshCw, ShieldCheck, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, KeyRound, Filter, Server, BarChart3, Globe, Edit, Database, Wifi } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { Toaster, toast } from "sonner";
@@ -611,7 +611,7 @@ function AdminAuthPage() {
 
 // ==================== ADMIN PANEL ====================
 function AdminPanel() {
-  const [activeTab, setActiveTab] = useState<"users" | "security" | "emails" | "settings">("users");
+  const [activeTab, setActiveTab] = useState<"users" | "security" | "emails" | "settings" | "infra">("users");
   const [users, setUsers] = useState<UserData[]>([]);
   const [newUsername, setNewUsername] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -636,6 +636,10 @@ function AdminPanel() {
   const [emailAccounts, setEmailAccounts] = useState<Array<{ label: string; host: string; port: string; user: string; password: string; cloudflareUrl: string }>>([]);
   const [newAccount, setNewAccount] = useState({ label: "", host: "imap.gmail.com", port: "993", user: "", password: "", cloudflareUrl: "" });
   const [savingAccounts, setSavingAccounts] = useState(false);
+  // Infrastructure state
+  const [workerUrls, setWorkerUrls] = useState<string[]>([]);
+  const [newWorkerUrl, setNewWorkerUrl] = useState("");
+  const [savingInfra, setSavingInfra] = useState(false);
   const [expandedAccount, setExpandedAccount] = useState<number | null>(null);
   const navigate = useNavigate();
   const { user: currentUser, checkAuth } = useAuth();
@@ -697,6 +701,12 @@ function AdminPanel() {
         if (accounts.value && Array.isArray(accounts.value)) {
           setEmailAccounts(accounts.value);
         }
+      } catch {}
+
+      // Load worker URLs
+      try {
+        const wUrls = await apiCall("manage-app", { action: "get_settings", key: "worker_urls" });
+        if (wUrls.value && Array.isArray(wUrls.value)) setWorkerUrls(wUrls.value);
       } catch {}
 
       try {
@@ -910,6 +920,7 @@ function AdminPanel() {
     { id: "users" as const, label: "Users", icon: Users },
     { id: "security" as const, label: "Security", icon: ShieldCheck },
     { id: "emails" as const, label: "Email Accounts", icon: Mail },
+    { id: "infra" as const, label: "Infrastructure", icon: Database },
     { id: "settings" as const, label: "Settings", icon: Settings },
   ];
 
@@ -1340,7 +1351,114 @@ function AdminPanel() {
           </div>
         )}
 
-        {/* ===== SETTINGS TAB ===== */}
+        {/* ===== INFRASTRUCTURE TAB ===== */}
+        {activeTab === "infra" && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+            {/* Worker URLs */}
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
+                <div className="bg-orange-50 p-1.5 rounded-lg"><Wifi className="w-4 h-4 text-orange-600" /></div>
+                Cloudflare Worker URLs
+              </h2>
+              <p className="text-xs text-slate-500 mb-3">Add multiple worker URLs. The app tries each one in order until one works.</p>
+              <div className="space-y-2 mb-3">
+                {workerUrls.map((url, i) => (
+                  <div key={i} className="flex items-center gap-2 p-3 bg-slate-50 rounded-xl border">
+                    <Globe className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                    <span className="text-sm text-slate-700 flex-1 break-all">{url}</span>
+                    <button onClick={() => {
+                      const updated = workerUrls.filter((_, idx) => idx !== i);
+                      setWorkerUrls(updated);
+                      apiCall("manage-app", { action: "set_settings", key: "worker_urls", value: updated }).then(() => toast.success("Worker URL removed")).catch(() => toast.error("Failed to remove"));
+                    }} className="p-1.5 hover:bg-red-50 text-red-400 hover:text-red-600 rounded-lg transition-colors">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+                {workerUrls.length === 0 && <p className="text-xs text-slate-400 text-center py-4">No worker URLs configured. Will use direct backend.</p>}
+              </div>
+              <div className="flex gap-2">
+                <input type="text" placeholder="https://your-worker.workers.dev" value={newWorkerUrl} onChange={(e) => setNewWorkerUrl(e.target.value)}
+                  className="flex-1 bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                <button onClick={async () => {
+                  if (!newWorkerUrl.trim()) return;
+                  const updated = [...workerUrls, newWorkerUrl.trim().replace(/\/+$/, "")];
+                  setWorkerUrls(updated);
+                  setNewWorkerUrl("");
+                  try {
+                    await apiCall("manage-app", { action: "set_settings", key: "worker_urls", value: updated });
+                    toast.success("Worker URL added!");
+                  } catch (err) { toast.error(err instanceof Error ? err.message : "Failed"); }
+                }} className="px-4 py-2 bg-slate-900 text-white text-sm font-bold rounded-xl hover:bg-slate-800 transition-all">
+                  Add
+                </button>
+              </div>
+            </section>
+
+            {/* KV Setup Instructions */}
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
+                <div className="bg-cyan-50 p-1.5 rounded-lg"><Database className="w-4 h-4 text-cyan-600" /></div>
+                Cloudflare KV Setup
+              </h2>
+              <div className="space-y-3 text-sm text-slate-600">
+                <p className="font-bold text-slate-900">When KV is full, create a new namespace:</p>
+                <div className="bg-slate-900 text-green-400 p-4 rounded-xl font-mono text-xs space-y-1 overflow-x-auto">
+                  <p>npx wrangler kv namespace create EMAIL_CACHE_V2</p>
+                </div>
+                <p className="text-xs text-slate-500">Copy the new namespace ID and update <code className="bg-slate-100 px-1 rounded">wrangler.toml</code>:</p>
+                <div className="bg-slate-900 text-green-400 p-4 rounded-xl font-mono text-xs space-y-1 overflow-x-auto">
+                  <p>[[kv_namespaces]]</p>
+                  <p>binding = "EMAIL_CACHE_V2"</p>
+                  <p>id = "YOUR_NEW_KV_ID"</p>
+                </div>
+                <p className="text-xs text-slate-500">The worker automatically uses V2 first, falls back to V1.</p>
+                <div className="bg-amber-50 border border-amber-100 p-3 rounded-xl">
+                  <p className="text-xs text-amber-700"><strong>Redeploy after changes:</strong></p>
+                  <div className="bg-slate-900 text-green-400 p-3 rounded-lg font-mono text-xs mt-2">npx wrangler deploy</div>
+                </div>
+              </div>
+            </section>
+
+            {/* Cron Setup Instructions */}
+            <section className="lg:col-span-2 bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
+                <div className="bg-green-50 p-1.5 rounded-lg"><Clock className="w-4 h-4 text-green-600" /></div>
+                Scheduled Sync (Cron)
+              </h2>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="space-y-3 text-sm text-slate-600">
+                  <p className="font-bold text-slate-900">Option 1: Cloudflare Worker Cron</p>
+                  <p className="text-xs">Edit <code className="bg-slate-100 px-1 rounded">wrangler.toml</code> and uncomment:</p>
+                  <div className="bg-slate-900 text-green-400 p-4 rounded-xl font-mono text-xs space-y-1 overflow-x-auto">
+                    <p>[triggers]</p>
+                    <p>crons = ["*/5 * * * *"]</p>
+                  </div>
+                  <p className="text-xs text-slate-500">Then redeploy: <code className="bg-slate-100 px-1 rounded">npx wrangler deploy</code></p>
+                </div>
+                <div className="space-y-3 text-sm text-slate-600">
+                  <p className="font-bold text-slate-900">Option 2: External Cron (curl)</p>
+                  <p className="text-xs">Call the sync endpoint every 5 minutes:</p>
+                  <div className="bg-slate-900 text-green-400 p-4 rounded-xl font-mono text-xs space-y-1 overflow-x-auto">
+                    <p>curl -X POST \</p>
+                    <p>  https://YOUR_WORKER/api/emails/sync \</p>
+                    <p>  -H "X-Session-Token: YOUR_TOKEN"</p>
+                  </div>
+                  <p className="text-xs text-slate-500">Or directly call the Supabase function:</p>
+                  <div className="bg-slate-900 text-green-400 p-4 rounded-xl font-mono text-xs space-y-1 overflow-x-auto">
+                    <p>curl -X POST \</p>
+                    <p>  YOUR_SUPABASE_URL/functions/v1/fetch-emails \</p>
+                    <p>  -H "Authorization: Bearer ANON_KEY" \</p>
+                    <p>  -H "apikey: ANON_KEY" \</p>
+                    <p>  -H "Content-Type: application/json" \</p>
+                    <p>  -d '{`{"mode":"sync"}`}'</p>
+                  </div>
+                  <p className="text-xs text-slate-500">Use services like cron-job.org, GitHub Actions, or any scheduler.</p>
+                </div>
+              </div>
+            </section>
+          </div>
+        )}
         {activeTab === "settings" && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
             {/* Telegram */}
@@ -1529,10 +1647,10 @@ function EmailViewer() {
 
   const [syncing, setSyncing] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [resolvedWorkerUrl, setResolvedWorkerUrl] = useState<string | null>(null);
+  const [resolvedWorkerUrls, setResolvedWorkerUrls] = useState<string[]>([]);
   const workerUrlLoaded = React.useRef(false);
   const lastSyncTime = React.useRef(0);
-  const SYNC_THROTTLE_MS = 20 * 1000; // keep inbox hot without waiting minutes
+  const SYNC_THROTTLE_MS = 20 * 1000;
   const [hiddenCount, setHiddenCount] = useState(0);
   const [stale, setStale] = useState(false);
 
@@ -1550,48 +1668,58 @@ function EmailViewer() {
     }
   };
 
-  // Load dynamic worker URL from DB settings on mount
+  // Load dynamic worker URLs from DB settings on mount
   useEffect(() => {
     if (workerUrlLoaded.current) return;
     workerUrlLoaded.current = true;
     (async () => {
+      const urls: string[] = [];
+      // 1. Check worker_urls setting (primary source)
       try {
-        const data = await apiCall("manage-app", { action: "get_settings", key: "email_accounts" });
-        if (data.value && Array.isArray(data.value)) {
-          const firstWithUrl = data.value.find((acc: any) => acc.cloudflareUrl && acc.cloudflareUrl.trim());
-          if (firstWithUrl) {
-            setResolvedWorkerUrl(firstWithUrl.cloudflareUrl.trim().replace(/\/+$/, ""));
-            return;
-          }
+        const wData = await apiCall("manage-app", { action: "get_settings", key: "worker_urls" });
+        if (wData.value && Array.isArray(wData.value)) {
+          urls.push(...wData.value.map((u: string) => u.trim().replace(/\/+$/, "")));
         }
       } catch {}
-      setResolvedWorkerUrl(getCloudflareWorkerUrl());
+      // 2. Fallback: check email_accounts cloudflareUrl fields
+      if (urls.length === 0) {
+        try {
+          const data = await apiCall("manage-app", { action: "get_settings", key: "email_accounts" });
+          if (data.value && Array.isArray(data.value)) {
+            for (const acc of data.value) {
+              if (acc.cloudflareUrl && acc.cloudflareUrl.trim()) {
+                urls.push(acc.cloudflareUrl.trim().replace(/\/+$/, ""));
+                break;
+              }
+            }
+          }
+        } catch {}
+      }
+      // 3. Fallback: env variable
+      if (urls.length === 0) {
+        const envUrl = getCloudflareWorkerUrl();
+        if (envUrl) urls.push(envUrl);
+      }
+      setResolvedWorkerUrls(urls);
     })();
   }, []);
 
-  const getWorkerUrl = useCallback(() => {
-    return resolvedWorkerUrl;
-  }, [resolvedWorkerUrl]);
-
-  // Fetch with worker fallback: if worker returns 404/405/502, retry direct backend
+  // Try multiple worker URLs in order, fallback to direct backend
   const fetchWithFallback = async (path: string, method: string, body?: any): Promise<Response> => {
-    const cfUrl = getWorkerUrl();
     const token = getSessionToken();
-
-    if (cfUrl) {
+    for (const cfUrl of resolvedWorkerUrls) {
       try {
         const headers: Record<string, string> = {};
         if (token) headers["X-Session-Token"] = token;
         const res = await fetch(`${cfUrl}${path}`, { method, headers, ...(body ? { body: JSON.stringify(body) } : {}) });
-        // If worker is misconfigured (404/405/502), fall back to direct backend
         if (res.status === 404 || res.status === 405 || res.status === 502) {
-          console.warn(`[fallback] Worker returned ${res.status}, trying direct backend`);
-          return fetchDirect(method, body);
+          console.warn(`[fallback] Worker ${cfUrl} returned ${res.status}, trying next`);
+          continue;
         }
         return res;
       } catch (err) {
-        console.warn("[fallback] Worker unreachable, trying direct backend:", err);
-        return fetchDirect(method, body);
+        console.warn(`[fallback] Worker ${cfUrl} unreachable, trying next:`, err);
+        continue;
       }
     }
     return fetchDirect(method, body);
@@ -1681,35 +1809,9 @@ function EmailViewer() {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 50000);
 
-      const cfUrl = getWorkerUrl();
-      const token = getSessionToken();
       let syncRes: Response;
-
-      if (cfUrl) {
-        try {
-          const headers: Record<string, string> = {};
-          if (token) headers["X-Session-Token"] = token;
-          syncRes = await fetch(`${cfUrl}/api/emails/sync`, {
-            method: "POST", signal: controller.signal, headers,
-          });
-          if (syncRes.status === 404 || syncRes.status === 405 || syncRes.status === 502) {
-            console.warn(`[sync fallback] Worker returned ${syncRes.status}`);
-            syncRes = await fetchDirect("POST", { mode: "sync" });
-          }
-        } catch {
-          syncRes = await fetchDirect("POST", { mode: "sync" });
-        }
-      } else {
-        const headers: Record<string, string> = {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${getApiKey()}`,
-          "apikey": getApiKey(),
-        };
-        if (token) headers["X-Session-Token"] = token;
-        syncRes = await fetch(`${getApiBase()}/functions/v1/fetch-emails`, {
-          method: "POST", headers, body: JSON.stringify({ mode: "sync" }), signal: controller.signal,
-        });
-      }
+      // Use multi-worker fallback for sync too
+      syncRes = await fetchWithFallback("/api/emails/sync", "POST", { mode: "sync" });
       clearTimeout(timeout);
 
       const raw = await syncRes.text();
