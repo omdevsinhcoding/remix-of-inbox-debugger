@@ -703,6 +703,12 @@ function AdminPanel() {
         }
       } catch {}
 
+      // Load worker URLs
+      try {
+        const wUrls = await apiCall("manage-app", { action: "get_settings", key: "worker_urls" });
+        if (wUrls.value && Array.isArray(wUrls.value)) setWorkerUrls(wUrls.value);
+      } catch {}
+
       try {
         // Use dynamic worker URL from email accounts if available
         let cfUrl = getCloudflareWorkerUrl();
