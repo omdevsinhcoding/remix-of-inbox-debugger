@@ -135,6 +135,7 @@ export type Database = {
           from_address: string | null
           html: string | null
           id: string
+          message_id: string | null
           otp: string | null
           preview: string | null
           subject: string | null
@@ -147,6 +148,7 @@ export type Database = {
           from_address?: string | null
           html?: string | null
           id: string
+          message_id?: string | null
           otp?: string | null
           preview?: string | null
           subject?: string | null
@@ -159,6 +161,7 @@ export type Database = {
           from_address?: string | null
           html?: string | null
           id?: string
+          message_id?: string | null
           otp?: string | null
           preview?: string | null
           subject?: string | null
