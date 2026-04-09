@@ -1293,6 +1293,18 @@ function AdminPanel() {
                       </div>
                     </div>
                     <div>
+                      <p className="text-[10px] font-bold text-green-600 uppercase">Cloudflare Worker URLs</p>
+                      {primaryCfUrls.length > 0 ? (
+                        <div className="space-y-1 mt-1">
+                          {primaryCfUrls.map((url, ui) => (
+                            <p key={ui} className="text-sm text-green-900 font-medium break-all">• {url}</p>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-green-700 font-medium">Not configured — add in Settings tab</p>
+                      )}
+                    </div>
+                    <div>
                       <p className="text-[10px] font-bold text-green-600 uppercase">Configured via</p>
                       <p className="text-sm text-green-900 font-medium">Settings tab</p>
                     </div>
