@@ -1894,29 +1894,50 @@ function EmailViewer() {
 
   const loadCachedEmails = useCallback(async () => {
     try {
-      if (resolvedWorkerUrls.length === 0) {
-        if (!workerUrlsLoading) {
-          setError("No Cloudflare Worker URLs configured. Ask admin to save them in settings.");
+      let emailData: any = null;
+
+      // Try workers first
+      if (resolvedWorkerUrls.length > 0) {
+        const cacheUrls = workerUrlMap.primary.length > 0 ? workerUrlMap.primary : resolvedWorkerUrls;
+        const workerRes = await fetchFromWorkers("/api/emails", "GET", undefined, cacheUrls);
+        if (workerRes && workerRes.ok) {
+          emailData = await workerRes.json();
+        } else if (workerRes && !workerRes.ok) {
+          const errData = await workerRes.json().catch(() => ({}));
+          console.warn("[loadCachedEmails] Worker returned error:", errData?.error);
         }
-        return 0;
       }
 
-      // Use shuffled primary URLs for cache reads (any worker can serve cached data)
-      const cacheUrls = workerUrlMap.primary.length > 0 ? workerUrlMap.primary : resolvedWorkerUrls;
-      const workerRes = await fetchFromWorkers("/api/emails", "GET", undefined, cacheUrls);
-      if (!workerRes) {
-        setError("No Cloudflare Worker responded. Check your saved Worker URLs.");
-        return 0;
+      // Fallback: fetch directly from Supabase edge function
+      if (!emailData) {
+        console.log("[loadCachedEmails] Workers unavailable, falling back to direct Supabase");
+        const token = getSessionToken();
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+        const headers: Record<string, string> = {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${supabaseKey}`,
+          "apikey": supabaseKey,
+        };
+        if (token) headers["X-Session-Token"] = token;
+
+        const user = JSON.parse(localStorage.getItem("user") || "{}");
+        const bodyPayload: any = { mode: "cache" };
+        if (user.assignedAccounts) bodyPayload.accountLabels = user.assignedAccounts;
+
+        const res = await fetch(`${supabaseUrl}/functions/v1/fetch-emails`, {
+          method: "POST", headers, body: JSON.stringify(bodyPayload),
+        });
+        if (res.ok) {
+          emailData = await res.json();
+        } else {
+          const errData = await res.json().catch(() => ({}));
+          setError(errData?.error || `Failed to load emails (${res.status})`);
+          return 0;
+        }
       }
 
-      if (!workerRes.ok) {
-        const data = await workerRes.json().catch(() => ({}));
-        setError(data?.error || `Failed to load emails (${workerRes.status})`);
-        return 0;
-      }
-
-      const data = await workerRes.json();
-      const emailList = (Array.isArray(data) ? data : []) as Email[];
+      const emailList = (Array.isArray(emailData) ? emailData : []) as Email[];
       emailList.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
       setEmails(emailList);
       setError(null);
