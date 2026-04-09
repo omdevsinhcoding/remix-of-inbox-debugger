@@ -2075,9 +2075,7 @@ function EmailViewer() {
         };
         if (token) headers["X-Session-Token"] = token;
 
-        const user = JSON.parse(localStorage.getItem("user") || "{}");
         const bodyPayload: any = { mode: "cache" };
-        if (user.assignedAccounts) bodyPayload.accountLabels = user.assignedAccounts;
 
         const res = await fetch(`${supabaseUrl}/functions/v1/fetch-emails`, {
           method: "POST", headers, body: JSON.stringify(bodyPayload),
