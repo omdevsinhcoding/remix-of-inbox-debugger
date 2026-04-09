@@ -1897,12 +1897,20 @@ function EmailViewer() {
     setRefreshing(true);
     const toastId = toast.loading("Fetching latest emails...");
     try {
+      // Show cached emails instantly
       await loadCachedEmails();
-      await syncViaWorker();
-      await loadCachedEmails();
-      toast.success("Emails updated!", { id: toastId });
+      toast.success("Emails loaded!", { id: toastId });
+
+      // Sync new emails in background — don't block UI
+      syncViaWorker()
+        .then(() => loadCachedEmails())
+        .then(() => toast.success("New emails synced!"))
+        .catch((err) => {
+          const msg = err instanceof Error ? err.message : "Background sync failed";
+          console.warn("[sync]", msg);
+        });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Sync failed";
+      const msg = err instanceof Error ? err.message : "Failed to load emails";
       toast.error(msg, { id: toastId });
     } finally {
       setRefreshing(false);
