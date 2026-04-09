@@ -1420,43 +1420,8 @@ function AdminPanel() {
               </div>
             </section>
 
-            {/* Cron Setup Instructions */}
-            <section className="lg:col-span-2 bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
-              <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
-                <div className="bg-green-50 p-1.5 rounded-lg"><Clock className="w-4 h-4 text-green-600" /></div>
-                Scheduled Sync (Cron)
-              </h2>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="space-y-3 text-sm text-slate-600">
-                  <p className="font-bold text-slate-900">Option 1: Cloudflare Worker Cron</p>
-                  <p className="text-xs">Edit <code className="bg-slate-100 px-1 rounded">wrangler.toml</code> and uncomment:</p>
-                  <div className="bg-slate-900 text-green-400 p-4 rounded-xl font-mono text-xs space-y-1 overflow-x-auto">
-                    <p>[triggers]</p>
-                    <p>crons = ["*/5 * * * *"]</p>
-                  </div>
-                  <p className="text-xs text-slate-500">Then redeploy: <code className="bg-slate-100 px-1 rounded">npx wrangler deploy</code></p>
-                </div>
-                <div className="space-y-3 text-sm text-slate-600">
-                  <p className="font-bold text-slate-900">Option 2: External Cron (curl)</p>
-                  <p className="text-xs">Call the sync endpoint every 5 minutes:</p>
-                  <div className="bg-slate-900 text-green-400 p-4 rounded-xl font-mono text-xs space-y-1 overflow-x-auto">
-                    <p>curl -X POST \</p>
-                    <p>  https://YOUR_WORKER/api/emails/sync \</p>
-                    <p>  -H "X-Session-Token: YOUR_TOKEN"</p>
-                  </div>
-                  <p className="text-xs text-slate-500">Or directly call the Supabase function:</p>
-                  <div className="bg-slate-900 text-green-400 p-4 rounded-xl font-mono text-xs space-y-1 overflow-x-auto">
-                    <p>curl -X POST \</p>
-                    <p>  YOUR_SUPABASE_URL/functions/v1/fetch-emails \</p>
-                    <p>  -H "Authorization: Bearer ANON_KEY" \</p>
-                    <p>  -H "apikey: ANON_KEY" \</p>
-                    <p>  -H "Content-Type: application/json" \</p>
-                    <p>  -d '{`{"mode":"sync"}`}'</p>
-                  </div>
-                  <p className="text-xs text-slate-500">Use services like cron-job.org, GitHub Actions, or any scheduler.</p>
-                </div>
-              </div>
-            </section>
+            {/* Scheduled Sync (Cron) */}
+            <CronManagerSection />
           </div>
         )}
         {activeTab === "settings" && (
