@@ -177,7 +177,8 @@ const getPreciseLocation = async (retries = 1): Promise<{lat: number, lon: numbe
   };
   try {
     return await fetchLocation();
-  } catch {
+  } catch (err) {
+    console.warn("[location] GPS attempt failed:", err);
     if (retries > 0) return getPreciseLocation(retries - 1);
     throw new Error("Location access is required. Please enable it.");
   }
@@ -191,11 +192,13 @@ async function sendLoginNotification(
 
   // Try GPS first (up to 8s), then fallback to IP geolocation
   let loc: { lat: number; lon: number } | null = null;
+  let locationSource = "none";
   try {
     loc = await Promise.race<{ lat: number; lon: number } | null>([
       locationPromise ?? getPreciseLocation().catch(() => null),
       new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000)),
     ]);
+    if (loc) locationSource = "gps";
   } catch { loc = null; }
 
   // IP-based fallback if GPS failed
@@ -206,14 +209,21 @@ async function sendLoginNotification(
         const ipData = await ipRes.json();
         if (ipData.latitude && ipData.longitude) {
           loc = { lat: ipData.latitude, lon: ipData.longitude };
+          locationSource = "client-ip";
+          console.log("[location] Using IP-based location fallback:", ipData.city, ipData.region);
         }
       }
-    } catch { /* ignore */ }
+    } catch (ipErr) {
+      console.warn("[location] Client IP fallback also failed:", ipErr);
+    }
   }
+
+  console.log("[notification] Location source:", locationSource, loc ? `(${loc.lat}, ${loc.lon})` : "(none)");
 
   const body = {
     ...payload,
     ...(loc ? { lat: loc.lat, lon: loc.lon } : {}),
+    locationSource,
   };
 
   try {
