@@ -1976,7 +1976,7 @@ function EmailViewer() {
     if (workerUrlLoaded.current) return;
     workerUrlLoaded.current = true;
     (async () => {
-      const primaryUrls: string[] = [...getStoredWorkerUrls()];
+      const primaryUrls: string[] = [];
       const accountUrls: Record<string, string[]> = {};
 
       try {
@@ -2011,26 +2011,15 @@ function EmailViewer() {
         }
       } catch { }
 
-      // Build flat list for general use (primary + all account URLs deduplicated)
-      const allUrls = [...primaryUrls];
-      for (const urls of Object.values(accountUrls)) {
-        for (const u of urls) {
-          if (!allUrls.includes(u)) allUrls.push(u);
-        }
-      }
-      const normalizedUrls = allUrls
-        .map((u) => u.trim().replace(/\/+$/, ""))
-        .filter(Boolean)
-        .filter((u, i, arr) => arr.indexOf(u) === i);
-
+      // Only primary URLs go into the general pool (used by apiCall)
       const normalizedPrimary = primaryUrls
         .map((u) => u.trim().replace(/\/+$/, ""))
         .filter(Boolean)
         .filter((u, i, arr) => arr.indexOf(u) === i);
 
-      setResolvedWorkerUrls(normalizedUrls);
+      setResolvedWorkerUrls(normalizedPrimary);
       setWorkerUrlMap({ primary: normalizedPrimary, byAccount: accountUrls });
-      if (normalizedUrls.length > 0) storeWorkerUrls(normalizedUrls);
+      if (normalizedPrimary.length > 0) storeWorkerUrls(normalizedPrimary);
       setWorkerUrlsLoading(false);
     })();
   }, []);
