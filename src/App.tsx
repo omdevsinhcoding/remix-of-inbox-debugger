@@ -1647,10 +1647,10 @@ function EmailViewer() {
 
   const [syncing, setSyncing] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [resolvedWorkerUrl, setResolvedWorkerUrl] = useState<string | null>(null);
+  const [resolvedWorkerUrls, setResolvedWorkerUrls] = useState<string[]>([]);
   const workerUrlLoaded = React.useRef(false);
   const lastSyncTime = React.useRef(0);
-  const SYNC_THROTTLE_MS = 20 * 1000; // keep inbox hot without waiting minutes
+  const SYNC_THROTTLE_MS = 20 * 1000;
   const [hiddenCount, setHiddenCount] = useState(0);
   const [stale, setStale] = useState(false);
 
