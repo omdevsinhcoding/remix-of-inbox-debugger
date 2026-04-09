@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { Toaster, toast } from "sonner";
 import ReCAPTCHA from "react-google-recaptcha";
-import { supabase as supabaseClient } from "@/src/integrations/supabase/client";
+import { supabase as supabaseClient } from "@/integrations/supabase/client";
 import { QRCodeSVG } from "qrcode.react";
 
 // --- API Helper ---
@@ -650,6 +650,11 @@ function AdminPanel() {
   const [newAccountCfInput, setNewAccountCfInput] = useState("");
   const [savingAccounts, setSavingAccounts] = useState(false);
   const [expandedAccount, setExpandedAccount] = useState<number | null>(null);
+  const [primaryCfUrls, setPrimaryCfUrls] = useState<string[]>([]);
+  const [primaryCfInput, setPrimaryCfInput] = useState("");
+  const [editingAccountUrls, setEditingAccountUrls] = useState<number | null>(null);
+  const [editCfUrls, setEditCfUrls] = useState<string[]>([]);
+  const [editCfInput, setEditCfInput] = useState("");
   const navigate = useNavigate();
   const { user: currentUser, checkAuth } = useAuth();
 
