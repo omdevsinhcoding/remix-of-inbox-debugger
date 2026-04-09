@@ -48,56 +48,90 @@ function getSessionToken(): string | null {
 
 async function apiCall(functionName: string, body: any) {
   let workerUrls = getStoredWorkerUrls();
-  if (workerUrls.length === 0) {
-    throw new Error("NO_WORKER_URL");
-  }
-
+  
   const token = getSessionToken();
 
-  for (const cfUrl of workerUrls) {
-    try {
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-      };
-      if (token) headers["X-Session-Token"] = token;
+  // Try each worker URL with random load balancing
+  if (workerUrls.length > 0) {
+    const shuffled = shuffleArray(workerUrls);
+    for (const cfUrl of shuffled) {
+      try {
+        const headers: Record<string, string> = {
+          "Content-Type": "application/json",
+        };
+        if (token) headers["X-Session-Token"] = token;
 
-      const res = await fetch(`${cfUrl}/api/fn/${functionName}`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(body),
-      });
+        const res = await fetch(`${cfUrl}/api/fn/${functionName}`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(body),
+        });
 
-      if (res.status === 404 || res.status === 405 || res.status === 502) {
-        console.warn(`[apiCall] ${cfUrl} returned ${res.status}, trying next worker`);
+        if (res.status === 404 || res.status === 405 || res.status === 502) {
+          console.warn(`[apiCall] ${cfUrl} returned ${res.status}, trying next worker`);
+          continue;
+        }
+
+        const text = await res.text();
+        let data: any;
+        try {
+          data = JSON.parse(text);
+        } catch {
+          throw new Error(`Request failed (${res.status}). Server returned non-JSON response.`);
+        }
+
+        if (!res.ok) {
+          throw new Error(data?.error || `Request failed with status ${res.status}`);
+        }
+
+        if (data.sessionToken) {
+          localStorage.setItem("session_token", data.sessionToken);
+        }
+        return data;
+      } catch (err: any) {
+        // If it's a business logic error (not a network/worker error), throw immediately
+        if (err.message && !err.message.includes("Failed to fetch") && !err.message.includes("trying next worker") && !err.message.includes("NetworkError") && !err.message.includes("502")) {
+          throw err;
+        }
+        console.warn(`[apiCall] ${cfUrl} failed:`, err);
         continue;
       }
-
-      const text = await res.text();
-      let data: any;
-      try {
-        data = JSON.parse(text);
-      } catch {
-        throw new Error(`Request failed (${res.status}). Server returned non-JSON response.`);
-      }
-
-      if (!res.ok) {
-        throw new Error(data?.error || `Request failed with status ${res.status}`);
-      }
-
-      if (data.sessionToken) {
-        localStorage.setItem("session_token", data.sessionToken);
-      }
-      return data;
-    } catch (err: any) {
-      if (err.message && !err.message.includes("trying next worker")) {
-        throw err;
-      }
-      console.warn(`[apiCall] ${cfUrl} failed:`, err);
-      continue;
     }
   }
 
-  throw new Error("All Cloudflare Workers are unreachable. Check your Worker URLs.");
+  // Fallback: call Supabase edge function directly
+  console.log(`[apiCall] All workers failed or none configured, falling back to direct Supabase for ${functionName}`);
+  const { createClient } = await import("@supabase/supabase-js");
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+  const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+  const headers: Record<string, string> = {};
+  if (token) headers["X-Session-Token"] = token;
+  
+  const res = await fetch(`${supabaseUrl}/functions/v1/${functionName}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${supabaseKey}`,
+      "apikey": supabaseKey,
+      ...headers,
+    },
+    body: JSON.stringify(body),
+  });
+  
+  const text = await res.text();
+  let data: any;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error(`Direct Supabase call failed (${res.status})`);
+  }
+  if (!res.ok) {
+    throw new Error(data?.error || `Request failed with status ${res.status}`);
+  }
+  if (data.sessionToken) {
+    localStorage.setItem("session_token", data.sessionToken);
+  }
+  return data;
 }
 
 // --- Direct Supabase bootstrap (bypasses worker requirement) ---
