@@ -144,6 +144,12 @@ export default {
       return handleDebug(env);
     }
 
+    // Proxy manage-app and other edge functions through worker
+    if (url.pathname.startsWith("/api/fn/") && request.method === "POST") {
+      const fnName = url.pathname.replace("/api/fn/", "");
+      return handleFunctionProxy(request, env, fnName);
+    }
+
     return new Response("Not Found", { status: 404, headers: CORS_HEADERS });
   },
 
