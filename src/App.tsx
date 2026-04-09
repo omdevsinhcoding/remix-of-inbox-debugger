@@ -1951,55 +1951,73 @@ function EmailViewer() {
   }, [fetchFromWorkers, resolvedWorkerUrls.length, workerUrlsLoading, workerUrlMap.primary]);
 
   const syncViaWorker = useCallback(async () => {
-    if (resolvedWorkerUrls.length === 0) {
-      throw new Error("No Cloudflare Worker URLs configured. Add them in Admin Panel → Email Accounts.");
-    }
-
     const { primary, byAccount } = workerUrlMap;
     const accountLabelsWithWorkers = Object.keys(byAccount);
+    const hasAnyWorker = resolvedWorkerUrls.length > 0;
 
-    // Build sync promises: one per account-specific worker group + one for remaining accounts via primary
+    // Direct Supabase sync fallback
+    const syncDirectSupabase = async (accountLabels?: string[]) => {
+      const token = getSessionToken();
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${supabaseKey}`,
+        "apikey": supabaseKey,
+      };
+      if (token) headers["X-Session-Token"] = token;
+      const body: any = { mode: "sync" };
+      if (accountLabels) body.accountLabels = accountLabels;
+      const res = await fetch(`${supabaseUrl}/functions/v1/fetch-emails`, {
+        method: "POST", headers, body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.error || `Sync failed (${res.status})`);
+      }
+    };
+
+    if (!hasAnyWorker) {
+      // No workers at all — sync directly via Supabase
+      console.log("[sync] No workers configured, syncing directly via Supabase");
+      await syncDirectSupabase();
+      return;
+    }
+
     const syncPromises: Promise<void>[] = [];
 
     // Per-account syncs through their dedicated workers
     for (const label of accountLabelsWithWorkers) {
       const accountWorkerUrls = byAccount[label];
       syncPromises.push((async () => {
-        // Try account-specific workers first, fall back to primary
         const urlsToTry = [...accountWorkerUrls, ...primary];
         const res = await fetchFromWorkers("/api/emails/sync", "POST", { mode: "sync", accountLabels: [label] }, urlsToTry);
-        if (!res) console.warn(`[sync] No worker responded for account "${label}"`);
-        else if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          console.warn(`[sync] Sync failed for "${label}": ${data?.error || res.status}`);
+        if (!res || !res.ok) {
+          console.warn(`[sync] Workers failed for "${label}", falling back to Supabase`);
+          await syncDirectSupabase([label]);
         } else {
           console.log(`[sync] Account "${label}" synced via dedicated worker`);
         }
       })());
     }
 
-    // Remaining accounts (without dedicated workers) sync through primary workers
+    // Remaining accounts sync through primary workers (with Supabase fallback)
     if (primary.length > 0) {
       syncPromises.push((async () => {
-        // Don't filter accounts — let primary workers sync everything not covered
         const res = await fetchFromWorkers("/api/emails/sync", "POST", { mode: "sync" }, primary);
-        if (!res) throw new Error("All primary Cloudflare Workers are unreachable");
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          throw new Error(data?.error || `Sync failed (${res.status})`);
+        if (!res || !res.ok) {
+          console.warn("[sync] Primary workers failed, falling back to Supabase");
+          await syncDirectSupabase();
         }
       })());
     } else if (accountLabelsWithWorkers.length === 0) {
-      // No primary and no per-account workers — use any available
       const res = await fetchFromWorkers("/api/emails/sync", "POST", { mode: "sync" });
-      if (!res) throw new Error("All Cloudflare Workers are unreachable");
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data?.error || `Sync failed (${res.status})`);
+      if (!res || !res.ok) {
+        console.warn("[sync] All workers failed, falling back to Supabase");
+        await syncDirectSupabase();
       }
     }
 
-    // Run all syncs in parallel
     await Promise.allSettled(syncPromises);
   }, [fetchFromWorkers, resolvedWorkerUrls.length, workerUrlMap]);
 
