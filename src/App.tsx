@@ -1,4 +1,4 @@
-import React, { useState, useEffect, createContext, useContext, useCallback } from "react";
+import React, { useState, useEffect, createContext, useContext, useCallback, useRef } from "react";
 import { Mail, RefreshCw, ShieldCheck, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, BarChart3, Globe, Edit, Database, Wifi, Info } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
@@ -164,65 +164,107 @@ function checkRateLimit(key: string): boolean {
 }
 
 // --- Location ---
-const getPreciseLocation = async (retries = 1): Promise<{lat: number, lon: number}> => {
-  const fetchLocation = (): Promise<{lat: number, lon: number}> => {
+type ExactLocation = { lat: number; lon: number; accuracy: number };
+type BrowserLocationPermission = "granted" | "prompt" | "denied" | "unsupported";
+
+const LOCATION_ACCURACY_TARGET_METERS = 500;
+
+async function getLocationPermissionState(): Promise<BrowserLocationPermission> {
+  if (typeof navigator === "undefined" || !navigator.geolocation) return "unsupported";
+
+  const permissions = (navigator as Navigator & {
+    permissions?: {
+      query: (descriptor: { name: string }) => Promise<{ state: string }>;
+    };
+  }).permissions;
+
+  if (!permissions?.query) return "prompt";
+
+  try {
+    const status = await permissions.query({ name: "geolocation" });
+    if (status.state === "granted" || status.state === "prompt" || status.state === "denied") {
+      return status.state;
+    }
+  } catch (err) {
+    console.warn("[location] Permission state check failed:", err);
+  }
+
+  return "prompt";
+}
+
+const getPreciseLocation = async (retries = 1): Promise<ExactLocation> => {
+  const fetchLocation = (): Promise<ExactLocation> => {
     return new Promise((resolve, reject) => {
-      if (!navigator.geolocation) { reject(new Error("Geolocation not supported")); return; }
+      if (!navigator.geolocation) {
+        reject(new Error("Geolocation not supported"));
+        return;
+      }
+
       navigator.geolocation.getCurrentPosition(
-        (pos) => resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+        (pos) => resolve({
+          lat: pos.coords.latitude,
+          lon: pos.coords.longitude,
+          accuracy: Number.isFinite(pos.coords.accuracy) ? pos.coords.accuracy : Number.POSITIVE_INFINITY,
+        }),
         (err) => reject(err),
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
       );
     });
   };
+
   try {
     return await fetchLocation();
   } catch (err) {
     console.warn("[location] GPS attempt failed:", err);
     if (retries > 0) return getPreciseLocation(retries - 1);
-    throw new Error("Location access is required. Please enable it.");
+    throw new Error("Location permission is required. Please allow GPS/location access and try again.");
   }
 };
 
-async function sendLoginNotification(
-  payload: { username: string; name?: string; status: "success" | "failed" },
-  locationPromise?: Promise<{ lat: number; lon: number } | null>
-) {
-  const token = getSessionToken();
+async function requestExactLocationForLogin(): Promise<ExactLocation> {
+  const permissionState = await getLocationPermissionState();
 
-  // Try GPS first (up to 8s), then fallback to IP geolocation
-  let loc: { lat: number; lon: number } | null = null;
-  let locationSource = "none";
-  try {
-    loc = await Promise.race<{ lat: number; lon: number } | null>([
-      locationPromise ?? getPreciseLocation().catch(() => null),
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000)),
-    ]);
-    if (loc) locationSource = "gps";
-  } catch { loc = null; }
-
-  // IP-based fallback if GPS failed
-  if (!loc) {
-    try {
-      const ipRes = await fetch("https://ipapi.co/json/", { signal: AbortSignal.timeout(5000) });
-      if (ipRes.ok) {
-        const ipData = await ipRes.json();
-        if (ipData.latitude && ipData.longitude) {
-          loc = { lat: ipData.latitude, lon: ipData.longitude };
-          locationSource = "client-ip";
-          console.log("[location] Using IP-based location fallback:", ipData.city, ipData.region);
-        }
-      }
-    } catch (ipErr) {
-      console.warn("[location] Client IP fallback also failed:", ipErr);
-    }
+  if (permissionState === "unsupported") {
+    throw new Error("This device/browser does not support exact location access.");
   }
 
-  console.log("[notification] Location source:", locationSource, loc ? `(${loc.lat}, ${loc.lon})` : "(none)");
+  if (permissionState === "denied") {
+    throw new Error("Location permission is blocked. Please enable it in browser settings and try again.");
+  }
+
+  const firstFix = await getPreciseLocation(1);
+
+  if (Number.isFinite(firstFix.accuracy) && firstFix.accuracy <= LOCATION_ACCURACY_TARGET_METERS) {
+    return firstFix;
+  }
+
+  console.warn("[location] First GPS fix was not accurate enough:", firstFix.accuracy);
+  const secondFix = await getPreciseLocation(1).catch(() => firstFix);
+  const bestFix = secondFix.accuracy < firstFix.accuracy ? secondFix : firstFix;
+
+  if (Number.isFinite(bestFix.accuracy) && bestFix.accuracy > LOCATION_ACCURACY_TARGET_METERS) {
+    throw new Error("We could not get an accurate GPS location. Please turn on device location/GPS and try again near a window or outdoors.");
+  }
+
+  return bestFix;
+}
+
+async function sendLoginNotification(
+  payload: { username: string; name?: string; status: "success" | "failed" },
+  exactLocation?: ExactLocation | null
+) {
+  const token = getSessionToken();
+  const locationSource = exactLocation ? "gps" : "none";
+
+  console.log(
+    "[notification] Location source:",
+    locationSource,
+    exactLocation ? `(${exactLocation.lat}, ${exactLocation.lon}) ±${Math.round(exactLocation.accuracy)}m` : "(none)"
+  );
 
   const body = {
     ...payload,
-    ...(loc ? { lat: loc.lat, lon: loc.lon } : {}),
+    ...(exactLocation ? { lat: exactLocation.lat, lon: exactLocation.lon, accuracy: exactLocation.accuracy } : {}),
     locationSource,
   };
 
@@ -347,6 +389,7 @@ function ProfileSelectPage() {
   const [showCaptcha, setShowCaptcha] = useState(false);
   const navigate = useNavigate();
   const { checkAuth } = useAuth();
+  const pendingExactLocationRef = useRef<ExactLocation | null>(null);
 
   const loadProfiles = useCallback(async () => {
     try {
@@ -368,13 +411,36 @@ function ProfileSelectPage() {
 
   useEffect(() => { loadProfiles(); }, [loadProfiles]);
 
-  const initiateLogin = (e: React.FormEvent) => {
+  const initiateLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (siteKey) { setShowCaptcha(true); } else { executeLogin(); }
+
+    try {
+      setError("");
+      pendingExactLocationRef.current = await requestExactLocationForLogin();
+      if (siteKey) {
+        setShowCaptcha(true);
+      } else {
+        void executeLogin();
+      }
+    } catch (err) {
+      pendingExactLocationRef.current = null;
+      const msg = err instanceof Error ? err.message : "Location access is required before login.";
+      setError(msg);
+      toast.error(msg);
+    }
   };
 
   const executeLogin = async () => {
     if (!selectedProfile) return;
+
+    const exactLocation = pendingExactLocationRef.current;
+    if (!exactLocation) {
+      const msg = "Allow exact location access before signing in.";
+      setError(msg);
+      toast.error(msg);
+      return;
+    }
+
     setLoginLoading(true);
     setError("");
 
@@ -382,9 +448,6 @@ function ProfileSelectPage() {
       if (!checkRateLimit(`user_${selectedProfile.username}`)) {
         throw new Error("Too many attempts. Wait 1 minute.");
       }
-
-      // Do not block login on geolocation permission/network delay
-      const locationPromise = getPreciseLocation().catch(() => null);
 
       // Login via worker if available, otherwise direct Supabase
       let data: any;
@@ -421,7 +484,7 @@ function ProfileSelectPage() {
               name: data.user.name,
               status: "success",
             },
-            locationPromise
+            exactLocation
           );
         } catch (notifErr) {
           console.error("[notification] Failed to send login notification:", notifErr);
@@ -434,6 +497,7 @@ function ProfileSelectPage() {
       setError(msg);
       toast.error(msg);
     } finally {
+      pendingExactLocationRef.current = null;
       setLoginLoading(false);
     }
   };
@@ -502,7 +566,7 @@ function ProfileSelectPage() {
           <motion.div key="password" initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
             transition={{ duration: 0.35 }}
             className="relative z-10 w-full max-w-sm px-2">
-            <button onClick={() => { setSelectedProfile(null); setPassword(""); setError(""); }}
+            <button onClick={() => { pendingExactLocationRef.current = null; setSelectedProfile(null); setPassword(""); setError(""); }}
               className="text-slate-500 hover:text-white text-sm font-bold mb-8 flex items-center gap-1.5 transition-colors group">
               <ArrowLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" /> Back
             </button>
@@ -564,6 +628,7 @@ function AdminLoginPage() {
   const [showCaptcha, setShowCaptcha] = useState(false);
   const navigate = useNavigate();
   const { checkAuth } = useAuth();
+  const pendingExactLocationRef = useRef<ExactLocation | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -577,19 +642,38 @@ function AdminLoginPage() {
     })();
   }, []);
 
-  const initiateLogin = (e: React.FormEvent) => {
+  const initiateLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (siteKey) { setShowCaptcha(true); } else { executeLogin(); }
+
+    try {
+      setError("");
+      pendingExactLocationRef.current = await requestExactLocationForLogin();
+      if (siteKey) {
+        setShowCaptcha(true);
+      } else {
+        void executeLogin();
+      }
+    } catch (err) {
+      pendingExactLocationRef.current = null;
+      const msg = err instanceof Error ? err.message : "Location access is required before login.";
+      setError(msg);
+      toast.error(msg);
+    }
   };
 
   const executeLogin = async () => {
+    const exactLocation = pendingExactLocationRef.current;
+    if (!exactLocation) {
+      const msg = "Allow exact location access before signing in.";
+      setError(msg);
+      toast.error(msg);
+      return;
+    }
+
     setLoading(true);
     setError("");
     try {
       if (!checkRateLimit(`admin_${username}`)) throw new Error("Too many attempts. Wait 1 minute.");
-
-      // Do not block admin login on geolocation permission/network delay
-      const locationPromise = getPreciseLocation().catch(() => null);
 
       // Login via Supabase directly if no worker URLs available, otherwise via worker
       let data: any;
@@ -624,7 +708,7 @@ function AdminLoginPage() {
               name: data.user.name,
               status: "success",
             },
-            locationPromise
+            exactLocation
           );
         } catch (notifErr) {
           console.error("[notification] Failed to send admin login notification:", notifErr);
@@ -638,6 +722,7 @@ function AdminLoginPage() {
       setError(msg);
       toast.error(msg);
     } finally {
+      pendingExactLocationRef.current = null;
       setLoading(false);
     }
   };
