@@ -173,7 +173,8 @@ Deno.serve(async (req) => {
         }
       } catch {}
 
-      return new Response(JSON.stringify({ success: true, users, recaptcha, workerUrls }), {
+      const mappedUsers = (users || []).map((u: any) => ({ ...u, assignedAccounts: u.assigned_accounts || null }));
+      return new Response(JSON.stringify({ success: true, users: mappedUsers, recaptcha, workerUrls }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -184,7 +185,8 @@ Deno.serve(async (req) => {
         .select("id, username, name, role, assigned_accounts")
         .order("created_at", { ascending: true });
       if (error) throw error;
-      return new Response(JSON.stringify({ success: true, users: data }), {
+      const mappedData = (data || []).map((u: any) => ({ ...u, assignedAccounts: u.assigned_accounts || null }));
+      return new Response(JSON.stringify({ success: true, users: mappedData }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
