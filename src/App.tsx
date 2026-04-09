@@ -1809,35 +1809,9 @@ function EmailViewer() {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 50000);
 
-      const cfUrl = getWorkerUrl();
-      const token = getSessionToken();
       let syncRes: Response;
-
-      if (cfUrl) {
-        try {
-          const headers: Record<string, string> = {};
-          if (token) headers["X-Session-Token"] = token;
-          syncRes = await fetch(`${cfUrl}/api/emails/sync`, {
-            method: "POST", signal: controller.signal, headers,
-          });
-          if (syncRes.status === 404 || syncRes.status === 405 || syncRes.status === 502) {
-            console.warn(`[sync fallback] Worker returned ${syncRes.status}`);
-            syncRes = await fetchDirect("POST", { mode: "sync" });
-          }
-        } catch {
-          syncRes = await fetchDirect("POST", { mode: "sync" });
-        }
-      } else {
-        const headers: Record<string, string> = {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${getApiKey()}`,
-          "apikey": getApiKey(),
-        };
-        if (token) headers["X-Session-Token"] = token;
-        syncRes = await fetch(`${getApiBase()}/functions/v1/fetch-emails`, {
-          method: "POST", headers, body: JSON.stringify({ mode: "sync" }), signal: controller.signal,
-        });
-      }
+      // Use multi-worker fallback for sync too
+      syncRes = await fetchWithFallback("/api/emails/sync", "POST", { mode: "sync" });
       clearTimeout(timeout);
 
       const raw = await syncRes.text();
