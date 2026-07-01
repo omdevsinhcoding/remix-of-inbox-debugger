@@ -1,6 +1,5 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import App from './App.tsx';
 import './index.css';
 
 function esc(s: string) {
@@ -21,18 +20,37 @@ function showFatal(message: string) {
     </div>`;
 }
 
-try {
-  const container = document.getElementById('root');
-  if (!container) throw new Error('Missing #root element');
-  createRoot(container).render(
-    <StrictMode>
-      <App />
-    </StrictMode>,
-  );
-} catch (err: any) {
-  console.error('[boot] fatal:', err);
-  showFatal(err?.message || String(err));
+function setBootStatus(message: string) {
+  try {
+    const el = document.getElementById('boot-error');
+    if (el) {
+      el.style.display = 'block';
+      el.textContent = message;
+    }
+  } catch {}
 }
+
+async function boot() {
+  try {
+    const container = document.getElementById('root');
+    if (!container) throw new Error('Missing #root element');
+
+    setBootStatus('Starting app…');
+    const mod = await import('./App.tsx');
+    const App = mod.default;
+
+    createRoot(container).render(
+      <StrictMode>
+        <App />
+      </StrictMode>,
+    );
+  } catch (err: any) {
+    console.error('[boot] fatal:', err);
+    showFatal(err?.message || String(err));
+  }
+}
+
+void boot();
 
 window.addEventListener('error', (e) => {
   const root = document.getElementById('root');

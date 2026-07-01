@@ -25,7 +25,7 @@
         <div class="card">
           <div id="boot-spinner"></div>
           <h1>Loading Netflix Mail…</h1>
-          <p>If this screen stays for more than 10 seconds, your browser or an extension is blocking scripts.</p>
+          <p>Starting the app. If it takes too long, refresh once or open the build error details.</p>
           <div id="boot-error" style="display:none; color:#fca5a5; font-size:12px; margin-bottom:10px; word-break:break-word;"></div>
           <button onclick="location.reload()">Reload</button>
         </div>
@@ -44,7 +44,7 @@
         setTimeout(function () {
           var root = document.getElementById('root');
           if (root && root.querySelector('#boot-fallback')) {
-            showError('App did not start. Disable ad blockers / private-mode script blocking and reload.');
+            showError('App is still starting or the preview is serving an older failed build. Open build details or reload once.');
           }
         }, 12000);
       })();
