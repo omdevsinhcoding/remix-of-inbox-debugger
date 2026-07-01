@@ -357,7 +357,7 @@ function ProfileAvatar({ avatarId, name, className = "w-16 h-16", fallbackColor 
     );
   }
   return (
-    <div className={`${className} rounded-xl sm:rounded-2xl bg-slate-800/60 flex items-center justify-center shadow-lg shadow-black/30 ring-1 ring-white/10 overflow-hidden`}>
+    <div className={`${className} rounded-xl sm:rounded-2xl bg-black overflow-hidden shadow-lg shadow-black/30 ring-1 ring-white/10`}>
       <img src={uri} loading="lazy" decoding="async" alt="" className="w-full h-full object-cover" />
     </div>
   );
