@@ -2181,7 +2181,7 @@ function AvatarRow({
       (entries) => {
         for (const e of entries) if (e.isIntersecting) { setVisible(true); io.disconnect(); return; }
       },
-      { root: null, rootMargin: "400px 0px", threshold: 0.01 }
+      { root: null, rootMargin: "150px 0px", threshold: 0.01 }
     );
     io.observe(el);
     return () => io.disconnect();
