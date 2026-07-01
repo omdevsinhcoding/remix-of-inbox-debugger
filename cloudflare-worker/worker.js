@@ -263,6 +263,20 @@ async function handleSync(env, session, rawToken, requestBody) {
       });
     }
 
+    if (res.status === 202) {
+      if (getKV(env)) {
+        const userAccountsKey = session?.assignedAccounts ? JSON.stringify(session.assignedAccounts.sort()) : "all";
+        await Promise.all([
+          kvPut(env, `${CACHE_KEY}:${userAccountsKey}`, JSON.stringify(JSON.parse(responseText).emails || [])),
+          kvPut(env, `${CACHE_TIMESTAMP_KEY}:${userAccountsKey}`, Date.now().toString()),
+        ]).catch(() => {});
+      }
+      return new Response(responseText, {
+        status: 202,
+        headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+      });
+    }
+
     // Update KV cache after successful sync
     if (getKV(env)) {
       const userAccountsKey = session?.assignedAccounts ? JSON.stringify(session.assignedAccounts.sort()) : "all";
