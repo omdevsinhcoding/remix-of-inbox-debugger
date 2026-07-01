@@ -1,11 +1,12 @@
-import React, { useState, useEffect, createContext, useContext, useCallback, useRef } from "react";
-import { Mail, RefreshCw, ShieldCheck, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, BarChart3, Globe, Edit, Database, Wifi, Info, UserCircle } from "lucide-react";
+import React, { useState, useEffect, createContext, useContext, useCallback, useRef, useMemo } from "react";
+import { Mail, RefreshCw, ShieldCheck, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, BarChart3, Globe, Edit, Database, Wifi, Info, UserCircle, Search } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { Toaster, toast } from "sonner";
 import ReCAPTCHA from "react-google-recaptcha";
 import { supabase } from "./integrations/supabase/client";
 import { QRCodeSVG } from "qrcode.react";
+import { AVATAR_CATEGORIES, resolveAvatar, buildAvatarId } from "./lib/avatars";
 
 // --- Worker URL Types & Helpers ---
 const WORKER_URLS_KEY = "cloudflare_worker_urls";
@@ -150,20 +151,51 @@ async function apiCall(functionName: string, body: any) {
 }
 
 // --- Direct Supabase bootstrap (bypasses worker requirement) ---
-async function bootstrapFromSupabase(): Promise<{ users: any[]; recaptcha: any; workerUrls: string[] }> {
+const BOOTSTRAP_CACHE_KEY = "bootstrap_cache_v1";
+const BOOTSTRAP_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+type BootstrapResult = { users: any[]; recaptcha: any; workerUrls: string[] };
+
+export function readBootstrapCache(): BootstrapResult | null {
+  try {
+    const raw = localStorage.getItem(BOOTSTRAP_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    if (!parsed.savedAt || Date.now() - parsed.savedAt > BOOTSTRAP_CACHE_TTL_MS) return null;
+    return { users: parsed.users || [], recaptcha: parsed.recaptcha, workerUrls: parsed.workerUrls || [] };
+  } catch { return null; }
+}
+
+function writeBootstrapCache(result: BootstrapResult) {
+  try {
+    localStorage.setItem(BOOTSTRAP_CACHE_KEY, JSON.stringify({ ...result, savedAt: Date.now() }));
+  } catch {}
+}
+
+async function bootstrapFromSupabase(): Promise<BootstrapResult> {
   const { data, error } = await supabase.functions.invoke("manage-app", {
     body: { action: "bootstrap_public" },
   });
   if (error) throw error;
   if (!data?.success) throw new Error(data?.error || "Bootstrap failed");
 
-  // Store worker URLs immediately so apiCall works for subsequent calls
   if (data.workerUrls && Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
     storeWorkerUrls(data.workerUrls);
   }
 
-  return { users: data.users || [], recaptcha: data.recaptcha, workerUrls: data.workerUrls || [] };
+  const result: BootstrapResult = { users: data.users || [], recaptcha: data.recaptcha, workerUrls: data.workerUrls || [] };
+  writeBootstrapCache(result);
+  return result;
 }
+
+// Fire the network round-trip before React mounts so it runs in parallel with bundle parse.
+export const bootstrapPromise: Promise<BootstrapResult> = bootstrapFromSupabase().catch((err) => {
+  console.warn("[bootstrap] prefetch failed:", err);
+  const cached = readBootstrapCache();
+  if (cached) return cached;
+  throw err;
+});
 
 // --- Rate Limiter ---
 const loginAttempts: { [key: string]: number[] } = {};
@@ -355,24 +387,13 @@ const PROFILE_COLORS = [
   "bg-orange-500", "bg-pink-500", "bg-teal-500", "bg-indigo-500",
 ];
 
-const AVATAR_OPTIONS = [
-  { id: "neo-red", label: "Red", bg: "from-red-500 to-red-800", accent: "bg-red-200", face: "N" },
-  { id: "midnight", label: "Midnight", bg: "from-slate-700 to-slate-950", accent: "bg-cyan-200", face: "★" },
-  { id: "popcorn", label: "Popcorn", bg: "from-amber-300 to-red-600", accent: "bg-white", face: "✦" },
-  { id: "arcade", label: "Arcade", bg: "from-emerald-400 to-teal-800", accent: "bg-lime-200", face: "●" },
-  { id: "hero", label: "Hero", bg: "from-blue-500 to-indigo-900", accent: "bg-sky-100", face: "◆" },
-  { id: "berry", label: "Berry", bg: "from-fuchsia-500 to-purple-900", accent: "bg-pink-100", face: "♥" },
-  { id: "tiger", label: "Tiger", bg: "from-orange-400 to-stone-900", accent: "bg-yellow-100", face: "▲" },
-  { id: "mint", label: "Mint", bg: "from-teal-300 to-emerald-900", accent: "bg-emerald-100", face: "◇" },
-];
-
-function getAvatarOption(avatarId?: string | null) {
-  return AVATAR_OPTIONS.find((a) => a.id === avatarId) || AVATAR_OPTIONS[0];
+function getAvatarUri(avatarId?: string | null): string | null {
+  return resolveAvatar(avatarId);
 }
 
 function ProfileAvatar({ avatarId, name, className = "w-16 h-16", fallbackColor = "bg-red-500" }: { avatarId?: string | null; name?: string; className?: string; fallbackColor?: string }) {
-  const avatar = getAvatarOption(avatarId);
-  if (!avatarId) {
+  const uri = getAvatarUri(avatarId);
+  if (!uri) {
     return (
       <div className={`${className} rounded-xl sm:rounded-2xl ${fallbackColor} flex items-center justify-center shadow-lg shadow-black/30 ring-1 ring-white/10 overflow-hidden`}>
         <span className="text-white text-xl sm:text-3xl font-black drop-shadow-md">{(name || "?").charAt(0).toUpperCase()}</span>
@@ -380,10 +401,8 @@ function ProfileAvatar({ avatarId, name, className = "w-16 h-16", fallbackColor 
     );
   }
   return (
-    <div className={`${className} rounded-xl sm:rounded-2xl bg-gradient-to-br ${avatar.bg} flex items-center justify-center shadow-lg shadow-black/30 ring-1 ring-white/10 overflow-hidden relative`}>
-      <div className={`absolute -right-3 -top-3 w-10 h-10 rounded-full ${avatar.accent} opacity-80`} />
-      <div className="absolute left-2 bottom-2 w-3 h-3 rounded-full bg-white/70" />
-      <span className="relative text-white text-xl sm:text-3xl font-black drop-shadow-md">{avatar.face}</span>
+    <div className={`${className} rounded-xl sm:rounded-2xl bg-slate-800/60 flex items-center justify-center shadow-lg shadow-black/30 ring-1 ring-white/10 overflow-hidden`}>
+      <img src={uri} loading="lazy" decoding="async" alt="" className="w-full h-full object-cover" />
     </div>
   );
 }
@@ -444,35 +463,53 @@ function CaptchaModal({ siteKey, onVerify, onCancel }: { siteKey: string; onVeri
 
 // ==================== NETFLIX-STYLE PROFILE LOGIN ====================
 function ProfileSelectPage() {
-  const [profiles, setProfiles] = useState<UserData[]>([]);
+  const cachedBootstrap = useMemo(() => readBootstrapCache(), []);
+  const cachedUsers = useMemo<UserData[]>(
+    () => (cachedBootstrap?.users || []).filter((u: UserData) => u.role === "user"),
+    [cachedBootstrap]
+  );
+  const [profiles, setProfiles] = useState<UserData[]>(cachedUsers);
   const [selectedProfile, setSelectedProfile] = useState<UserData | null>(null);
   const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(true);
+  // Only show a skeleton on cold visits (no cache at all).
+  const [loading, setLoading] = useState(cachedUsers.length === 0);
+  const [fromCache, setFromCache] = useState(cachedUsers.length > 0);
   const [loginLoading, setLoginLoading] = useState(false);
   const [error, setError] = useState("");
-  const [siteKey, setSiteKey] = useState<string | null>(null);
+  const [siteKey, setSiteKey] = useState<string | null>(
+    cachedBootstrap?.recaptcha?.enabled === true && cachedBootstrap?.recaptcha?.siteKey
+      ? cachedBootstrap.recaptcha.siteKey
+      : null
+  );
   const [showCaptcha, setShowCaptcha] = useState(false);
   const navigate = useNavigate();
   const { checkAuth } = useAuth();
 
-  const loadProfiles = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError("");
-      const bootstrap = await bootstrapFromSupabase();
-      setProfiles((bootstrap.users || []).filter((u: UserData) => u.role === "user"));
-      if (bootstrap.recaptcha?.enabled === true && bootstrap.recaptcha?.siteKey) {
-        setSiteKey(bootstrap.recaptcha.siteKey);
-      }
-    } catch (err: any) {
-      console.error("Failed to load profiles:", err);
-      setError("Failed to load profiles. Please try again.");
-    } finally {
-      setLoading(false);
-    }
+  useEffect(() => {
+    let cancelled = false;
+    bootstrapPromise
+      .then((bootstrap) => {
+        if (cancelled) return;
+        setProfiles((bootstrap.users || []).filter((u: UserData) => u.role === "user"));
+        if (bootstrap.recaptcha?.enabled === true && bootstrap.recaptcha?.siteKey) {
+          setSiteKey(bootstrap.recaptcha.siteKey);
+        } else {
+          setSiteKey(null);
+        }
+        setError("");
+        setFromCache(false);
+      })
+      .catch((err) => {
+        console.error("Failed to load profiles:", err);
+        if (!cancelled && profiles.length === 0) {
+          setError("Failed to load profiles. Please try again.");
+        }
+      })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => { loadProfiles(); }, [loadProfiles]);
 
   const initiateLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -538,10 +575,27 @@ function ProfileSelectPage() {
 
 
 
-  if (loading) {
+  if (loading && profiles.length === 0) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-red-500 border-t-transparent rounded-full animate-spin" />
+      <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 flex flex-col items-center justify-center px-4 py-8 sm:p-6 relative overflow-hidden">
+        <div className="absolute inset-0 bg-[linear-gradient(to_right,#4f4f4f12_1px,transparent_1px),linear-gradient(to_bottom,#4f4f4f12_1px,transparent_1px)] bg-[size:20px_20px] [mask-image:radial-gradient(ellipse_80%_60%_at_50%_0%,#000_50%,transparent_100%)]" />
+        <div className="relative z-10 w-full max-w-2xl">
+          <div className="flex justify-center mb-6">
+            <div className="bg-gradient-to-br from-red-500 to-red-700 p-3 sm:p-4 rounded-2xl shadow-xl shadow-red-900/40 ring-1 ring-white/10">
+              <Mail className="text-white w-6 h-6 sm:w-8 sm:h-8" />
+            </div>
+          </div>
+          <h1 className="text-2xl sm:text-4xl font-black text-white text-center mb-1 sm:mb-2 tracking-tight">Who's viewing?</h1>
+          <p className="text-slate-500 text-center text-xs sm:text-sm mb-6 sm:mb-10">Select your profile to continue</p>
+          <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 sm:gap-5 justify-items-center px-2">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="flex flex-col items-center gap-2 sm:gap-3 w-full max-w-[100px] sm:max-w-[120px]">
+                <div className="w-16 h-16 sm:w-24 sm:h-24 rounded-xl sm:rounded-2xl bg-slate-800/60 animate-pulse ring-1 ring-white/5" />
+                <div className="h-3 w-14 rounded bg-slate-800/60 animate-pulse" />
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     );
   }
@@ -583,8 +637,9 @@ function ProfileSelectPage() {
               <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 sm:gap-5 justify-items-center px-2">
                 {profiles.map((profile, i) => (
                   <motion.button key={profile.id}
-                    initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }}
-                    transition={{ delay: 0.1 + i * 0.04 }}
+                    initial={fromCache ? false : { opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={fromCache ? { duration: 0 } : { delay: 0.1 + i * 0.04 }}
                     whileHover={{ scale: 1.08, y: -4 }} whileTap={{ scale: 0.92 }}
                     onClick={() => setSelectedProfile(profile)}
                     className="flex flex-col items-center gap-2 sm:gap-3 group w-full max-w-[100px] sm:max-w-[120px]">
@@ -2142,6 +2197,143 @@ function ChangePasswordModal({ user, onDone, forced = false }: { user: UserData;
   );
 }
 
+function AvatarRow({
+  category,
+  userName,
+  selectedAvatar,
+  onPick,
+  saving,
+}: {
+  category: typeof AVATAR_CATEGORIES[number];
+  userName?: string;
+  selectedAvatar: string | null;
+  onPick: (id: string) => void;
+  saving: boolean;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) if (e.isIntersecting) { setVisible(true); io.disconnect(); return; }
+      },
+      { root: null, rootMargin: "300px 0px", threshold: 0.01 }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+  return (
+    <section ref={ref} id={`avatar-row-${category.key}`} className="scroll-mt-16">
+      <div className="flex items-center justify-between px-4 sm:px-5 mb-2">
+        <h4 className="text-xs sm:text-sm font-black text-slate-900 tracking-tight">{category.label}</h4>
+        <span className="text-[10px] font-bold text-slate-400">{category.seeds.length}</span>
+      </div>
+      {!visible ? (
+        <div className="flex gap-2 sm:gap-3 px-4 sm:px-5 overflow-hidden">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl bg-slate-100 animate-pulse flex-shrink-0" />
+          ))}
+        </div>
+      ) : (
+        <div className="flex sm:grid sm:grid-cols-6 lg:grid-cols-8 gap-2 sm:gap-3 px-4 sm:px-5 overflow-x-auto snap-x snap-mandatory pb-2 sm:pb-0 scrollbar-thin">
+          {category.seeds.map((seed) => {
+            const id = buildAvatarId(category.style, seed);
+            const selected = selectedAvatar === id;
+            return (
+              <button
+                key={id}
+                onClick={() => onPick(id)}
+                disabled={saving}
+                title={`${category.label} ${seed}`}
+                className={`flex-shrink-0 snap-start rounded-2xl p-1 transition-all active:scale-95 ${selected ? "ring-4 ring-red-500 bg-red-50" : "ring-1 ring-slate-200 hover:ring-slate-400 bg-white"}`}
+              >
+                <ProfileAvatar avatarId={id} name={userName} className="w-20 h-20 sm:w-24 sm:h-24" />
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function AvatarPicker({
+  userName,
+  selectedAvatar,
+  onPick,
+  saving,
+}: {
+  userName?: string;
+  selectedAvatar: string | null;
+  onPick: (id: string) => void;
+  saving: boolean;
+}) {
+  const [query, setQuery] = useState("");
+  const trimmed = query.trim().toLowerCase();
+  const scrollToRow = (key: string) => {
+    const el = document.getElementById(`avatar-row-${key}`);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+  const filteredCategories = trimmed
+    ? AVATAR_CATEGORIES.map((c) => ({
+        ...c,
+        seeds: c.label.toLowerCase().includes(trimmed)
+          ? c.seeds
+          : c.seeds.filter((s) => s.toLowerCase().includes(trimmed)),
+      })).filter((c) => c.seeds.length > 0)
+    : AVATAR_CATEGORIES;
+  return (
+    <div className="pb-4">
+      <div className="sticky top-0 z-10 bg-white/95 backdrop-blur border-b border-slate-100 px-4 sm:px-5 py-3 space-y-2">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-black text-slate-900">Choose profile icon</h3>
+          {saving && <span className="text-[10px] font-bold text-slate-400">Saving…</span>}
+        </div>
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search style or seed…"
+            className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-sm outline-none focus:ring-2 focus:ring-red-500"
+          />
+        </div>
+        {!trimmed && (
+          <div className="flex gap-1.5 overflow-x-auto scrollbar-thin -mx-1 px-1">
+            {AVATAR_CATEGORIES.map((c) => (
+              <button
+                key={c.key}
+                onClick={() => scrollToRow(c.key)}
+                className="flex-shrink-0 px-3 py-1 text-[11px] font-bold rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors"
+              >
+                {c.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="space-y-4 pt-3">
+        {filteredCategories.length === 0 ? (
+          <p className="text-center text-xs text-slate-400 py-8">No avatars match "{query}"</p>
+        ) : (
+          filteredCategories.map((c) => (
+            <AvatarRow
+              key={c.key}
+              category={c}
+              userName={userName}
+              selectedAvatar={selectedAvatar}
+              onPick={onPick}
+              saving={saving}
+            />
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
 function UserProfileModal({
   user,
   prefs,
@@ -2192,22 +2384,16 @@ function UserProfileModal({
           </button>
         </div>
 
-        <div className="p-5 overflow-y-auto space-y-5">
-          <section>
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-black text-slate-900">Choose profile icon</h3>
-              {savingAvatar && <span className="text-[10px] font-bold text-slate-400">Saving…</span>}
-            </div>
-            <div className="grid grid-cols-4 gap-3">
-              {AVATAR_OPTIONS.map((avatar) => (
-                <button key={avatar.id} onClick={() => saveAvatar(avatar.id)} disabled={savingAvatar}
-                  className={`rounded-2xl p-2 border transition-all active:scale-95 ${selectedAvatar === avatar.id ? "border-red-500 ring-2 ring-red-100 bg-red-50" : "border-slate-200 hover:border-slate-300 bg-white"}`}
-                  title={avatar.label}>
-                  <ProfileAvatar avatarId={avatar.id} name={user.name} className="w-full aspect-square" />
-                </button>
-              ))}
-            </div>
-          </section>
+        <div className="flex-1 overflow-y-auto">
+          <AvatarPicker
+            userName={user.name}
+            selectedAvatar={selectedAvatar}
+            onPick={saveAvatar}
+            saving={savingAvatar}
+          />
+        </div>
+        <div className="p-4 border-t border-slate-100 bg-white/95 backdrop-blur">
+
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <button onClick={() => { onClose(); onPassword(); }}
