@@ -1102,9 +1102,33 @@ function AdminPanel() {
         }
       } catch { }
 
+      try {
+        const sc = await apiCall("manage-app", { action: "get_settings", key: "session_config" });
+        const m = Number(sc?.value?.timeoutMinutes);
+        if (Number.isFinite(m) && m >= 0) setSessionTimeoutMin(String(m));
+      } catch { }
+
       // Stats are now derived from worker-fetched emails, no direct Supabase REST call
     })();
   }, []);
+
+  const saveSessionTimeout = async () => {
+    const m = Math.max(0, Math.floor(Number(sessionTimeoutMin) || 0));
+    setSavingSessionTimeout(true);
+    try {
+      await apiCall("manage-app", {
+        action: "set_settings",
+        key: "session_config",
+        value: { timeoutMinutes: m },
+      });
+      setSessionTimeoutMin(String(m));
+      toast.success(m === 0 ? "Session timeout disabled" : `Session timeout set to ${m} min`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save session timeout");
+    } finally {
+      setSavingSessionTimeout(false);
+    }
+  };
 
   const toggleCaptcha = async () => {
     try {
