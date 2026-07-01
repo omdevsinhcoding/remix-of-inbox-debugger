@@ -64,7 +64,7 @@ async function apiCall(functionName: string, body: any) {
           "Content-Type": "application/json",
         };
         if (token) headers["X-Session-Token"] = token;
-        if (!token && pendingToken && functionName === "manage-app" && pendingActions.has(body?.action)) headers["X-Pending-Token"] = pendingToken;
+        if (pendingToken && functionName === "manage-app" && pendingActions.has(body?.action)) headers["X-Pending-Token"] = pendingToken;
 
         const res = await fetch(`${cfUrl}/api/fn/${functionName}`, {
           method: "POST",
@@ -111,7 +111,7 @@ async function apiCall(functionName: string, body: any) {
   const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
   const headers: Record<string, string> = {};
   if (token) headers["X-Session-Token"] = token;
-  if (!token && pendingToken && functionName === "manage-app" && pendingActions.has(body?.action)) headers["X-Pending-Token"] = pendingToken;
+  if (pendingToken && functionName === "manage-app" && pendingActions.has(body?.action)) headers["X-Pending-Token"] = pendingToken;
   
   const res = await fetch(`${supabaseUrl}/functions/v1/${functionName}`, {
     method: "POST",
@@ -138,6 +138,37 @@ async function apiCall(functionName: string, body: any) {
     localStorage.setItem("session_token", data.sessionToken);
   }
   return data;
+}
+
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
+  state = { error: null as Error | null };
+  static getDerivedStateFromError(error: Error) { return { error }; }
+  componentDidCatch(error: Error, info: React.ErrorInfo) { console.error("[render-crash]", error, info); }
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div className="min-h-[100dvh] bg-slate-950 text-white flex items-center justify-center p-4">
+        <div className="w-full max-w-md rounded-3xl border border-red-500/30 bg-slate-900 p-6 shadow-2xl">
+          <div className="flex items-center gap-3 text-red-300 font-black text-lg mb-3"><AlertCircle className="w-5 h-5" /> App recovered from an error</div>
+          <p className="text-sm text-slate-300 mb-4">No more white screen — reload once to restore the latest app state.</p>
+          <pre className="max-h-32 overflow-auto rounded-xl bg-black/30 p-3 text-[11px] text-red-100 mb-4">{this.state.error.message}</pre>
+          <button onClick={() => window.location.reload()} className="w-full rounded-xl bg-red-600 py-3 font-bold hover:bg-red-700">Reload app</button>
+        </div>
+      </div>
+    );
+  }
+}
+
+function ResponsiveToaster() {
+  const [isMobile, setIsMobile] = useState(() => typeof window !== "undefined" ? window.matchMedia("(max-width: 640px)").matches : true);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 640px)");
+    const onChange = () => setIsMobile(mq.matches);
+    onChange();
+    mq.addEventListener?.("change", onChange);
+    return () => mq.removeEventListener?.("change", onChange);
+  }, []);
+  return <Toaster position={isMobile ? "top-center" : "bottom-right"} richColors />;
 }
 
 // --- Rate Limiter ---
