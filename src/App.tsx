@@ -2256,6 +2256,16 @@ function ChangePasswordModal({ user, onDone, forced = false }: { user: UserData;
 function EmailViewer() {
   const user = JSON.parse(localStorage.getItem("user") || "{}");
   const cacheKey = `cached_emails_v1:${user.id || "anon"}`;
+  const readLocalCachedEmails = useCallback((): Email[] => {
+    try {
+      const raw = localStorage.getItem(cacheKey);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? (parsed as Email[]) : [];
+    } catch {
+      return [];
+    }
+  }, [cacheKey]);
   const [emails, setEmailsRaw] = useState<Email[]>(() => {
     try {
       const raw = localStorage.getItem(cacheKey);
@@ -2270,6 +2280,16 @@ function EmailViewer() {
     setEmailsRaw(next);
     try { localStorage.setItem(cacheKey, JSON.stringify(next.slice(0, 200))); } catch {}
   }, [cacheKey]);
+  const showLocalCacheNow = useCallback(() => {
+    const cached = readLocalCachedEmails();
+    if (cached.length > 0) {
+      cached.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      setEmailsRaw(cached);
+      setError(null);
+      setLastUpdated(new Date());
+    }
+    return cached.length;
+  }, [readLocalCachedEmails]);
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -2504,15 +2524,13 @@ function EmailViewer() {
   const fetchEmails = async () => {
     if (refreshing) return;
     setRefreshing(true);
-    const before = emails.length;
+    const before = showLocalCacheNow() || emails.length;
     try {
-      // 1. Show cached instantly (fast)
-      await loadCachedEmails();
-      // 2. Kick off IMAP sync in background — don't block UI
+      // Refresh must never blank the UI: show local cache instantly, then sync in background.
       syncViaWorker()
         .then(() => loadCachedEmails())
         .then(() => {
-          const after = (JSON.parse(localStorage.getItem(cacheKey) || "[]") as Email[]).length;
+          const after = readLocalCachedEmails().length;
           const newCount = after - before;
           if (newCount > 0) {
             toast.success(`${newCount} new email${newCount === 1 ? "" : "s"}`);
@@ -2530,11 +2548,12 @@ function EmailViewer() {
     }
   };
 
-  // Load cached emails immediately on mount — independent of worker discovery
+  // Load cached emails immediately on mount — local first, no blocking blank screen.
   useEffect(() => {
     let cancelled = false;
-    // Only show full-screen loader if we have no hydrated cache
-    if (emails.length === 0) setLoading(true);
+    showLocalCacheNow();
+    setLoading(false);
+
     loadCachedEmails().finally(() => {
       if (!cancelled) setLoading(false);
     });
