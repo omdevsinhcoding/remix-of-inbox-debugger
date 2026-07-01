@@ -7,6 +7,7 @@ import ReCAPTCHA from "react-google-recaptcha";
 import { supabase } from "./integrations/supabase/client";
 import { QRCodeSVG } from "qrcode.react";
 import { AVATAR_CATEGORIES, resolveAvatar, buildAvatarId } from "./lib/avatars";
+import { bootstrapFromSupabase, bootstrapPromise, clearSessionData, markSessionStart, readBootstrapCache } from "./lib/bootstrap";
 
 // --- Worker URL Types & Helpers ---
 const WORKER_URLS_KEY = "cloudflare_worker_urls";
@@ -45,27 +46,14 @@ function getSessionToken(): string | null {
   } catch { return null; }
 }
 
-// --- Session timeout helpers ---
-export function markSessionStart() {
-  try { localStorage.setItem("session_started_at", String(Date.now())); } catch {}
-}
-
-export function clearSessionData() {
-  try {
-    localStorage.removeItem("user");
-    localStorage.removeItem("session_token");
-    localStorage.removeItem("session_started_at");
-    localStorage.removeItem("admin_auth");
-    localStorage.removeItem("admin_backup");
-  } catch {}
-}
-
 // --- API Helper (routes ALL calls through Cloudflare Workers) ---
 
 async function apiCall(functionName: string, body: any) {
   let workerUrls = getStoredWorkerUrls();
   
   const token = getSessionToken();
+  const pendingToken = (() => { try { return localStorage.getItem("pending_admin_token"); } catch { return null; } })();
+  const pendingActions = new Set(["request_admin_otp", "verify_otp", "verify_totp", "update_totp", "finalize_admin_session"]);
 
   // Try each worker URL with random load balancing
   if (workerUrls.length > 0) {
@@ -76,6 +64,7 @@ async function apiCall(functionName: string, body: any) {
           "Content-Type": "application/json",
         };
         if (token) headers["X-Session-Token"] = token;
+        if (!token && pendingToken && functionName === "manage-app" && pendingActions.has(body?.action)) headers["X-Pending-Token"] = pendingToken;
 
         const res = await fetch(`${cfUrl}/api/fn/${functionName}`, {
           method: "POST",
@@ -122,6 +111,7 @@ async function apiCall(functionName: string, body: any) {
   const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
   const headers: Record<string, string> = {};
   if (token) headers["X-Session-Token"] = token;
+  if (!token && pendingToken && functionName === "manage-app" && pendingActions.has(body?.action)) headers["X-Pending-Token"] = pendingToken;
   
   const res = await fetch(`${supabaseUrl}/functions/v1/${functionName}`, {
     method: "POST",
@@ -150,53 +140,6 @@ async function apiCall(functionName: string, body: any) {
   return data;
 }
 
-// --- Direct Supabase bootstrap (bypasses worker requirement) ---
-const BOOTSTRAP_CACHE_KEY = "bootstrap_cache_v1";
-const BOOTSTRAP_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-
-type BootstrapResult = { users: any[]; recaptcha: any; workerUrls: string[] };
-
-export function readBootstrapCache(): BootstrapResult | null {
-  try {
-    const raw = localStorage.getItem(BOOTSTRAP_CACHE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") return null;
-    if (!parsed.savedAt || Date.now() - parsed.savedAt > BOOTSTRAP_CACHE_TTL_MS) return null;
-    return { users: parsed.users || [], recaptcha: parsed.recaptcha, workerUrls: parsed.workerUrls || [] };
-  } catch { return null; }
-}
-
-function writeBootstrapCache(result: BootstrapResult) {
-  try {
-    localStorage.setItem(BOOTSTRAP_CACHE_KEY, JSON.stringify({ ...result, savedAt: Date.now() }));
-  } catch {}
-}
-
-async function bootstrapFromSupabase(): Promise<BootstrapResult> {
-  const { data, error } = await supabase.functions.invoke("manage-app", {
-    body: { action: "bootstrap_public" },
-  });
-  if (error) throw error;
-  if (!data?.success) throw new Error(data?.error || "Bootstrap failed");
-
-  if (data.workerUrls && Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
-    storeWorkerUrls(data.workerUrls);
-  }
-
-  const result: BootstrapResult = { users: data.users || [], recaptcha: data.recaptcha, workerUrls: data.workerUrls || [] };
-  writeBootstrapCache(result);
-  return result;
-}
-
-// Fire the network round-trip before React mounts so it runs in parallel with bundle parse.
-export const bootstrapPromise: Promise<BootstrapResult> = bootstrapFromSupabase().catch((err) => {
-  console.warn("[bootstrap] prefetch failed:", err);
-  const cached = readBootstrapCache();
-  if (cached) return cached;
-  throw err;
-});
-
 // --- Rate Limiter ---
 const loginAttempts: { [key: string]: number[] } = {};
 function checkRateLimit(key: string): boolean {
@@ -210,28 +153,10 @@ function checkRateLimit(key: string): boolean {
   return true;
 }
 
-// --- Login notification (location is resolved server-side via ipwho.is) ---
-async function sendLoginNotification(payload: { username: string; name?: string; status: "success" | "failed" }) {
-  const token = getSessionToken();
-  try {
-    const { data, error } = await supabase.functions.invoke("send-login-notification", {
-      body: payload,
-      headers: token ? { "x-session-token": token } : undefined,
-    });
-    if (error) throw error;
-    if (data?.success === false) throw new Error(data?.error || "Notification failed");
-    return;
-  } catch (directErr) {
-    console.warn("[notification] Direct send failed, trying fallback:", directErr);
-  }
-  await apiCall("send-login-notification", payload);
-}
-
-
 // --- Auth Context ---
 const AuthContext = createContext<{ user: any; loading: boolean; checkAuth: () => void } | null>(null);
 
-export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
+const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
@@ -248,7 +173,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   return <AuthContext.Provider value={{ user, loading, checkAuth }}>{children}</AuthContext.Provider>;
 };
 
-export const useAuth = () => useContext(AuthContext)!;
+const useAuth = () => useContext(AuthContext)!;
 
 // --- Session Timeout Guard ---
 // Reads admin-configured absolute session timeout (minutes) from app_settings.
@@ -557,12 +482,6 @@ function ProfileSelectPage() {
       markSessionStart();
       checkAuth();
 
-      void sendLoginNotification({
-        username: data.user.username,
-        name: data.user.name,
-        status: "success",
-      }).catch((notifErr) => console.error("[notification] Failed:", notifErr));
-
       navigate("/viewer");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Login failed";
@@ -757,26 +676,20 @@ function AdminLoginPage() {
         if (result.error) throw result.error;
         data = result.data;
         if (!data?.success) throw new Error(data?.error || "Login failed");
-        if (data.sessionToken) localStorage.setItem("session_token", data.sessionToken);
+        if (data.pendingToken) localStorage.setItem("pending_admin_token", data.pendingToken);
       }
 
       if (data.user.role !== "admin") throw new Error("Access denied");
+      if (data.pendingToken) localStorage.setItem("pending_admin_token", data.pendingToken);
 
       if (data.workerUrls && Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
         storeWorkerUrls(data.workerUrls);
       }
 
-      localStorage.setItem("user", JSON.stringify(data.user));
-      markSessionStart();
+      localStorage.setItem("user", JSON.stringify({ ...data.user, pending: true }));
       checkAuth();
 
-      void sendLoginNotification({
-        username: data.user.username,
-        name: data.user.name,
-        status: "success",
-      }).catch((notifErr) => console.error("[notification] Admin notif failed:", notifErr));
-
-      toast.success("Login successful. Proceeding to 2FA.");
+      toast.success("Password verified. Complete 2FA to enter admin.");
       navigate("/admin-auth");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Login failed";
