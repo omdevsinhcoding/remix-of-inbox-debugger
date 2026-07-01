@@ -54,19 +54,6 @@ async function startServer() {
     }
   });
 
-  // Proxy: Login notification
-  app.post("/api/auth/notify", async (req, res) => {
-    if (!SUPABASE_URL || !SUPABASE_KEY) {
-      return res.status(500).json({ success: false, error: "Server not configured." });
-    }
-    try {
-      const data = await callEdgeFunction("send-login-notification", req.body);
-      res.json(data);
-    } catch (err) {
-      res.status(502).json({ success: false, error: "Cannot reach backend notification service." });
-    }
-  });
-
   // Proxy: Manage app (users, settings, otps)
   app.post("/api/manage-app", async (req, res) => {
     if (!SUPABASE_URL || !SUPABASE_KEY) {
