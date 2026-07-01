@@ -336,8 +336,8 @@ function useSessionTimeoutGuard(role: "admin" | "user") {
       clearSessionData();
       checkAuth();
       toast("🔒 Session timed out", {
-        description: `You've been signed out after ${minutes} min for security. Tap your profile to sign back in.`,
-        duration: 6000,
+        description: "Tap your profile and enter password again.",
+        duration: 3000,
       });
       navigate(role === "admin" ? "/admin" : "/", { replace: true });
     };
@@ -427,7 +427,7 @@ interface Email {
   id: string; subject: string; from: string; to?: string; date: string; otp: string | null; preview: string; html: string; account_label?: string | null;
 }
 interface UserData {
-  id: string; username: string; name: string; role: "admin" | "user"; totpSecret?: string; mustChangePassword?: boolean; assignedAccounts?: string[] | null; profileAvatar?: string | null;
+  id: string; username: string; name: string; role: "admin" | "user"; totpSecret?: string; mustChangePassword?: boolean; assignedAccounts?: string[] | null; profileAvatar?: string | null; profilePrefs?: UserProfilePrefs;
 }
 
 type UserProfilePrefs = {
@@ -724,8 +724,8 @@ function ProfileSelectPage() {
                     whileHover={{ scale: 1.08, y: -4 }} whileTap={{ scale: 0.92 }}
                     onClick={() => setSelectedProfile(profile)}
                     className="flex flex-col items-center gap-2 sm:gap-3 group w-full max-w-[100px] sm:max-w-[120px]">
-                    <div className={`w-16 h-16 sm:w-24 sm:h-24 rounded-xl sm:rounded-2xl ${PROFILE_COLORS[i % PROFILE_COLORS.length]} flex items-center justify-center shadow-lg shadow-black/30 group-hover:shadow-xl group-hover:ring-2 group-hover:ring-white/40 transition-all duration-200`}>
-                      <span className="text-white text-xl sm:text-3xl font-black drop-shadow-md">{profile.name.charAt(0).toUpperCase()}</span>
+                    <div className="group-hover:shadow-xl group-hover:ring-2 group-hover:ring-white/40 rounded-xl sm:rounded-2xl transition-all duration-200">
+                      <ProfileAvatar avatarId={profile.profileAvatar} name={profile.name} className="w-16 h-16 sm:w-24 sm:h-24" fallbackColor={PROFILE_COLORS[i % PROFILE_COLORS.length]} />
                     </div>
                     <span className="text-slate-400 font-semibold text-[11px] sm:text-sm group-hover:text-white transition-colors duration-200 truncate w-full text-center">{profile.name}</span>
                   </motion.button>
@@ -744,8 +744,8 @@ function ProfileSelectPage() {
 
             <div className="flex flex-col items-center mb-8">
               <motion.div initial={{ scale: 0.8 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 200 }}
-                className={`w-20 h-20 sm:w-24 sm:h-24 rounded-2xl ${PROFILE_COLORS[profiles.indexOf(selectedProfile) % PROFILE_COLORS.length]} flex items-center justify-center shadow-xl shadow-black/30 mb-4 ring-1 ring-white/10`}>
-                <span className="text-white text-2xl sm:text-3xl font-black drop-shadow-md">{selectedProfile.name.charAt(0).toUpperCase()}</span>
+                className="mb-4">
+                <ProfileAvatar avatarId={selectedProfile.profileAvatar} name={selectedProfile.name} className="w-20 h-20 sm:w-24 sm:h-24" fallbackColor={PROFILE_COLORS[profiles.indexOf(selectedProfile) % PROFILE_COLORS.length]} />
               </motion.div>
               <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">{selectedProfile.name}</h2>
               <p className="text-slate-500 text-xs sm:text-sm mt-0.5">@{selectedProfile.username}</p>
@@ -2308,34 +2308,128 @@ function ChangePasswordModal({ user, onDone, forced = false }: { user: UserData;
   );
 }
 
+function UserProfileModal({
+  user,
+  prefs,
+  onPrefsSaved,
+  onPassword,
+  onDeleteOldEmails,
+  onClose,
+}: {
+  user: UserData;
+  prefs: UserProfilePrefs;
+  onPrefsSaved: (prefs: UserProfilePrefs) => void;
+  onPassword: () => void;
+  onDeleteOldEmails: () => void;
+  onClose: () => void;
+}) {
+  const [savingAvatar, setSavingAvatar] = useState(false);
+  const selectedAvatar = prefs.avatarId || null;
+
+  const saveAvatar = async (avatarId: string) => {
+    if (savingAvatar) return;
+    const nextPrefs = { ...prefs, avatarId };
+    setSavingAvatar(true);
+    onPrefsSaved(nextPrefs);
+    try {
+      await apiCall("manage-app", { action: "update_profile_prefs", profile_prefs: nextPrefs });
+      toast.success("Profile icon updated");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not save icon");
+    } finally {
+      setSavingAvatar(false);
+    }
+  };
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <motion.div initial={{ scale: 0.94, opacity: 0, y: 12 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.94, opacity: 0, y: 12 }}
+        className="bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden max-h-[92vh] flex flex-col">
+        <div className="p-5 border-b border-slate-100 flex items-center justify-between">
+          <div className="flex items-center gap-3 min-w-0">
+            <ProfileAvatar avatarId={selectedAvatar} name={user.name} className="w-12 h-12" fallbackColor="bg-red-500" />
+            <div className="min-w-0">
+              <h2 className="text-lg font-black text-slate-900 leading-tight truncate">{user.name}</h2>
+              <p className="text-xs text-slate-500 truncate">@{user.username}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full transition-colors" aria-label="Close profile">
+            <X className="w-5 h-5 text-slate-500" />
+          </button>
+        </div>
+
+        <div className="p-5 overflow-y-auto space-y-5">
+          <section>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-black text-slate-900">Choose profile icon</h3>
+              {savingAvatar && <span className="text-[10px] font-bold text-slate-400">Saving…</span>}
+            </div>
+            <div className="grid grid-cols-4 gap-3">
+              {AVATAR_OPTIONS.map((avatar) => (
+                <button key={avatar.id} onClick={() => saveAvatar(avatar.id)} disabled={savingAvatar}
+                  className={`rounded-2xl p-2 border transition-all active:scale-95 ${selectedAvatar === avatar.id ? "border-red-500 ring-2 ring-red-100 bg-red-50" : "border-slate-200 hover:border-slate-300 bg-white"}`}
+                  title={avatar.label}>
+                  <ProfileAvatar avatarId={avatar.id} name={user.name} className="w-full aspect-square" />
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <button onClick={() => { onClose(); onPassword(); }}
+              className="flex items-center justify-center gap-2 bg-slate-900 text-white font-bold py-3 rounded-xl hover:bg-slate-800 transition-all active:scale-95">
+              <Key className="w-4 h-4" /> Change Password
+            </button>
+            <button onClick={onDeleteOldEmails}
+              className="flex items-center justify-center gap-2 bg-red-600 text-white font-bold py-3 rounded-xl hover:bg-red-700 transition-all active:scale-95">
+              <Trash2 className="w-4 h-4" /> Delete old emails
+            </button>
+          </div>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
 // ==================== EMAIL VIEWER ====================
 function EmailViewer() {
   const user = JSON.parse(localStorage.getItem("user") || "{}");
   const cacheKey = `cached_emails_v1:${user.id || "anon"}`;
+  const [profilePrefs, setProfilePrefs] = useState<UserProfilePrefs>(() => user.profilePrefs || {});
+  const saveProfilePrefsLocally = useCallback((nextPrefs: UserProfilePrefs) => {
+    setProfilePrefs(nextPrefs);
+    try {
+      const stored = JSON.parse(localStorage.getItem("user") || "{}");
+      stored.profilePrefs = nextPrefs;
+      stored.profileAvatar = nextPrefs.avatarId || null;
+      localStorage.setItem("user", JSON.stringify(stored));
+    } catch {}
+  }, []);
   const readLocalCachedEmails = useCallback((): Email[] => {
     try {
       const raw = localStorage.getItem(cacheKey);
       if (!raw) return [];
       const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? (parsed as Email[]) : [];
+      return Array.isArray(parsed) ? filterVisibleEmails(parsed as Email[], profilePrefs) : [];
     } catch {
       return [];
     }
-  }, [cacheKey]);
+  }, [cacheKey, profilePrefs]);
   const [emails, setEmailsRaw] = useState<Email[]>(() => {
     try {
       const raw = localStorage.getItem(cacheKey);
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) return parsed as Email[];
+        if (Array.isArray(parsed)) return filterVisibleEmails(parsed as Email[], user.profilePrefs || {});
       }
     } catch {}
     return [];
   });
   const setEmails = useCallback((next: Email[]) => {
-    setEmailsRaw(next);
-    try { localStorage.setItem(cacheKey, JSON.stringify(next.slice(0, 200))); } catch {}
-  }, [cacheKey]);
+    const visible = filterVisibleEmails(next, profilePrefs);
+    setEmailsRaw(visible);
+    try { localStorage.setItem(cacheKey, JSON.stringify(visible.slice(0, 200))); } catch {}
+  }, [cacheKey, profilePrefs]);
   const showLocalCacheNow = useCallback(() => {
     const cached = readLocalCachedEmails();
     if (cached.length > 0) {
@@ -2353,6 +2447,7 @@ function EmailViewer() {
   const [otpCopied, setOtpCopied] = useState(false);
   const navigate = useNavigate();
   const [showChangePassword, setShowChangePassword] = useState(!!user.mustChangePassword);
+  const [showProfile, setShowProfile] = useState(false);
   const [forcedPasswordChange] = useState(!!user.mustChangePassword);
   const isImpersonating = !!localStorage.getItem("admin_backup");
 
@@ -2460,6 +2555,8 @@ function EmailViewer() {
         const workerRes = await fetchFromWorkers("/api/emails", "GET", undefined, cacheUrls);
         if (workerRes && workerRes.ok) {
           emailData = await workerRes.json();
+          // If Worker KV has an old empty cache, immediately read the DB cache instead.
+          if (Array.isArray(emailData) && emailData.length === 0) emailData = null;
         } else if (workerRes && !workerRes.ok) {
           const errData = await workerRes.json().catch(() => ({}));
           console.warn("[loadCachedEmails] Worker returned error:", errData?.error);
@@ -2498,13 +2595,13 @@ function EmailViewer() {
       setEmails(emailList);
       setError(null);
       setLastUpdated(new Date());
-      return emailList.length;
+      return filterVisibleEmails(emailList, profilePrefs).length;
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to load emails";
       setError(msg);
       return 0;
     }
-  }, [fetchFromWorkers, resolvedWorkerUrls.length, workerUrlsLoading, workerUrlMap.primary]);
+  }, [fetchFromWorkers, profilePrefs, resolvedWorkerUrls.length, workerUrlsLoading, workerUrlMap.primary, setEmails]);
 
   const syncViaWorker = useCallback(async () => {
     const { primary, byAccount } = workerUrlMap;
@@ -2581,26 +2678,57 @@ function EmailViewer() {
     if (refreshing) return;
     setRefreshing(true);
     const before = showLocalCacheNow() || emails.length;
+    const toastId = toast.loading("Checking Netflix mail…");
     try {
-      // Refresh must never blank the UI: show local cache instantly, then sync in background.
+      // Refresh must never blank or block: DB cache first, then slow IMAP sync in background.
+      const cachedCount = await loadCachedEmails();
+      setRefreshing(false);
+      const baseline = Math.max(before, cachedCount);
+
       syncViaWorker()
         .then(() => loadCachedEmails())
-        .then(() => {
-          const after = readLocalCachedEmails().length;
-          const newCount = after - before;
+        .then((after) => {
+          const newCount = after - baseline;
           if (newCount > 0) {
-            toast.success(`${newCount} new email${newCount === 1 ? "" : "s"}`);
+            toast.success(`✨ ${newCount} new email${newCount === 1 ? "" : "s"} arrived`, { id: toastId, duration: 3500 });
+          } else {
+            toast.success("✓ Inbox already up to date", { id: toastId, duration: 2200 });
           }
         })
         .catch((err) => {
           const msg = err instanceof Error ? err.message : "Sync failed";
-          toast.error(msg);
+          toast.error(msg, { id: toastId, duration: 3500 });
         })
         .finally(() => setRefreshing(false));
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to load";
       toast.error(msg);
       setRefreshing(false);
+    }
+  };
+
+  const deleteOldEmailsForUser = async () => {
+    const newestVisibleTime = emails.reduce((max, email) => {
+      const time = new Date(email.date || 0).getTime();
+      return Number.isNaN(time) ? max : Math.max(max, time);
+    }, 0);
+    const hiddenBefore = new Date(newestVisibleTime || Date.now()).toISOString();
+    const nextPrefs = {
+      ...profilePrefs,
+      hiddenBefore,
+      hiddenEmailIds: Array.from(new Set([...(profilePrefs.hiddenEmailIds || []), ...emails.map(emailIdentity), ...emails.map((e) => e.id)])).slice(-2000),
+    };
+
+    saveProfilePrefsLocally(nextPrefs);
+    setEmailsRaw([]);
+    setSelectedEmail(null);
+    try { localStorage.setItem(cacheKey, JSON.stringify([])); } catch {}
+
+    try {
+      await apiCall("manage-app", { action: "update_profile_prefs", profile_prefs: nextPrefs });
+      toast.success("Old emails deleted for this profile");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not save delete setting");
     }
   };
 
@@ -2656,14 +2784,23 @@ function EmailViewer() {
       {showChangePassword && (
         <ChangePasswordModal user={user} onDone={() => setShowChangePassword(false)} forced={forcedPasswordChange && showChangePassword} />
       )}
+      <AnimatePresence>
+        {showProfile && (
+          <UserProfileModal
+            user={user}
+            prefs={profilePrefs}
+            onPrefsSaved={saveProfilePrefsLocally}
+            onPassword={() => setShowChangePassword(true)}
+            onDeleteOldEmails={deleteOldEmailsForUser}
+            onClose={() => setShowProfile(false)}
+          />
+        )}
+      </AnimatePresence>
       <header className="bg-white border-b border-slate-200 sticky top-0 z-20 shadow-sm">
         <div className="max-w-6xl mx-auto px-3 sm:px-4 h-14 sm:h-16 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <div className="flex-shrink-0">
-              <svg viewBox="0 0 24 24" className="w-8 h-8 sm:w-10 sm:h-10" fill="none">
-                <rect width="24" height="24" rx="6" fill="#E50914"/>
-                <path d="M7 5h2.5l3.5 8V5H15.5v14H13L9.5 11v8H7V5z" fill="white"/>
-              </svg>
+              <ProfileAvatar avatarId={profilePrefs.avatarId || user.profileAvatar} name={user.name} className="w-8 h-8 sm:w-10 sm:h-10" fallbackColor="bg-red-600" />
             </div>
             <div className="min-w-0">
               <h1 className="font-bold text-base sm:text-xl tracking-tight leading-tight text-red-600">Netflix Mail</h1>
@@ -2686,11 +2823,11 @@ function EmailViewer() {
               <span className="hidden sm:inline ml-1.5">Refresh</span>
             </button>
             {!isImpersonating && (
-              <button onClick={() => setShowChangePassword(true)}
+              <button onClick={() => setShowProfile(true)}
                 className="flex items-center p-2.5 sm:px-3 sm:py-2 bg-gradient-to-r from-violet-500 to-purple-600 text-white rounded-full text-sm font-bold hover:from-violet-600 hover:to-purple-700 transition-all active:scale-95 shadow-md shadow-purple-200"
-                title="Change Password">
-                <Key className="w-4 h-4 sm:w-5 sm:h-5" />
-                <span className="hidden sm:inline ml-1.5">Password</span>
+                title="Profile">
+                <UserCircle className="w-4 h-4 sm:w-5 sm:h-5" />
+                <span className="hidden sm:inline ml-1.5">Profile</span>
               </button>
             )}
             <button onClick={() => {

@@ -141,7 +141,7 @@ Deno.serve(async (req) => {
     if (action === "bootstrap_public") {
       const { data: users, error: usersErr } = await supabase
         .from("app_users")
-        .select("id, username, name, role, assigned_accounts")
+        .select("id, username, name, role, assigned_accounts, profile_prefs")
         .order("created_at", { ascending: true });
       if (usersErr) throw usersErr;
 
@@ -173,7 +173,11 @@ Deno.serve(async (req) => {
         }
       } catch {}
 
-      const mappedUsers = (users || []).map((u: any) => ({ ...u, assignedAccounts: u.assigned_accounts || null }));
+      const mappedUsers = (users || []).map((u: any) => ({
+        ...u,
+        assignedAccounts: u.assigned_accounts || null,
+        profileAvatar: u.profile_prefs?.avatarId || null,
+      }));
       return new Response(JSON.stringify({ success: true, users: mappedUsers, recaptcha, workerUrls }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -182,10 +186,14 @@ Deno.serve(async (req) => {
     if (action === "list") {
       const { data, error } = await supabase
         .from("app_users")
-        .select("id, username, name, role, assigned_accounts")
+        .select("id, username, name, role, assigned_accounts, profile_prefs")
         .order("created_at", { ascending: true });
       if (error) throw error;
-      const mappedData = (data || []).map((u: any) => ({ ...u, assignedAccounts: u.assigned_accounts || null }));
+      const mappedData = (data || []).map((u: any) => ({
+        ...u,
+        assignedAccounts: u.assigned_accounts || null,
+        profileAvatar: u.profile_prefs?.avatarId || null,
+      }));
       return new Response(JSON.stringify({ success: true, users: mappedData }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -271,6 +279,8 @@ Deno.serve(async (req) => {
           id: user.id, username: user.username, name: user.name, role: user.role,
           totpSecret: user.totp_secret, mustChangePassword: user.must_change_password,
           assignedAccounts: user.assigned_accounts,
+          profilePrefs: user.profile_prefs || {},
+          profileAvatar: user.profile_prefs?.avatarId || null,
         },
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -294,7 +304,7 @@ Deno.serve(async (req) => {
       const { data, error } = await supabase
         .from("app_users")
         .insert({ username, password: hashed, name, role: role || "user", assigned_accounts: assigned_accounts || null })
-        .select("id, username, name, role, assigned_accounts")
+        .select("id, username, name, role, assigned_accounts, profile_prefs")
         .single();
       if (error) throw error;
 
@@ -353,6 +363,33 @@ Deno.serve(async (req) => {
       if (error) throw error;
       await auditLog(supabase, "password_changed", id, id, {}, ip);
       return new Response(JSON.stringify({ success: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "update_profile_prefs") {
+      const session = await requireSession(req);
+      const { profile_prefs } = params;
+      if (!profile_prefs || typeof profile_prefs !== "object" || Array.isArray(profile_prefs)) {
+        throw new Error("Profile settings are invalid");
+      }
+
+      const cleanPrefs = {
+        avatarId: typeof profile_prefs.avatarId === "string" ? profile_prefs.avatarId : null,
+        hiddenBefore: typeof profile_prefs.hiddenBefore === "string" ? profile_prefs.hiddenBefore : null,
+        hiddenEmailIds: Array.isArray(profile_prefs.hiddenEmailIds)
+          ? profile_prefs.hiddenEmailIds.filter((id: any) => typeof id === "string").slice(0, 2000)
+          : [],
+      };
+
+      const { error } = await supabase
+        .from("app_users")
+        .update({ profile_prefs: cleanPrefs })
+        .eq("id", session.userId);
+      if (error) throw error;
+
+      await auditLog(supabase, "profile_prefs_updated", session.userId, session.userId, { avatarId: cleanPrefs.avatarId, hiddenBefore: cleanPrefs.hiddenBefore }, ip);
+      return new Response(JSON.stringify({ success: true, profilePrefs: cleanPrefs }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -572,6 +609,8 @@ Deno.serve(async (req) => {
         user: {
           id: targetUser.id, username: targetUser.username, name: targetUser.name, role: "user",
           assignedAccounts: targetUser.assigned_accounts, mustChangePassword: false,
+          profilePrefs: targetUser.profile_prefs || {},
+          profileAvatar: targetUser.profile_prefs?.avatarId || null,
         },
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
