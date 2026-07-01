@@ -1,11 +1,12 @@
-import React, { useState, useEffect, createContext, useContext, useCallback, useRef } from "react";
-import { Mail, RefreshCw, ShieldCheck, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, BarChart3, Globe, Edit, Database, Wifi, Info, UserCircle } from "lucide-react";
+import React, { useState, useEffect, createContext, useContext, useCallback, useRef, useMemo } from "react";
+import { Mail, RefreshCw, ShieldCheck, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, BarChart3, Globe, Edit, Database, Wifi, Info, UserCircle, Search } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { Toaster, toast } from "sonner";
 import ReCAPTCHA from "react-google-recaptcha";
 import { supabase } from "./integrations/supabase/client";
 import { QRCodeSVG } from "qrcode.react";
+import { AVATAR_CATEGORIES, resolveAvatar, buildAvatarId } from "./lib/avatars";
 
 // --- Worker URL Types & Helpers ---
 const WORKER_URLS_KEY = "cloudflare_worker_urls";
@@ -150,20 +151,51 @@ async function apiCall(functionName: string, body: any) {
 }
 
 // --- Direct Supabase bootstrap (bypasses worker requirement) ---
-async function bootstrapFromSupabase(): Promise<{ users: any[]; recaptcha: any; workerUrls: string[] }> {
+const BOOTSTRAP_CACHE_KEY = "bootstrap_cache_v1";
+const BOOTSTRAP_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+type BootstrapResult = { users: any[]; recaptcha: any; workerUrls: string[] };
+
+export function readBootstrapCache(): BootstrapResult | null {
+  try {
+    const raw = localStorage.getItem(BOOTSTRAP_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    if (!parsed.savedAt || Date.now() - parsed.savedAt > BOOTSTRAP_CACHE_TTL_MS) return null;
+    return { users: parsed.users || [], recaptcha: parsed.recaptcha, workerUrls: parsed.workerUrls || [] };
+  } catch { return null; }
+}
+
+function writeBootstrapCache(result: BootstrapResult) {
+  try {
+    localStorage.setItem(BOOTSTRAP_CACHE_KEY, JSON.stringify({ ...result, savedAt: Date.now() }));
+  } catch {}
+}
+
+async function bootstrapFromSupabase(): Promise<BootstrapResult> {
   const { data, error } = await supabase.functions.invoke("manage-app", {
     body: { action: "bootstrap_public" },
   });
   if (error) throw error;
   if (!data?.success) throw new Error(data?.error || "Bootstrap failed");
 
-  // Store worker URLs immediately so apiCall works for subsequent calls
   if (data.workerUrls && Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
     storeWorkerUrls(data.workerUrls);
   }
 
-  return { users: data.users || [], recaptcha: data.recaptcha, workerUrls: data.workerUrls || [] };
+  const result: BootstrapResult = { users: data.users || [], recaptcha: data.recaptcha, workerUrls: data.workerUrls || [] };
+  writeBootstrapCache(result);
+  return result;
 }
+
+// Fire the network round-trip before React mounts so it runs in parallel with bundle parse.
+export const bootstrapPromise: Promise<BootstrapResult> = bootstrapFromSupabase().catch((err) => {
+  console.warn("[bootstrap] prefetch failed:", err);
+  const cached = readBootstrapCache();
+  if (cached) return cached;
+  throw err;
+});
 
 // --- Rate Limiter ---
 const loginAttempts: { [key: string]: number[] } = {};
@@ -355,24 +387,13 @@ const PROFILE_COLORS = [
   "bg-orange-500", "bg-pink-500", "bg-teal-500", "bg-indigo-500",
 ];
 
-const AVATAR_OPTIONS = [
-  { id: "neo-red", label: "Red", bg: "from-red-500 to-red-800", accent: "bg-red-200", face: "N" },
-  { id: "midnight", label: "Midnight", bg: "from-slate-700 to-slate-950", accent: "bg-cyan-200", face: "★" },
-  { id: "popcorn", label: "Popcorn", bg: "from-amber-300 to-red-600", accent: "bg-white", face: "✦" },
-  { id: "arcade", label: "Arcade", bg: "from-emerald-400 to-teal-800", accent: "bg-lime-200", face: "●" },
-  { id: "hero", label: "Hero", bg: "from-blue-500 to-indigo-900", accent: "bg-sky-100", face: "◆" },
-  { id: "berry", label: "Berry", bg: "from-fuchsia-500 to-purple-900", accent: "bg-pink-100", face: "♥" },
-  { id: "tiger", label: "Tiger", bg: "from-orange-400 to-stone-900", accent: "bg-yellow-100", face: "▲" },
-  { id: "mint", label: "Mint", bg: "from-teal-300 to-emerald-900", accent: "bg-emerald-100", face: "◇" },
-];
-
-function getAvatarOption(avatarId?: string | null) {
-  return AVATAR_OPTIONS.find((a) => a.id === avatarId) || AVATAR_OPTIONS[0];
+function getAvatarUri(avatarId?: string | null): string | null {
+  return resolveAvatar(avatarId);
 }
 
 function ProfileAvatar({ avatarId, name, className = "w-16 h-16", fallbackColor = "bg-red-500" }: { avatarId?: string | null; name?: string; className?: string; fallbackColor?: string }) {
-  const avatar = getAvatarOption(avatarId);
-  if (!avatarId) {
+  const uri = getAvatarUri(avatarId);
+  if (!uri) {
     return (
       <div className={`${className} rounded-xl sm:rounded-2xl ${fallbackColor} flex items-center justify-center shadow-lg shadow-black/30 ring-1 ring-white/10 overflow-hidden`}>
         <span className="text-white text-xl sm:text-3xl font-black drop-shadow-md">{(name || "?").charAt(0).toUpperCase()}</span>
@@ -380,10 +401,8 @@ function ProfileAvatar({ avatarId, name, className = "w-16 h-16", fallbackColor 
     );
   }
   return (
-    <div className={`${className} rounded-xl sm:rounded-2xl bg-gradient-to-br ${avatar.bg} flex items-center justify-center shadow-lg shadow-black/30 ring-1 ring-white/10 overflow-hidden relative`}>
-      <div className={`absolute -right-3 -top-3 w-10 h-10 rounded-full ${avatar.accent} opacity-80`} />
-      <div className="absolute left-2 bottom-2 w-3 h-3 rounded-full bg-white/70" />
-      <span className="relative text-white text-xl sm:text-3xl font-black drop-shadow-md">{avatar.face}</span>
+    <div className={`${className} rounded-xl sm:rounded-2xl bg-slate-800/60 flex items-center justify-center shadow-lg shadow-black/30 ring-1 ring-white/10 overflow-hidden`}>
+      <img src={uri} loading="lazy" decoding="async" alt="" className="w-full h-full object-cover" />
     </div>
   );
 }
