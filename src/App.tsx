@@ -323,6 +323,41 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
 export const useAuth = () => useContext(AuthContext)!;
 
+// --- Session Timeout Guard ---
+// Reads admin-configured absolute session timeout (minutes) from app_settings.
+// When elapsed, forces full logout: user must click their profile and re-enter password.
+function useSessionTimeoutGuard(role: "admin" | "user") {
+  const navigate = useNavigate();
+  const { checkAuth } = useAuth();
+  useEffect(() => {
+    let timer: any;
+    let cancelled = false;
+    const doLogout = (minutes: number) => {
+      clearSessionData();
+      checkAuth();
+      toast.error(`Session expired after ${minutes} min. Please sign in again.`);
+      navigate(role === "admin" ? "/admin" : "/", { replace: true });
+    };
+    (async () => {
+      let minutes = 0;
+      try {
+        const res = await apiCall("manage-app", { action: "get_settings", key: "session_config" });
+        minutes = Number(res?.value?.timeoutMinutes) || 0;
+      } catch {}
+      if (cancelled || !minutes || minutes <= 0) return;
+
+      let started = Number(localStorage.getItem("session_started_at") || "0");
+      if (!started) { markSessionStart(); started = Date.now(); }
+      const expiresAt = started + minutes * 60_000;
+      const remaining = expiresAt - Date.now();
+      if (remaining <= 0) { doLogout(minutes); return; }
+      timer = setTimeout(() => doLogout(minutes), remaining);
+    })();
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [role]);
+}
+
 // --- Types ---
 interface Email {
   id: string; subject: string; from: string; to?: string; date: string; otp: string | null; preview: string; html: string;
