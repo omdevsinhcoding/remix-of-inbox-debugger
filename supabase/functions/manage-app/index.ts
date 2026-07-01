@@ -482,7 +482,11 @@ Deno.serve(async (req) => {
     }
 
     if (action === "verify_otp") {
+      const session = await requireSession(req);
       const { user_id, otp } = params;
+      if (session.userId !== user_id && session.role !== "admin") {
+        throw new Error("Not authorized to verify OTP for this user");
+      }
       const { data, error } = await supabase
         .from("app_otps")
         .select("*")
