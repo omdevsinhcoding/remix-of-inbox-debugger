@@ -629,7 +629,7 @@ function ProfileSelectPage() {
             <div className="flex flex-col items-center mb-8">
               <motion.div initial={{ scale: 0.8 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 200 }}
                 className="mb-4">
-                <ProfileAvatar avatarId={getStableProfileAvatar(selectedProfile)} name={selectedProfile.name} className="w-20 h-20 sm:w-24 sm:h-24" fallbackColor={PROFILE_COLORS[profiles.indexOf(selectedProfile) % PROFILE_COLORS.length]} eager />
+                <ProfileAvatar avatarId={getStableProfileAvatar(selectedProfile)} name={selectedProfile.name} className="w-20 h-20 sm:w-24 sm:h-24" fallbackColor={PROFILE_COLORS[Math.max(0, profiles.findIndex((p) => p.id === selectedProfile.id)) % PROFILE_COLORS.length]} eager />
               </motion.div>
               <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">{selectedProfile.name}</h2>
               <p className="text-slate-500 text-xs sm:text-sm mt-0.5">@{selectedProfile.username}</p>
@@ -2270,7 +2270,7 @@ function UserProfileModal({
   onClose: () => void;
 }) {
   const [savingAvatar, setSavingAvatar] = useState(false);
-  const selectedAvatar = prefs.avatarId || null;
+  const selectedAvatar = prefs.avatarId || getStableProfileAvatar(user);
 
   const saveAvatar = async (avatarId: string) => {
     if (savingAvatar) return;
