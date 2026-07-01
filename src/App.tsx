@@ -380,21 +380,6 @@ function ProfileAvatar({ avatarId, name, className = "w-16 h-16", fallbackColor 
   );
 }
 
-  return (
-    <div className={`${className} relative rounded-xl sm:rounded-2xl bg-slate-900 overflow-hidden shadow-lg shadow-black/30 ring-1 ring-white/10`}>
-      <img
-        src={uri}
-        loading="lazy"
-        decoding="async"
-        alt=""
-        onLoad={() => setLoaded(true)}
-        onError={() => setLoaded(true)}
-        className={`w-full h-full object-cover transition-opacity duration-300 ${loaded ? "opacity-100" : "opacity-0"}`}
-      />
-    </div>
-  );
-
-}
 
 
 function emailIdentity(email: Pick<Email, "id" | "account_label">) {
