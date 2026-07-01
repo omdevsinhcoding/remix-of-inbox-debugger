@@ -360,9 +360,6 @@ function ProfileAvatar({ avatarId, name, className = "w-16 h-16", fallbackColor 
   }
   return (
     <div className={`${className} relative rounded-xl sm:rounded-2xl bg-slate-900 overflow-hidden shadow-lg shadow-black/30 ring-1 ring-white/10`}>
-      {!loaded && (
-        <div className="absolute inset-0 bg-gradient-to-br from-slate-800 to-slate-900 animate-pulse" />
-      )}
       <img
         src={uri}
         loading="lazy"
@@ -374,6 +371,7 @@ function ProfileAvatar({ avatarId, name, className = "w-16 h-16", fallbackColor 
       />
     </div>
   );
+
 }
 
 
