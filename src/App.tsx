@@ -1,5 +1,5 @@
 import React, { useState, useEffect, createContext, useContext, useCallback, useRef } from "react";
-import { Mail, RefreshCw, ShieldCheck, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, BarChart3, Globe, Edit, Database, Wifi, Info } from "lucide-react";
+import { Mail, RefreshCw, ShieldCheck, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, BarChart3, Globe, Edit, Database, Wifi, Info, UserCircle } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { Toaster, toast } from "sonner";
@@ -424,11 +424,17 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
 
 // --- Types ---
 interface Email {
-  id: string; subject: string; from: string; to?: string; date: string; otp: string | null; preview: string; html: string;
+  id: string; subject: string; from: string; to?: string; date: string; otp: string | null; preview: string; html: string; account_label?: string | null;
 }
 interface UserData {
-  id: string; username: string; name: string; role: "admin" | "user"; totpSecret?: string; mustChangePassword?: boolean; assignedAccounts?: string[] | null;
+  id: string; username: string; name: string; role: "admin" | "user"; totpSecret?: string; mustChangePassword?: boolean; assignedAccounts?: string[] | null; profileAvatar?: string | null;
 }
+
+type UserProfilePrefs = {
+  avatarId?: string | null;
+  hiddenBefore?: string | null;
+  hiddenEmailIds?: string[];
+};
 
 // --- Password Toggle Helper ---
 function PasswordInput({ value, onChange, placeholder, className, autoFocus, required }: {
@@ -453,6 +459,56 @@ const PROFILE_COLORS = [
   "bg-red-500", "bg-blue-500", "bg-green-500", "bg-purple-500",
   "bg-orange-500", "bg-pink-500", "bg-teal-500", "bg-indigo-500",
 ];
+
+const AVATAR_OPTIONS = [
+  { id: "neo-red", label: "Red", bg: "from-red-500 to-red-800", accent: "bg-red-200", face: "N" },
+  { id: "midnight", label: "Midnight", bg: "from-slate-700 to-slate-950", accent: "bg-cyan-200", face: "★" },
+  { id: "popcorn", label: "Popcorn", bg: "from-amber-300 to-red-600", accent: "bg-white", face: "✦" },
+  { id: "arcade", label: "Arcade", bg: "from-emerald-400 to-teal-800", accent: "bg-lime-200", face: "●" },
+  { id: "hero", label: "Hero", bg: "from-blue-500 to-indigo-900", accent: "bg-sky-100", face: "◆" },
+  { id: "berry", label: "Berry", bg: "from-fuchsia-500 to-purple-900", accent: "bg-pink-100", face: "♥" },
+  { id: "tiger", label: "Tiger", bg: "from-orange-400 to-stone-900", accent: "bg-yellow-100", face: "▲" },
+  { id: "mint", label: "Mint", bg: "from-teal-300 to-emerald-900", accent: "bg-emerald-100", face: "◇" },
+];
+
+function getAvatarOption(avatarId?: string | null) {
+  return AVATAR_OPTIONS.find((a) => a.id === avatarId) || AVATAR_OPTIONS[0];
+}
+
+function ProfileAvatar({ avatarId, name, className = "w-16 h-16", fallbackColor = "bg-red-500" }: { avatarId?: string | null; name?: string; className?: string; fallbackColor?: string }) {
+  const avatar = getAvatarOption(avatarId);
+  if (!avatarId) {
+    return (
+      <div className={`${className} rounded-xl sm:rounded-2xl ${fallbackColor} flex items-center justify-center shadow-lg shadow-black/30 ring-1 ring-white/10 overflow-hidden`}>
+        <span className="text-white text-xl sm:text-3xl font-black drop-shadow-md">{(name || "?").charAt(0).toUpperCase()}</span>
+      </div>
+    );
+  }
+  return (
+    <div className={`${className} rounded-xl sm:rounded-2xl bg-gradient-to-br ${avatar.bg} flex items-center justify-center shadow-lg shadow-black/30 ring-1 ring-white/10 overflow-hidden relative`}>
+      <div className={`absolute -right-3 -top-3 w-10 h-10 rounded-full ${avatar.accent} opacity-80`} />
+      <div className="absolute left-2 bottom-2 w-3 h-3 rounded-full bg-white/70" />
+      <span className="relative text-white text-xl sm:text-3xl font-black drop-shadow-md">{avatar.face}</span>
+    </div>
+  );
+}
+
+function emailIdentity(email: Pick<Email, "id" | "account_label">) {
+  return `${email.account_label || "Primary"}:${email.id}`;
+}
+
+function filterVisibleEmails(list: Email[], prefs?: UserProfilePrefs | null) {
+  const hiddenIds = new Set(prefs?.hiddenEmailIds || []);
+  const hiddenBeforeTime = prefs?.hiddenBefore ? new Date(prefs.hiddenBefore).getTime() : 0;
+  return list.filter((email) => {
+    if (hiddenIds.has(email.id) || hiddenIds.has(emailIdentity(email))) return false;
+    if (hiddenBeforeTime) {
+      const emailTime = new Date(email.date || 0).getTime();
+      if (!Number.isNaN(emailTime) && emailTime <= hiddenBeforeTime) return false;
+    }
+    return true;
+  });
+}
 
 // ==================== CAPTCHA MODAL (shared) ====================
 function CaptchaModal({ siteKey, onVerify, onCancel }: { siteKey: string; onVerify: (token: string) => void; onCancel: () => void }) {
