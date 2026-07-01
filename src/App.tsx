@@ -44,6 +44,21 @@ function getSessionToken(): string | null {
   } catch { return null; }
 }
 
+// --- Session timeout helpers ---
+export function markSessionStart() {
+  try { localStorage.setItem("session_started_at", String(Date.now())); } catch {}
+}
+
+export function clearSessionData() {
+  try {
+    localStorage.removeItem("user");
+    localStorage.removeItem("session_token");
+    localStorage.removeItem("session_started_at");
+    localStorage.removeItem("admin_auth");
+    localStorage.removeItem("admin_backup");
+  } catch {}
+}
+
 // --- API Helper (routes ALL calls through Cloudflare Workers) ---
 
 async function apiCall(functionName: string, body: any) {
@@ -308,6 +323,105 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
 export const useAuth = () => useContext(AuthContext)!;
 
+// --- Session Timeout Guard ---
+// Reads admin-configured absolute session timeout (minutes) from app_settings.
+// When elapsed, forces full logout: user must click their profile and re-enter password.
+function useSessionTimeoutGuard(role: "admin" | "user") {
+  const navigate = useNavigate();
+  const { checkAuth } = useAuth();
+  useEffect(() => {
+    let timer: any;
+    let cancelled = false;
+    const doLogout = (minutes: number) => {
+      clearSessionData();
+      checkAuth();
+      toast("🔒 Session timed out", {
+        description: `You've been signed out after ${minutes} min for security. Tap your profile to sign back in.`,
+        duration: 6000,
+      });
+      navigate(role === "admin" ? "/admin" : "/", { replace: true });
+    };
+    (async () => {
+      let minutes = 0;
+      try {
+        const res = await apiCall("manage-app", { action: "get_settings", key: "session_config" });
+        minutes = Number(res?.value?.timeoutMinutes) || 0;
+      } catch {}
+      if (cancelled || !minutes || minutes <= 0) return;
+
+      let started = Number(localStorage.getItem("session_started_at") || "0");
+      if (!started) { markSessionStart(); started = Date.now(); }
+      const expiresAt = started + minutes * 60_000;
+      const remaining = expiresAt - Date.now();
+      if (remaining <= 0) { doLogout(minutes); return; }
+      timer = setTimeout(() => doLogout(minutes), remaining);
+    })();
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [role]);
+}
+
+// ==================== SESSION COUNTDOWN PILL ====================
+function SessionCountdown({ role }: { role: "admin" | "user" }) {
+  const [minutes, setMinutes] = useState<number>(0);
+  const [remainingMs, setRemainingMs] = useState<number>(0);
+  const warnedRef = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await apiCall("manage-app", { action: "get_settings", key: "session_config" });
+        const m = Number(res?.value?.timeoutMinutes) || 0;
+        if (!cancelled) setMinutes(m);
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!minutes || minutes <= 0) return;
+    warnedRef.current = false;
+    const tick = () => {
+      const started = Number(localStorage.getItem("session_started_at") || "0");
+      if (!started) { setRemainingMs(0); return; }
+      const rem = started + minutes * 60_000 - Date.now();
+      setRemainingMs(Math.max(0, rem));
+      if (rem > 0 && rem <= 60_000 && !warnedRef.current) {
+        warnedRef.current = true;
+        toast("⏰ Session ending in 1 minute", {
+          description: "Finish what you're doing — you'll need to sign in again soon.",
+          duration: 5000,
+        });
+      }
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [minutes]);
+
+  if (role === "admin" || !minutes || minutes <= 0 || remainingMs <= 0) return null;
+
+  const totalSec = Math.ceil(remainingMs / 1000);
+  const mm = Math.floor(totalSec / 60);
+  const ss = totalSec % 60;
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  const urgent = remainingMs <= 60_000;
+  const warn = !urgent && remainingMs <= 120_000;
+  const cls = urgent
+    ? "bg-red-500 text-white animate-pulse ring-2 ring-red-300"
+    : warn
+    ? "bg-amber-500 text-white"
+    : "bg-slate-900/90 text-white";
+
+  return (
+    <div className={`fixed z-50 top-2 right-2 sm:top-auto sm:bottom-4 sm:right-4 px-3 py-1.5 rounded-full text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1.5 pointer-events-none select-none`}>
+      <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" />
+      Session: {pad(mm)}:{pad(ss)}
+    </div>
+  );
+}
+
 // --- Types ---
 interface Email {
   id: string; subject: string; from: string; to?: string; date: string; otp: string | null; preview: string; html: string;
@@ -474,6 +588,7 @@ function ProfileSelectPage() {
       }
 
       localStorage.setItem("user", JSON.stringify(data.user));
+      markSessionStart();
       checkAuth();
 
       void (async () => {
@@ -698,6 +813,7 @@ function AdminLoginPage() {
       }
 
       localStorage.setItem("user", JSON.stringify(data.user));
+      markSessionStart();
       checkAuth();
 
       void (async () => {
@@ -948,6 +1064,8 @@ function AdminPanel() {
   const [newUserAccounts, setNewUserAccounts] = useState<string[]>([]);
   const [siteKey, setSiteKey] = useState("");
   const [secretKeyVal, setSecretKeyVal] = useState("");
+  const [sessionTimeoutMin, setSessionTimeoutMin] = useState<string>("0");
+  const [savingSessionTimeout, setSavingSessionTimeout] = useState(false);
   const [captchaEnabled, setCaptchaEnabled] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newAdminPassword, setNewAdminPassword] = useState("");
@@ -1048,9 +1166,33 @@ function AdminPanel() {
         }
       } catch { }
 
+      try {
+        const sc = await apiCall("manage-app", { action: "get_settings", key: "session_config" });
+        const m = Number(sc?.value?.timeoutMinutes);
+        if (Number.isFinite(m) && m >= 0) setSessionTimeoutMin(String(m));
+      } catch { }
+
       // Stats are now derived from worker-fetched emails, no direct Supabase REST call
     })();
   }, []);
+
+  const saveSessionTimeout = async () => {
+    const m = Math.max(0, Math.floor(Number(sessionTimeoutMin) || 0));
+    setSavingSessionTimeout(true);
+    try {
+      await apiCall("manage-app", {
+        action: "set_settings",
+        key: "session_config",
+        value: { timeoutMinutes: m },
+      });
+      setSessionTimeoutMin(String(m));
+      toast.success(m === 0 ? "Session timeout disabled" : `Session timeout set to ${m} min`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save session timeout");
+    } finally {
+      setSavingSessionTimeout(false);
+    }
+  };
 
   const toggleCaptcha = async () => {
     try {
@@ -1154,6 +1296,7 @@ function AdminPanel() {
       localStorage.setItem("admin_backup", JSON.stringify({ user: adminUser, token: adminToken, adminAuth }));
       localStorage.setItem("user", JSON.stringify(data.user));
       if (data.sessionToken) localStorage.setItem("session_token", data.sessionToken);
+      markSessionStart();
       localStorage.removeItem("admin_auth");
       toast.success(`Viewing as ${targetUser.name}`);
       window.location.href = "/viewer";
@@ -1501,6 +1644,40 @@ function AdminPanel() {
                   {changingPassword ? "Changing..." : "Change Password"}
                 </button>
               </div>
+            </section>
+
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm lg:col-span-2">
+              <h2 className="font-black text-base sm:text-lg mb-2 flex items-center gap-2">
+                <div className="bg-indigo-50 p-1.5 rounded-lg"><Clock className="w-4 h-4 text-indigo-600" /></div>
+                Session Timeout
+              </h2>
+              <p className="text-xs text-slate-500 mb-4">
+                Force full logout for every user (and admin) after this many minutes since login.
+                They will need to click their profile and re-enter their password. Set <span className="font-bold">0</span> to disable.
+              </p>
+              <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
+                <div className="flex-1">
+                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Timeout (minutes)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={sessionTimeoutMin}
+                    onChange={(e) => setSessionTimeoutMin(e.target.value)}
+                    placeholder="e.g. 5"
+                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm"
+                  />
+                </div>
+                <button
+                  onClick={saveSessionTimeout}
+                  disabled={savingSessionTimeout}
+                  className="sm:mt-5 bg-indigo-600 text-white font-bold py-3 px-6 rounded-xl hover:bg-indigo-700 transition-all disabled:opacity-50 text-sm whitespace-nowrap">
+                  {savingSessionTimeout ? "Saving..." : "Save Timeout"}
+                </button>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-3">
+                Current: {Number(sessionTimeoutMin) > 0 ? `${sessionTimeoutMin} min auto-logout` : "Disabled — sessions never expire automatically"}
+              </p>
             </section>
           </div>
         )}
@@ -2077,14 +2254,28 @@ function ChangePasswordModal({ user, onDone, forced = false }: { user: UserData;
 
 // ==================== EMAIL VIEWER ====================
 function EmailViewer() {
-  const [emails, setEmails] = useState<Email[]>([]);
+  const user = JSON.parse(localStorage.getItem("user") || "{}");
+  const cacheKey = `cached_emails_v1:${user.id || "anon"}`;
+  const [emails, setEmailsRaw] = useState<Email[]>(() => {
+    try {
+      const raw = localStorage.getItem(cacheKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed as Email[];
+      }
+    } catch {}
+    return [];
+  });
+  const setEmails = useCallback((next: Email[]) => {
+    setEmailsRaw(next);
+    try { localStorage.setItem(cacheKey, JSON.stringify(next.slice(0, 200))); } catch {}
+  }, [cacheKey]);
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
   const [otpCopied, setOtpCopied] = useState(false);
   const navigate = useNavigate();
-  const user = JSON.parse(localStorage.getItem("user") || "{}");
   const [showChangePassword, setShowChangePassword] = useState(!!user.mustChangePassword);
   const [forcedPasswordChange] = useState(!!user.mustChangePassword);
   const isImpersonating = !!localStorage.getItem("admin_backup");
@@ -2313,40 +2504,44 @@ function EmailViewer() {
   const fetchEmails = async () => {
     if (refreshing) return;
     setRefreshing(true);
-    const toastId = toast.loading("Syncing new emails...");
+    const before = emails.length;
     try {
-      // 1. Sync IMAP immediately and wait for it
-      await syncViaWorker();
-      // 2. Reload cached emails after sync completes
+      // 1. Show cached instantly (fast)
       await loadCachedEmails();
-      toast.success("Emails synced!", { id: toastId });
+      // 2. Kick off IMAP sync in background — don't block UI
+      syncViaWorker()
+        .then(() => loadCachedEmails())
+        .then(() => {
+          const after = (JSON.parse(localStorage.getItem(cacheKey) || "[]") as Email[]).length;
+          const newCount = after - before;
+          if (newCount > 0) {
+            toast.success(`${newCount} new email${newCount === 1 ? "" : "s"}`);
+          }
+        })
+        .catch((err) => {
+          const msg = err instanceof Error ? err.message : "Sync failed";
+          toast.error(msg);
+        })
+        .finally(() => setRefreshing(false));
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Sync failed";
-      toast.error(msg, { id: toastId });
-      // Still try to show cached emails even if sync failed
-      await loadCachedEmails().catch(() => {});
-    } finally {
+      const msg = err instanceof Error ? err.message : "Failed to load";
+      toast.error(msg);
       setRefreshing(false);
     }
   };
 
+  // Load cached emails immediately on mount — independent of worker discovery
   useEffect(() => {
-    if (workerUrlsLoading) return;
-
-    if (resolvedWorkerUrls.length === 0) {
-      setLoading(false);
-      return;
-    }
-
     let cancelled = false;
-    setLoading(true);
-    loadCachedEmails().then(() => {
+    // Only show full-screen loader if we have no hydrated cache
+    if (emails.length === 0) setLoading(true);
+    loadCachedEmails().finally(() => {
       if (!cancelled) setLoading(false);
     });
 
     const pollInterval = setInterval(() => {
       void loadCachedEmails();
-    }, 30000);
+    }, 15000);
 
     const handleVisibility = () => {
       if (document.visibilityState === "visible") {
@@ -2360,7 +2555,20 @@ function EmailViewer() {
       clearInterval(pollInterval);
       document.removeEventListener("visibilitychange", handleVisibility);
     };
-  }, [workerUrlsLoading, resolvedWorkerUrls.length, loadCachedEmails]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadCachedEmails]);
+
+  // Background sync on first mount (after worker discovery) — so newly arrived
+  // emails show up without user clicking Refresh
+  const initialSyncFired = useRef(false);
+  useEffect(() => {
+    if (workerUrlsLoading || initialSyncFired.current) return;
+    initialSyncFired.current = true;
+    syncViaWorker()
+      .then(() => loadCachedEmails())
+      .catch(() => {});
+  }, [workerUrlsLoading, syncViaWorker, loadCachedEmails]);
+
 
   const copyOtp = (otp: string) => {
     navigator.clipboard.writeText(otp);
@@ -2623,9 +2831,10 @@ export default function App() {
 
 const ProtectedRoute = ({ children, role }: { children: React.ReactNode; role: "admin" | "user" }) => {
   const { user, loading } = useAuth();
+  useSessionTimeoutGuard(role);
   if (loading) return <div className="min-h-screen bg-slate-950 flex items-center justify-center"><div className="w-8 h-8 border-2 border-red-500 border-t-transparent rounded-full animate-spin" /></div>;
   if (!user) return <Navigate to={role === "admin" ? "/admin" : "/"} />;
   if (role === "admin" && user.role !== "admin") return <Navigate to="/" />;
   if (role === "user" && user.role === "admin" && !localStorage.getItem("admin_backup")) return <Navigate to="/admin/dashboard" />;
-  return <>{children}</>;
+  return <><SessionCountdown role={role} />{children}</>;
 };
