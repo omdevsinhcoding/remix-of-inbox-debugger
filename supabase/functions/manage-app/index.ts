@@ -389,23 +389,33 @@ Deno.serve(async (req) => {
     }
 
     if (action === "update_totp") {
+      const session = await requireSession(req);
       const { id, totp_secret } = params;
+      if (!id || typeof totp_secret !== "string" || totp_secret.length < 16) {
+        throw new Error("Invalid TOTP setup request");
+      }
+      // Only the user themselves (or an admin) may set their TOTP secret,
+      // and non-admins cannot overwrite an already-configured secret.
+      const isAdmin = session.role === "admin";
+      if (!isAdmin && session.userId !== id) {
+        throw new Error("Not authorized to update this user's TOTP");
+      }
+      const { data: existing, error: exErr } = await supabase
+        .from("app_users").select("totp_secret").eq("id", id).single();
+      if (exErr) throw exErr;
+      if (!isAdmin && existing?.totp_secret) {
+        throw new Error("TOTP already configured. Contact an admin to reset it.");
+      }
       const { error } = await supabase.from("app_users").update({ totp_secret }).eq("id", id);
       if (error) throw error;
+      await auditLog(supabase, "totp_updated", session.userId, id, {}, ip);
       return new Response(JSON.stringify({ success: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    if (action === "create_otp") {
-      const { user_id, otp } = params;
-      await supabase.from("app_otps").delete().eq("user_id", user_id);
-      const { error } = await supabase.from("app_otps").insert({ user_id, otp });
-      if (error) throw error;
-      return new Response(JSON.stringify({ success: true }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    // NOTE: The insecure `create_otp` action was removed. OTPs are generated
+    // server-side by `request_admin_otp` and never accepted from the client.
 
     if (action === "request_admin_otp") {
       const { user_id } = params;
