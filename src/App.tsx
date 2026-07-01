@@ -1581,6 +1581,40 @@ function AdminPanel() {
                 </button>
               </div>
             </section>
+
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm lg:col-span-2">
+              <h2 className="font-black text-base sm:text-lg mb-2 flex items-center gap-2">
+                <div className="bg-indigo-50 p-1.5 rounded-lg"><Clock className="w-4 h-4 text-indigo-600" /></div>
+                Session Timeout
+              </h2>
+              <p className="text-xs text-slate-500 mb-4">
+                Force full logout for every user (and admin) after this many minutes since login.
+                They will need to click their profile and re-enter their password. Set <span className="font-bold">0</span> to disable.
+              </p>
+              <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
+                <div className="flex-1">
+                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Timeout (minutes)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={sessionTimeoutMin}
+                    onChange={(e) => setSessionTimeoutMin(e.target.value)}
+                    placeholder="e.g. 5"
+                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm"
+                  />
+                </div>
+                <button
+                  onClick={saveSessionTimeout}
+                  disabled={savingSessionTimeout}
+                  className="sm:mt-5 bg-indigo-600 text-white font-bold py-3 px-6 rounded-xl hover:bg-indigo-700 transition-all disabled:opacity-50 text-sm whitespace-nowrap">
+                  {savingSessionTimeout ? "Saving..." : "Save Timeout"}
+                </button>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-3">
+                Current: {Number(sessionTimeoutMin) > 0 ? `${sessionTimeoutMin} min auto-logout` : "Disabled — sessions never expire automatically"}
+              </p>
+            </section>
           </div>
         )}
 
