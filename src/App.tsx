@@ -2555,6 +2555,8 @@ function EmailViewer() {
         const workerRes = await fetchFromWorkers("/api/emails", "GET", undefined, cacheUrls);
         if (workerRes && workerRes.ok) {
           emailData = await workerRes.json();
+          // If Worker KV has an old empty cache, immediately read the DB cache instead.
+          if (Array.isArray(emailData) && emailData.length === 0) emailData = null;
         } else if (workerRes && !workerRes.ok) {
           const errData = await workerRes.json().catch(() => ({}));
           console.warn("[loadCachedEmails] Worker returned error:", errData?.error);
