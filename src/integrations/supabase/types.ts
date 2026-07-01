@@ -69,6 +69,7 @@ export type Database = {
           must_change_password: boolean
           name: string
           password: string
+          profile_prefs: Json
           role: string
           totp_secret: string | null
           username: string
@@ -80,6 +81,7 @@ export type Database = {
           must_change_password?: boolean
           name: string
           password: string
+          profile_prefs?: Json
           role?: string
           totp_secret?: string | null
           username: string
@@ -91,6 +93,7 @@ export type Database = {
           must_change_password?: boolean
           name?: string
           password?: string
+          profile_prefs?: Json
           role?: string
           totp_secret?: string | null
           username?: string
