@@ -18,11 +18,133 @@
 
       body {
         margin: 0;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      .boot-shell {
+        min-height: 100vh;
+        min-height: 100dvh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 32px 16px;
+        box-sizing: border-box;
+        background:
+          radial-gradient(circle at 50% 0%, rgba(220, 38, 38, 0.18), transparent 34rem),
+          linear-gradient(180deg, #020617 0%, #0f172a 48%, #020617 100%);
+      }
+
+      .boot-content {
+        width: min(100%, 672px);
+        text-align: center;
+      }
+
+      .boot-logo {
+        width: 56px;
+        height: 56px;
+        margin: 0 auto 24px;
+        border-radius: 18px;
+        display: grid;
+        place-items: center;
+        background: linear-gradient(135deg, #ef4444, #b91c1c);
+        color: white;
+        font-weight: 900;
+        font-size: 28px;
+        box-shadow: 0 20px 50px rgba(127, 29, 29, 0.35);
+      }
+
+      .boot-title {
+        margin: 0 0 8px;
+        color: #ffffff;
+        font-size: clamp(28px, 4vw, 44px);
+        line-height: 1;
+        font-weight: 900;
+      }
+
+      .boot-subtitle {
+        margin: 0 0 40px;
+        color: #64748b;
+        font-size: 14px;
+        font-weight: 600;
+      }
+
+      .boot-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 20px;
+        justify-items: center;
+      }
+
+      .boot-profile {
+        width: 100%;
+        max-width: 120px;
+        display: grid;
+        gap: 12px;
+        justify-items: center;
+      }
+
+      .boot-avatar {
+        width: 96px;
+        height: 96px;
+        border-radius: 18px;
+        background: linear-gradient(135deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.95));
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        position: relative;
+        overflow: hidden;
+      }
+
+      .boot-avatar::after,
+      .boot-name {
+        content: "";
+        display: block;
+        background: linear-gradient(90deg, rgba(51, 65, 85, 0.72), rgba(100, 116, 139, 0.6), rgba(51, 65, 85, 0.72));
+        background-size: 220% 100%;
+        animation: boot-shimmer 1.4s ease-in-out infinite;
+      }
+
+      .boot-avatar::after {
+        position: absolute;
+        inset: 0;
+      }
+
+      .boot-name {
+        width: 68px;
+        height: 12px;
+        border-radius: 999px;
+      }
+
+      @keyframes boot-shimmer {
+        0% { background-position: 140% 0; }
+        100% { background-position: -80% 0; }
+      }
+
+      @media (max-width: 640px) {
+        .boot-shell { align-items: flex-start; padding-top: 72px; }
+        .boot-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+        .boot-avatar { width: 64px; height: 64px; border-radius: 14px; }
+        .boot-name { width: 54px; height: 10px; }
+        .boot-subtitle { margin-bottom: 28px; }
       }
     </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <main class="boot-shell" aria-label="Loading profiles">
+        <section class="boot-content">
+          <div class="boot-logo" aria-hidden="true">N</div>
+          <h1 class="boot-title">Who's viewing?</h1>
+          <p class="boot-subtitle">Loading profiles</p>
+          <div class="boot-grid" aria-hidden="true">
+            <div class="boot-profile"><div class="boot-avatar"></div><div class="boot-name"></div></div>
+            <div class="boot-profile"><div class="boot-avatar"></div><div class="boot-name"></div></div>
+            <div class="boot-profile"><div class="boot-avatar"></div><div class="boot-name"></div></div>
+            <div class="boot-profile"><div class="boot-avatar"></div><div class="boot-name"></div></div>
+            <div class="boot-profile"><div class="boot-avatar"></div><div class="boot-name"></div></div>
+            <div class="boot-profile"><div class="boot-avatar"></div><div class="boot-name"></div></div>
+          </div>
+        </section>
+      </main>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
