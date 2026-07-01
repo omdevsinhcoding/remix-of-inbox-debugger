@@ -347,6 +347,22 @@ function getAvatarUri(avatarId?: string | null): string | null {
   return resolveAvatar(avatarId);
 }
 
+const DEFAULT_PROFILE_AVATAR_IDS = AVATAR_CATEGORIES.flatMap((category) =>
+  category.files.map((file) => buildAvatarId(category.key, file))
+);
+
+function getStableProfileAvatar(profile?: Pick<UserData, "id" | "username" | "name" | "profileAvatar"> | null): string | null {
+  if (!profile) return null;
+  if (profile.profileAvatar && getAvatarUri(profile.profileAvatar)) return profile.profileAvatar;
+  if (DEFAULT_PROFILE_AVATAR_IDS.length === 0) return null;
+  const seed = `${profile.id || ""}:${profile.username || ""}:${profile.name || ""}`;
+  let hash = 0;
+  for (let i = 0; i < seed.length; i += 1) {
+    hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+  }
+  return DEFAULT_PROFILE_AVATAR_IDS[hash % DEFAULT_PROFILE_AVATAR_IDS.length];
+}
+
 function ProfileAvatar({ avatarId, name, className = "w-16 h-16", fallbackColor = "bg-red-500", eager = false }: { avatarId?: string | null; name?: string; className?: string; fallbackColor?: string; eager?: boolean }) {
   const uri = getAvatarUri(avatarId);
   const [failed, setFailed] = useState(false);
@@ -478,13 +494,18 @@ function ProfileSelectPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Preload profile avatars into browser cache the instant profiles arrive
+  const displayProfiles = useMemo(
+    () => profiles.map((profile) => ({ ...profile, profileAvatar: getStableProfileAvatar(profile) })),
+    [profiles]
+  );
+
+  // Preload profile avatars into browser cache the instant profiles arrive.
   useEffect(() => {
-    profiles.forEach((p) => {
+    displayProfiles.forEach((p) => {
       const uri = getAvatarUri(p.profileAvatar);
       if (uri) { const img = new Image(); img.decoding = "sync"; img.src = uri; }
     });
-  }, [profiles]);
+  }, [displayProfiles]);
 
 
 
@@ -544,33 +565,6 @@ function ProfileSelectPage() {
     }
   };
 
-
-
-  if (loading && profiles.length === 0) {
-    return (
-      <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 flex flex-col items-center justify-center px-4 py-8 sm:p-6 relative overflow-hidden">
-        <div className="absolute inset-0 bg-[linear-gradient(to_right,#4f4f4f12_1px,transparent_1px),linear-gradient(to_bottom,#4f4f4f12_1px,transparent_1px)] bg-[size:20px_20px] [mask-image:radial-gradient(ellipse_80%_60%_at_50%_0%,#000_50%,transparent_100%)]" />
-        <div className="relative z-10 w-full max-w-2xl">
-          <div className="flex justify-center mb-6">
-            <div className="bg-gradient-to-br from-red-500 to-red-700 p-3 sm:p-4 rounded-2xl shadow-xl shadow-red-900/40 ring-1 ring-white/10">
-              <Mail className="text-white w-6 h-6 sm:w-8 sm:h-8" />
-            </div>
-          </div>
-          <h1 className="text-2xl sm:text-4xl font-black text-white text-center mb-1 sm:mb-2 tracking-tight">Who's viewing?</h1>
-          <p className="text-slate-500 text-center text-xs sm:text-sm mb-6 sm:mb-10">Select your profile to continue</p>
-          <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 sm:gap-5 justify-items-center px-2">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="flex flex-col items-center gap-2 sm:gap-3 w-full max-w-[100px] sm:max-w-[120px]">
-                <div className="w-16 h-16 sm:w-24 sm:h-24 rounded-xl sm:rounded-2xl bg-slate-800/60 animate-pulse ring-1 ring-white/5" />
-                <div className="h-3 w-14 rounded bg-slate-800/60 animate-pulse" />
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 flex flex-col items-center justify-center px-4 py-8 sm:p-6 relative overflow-hidden">
       {/* Background effects */}
@@ -600,13 +594,13 @@ function ProfileSelectPage() {
               Select your profile to continue
             </motion.p>
 
-            {profiles.length === 0 ? (
+            {displayProfiles.length === 0 ? (
               <div className="text-center py-12">
-                <p className="text-slate-500 text-sm">No profiles yet. Ask admin to create users.</p>
+                <p className="text-slate-500 text-sm">{loading ? "Loading profiles…" : "No profiles yet. Ask admin to create users."}</p>
               </div>
             ) : (
               <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 sm:gap-5 justify-items-center px-2">
-                {profiles.map((profile, i) => (
+                {displayProfiles.map((profile, i) => (
                   <motion.button key={profile.id}
                     initial={fromCache ? false : { opacity: 0, scale: 0.8 }}
                     animate={{ opacity: 1, scale: 1 }}
@@ -635,7 +629,7 @@ function ProfileSelectPage() {
             <div className="flex flex-col items-center mb-8">
               <motion.div initial={{ scale: 0.8 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 200 }}
                 className="mb-4">
-                <ProfileAvatar avatarId={selectedProfile.profileAvatar} name={selectedProfile.name} className="w-20 h-20 sm:w-24 sm:h-24" fallbackColor={PROFILE_COLORS[profiles.indexOf(selectedProfile) % PROFILE_COLORS.length]} eager />
+                <ProfileAvatar avatarId={getStableProfileAvatar(selectedProfile)} name={selectedProfile.name} className="w-20 h-20 sm:w-24 sm:h-24" fallbackColor={PROFILE_COLORS[profiles.indexOf(selectedProfile) % PROFILE_COLORS.length]} eager />
               </motion.div>
               <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">{selectedProfile.name}</h2>
               <p className="text-slate-500 text-xs sm:text-sm mt-0.5">@{selectedProfile.username}</p>
