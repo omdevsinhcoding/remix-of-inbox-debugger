@@ -575,10 +575,27 @@ function ProfileSelectPage() {
 
 
 
-  if (loading) {
+  if (loading && profiles.length === 0) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-red-500 border-t-transparent rounded-full animate-spin" />
+      <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 flex flex-col items-center justify-center px-4 py-8 sm:p-6 relative overflow-hidden">
+        <div className="absolute inset-0 bg-[linear-gradient(to_right,#4f4f4f12_1px,transparent_1px),linear-gradient(to_bottom,#4f4f4f12_1px,transparent_1px)] bg-[size:20px_20px] [mask-image:radial-gradient(ellipse_80%_60%_at_50%_0%,#000_50%,transparent_100%)]" />
+        <div className="relative z-10 w-full max-w-2xl">
+          <div className="flex justify-center mb-6">
+            <div className="bg-gradient-to-br from-red-500 to-red-700 p-3 sm:p-4 rounded-2xl shadow-xl shadow-red-900/40 ring-1 ring-white/10">
+              <Mail className="text-white w-6 h-6 sm:w-8 sm:h-8" />
+            </div>
+          </div>
+          <h1 className="text-2xl sm:text-4xl font-black text-white text-center mb-1 sm:mb-2 tracking-tight">Who's viewing?</h1>
+          <p className="text-slate-500 text-center text-xs sm:text-sm mb-6 sm:mb-10">Select your profile to continue</p>
+          <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 sm:gap-5 justify-items-center px-2">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="flex flex-col items-center gap-2 sm:gap-3 w-full max-w-[100px] sm:max-w-[120px]">
+                <div className="w-16 h-16 sm:w-24 sm:h-24 rounded-xl sm:rounded-2xl bg-slate-800/60 animate-pulse ring-1 ring-white/5" />
+                <div className="h-3 w-14 rounded bg-slate-800/60 animate-pulse" />
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     );
   }
@@ -620,8 +637,9 @@ function ProfileSelectPage() {
               <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 sm:gap-5 justify-items-center px-2">
                 {profiles.map((profile, i) => (
                   <motion.button key={profile.id}
-                    initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }}
-                    transition={{ delay: 0.1 + i * 0.04 }}
+                    initial={fromCache ? false : { opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={fromCache ? { duration: 0 } : { delay: 0.1 + i * 0.04 }}
                     whileHover={{ scale: 1.08, y: -4 }} whileTap={{ scale: 0.92 }}
                     onClick={() => setSelectedProfile(profile)}
                     className="flex flex-col items-center gap-2 sm:gap-3 group w-full max-w-[100px] sm:max-w-[120px]">
