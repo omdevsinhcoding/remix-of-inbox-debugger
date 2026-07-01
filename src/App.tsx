@@ -2197,6 +2197,143 @@ function ChangePasswordModal({ user, onDone, forced = false }: { user: UserData;
   );
 }
 
+function AvatarRow({
+  category,
+  userName,
+  selectedAvatar,
+  onPick,
+  saving,
+}: {
+  category: typeof AVATAR_CATEGORIES[number];
+  userName?: string;
+  selectedAvatar: string | null;
+  onPick: (id: string) => void;
+  saving: boolean;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) if (e.isIntersecting) { setVisible(true); io.disconnect(); return; }
+      },
+      { root: null, rootMargin: "300px 0px", threshold: 0.01 }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+  return (
+    <section ref={ref} id={`avatar-row-${category.key}`} className="scroll-mt-16">
+      <div className="flex items-center justify-between px-4 sm:px-5 mb-2">
+        <h4 className="text-xs sm:text-sm font-black text-slate-900 tracking-tight">{category.label}</h4>
+        <span className="text-[10px] font-bold text-slate-400">{category.seeds.length}</span>
+      </div>
+      {!visible ? (
+        <div className="flex gap-2 sm:gap-3 px-4 sm:px-5 overflow-hidden">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl bg-slate-100 animate-pulse flex-shrink-0" />
+          ))}
+        </div>
+      ) : (
+        <div className="flex sm:grid sm:grid-cols-6 lg:grid-cols-8 gap-2 sm:gap-3 px-4 sm:px-5 overflow-x-auto snap-x snap-mandatory pb-2 sm:pb-0 scrollbar-thin">
+          {category.seeds.map((seed) => {
+            const id = buildAvatarId(category.style, seed);
+            const selected = selectedAvatar === id;
+            return (
+              <button
+                key={id}
+                onClick={() => onPick(id)}
+                disabled={saving}
+                title={`${category.label} ${seed}`}
+                className={`flex-shrink-0 snap-start rounded-2xl p-1 transition-all active:scale-95 ${selected ? "ring-4 ring-red-500 bg-red-50" : "ring-1 ring-slate-200 hover:ring-slate-400 bg-white"}`}
+              >
+                <ProfileAvatar avatarId={id} name={userName} className="w-20 h-20 sm:w-24 sm:h-24" />
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function AvatarPicker({
+  userName,
+  selectedAvatar,
+  onPick,
+  saving,
+}: {
+  userName?: string;
+  selectedAvatar: string | null;
+  onPick: (id: string) => void;
+  saving: boolean;
+}) {
+  const [query, setQuery] = useState("");
+  const trimmed = query.trim().toLowerCase();
+  const scrollToRow = (key: string) => {
+    const el = document.getElementById(`avatar-row-${key}`);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+  const filteredCategories = trimmed
+    ? AVATAR_CATEGORIES.map((c) => ({
+        ...c,
+        seeds: c.label.toLowerCase().includes(trimmed)
+          ? c.seeds
+          : c.seeds.filter((s) => s.toLowerCase().includes(trimmed)),
+      })).filter((c) => c.seeds.length > 0)
+    : AVATAR_CATEGORIES;
+  return (
+    <div className="pb-4">
+      <div className="sticky top-0 z-10 bg-white/95 backdrop-blur border-b border-slate-100 px-4 sm:px-5 py-3 space-y-2">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-black text-slate-900">Choose profile icon</h3>
+          {saving && <span className="text-[10px] font-bold text-slate-400">Saving…</span>}
+        </div>
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search style or seed…"
+            className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-sm outline-none focus:ring-2 focus:ring-red-500"
+          />
+        </div>
+        {!trimmed && (
+          <div className="flex gap-1.5 overflow-x-auto scrollbar-thin -mx-1 px-1">
+            {AVATAR_CATEGORIES.map((c) => (
+              <button
+                key={c.key}
+                onClick={() => scrollToRow(c.key)}
+                className="flex-shrink-0 px-3 py-1 text-[11px] font-bold rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors"
+              >
+                {c.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="space-y-4 pt-3">
+        {filteredCategories.length === 0 ? (
+          <p className="text-center text-xs text-slate-400 py-8">No avatars match "{query}"</p>
+        ) : (
+          filteredCategories.map((c) => (
+            <AvatarRow
+              key={c.key}
+              category={c}
+              userName={userName}
+              selectedAvatar={selectedAvatar}
+              onPick={onPick}
+              saving={saving}
+            />
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
 function UserProfileModal({
   user,
   prefs,
