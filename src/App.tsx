@@ -178,128 +178,23 @@ function checkRateLimit(key: string): boolean {
   return true;
 }
 
-// --- Location ---
-type ExactLocation = { lat: number; lon: number; accuracy: number };
-type BrowserLocationPermission = "granted" | "prompt" | "denied" | "unsupported";
-
-const LOCATION_ACCURACY_TARGET_METERS = 500;
-
-async function getLocationPermissionState(): Promise<BrowserLocationPermission> {
-  if (typeof navigator === "undefined" || !navigator.geolocation) return "unsupported";
-
-  const permissions = (navigator as Navigator & {
-    permissions?: {
-      query: (descriptor: { name: string }) => Promise<{ state: string }>;
-    };
-  }).permissions;
-
-  if (!permissions?.query) return "prompt";
-
-  try {
-    const status = await permissions.query({ name: "geolocation" });
-    if (status.state === "granted" || status.state === "prompt" || status.state === "denied") {
-      return status.state;
-    }
-  } catch (err) {
-    console.warn("[location] Permission state check failed:", err);
-  }
-
-  return "prompt";
-}
-
-const getPreciseLocation = async (retries = 1): Promise<ExactLocation> => {
-  const fetchLocation = (): Promise<ExactLocation> => {
-    return new Promise((resolve, reject) => {
-      if (!navigator.geolocation) {
-        reject(new Error("Geolocation not supported"));
-        return;
-      }
-
-      navigator.geolocation.getCurrentPosition(
-        (pos) => resolve({
-          lat: pos.coords.latitude,
-          lon: pos.coords.longitude,
-          accuracy: Number.isFinite(pos.coords.accuracy) ? pos.coords.accuracy : Number.POSITIVE_INFINITY,
-        }),
-        (err) => reject(err),
-        { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
-      );
-    });
-  };
-
-  try {
-    return await fetchLocation();
-  } catch (err) {
-    console.warn("[location] GPS attempt failed:", err);
-    if (retries > 0) return getPreciseLocation(retries - 1);
-    throw new Error("Location permission is required. Please allow GPS/location access and try again.");
-  }
-};
-
-async function requestExactLocationForLogin(): Promise<ExactLocation> {
-  const permissionState = await getLocationPermissionState();
-
-  if (permissionState === "unsupported") {
-    throw new Error("This device/browser does not support exact location access.");
-  }
-
-  if (permissionState === "denied") {
-    throw new Error("Location permission is blocked. Please enable it in browser settings and try again.");
-  }
-
-  const firstFix = await getPreciseLocation(1);
-
-  if (Number.isFinite(firstFix.accuracy) && firstFix.accuracy <= LOCATION_ACCURACY_TARGET_METERS) {
-    return firstFix;
-  }
-
-  console.warn("[location] First GPS fix was not accurate enough:", firstFix.accuracy);
-  const secondFix = await getPreciseLocation(1).catch(() => firstFix);
-  const bestFix = secondFix.accuracy < firstFix.accuracy ? secondFix : firstFix;
-
-  if (Number.isFinite(bestFix.accuracy) && bestFix.accuracy > LOCATION_ACCURACY_TARGET_METERS) {
-    throw new Error("We could not get an accurate GPS location. Please turn on device location/GPS and try again near a window or outdoors.");
-  }
-
-  return bestFix;
-}
-
-async function sendLoginNotification(
-  payload: { username: string; name?: string; status: "success" | "failed" },
-  exactLocation?: ExactLocation | null
-) {
+// --- Login notification (location is resolved server-side via ipwho.is) ---
+async function sendLoginNotification(payload: { username: string; name?: string; status: "success" | "failed" }) {
   const token = getSessionToken();
-  const locationSource = exactLocation ? "gps" : "none";
-
-  console.log(
-    "[notification] Location source:",
-    locationSource,
-    exactLocation ? `(${exactLocation.lat}, ${exactLocation.lon}) ±${Math.round(exactLocation.accuracy)}m` : "(none)"
-  );
-
-  const body = {
-    ...payload,
-    ...(exactLocation ? { lat: exactLocation.lat, lon: exactLocation.lon, accuracy: exactLocation.accuracy } : {}),
-    locationSource,
-  };
-
   try {
     const { data, error } = await supabase.functions.invoke("send-login-notification", {
-      body,
+      body: payload,
       headers: token ? { "x-session-token": token } : undefined,
     });
-
     if (error) throw error;
     if (data?.success === false) throw new Error(data?.error || "Notification failed");
-    console.log("[notification] Login notification sent successfully");
     return;
   } catch (directErr) {
     console.warn("[notification] Direct send failed, trying fallback:", directErr);
   }
-
-  await apiCall("send-login-notification", body);
-  console.log("[notification] Login notification sent successfully via fallback");
+  await apiCall("send-login-notification", payload);
 }
+
 
 // --- Auth Context ---
 const AuthContext = createContext<{ user: any; loading: boolean; checkAuth: () => void } | null>(null);
