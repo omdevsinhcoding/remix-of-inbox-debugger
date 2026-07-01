@@ -485,6 +485,15 @@ function ProfileSelectPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Preload profile avatars into browser cache the instant profiles arrive
+  useEffect(() => {
+    profiles.forEach((p) => {
+      const uri = getAvatarUri(p.profileAvatar);
+      if (uri) { const img = new Image(); img.decoding = "sync"; img.src = uri; }
+    });
+  }, [profiles]);
+
+
 
   const initiateLogin = (e: React.FormEvent) => {
     e.preventDefault();
