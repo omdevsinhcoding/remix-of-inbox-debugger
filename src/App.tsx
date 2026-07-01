@@ -298,7 +298,7 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
     : "bg-slate-900/90 text-white";
 
   return (
-    <div className={`fixed z-50 top-2 right-2 sm:top-auto sm:bottom-4 sm:right-4 px-3 py-1.5 rounded-full text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1.5 pointer-events-none select-none`}>
+    <div className={`fixed z-50 top-[calc(env(safe-area-inset-top)+0.35rem)] right-2 sm:top-auto sm:bottom-4 sm:right-4 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full text-[10px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1 sm:gap-1.5 pointer-events-none select-none`}>
       <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" />
       Session: {pad(mm)}:{pad(ss)}
     </div>
@@ -733,7 +733,7 @@ function AdminLoginPage() {
 
 
   return (
-    <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+    <div className="min-h-[100dvh] bg-slate-900 flex items-center justify-center px-4 py-6 pt-[calc(env(safe-area-inset-top)+1rem)]">
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
         className="bg-white w-full max-w-md rounded-2xl sm:rounded-3xl p-5 sm:p-8 shadow-2xl border-t-4 sm:border-t-8 border-red-600 mx-2 sm:mx-0">
         <div className="flex justify-center mb-8">
@@ -881,7 +881,7 @@ function AdminAuthPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 relative overflow-hidden">
+    <div className="min-h-[100dvh] bg-slate-950 flex items-center justify-center px-4 py-6 pt-[calc(env(safe-area-inset-top)+1rem)] relative overflow-hidden">
       <div className="absolute inset-0 bg-[linear-gradient(to_right,#4f4f4f2e_1px,transparent_1px),linear-gradient(to_bottom,#4f4f4f2e_1px,transparent_1px)] bg-[size:14px_24px] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_0%,#000_70%,transparent_100%)]" />
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-red-600/20 blur-[120px] rounded-full pointer-events-none" />
 
@@ -1272,7 +1272,7 @@ function AdminPanel() {
   ];
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-[100dvh] bg-slate-50 overflow-x-hidden">
       <header className="bg-white border-b px-3 sm:px-6 py-3 sm:py-4 sticky top-0 z-10 shadow-sm">
         <div className="max-w-6xl mx-auto flex justify-between items-center gap-2">
           <h1 className="text-sm sm:text-xl font-black flex items-center gap-2 min-w-0 truncate">
@@ -1331,7 +1331,7 @@ function AdminPanel() {
                 <div className="bg-green-50 p-1.5 rounded-lg"><Plus className="w-4 h-4 text-green-600" /></div>
                 Create User
               </h2>
-              <div className="space-y-3">
+              <div className="space-y-3 min-w-0">
                 <input type="text" placeholder="Display Name" value={newName} onChange={(e) => setNewName(e.target.value)}
                   className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
                 <input type="text" placeholder="Username" value={newUsername} onChange={(e) => setNewUsername(e.target.value)}
@@ -1373,15 +1373,15 @@ function AdminPanel() {
               </h2>
               <div className="space-y-3">
                 {users.map(u => (
-                  <div key={u.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 hover:border-slate-200 transition-colors">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
+                  <div key={u.id} className="p-3 sm:p-4 bg-slate-50 rounded-2xl border border-slate-100 hover:border-slate-200 transition-colors min-w-0">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
                         <div className={`w-10 h-10 rounded-xl ${u.role === "admin" ? "bg-red-500" : "bg-blue-500"} flex items-center justify-center`}>
                           <span className="text-white font-black text-sm">{u.name.charAt(0).toUpperCase()}</span>
                         </div>
-                        <div>
-                          <p className="font-bold text-slate-900">{u.name}</p>
-                          <p className="text-xs text-slate-500">@{u.username} • <span className={u.role === "admin" ? "text-red-600 font-bold" : "text-blue-600"}>{u.role}</span></p>
+                        <div className="min-w-0">
+                          <p className="font-bold text-slate-900 truncate">{u.name}</p>
+                          <p className="text-xs text-slate-500 truncate">@{u.username} • <span className={u.role === "admin" ? "text-red-600 font-bold" : "text-blue-600"}>{u.role}</span></p>
                           {u.assignedAccounts && u.assignedAccounts.length > 0 && (
                             <div className="flex flex-wrap gap-1 mt-1">
                               {u.assignedAccounts.map((a: string) => (
@@ -1395,7 +1395,7 @@ function AdminPanel() {
                         </div>
                       </div>
                       {u.role !== "admin" && (
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1 self-end sm:self-auto">
                           <button onClick={() => loginAsUser(u)} title="View as user"
                             className="p-2 hover:bg-blue-50 text-blue-400 hover:text-blue-600 rounded-lg transition-colors">
                             <Eye className="w-4 h-4" />
@@ -1440,7 +1440,7 @@ function AdminPanel() {
                     )}
 
                     {changingUserPass === u.id && u.role !== "admin" && (
-                      <div className="mt-3 flex gap-2">
+                      <div className="mt-3 flex flex-col sm:flex-row gap-2">
                         <PasswordInput value={userNewPass} onChange={(e) => setUserNewPass(e.target.value)}
                           placeholder="New password (min 6)"
                           className="flex-1 bg-white border rounded-lg p-2 pr-10 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
