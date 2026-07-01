@@ -305,10 +305,6 @@ Deno.serve(async (req) => {
 
       if (accountFilter && accountFilter.length > 0) {
         query = query.in("account_label", accountFilter);
-      } else if (!isAdmin) {
-        return new Response(JSON.stringify([]), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
       }
 
       const { data: cached, error: cacheErr } = await query;
@@ -358,11 +354,6 @@ Deno.serve(async (req) => {
             accountFilter = userData.assigned_accounts;
           }
         }
-      }
-      if (!isAdmin && (!accountFilter || accountFilter.length === 0)) {
-        return new Response(JSON.stringify({ total: 0, error: null }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
       }
       let query = supabase.from("cached_emails").select("id", { count: "exact", head: true });
       if (accountFilter && accountFilter.length > 0) {
