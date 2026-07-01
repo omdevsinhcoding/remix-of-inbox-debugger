@@ -1,11 +1,13 @@
-import React, { useState, useEffect, createContext, useContext, useCallback, useRef } from "react";
-import { Mail, RefreshCw, ShieldCheck, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, BarChart3, Globe, Edit, Database, Wifi, Info } from "lucide-react";
+import React, { useState, useEffect, createContext, useContext, useCallback, useRef, useMemo } from "react";
+import { Mail, RefreshCw, ShieldCheck, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, BarChart3, Globe, Edit, Database, Wifi, Info, UserCircle, Search } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { Toaster, toast } from "sonner";
 import ReCAPTCHA from "react-google-recaptcha";
 import { supabase } from "./integrations/supabase/client";
 import { QRCodeSVG } from "qrcode.react";
+import { AVATAR_CATEGORIES, resolveAvatar, buildAvatarId } from "./lib/avatars";
+import { bootstrapFromSupabase, bootstrapPromise, clearSessionData, markSessionStart, readBootstrapCache } from "./lib/bootstrap";
 
 // --- Worker URL Types & Helpers ---
 const WORKER_URLS_KEY = "cloudflare_worker_urls";
@@ -44,27 +46,14 @@ function getSessionToken(): string | null {
   } catch { return null; }
 }
 
-// --- Session timeout helpers ---
-export function markSessionStart() {
-  try { localStorage.setItem("session_started_at", String(Date.now())); } catch {}
-}
-
-export function clearSessionData() {
-  try {
-    localStorage.removeItem("user");
-    localStorage.removeItem("session_token");
-    localStorage.removeItem("session_started_at");
-    localStorage.removeItem("admin_auth");
-    localStorage.removeItem("admin_backup");
-  } catch {}
-}
-
 // --- API Helper (routes ALL calls through Cloudflare Workers) ---
 
 async function apiCall(functionName: string, body: any) {
   let workerUrls = getStoredWorkerUrls();
   
   const token = getSessionToken();
+  const pendingToken = (() => { try { return localStorage.getItem("pending_admin_token"); } catch { return null; } })();
+  const pendingActions = new Set(["request_admin_otp", "verify_otp", "verify_totp", "update_totp", "finalize_admin_session"]);
 
   // Try each worker URL with random load balancing
   if (workerUrls.length > 0) {
@@ -75,6 +64,7 @@ async function apiCall(functionName: string, body: any) {
           "Content-Type": "application/json",
         };
         if (token) headers["X-Session-Token"] = token;
+        if (pendingToken && functionName === "manage-app" && pendingActions.has(body?.action)) headers["X-Pending-Token"] = pendingToken;
 
         const res = await fetch(`${cfUrl}/api/fn/${functionName}`, {
           method: "POST",
@@ -121,6 +111,7 @@ async function apiCall(functionName: string, body: any) {
   const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
   const headers: Record<string, string> = {};
   if (token) headers["X-Session-Token"] = token;
+  if (pendingToken && functionName === "manage-app" && pendingActions.has(body?.action)) headers["X-Pending-Token"] = pendingToken;
   
   const res = await fetch(`${supabaseUrl}/functions/v1/${functionName}`, {
     method: "POST",
@@ -149,20 +140,35 @@ async function apiCall(functionName: string, body: any) {
   return data;
 }
 
-// --- Direct Supabase bootstrap (bypasses worker requirement) ---
-async function bootstrapFromSupabase(): Promise<{ users: any[]; recaptcha: any; workerUrls: string[] }> {
-  const { data, error } = await supabase.functions.invoke("manage-app", {
-    body: { action: "bootstrap_public" },
-  });
-  if (error) throw error;
-  if (!data?.success) throw new Error(data?.error || "Bootstrap failed");
-
-  // Store worker URLs immediately so apiCall works for subsequent calls
-  if (data.workerUrls && Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
-    storeWorkerUrls(data.workerUrls);
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
+  state = { error: null as Error | null };
+  static getDerivedStateFromError(error: Error) { return { error }; }
+  componentDidCatch(error: Error, info: React.ErrorInfo) { console.error("[render-crash]", error, info); }
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div className="min-h-[100dvh] bg-slate-950 text-white flex items-center justify-center p-4">
+        <div className="w-full max-w-md rounded-3xl border border-red-500/30 bg-slate-900 p-6 shadow-2xl">
+          <div className="flex items-center gap-3 text-red-300 font-black text-lg mb-3"><AlertCircle className="w-5 h-5" /> App recovered from an error</div>
+          <p className="text-sm text-slate-300 mb-4">No more white screen — reload once to restore the latest app state.</p>
+          <pre className="max-h-32 overflow-auto rounded-xl bg-black/30 p-3 text-[11px] text-red-100 mb-4">{this.state.error.message}</pre>
+          <button onClick={() => window.location.reload()} className="w-full rounded-xl bg-red-600 py-3 font-bold hover:bg-red-700">Reload app</button>
+        </div>
+      </div>
+    );
   }
+}
 
-  return { users: data.users || [], recaptcha: data.recaptcha, workerUrls: data.workerUrls || [] };
+function ResponsiveToaster() {
+  const [isMobile, setIsMobile] = useState(() => typeof window !== "undefined" ? window.matchMedia("(max-width: 640px)").matches : true);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 640px)");
+    const onChange = () => setIsMobile(mq.matches);
+    onChange();
+    mq.addEventListener?.("change", onChange);
+    return () => mq.removeEventListener?.("change", onChange);
+  }, []);
+  return <Toaster position={isMobile ? "top-center" : "bottom-right"} richColors />;
 }
 
 // --- Rate Limiter ---
@@ -178,133 +184,10 @@ function checkRateLimit(key: string): boolean {
   return true;
 }
 
-// --- Location ---
-type ExactLocation = { lat: number; lon: number; accuracy: number };
-type BrowserLocationPermission = "granted" | "prompt" | "denied" | "unsupported";
-
-const LOCATION_ACCURACY_TARGET_METERS = 500;
-
-async function getLocationPermissionState(): Promise<BrowserLocationPermission> {
-  if (typeof navigator === "undefined" || !navigator.geolocation) return "unsupported";
-
-  const permissions = (navigator as Navigator & {
-    permissions?: {
-      query: (descriptor: { name: string }) => Promise<{ state: string }>;
-    };
-  }).permissions;
-
-  if (!permissions?.query) return "prompt";
-
-  try {
-    const status = await permissions.query({ name: "geolocation" });
-    if (status.state === "granted" || status.state === "prompt" || status.state === "denied") {
-      return status.state;
-    }
-  } catch (err) {
-    console.warn("[location] Permission state check failed:", err);
-  }
-
-  return "prompt";
-}
-
-const getPreciseLocation = async (retries = 1): Promise<ExactLocation> => {
-  const fetchLocation = (): Promise<ExactLocation> => {
-    return new Promise((resolve, reject) => {
-      if (!navigator.geolocation) {
-        reject(new Error("Geolocation not supported"));
-        return;
-      }
-
-      navigator.geolocation.getCurrentPosition(
-        (pos) => resolve({
-          lat: pos.coords.latitude,
-          lon: pos.coords.longitude,
-          accuracy: Number.isFinite(pos.coords.accuracy) ? pos.coords.accuracy : Number.POSITIVE_INFINITY,
-        }),
-        (err) => reject(err),
-        { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
-      );
-    });
-  };
-
-  try {
-    return await fetchLocation();
-  } catch (err) {
-    console.warn("[location] GPS attempt failed:", err);
-    if (retries > 0) return getPreciseLocation(retries - 1);
-    throw new Error("Location permission is required. Please allow GPS/location access and try again.");
-  }
-};
-
-async function requestExactLocationForLogin(): Promise<ExactLocation> {
-  const permissionState = await getLocationPermissionState();
-
-  if (permissionState === "unsupported") {
-    throw new Error("This device/browser does not support exact location access.");
-  }
-
-  if (permissionState === "denied") {
-    throw new Error("Location permission is blocked. Please enable it in browser settings and try again.");
-  }
-
-  const firstFix = await getPreciseLocation(1);
-
-  if (Number.isFinite(firstFix.accuracy) && firstFix.accuracy <= LOCATION_ACCURACY_TARGET_METERS) {
-    return firstFix;
-  }
-
-  console.warn("[location] First GPS fix was not accurate enough:", firstFix.accuracy);
-  const secondFix = await getPreciseLocation(1).catch(() => firstFix);
-  const bestFix = secondFix.accuracy < firstFix.accuracy ? secondFix : firstFix;
-
-  if (Number.isFinite(bestFix.accuracy) && bestFix.accuracy > LOCATION_ACCURACY_TARGET_METERS) {
-    throw new Error("We could not get an accurate GPS location. Please turn on device location/GPS and try again near a window or outdoors.");
-  }
-
-  return bestFix;
-}
-
-async function sendLoginNotification(
-  payload: { username: string; name?: string; status: "success" | "failed" },
-  exactLocation?: ExactLocation | null
-) {
-  const token = getSessionToken();
-  const locationSource = exactLocation ? "gps" : "none";
-
-  console.log(
-    "[notification] Location source:",
-    locationSource,
-    exactLocation ? `(${exactLocation.lat}, ${exactLocation.lon}) ±${Math.round(exactLocation.accuracy)}m` : "(none)"
-  );
-
-  const body = {
-    ...payload,
-    ...(exactLocation ? { lat: exactLocation.lat, lon: exactLocation.lon, accuracy: exactLocation.accuracy } : {}),
-    locationSource,
-  };
-
-  try {
-    const { data, error } = await supabase.functions.invoke("send-login-notification", {
-      body,
-      headers: token ? { "x-session-token": token } : undefined,
-    });
-
-    if (error) throw error;
-    if (data?.success === false) throw new Error(data?.error || "Notification failed");
-    console.log("[notification] Login notification sent successfully");
-    return;
-  } catch (directErr) {
-    console.warn("[notification] Direct send failed, trying fallback:", directErr);
-  }
-
-  await apiCall("send-login-notification", body);
-  console.log("[notification] Login notification sent successfully via fallback");
-}
-
 // --- Auth Context ---
 const AuthContext = createContext<{ user: any; loading: boolean; checkAuth: () => void } | null>(null);
 
-export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
+const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
@@ -321,7 +204,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   return <AuthContext.Provider value={{ user, loading, checkAuth }}>{children}</AuthContext.Provider>;
 };
 
-export const useAuth = () => useContext(AuthContext)!;
+const useAuth = () => useContext(AuthContext)!;
 
 // --- Session Timeout Guard ---
 // Reads admin-configured absolute session timeout (minutes) from app_settings.
@@ -336,8 +219,8 @@ function useSessionTimeoutGuard(role: "admin" | "user") {
       clearSessionData();
       checkAuth();
       toast("🔒 Session timed out", {
-        description: `You've been signed out after ${minutes} min for security. Tap your profile to sign back in.`,
-        duration: 6000,
+        description: "Tap your profile and enter password again.",
+        duration: 3000,
       });
       navigate(role === "admin" ? "/admin" : "/", { replace: true });
     };
@@ -415,7 +298,7 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
     : "bg-slate-900/90 text-white";
 
   return (
-    <div className={`fixed z-50 top-2 right-2 sm:top-auto sm:bottom-4 sm:right-4 px-3 py-1.5 rounded-full text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1.5 pointer-events-none select-none`}>
+    <div className={`fixed z-50 top-[calc(env(safe-area-inset-top)+0.35rem)] right-2 sm:top-auto sm:bottom-4 sm:right-4 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full text-[10px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1 sm:gap-1.5 pointer-events-none select-none`}>
       <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" />
       Session: {pad(mm)}:{pad(ss)}
     </div>
@@ -424,11 +307,17 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
 
 // --- Types ---
 interface Email {
-  id: string; subject: string; from: string; to?: string; date: string; otp: string | null; preview: string; html: string;
+  id: string; subject: string; from: string; to?: string; date: string; otp: string | null; preview: string; html: string; account_label?: string | null;
 }
 interface UserData {
-  id: string; username: string; name: string; role: "admin" | "user"; totpSecret?: string; mustChangePassword?: boolean; assignedAccounts?: string[] | null;
+  id: string; username: string; name: string; role: "admin" | "user"; totpSecret?: string; mustChangePassword?: boolean; assignedAccounts?: string[] | null; profileAvatar?: string | null; profilePrefs?: UserProfilePrefs;
 }
+
+type UserProfilePrefs = {
+  avatarId?: string | null;
+  hiddenBefore?: string | null;
+  hiddenEmailIds?: string[];
+};
 
 // --- Password Toggle Helper ---
 function PasswordInput({ value, onChange, placeholder, className, autoFocus, required }: {
@@ -453,6 +342,43 @@ const PROFILE_COLORS = [
   "bg-red-500", "bg-blue-500", "bg-green-500", "bg-purple-500",
   "bg-orange-500", "bg-pink-500", "bg-teal-500", "bg-indigo-500",
 ];
+
+function getAvatarUri(avatarId?: string | null): string | null {
+  return resolveAvatar(avatarId);
+}
+
+function ProfileAvatar({ avatarId, name, className = "w-16 h-16", fallbackColor = "bg-red-500" }: { avatarId?: string | null; name?: string; className?: string; fallbackColor?: string }) {
+  const uri = getAvatarUri(avatarId);
+  if (!uri) {
+    return (
+      <div className={`${className} rounded-xl sm:rounded-2xl ${fallbackColor} flex items-center justify-center shadow-lg shadow-black/30 ring-1 ring-white/10 overflow-hidden`}>
+        <span className="text-white text-xl sm:text-3xl font-black drop-shadow-md">{(name || "?").charAt(0).toUpperCase()}</span>
+      </div>
+    );
+  }
+  return (
+    <div className={`${className} rounded-xl sm:rounded-2xl bg-slate-800/60 flex items-center justify-center shadow-lg shadow-black/30 ring-1 ring-white/10 overflow-hidden`}>
+      <img src={uri} loading="lazy" decoding="async" alt="" className="w-full h-full object-cover" />
+    </div>
+  );
+}
+
+function emailIdentity(email: Pick<Email, "id" | "account_label">) {
+  return `${email.account_label || "Primary"}:${email.id}`;
+}
+
+function filterVisibleEmails(list: Email[], prefs?: UserProfilePrefs | null) {
+  const hiddenIds = new Set(prefs?.hiddenEmailIds || []);
+  const hiddenBeforeTime = prefs?.hiddenBefore ? new Date(prefs.hiddenBefore).getTime() : 0;
+  return list.filter((email) => {
+    if (hiddenIds.has(email.id) || hiddenIds.has(emailIdentity(email))) return false;
+    if (hiddenBeforeTime) {
+      const emailTime = new Date(email.date || 0).getTime();
+      if (!Number.isNaN(emailTime) && emailTime <= hiddenBeforeTime) return false;
+    }
+    return true;
+  });
+}
 
 // ==================== CAPTCHA MODAL (shared) ====================
 function CaptchaModal({ siteKey, onVerify, onCancel }: { siteKey: string; onVerify: (token: string) => void; onCancel: () => void }) {
@@ -493,68 +419,66 @@ function CaptchaModal({ siteKey, onVerify, onCancel }: { siteKey: string; onVeri
 
 // ==================== NETFLIX-STYLE PROFILE LOGIN ====================
 function ProfileSelectPage() {
-  const [profiles, setProfiles] = useState<UserData[]>([]);
+  const cachedBootstrap = useMemo(() => readBootstrapCache(), []);
+  const cachedUsers = useMemo<UserData[]>(
+    () => (cachedBootstrap?.users || []).filter((u: UserData) => u.role === "user"),
+    [cachedBootstrap]
+  );
+  const [profiles, setProfiles] = useState<UserData[]>(cachedUsers);
   const [selectedProfile, setSelectedProfile] = useState<UserData | null>(null);
   const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(true);
+  // Only show a skeleton on cold visits (no cache at all).
+  const [loading, setLoading] = useState(cachedUsers.length === 0);
+  const [fromCache, setFromCache] = useState(cachedUsers.length > 0);
   const [loginLoading, setLoginLoading] = useState(false);
   const [error, setError] = useState("");
-  const [siteKey, setSiteKey] = useState<string | null>(null);
+  const [siteKey, setSiteKey] = useState<string | null>(
+    cachedBootstrap?.recaptcha?.enabled === true && cachedBootstrap?.recaptcha?.siteKey
+      ? cachedBootstrap.recaptcha.siteKey
+      : null
+  );
   const [showCaptcha, setShowCaptcha] = useState(false);
   const navigate = useNavigate();
   const { checkAuth } = useAuth();
-  const pendingExactLocationRef = useRef<ExactLocation | null>(null);
 
-  const loadProfiles = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError("");
-      // Use direct Supabase bootstrap — no worker URL needed
-      const bootstrap = await bootstrapFromSupabase();
-      setProfiles((bootstrap.users || []).filter((u: UserData) => u.role === "user"));
-      if (bootstrap.recaptcha?.enabled === true && bootstrap.recaptcha?.siteKey) {
-        setSiteKey(bootstrap.recaptcha.siteKey);
-      }
-    } catch (err: any) {
-      console.error("Failed to load profiles:", err);
-      setError("Failed to load profiles. Please try again.");
-    } finally {
-      setLoading(false);
-    }
+  useEffect(() => {
+    let cancelled = false;
+    bootstrapPromise
+      .then((bootstrap) => {
+        if (cancelled) return;
+        setProfiles((bootstrap.users || []).filter((u: UserData) => u.role === "user"));
+        if (bootstrap.recaptcha?.enabled === true && bootstrap.recaptcha?.siteKey) {
+          setSiteKey(bootstrap.recaptcha.siteKey);
+        } else {
+          setSiteKey(null);
+        }
+        setError("");
+        setFromCache(false);
+      })
+      .catch((err) => {
+        console.error("Failed to load profiles:", err);
+        if (!cancelled && profiles.length === 0) {
+          setError("Failed to load profiles. Please try again.");
+        }
+      })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => { loadProfiles(); }, [loadProfiles]);
 
-  const initiateLogin = async (e: React.FormEvent) => {
+  const initiateLogin = (e: React.FormEvent) => {
     e.preventDefault();
-
-    try {
-      setError("");
-      pendingExactLocationRef.current = await requestExactLocationForLogin();
-      if (siteKey) {
-        setShowCaptcha(true);
-      } else {
-        void executeLogin();
-      }
-    } catch (err) {
-      pendingExactLocationRef.current = null;
-      const msg = err instanceof Error ? err.message : "Location access is required before login.";
-      setError(msg);
-      toast.error(msg);
+    setError("");
+    if (siteKey) {
+      setShowCaptcha(true);
+    } else {
+      void executeLogin();
     }
   };
 
   const executeLogin = async () => {
     if (!selectedProfile) return;
-
-    const exactLocation = pendingExactLocationRef.current;
-    if (!exactLocation) {
-      const msg = "Allow exact location access before signing in.";
-      setError(msg);
-      toast.error(msg);
-      return;
-    }
-
     setLoginLoading(true);
     setError("");
 
@@ -563,7 +487,6 @@ function ProfileSelectPage() {
         throw new Error("Too many attempts. Wait 1 minute.");
       }
 
-      // Login via worker if available, otherwise direct Supabase
       let data: any;
       const workerUrls = getStoredWorkerUrls();
       if (workerUrls.length > 0) {
@@ -582,7 +505,6 @@ function ProfileSelectPage() {
         if (data.sessionToken) localStorage.setItem("session_token", data.sessionToken);
       }
 
-      // Store worker URLs returned from login response
       if (data.workerUrls && Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
         storeWorkerUrls(data.workerUrls);
       }
@@ -591,37 +513,39 @@ function ProfileSelectPage() {
       markSessionStart();
       checkAuth();
 
-      void (async () => {
-        try {
-          await sendLoginNotification(
-            {
-              username: data.user.username,
-              name: data.user.name,
-              status: "success",
-            },
-            exactLocation
-          );
-        } catch (notifErr) {
-          console.error("[notification] Failed to send login notification:", notifErr);
-        }
-      })();
-
       navigate("/viewer");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Login failed";
       setError(msg);
       toast.error(msg);
     } finally {
-      pendingExactLocationRef.current = null;
       setLoginLoading(false);
     }
   };
 
 
-  if (loading) {
+
+  if (loading && profiles.length === 0) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-red-500 border-t-transparent rounded-full animate-spin" />
+      <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 flex flex-col items-center justify-center px-4 py-8 sm:p-6 relative overflow-hidden">
+        <div className="absolute inset-0 bg-[linear-gradient(to_right,#4f4f4f12_1px,transparent_1px),linear-gradient(to_bottom,#4f4f4f12_1px,transparent_1px)] bg-[size:20px_20px] [mask-image:radial-gradient(ellipse_80%_60%_at_50%_0%,#000_50%,transparent_100%)]" />
+        <div className="relative z-10 w-full max-w-2xl">
+          <div className="flex justify-center mb-6">
+            <div className="bg-gradient-to-br from-red-500 to-red-700 p-3 sm:p-4 rounded-2xl shadow-xl shadow-red-900/40 ring-1 ring-white/10">
+              <Mail className="text-white w-6 h-6 sm:w-8 sm:h-8" />
+            </div>
+          </div>
+          <h1 className="text-2xl sm:text-4xl font-black text-white text-center mb-1 sm:mb-2 tracking-tight">Who's viewing?</h1>
+          <p className="text-slate-500 text-center text-xs sm:text-sm mb-6 sm:mb-10">Select your profile to continue</p>
+          <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 sm:gap-5 justify-items-center px-2">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="flex flex-col items-center gap-2 sm:gap-3 w-full max-w-[100px] sm:max-w-[120px]">
+                <div className="w-16 h-16 sm:w-24 sm:h-24 rounded-xl sm:rounded-2xl bg-slate-800/60 animate-pulse ring-1 ring-white/5" />
+                <div className="h-3 w-14 rounded bg-slate-800/60 animate-pulse" />
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     );
   }
@@ -663,13 +587,14 @@ function ProfileSelectPage() {
               <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 sm:gap-5 justify-items-center px-2">
                 {profiles.map((profile, i) => (
                   <motion.button key={profile.id}
-                    initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }}
-                    transition={{ delay: 0.1 + i * 0.04 }}
+                    initial={fromCache ? false : { opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={fromCache ? { duration: 0 } : { delay: 0.1 + i * 0.04 }}
                     whileHover={{ scale: 1.08, y: -4 }} whileTap={{ scale: 0.92 }}
                     onClick={() => setSelectedProfile(profile)}
                     className="flex flex-col items-center gap-2 sm:gap-3 group w-full max-w-[100px] sm:max-w-[120px]">
-                    <div className={`w-16 h-16 sm:w-24 sm:h-24 rounded-xl sm:rounded-2xl ${PROFILE_COLORS[i % PROFILE_COLORS.length]} flex items-center justify-center shadow-lg shadow-black/30 group-hover:shadow-xl group-hover:ring-2 group-hover:ring-white/40 transition-all duration-200`}>
-                      <span className="text-white text-xl sm:text-3xl font-black drop-shadow-md">{profile.name.charAt(0).toUpperCase()}</span>
+                    <div className="group-hover:shadow-xl group-hover:ring-2 group-hover:ring-white/40 rounded-xl sm:rounded-2xl transition-all duration-200">
+                      <ProfileAvatar avatarId={profile.profileAvatar} name={profile.name} className="w-16 h-16 sm:w-24 sm:h-24" fallbackColor={PROFILE_COLORS[i % PROFILE_COLORS.length]} />
                     </div>
                     <span className="text-slate-400 font-semibold text-[11px] sm:text-sm group-hover:text-white transition-colors duration-200 truncate w-full text-center">{profile.name}</span>
                   </motion.button>
@@ -681,15 +606,15 @@ function ProfileSelectPage() {
           <motion.div key="password" initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
             transition={{ duration: 0.35 }}
             className="relative z-10 w-full max-w-sm px-2">
-            <button onClick={() => { pendingExactLocationRef.current = null; setSelectedProfile(null); setPassword(""); setError(""); }}
+            <button onClick={() => { setSelectedProfile(null); setPassword(""); setError(""); }}
               className="text-slate-500 hover:text-white text-sm font-bold mb-8 flex items-center gap-1.5 transition-colors group">
               <ArrowLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" /> Back
             </button>
 
             <div className="flex flex-col items-center mb-8">
               <motion.div initial={{ scale: 0.8 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 200 }}
-                className={`w-20 h-20 sm:w-24 sm:h-24 rounded-2xl ${PROFILE_COLORS[profiles.indexOf(selectedProfile) % PROFILE_COLORS.length]} flex items-center justify-center shadow-xl shadow-black/30 mb-4 ring-1 ring-white/10`}>
-                <span className="text-white text-2xl sm:text-3xl font-black drop-shadow-md">{selectedProfile.name.charAt(0).toUpperCase()}</span>
+                className="mb-4">
+                <ProfileAvatar avatarId={selectedProfile.profileAvatar} name={selectedProfile.name} className="w-20 h-20 sm:w-24 sm:h-24" fallbackColor={PROFILE_COLORS[profiles.indexOf(selectedProfile) % PROFILE_COLORS.length]} />
               </motion.div>
               <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">{selectedProfile.name}</h2>
               <p className="text-slate-500 text-xs sm:text-sm mt-0.5">@{selectedProfile.username}</p>
@@ -743,12 +668,10 @@ function AdminLoginPage() {
   const [showCaptcha, setShowCaptcha] = useState(false);
   const navigate = useNavigate();
   const { checkAuth } = useAuth();
-  const pendingExactLocationRef = useRef<ExactLocation | null>(null);
 
   useEffect(() => {
     (async () => {
       try {
-        // Use bootstrap to get recaptcha config without needing worker URLs
         const bootstrap = await bootstrapFromSupabase();
         if (bootstrap.recaptcha?.enabled === true && bootstrap.recaptcha?.siteKey) {
           setSiteKey(bootstrap.recaptcha.siteKey);
@@ -757,40 +680,22 @@ function AdminLoginPage() {
     })();
   }, []);
 
-  const initiateLogin = async (e: React.FormEvent) => {
+  const initiateLogin = (e: React.FormEvent) => {
     e.preventDefault();
-
-    try {
-      setError("");
-      pendingExactLocationRef.current = await requestExactLocationForLogin();
-      if (siteKey) {
-        setShowCaptcha(true);
-      } else {
-        void executeLogin();
-      }
-    } catch (err) {
-      pendingExactLocationRef.current = null;
-      const msg = err instanceof Error ? err.message : "Location access is required before login.";
-      setError(msg);
-      toast.error(msg);
+    setError("");
+    if (siteKey) {
+      setShowCaptcha(true);
+    } else {
+      void executeLogin();
     }
   };
 
   const executeLogin = async () => {
-    const exactLocation = pendingExactLocationRef.current;
-    if (!exactLocation) {
-      const msg = "Allow exact location access before signing in.";
-      setError(msg);
-      toast.error(msg);
-      return;
-    }
-
     setLoading(true);
     setError("");
     try {
       if (!checkRateLimit(`admin_${username}`)) throw new Error("Too many attempts. Wait 1 minute.");
 
-      // Login via Supabase directly if no worker URLs available, otherwise via worker
       let data: any;
       const workerUrls = getStoredWorkerUrls();
       if (workerUrls.length > 0) {
@@ -802,49 +707,33 @@ function AdminLoginPage() {
         if (result.error) throw result.error;
         data = result.data;
         if (!data?.success) throw new Error(data?.error || "Login failed");
-        if (data.sessionToken) localStorage.setItem("session_token", data.sessionToken);
+        if (data.pendingToken) localStorage.setItem("pending_admin_token", data.pendingToken);
       }
 
       if (data.user.role !== "admin") throw new Error("Access denied");
+      if (data.pendingToken) localStorage.setItem("pending_admin_token", data.pendingToken);
 
-      // Store worker URLs returned from login response
       if (data.workerUrls && Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
         storeWorkerUrls(data.workerUrls);
       }
 
-      localStorage.setItem("user", JSON.stringify(data.user));
-      markSessionStart();
+      localStorage.setItem("user", JSON.stringify({ ...data.user, pending: true }));
       checkAuth();
 
-      void (async () => {
-        try {
-          await sendLoginNotification(
-            {
-              username: data.user.username,
-              name: data.user.name,
-              status: "success",
-            },
-            exactLocation
-          );
-        } catch (notifErr) {
-          console.error("[notification] Failed to send admin login notification:", notifErr);
-        }
-      })();
-
-      toast.success("Login successful. Proceeding to 2FA.");
+      toast.success("Password verified. Complete 2FA to enter admin.");
       navigate("/admin-auth");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Login failed";
       setError(msg);
       toast.error(msg);
     } finally {
-      pendingExactLocationRef.current = null;
       setLoading(false);
     }
   };
 
+
   return (
-    <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+    <div className="min-h-[100dvh] bg-slate-900 flex items-center justify-center px-4 py-6 pt-[calc(env(safe-area-inset-top)+1rem)]">
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
         className="bg-white w-full max-w-md rounded-2xl sm:rounded-3xl p-5 sm:p-8 shadow-2xl border-t-4 sm:border-t-8 border-red-600 mx-2 sm:mx-0">
         <div className="flex justify-center mb-8">
@@ -940,14 +829,13 @@ function AdminAuthPage() {
     if (step === 2 && !user.totpSecret) {
       (async () => {
         try {
-          const { generateSecret, generateURI } = await import("otplib");
-          const secret = generateSecret();
-          setSecretKey(secret);
-          const uri = generateURI({ issuer: "AdminPanel", label: user.username, secret });
-          setQrCode(uri);
-          await apiCall("manage-app", { action: "update_totp", id: user.id, totp_secret: secret });
+          if (user.totpConfigured) return;
+          const res = await apiCall("manage-app", { action: "update_totp", user_id: user.id });
+          if (res.secret) setSecretKey(res.secret);
+          if (res.otpauthUrl) setQrCode(res.otpauthUrl);
         } catch (err) {
           console.error("TOTP setup error:", err);
+          toast.error(err instanceof Error ? err.message : "Could not start authenticator setup");
         }
       })();
     }
@@ -971,24 +859,29 @@ function AdminAuthPage() {
   const verifyTotp = async () => {
     setLoading(true);
     try {
-      const { verify } = await import("otplib");
-      const secret = user.totpSecret || secretKey;
-      const result = await verify({ secret, token: totp });
-      if (result && (result as any).delta !== undefined) {
-        localStorage.setItem("admin_auth", "true");
-        navigate("/admin/dashboard");
-      } else {
-        throw new Error("Invalid Google Auth Code");
+      await apiCall("manage-app", { action: "verify_totp", user_id: user.id, code: totp });
+      const finalData = await apiCall("manage-app", { action: "finalize_admin_session", user_id: user.id });
+      if (finalData.workerUrls && Array.isArray(finalData.workerUrls) && finalData.workerUrls.length > 0) {
+        storeWorkerUrls(finalData.workerUrls);
       }
-    } catch {
-      setError("Invalid Google Auth Code");
+      if (finalData.sessionToken) localStorage.setItem("session_token", finalData.sessionToken);
+      localStorage.removeItem("pending_admin_token");
+      localStorage.setItem("admin_auth", "true");
+      localStorage.setItem("user", JSON.stringify(finalData.user));
+      markSessionStart();
+      toast.success("Admin session secured.");
+      navigate("/admin/dashboard");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Invalid Google Auth Code";
+      setError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 relative overflow-hidden">
+    <div className="min-h-[100dvh] bg-slate-950 flex items-center justify-center px-4 py-6 pt-[calc(env(safe-area-inset-top)+1rem)] relative overflow-hidden">
       <div className="absolute inset-0 bg-[linear-gradient(to_right,#4f4f4f2e_1px,transparent_1px),linear-gradient(to_bottom,#4f4f4f2e_1px,transparent_1px)] bg-[size:14px_24px] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_0%,#000_70%,transparent_100%)]" />
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-red-600/20 blur-[120px] rounded-full pointer-events-none" />
 
@@ -1379,7 +1272,7 @@ function AdminPanel() {
   ];
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-[100dvh] bg-slate-50 overflow-x-hidden">
       <header className="bg-white border-b px-3 sm:px-6 py-3 sm:py-4 sticky top-0 z-10 shadow-sm">
         <div className="max-w-6xl mx-auto flex justify-between items-center gap-2">
           <h1 className="text-sm sm:text-xl font-black flex items-center gap-2 min-w-0 truncate">
@@ -1438,7 +1331,7 @@ function AdminPanel() {
                 <div className="bg-green-50 p-1.5 rounded-lg"><Plus className="w-4 h-4 text-green-600" /></div>
                 Create User
               </h2>
-              <div className="space-y-3">
+              <div className="space-y-3 min-w-0">
                 <input type="text" placeholder="Display Name" value={newName} onChange={(e) => setNewName(e.target.value)}
                   className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
                 <input type="text" placeholder="Username" value={newUsername} onChange={(e) => setNewUsername(e.target.value)}
@@ -1480,15 +1373,15 @@ function AdminPanel() {
               </h2>
               <div className="space-y-3">
                 {users.map(u => (
-                  <div key={u.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 hover:border-slate-200 transition-colors">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
+                  <div key={u.id} className="p-3 sm:p-4 bg-slate-50 rounded-2xl border border-slate-100 hover:border-slate-200 transition-colors min-w-0">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
                         <div className={`w-10 h-10 rounded-xl ${u.role === "admin" ? "bg-red-500" : "bg-blue-500"} flex items-center justify-center`}>
                           <span className="text-white font-black text-sm">{u.name.charAt(0).toUpperCase()}</span>
                         </div>
-                        <div>
-                          <p className="font-bold text-slate-900">{u.name}</p>
-                          <p className="text-xs text-slate-500">@{u.username} • <span className={u.role === "admin" ? "text-red-600 font-bold" : "text-blue-600"}>{u.role}</span></p>
+                        <div className="min-w-0">
+                          <p className="font-bold text-slate-900 truncate">{u.name}</p>
+                          <p className="text-xs text-slate-500 truncate">@{u.username} • <span className={u.role === "admin" ? "text-red-600 font-bold" : "text-blue-600"}>{u.role}</span></p>
                           {u.assignedAccounts && u.assignedAccounts.length > 0 && (
                             <div className="flex flex-wrap gap-1 mt-1">
                               {u.assignedAccounts.map((a: string) => (
@@ -1502,7 +1395,7 @@ function AdminPanel() {
                         </div>
                       </div>
                       {u.role !== "admin" && (
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1 self-end sm:self-auto">
                           <button onClick={() => loginAsUser(u)} title="View as user"
                             className="p-2 hover:bg-blue-50 text-blue-400 hover:text-blue-600 rounded-lg transition-colors">
                             <Eye className="w-4 h-4" />
@@ -1547,7 +1440,7 @@ function AdminPanel() {
                     )}
 
                     {changingUserPass === u.id && u.role !== "admin" && (
-                      <div className="mt-3 flex gap-2">
+                      <div className="mt-3 flex flex-col sm:flex-row gap-2">
                         <PasswordInput value={userNewPass} onChange={(e) => setUserNewPass(e.target.value)}
                           placeholder="New password (min 6)"
                           className="flex-1 bg-white border rounded-lg p-2 pr-10 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
@@ -2252,24 +2145,269 @@ function ChangePasswordModal({ user, onDone, forced = false }: { user: UserData;
   );
 }
 
+function AvatarRow({
+  category,
+  userName,
+  selectedAvatar,
+  onPick,
+  saving,
+}: {
+  category: typeof AVATAR_CATEGORIES[number];
+  userName?: string;
+  selectedAvatar: string | null;
+  onPick: (id: string) => void;
+  saving: boolean;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) if (e.isIntersecting) { setVisible(true); io.disconnect(); return; }
+      },
+      { root: null, rootMargin: "300px 0px", threshold: 0.01 }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+  return (
+    <section ref={ref} id={`avatar-row-${category.key}`} className="scroll-mt-16">
+      <div className="flex items-center justify-between px-4 sm:px-5 mb-2">
+        <h4 className="text-xs sm:text-sm font-black text-slate-900 tracking-tight">{category.label}</h4>
+        <span className="text-[10px] font-bold text-slate-400">{category.seeds.length}</span>
+      </div>
+      {!visible ? (
+        <div className="flex gap-2 sm:gap-3 px-4 sm:px-5 overflow-hidden">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl bg-slate-100 animate-pulse flex-shrink-0" />
+          ))}
+        </div>
+      ) : (
+        <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2 sm:gap-3 px-4 sm:px-5 pb-2">
+          {category.seeds.map((seed) => {
+            const id = buildAvatarId(category.style, seed);
+            const selected = selectedAvatar === id;
+            return (
+              <button
+                key={id}
+                onClick={() => onPick(id)}
+                disabled={saving}
+                title={`${category.label} ${seed}`}
+                className={`rounded-2xl p-1 transition-all active:scale-95 ${selected ? "ring-4 ring-red-500 bg-red-50" : "ring-1 ring-slate-200 hover:ring-slate-400 bg-white"}`}
+              >
+                <ProfileAvatar avatarId={id} name={userName} className="w-14 h-14 sm:w-20 sm:h-20 md:w-24 md:h-24 mx-auto" />
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function AvatarPicker({
+  userName,
+  selectedAvatar,
+  onPick,
+  saving,
+}: {
+  userName?: string;
+  selectedAvatar: string | null;
+  onPick: (id: string) => void;
+  saving: boolean;
+}) {
+  const [query, setQuery] = useState("");
+  const trimmed = query.trim().toLowerCase();
+  const scrollToRow = (key: string) => {
+    const el = document.getElementById(`avatar-row-${key}`);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+  const filteredCategories = trimmed
+    ? AVATAR_CATEGORIES.map((c) => ({
+        ...c,
+        seeds: c.label.toLowerCase().includes(trimmed)
+          ? c.seeds
+          : c.seeds.filter((s) => s.toLowerCase().includes(trimmed)),
+      })).filter((c) => c.seeds.length > 0)
+    : AVATAR_CATEGORIES;
+  return (
+    <div className="pb-4">
+      <div className="sticky top-0 z-10 bg-white/95 backdrop-blur border-b border-slate-100 px-4 sm:px-5 py-3 space-y-2">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-black text-slate-900">Choose profile icon</h3>
+          {saving && <span className="text-[10px] font-bold text-slate-400">Saving…</span>}
+        </div>
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search style or seed…"
+            className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-sm outline-none focus:ring-2 focus:ring-red-500"
+          />
+        </div>
+        {!trimmed && (
+          <div className="flex gap-1.5 overflow-x-auto scrollbar-thin -mx-1 px-1">
+            {AVATAR_CATEGORIES.map((c) => (
+              <button
+                key={c.key}
+                onClick={() => scrollToRow(c.key)}
+                className="flex-shrink-0 px-3 py-1 text-[11px] font-bold rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors"
+              >
+                {c.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="space-y-4 pt-3">
+        {filteredCategories.length === 0 ? (
+          <p className="text-center text-xs text-slate-400 py-8">No avatars match "{query}"</p>
+        ) : (
+          filteredCategories.map((c) => (
+            <AvatarRow
+              key={c.key}
+              category={c}
+              userName={userName}
+              selectedAvatar={selectedAvatar}
+              onPick={onPick}
+              saving={saving}
+            />
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function UserProfileModal({
+  user,
+  prefs,
+  onPrefsSaved,
+  onPassword,
+  onDeleteOldEmails,
+  onClose,
+}: {
+  user: UserData;
+  prefs: UserProfilePrefs;
+  onPrefsSaved: (prefs: UserProfilePrefs) => void;
+  onPassword: () => void;
+  onDeleteOldEmails: () => void;
+  onClose: () => void;
+}) {
+  const [savingAvatar, setSavingAvatar] = useState(false);
+  const selectedAvatar = prefs.avatarId || null;
+
+  const saveAvatar = async (avatarId: string) => {
+    if (savingAvatar) return;
+    const nextPrefs = { ...prefs, avatarId };
+    setSavingAvatar(true);
+    onPrefsSaved(nextPrefs);
+    try {
+      await apiCall("manage-app", { action: "update_profile_prefs", profile_prefs: nextPrefs });
+      toast.success("Profile icon updated");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not save icon");
+    } finally {
+      setSavingAvatar(false);
+    }
+  };
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <motion.div initial={{ scale: 0.94, opacity: 0, y: 12 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.94, opacity: 0, y: 12 }}
+        className="bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden max-h-[92vh] flex flex-col">
+        <div className="p-5 border-b border-slate-100 flex items-center justify-between">
+          <div className="flex items-center gap-3 min-w-0">
+            <ProfileAvatar avatarId={selectedAvatar} name={user.name} className="w-12 h-12" fallbackColor="bg-red-500" />
+            <div className="min-w-0">
+              <h2 className="text-lg font-black text-slate-900 leading-tight truncate">{user.name}</h2>
+              <p className="text-xs text-slate-500 truncate">@{user.username}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full transition-colors" aria-label="Close profile">
+            <X className="w-5 h-5 text-slate-500" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
+          <AvatarPicker
+            userName={user.name}
+            selectedAvatar={selectedAvatar}
+            onPick={saveAvatar}
+            saving={savingAvatar}
+          />
+        </div>
+        <div className="p-4 border-t border-slate-100 bg-white/95 backdrop-blur">
+
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <button onClick={() => { onClose(); onPassword(); }}
+              className="flex items-center justify-center gap-2 bg-slate-900 text-white font-bold py-3 rounded-xl hover:bg-slate-800 transition-all active:scale-95">
+              <Key className="w-4 h-4" /> Change Password
+            </button>
+            <button onClick={onDeleteOldEmails}
+              className="flex items-center justify-center gap-2 bg-red-600 text-white font-bold py-3 rounded-xl hover:bg-red-700 transition-all active:scale-95">
+              <Trash2 className="w-4 h-4" /> Delete old emails
+            </button>
+          </div>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
 // ==================== EMAIL VIEWER ====================
 function EmailViewer() {
   const user = JSON.parse(localStorage.getItem("user") || "{}");
   const cacheKey = `cached_emails_v1:${user.id || "anon"}`;
+  const [profilePrefs, setProfilePrefs] = useState<UserProfilePrefs>(() => user.profilePrefs || {});
+  const saveProfilePrefsLocally = useCallback((nextPrefs: UserProfilePrefs) => {
+    setProfilePrefs(nextPrefs);
+    try {
+      const stored = JSON.parse(localStorage.getItem("user") || "{}");
+      stored.profilePrefs = nextPrefs;
+      stored.profileAvatar = nextPrefs.avatarId || null;
+      localStorage.setItem("user", JSON.stringify(stored));
+    } catch {}
+  }, []);
+  const readLocalCachedEmails = useCallback((): Email[] => {
+    try {
+      const raw = localStorage.getItem(cacheKey);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? filterVisibleEmails(parsed as Email[], profilePrefs) : [];
+    } catch {
+      return [];
+    }
+  }, [cacheKey, profilePrefs]);
   const [emails, setEmailsRaw] = useState<Email[]>(() => {
     try {
       const raw = localStorage.getItem(cacheKey);
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) return parsed as Email[];
+        if (Array.isArray(parsed)) return filterVisibleEmails(parsed as Email[], user.profilePrefs || {});
       }
     } catch {}
     return [];
   });
   const setEmails = useCallback((next: Email[]) => {
-    setEmailsRaw(next);
-    try { localStorage.setItem(cacheKey, JSON.stringify(next.slice(0, 200))); } catch {}
-  }, [cacheKey]);
+    const visible = filterVisibleEmails(next, profilePrefs);
+    setEmailsRaw(visible);
+    try { localStorage.setItem(cacheKey, JSON.stringify(visible.slice(0, 200))); } catch {}
+  }, [cacheKey, profilePrefs]);
+  const showLocalCacheNow = useCallback(() => {
+    const cached = readLocalCachedEmails();
+    if (cached.length > 0) {
+      cached.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      setEmailsRaw(cached);
+      setError(null);
+      setLastUpdated(new Date());
+    }
+    return cached.length;
+  }, [readLocalCachedEmails]);
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -2277,6 +2415,7 @@ function EmailViewer() {
   const [otpCopied, setOtpCopied] = useState(false);
   const navigate = useNavigate();
   const [showChangePassword, setShowChangePassword] = useState(!!user.mustChangePassword);
+  const [showProfile, setShowProfile] = useState(false);
   const [forcedPasswordChange] = useState(!!user.mustChangePassword);
   const isImpersonating = !!localStorage.getItem("admin_backup");
 
@@ -2384,6 +2523,8 @@ function EmailViewer() {
         const workerRes = await fetchFromWorkers("/api/emails", "GET", undefined, cacheUrls);
         if (workerRes && workerRes.ok) {
           emailData = await workerRes.json();
+          // If Worker KV has an old empty cache, immediately read the DB cache instead.
+          if (Array.isArray(emailData) && emailData.length === 0) emailData = null;
         } else if (workerRes && !workerRes.ok) {
           const errData = await workerRes.json().catch(() => ({}));
           console.warn("[loadCachedEmails] Worker returned error:", errData?.error);
@@ -2422,13 +2563,13 @@ function EmailViewer() {
       setEmails(emailList);
       setError(null);
       setLastUpdated(new Date());
-      return emailList.length;
+      return filterVisibleEmails(emailList, profilePrefs).length;
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to load emails";
       setError(msg);
       return 0;
     }
-  }, [fetchFromWorkers, resolvedWorkerUrls.length, workerUrlsLoading, workerUrlMap.primary]);
+  }, [fetchFromWorkers, profilePrefs, resolvedWorkerUrls.length, workerUrlsLoading, workerUrlMap.primary, setEmails]);
 
   const syncViaWorker = useCallback(async () => {
     const { primary, byAccount } = workerUrlMap;
@@ -2446,7 +2587,7 @@ function EmailViewer() {
         "apikey": supabaseKey,
       };
       if (token) headers["X-Session-Token"] = token;
-      const body: any = { mode: "sync" };
+        const body: any = { mode: "sync_async", source: "user_refresh" };
       if (accountLabels) body.accountLabels = accountLabels;
       const res = await fetch(`${supabaseUrl}/functions/v1/fetch-emails`, {
         method: "POST", headers, body: JSON.stringify(body),
@@ -2471,7 +2612,7 @@ function EmailViewer() {
       const accountWorkerUrls = byAccount[label];
       syncPromises.push((async () => {
         const urlsToTry = [...accountWorkerUrls, ...primary];
-        const res = await fetchFromWorkers("/api/emails/sync", "POST", { mode: "sync", accountLabels: [label] }, urlsToTry);
+        const res = await fetchFromWorkers("/api/emails/sync", "POST", { mode: "sync_async", source: "user_refresh", accountLabels: [label] }, urlsToTry);
         if (!res || !res.ok) {
           console.warn(`[sync] Workers failed for "${label}", falling back to Supabase`);
           await syncDirectSupabase([label]);
@@ -2484,14 +2625,14 @@ function EmailViewer() {
     // Remaining accounts sync through primary workers (with Supabase fallback)
     if (primary.length > 0) {
       syncPromises.push((async () => {
-        const res = await fetchFromWorkers("/api/emails/sync", "POST", { mode: "sync" }, primary);
+        const res = await fetchFromWorkers("/api/emails/sync", "POST", { mode: "sync_async", source: "user_refresh" }, primary);
         if (!res || !res.ok) {
           console.warn("[sync] Primary workers failed, falling back to Supabase");
           await syncDirectSupabase();
         }
       })());
     } else if (accountLabelsWithWorkers.length === 0) {
-      const res = await fetchFromWorkers("/api/emails/sync", "POST", { mode: "sync" });
+      const res = await fetchFromWorkers("/api/emails/sync", "POST", { mode: "sync_async", source: "user_refresh" });
       if (!res || !res.ok) {
         console.warn("[sync] All workers failed, falling back to Supabase");
         await syncDirectSupabase();
@@ -2504,23 +2645,28 @@ function EmailViewer() {
   const fetchEmails = async () => {
     if (refreshing) return;
     setRefreshing(true);
-    const before = emails.length;
+    const before = showLocalCacheNow() || emails.length;
+    const toastId = toast.loading("Checking Netflix mail…");
     try {
-      // 1. Show cached instantly (fast)
-      await loadCachedEmails();
-      // 2. Kick off IMAP sync in background — don't block UI
+      // Refresh must never blank or block: DB cache first, then slow IMAP sync in background.
+      const cachedCount = await loadCachedEmails();
+      setRefreshing(false);
+      const baseline = Math.max(before, cachedCount);
+
       syncViaWorker()
+        .then(() => new Promise(resolve => setTimeout(resolve, 4000)))
         .then(() => loadCachedEmails())
-        .then(() => {
-          const after = (JSON.parse(localStorage.getItem(cacheKey) || "[]") as Email[]).length;
-          const newCount = after - before;
+        .then((after) => {
+          const newCount = after - baseline;
           if (newCount > 0) {
-            toast.success(`${newCount} new email${newCount === 1 ? "" : "s"}`);
+            toast.success(`✨ ${newCount} new email${newCount === 1 ? "" : "s"} arrived`, { id: toastId, duration: 3500 });
+          } else {
+            toast.success("✓ Inbox already up to date", { id: toastId, duration: 2200 });
           }
         })
         .catch((err) => {
           const msg = err instanceof Error ? err.message : "Sync failed";
-          toast.error(msg);
+          toast.error(msg, { id: toastId, duration: 3500 });
         })
         .finally(() => setRefreshing(false));
     } catch (err) {
@@ -2530,11 +2676,37 @@ function EmailViewer() {
     }
   };
 
-  // Load cached emails immediately on mount — independent of worker discovery
+  const deleteOldEmailsForUser = async () => {
+    const newestVisibleTime = emails.reduce((max, email) => {
+      const time = new Date(email.date || 0).getTime();
+      return Number.isNaN(time) ? max : Math.max(max, time);
+    }, 0);
+    const hiddenBefore = new Date(newestVisibleTime || Date.now()).toISOString();
+    const nextPrefs = {
+      ...profilePrefs,
+      hiddenBefore,
+      hiddenEmailIds: Array.from(new Set([...(profilePrefs.hiddenEmailIds || []), ...emails.map(emailIdentity), ...emails.map((e) => e.id)])).slice(-2000),
+    };
+
+    saveProfilePrefsLocally(nextPrefs);
+    setEmailsRaw([]);
+    setSelectedEmail(null);
+    try { localStorage.setItem(cacheKey, JSON.stringify([])); } catch {}
+
+    try {
+      await apiCall("manage-app", { action: "update_profile_prefs", profile_prefs: nextPrefs });
+      toast.success("Old emails deleted for this profile");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not save delete setting");
+    }
+  };
+
+  // Load cached emails immediately on mount — local first, no blocking blank screen.
   useEffect(() => {
     let cancelled = false;
-    // Only show full-screen loader if we have no hydrated cache
-    if (emails.length === 0) setLoading(true);
+    showLocalCacheNow();
+    setLoading(false);
+
     loadCachedEmails().finally(() => {
       if (!cancelled) setLoading(false);
     });
@@ -2565,6 +2737,7 @@ function EmailViewer() {
     if (workerUrlsLoading || initialSyncFired.current) return;
     initialSyncFired.current = true;
     syncViaWorker()
+      .then(() => new Promise(resolve => setTimeout(resolve, 4000)))
       .then(() => loadCachedEmails())
       .catch(() => {});
   }, [workerUrlsLoading, syncViaWorker, loadCachedEmails]);
@@ -2581,14 +2754,23 @@ function EmailViewer() {
       {showChangePassword && (
         <ChangePasswordModal user={user} onDone={() => setShowChangePassword(false)} forced={forcedPasswordChange && showChangePassword} />
       )}
+      <AnimatePresence>
+        {showProfile && (
+          <UserProfileModal
+            user={user}
+            prefs={profilePrefs}
+            onPrefsSaved={saveProfilePrefsLocally}
+            onPassword={() => setShowChangePassword(true)}
+            onDeleteOldEmails={deleteOldEmailsForUser}
+            onClose={() => setShowProfile(false)}
+          />
+        )}
+      </AnimatePresence>
       <header className="bg-white border-b border-slate-200 sticky top-0 z-20 shadow-sm">
         <div className="max-w-6xl mx-auto px-3 sm:px-4 h-14 sm:h-16 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <div className="flex-shrink-0">
-              <svg viewBox="0 0 24 24" className="w-8 h-8 sm:w-10 sm:h-10" fill="none">
-                <rect width="24" height="24" rx="6" fill="#E50914"/>
-                <path d="M7 5h2.5l3.5 8V5H15.5v14H13L9.5 11v8H7V5z" fill="white"/>
-              </svg>
+              <ProfileAvatar avatarId={profilePrefs.avatarId || user.profileAvatar} name={user.name} className="w-8 h-8 sm:w-10 sm:h-10" fallbackColor="bg-red-600" />
             </div>
             <div className="min-w-0">
               <h1 className="font-bold text-base sm:text-xl tracking-tight leading-tight text-red-600">Netflix Mail</h1>
@@ -2611,11 +2793,11 @@ function EmailViewer() {
               <span className="hidden sm:inline ml-1.5">Refresh</span>
             </button>
             {!isImpersonating && (
-              <button onClick={() => setShowChangePassword(true)}
+              <button onClick={() => setShowProfile(true)}
                 className="flex items-center p-2.5 sm:px-3 sm:py-2 bg-gradient-to-r from-violet-500 to-purple-600 text-white rounded-full text-sm font-bold hover:from-violet-600 hover:to-purple-700 transition-all active:scale-95 shadow-md shadow-purple-200"
-                title="Change Password">
-                <Key className="w-4 h-4 sm:w-5 sm:h-5" />
-                <span className="hidden sm:inline ml-1.5">Password</span>
+                title="Profile">
+                <UserCircle className="w-4 h-4 sm:w-5 sm:h-5" />
+                <span className="hidden sm:inline ml-1.5">Profile</span>
               </button>
             )}
             <button onClick={() => {
@@ -2629,8 +2811,8 @@ function EmailViewer() {
       </header>
 
       <main className="max-w-6xl mx-auto px-2 sm:px-4 h-[calc(100vh-3.5rem)] sm:h-[calc(100vh-4rem)] overflow-hidden">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-8 h-full py-4 sm:py-8">
-          <div className={`${selectedEmail ? "hidden lg:block" : "block"} lg:col-span-5 xl:col-span-4 flex flex-col overflow-hidden h-full`}>
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-4 sm:gap-8 h-full py-4 sm:py-8">
+          <div className={`${selectedEmail ? "hidden md:block" : "block"} md:col-span-5 xl:col-span-4 flex flex-col overflow-hidden h-full`}>
             <section className="bg-white rounded-2xl shadow-sm border border-slate-200 p-3 sm:p-5 flex items-center gap-3 sm:gap-4 flex-shrink-0">
               <div className="bg-green-100 p-2 sm:p-3 rounded-xl flex-shrink-0">
                 <ShieldCheck className="text-green-600 w-6 h-6" />
@@ -2696,7 +2878,7 @@ function EmailViewer() {
             </section>
           </div>
 
-          <div className={`${selectedEmail ? "block" : "hidden lg:flex"} lg:col-span-7 xl:col-span-8 flex flex-col overflow-hidden h-full`}>
+          <div className={`${selectedEmail ? "block" : "hidden md:flex"} md:col-span-7 xl:col-span-8 flex flex-col overflow-hidden h-full`}>
             {selectedEmail ? (
               <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }}
                 className="bg-white rounded-2xl shadow-sm border border-slate-200 flex flex-col h-full overflow-hidden">
@@ -2816,14 +2998,16 @@ export default function App() {
   return (
     <Router>
       <AuthProvider>
-        <Toaster position="top-center" richColors />
-        <Routes>
-          <Route path="/" element={<ProfileSelectPage />} />
-          <Route path="/admin" element={<AdminLoginPage />} />
-          <Route path="/admin-auth" element={<AdminAuthPage />} />
-          <Route path="/admin/dashboard" element={<ProtectedRoute role="admin"><AdminPanel /></ProtectedRoute>} />
-          <Route path="/viewer" element={<ProtectedRoute role="user"><EmailViewer /></ProtectedRoute>} />
-        </Routes>
+        <ResponsiveToaster />
+        <ErrorBoundary>
+          <Routes>
+            <Route path="/" element={<ProfileSelectPage />} />
+            <Route path="/admin" element={<AdminLoginPage />} />
+            <Route path="/admin-auth" element={<AdminAuthPage />} />
+            <Route path="/admin/dashboard" element={<ProtectedRoute role="admin"><AdminPanel /></ProtectedRoute>} />
+            <Route path="/viewer" element={<ProtectedRoute role="user"><EmailViewer /></ProtectedRoute>} />
+          </Routes>
+        </ErrorBoundary>
       </AuthProvider>
     </Router>
   );
