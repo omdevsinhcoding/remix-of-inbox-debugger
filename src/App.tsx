@@ -347,7 +347,7 @@ function getAvatarUri(avatarId?: string | null): string | null {
   return resolveAvatar(avatarId);
 }
 
-function ProfileAvatar({ avatarId, name, className = "w-16 h-16", fallbackColor = "bg-red-500" }: { avatarId?: string | null; name?: string; className?: string; fallbackColor?: string }) {
+function ProfileAvatar({ avatarId, name, className = "w-16 h-16", fallbackColor = "bg-red-500", eager = false }: { avatarId?: string | null; name?: string; className?: string; fallbackColor?: string; eager?: boolean }) {
   const uri = getAvatarUri(avatarId);
   const [loaded, setLoaded] = useState(false);
   useEffect(() => { setLoaded(false); }, [uri]);
@@ -355,6 +355,13 @@ function ProfileAvatar({ avatarId, name, className = "w-16 h-16", fallbackColor 
     return (
       <div className={`${className} rounded-xl sm:rounded-2xl ${fallbackColor} flex items-center justify-center shadow-lg shadow-black/30 ring-1 ring-white/10 overflow-hidden`}>
         <span className="text-white text-xl sm:text-3xl font-black drop-shadow-md">{(name || "?").charAt(0).toUpperCase()}</span>
+      </div>
+    );
+  }
+  if (eager) {
+    return (
+      <div className={`${className} relative rounded-xl sm:rounded-2xl bg-slate-900 overflow-hidden shadow-lg shadow-black/30 ring-1 ring-white/10`}>
+        <img src={uri} loading="eager" decoding="sync" fetchPriority="high" alt="" className="w-full h-full object-cover" />
       </div>
     );
   }
@@ -371,8 +378,8 @@ function ProfileAvatar({ avatarId, name, className = "w-16 h-16", fallbackColor 
       />
     </div>
   );
-
 }
+
 
 
 function emailIdentity(email: Pick<Email, "id" | "account_label">) {
@@ -477,6 +484,15 @@ function ProfileSelectPage() {
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Preload profile avatars into browser cache the instant profiles arrive
+  useEffect(() => {
+    profiles.forEach((p) => {
+      const uri = getAvatarUri(p.profileAvatar);
+      if (uri) { const img = new Image(); img.decoding = "sync"; img.src = uri; }
+    });
+  }, [profiles]);
+
 
 
   const initiateLogin = (e: React.FormEvent) => {
@@ -606,7 +622,7 @@ function ProfileSelectPage() {
                     onClick={() => setSelectedProfile(profile)}
                     className="flex flex-col items-center gap-2 sm:gap-3 group w-full max-w-[100px] sm:max-w-[120px]">
                     <div className="group-hover:shadow-xl group-hover:ring-2 group-hover:ring-white/40 rounded-xl sm:rounded-2xl transition-all duration-200">
-                      <ProfileAvatar avatarId={profile.profileAvatar} name={profile.name} className="w-16 h-16 sm:w-24 sm:h-24" fallbackColor={PROFILE_COLORS[i % PROFILE_COLORS.length]} />
+                      <ProfileAvatar avatarId={profile.profileAvatar} name={profile.name} className="w-16 h-16 sm:w-24 sm:h-24" fallbackColor={PROFILE_COLORS[i % PROFILE_COLORS.length]} eager />
                     </div>
                     <span className="text-slate-400 font-semibold text-[11px] sm:text-sm group-hover:text-white transition-colors duration-200 truncate w-full text-center">{profile.name}</span>
                   </motion.button>
