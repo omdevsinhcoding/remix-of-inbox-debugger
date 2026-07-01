@@ -139,13 +139,14 @@ Deno.serve(async (req) => {
 
     // Bootstrap: returns profiles, recaptcha config, and worker URLs for fresh browsers
     if (action === "bootstrap_public") {
+      // Public profile picker — only non-admin users, minimal fields.
       const { data: users, error: usersErr } = await supabase
         .from("app_users")
-        .select("id, username, name, role, assigned_accounts, profile_prefs")
+        .select("id, username, name, role, profile_prefs")
+        .neq("role", "admin")
         .order("created_at", { ascending: true });
       if (usersErr) throw usersErr;
 
-      // Get recaptcha config
       let recaptcha = null;
       try {
         const { data: rcData } = await supabase.from("app_settings").select("value").eq("key", "recaptcha").single();
@@ -154,28 +155,19 @@ Deno.serve(async (req) => {
         }
       } catch {}
 
-      // Get worker URLs
       let workerUrls: string[] = [];
       try {
         const { data: pcf } = await supabase.from("app_settings").select("value").eq("key", "primary_cloudflare_urls").single();
         if (pcf?.value && Array.isArray(pcf.value)) {
           workerUrls = pcf.value.filter((u: any) => typeof u === "string" && u.length > 0);
         }
-        const { data: ea } = await supabase.from("app_settings").select("value").eq("key", "email_accounts").single();
-        if (ea?.value && Array.isArray(ea.value)) {
-          for (const acct of ea.value) {
-            if (acct.cloudflareUrls && Array.isArray(acct.cloudflareUrls)) {
-              for (const u of acct.cloudflareUrls) {
-                if (typeof u === "string" && u.length > 0 && !workerUrls.includes(u)) workerUrls.push(u);
-              }
-            }
-          }
-        }
       } catch {}
 
       const mappedUsers = (users || []).map((u: any) => ({
-        ...u,
-        assignedAccounts: u.assigned_accounts || null,
+        id: u.id,
+        username: u.username,
+        name: u.name,
+        role: u.role,
         profileAvatar: u.profile_prefs?.avatarId || null,
       }));
       return new Response(JSON.stringify({ success: true, users: mappedUsers, recaptcha, workerUrls }), {
@@ -184,6 +176,8 @@ Deno.serve(async (req) => {
     }
 
     if (action === "list") {
+      // Admin dashboard only
+      await requireAdmin(req);
       const { data, error } = await supabase
         .from("app_users")
         .select("id, username, name, role, assigned_accounts, profile_prefs")
@@ -395,27 +389,42 @@ Deno.serve(async (req) => {
     }
 
     if (action === "update_totp") {
+      const session = await requireSession(req);
       const { id, totp_secret } = params;
+      if (!id || typeof totp_secret !== "string" || totp_secret.length < 16) {
+        throw new Error("Invalid TOTP setup request");
+      }
+      // Only the user themselves (or an admin) may set their TOTP secret,
+      // and non-admins cannot overwrite an already-configured secret.
+      const isAdmin = session.role === "admin";
+      if (!isAdmin && session.userId !== id) {
+        throw new Error("Not authorized to update this user's TOTP");
+      }
+      const { data: existing, error: exErr } = await supabase
+        .from("app_users").select("totp_secret").eq("id", id).single();
+      if (exErr) throw exErr;
+      if (!isAdmin && existing?.totp_secret) {
+        throw new Error("TOTP already configured. Contact an admin to reset it.");
+      }
       const { error } = await supabase.from("app_users").update({ totp_secret }).eq("id", id);
       if (error) throw error;
+      await auditLog(supabase, "totp_updated", session.userId, id, {}, ip);
       return new Response(JSON.stringify({ success: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    if (action === "create_otp") {
-      const { user_id, otp } = params;
-      await supabase.from("app_otps").delete().eq("user_id", user_id);
-      const { error } = await supabase.from("app_otps").insert({ user_id, otp });
-      if (error) throw error;
-      return new Response(JSON.stringify({ success: true }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    // NOTE: The insecure `create_otp` action was removed. OTPs are generated
+    // server-side by `request_admin_otp` and never accepted from the client.
 
     if (action === "request_admin_otp") {
+      // Requires an authenticated session (post-password) bound to this user.
+      const session = await requireSession(req);
       const { user_id } = params;
       if (!user_id) throw new Error("user_id required");
+      if (session.userId !== user_id && session.role !== "admin") {
+        throw new Error("Not authorized to request OTP for this user");
+      }
 
       // Generate OTP
       const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
@@ -473,7 +482,11 @@ Deno.serve(async (req) => {
     }
 
     if (action === "verify_otp") {
+      const session = await requireSession(req);
       const { user_id, otp } = params;
+      if (session.userId !== user_id && session.role !== "admin") {
+        throw new Error("Not authorized to verify OTP for this user");
+      }
       const { data, error } = await supabase
         .from("app_otps")
         .select("*")

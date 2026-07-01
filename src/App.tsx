@@ -178,128 +178,23 @@ function checkRateLimit(key: string): boolean {
   return true;
 }
 
-// --- Location ---
-type ExactLocation = { lat: number; lon: number; accuracy: number };
-type BrowserLocationPermission = "granted" | "prompt" | "denied" | "unsupported";
-
-const LOCATION_ACCURACY_TARGET_METERS = 500;
-
-async function getLocationPermissionState(): Promise<BrowserLocationPermission> {
-  if (typeof navigator === "undefined" || !navigator.geolocation) return "unsupported";
-
-  const permissions = (navigator as Navigator & {
-    permissions?: {
-      query: (descriptor: { name: string }) => Promise<{ state: string }>;
-    };
-  }).permissions;
-
-  if (!permissions?.query) return "prompt";
-
-  try {
-    const status = await permissions.query({ name: "geolocation" });
-    if (status.state === "granted" || status.state === "prompt" || status.state === "denied") {
-      return status.state;
-    }
-  } catch (err) {
-    console.warn("[location] Permission state check failed:", err);
-  }
-
-  return "prompt";
-}
-
-const getPreciseLocation = async (retries = 1): Promise<ExactLocation> => {
-  const fetchLocation = (): Promise<ExactLocation> => {
-    return new Promise((resolve, reject) => {
-      if (!navigator.geolocation) {
-        reject(new Error("Geolocation not supported"));
-        return;
-      }
-
-      navigator.geolocation.getCurrentPosition(
-        (pos) => resolve({
-          lat: pos.coords.latitude,
-          lon: pos.coords.longitude,
-          accuracy: Number.isFinite(pos.coords.accuracy) ? pos.coords.accuracy : Number.POSITIVE_INFINITY,
-        }),
-        (err) => reject(err),
-        { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
-      );
-    });
-  };
-
-  try {
-    return await fetchLocation();
-  } catch (err) {
-    console.warn("[location] GPS attempt failed:", err);
-    if (retries > 0) return getPreciseLocation(retries - 1);
-    throw new Error("Location permission is required. Please allow GPS/location access and try again.");
-  }
-};
-
-async function requestExactLocationForLogin(): Promise<ExactLocation> {
-  const permissionState = await getLocationPermissionState();
-
-  if (permissionState === "unsupported") {
-    throw new Error("This device/browser does not support exact location access.");
-  }
-
-  if (permissionState === "denied") {
-    throw new Error("Location permission is blocked. Please enable it in browser settings and try again.");
-  }
-
-  const firstFix = await getPreciseLocation(1);
-
-  if (Number.isFinite(firstFix.accuracy) && firstFix.accuracy <= LOCATION_ACCURACY_TARGET_METERS) {
-    return firstFix;
-  }
-
-  console.warn("[location] First GPS fix was not accurate enough:", firstFix.accuracy);
-  const secondFix = await getPreciseLocation(1).catch(() => firstFix);
-  const bestFix = secondFix.accuracy < firstFix.accuracy ? secondFix : firstFix;
-
-  if (Number.isFinite(bestFix.accuracy) && bestFix.accuracy > LOCATION_ACCURACY_TARGET_METERS) {
-    throw new Error("We could not get an accurate GPS location. Please turn on device location/GPS and try again near a window or outdoors.");
-  }
-
-  return bestFix;
-}
-
-async function sendLoginNotification(
-  payload: { username: string; name?: string; status: "success" | "failed" },
-  exactLocation?: ExactLocation | null
-) {
+// --- Login notification (location is resolved server-side via ipwho.is) ---
+async function sendLoginNotification(payload: { username: string; name?: string; status: "success" | "failed" }) {
   const token = getSessionToken();
-  const locationSource = exactLocation ? "gps" : "none";
-
-  console.log(
-    "[notification] Location source:",
-    locationSource,
-    exactLocation ? `(${exactLocation.lat}, ${exactLocation.lon}) ±${Math.round(exactLocation.accuracy)}m` : "(none)"
-  );
-
-  const body = {
-    ...payload,
-    ...(exactLocation ? { lat: exactLocation.lat, lon: exactLocation.lon, accuracy: exactLocation.accuracy } : {}),
-    locationSource,
-  };
-
   try {
     const { data, error } = await supabase.functions.invoke("send-login-notification", {
-      body,
+      body: payload,
       headers: token ? { "x-session-token": token } : undefined,
     });
-
     if (error) throw error;
     if (data?.success === false) throw new Error(data?.error || "Notification failed");
-    console.log("[notification] Login notification sent successfully");
     return;
   } catch (directErr) {
     console.warn("[notification] Direct send failed, trying fallback:", directErr);
   }
-
-  await apiCall("send-login-notification", body);
-  console.log("[notification] Login notification sent successfully via fallback");
+  await apiCall("send-login-notification", payload);
 }
+
 
 // --- Auth Context ---
 const AuthContext = createContext<{ user: any; loading: boolean; checkAuth: () => void } | null>(null);
@@ -559,13 +454,11 @@ function ProfileSelectPage() {
   const [showCaptcha, setShowCaptcha] = useState(false);
   const navigate = useNavigate();
   const { checkAuth } = useAuth();
-  const pendingExactLocationRef = useRef<ExactLocation | null>(null);
 
   const loadProfiles = useCallback(async () => {
     try {
       setLoading(true);
       setError("");
-      // Use direct Supabase bootstrap — no worker URL needed
       const bootstrap = await bootstrapFromSupabase();
       setProfiles((bootstrap.users || []).filter((u: UserData) => u.role === "user"));
       if (bootstrap.recaptcha?.enabled === true && bootstrap.recaptcha?.siteKey) {
@@ -581,36 +474,18 @@ function ProfileSelectPage() {
 
   useEffect(() => { loadProfiles(); }, [loadProfiles]);
 
-  const initiateLogin = async (e: React.FormEvent) => {
+  const initiateLogin = (e: React.FormEvent) => {
     e.preventDefault();
-
-    try {
-      setError("");
-      pendingExactLocationRef.current = await requestExactLocationForLogin();
-      if (siteKey) {
-        setShowCaptcha(true);
-      } else {
-        void executeLogin();
-      }
-    } catch (err) {
-      pendingExactLocationRef.current = null;
-      const msg = err instanceof Error ? err.message : "Location access is required before login.";
-      setError(msg);
-      toast.error(msg);
+    setError("");
+    if (siteKey) {
+      setShowCaptcha(true);
+    } else {
+      void executeLogin();
     }
   };
 
   const executeLogin = async () => {
     if (!selectedProfile) return;
-
-    const exactLocation = pendingExactLocationRef.current;
-    if (!exactLocation) {
-      const msg = "Allow exact location access before signing in.";
-      setError(msg);
-      toast.error(msg);
-      return;
-    }
-
     setLoginLoading(true);
     setError("");
 
@@ -619,7 +494,6 @@ function ProfileSelectPage() {
         throw new Error("Too many attempts. Wait 1 minute.");
       }
 
-      // Login via worker if available, otherwise direct Supabase
       let data: any;
       const workerUrls = getStoredWorkerUrls();
       if (workerUrls.length > 0) {
@@ -638,7 +512,6 @@ function ProfileSelectPage() {
         if (data.sessionToken) localStorage.setItem("session_token", data.sessionToken);
       }
 
-      // Store worker URLs returned from login response
       if (data.workerUrls && Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
         storeWorkerUrls(data.workerUrls);
       }
@@ -647,20 +520,11 @@ function ProfileSelectPage() {
       markSessionStart();
       checkAuth();
 
-      void (async () => {
-        try {
-          await sendLoginNotification(
-            {
-              username: data.user.username,
-              name: data.user.name,
-              status: "success",
-            },
-            exactLocation
-          );
-        } catch (notifErr) {
-          console.error("[notification] Failed to send login notification:", notifErr);
-        }
-      })();
+      void sendLoginNotification({
+        username: data.user.username,
+        name: data.user.name,
+        status: "success",
+      }).catch((notifErr) => console.error("[notification] Failed:", notifErr));
 
       navigate("/viewer");
     } catch (err) {
@@ -668,10 +532,10 @@ function ProfileSelectPage() {
       setError(msg);
       toast.error(msg);
     } finally {
-      pendingExactLocationRef.current = null;
       setLoginLoading(false);
     }
   };
+
 
 
   if (loading) {
@@ -737,7 +601,7 @@ function ProfileSelectPage() {
           <motion.div key="password" initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
             transition={{ duration: 0.35 }}
             className="relative z-10 w-full max-w-sm px-2">
-            <button onClick={() => { pendingExactLocationRef.current = null; setSelectedProfile(null); setPassword(""); setError(""); }}
+            <button onClick={() => { setSelectedProfile(null); setPassword(""); setError(""); }}
               className="text-slate-500 hover:text-white text-sm font-bold mb-8 flex items-center gap-1.5 transition-colors group">
               <ArrowLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" /> Back
             </button>
@@ -799,12 +663,10 @@ function AdminLoginPage() {
   const [showCaptcha, setShowCaptcha] = useState(false);
   const navigate = useNavigate();
   const { checkAuth } = useAuth();
-  const pendingExactLocationRef = useRef<ExactLocation | null>(null);
 
   useEffect(() => {
     (async () => {
       try {
-        // Use bootstrap to get recaptcha config without needing worker URLs
         const bootstrap = await bootstrapFromSupabase();
         if (bootstrap.recaptcha?.enabled === true && bootstrap.recaptcha?.siteKey) {
           setSiteKey(bootstrap.recaptcha.siteKey);
@@ -813,40 +675,22 @@ function AdminLoginPage() {
     })();
   }, []);
 
-  const initiateLogin = async (e: React.FormEvent) => {
+  const initiateLogin = (e: React.FormEvent) => {
     e.preventDefault();
-
-    try {
-      setError("");
-      pendingExactLocationRef.current = await requestExactLocationForLogin();
-      if (siteKey) {
-        setShowCaptcha(true);
-      } else {
-        void executeLogin();
-      }
-    } catch (err) {
-      pendingExactLocationRef.current = null;
-      const msg = err instanceof Error ? err.message : "Location access is required before login.";
-      setError(msg);
-      toast.error(msg);
+    setError("");
+    if (siteKey) {
+      setShowCaptcha(true);
+    } else {
+      void executeLogin();
     }
   };
 
   const executeLogin = async () => {
-    const exactLocation = pendingExactLocationRef.current;
-    if (!exactLocation) {
-      const msg = "Allow exact location access before signing in.";
-      setError(msg);
-      toast.error(msg);
-      return;
-    }
-
     setLoading(true);
     setError("");
     try {
       if (!checkRateLimit(`admin_${username}`)) throw new Error("Too many attempts. Wait 1 minute.");
 
-      // Login via Supabase directly if no worker URLs available, otherwise via worker
       let data: any;
       const workerUrls = getStoredWorkerUrls();
       if (workerUrls.length > 0) {
@@ -863,7 +707,6 @@ function AdminLoginPage() {
 
       if (data.user.role !== "admin") throw new Error("Access denied");
 
-      // Store worker URLs returned from login response
       if (data.workerUrls && Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
         storeWorkerUrls(data.workerUrls);
       }
@@ -872,20 +715,11 @@ function AdminLoginPage() {
       markSessionStart();
       checkAuth();
 
-      void (async () => {
-        try {
-          await sendLoginNotification(
-            {
-              username: data.user.username,
-              name: data.user.name,
-              status: "success",
-            },
-            exactLocation
-          );
-        } catch (notifErr) {
-          console.error("[notification] Failed to send admin login notification:", notifErr);
-        }
-      })();
+      void sendLoginNotification({
+        username: data.user.username,
+        name: data.user.name,
+        status: "success",
+      }).catch((notifErr) => console.error("[notification] Admin notif failed:", notifErr));
 
       toast.success("Login successful. Proceeding to 2FA.");
       navigate("/admin-auth");
@@ -894,10 +728,10 @@ function AdminLoginPage() {
       setError(msg);
       toast.error(msg);
     } finally {
-      pendingExactLocationRef.current = null;
       setLoading(false);
     }
   };
+
 
   return (
     <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
