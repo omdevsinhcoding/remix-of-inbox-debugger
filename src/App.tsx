@@ -601,7 +601,7 @@ function ProfileSelectPage() {
           <motion.div key="password" initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
             transition={{ duration: 0.35 }}
             className="relative z-10 w-full max-w-sm px-2">
-            <button onClick={() => { pendingExactLocationRef.current = null; setSelectedProfile(null); setPassword(""); setError(""); }}
+            <button onClick={() => { setSelectedProfile(null); setPassword(""); setError(""); }}
               className="text-slate-500 hover:text-white text-sm font-bold mb-8 flex items-center gap-1.5 transition-colors group">
               <ArrowLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" /> Back
             </button>
