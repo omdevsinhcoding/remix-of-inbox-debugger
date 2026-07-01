@@ -489,6 +489,7 @@ function ProfileSelectPage() {
       }
 
       localStorage.setItem("user", JSON.stringify(data.user));
+      markSessionStart();
       checkAuth();
 
       void (async () => {
