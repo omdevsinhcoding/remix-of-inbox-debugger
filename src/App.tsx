@@ -2969,32 +2969,6 @@ function EmailViewer() {
 
 // ==================== MAIN APP ====================
 export default function App() {
-  useEffect(() => {
-    const handleContextMenu = (e: MouseEvent) => e.preventDefault();
-    document.addEventListener("contextmenu", handleContextMenu);
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "F12" || (e.ctrlKey && e.shiftKey && (e.key === "I" || e.key === "J" || e.key === "C")) || (e.ctrlKey && e.key === "U")) {
-        e.preventDefault();
-      }
-    };
-    document.addEventListener("keydown", handleKeyDown);
-
-    document.body.style.userSelect = "none";
-    (document.body.style as any).webkitUserSelect = "none";
-    const preventSelect = (e: Event) => e.preventDefault();
-    const preventDrag = (e: Event) => e.preventDefault();
-    document.addEventListener("selectstart", preventSelect);
-    document.addEventListener("dragstart", preventDrag);
-
-    return () => {
-      document.removeEventListener("contextmenu", handleContextMenu);
-      document.removeEventListener("keydown", handleKeyDown);
-      document.removeEventListener("selectstart", preventSelect);
-      document.removeEventListener("dragstart", preventDrag);
-    };
-  }, []);
-
   return (
     <Router>
       <AuthProvider>
