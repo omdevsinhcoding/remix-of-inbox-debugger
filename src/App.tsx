@@ -335,7 +335,10 @@ function useSessionTimeoutGuard(role: "admin" | "user") {
     const doLogout = (minutes: number) => {
       clearSessionData();
       checkAuth();
-      toast.error(`Session expired after ${minutes} min. Please sign in again.`);
+      toast("🔒 Session timed out", {
+        description: `You've been signed out after ${minutes} min for security. Tap your profile to sign back in.`,
+        duration: 6000,
+      });
       navigate(role === "admin" ? "/admin" : "/", { replace: true });
     };
     (async () => {
@@ -356,6 +359,67 @@ function useSessionTimeoutGuard(role: "admin" | "user") {
     return () => { cancelled = true; if (timer) clearTimeout(timer); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [role]);
+}
+
+// ==================== SESSION COUNTDOWN PILL ====================
+function SessionCountdown({ role }: { role: "admin" | "user" }) {
+  const [minutes, setMinutes] = useState<number>(0);
+  const [remainingMs, setRemainingMs] = useState<number>(0);
+  const warnedRef = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await apiCall("manage-app", { action: "get_settings", key: "session_config" });
+        const m = Number(res?.value?.timeoutMinutes) || 0;
+        if (!cancelled) setMinutes(m);
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!minutes || minutes <= 0) return;
+    warnedRef.current = false;
+    const tick = () => {
+      const started = Number(localStorage.getItem("session_started_at") || "0");
+      if (!started) { setRemainingMs(0); return; }
+      const rem = started + minutes * 60_000 - Date.now();
+      setRemainingMs(Math.max(0, rem));
+      if (rem > 0 && rem <= 60_000 && !warnedRef.current) {
+        warnedRef.current = true;
+        toast("⏰ Session ending in 1 minute", {
+          description: "Finish what you're doing — you'll need to sign in again soon.",
+          duration: 5000,
+        });
+      }
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [minutes]);
+
+  if (role === "admin" || !minutes || minutes <= 0 || remainingMs <= 0) return null;
+
+  const totalSec = Math.ceil(remainingMs / 1000);
+  const mm = Math.floor(totalSec / 60);
+  const ss = totalSec % 60;
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  const urgent = remainingMs <= 60_000;
+  const warn = !urgent && remainingMs <= 120_000;
+  const cls = urgent
+    ? "bg-red-500 text-white animate-pulse ring-2 ring-red-300"
+    : warn
+    ? "bg-amber-500 text-white"
+    : "bg-slate-900/90 text-white";
+
+  return (
+    <div className={`fixed z-50 top-2 right-2 sm:top-auto sm:bottom-4 sm:right-4 px-3 py-1.5 rounded-full text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1.5 pointer-events-none select-none`}>
+      <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" />
+      Session: {pad(mm)}:{pad(ss)}
+    </div>
+  );
 }
 
 // --- Types ---
