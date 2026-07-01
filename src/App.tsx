@@ -463,35 +463,53 @@ function CaptchaModal({ siteKey, onVerify, onCancel }: { siteKey: string; onVeri
 
 // ==================== NETFLIX-STYLE PROFILE LOGIN ====================
 function ProfileSelectPage() {
-  const [profiles, setProfiles] = useState<UserData[]>([]);
+  const cachedBootstrap = useMemo(() => readBootstrapCache(), []);
+  const cachedUsers = useMemo<UserData[]>(
+    () => (cachedBootstrap?.users || []).filter((u: UserData) => u.role === "user"),
+    [cachedBootstrap]
+  );
+  const [profiles, setProfiles] = useState<UserData[]>(cachedUsers);
   const [selectedProfile, setSelectedProfile] = useState<UserData | null>(null);
   const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(true);
+  // Only show a skeleton on cold visits (no cache at all).
+  const [loading, setLoading] = useState(cachedUsers.length === 0);
+  const [fromCache, setFromCache] = useState(cachedUsers.length > 0);
   const [loginLoading, setLoginLoading] = useState(false);
   const [error, setError] = useState("");
-  const [siteKey, setSiteKey] = useState<string | null>(null);
+  const [siteKey, setSiteKey] = useState<string | null>(
+    cachedBootstrap?.recaptcha?.enabled === true && cachedBootstrap?.recaptcha?.siteKey
+      ? cachedBootstrap.recaptcha.siteKey
+      : null
+  );
   const [showCaptcha, setShowCaptcha] = useState(false);
   const navigate = useNavigate();
   const { checkAuth } = useAuth();
 
-  const loadProfiles = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError("");
-      const bootstrap = await bootstrapFromSupabase();
-      setProfiles((bootstrap.users || []).filter((u: UserData) => u.role === "user"));
-      if (bootstrap.recaptcha?.enabled === true && bootstrap.recaptcha?.siteKey) {
-        setSiteKey(bootstrap.recaptcha.siteKey);
-      }
-    } catch (err: any) {
-      console.error("Failed to load profiles:", err);
-      setError("Failed to load profiles. Please try again.");
-    } finally {
-      setLoading(false);
-    }
+  useEffect(() => {
+    let cancelled = false;
+    bootstrapPromise
+      .then((bootstrap) => {
+        if (cancelled) return;
+        setProfiles((bootstrap.users || []).filter((u: UserData) => u.role === "user"));
+        if (bootstrap.recaptcha?.enabled === true && bootstrap.recaptcha?.siteKey) {
+          setSiteKey(bootstrap.recaptcha.siteKey);
+        } else {
+          setSiteKey(null);
+        }
+        setError("");
+        setFromCache(false);
+      })
+      .catch((err) => {
+        console.error("Failed to load profiles:", err);
+        if (!cancelled && profiles.length === 0) {
+          setError("Failed to load profiles. Please try again.");
+        }
+      })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => { loadProfiles(); }, [loadProfiles]);
 
   const initiateLogin = (e: React.FormEvent) => {
     e.preventDefault();
