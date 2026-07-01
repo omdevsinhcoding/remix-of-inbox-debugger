@@ -418,8 +418,13 @@ Deno.serve(async (req) => {
     // server-side by `request_admin_otp` and never accepted from the client.
 
     if (action === "request_admin_otp") {
+      // Requires an authenticated session (post-password) bound to this user.
+      const session = await requireSession(req);
       const { user_id } = params;
       if (!user_id) throw new Error("user_id required");
+      if (session.userId !== user_id && session.role !== "admin") {
+        throw new Error("Not authorized to request OTP for this user");
+      }
 
       // Generate OTP
       const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
