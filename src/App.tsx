@@ -2209,7 +2209,7 @@ function AvatarRow({
                 onClick={() => onPick(id)}
                 disabled={saving}
                 title={prettyName(file)}
-                className={`group relative aspect-square rounded-2xl overflow-hidden transition-all active:scale-95 ${selected ? "ring-4 ring-red-500 scale-105" : "ring-2 ring-transparent hover:ring-white/70"}`}
+                className={`group relative aspect-square rounded-2xl overflow-hidden transition-shadow duration-200 active:scale-95 ${selected ? "ring-4 ring-red-500 shadow-lg shadow-red-500/40" : "ring-2 ring-transparent hover:ring-white/70"}`}
               >
                 <ProfileAvatar avatarId={id} name={userName} className="w-full h-full !rounded-2xl" />
                 <span className="absolute inset-x-0 bottom-0 px-1.5 py-1 text-[9px] sm:text-[10px] font-bold text-white text-center bg-gradient-to-t from-black/85 via-black/50 to-transparent truncate">
