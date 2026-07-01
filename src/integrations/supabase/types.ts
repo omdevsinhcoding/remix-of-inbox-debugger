@@ -14,6 +14,41 @@ export type Database = {
   }
   public: {
     Tables: {
+      app_admin_2fa_state: {
+        Row: {
+          created_at: string
+          expires_at: string
+          otp_verified_at: string | null
+          token_hash: string
+          totp_verified_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          expires_at?: string
+          otp_verified_at?: string | null
+          token_hash: string
+          totp_verified_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string
+          otp_verified_at?: string | null
+          token_hash?: string
+          totp_verified_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "app_admin_2fa_state_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "app_users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       app_otps: {
         Row: {
           created_at: string
