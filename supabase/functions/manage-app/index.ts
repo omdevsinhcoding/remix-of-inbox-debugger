@@ -139,13 +139,14 @@ Deno.serve(async (req) => {
 
     // Bootstrap: returns profiles, recaptcha config, and worker URLs for fresh browsers
     if (action === "bootstrap_public") {
+      // Public profile picker — only non-admin users, minimal fields.
       const { data: users, error: usersErr } = await supabase
         .from("app_users")
-        .select("id, username, name, role, assigned_accounts, profile_prefs")
+        .select("id, username, name, role, profile_prefs")
+        .neq("role", "admin")
         .order("created_at", { ascending: true });
       if (usersErr) throw usersErr;
 
-      // Get recaptcha config
       let recaptcha = null;
       try {
         const { data: rcData } = await supabase.from("app_settings").select("value").eq("key", "recaptcha").single();
@@ -154,28 +155,19 @@ Deno.serve(async (req) => {
         }
       } catch {}
 
-      // Get worker URLs
       let workerUrls: string[] = [];
       try {
         const { data: pcf } = await supabase.from("app_settings").select("value").eq("key", "primary_cloudflare_urls").single();
         if (pcf?.value && Array.isArray(pcf.value)) {
           workerUrls = pcf.value.filter((u: any) => typeof u === "string" && u.length > 0);
         }
-        const { data: ea } = await supabase.from("app_settings").select("value").eq("key", "email_accounts").single();
-        if (ea?.value && Array.isArray(ea.value)) {
-          for (const acct of ea.value) {
-            if (acct.cloudflareUrls && Array.isArray(acct.cloudflareUrls)) {
-              for (const u of acct.cloudflareUrls) {
-                if (typeof u === "string" && u.length > 0 && !workerUrls.includes(u)) workerUrls.push(u);
-              }
-            }
-          }
-        }
       } catch {}
 
       const mappedUsers = (users || []).map((u: any) => ({
-        ...u,
-        assignedAccounts: u.assigned_accounts || null,
+        id: u.id,
+        username: u.username,
+        name: u.name,
+        role: u.role,
         profileAvatar: u.profile_prefs?.avatarId || null,
       }));
       return new Response(JSON.stringify({ success: true, users: mappedUsers, recaptcha, workerUrls }), {
@@ -184,6 +176,8 @@ Deno.serve(async (req) => {
     }
 
     if (action === "list") {
+      // Admin dashboard only
+      await requireAdmin(req);
       const { data, error } = await supabase
         .from("app_users")
         .select("id, username, name, role, assigned_accounts, profile_prefs")
