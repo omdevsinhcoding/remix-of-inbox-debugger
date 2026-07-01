@@ -349,19 +349,12 @@ function getAvatarUri(avatarId?: string | null): string | null {
 
 function ProfileAvatar({ avatarId, name, className = "w-16 h-16", fallbackColor = "bg-red-500", eager = false }: { avatarId?: string | null; name?: string; className?: string; fallbackColor?: string; eager?: boolean }) {
   const uri = getAvatarUri(avatarId);
-  const [loaded, setLoaded] = useState(false);
-  useEffect(() => { setLoaded(false); }, [uri]);
-  if (!uri) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => { setFailed(false); }, [uri]);
+  if (!uri || failed) {
     return (
       <div className={`${className} rounded-xl sm:rounded-2xl ${fallbackColor} flex items-center justify-center shadow-lg shadow-black/30 ring-1 ring-white/10 overflow-hidden`}>
         <span className="text-white text-xl sm:text-3xl font-black drop-shadow-md">{(name || "?").charAt(0).toUpperCase()}</span>
-      </div>
-    );
-  }
-  if (eager) {
-    return (
-      <div className={`${className} relative rounded-xl sm:rounded-2xl bg-slate-900 overflow-hidden shadow-lg shadow-black/30 ring-1 ring-white/10`}>
-        <img src={uri} loading="eager" decoding="sync" fetchPriority="high" alt="" className="w-full h-full object-cover" />
       </div>
     );
   }
@@ -369,12 +362,12 @@ function ProfileAvatar({ avatarId, name, className = "w-16 h-16", fallbackColor 
     <div className={`${className} relative rounded-xl sm:rounded-2xl bg-slate-900 overflow-hidden shadow-lg shadow-black/30 ring-1 ring-white/10`}>
       <img
         src={uri}
-        loading="lazy"
-        decoding="async"
+        loading={eager ? "eager" : "lazy"}
+        decoding={eager ? "sync" : "async"}
+        fetchPriority={eager ? "high" : "auto"}
         alt=""
-        onLoad={() => setLoaded(true)}
-        onError={() => setLoaded(true)}
-        className={`w-full h-full object-cover transition-opacity duration-300 ${loaded ? "opacity-100" : "opacity-0"}`}
+        onError={() => setFailed(true)}
+        className="w-full h-full object-cover"
       />
     </div>
   );
@@ -642,7 +635,7 @@ function ProfileSelectPage() {
             <div className="flex flex-col items-center mb-8">
               <motion.div initial={{ scale: 0.8 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 200 }}
                 className="mb-4">
-                <ProfileAvatar avatarId={selectedProfile.profileAvatar} name={selectedProfile.name} className="w-20 h-20 sm:w-24 sm:h-24" fallbackColor={PROFILE_COLORS[profiles.indexOf(selectedProfile) % PROFILE_COLORS.length]} />
+                <ProfileAvatar avatarId={selectedProfile.profileAvatar} name={selectedProfile.name} className="w-20 h-20 sm:w-24 sm:h-24" fallbackColor={PROFILE_COLORS[profiles.indexOf(selectedProfile) % PROFILE_COLORS.length]} eager />
               </motion.div>
               <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">{selectedProfile.name}</h2>
               <p className="text-slate-500 text-xs sm:text-sm mt-0.5">@{selectedProfile.username}</p>
@@ -2204,7 +2197,7 @@ function AvatarRow({
               title={prettyName(file)}
               className={`group relative aspect-square rounded-2xl overflow-hidden transition-shadow duration-200 active:scale-95 ${selected ? "ring-4 ring-red-500 shadow-lg shadow-red-500/40" : "ring-2 ring-transparent hover:ring-white/70"}`}
             >
-              <ProfileAvatar avatarId={id} name={userName} className="w-full h-full !rounded-2xl" />
+              <ProfileAvatar avatarId={id} name={userName} className="w-full h-full !rounded-2xl" eager />
               <span className="absolute inset-x-0 bottom-0 px-1.5 py-1 text-[9px] sm:text-[10px] font-bold text-white text-center bg-gradient-to-t from-black/85 via-black/50 to-transparent truncate">
                 {prettyName(file)}
               </span>
@@ -2306,7 +2299,7 @@ function UserProfileModal({
         className="bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden max-h-[92vh] flex flex-col">
         <div className="p-5 border-b border-slate-100 flex items-center justify-between">
           <div className="flex items-center gap-3 min-w-0">
-            <ProfileAvatar avatarId={selectedAvatar} name={user.name} className="w-12 h-12" fallbackColor="bg-red-500" />
+            <ProfileAvatar avatarId={selectedAvatar} name={user.name} className="w-12 h-12" fallbackColor="bg-red-500" eager />
             <div className="min-w-0">
               <h2 className="text-lg font-black text-slate-900 leading-tight truncate">{user.name}</h2>
               <p className="text-xs text-slate-500 truncate">@{user.username}</p>
@@ -2755,7 +2748,7 @@ function EmailViewer() {
         <div className="max-w-6xl mx-auto px-3 sm:px-4 h-14 sm:h-16 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <div className="flex-shrink-0">
-              <ProfileAvatar avatarId={profilePrefs.avatarId || user.profileAvatar} name={user.name} className="w-8 h-8 sm:w-10 sm:h-10" fallbackColor="bg-red-600" />
+              <ProfileAvatar avatarId={profilePrefs.avatarId || user.profileAvatar} name={user.name} className="w-8 h-8 sm:w-10 sm:h-10" fallbackColor="bg-red-600" eager />
             </div>
             <div className="min-w-0">
               <h1 className="font-bold text-base sm:text-xl tracking-tight leading-tight text-red-600">Netflix Mail</h1>
