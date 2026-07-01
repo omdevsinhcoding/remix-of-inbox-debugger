@@ -2254,14 +2254,28 @@ function ChangePasswordModal({ user, onDone, forced = false }: { user: UserData;
 
 // ==================== EMAIL VIEWER ====================
 function EmailViewer() {
-  const [emails, setEmails] = useState<Email[]>([]);
+  const user = JSON.parse(localStorage.getItem("user") || "{}");
+  const cacheKey = `cached_emails_v1:${user.id || "anon"}`;
+  const [emails, setEmailsRaw] = useState<Email[]>(() => {
+    try {
+      const raw = localStorage.getItem(cacheKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed as Email[];
+      }
+    } catch {}
+    return [];
+  });
+  const setEmails = useCallback((next: Email[]) => {
+    setEmailsRaw(next);
+    try { localStorage.setItem(cacheKey, JSON.stringify(next.slice(0, 200))); } catch {}
+  }, [cacheKey]);
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
   const [otpCopied, setOtpCopied] = useState(false);
   const navigate = useNavigate();
-  const user = JSON.parse(localStorage.getItem("user") || "{}");
   const [showChangePassword, setShowChangePassword] = useState(!!user.mustChangePassword);
   const [forcedPasswordChange] = useState(!!user.mustChangePassword);
   const isImpersonating = !!localStorage.getItem("admin_backup");
