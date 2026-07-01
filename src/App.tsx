@@ -427,7 +427,7 @@ interface Email {
   id: string; subject: string; from: string; to?: string; date: string; otp: string | null; preview: string; html: string; account_label?: string | null;
 }
 interface UserData {
-  id: string; username: string; name: string; role: "admin" | "user"; totpSecret?: string; mustChangePassword?: boolean; assignedAccounts?: string[] | null; profileAvatar?: string | null;
+  id: string; username: string; name: string; role: "admin" | "user"; totpSecret?: string; mustChangePassword?: boolean; assignedAccounts?: string[] | null; profileAvatar?: string | null; profilePrefs?: UserProfilePrefs;
 }
 
 type UserProfilePrefs = {
@@ -2678,11 +2678,15 @@ function EmailViewer() {
     const before = showLocalCacheNow() || emails.length;
     const toastId = toast.loading("Checking Netflix mail…");
     try {
-      // Refresh must never blank the UI: show local cache instantly, then sync in background.
+      // Refresh must never blank or block: DB cache first, then slow IMAP sync in background.
+      const cachedCount = await loadCachedEmails();
+      setRefreshing(false);
+      const baseline = Math.max(before, cachedCount);
+
       syncViaWorker()
         .then(() => loadCachedEmails())
         .then((after) => {
-          const newCount = after - before;
+          const newCount = after - baseline;
           if (newCount > 0) {
             toast.success(`✨ ${newCount} new email${newCount === 1 ? "" : "s"} arrived`, { id: toastId, duration: 3500 });
           } else {
