@@ -2167,7 +2167,7 @@ function AvatarRow({
       (entries) => {
         for (const e of entries) if (e.isIntersecting) { setVisible(true); io.disconnect(); return; }
       },
-      { root: null, rootMargin: "300px 0px", threshold: 0.01 }
+      { root: null, rootMargin: "400px 0px", threshold: 0.01 }
     );
     io.observe(el);
     return () => io.disconnect();
@@ -2175,29 +2175,32 @@ function AvatarRow({
   return (
     <section ref={ref} id={`avatar-row-${category.key}`} className="scroll-mt-16">
       <div className="flex items-center justify-between px-4 sm:px-5 mb-2">
-        <h4 className="text-xs sm:text-sm font-black text-slate-900 tracking-tight">{category.label}</h4>
-        <span className="text-[10px] font-bold text-slate-400">{category.seeds.length}</span>
+        <h4 className="text-sm sm:text-base font-black text-slate-900 tracking-tight">{category.label}</h4>
+        <span className="text-[10px] font-bold text-slate-400">{category.files.length}</span>
       </div>
       {!visible ? (
-        <div className="flex gap-2 sm:gap-3 px-4 sm:px-5 overflow-hidden">
+        <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-6 gap-3 px-4 sm:px-5">
           {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl bg-slate-100 animate-pulse flex-shrink-0" />
+            <div key={i} className="aspect-square rounded-2xl bg-slate-100 animate-pulse" />
           ))}
         </div>
       ) : (
-        <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2 sm:gap-3 px-4 sm:px-5 pb-2">
-          {category.seeds.map((seed) => {
-            const id = buildAvatarId(category.style, seed);
+        <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-6 gap-3 px-4 sm:px-5 pb-3">
+          {category.files.map((file) => {
+            const id = buildAvatarId(category.key, file);
             const selected = selectedAvatar === id;
             return (
               <button
                 key={id}
                 onClick={() => onPick(id)}
                 disabled={saving}
-                title={`${category.label} ${seed}`}
-                className={`rounded-2xl p-1 transition-all active:scale-95 ${selected ? "ring-4 ring-red-500 bg-red-50" : "ring-1 ring-slate-200 hover:ring-slate-400 bg-white"}`}
+                title={prettyName(file)}
+                className={`group relative aspect-square rounded-2xl overflow-hidden transition-all active:scale-95 ${selected ? "ring-4 ring-red-500 scale-105" : "ring-2 ring-transparent hover:ring-white/70"}`}
               >
-                <ProfileAvatar avatarId={id} name={userName} className="w-14 h-14 sm:w-20 sm:h-20 md:w-24 md:h-24 mx-auto" />
+                <ProfileAvatar avatarId={id} name={userName} className="w-full h-full !rounded-2xl" />
+                <span className="absolute inset-x-0 bottom-0 px-1.5 py-1 text-[9px] sm:text-[10px] font-bold text-white text-center bg-gradient-to-t from-black/85 via-black/50 to-transparent truncate">
+                  {prettyName(file)}
+                </span>
               </button>
             );
           })}
@@ -2218,65 +2221,40 @@ function AvatarPicker({
   onPick: (id: string) => void;
   saving: boolean;
 }) {
-  const [query, setQuery] = useState("");
-  const trimmed = query.trim().toLowerCase();
   const scrollToRow = (key: string) => {
     const el = document.getElementById(`avatar-row-${key}`);
     if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
   };
-  const filteredCategories = trimmed
-    ? AVATAR_CATEGORIES.map((c) => ({
-        ...c,
-        seeds: c.label.toLowerCase().includes(trimmed)
-          ? c.seeds
-          : c.seeds.filter((s) => s.toLowerCase().includes(trimmed)),
-      })).filter((c) => c.seeds.length > 0)
-    : AVATAR_CATEGORIES;
   return (
     <div className="pb-4">
       <div className="sticky top-0 z-10 bg-white/95 backdrop-blur border-b border-slate-100 px-4 sm:px-5 py-3 space-y-2">
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-black text-slate-900">Choose profile icon</h3>
+          <h3 className="text-sm font-black text-slate-900">Choose your character</h3>
           {saving && <span className="text-[10px] font-bold text-slate-400">Saving…</span>}
         </div>
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search style or seed…"
-            className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-sm outline-none focus:ring-2 focus:ring-red-500"
-          />
-        </div>
-        {!trimmed && (
-          <div className="flex gap-1.5 overflow-x-auto scrollbar-thin -mx-1 px-1">
-            {AVATAR_CATEGORIES.map((c) => (
-              <button
-                key={c.key}
-                onClick={() => scrollToRow(c.key)}
-                className="flex-shrink-0 px-3 py-1 text-[11px] font-bold rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors"
-              >
-                {c.label}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-      <div className="space-y-4 pt-3">
-        {filteredCategories.length === 0 ? (
-          <p className="text-center text-xs text-slate-400 py-8">No avatars match "{query}"</p>
-        ) : (
-          filteredCategories.map((c) => (
-            <AvatarRow
+        <div className="flex gap-1.5 overflow-x-auto scrollbar-thin -mx-1 px-1">
+          {AVATAR_CATEGORIES.map((c) => (
+            <button
               key={c.key}
-              category={c}
-              userName={userName}
-              selectedAvatar={selectedAvatar}
-              onPick={onPick}
-              saving={saving}
-            />
-          ))
-        )}
+              onClick={() => scrollToRow(c.key)}
+              className="flex-shrink-0 px-3 py-1 text-[11px] font-bold rounded-full bg-slate-100 text-slate-700 hover:bg-red-100 hover:text-red-700 transition-colors"
+            >
+              {c.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="space-y-5 pt-4">
+        {AVATAR_CATEGORIES.map((c) => (
+          <AvatarRow
+            key={c.key}
+            category={c}
+            userName={userName}
+            selectedAvatar={selectedAvatar}
+            onPick={onPick}
+            saving={saving}
+          />
+        ))}
       </div>
     </div>
   );
