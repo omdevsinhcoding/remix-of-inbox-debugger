@@ -2,53 +2,12 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <link rel="preconnect" href="https://jsqchutnfdeljajkxmly.supabase.co" crossorigin />
-    <link rel="dns-prefetch" href="https://jsqchutnfdeljajkxmly.supabase.co" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Netflix Mail By Omdevsinh Gohil</title>
-    <meta name="description" content="Fast, secure inbox for shared Netflix login codes with per-profile access." />
-    <style>
-      html, body { background: #020617; color: #e2e8f0; margin: 0; }
-      #boot-fallback { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; padding: 24px; text-align: center; }
-      #boot-fallback .card { max-width: 420px; background: #0f172a; border: 1px solid #1e293b; border-radius: 20px; padding: 24px; box-shadow: 0 20px 60px rgba(0,0,0,.5); }
-      #boot-fallback .dot { width: 42px; height: 42px; border-radius: 14px; margin: 0 auto 14px; background: linear-gradient(135deg,#ef4444,#b91c1c); box-shadow: 0 10px 30px rgba(239,68,68,.4); }
-      #boot-fallback h1 { font-size: 18px; margin: 0 0 6px; font-weight: 800; color: #f8fafc; }
-      #boot-fallback p { font-size: 13px; margin: 0 0 14px; color: #94a3b8; line-height: 1.5; }
-      #boot-fallback button { background: #ef4444; color: white; border: 0; padding: 10px 18px; border-radius: 10px; font-weight: 700; cursor: pointer; font-size: 13px; }
-      #boot-spinner { width: 28px; height: 28px; border: 3px solid #1e293b; border-top-color: #ef4444; border-radius: 50%; animation: bs 0.9s linear infinite; margin: 0 auto 10px; }
-      @keyframes bs { to { transform: rotate(360deg); } }
-    </style>
   </head>
   <body>
-    <div id="root">
-      <div id="boot-fallback">
-        <div class="card">
-          <div id="boot-spinner"></div>
-          <h1>Loading Netflix Mail…</h1>
-          <p>Starting the app. If it takes too long, refresh once or open the build error details.</p>
-          <div id="boot-error" style="display:none; color:#fca5a5; font-size:12px; margin-bottom:10px; word-break:break-word;"></div>
-          <button onclick="location.reload()">Reload</button>
-        </div>
-      </div>
-    </div>
-    <script>
-      (function () {
-        var showError = function (msg) {
-          try {
-            var el = document.getElementById('boot-error');
-            if (el) { el.style.display = 'block'; el.textContent = String(msg).slice(0, 300); }
-          } catch (_) {}
-        };
-        window.addEventListener('error', function (e) { showError((e && e.message) || 'Script error'); });
-        window.addEventListener('unhandledrejection', function (e) { showError((e && e.reason && (e.reason.message || e.reason)) || 'Promise rejected'); });
-        setTimeout(function () {
-          var root = document.getElementById('root');
-          if (root && root.querySelector('#boot-fallback')) {
-            showError('App is still starting or the preview is serving an older failed build. Open build details or reload once.');
-          }
-        }, 12000);
-      })();
-    </script>
+    <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
+

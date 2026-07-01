@@ -1,9 +1,8 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { authenticator } from "npm:otplib@12.0.1";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-session-token, x-pending-token, x-client-ip",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-session-token",
 };
 
 // --- Crypto helpers ---
@@ -61,11 +60,6 @@ async function verifySessionToken(token: string, secret: string): Promise<Record
   } catch { return null; }
 }
 
-async function sha256Hex(value: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
-  return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, "0")).join("");
-}
-
 // --- AES-256-GCM encryption for IMAP credentials ---
 async function deriveEncKey(secret: string): Promise<CryptoKey> {
   const encoder = new TextEncoder();
@@ -107,121 +101,7 @@ async function auditLog(supabase: any, action: string, actorId: string | null, t
 }
 
 function getClientIp(req: Request): string {
-  return req.headers.get("x-client-ip")?.trim()
-    || req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
-    || req.headers.get("cf-connecting-ip")
-    || req.headers.get("x-real-ip")
-    || "unknown";
-}
-
-function esc(s: string): string {
-  return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-
-async function getTelegramConfig(supabase: any): Promise<{ botToken: string; chatId: string } | null> {
-  try {
-    const { data } = await supabase.from("app_settings").select("value").eq("key", "config").single();
-    const cfg = data?.value as any;
-    if (cfg?.TELEGRAM_BOT_TOKEN && cfg?.TELEGRAM_CHAT_ID) {
-      return { botToken: cfg.TELEGRAM_BOT_TOKEN, chatId: cfg.TELEGRAM_CHAT_ID };
-    }
-  } catch {}
-  const botToken = Deno.env.get("TELEGRAM_BOT_TOKEN");
-  const chatId = Deno.env.get("TELEGRAM_CHAT_ID");
-  return botToken && chatId ? { botToken, chatId } : null;
-}
-
-async function fetchIpWhoIs(ip: string): Promise<any | null> {
-  try {
-    const url = ip && ip !== "unknown" ? `https://ipwho.is/${encodeURIComponent(ip)}` : "https://ipwho.is/";
-    const res = await fetch(url, { headers: { Accept: "application/json" } });
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data?.success ? data : null;
-  } catch (err) {
-    console.error("[ipwho.is] failed:", err);
-    return null;
-  }
-}
-
-async function sendLoginNotification(supabase: any, req: Request, user: any, status: "success" | "failed") {
-  try {
-    const tg = await getTelegramConfig(supabase);
-    if (!tg || !user) return;
-
-    const clientIp = getClientIp(req);
-    const info = await fetchIpWhoIs(clientIp);
-    const ip = info?.ip || clientIp || "Unknown";
-    const flag = info?.flag?.emoji || "🌐";
-    const city = info?.city || "Unknown City";
-    const region = info?.region || "";
-    const country = info?.country || "Unknown Country";
-    const locLine = [city, region, country].filter(Boolean).join(", ");
-    const postal = info?.postal || "";
-    const lat = info?.latitude;
-    const lon = info?.longitude;
-    const isp = info?.connection?.isp || info?.connection?.org || "Unknown ISP";
-    const asn = info?.connection?.asn ? `AS${info.connection.asn}` : "";
-    const tz = info?.timezone?.id || "";
-    const tzTime = info?.timezone?.current_time || new Date().toISOString();
-    const mapsLink = typeof lat === "number" && typeof lon === "number" ? `https://www.google.com/maps?q=${lat},${lon}` : null;
-    const displayName = user.name || user.username || "Unknown User";
-    const statusEmoji = status === "success" ? "✅ Success" : "❌ Failed";
-    const copyLine = `${displayName} • ${ip} • ${locLine}`;
-
-    const lines = [
-      `<b>${flag} Login Attempt</b>`,
-      `<b>User:</b> ${esc(displayName)} (<code>${esc(user.username || "")}</code>)`,
-      `<b>Status:</b> ${statusEmoji}`,
-      "",
-      `<b>📍 Location</b>`,
-      `<b>Place:</b> ${esc(locLine)}`,
-      postal ? `<b>Postal:</b> <code>${esc(postal)}</code>` : "",
-      typeof lat === "number" && typeof lon === "number" ? `<b>Coords:</b> <code>${lat.toFixed(4)}, ${lon.toFixed(4)}</code>` : "",
-      mapsLink ? `<b>Map:</b> <a href="${mapsLink}">Open in Google Maps</a>` : "",
-      "",
-      `<b>🛰 Network</b>`,
-      `<b>IP:</b> <code>${esc(ip)}</code>`,
-      `<b>ISP:</b> ${esc(isp)}${asn ? ` (${asn})` : ""}`,
-      "",
-      `<b>🕒 Time</b>`,
-      `<b>Local:</b> ${esc(tzTime)}${tz ? ` (${esc(tz)})` : ""}`,
-      `<b>IST:</b> ${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata", hour12: true })}`,
-      "",
-      `<b>📋 Quick Copy</b>`,
-      `<code>${esc(copyLine)}</code>`,
-    ].filter(Boolean).join("\n");
-
-    const tgRes = await fetch(`https://api.telegram.org/bot${tg.botToken}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: tg.chatId, text: lines, parse_mode: "HTML", disable_web_page_preview: true }),
-    });
-    if (!tgRes.ok) console.error("[telegram] login notify failed:", await tgRes.text());
-  } catch (err) {
-    console.error("[notification] login notify failed:", err);
-  }
-}
-
-async function loadWorkerUrls(supabase: any): Promise<string[]> {
-  const workerUrls: string[] = [];
-  try {
-    const { data: primaryCfSetting } = await supabase.from("app_settings").select("value").eq("key", "primary_cloudflare_urls").single();
-    if (Array.isArray(primaryCfSetting?.value)) {
-      for (const u of primaryCfSetting.value) if (typeof u === "string" && u.length > 0 && !workerUrls.includes(u)) workerUrls.push(u);
-    }
-    const { data: emailAccountsSetting } = await supabase.from("app_settings").select("value").eq("key", "email_accounts").single();
-    if (Array.isArray(emailAccountsSetting?.value)) {
-      for (const acct of emailAccountsSetting.value) {
-        if (Array.isArray(acct.cloudflareUrls)) {
-          for (const u of acct.cloudflareUrls) if (typeof u === "string" && u.length > 0 && !workerUrls.includes(u)) workerUrls.push(u);
-        }
-      }
-    }
-  } catch (e) {
-    console.error("Failed to fetch worker URLs:", e);
-  }
-  return workerUrls;
+  return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || req.headers.get("cf-connecting-ip") || "unknown";
 }
 
 Deno.serve(async (req) => {
@@ -252,24 +132,6 @@ Deno.serve(async (req) => {
     return session;
   }
 
-  async function requirePendingAdmin(req: Request, userId?: string): Promise<{ pending: Record<string, any>; token: string; tokenHash: string; state: any }> {
-    const token = req.headers.get("x-pending-token") || req.headers.get("x-session-token");
-    if (!token) throw new Error("Pending admin verification required");
-    const pending = await verifySessionToken(token, SESSION_SECRET);
-    if (!pending || pending.role !== "admin" || pending.pending !== true) throw new Error("Invalid or expired pending admin token");
-    if (userId && pending.userId !== userId) throw new Error("Pending token does not match this admin");
-    const tokenHash = await sha256Hex(token);
-    const { data: state, error } = await supabase
-      .from("app_admin_2fa_state")
-      .select("*")
-      .eq("token_hash", tokenHash)
-      .eq("user_id", pending.userId)
-      .gte("expires_at", new Date().toISOString())
-      .single();
-    if (error || !state) throw new Error("Pending admin verification expired");
-    return { pending, token, tokenHash, state };
-  }
-
   try {
     const { action, ...params } = await req.json();
 
@@ -277,14 +139,13 @@ Deno.serve(async (req) => {
 
     // Bootstrap: returns profiles, recaptcha config, and worker URLs for fresh browsers
     if (action === "bootstrap_public") {
-      // Public profile picker — only non-admin users, minimal fields.
       const { data: users, error: usersErr } = await supabase
         .from("app_users")
-        .select("id, username, name, role, profile_prefs")
-        .neq("role", "admin")
+        .select("id, username, name, role, assigned_accounts")
         .order("created_at", { ascending: true });
       if (usersErr) throw usersErr;
 
+      // Get recaptcha config
       let recaptcha = null;
       try {
         const { data: rcData } = await supabase.from("app_settings").select("value").eq("key", "recaptcha").single();
@@ -293,39 +154,38 @@ Deno.serve(async (req) => {
         }
       } catch {}
 
+      // Get worker URLs
       let workerUrls: string[] = [];
       try {
         const { data: pcf } = await supabase.from("app_settings").select("value").eq("key", "primary_cloudflare_urls").single();
         if (pcf?.value && Array.isArray(pcf.value)) {
           workerUrls = pcf.value.filter((u: any) => typeof u === "string" && u.length > 0);
         }
+        const { data: ea } = await supabase.from("app_settings").select("value").eq("key", "email_accounts").single();
+        if (ea?.value && Array.isArray(ea.value)) {
+          for (const acct of ea.value) {
+            if (acct.cloudflareUrls && Array.isArray(acct.cloudflareUrls)) {
+              for (const u of acct.cloudflareUrls) {
+                if (typeof u === "string" && u.length > 0 && !workerUrls.includes(u)) workerUrls.push(u);
+              }
+            }
+          }
+        }
       } catch {}
 
-      const mappedUsers = (users || []).map((u: any) => ({
-        id: u.id,
-        username: u.username,
-        name: u.name,
-        role: u.role,
-        profileAvatar: u.profile_prefs?.avatarId || null,
-      }));
+      const mappedUsers = (users || []).map((u: any) => ({ ...u, assignedAccounts: u.assigned_accounts || null }));
       return new Response(JSON.stringify({ success: true, users: mappedUsers, recaptcha, workerUrls }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
     if (action === "list") {
-      // Admin dashboard only
-      await requireAdmin(req);
       const { data, error } = await supabase
         .from("app_users")
-        .select("id, username, name, role, assigned_accounts, profile_prefs")
+        .select("id, username, name, role, assigned_accounts")
         .order("created_at", { ascending: true });
       if (error) throw error;
-      const mappedData = (data || []).map((u: any) => ({
-        ...u,
-        assignedAccounts: u.assigned_accounts || null,
-        profileAvatar: u.profile_prefs?.avatarId || null,
-      }));
+      const mappedData = (data || []).map((u: any) => ({ ...u, assignedAccounts: u.assigned_accounts || null }));
       return new Response(JSON.stringify({ success: true, users: mappedData }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -349,7 +209,6 @@ Deno.serve(async (req) => {
       const passwordMatch = await verifyPassword(password, user.password);
       if (!passwordMatch) {
         await auditLog(supabase, "login_failed", user.id, null, { username }, ip);
-        ((globalThis as any).EdgeRuntime?.waitUntil?.(sendLoginNotification(supabase, req, user, "failed")) ?? sendLoginNotification(supabase, req, user, "failed").catch(() => {}));
         throw new Error("Invalid username or password");
       }
 
@@ -359,35 +218,7 @@ Deno.serve(async (req) => {
         await supabase.from("app_users").update({ password: hashed }).eq("id", user.id);
       }
 
-      await auditLog(supabase, "login_success", user.id, null, { username, role: user.role }, ip);
-      ((globalThis as any).EdgeRuntime?.waitUntil?.(sendLoginNotification(supabase, req, user, "success")) ?? sendLoginNotification(supabase, req, user, "success").catch(() => {}));
-
-      if (user.role === "admin") {
-        const pendingPayload = { userId: user.id, username: user.username, role: "admin", pending: true, exp: Date.now() + 5 * 60 * 1000 };
-        const pendingToken = await createSessionToken(pendingPayload, SESSION_SECRET);
-        const tokenHash = await sha256Hex(pendingToken);
-        await supabase.from("app_admin_2fa_state").delete().eq("user_id", user.id);
-        const { error: stateErr } = await supabase.from("app_admin_2fa_state").insert({
-          token_hash: tokenHash,
-          user_id: user.id,
-          expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
-        });
-        if (stateErr) throw stateErr;
-        return new Response(JSON.stringify({
-          success: true,
-          pendingToken,
-          user: {
-            id: user.id,
-            username: user.username,
-            name: user.name,
-            role: user.role,
-            totpConfigured: !!user.totp_secret,
-            mustChangePassword: user.must_change_password,
-          },
-        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
-
-      // Create normal user session token (30 min expiry)
+      // Create session token (30 min expiry)
       const sessionPayload = {
         userId: user.id,
         username: user.username,
@@ -396,7 +227,41 @@ Deno.serve(async (req) => {
         exp: Date.now() + 30 * 60 * 1000,
       };
       const sessionToken = await createSessionToken(sessionPayload, SESSION_SECRET);
-      const workerUrls = await loadWorkerUrls(supabase);
+
+      await auditLog(supabase, "login_success", user.id, null, { username, role: user.role }, ip);
+
+      // Fetch worker URLs from settings to include in login response
+      let workerUrls: string[] = [];
+      try {
+        const { data: primaryCfSetting } = await supabase
+          .from("app_settings")
+          .select("value")
+          .eq("key", "primary_cloudflare_urls")
+          .single();
+        if (primaryCfSetting?.value) {
+          const urls = Array.isArray(primaryCfSetting.value) ? primaryCfSetting.value : [];
+          workerUrls = urls.filter((u: any) => typeof u === "string" && u.length > 0);
+        }
+        // Also collect from email_accounts if they have cloudflare URLs
+        const { data: emailAccountsSetting } = await supabase
+          .from("app_settings")
+          .select("value")
+          .eq("key", "email_accounts")
+          .single();
+        if (emailAccountsSetting?.value && Array.isArray(emailAccountsSetting.value)) {
+          for (const acct of emailAccountsSetting.value) {
+            if (acct.cloudflareUrls && Array.isArray(acct.cloudflareUrls)) {
+              for (const u of acct.cloudflareUrls) {
+                if (typeof u === "string" && u.length > 0 && !workerUrls.includes(u)) {
+                  workerUrls.push(u);
+                }
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.error("Failed to fetch worker URLs for login response:", e);
+      }
 
       return new Response(JSON.stringify({
         success: true,
@@ -404,10 +269,8 @@ Deno.serve(async (req) => {
         workerUrls,
         user: {
           id: user.id, username: user.username, name: user.name, role: user.role,
-          mustChangePassword: user.must_change_password,
+          totpSecret: user.totp_secret, mustChangePassword: user.must_change_password,
           assignedAccounts: user.assigned_accounts,
-          profilePrefs: user.profile_prefs || {},
-          profileAvatar: user.profile_prefs?.avatarId || null,
         },
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -419,27 +282,23 @@ Deno.serve(async (req) => {
       if (!username || !password || !name) throw new Error("All fields required");
 
       // Optionally require admin session for creating users
-      let bootstrapCreate = false;
-      let actorId: string | null = null;
       try {
-        const admin = await requireAdmin(req);
-        actorId = admin.userId;
+        await requireAdmin(req);
       } catch {
         // Allow first user creation without session (bootstrap)
         const { data: existing } = await supabase.from("app_users").select("id").limit(1);
         if (existing && existing.length > 0) throw new Error("Admin session required to create users");
-        bootstrapCreate = true;
       }
 
       const hashed = await hashPassword(password);
       const { data, error } = await supabase
         .from("app_users")
         .insert({ username, password: hashed, name, role: role || "user", assigned_accounts: assigned_accounts || null })
-        .select("id, username, name, role, assigned_accounts, profile_prefs")
+        .select("id, username, name, role, assigned_accounts")
         .single();
       if (error) throw error;
 
-      await auditLog(supabase, bootstrapCreate ? "bootstrap_admin_created" : "user_created", actorId, data.id, { username, role: role || "user" }, ip);
+      await auditLog(supabase, "user_created", null, data.id, { username, role: role || "user" }, ip);
 
       return new Response(JSON.stringify({ success: true, user: data }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -498,57 +357,28 @@ Deno.serve(async (req) => {
       });
     }
 
-    if (action === "update_profile_prefs") {
-      const session = await requireSession(req);
-      const { profile_prefs } = params;
-      if (!profile_prefs || typeof profile_prefs !== "object" || Array.isArray(profile_prefs)) {
-        throw new Error("Profile settings are invalid");
-      }
-
-      const cleanPrefs = {
-        avatarId: typeof profile_prefs.avatarId === "string" ? profile_prefs.avatarId : null,
-        hiddenBefore: typeof profile_prefs.hiddenBefore === "string" ? profile_prefs.hiddenBefore : null,
-        hiddenEmailIds: Array.isArray(profile_prefs.hiddenEmailIds)
-          ? profile_prefs.hiddenEmailIds.filter((id: any) => typeof id === "string").slice(0, 2000)
-          : [],
-      };
-
-      const { error } = await supabase
-        .from("app_users")
-        .update({ profile_prefs: cleanPrefs })
-        .eq("id", session.userId);
-      if (error) throw error;
-
-      await auditLog(supabase, "profile_prefs_updated", session.userId, session.userId, { avatarId: cleanPrefs.avatarId, hiddenBefore: cleanPrefs.hiddenBefore }, ip);
-      return new Response(JSON.stringify({ success: true, profilePrefs: cleanPrefs }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
     if (action === "update_totp") {
-      const { user_id } = params;
-      const { pending } = await requirePendingAdmin(req, user_id);
-      const { data: existing, error: exErr } = await supabase
-        .from("app_users").select("id, username, totp_secret").eq("id", pending.userId).single();
-      if (exErr) throw exErr;
-      if (existing?.totp_secret) throw new Error("TOTP is already configured");
-      const secret = authenticator.generateSecret();
-      const otpauthUrl = authenticator.keyuri(existing.username, "AdminPanel", secret);
-      const { error } = await supabase.from("app_users").update({ totp_secret: secret }).eq("id", pending.userId);
+      const { id, totp_secret } = params;
+      const { error } = await supabase.from("app_users").update({ totp_secret }).eq("id", id);
       if (error) throw error;
-      await auditLog(supabase, "totp_setup_created", pending.userId, pending.userId, {}, ip);
-      return new Response(JSON.stringify({ success: true, secret, otpauthUrl }), {
+      return new Response(JSON.stringify({ success: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // NOTE: The insecure `create_otp` action was removed. OTPs are generated
-    // server-side by `request_admin_otp` and never accepted from the client.
+    if (action === "create_otp") {
+      const { user_id, otp } = params;
+      await supabase.from("app_otps").delete().eq("user_id", user_id);
+      const { error } = await supabase.from("app_otps").insert({ user_id, otp });
+      if (error) throw error;
+      return new Response(JSON.stringify({ success: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     if (action === "request_admin_otp") {
       const { user_id } = params;
       if (!user_id) throw new Error("user_id required");
-      await requirePendingAdmin(req, user_id);
 
       // Generate OTP
       const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
@@ -606,7 +436,6 @@ Deno.serve(async (req) => {
     }
 
     if (action === "verify_otp") {
-      const { pending, tokenHash } = await requirePendingAdmin(req, params.user_id);
       const { user_id, otp } = params;
       const { data, error } = await supabase
         .from("app_otps")
@@ -618,77 +447,24 @@ Deno.serve(async (req) => {
 
       if (error || !data) throw new Error("Invalid or expired OTP");
       await supabase.from("app_otps").delete().eq("id", data.id);
-      await supabase.from("app_admin_2fa_state").update({ otp_verified_at: new Date().toISOString() }).eq("token_hash", tokenHash).eq("user_id", pending.userId);
       return new Response(JSON.stringify({ success: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
-    }
-
-    if (action === "verify_totp") {
-      const { pending, tokenHash } = await requirePendingAdmin(req, params.user_id);
-      const { code } = params;
-      if (!code || String(code).length < 6) throw new Error("TOTP code required");
-      const { data: user, error } = await supabase.from("app_users").select("totp_secret").eq("id", pending.userId).single();
-      if (error || !user?.totp_secret) throw new Error("TOTP is not configured");
-      if (!authenticator.check(String(code), user.totp_secret)) throw new Error("Invalid Google Authenticator code");
-      await supabase.from("app_admin_2fa_state").update({ totp_verified_at: new Date().toISOString() }).eq("token_hash", tokenHash).eq("user_id", pending.userId);
-      return new Response(JSON.stringify({ success: true }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    if (action === "finalize_admin_session") {
-      const { pending, tokenHash, state } = await requirePendingAdmin(req, params.user_id);
-      const now = Date.now();
-      const otpAt = state.otp_verified_at ? new Date(state.otp_verified_at).getTime() : 0;
-      const totpAt = state.totp_verified_at ? new Date(state.totp_verified_at).getTime() : 0;
-      if (!otpAt || now - otpAt > 60_000) throw new Error("Telegram OTP proof expired");
-      if (!totpAt || now - totpAt > 60_000) throw new Error("Authenticator proof expired");
-
-      const { data: user, error } = await supabase.from("app_users").select("*").eq("id", pending.userId).single();
-      if (error || !user || user.role !== "admin") throw new Error("Admin not found");
-      const sessionPayload = {
-        userId: user.id,
-        username: user.username,
-        role: "admin",
-        assignedAccounts: user.assigned_accounts || null,
-        exp: Date.now() + 30 * 60 * 1000,
-      };
-      const sessionToken = await createSessionToken(sessionPayload, SESSION_SECRET);
-      const workerUrls = await loadWorkerUrls(supabase);
-      await supabase.from("app_admin_2fa_state").delete().eq("token_hash", tokenHash);
-      await auditLog(supabase, "admin_2fa_finalized", user.id, user.id, {}, ip);
-      return new Response(JSON.stringify({
-        success: true,
-        sessionToken,
-        workerUrls,
-        user: {
-          id: user.id,
-          username: user.username,
-          name: user.name,
-          role: user.role,
-          mustChangePassword: user.must_change_password,
-          assignedAccounts: user.assigned_accounts,
-          profilePrefs: user.profile_prefs || {},
-          profileAvatar: user.profile_prefs?.avatarId || null,
-        },
-      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     if (action === "get_settings") {
       const { key } = params;
-      let session: Record<string, any> | null = null;
 
       // Fully admin-only keys
       const adminOnlyKeys = ["config", "cron_config"];
       if (adminOnlyKeys.includes(key)) {
-        session = await requireAdmin(req);
+        await requireAdmin(req);
       }
 
       // Keys that any authenticated user can read (with masked sensitive data)
-      const authenticatedKeys = ["primary_cloudflare_urls", "email_accounts", "recaptcha", "email_filters", "session_config"];
-      if (!session && authenticatedKeys.includes(key)) {
-        session = await requireSession(req);
+      const authenticatedKeys = ["primary_cloudflare_urls", "email_accounts", "recaptcha", "email_filters"];
+      if (authenticatedKeys.includes(key)) {
+        await requireSession(req);
       }
 
       const { data } = await supabase
@@ -701,18 +477,14 @@ Deno.serve(async (req) => {
 
       // Mask IMAP passwords in email_accounts for non-admin users
       if (key === "email_accounts" && Array.isArray(value)) {
-        const isAdmin = session?.role === "admin";
+        const session = await requireSession(req);
+        const isAdmin = session.role === "admin";
         value = value.map((acc: any) => ({
           ...acc,
           password: isAdmin ? acc.password : "••••••••",
           // Non-admin users only see cloudflare URLs and label
           ...(isAdmin ? {} : { host: undefined, port: undefined, user: undefined }),
         }));
-      }
-
-      if (key === "recaptcha" && value && session?.role !== "admin") {
-        const { secretKey, ...safeValue } = value;
-        value = safeValue;
       }
 
       return new Response(JSON.stringify({ success: true, value }), {
@@ -800,8 +572,6 @@ Deno.serve(async (req) => {
         user: {
           id: targetUser.id, username: targetUser.username, name: targetUser.name, role: "user",
           assignedAccounts: targetUser.assigned_accounts, mustChangePassword: false,
-          profilePrefs: targetUser.profile_prefs || {},
-          profileAvatar: targetUser.profile_prefs?.avatarId || null,
         },
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },

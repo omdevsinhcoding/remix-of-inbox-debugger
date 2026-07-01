@@ -17,7 +17,7 @@
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Session-Token, X-Pending-Token, X-Cron-Secret",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Session-Token",
 };
 
 const CACHE_KEY = "emails_list";
@@ -164,7 +164,6 @@ export default {
         "Authorization": `Bearer ${env.SUPABASE_KEY}`,
         "apikey": env.SUPABASE_KEY,
       };
-      if (env.CRON_SHARED_SECRET) headers["X-Cron-Secret"] = env.CRON_SHARED_SECRET;
 
       const res = await fetch(`${env.SUPABASE_URL}/functions/v1/fetch-emails`, {
         method: "POST", headers, body: JSON.stringify({ mode: "sync" }),
@@ -183,7 +182,19 @@ export default {
       const cacheKey = `${CACHE_KEY}:all`;
       const tsKey = `${CACHE_TIMESTAMP_KEY}:all`;
 
-      // Cache reads are session-protected now; users refresh their own scoped cache on next open.
+      // Fetch fresh cache to store
+      const cacheRes = await fetch(`${env.SUPABASE_URL}/functions/v1/fetch-emails`, {
+        method: "POST", headers, body: JSON.stringify({ mode: "cache" }),
+      });
+
+      if (cacheRes.ok) {
+        const cacheData = await cacheRes.text();
+        await Promise.all([
+          kvPut(env, cacheKey, cacheData),
+          kvPut(env, tsKey, Date.now().toString()),
+        ]);
+        console.log("[cron] Cache updated successfully");
+      }
     } catch (err) {
       console.error("[cron] Error:", err);
     }
@@ -241,7 +252,7 @@ async function handleSync(env, session, rawToken, requestBody) {
     if (rawToken) headers["X-Session-Token"] = rawToken;
 
     // Pass through accountLabels from the request body for per-account routing
-    const syncPayload = { mode: requestBody?.mode === "sync" ? "sync" : "sync_async", source: requestBody?.source || "worker" };
+    const syncPayload = { mode: "sync" };
     if (requestBody?.accountLabels && Array.isArray(requestBody.accountLabels)) {
       syncPayload.accountLabels = requestBody.accountLabels;
     }
@@ -260,20 +271,6 @@ async function handleSync(env, session, rawToken, requestBody) {
       } catch {}
       return new Response(JSON.stringify({ success: false, error: errorMsg }), {
         status: res.status, headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-      });
-    }
-
-    if (res.status === 202) {
-      if (getKV(env)) {
-        const userAccountsKey = session?.assignedAccounts ? JSON.stringify(session.assignedAccounts.sort()) : "all";
-        await Promise.all([
-          kvPut(env, `${CACHE_KEY}:${userAccountsKey}`, JSON.stringify(JSON.parse(responseText).emails || [])),
-          kvPut(env, `${CACHE_TIMESTAMP_KEY}:${userAccountsKey}`, Date.now().toString()),
-        ]).catch(() => {});
-      }
-      return new Response(responseText, {
-        status: 202,
-        headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
       });
     }
 
@@ -381,7 +378,6 @@ async function handleFunctionProxy(request, env, fnName) {
   try {
     const body = await request.text();
     const sessionToken = request.headers.get("X-Session-Token") || request.headers.get("x-session-token");
-    const pendingToken = request.headers.get("X-Pending-Token") || request.headers.get("x-pending-token");
 
     // Resolve real client IP from Cloudflare headers
     const clientIp = request.headers.get("cf-connecting-ip")
@@ -395,7 +391,6 @@ async function handleFunctionProxy(request, env, fnName) {
       "apikey": env.SUPABASE_KEY,
     };
     if (sessionToken) headers["X-Session-Token"] = sessionToken;
-    if (pendingToken) headers["X-Pending-Token"] = pendingToken;
     if (clientIp) headers["X-Client-IP"] = clientIp;
 
     const res = await fetch(`${env.SUPABASE_URL}/functions/v1/${fnName}`, {
