@@ -2587,7 +2587,7 @@ function EmailViewer() {
         "apikey": supabaseKey,
       };
       if (token) headers["X-Session-Token"] = token;
-      const body: any = { mode: "sync" };
+        const body: any = { mode: "sync_async", source: "user_refresh" };
       if (accountLabels) body.accountLabels = accountLabels;
       const res = await fetch(`${supabaseUrl}/functions/v1/fetch-emails`, {
         method: "POST", headers, body: JSON.stringify(body),
@@ -2612,7 +2612,7 @@ function EmailViewer() {
       const accountWorkerUrls = byAccount[label];
       syncPromises.push((async () => {
         const urlsToTry = [...accountWorkerUrls, ...primary];
-        const res = await fetchFromWorkers("/api/emails/sync", "POST", { mode: "sync", accountLabels: [label] }, urlsToTry);
+        const res = await fetchFromWorkers("/api/emails/sync", "POST", { mode: "sync_async", source: "user_refresh", accountLabels: [label] }, urlsToTry);
         if (!res || !res.ok) {
           console.warn(`[sync] Workers failed for "${label}", falling back to Supabase`);
           await syncDirectSupabase([label]);
@@ -2625,14 +2625,14 @@ function EmailViewer() {
     // Remaining accounts sync through primary workers (with Supabase fallback)
     if (primary.length > 0) {
       syncPromises.push((async () => {
-        const res = await fetchFromWorkers("/api/emails/sync", "POST", { mode: "sync" }, primary);
+        const res = await fetchFromWorkers("/api/emails/sync", "POST", { mode: "sync_async", source: "user_refresh" }, primary);
         if (!res || !res.ok) {
           console.warn("[sync] Primary workers failed, falling back to Supabase");
           await syncDirectSupabase();
         }
       })());
     } else if (accountLabelsWithWorkers.length === 0) {
-      const res = await fetchFromWorkers("/api/emails/sync", "POST", { mode: "sync" });
+      const res = await fetchFromWorkers("/api/emails/sync", "POST", { mode: "sync_async", source: "user_refresh" });
       if (!res || !res.ok) {
         console.warn("[sync] All workers failed, falling back to Supabase");
         await syncDirectSupabase();
@@ -2654,6 +2654,7 @@ function EmailViewer() {
       const baseline = Math.max(before, cachedCount);
 
       syncViaWorker()
+        .then(() => new Promise(resolve => setTimeout(resolve, 4000)))
         .then(() => loadCachedEmails())
         .then((after) => {
           const newCount = after - baseline;
@@ -2736,6 +2737,7 @@ function EmailViewer() {
     if (workerUrlsLoading || initialSyncFired.current) return;
     initialSyncFired.current = true;
     syncViaWorker()
+      .then(() => new Promise(resolve => setTimeout(resolve, 4000)))
       .then(() => loadCachedEmails())
       .catch(() => {});
   }, [workerUrlsLoading, syncViaWorker, loadCachedEmails]);
@@ -2996,14 +2998,16 @@ export default function App() {
   return (
     <Router>
       <AuthProvider>
-        <Toaster position="top-center" richColors />
-        <Routes>
-          <Route path="/" element={<ProfileSelectPage />} />
-          <Route path="/admin" element={<AdminLoginPage />} />
-          <Route path="/admin-auth" element={<AdminAuthPage />} />
-          <Route path="/admin/dashboard" element={<ProtectedRoute role="admin"><AdminPanel /></ProtectedRoute>} />
-          <Route path="/viewer" element={<ProtectedRoute role="user"><EmailViewer /></ProtectedRoute>} />
-        </Routes>
+        <ResponsiveToaster />
+        <ErrorBoundary>
+          <Routes>
+            <Route path="/" element={<ProfileSelectPage />} />
+            <Route path="/admin" element={<AdminLoginPage />} />
+            <Route path="/admin-auth" element={<AdminAuthPage />} />
+            <Route path="/admin/dashboard" element={<ProtectedRoute role="admin"><AdminPanel /></ProtectedRoute>} />
+            <Route path="/viewer" element={<ProtectedRoute role="user"><EmailViewer /></ProtectedRoute>} />
+          </Routes>
+        </ErrorBoundary>
       </AuthProvider>
     </Router>
   );
