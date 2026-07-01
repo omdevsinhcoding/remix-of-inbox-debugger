@@ -1000,6 +1000,8 @@ function AdminPanel() {
   const [newUserAccounts, setNewUserAccounts] = useState<string[]>([]);
   const [siteKey, setSiteKey] = useState("");
   const [secretKeyVal, setSecretKeyVal] = useState("");
+  const [sessionTimeoutMin, setSessionTimeoutMin] = useState<string>("0");
+  const [savingSessionTimeout, setSavingSessionTimeout] = useState(false);
   const [captchaEnabled, setCaptchaEnabled] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newAdminPassword, setNewAdminPassword] = useState("");
