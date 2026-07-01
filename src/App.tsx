@@ -360,9 +360,6 @@ function ProfileAvatar({ avatarId, name, className = "w-16 h-16", fallbackColor 
   }
   return (
     <div className={`${className} relative rounded-xl sm:rounded-2xl bg-slate-900 overflow-hidden shadow-lg shadow-black/30 ring-1 ring-white/10`}>
-      {!loaded && (
-        <div className="absolute inset-0 bg-gradient-to-br from-slate-800 to-slate-900 animate-pulse" />
-      )}
       <img
         src={uri}
         loading="lazy"
@@ -374,6 +371,7 @@ function ProfileAvatar({ avatarId, name, className = "w-16 h-16", fallbackColor 
       />
     </div>
   );
+
 }
 
 
@@ -2172,57 +2170,36 @@ function AvatarRow({
   onPick: (id: string) => void;
   saving: boolean;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [visible, setVisible] = useState(false);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const io = new IntersectionObserver(
-      (entries) => {
-        for (const e of entries) if (e.isIntersecting) { setVisible(true); io.disconnect(); return; }
-      },
-      { root: null, rootMargin: "150px 0px", threshold: 0.01 }
-    );
-    io.observe(el);
-    return () => io.disconnect();
-  }, []);
   return (
-    <section ref={ref} id={`avatar-row-${category.key}`} className="scroll-mt-16">
+    <section id={`avatar-row-${category.key}`} className="scroll-mt-16">
       <div className="flex items-center justify-between px-4 sm:px-5 mb-2">
         <h4 className="text-sm sm:text-base font-black text-slate-900 tracking-tight">{category.label}</h4>
         <span className="text-[10px] font-bold text-slate-400">{category.files.length}</span>
       </div>
-      {!visible ? (
-        <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-6 gap-3 px-4 sm:px-5">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="aspect-square rounded-2xl bg-slate-100 animate-pulse" />
-          ))}
-        </div>
-      ) : (
-        <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-6 gap-3 px-4 sm:px-5 pb-3">
-          {category.files.map((file) => {
-            const id = buildAvatarId(category.key, file);
-            const selected = selectedAvatar === id;
-            return (
-              <button
-                key={id}
-                onClick={() => onPick(id)}
-                disabled={saving}
-                title={prettyName(file)}
-                className={`group relative aspect-square rounded-2xl overflow-hidden transition-shadow duration-200 active:scale-95 ${selected ? "ring-4 ring-red-500 shadow-lg shadow-red-500/40" : "ring-2 ring-transparent hover:ring-white/70"}`}
-              >
-                <ProfileAvatar avatarId={id} name={userName} className="w-full h-full !rounded-2xl" />
-                <span className="absolute inset-x-0 bottom-0 px-1.5 py-1 text-[9px] sm:text-[10px] font-bold text-white text-center bg-gradient-to-t from-black/85 via-black/50 to-transparent truncate">
-                  {prettyName(file)}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      )}
+      <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-6 gap-3 px-4 sm:px-5 pb-3">
+        {category.files.map((file) => {
+          const id = buildAvatarId(category.key, file);
+          const selected = selectedAvatar === id;
+          return (
+            <button
+              key={id}
+              onClick={() => onPick(id)}
+              disabled={saving}
+              title={prettyName(file)}
+              className={`group relative aspect-square rounded-2xl overflow-hidden transition-shadow duration-200 active:scale-95 ${selected ? "ring-4 ring-red-500 shadow-lg shadow-red-500/40" : "ring-2 ring-transparent hover:ring-white/70"}`}
+            >
+              <ProfileAvatar avatarId={id} name={userName} className="w-full h-full !rounded-2xl" />
+              <span className="absolute inset-x-0 bottom-0 px-1.5 py-1 text-[9px] sm:text-[10px] font-bold text-white text-center bg-gradient-to-t from-black/85 via-black/50 to-transparent truncate">
+                {prettyName(file)}
+              </span>
+            </button>
+          );
+        })}
+      </div>
     </section>
   );
 }
+
 
 function AvatarPicker({
   userName,
