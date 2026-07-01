@@ -1,0 +1,78 @@
+import { supabase } from "../integrations/supabase/client";
+
+const WORKER_URLS_KEY = "cloudflare_worker_urls";
+const BOOTSTRAP_CACHE_KEY = "bootstrap_cache_v1";
+const BOOTSTRAP_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const BOOTSTRAP_TIMEOUT_MS = 8000;
+
+export type BootstrapResult = { users: any[]; recaptcha: any; workerUrls: string[] };
+
+function storeWorkerUrls(urls: string[]) {
+  try {
+    localStorage.setItem(WORKER_URLS_KEY, JSON.stringify(urls));
+  } catch {}
+}
+
+export function markSessionStart() {
+  try { localStorage.setItem("session_started_at", String(Date.now())); } catch {}
+}
+
+export function clearSessionData() {
+  try {
+    localStorage.removeItem("user");
+    localStorage.removeItem("session_token");
+    localStorage.removeItem("session_started_at");
+    localStorage.removeItem("admin_auth");
+    localStorage.removeItem("admin_backup");
+    localStorage.removeItem("pending_admin_token");
+    localStorage.removeItem("pending_admin_user");
+  } catch {}
+}
+
+export function readBootstrapCache(): BootstrapResult | null {
+  try {
+    const raw = localStorage.getItem(BOOTSTRAP_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    if (!parsed.savedAt || Date.now() - parsed.savedAt > BOOTSTRAP_CACHE_TTL_MS) return null;
+    return { users: parsed.users || [], recaptcha: parsed.recaptcha, workerUrls: parsed.workerUrls || [] };
+  } catch { return null; }
+}
+
+function writeBootstrapCache(result: BootstrapResult) {
+  try {
+    localStorage.setItem(BOOTSTRAP_CACHE_KEY, JSON.stringify({ ...result, savedAt: Date.now() }));
+  } catch {}
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("Bootstrap timed out")), ms);
+    promise.then((value) => { clearTimeout(timer); resolve(value); }, (err) => { clearTimeout(timer); reject(err); });
+  });
+}
+
+export async function bootstrapFromSupabase(): Promise<BootstrapResult> {
+  const { data, error } = await withTimeout(
+    supabase.functions.invoke("manage-app", { body: { action: "bootstrap_public" } }),
+    BOOTSTRAP_TIMEOUT_MS,
+  );
+  if (error) throw error;
+  if (!data?.success) throw new Error(data?.error || "Bootstrap failed");
+
+  if (Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
+    storeWorkerUrls(data.workerUrls);
+  }
+
+  const result: BootstrapResult = { users: data.users || [], recaptcha: data.recaptcha, workerUrls: data.workerUrls || [] };
+  writeBootstrapCache(result);
+  return result;
+}
+
+export const bootstrapPromise: Promise<BootstrapResult> = bootstrapFromSupabase().catch((err) => {
+  console.warn("[bootstrap] prefetch failed:", err);
+  const cached = readBootstrapCache();
+  if (cached) return cached;
+  return { users: [], recaptcha: null, workerUrls: [] };
+});

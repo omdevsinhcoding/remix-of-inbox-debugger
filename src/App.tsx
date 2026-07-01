@@ -7,6 +7,7 @@ import ReCAPTCHA from "react-google-recaptcha";
 import { supabase } from "./integrations/supabase/client";
 import { QRCodeSVG } from "qrcode.react";
 import { AVATAR_CATEGORIES, resolveAvatar, buildAvatarId } from "./lib/avatars";
+import { bootstrapFromSupabase, bootstrapPromise, clearSessionData, markSessionStart, readBootstrapCache } from "./lib/bootstrap";
 
 // --- Worker URL Types & Helpers ---
 const WORKER_URLS_KEY = "cloudflare_worker_urls";
@@ -45,27 +46,14 @@ function getSessionToken(): string | null {
   } catch { return null; }
 }
 
-// --- Session timeout helpers ---
-export function markSessionStart() {
-  try { localStorage.setItem("session_started_at", String(Date.now())); } catch {}
-}
-
-export function clearSessionData() {
-  try {
-    localStorage.removeItem("user");
-    localStorage.removeItem("session_token");
-    localStorage.removeItem("session_started_at");
-    localStorage.removeItem("admin_auth");
-    localStorage.removeItem("admin_backup");
-  } catch {}
-}
-
 // --- API Helper (routes ALL calls through Cloudflare Workers) ---
 
 async function apiCall(functionName: string, body: any) {
   let workerUrls = getStoredWorkerUrls();
   
   const token = getSessionToken();
+  const pendingToken = (() => { try { return localStorage.getItem("pending_admin_token"); } catch { return null; } })();
+  const pendingActions = new Set(["request_admin_otp", "verify_otp", "verify_totp", "update_totp", "finalize_admin_session"]);
 
   // Try each worker URL with random load balancing
   if (workerUrls.length > 0) {
@@ -76,6 +64,7 @@ async function apiCall(functionName: string, body: any) {
           "Content-Type": "application/json",
         };
         if (token) headers["X-Session-Token"] = token;
+        if (pendingToken && functionName === "manage-app" && pendingActions.has(body?.action)) headers["X-Pending-Token"] = pendingToken;
 
         const res = await fetch(`${cfUrl}/api/fn/${functionName}`, {
           method: "POST",
@@ -122,6 +111,7 @@ async function apiCall(functionName: string, body: any) {
   const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
   const headers: Record<string, string> = {};
   if (token) headers["X-Session-Token"] = token;
+  if (pendingToken && functionName === "manage-app" && pendingActions.has(body?.action)) headers["X-Pending-Token"] = pendingToken;
   
   const res = await fetch(`${supabaseUrl}/functions/v1/${functionName}`, {
     method: "POST",
@@ -150,52 +140,36 @@ async function apiCall(functionName: string, body: any) {
   return data;
 }
 
-// --- Direct Supabase bootstrap (bypasses worker requirement) ---
-const BOOTSTRAP_CACHE_KEY = "bootstrap_cache_v1";
-const BOOTSTRAP_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-
-type BootstrapResult = { users: any[]; recaptcha: any; workerUrls: string[] };
-
-export function readBootstrapCache(): BootstrapResult | null {
-  try {
-    const raw = localStorage.getItem(BOOTSTRAP_CACHE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") return null;
-    if (!parsed.savedAt || Date.now() - parsed.savedAt > BOOTSTRAP_CACHE_TTL_MS) return null;
-    return { users: parsed.users || [], recaptcha: parsed.recaptcha, workerUrls: parsed.workerUrls || [] };
-  } catch { return null; }
-}
-
-function writeBootstrapCache(result: BootstrapResult) {
-  try {
-    localStorage.setItem(BOOTSTRAP_CACHE_KEY, JSON.stringify({ ...result, savedAt: Date.now() }));
-  } catch {}
-}
-
-async function bootstrapFromSupabase(): Promise<BootstrapResult> {
-  const { data, error } = await supabase.functions.invoke("manage-app", {
-    body: { action: "bootstrap_public" },
-  });
-  if (error) throw error;
-  if (!data?.success) throw new Error(data?.error || "Bootstrap failed");
-
-  if (data.workerUrls && Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
-    storeWorkerUrls(data.workerUrls);
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
+  state = { error: null as Error | null };
+  static getDerivedStateFromError(error: Error) { return { error }; }
+  componentDidCatch(error: Error, info: React.ErrorInfo) { console.error("[render-crash]", error, info); }
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div className="min-h-[100dvh] bg-slate-950 text-white flex items-center justify-center p-4">
+        <div className="w-full max-w-md rounded-3xl border border-red-500/30 bg-slate-900 p-6 shadow-2xl">
+          <div className="flex items-center gap-3 text-red-300 font-black text-lg mb-3"><AlertCircle className="w-5 h-5" /> App recovered from an error</div>
+          <p className="text-sm text-slate-300 mb-4">No more white screen — reload once to restore the latest app state.</p>
+          <pre className="max-h-32 overflow-auto rounded-xl bg-black/30 p-3 text-[11px] text-red-100 mb-4">{this.state.error.message}</pre>
+          <button onClick={() => window.location.reload()} className="w-full rounded-xl bg-red-600 py-3 font-bold hover:bg-red-700">Reload app</button>
+        </div>
+      </div>
+    );
   }
-
-  const result: BootstrapResult = { users: data.users || [], recaptcha: data.recaptcha, workerUrls: data.workerUrls || [] };
-  writeBootstrapCache(result);
-  return result;
 }
 
-// Fire the network round-trip before React mounts so it runs in parallel with bundle parse.
-export const bootstrapPromise: Promise<BootstrapResult> = bootstrapFromSupabase().catch((err) => {
-  console.warn("[bootstrap] prefetch failed:", err);
-  const cached = readBootstrapCache();
-  if (cached) return cached;
-  throw err;
-});
+function ResponsiveToaster() {
+  const [isMobile, setIsMobile] = useState(() => typeof window !== "undefined" ? window.matchMedia("(max-width: 640px)").matches : true);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 640px)");
+    const onChange = () => setIsMobile(mq.matches);
+    onChange();
+    mq.addEventListener?.("change", onChange);
+    return () => mq.removeEventListener?.("change", onChange);
+  }, []);
+  return <Toaster position={isMobile ? "top-center" : "bottom-right"} richColors />;
+}
 
 // --- Rate Limiter ---
 const loginAttempts: { [key: string]: number[] } = {};
@@ -210,28 +184,10 @@ function checkRateLimit(key: string): boolean {
   return true;
 }
 
-// --- Login notification (location is resolved server-side via ipwho.is) ---
-async function sendLoginNotification(payload: { username: string; name?: string; status: "success" | "failed" }) {
-  const token = getSessionToken();
-  try {
-    const { data, error } = await supabase.functions.invoke("send-login-notification", {
-      body: payload,
-      headers: token ? { "x-session-token": token } : undefined,
-    });
-    if (error) throw error;
-    if (data?.success === false) throw new Error(data?.error || "Notification failed");
-    return;
-  } catch (directErr) {
-    console.warn("[notification] Direct send failed, trying fallback:", directErr);
-  }
-  await apiCall("send-login-notification", payload);
-}
-
-
 // --- Auth Context ---
 const AuthContext = createContext<{ user: any; loading: boolean; checkAuth: () => void } | null>(null);
 
-export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
+const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
@@ -248,7 +204,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   return <AuthContext.Provider value={{ user, loading, checkAuth }}>{children}</AuthContext.Provider>;
 };
 
-export const useAuth = () => useContext(AuthContext)!;
+const useAuth = () => useContext(AuthContext)!;
 
 // --- Session Timeout Guard ---
 // Reads admin-configured absolute session timeout (minutes) from app_settings.
@@ -342,7 +298,7 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
     : "bg-slate-900/90 text-white";
 
   return (
-    <div className={`fixed z-50 top-2 right-2 sm:top-auto sm:bottom-4 sm:right-4 px-3 py-1.5 rounded-full text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1.5 pointer-events-none select-none`}>
+    <div className={`fixed z-50 top-[calc(env(safe-area-inset-top)+0.35rem)] right-2 sm:top-auto sm:bottom-4 sm:right-4 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full text-[10px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1 sm:gap-1.5 pointer-events-none select-none`}>
       <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" />
       Session: {pad(mm)}:{pad(ss)}
     </div>
@@ -557,12 +513,6 @@ function ProfileSelectPage() {
       markSessionStart();
       checkAuth();
 
-      void sendLoginNotification({
-        username: data.user.username,
-        name: data.user.name,
-        status: "success",
-      }).catch((notifErr) => console.error("[notification] Failed:", notifErr));
-
       navigate("/viewer");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Login failed";
@@ -757,26 +707,20 @@ function AdminLoginPage() {
         if (result.error) throw result.error;
         data = result.data;
         if (!data?.success) throw new Error(data?.error || "Login failed");
-        if (data.sessionToken) localStorage.setItem("session_token", data.sessionToken);
+        if (data.pendingToken) localStorage.setItem("pending_admin_token", data.pendingToken);
       }
 
       if (data.user.role !== "admin") throw new Error("Access denied");
+      if (data.pendingToken) localStorage.setItem("pending_admin_token", data.pendingToken);
 
       if (data.workerUrls && Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
         storeWorkerUrls(data.workerUrls);
       }
 
-      localStorage.setItem("user", JSON.stringify(data.user));
-      markSessionStart();
+      localStorage.setItem("user", JSON.stringify({ ...data.user, pending: true }));
       checkAuth();
 
-      void sendLoginNotification({
-        username: data.user.username,
-        name: data.user.name,
-        status: "success",
-      }).catch((notifErr) => console.error("[notification] Admin notif failed:", notifErr));
-
-      toast.success("Login successful. Proceeding to 2FA.");
+      toast.success("Password verified. Complete 2FA to enter admin.");
       navigate("/admin-auth");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Login failed";
@@ -789,7 +733,7 @@ function AdminLoginPage() {
 
 
   return (
-    <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+    <div className="min-h-[100dvh] bg-slate-900 flex items-center justify-center px-4 py-6 pt-[calc(env(safe-area-inset-top)+1rem)]">
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
         className="bg-white w-full max-w-md rounded-2xl sm:rounded-3xl p-5 sm:p-8 shadow-2xl border-t-4 sm:border-t-8 border-red-600 mx-2 sm:mx-0">
         <div className="flex justify-center mb-8">
@@ -885,14 +829,13 @@ function AdminAuthPage() {
     if (step === 2 && !user.totpSecret) {
       (async () => {
         try {
-          const { generateSecret, generateURI } = await import("otplib");
-          const secret = generateSecret();
-          setSecretKey(secret);
-          const uri = generateURI({ issuer: "AdminPanel", label: user.username, secret });
-          setQrCode(uri);
-          await apiCall("manage-app", { action: "update_totp", id: user.id, totp_secret: secret });
+          if (user.totpConfigured) return;
+          const res = await apiCall("manage-app", { action: "update_totp", user_id: user.id });
+          if (res.secret) setSecretKey(res.secret);
+          if (res.otpauthUrl) setQrCode(res.otpauthUrl);
         } catch (err) {
           console.error("TOTP setup error:", err);
+          toast.error(err instanceof Error ? err.message : "Could not start authenticator setup");
         }
       })();
     }
@@ -916,24 +859,29 @@ function AdminAuthPage() {
   const verifyTotp = async () => {
     setLoading(true);
     try {
-      const { verify } = await import("otplib");
-      const secret = user.totpSecret || secretKey;
-      const result = await verify({ secret, token: totp });
-      if (result && (result as any).delta !== undefined) {
-        localStorage.setItem("admin_auth", "true");
-        navigate("/admin/dashboard");
-      } else {
-        throw new Error("Invalid Google Auth Code");
+      await apiCall("manage-app", { action: "verify_totp", user_id: user.id, code: totp });
+      const finalData = await apiCall("manage-app", { action: "finalize_admin_session", user_id: user.id });
+      if (finalData.workerUrls && Array.isArray(finalData.workerUrls) && finalData.workerUrls.length > 0) {
+        storeWorkerUrls(finalData.workerUrls);
       }
-    } catch {
-      setError("Invalid Google Auth Code");
+      if (finalData.sessionToken) localStorage.setItem("session_token", finalData.sessionToken);
+      localStorage.removeItem("pending_admin_token");
+      localStorage.setItem("admin_auth", "true");
+      localStorage.setItem("user", JSON.stringify(finalData.user));
+      markSessionStart();
+      toast.success("Admin session secured.");
+      navigate("/admin/dashboard");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Invalid Google Auth Code";
+      setError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 relative overflow-hidden">
+    <div className="min-h-[100dvh] bg-slate-950 flex items-center justify-center px-4 py-6 pt-[calc(env(safe-area-inset-top)+1rem)] relative overflow-hidden">
       <div className="absolute inset-0 bg-[linear-gradient(to_right,#4f4f4f2e_1px,transparent_1px),linear-gradient(to_bottom,#4f4f4f2e_1px,transparent_1px)] bg-[size:14px_24px] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_0%,#000_70%,transparent_100%)]" />
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-red-600/20 blur-[120px] rounded-full pointer-events-none" />
 
@@ -1324,7 +1272,7 @@ function AdminPanel() {
   ];
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-[100dvh] bg-slate-50 overflow-x-hidden">
       <header className="bg-white border-b px-3 sm:px-6 py-3 sm:py-4 sticky top-0 z-10 shadow-sm">
         <div className="max-w-6xl mx-auto flex justify-between items-center gap-2">
           <h1 className="text-sm sm:text-xl font-black flex items-center gap-2 min-w-0 truncate">
@@ -1383,7 +1331,7 @@ function AdminPanel() {
                 <div className="bg-green-50 p-1.5 rounded-lg"><Plus className="w-4 h-4 text-green-600" /></div>
                 Create User
               </h2>
-              <div className="space-y-3">
+              <div className="space-y-3 min-w-0">
                 <input type="text" placeholder="Display Name" value={newName} onChange={(e) => setNewName(e.target.value)}
                   className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
                 <input type="text" placeholder="Username" value={newUsername} onChange={(e) => setNewUsername(e.target.value)}
@@ -1425,15 +1373,15 @@ function AdminPanel() {
               </h2>
               <div className="space-y-3">
                 {users.map(u => (
-                  <div key={u.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 hover:border-slate-200 transition-colors">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
+                  <div key={u.id} className="p-3 sm:p-4 bg-slate-50 rounded-2xl border border-slate-100 hover:border-slate-200 transition-colors min-w-0">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
                         <div className={`w-10 h-10 rounded-xl ${u.role === "admin" ? "bg-red-500" : "bg-blue-500"} flex items-center justify-center`}>
                           <span className="text-white font-black text-sm">{u.name.charAt(0).toUpperCase()}</span>
                         </div>
-                        <div>
-                          <p className="font-bold text-slate-900">{u.name}</p>
-                          <p className="text-xs text-slate-500">@{u.username} • <span className={u.role === "admin" ? "text-red-600 font-bold" : "text-blue-600"}>{u.role}</span></p>
+                        <div className="min-w-0">
+                          <p className="font-bold text-slate-900 truncate">{u.name}</p>
+                          <p className="text-xs text-slate-500 truncate">@{u.username} • <span className={u.role === "admin" ? "text-red-600 font-bold" : "text-blue-600"}>{u.role}</span></p>
                           {u.assignedAccounts && u.assignedAccounts.length > 0 && (
                             <div className="flex flex-wrap gap-1 mt-1">
                               {u.assignedAccounts.map((a: string) => (
@@ -1447,7 +1395,7 @@ function AdminPanel() {
                         </div>
                       </div>
                       {u.role !== "admin" && (
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1 self-end sm:self-auto">
                           <button onClick={() => loginAsUser(u)} title="View as user"
                             className="p-2 hover:bg-blue-50 text-blue-400 hover:text-blue-600 rounded-lg transition-colors">
                             <Eye className="w-4 h-4" />
@@ -1492,7 +1440,7 @@ function AdminPanel() {
                     )}
 
                     {changingUserPass === u.id && u.role !== "admin" && (
-                      <div className="mt-3 flex gap-2">
+                      <div className="mt-3 flex flex-col sm:flex-row gap-2">
                         <PasswordInput value={userNewPass} onChange={(e) => setUserNewPass(e.target.value)}
                           placeholder="New password (min 6)"
                           className="flex-1 bg-white border rounded-lg p-2 pr-10 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
@@ -2237,7 +2185,7 @@ function AvatarRow({
           ))}
         </div>
       ) : (
-        <div className="flex sm:grid sm:grid-cols-6 lg:grid-cols-8 gap-2 sm:gap-3 px-4 sm:px-5 overflow-x-auto snap-x snap-mandatory pb-2 sm:pb-0 scrollbar-thin">
+        <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2 sm:gap-3 px-4 sm:px-5 pb-2">
           {category.seeds.map((seed) => {
             const id = buildAvatarId(category.style, seed);
             const selected = selectedAvatar === id;
@@ -2247,9 +2195,9 @@ function AvatarRow({
                 onClick={() => onPick(id)}
                 disabled={saving}
                 title={`${category.label} ${seed}`}
-                className={`flex-shrink-0 snap-start rounded-2xl p-1 transition-all active:scale-95 ${selected ? "ring-4 ring-red-500 bg-red-50" : "ring-1 ring-slate-200 hover:ring-slate-400 bg-white"}`}
+                className={`rounded-2xl p-1 transition-all active:scale-95 ${selected ? "ring-4 ring-red-500 bg-red-50" : "ring-1 ring-slate-200 hover:ring-slate-400 bg-white"}`}
               >
-                <ProfileAvatar avatarId={id} name={userName} className="w-20 h-20 sm:w-24 sm:h-24" />
+                <ProfileAvatar avatarId={id} name={userName} className="w-14 h-14 sm:w-20 sm:h-20 md:w-24 md:h-24 mx-auto" />
               </button>
             );
           })}
@@ -2639,7 +2587,7 @@ function EmailViewer() {
         "apikey": supabaseKey,
       };
       if (token) headers["X-Session-Token"] = token;
-      const body: any = { mode: "sync" };
+        const body: any = { mode: "sync_async", source: "user_refresh" };
       if (accountLabels) body.accountLabels = accountLabels;
       const res = await fetch(`${supabaseUrl}/functions/v1/fetch-emails`, {
         method: "POST", headers, body: JSON.stringify(body),
@@ -2664,7 +2612,7 @@ function EmailViewer() {
       const accountWorkerUrls = byAccount[label];
       syncPromises.push((async () => {
         const urlsToTry = [...accountWorkerUrls, ...primary];
-        const res = await fetchFromWorkers("/api/emails/sync", "POST", { mode: "sync", accountLabels: [label] }, urlsToTry);
+        const res = await fetchFromWorkers("/api/emails/sync", "POST", { mode: "sync_async", source: "user_refresh", accountLabels: [label] }, urlsToTry);
         if (!res || !res.ok) {
           console.warn(`[sync] Workers failed for "${label}", falling back to Supabase`);
           await syncDirectSupabase([label]);
@@ -2677,14 +2625,14 @@ function EmailViewer() {
     // Remaining accounts sync through primary workers (with Supabase fallback)
     if (primary.length > 0) {
       syncPromises.push((async () => {
-        const res = await fetchFromWorkers("/api/emails/sync", "POST", { mode: "sync" }, primary);
+        const res = await fetchFromWorkers("/api/emails/sync", "POST", { mode: "sync_async", source: "user_refresh" }, primary);
         if (!res || !res.ok) {
           console.warn("[sync] Primary workers failed, falling back to Supabase");
           await syncDirectSupabase();
         }
       })());
     } else if (accountLabelsWithWorkers.length === 0) {
-      const res = await fetchFromWorkers("/api/emails/sync", "POST", { mode: "sync" });
+      const res = await fetchFromWorkers("/api/emails/sync", "POST", { mode: "sync_async", source: "user_refresh" });
       if (!res || !res.ok) {
         console.warn("[sync] All workers failed, falling back to Supabase");
         await syncDirectSupabase();
@@ -2706,6 +2654,7 @@ function EmailViewer() {
       const baseline = Math.max(before, cachedCount);
 
       syncViaWorker()
+        .then(() => new Promise(resolve => setTimeout(resolve, 4000)))
         .then(() => loadCachedEmails())
         .then((after) => {
           const newCount = after - baseline;
@@ -2788,6 +2737,7 @@ function EmailViewer() {
     if (workerUrlsLoading || initialSyncFired.current) return;
     initialSyncFired.current = true;
     syncViaWorker()
+      .then(() => new Promise(resolve => setTimeout(resolve, 4000)))
       .then(() => loadCachedEmails())
       .catch(() => {});
   }, [workerUrlsLoading, syncViaWorker, loadCachedEmails]);
@@ -2861,8 +2811,8 @@ function EmailViewer() {
       </header>
 
       <main className="max-w-6xl mx-auto px-2 sm:px-4 h-[calc(100vh-3.5rem)] sm:h-[calc(100vh-4rem)] overflow-hidden">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-8 h-full py-4 sm:py-8">
-          <div className={`${selectedEmail ? "hidden lg:block" : "block"} lg:col-span-5 xl:col-span-4 flex flex-col overflow-hidden h-full`}>
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-4 sm:gap-8 h-full py-4 sm:py-8">
+          <div className={`${selectedEmail ? "hidden md:block" : "block"} md:col-span-5 xl:col-span-4 flex flex-col overflow-hidden h-full`}>
             <section className="bg-white rounded-2xl shadow-sm border border-slate-200 p-3 sm:p-5 flex items-center gap-3 sm:gap-4 flex-shrink-0">
               <div className="bg-green-100 p-2 sm:p-3 rounded-xl flex-shrink-0">
                 <ShieldCheck className="text-green-600 w-6 h-6" />
@@ -2928,7 +2878,7 @@ function EmailViewer() {
             </section>
           </div>
 
-          <div className={`${selectedEmail ? "block" : "hidden lg:flex"} lg:col-span-7 xl:col-span-8 flex flex-col overflow-hidden h-full`}>
+          <div className={`${selectedEmail ? "block" : "hidden md:flex"} md:col-span-7 xl:col-span-8 flex flex-col overflow-hidden h-full`}>
             {selectedEmail ? (
               <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }}
                 className="bg-white rounded-2xl shadow-sm border border-slate-200 flex flex-col h-full overflow-hidden">
@@ -3048,14 +2998,16 @@ export default function App() {
   return (
     <Router>
       <AuthProvider>
-        <Toaster position="top-center" richColors />
-        <Routes>
-          <Route path="/" element={<ProfileSelectPage />} />
-          <Route path="/admin" element={<AdminLoginPage />} />
-          <Route path="/admin-auth" element={<AdminAuthPage />} />
-          <Route path="/admin/dashboard" element={<ProtectedRoute role="admin"><AdminPanel /></ProtectedRoute>} />
-          <Route path="/viewer" element={<ProtectedRoute role="user"><EmailViewer /></ProtectedRoute>} />
-        </Routes>
+        <ResponsiveToaster />
+        <ErrorBoundary>
+          <Routes>
+            <Route path="/" element={<ProfileSelectPage />} />
+            <Route path="/admin" element={<AdminLoginPage />} />
+            <Route path="/admin-auth" element={<AdminAuthPage />} />
+            <Route path="/admin/dashboard" element={<ProtectedRoute role="admin"><AdminPanel /></ProtectedRoute>} />
+            <Route path="/viewer" element={<ProtectedRoute role="user"><EmailViewer /></ProtectedRoute>} />
+          </Routes>
+        </ErrorBoundary>
       </AuthProvider>
     </Router>
   );
