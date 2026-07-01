@@ -150,44 +150,10 @@
         <div style="max-width:480px;text-align:center;">
           <div style="width:56px;height:56px;margin:0 auto 20px;border-radius:18px;display:grid;place-items:center;background:linear-gradient(135deg,#ef4444,#b91c1c);color:#fff;font-weight:900;font-size:28px;">N</div>
           <h1 style="font-size:24px;margin:0 0 12px;font-weight:800;">JavaScript required</h1>
-          <p style="color:#94a3b8;line-height:1.6;margin:0 0 16px;">This app needs JavaScript to load profiles and inbox. Please enable JavaScript or disable script-blocking extensions (uBlock, NoScript, Brave Shields) for this site, then refresh.</p>
+          <p style="color:#94a3b8;line-height:1.6;margin:0;">Please enable JavaScript and refresh to load profiles and inbox.</p>
         </div>
       </div>
     </noscript>
-    <script>
-      (function () {
-        var SRC = '/src/main.tsx';
-        var attempts = 0;
-        var MAX = 3;
-        function load() {
-          attempts++;
-          var s = document.createElement('script');
-          s.type = 'module';
-          s.src = SRC + (SRC.indexOf('?') === -1 ? '?' : '&') + 'r=' + attempts;
-          s.onerror = function () {
-            if (attempts < MAX) setTimeout(load, 700 * attempts);
-            else showBlocked();
-          };
-          document.body.appendChild(s);
-        }
-        function showBlocked() {
-          var root = document.getElementById('root');
-          if (!root) return;
-          root.innerHTML =
-            '<div style="position:fixed;inset:0;background:#020617;color:#f8fafc;display:flex;align-items:center;justify-content:center;padding:24px;font-family:Inter,system-ui,sans-serif;">' +
-              '<div style="max-width:480px;text-align:center;">' +
-                '<div style="width:56px;height:56px;margin:0 auto 20px;border-radius:18px;display:grid;place-items:center;background:linear-gradient(135deg,#ef4444,#b91c1c);color:#fff;font-weight:900;font-size:28px;">N</div>' +
-                '<h1 style="font-size:22px;margin:0 0 12px;font-weight:800;">App scripts blocked</h1>' +
-                '<p style="color:#94a3b8;line-height:1.6;margin:0 0 20px;">A browser extension or your network is blocking this site\'s scripts. Please disable ad/script blockers for this domain.</p>' +
-                '<button onclick="location.reload()" style="background:linear-gradient(135deg,#ef4444,#b91c1c);color:#fff;border:0;padding:12px 24px;border-radius:10px;font-weight:700;font-size:14px;cursor:pointer;">Retry</button>' +
-              '</div>' +
-            '</div>';
-        }
-        setTimeout(function () {
-          if (document.querySelector('#root .boot-shell') && attempts >= MAX) showBlocked();
-        }, 15000);
-        load();
-      })();
-    </script>
+    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
