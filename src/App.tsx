@@ -6,7 +6,7 @@ import { Toaster, toast } from "sonner";
 import ReCAPTCHA from "react-google-recaptcha";
 import { supabase } from "./integrations/supabase/client";
 import { QRCodeSVG } from "qrcode.react";
-import { AVATAR_CATEGORIES, resolveAvatar, buildAvatarId } from "./lib/avatars";
+import { AVATAR_CATEGORIES, resolveAvatar, buildAvatarId, prettyName } from "./lib/avatars";
 import { bootstrapFromSupabase, bootstrapPromise, clearSessionData, markSessionStart, readBootstrapCache } from "./lib/bootstrap";
 
 // --- Worker URL Types & Helpers ---
