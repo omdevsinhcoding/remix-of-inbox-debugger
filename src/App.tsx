@@ -336,8 +336,8 @@ function useSessionTimeoutGuard(role: "admin" | "user") {
       clearSessionData();
       checkAuth();
       toast("🔒 Session timed out", {
-        description: `You've been signed out after ${minutes} min for security. Tap your profile to sign back in.`,
-        duration: 6000,
+        description: "Tap your profile and enter password again.",
+        duration: 3000,
       });
       navigate(role === "admin" ? "/admin" : "/", { replace: true });
     };
@@ -724,8 +724,8 @@ function ProfileSelectPage() {
                     whileHover={{ scale: 1.08, y: -4 }} whileTap={{ scale: 0.92 }}
                     onClick={() => setSelectedProfile(profile)}
                     className="flex flex-col items-center gap-2 sm:gap-3 group w-full max-w-[100px] sm:max-w-[120px]">
-                    <div className={`w-16 h-16 sm:w-24 sm:h-24 rounded-xl sm:rounded-2xl ${PROFILE_COLORS[i % PROFILE_COLORS.length]} flex items-center justify-center shadow-lg shadow-black/30 group-hover:shadow-xl group-hover:ring-2 group-hover:ring-white/40 transition-all duration-200`}>
-                      <span className="text-white text-xl sm:text-3xl font-black drop-shadow-md">{profile.name.charAt(0).toUpperCase()}</span>
+                    <div className="group-hover:shadow-xl group-hover:ring-2 group-hover:ring-white/40 rounded-xl sm:rounded-2xl transition-all duration-200">
+                      <ProfileAvatar avatarId={profile.profileAvatar} name={profile.name} className="w-16 h-16 sm:w-24 sm:h-24" fallbackColor={PROFILE_COLORS[i % PROFILE_COLORS.length]} />
                     </div>
                     <span className="text-slate-400 font-semibold text-[11px] sm:text-sm group-hover:text-white transition-colors duration-200 truncate w-full text-center">{profile.name}</span>
                   </motion.button>
@@ -744,8 +744,8 @@ function ProfileSelectPage() {
 
             <div className="flex flex-col items-center mb-8">
               <motion.div initial={{ scale: 0.8 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 200 }}
-                className={`w-20 h-20 sm:w-24 sm:h-24 rounded-2xl ${PROFILE_COLORS[profiles.indexOf(selectedProfile) % PROFILE_COLORS.length]} flex items-center justify-center shadow-xl shadow-black/30 mb-4 ring-1 ring-white/10`}>
-                <span className="text-white text-2xl sm:text-3xl font-black drop-shadow-md">{selectedProfile.name.charAt(0).toUpperCase()}</span>
+                className="mb-4">
+                <ProfileAvatar avatarId={selectedProfile.profileAvatar} name={selectedProfile.name} className="w-20 h-20 sm:w-24 sm:h-24" fallbackColor={PROFILE_COLORS[profiles.indexOf(selectedProfile) % PROFILE_COLORS.length]} />
               </motion.div>
               <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">{selectedProfile.name}</h2>
               <p className="text-slate-500 text-xs sm:text-sm mt-0.5">@{selectedProfile.username}</p>
