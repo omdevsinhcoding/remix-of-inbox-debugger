@@ -454,13 +454,11 @@ function ProfileSelectPage() {
   const [showCaptcha, setShowCaptcha] = useState(false);
   const navigate = useNavigate();
   const { checkAuth } = useAuth();
-  const pendingExactLocationRef = useRef<ExactLocation | null>(null);
 
   const loadProfiles = useCallback(async () => {
     try {
       setLoading(true);
       setError("");
-      // Use direct Supabase bootstrap — no worker URL needed
       const bootstrap = await bootstrapFromSupabase();
       setProfiles((bootstrap.users || []).filter((u: UserData) => u.role === "user"));
       if (bootstrap.recaptcha?.enabled === true && bootstrap.recaptcha?.siteKey) {
@@ -476,36 +474,18 @@ function ProfileSelectPage() {
 
   useEffect(() => { loadProfiles(); }, [loadProfiles]);
 
-  const initiateLogin = async (e: React.FormEvent) => {
+  const initiateLogin = (e: React.FormEvent) => {
     e.preventDefault();
-
-    try {
-      setError("");
-      pendingExactLocationRef.current = await requestExactLocationForLogin();
-      if (siteKey) {
-        setShowCaptcha(true);
-      } else {
-        void executeLogin();
-      }
-    } catch (err) {
-      pendingExactLocationRef.current = null;
-      const msg = err instanceof Error ? err.message : "Location access is required before login.";
-      setError(msg);
-      toast.error(msg);
+    setError("");
+    if (siteKey) {
+      setShowCaptcha(true);
+    } else {
+      void executeLogin();
     }
   };
 
   const executeLogin = async () => {
     if (!selectedProfile) return;
-
-    const exactLocation = pendingExactLocationRef.current;
-    if (!exactLocation) {
-      const msg = "Allow exact location access before signing in.";
-      setError(msg);
-      toast.error(msg);
-      return;
-    }
-
     setLoginLoading(true);
     setError("");
 
@@ -514,7 +494,6 @@ function ProfileSelectPage() {
         throw new Error("Too many attempts. Wait 1 minute.");
       }
 
-      // Login via worker if available, otherwise direct Supabase
       let data: any;
       const workerUrls = getStoredWorkerUrls();
       if (workerUrls.length > 0) {
@@ -533,7 +512,6 @@ function ProfileSelectPage() {
         if (data.sessionToken) localStorage.setItem("session_token", data.sessionToken);
       }
 
-      // Store worker URLs returned from login response
       if (data.workerUrls && Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
         storeWorkerUrls(data.workerUrls);
       }
@@ -542,20 +520,11 @@ function ProfileSelectPage() {
       markSessionStart();
       checkAuth();
 
-      void (async () => {
-        try {
-          await sendLoginNotification(
-            {
-              username: data.user.username,
-              name: data.user.name,
-              status: "success",
-            },
-            exactLocation
-          );
-        } catch (notifErr) {
-          console.error("[notification] Failed to send login notification:", notifErr);
-        }
-      })();
+      void sendLoginNotification({
+        username: data.user.username,
+        name: data.user.name,
+        status: "success",
+      }).catch((notifErr) => console.error("[notification] Failed:", notifErr));
 
       navigate("/viewer");
     } catch (err) {
@@ -563,10 +532,10 @@ function ProfileSelectPage() {
       setError(msg);
       toast.error(msg);
     } finally {
-      pendingExactLocationRef.current = null;
       setLoginLoading(false);
     }
   };
+
 
 
   if (loading) {
