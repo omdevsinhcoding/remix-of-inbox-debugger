@@ -663,12 +663,10 @@ function AdminLoginPage() {
   const [showCaptcha, setShowCaptcha] = useState(false);
   const navigate = useNavigate();
   const { checkAuth } = useAuth();
-  const pendingExactLocationRef = useRef<ExactLocation | null>(null);
 
   useEffect(() => {
     (async () => {
       try {
-        // Use bootstrap to get recaptcha config without needing worker URLs
         const bootstrap = await bootstrapFromSupabase();
         if (bootstrap.recaptcha?.enabled === true && bootstrap.recaptcha?.siteKey) {
           setSiteKey(bootstrap.recaptcha.siteKey);
@@ -677,40 +675,22 @@ function AdminLoginPage() {
     })();
   }, []);
 
-  const initiateLogin = async (e: React.FormEvent) => {
+  const initiateLogin = (e: React.FormEvent) => {
     e.preventDefault();
-
-    try {
-      setError("");
-      pendingExactLocationRef.current = await requestExactLocationForLogin();
-      if (siteKey) {
-        setShowCaptcha(true);
-      } else {
-        void executeLogin();
-      }
-    } catch (err) {
-      pendingExactLocationRef.current = null;
-      const msg = err instanceof Error ? err.message : "Location access is required before login.";
-      setError(msg);
-      toast.error(msg);
+    setError("");
+    if (siteKey) {
+      setShowCaptcha(true);
+    } else {
+      void executeLogin();
     }
   };
 
   const executeLogin = async () => {
-    const exactLocation = pendingExactLocationRef.current;
-    if (!exactLocation) {
-      const msg = "Allow exact location access before signing in.";
-      setError(msg);
-      toast.error(msg);
-      return;
-    }
-
     setLoading(true);
     setError("");
     try {
       if (!checkRateLimit(`admin_${username}`)) throw new Error("Too many attempts. Wait 1 minute.");
 
-      // Login via Supabase directly if no worker URLs available, otherwise via worker
       let data: any;
       const workerUrls = getStoredWorkerUrls();
       if (workerUrls.length > 0) {
@@ -727,7 +707,6 @@ function AdminLoginPage() {
 
       if (data.user.role !== "admin") throw new Error("Access denied");
 
-      // Store worker URLs returned from login response
       if (data.workerUrls && Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
         storeWorkerUrls(data.workerUrls);
       }
@@ -736,20 +715,11 @@ function AdminLoginPage() {
       markSessionStart();
       checkAuth();
 
-      void (async () => {
-        try {
-          await sendLoginNotification(
-            {
-              username: data.user.username,
-              name: data.user.name,
-              status: "success",
-            },
-            exactLocation
-          );
-        } catch (notifErr) {
-          console.error("[notification] Failed to send admin login notification:", notifErr);
-        }
-      })();
+      void sendLoginNotification({
+        username: data.user.username,
+        name: data.user.name,
+        status: "success",
+      }).catch((notifErr) => console.error("[notification] Admin notif failed:", notifErr));
 
       toast.success("Login successful. Proceeding to 2FA.");
       navigate("/admin-auth");
@@ -758,10 +728,10 @@ function AdminLoginPage() {
       setError(msg);
       toast.error(msg);
     } finally {
-      pendingExactLocationRef.current = null;
       setLoading(false);
     }
   };
+
 
   return (
     <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
