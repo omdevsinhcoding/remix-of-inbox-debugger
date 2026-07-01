@@ -15,133 +15,98 @@
         background: #020617;
         color: #f8fafc;
       }
-
       body {
         margin: 0;
         font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       }
-
       .boot-shell {
         min-height: 100vh;
         min-height: 100dvh;
         display: flex;
         align-items: center;
         justify-content: center;
-        padding: 32px 16px;
+        padding: 24px;
         box-sizing: border-box;
         background:
-          radial-gradient(circle at 50% 0%, rgba(220, 38, 38, 0.18), transparent 34rem),
-          linear-gradient(180deg, #020617 0%, #0f172a 48%, #020617 100%);
+          radial-gradient(circle at 50% 30%, rgba(220, 38, 38, 0.22), transparent 32rem),
+          linear-gradient(180deg, #020617 0%, #0b0f1e 50%, #020617 100%);
       }
-
-      .boot-content {
-        width: min(100%, 672px);
-        text-align: center;
+      .boot-content { text-align: center; display: grid; gap: 22px; justify-items: center; }
+      .boot-logo-wrap {
+        position: relative;
+        width: 88px;
+        height: 88px;
+        display: grid;
+        place-items: center;
       }
-
       .boot-logo {
-        width: 56px;
-        height: 56px;
-        margin: 0 auto 24px;
-        border-radius: 18px;
+        width: 64px;
+        height: 64px;
+        border-radius: 20px;
         display: grid;
         place-items: center;
         background: linear-gradient(135deg, #ef4444, #b91c1c);
         color: white;
         font-weight: 900;
-        font-size: 28px;
-        box-shadow: 0 20px 50px rgba(127, 29, 29, 0.35);
+        font-size: 32px;
+        box-shadow: 0 20px 60px rgba(220, 38, 38, 0.45), inset 0 1px 0 rgba(255,255,255,0.15);
+        animation: boot-pulse 1.8s ease-in-out infinite;
       }
-
-      .boot-title {
-        margin: 0 0 8px;
-        color: #ffffff;
-        font-size: clamp(28px, 4vw, 44px);
-        line-height: 1;
-        font-weight: 900;
-      }
-
-      .boot-subtitle {
-        margin: 0 0 40px;
-        color: #64748b;
-        font-size: 14px;
-        font-weight: 600;
-      }
-
-      .boot-grid {
-        display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: 20px;
-        justify-items: center;
-      }
-
-      .boot-profile {
-        width: 100%;
-        max-width: 120px;
-        display: grid;
-        gap: 12px;
-        justify-items: center;
-      }
-
-      .boot-avatar {
-        width: 96px;
-        height: 96px;
-        border-radius: 18px;
-        background: linear-gradient(135deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.95));
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        position: relative;
-        overflow: hidden;
-      }
-
-      .boot-avatar::after,
-      .boot-name {
-        content: "";
-        display: block;
-        background: linear-gradient(90deg, rgba(51, 65, 85, 0.72), rgba(100, 116, 139, 0.6), rgba(51, 65, 85, 0.72));
-        background-size: 220% 100%;
-        animation: boot-shimmer 1.4s ease-in-out infinite;
-      }
-
-      .boot-avatar::after {
+      .boot-ring {
         position: absolute;
         inset: 0;
+        border-radius: 50%;
+        border: 2px solid transparent;
+        border-top-color: #ef4444;
+        border-right-color: rgba(239, 68, 68, 0.35);
+        animation: boot-spin 1s linear infinite;
       }
-
-      .boot-name {
-        width: 68px;
-        height: 12px;
-        border-radius: 999px;
+      .boot-title {
+        margin: 0;
+        color: #ffffff;
+        font-size: clamp(20px, 3vw, 26px);
+        font-weight: 800;
+        letter-spacing: -0.01em;
       }
-
-      @keyframes boot-shimmer {
-        0% { background-position: 140% 0; }
-        100% { background-position: -80% 0; }
+      .boot-subtitle {
+        margin: 0;
+        color: #64748b;
+        font-size: 13px;
+        font-weight: 500;
+        letter-spacing: 0.02em;
       }
-
-      @media (max-width: 640px) {
-        .boot-shell { align-items: flex-start; padding-top: 72px; }
-        .boot-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
-        .boot-avatar { width: 64px; height: 64px; border-radius: 14px; }
-        .boot-name { width: 54px; height: 10px; }
-        .boot-subtitle { margin-bottom: 28px; }
+      .boot-dots { display: inline-flex; gap: 6px; margin-top: 4px; }
+      .boot-dots span {
+        width: 6px; height: 6px; border-radius: 50%;
+        background: #ef4444;
+        animation: boot-bounce 1.2s ease-in-out infinite;
+      }
+      .boot-dots span:nth-child(2) { animation-delay: 0.15s; }
+      .boot-dots span:nth-child(3) { animation-delay: 0.3s; }
+      @keyframes boot-spin { to { transform: rotate(360deg); } }
+      @keyframes boot-pulse {
+        0%, 100% { transform: scale(1); box-shadow: 0 20px 60px rgba(220,38,38,0.45), inset 0 1px 0 rgba(255,255,255,0.15); }
+        50% { transform: scale(1.06); box-shadow: 0 24px 72px rgba(220,38,38,0.65), inset 0 1px 0 rgba(255,255,255,0.2); }
+      }
+      @keyframes boot-bounce {
+        0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+        40% { transform: scale(1); opacity: 1; }
       }
     </style>
   </head>
   <body>
     <div id="root">
-      <main class="boot-shell" aria-label="Loading profiles">
+      <main class="boot-shell" aria-label="Loading">
         <section class="boot-content">
-          <div class="boot-logo" aria-hidden="true">N</div>
-          <h1 class="boot-title">Who's viewing?</h1>
-          <p class="boot-subtitle">Loading profiles</p>
-          <div class="boot-grid" aria-hidden="true">
-            <div class="boot-profile"><div class="boot-avatar"></div><div class="boot-name"></div></div>
-            <div class="boot-profile"><div class="boot-avatar"></div><div class="boot-name"></div></div>
-            <div class="boot-profile"><div class="boot-avatar"></div><div class="boot-name"></div></div>
-            <div class="boot-profile"><div class="boot-avatar"></div><div class="boot-name"></div></div>
-            <div class="boot-profile"><div class="boot-avatar"></div><div class="boot-name"></div></div>
-            <div class="boot-profile"><div class="boot-avatar"></div><div class="boot-name"></div></div>
+          <div class="boot-logo-wrap">
+            <div class="boot-ring" aria-hidden="true"></div>
+            <div class="boot-logo" aria-hidden="true">N</div>
           </div>
+          <div>
+            <h1 class="boot-title">Netflix Mail</h1>
+            <p class="boot-subtitle">Preparing your inbox</p>
+          </div>
+          <div class="boot-dots" aria-hidden="true"><span></span><span></span><span></span></div>
         </section>
       </main>
     </div>
@@ -160,7 +125,7 @@
         var root = document.getElementById('root');
         if (!root || !root.querySelector('.boot-shell')) return;
         var subtitle = root.querySelector('.boot-subtitle');
-        if (subtitle) subtitle.textContent = 'Still loading. Tap refresh once.';
+        if (subtitle) subtitle.textContent = 'Still loading… tap refresh once.';
       }, 12000);
     </script>
   </body>
