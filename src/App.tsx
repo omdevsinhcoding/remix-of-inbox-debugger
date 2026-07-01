@@ -44,6 +44,21 @@ function getSessionToken(): string | null {
   } catch { return null; }
 }
 
+// --- Session timeout helpers ---
+export function markSessionStart() {
+  try { localStorage.setItem("session_started_at", String(Date.now())); } catch {}
+}
+
+export function clearSessionData() {
+  try {
+    localStorage.removeItem("user");
+    localStorage.removeItem("session_token");
+    localStorage.removeItem("session_started_at");
+    localStorage.removeItem("admin_auth");
+    localStorage.removeItem("admin_backup");
+  } catch {}
+}
+
 // --- API Helper (routes ALL calls through Cloudflare Workers) ---
 
 async function apiCall(functionName: string, body: any) {
