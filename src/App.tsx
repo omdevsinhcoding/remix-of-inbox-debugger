@@ -798,14 +798,13 @@ function AdminAuthPage() {
     if (step === 2 && !user.totpSecret) {
       (async () => {
         try {
-          const { generateSecret, generateURI } = await import("otplib");
-          const secret = generateSecret();
-          setSecretKey(secret);
-          const uri = generateURI({ issuer: "AdminPanel", label: user.username, secret });
-          setQrCode(uri);
-          await apiCall("manage-app", { action: "update_totp", id: user.id, totp_secret: secret });
+          if (user.totpConfigured) return;
+          const res = await apiCall("manage-app", { action: "update_totp", user_id: user.id });
+          if (res.secret) setSecretKey(res.secret);
+          if (res.otpauthUrl) setQrCode(res.otpauthUrl);
         } catch (err) {
           console.error("TOTP setup error:", err);
+          toast.error(err instanceof Error ? err.message : "Could not start authenticator setup");
         }
       })();
     }
@@ -829,17 +828,22 @@ function AdminAuthPage() {
   const verifyTotp = async () => {
     setLoading(true);
     try {
-      const { verify } = await import("otplib");
-      const secret = user.totpSecret || secretKey;
-      const result = await verify({ secret, token: totp });
-      if (result && (result as any).delta !== undefined) {
-        localStorage.setItem("admin_auth", "true");
-        navigate("/admin/dashboard");
-      } else {
-        throw new Error("Invalid Google Auth Code");
+      await apiCall("manage-app", { action: "verify_totp", user_id: user.id, code: totp });
+      const finalData = await apiCall("manage-app", { action: "finalize_admin_session", user_id: user.id });
+      if (finalData.workerUrls && Array.isArray(finalData.workerUrls) && finalData.workerUrls.length > 0) {
+        storeWorkerUrls(finalData.workerUrls);
       }
-    } catch {
-      setError("Invalid Google Auth Code");
+      if (finalData.sessionToken) localStorage.setItem("session_token", finalData.sessionToken);
+      localStorage.removeItem("pending_admin_token");
+      localStorage.setItem("admin_auth", "true");
+      localStorage.setItem("user", JSON.stringify(finalData.user));
+      markSessionStart();
+      toast.success("Admin session secured.");
+      navigate("/admin/dashboard");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Invalid Google Auth Code";
+      setError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
