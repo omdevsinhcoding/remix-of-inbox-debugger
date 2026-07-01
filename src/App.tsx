@@ -349,6 +349,8 @@ function getAvatarUri(avatarId?: string | null): string | null {
 
 function ProfileAvatar({ avatarId, name, className = "w-16 h-16", fallbackColor = "bg-red-500" }: { avatarId?: string | null; name?: string; className?: string; fallbackColor?: string }) {
   const uri = getAvatarUri(avatarId);
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => { setLoaded(false); }, [uri]);
   if (!uri) {
     return (
       <div className={`${className} rounded-xl sm:rounded-2xl ${fallbackColor} flex items-center justify-center shadow-lg shadow-black/30 ring-1 ring-white/10 overflow-hidden`}>
@@ -357,11 +359,23 @@ function ProfileAvatar({ avatarId, name, className = "w-16 h-16", fallbackColor 
     );
   }
   return (
-    <div className={`${className} rounded-xl sm:rounded-2xl bg-black overflow-hidden shadow-lg shadow-black/30 ring-1 ring-white/10`}>
-      <img src={uri} loading="lazy" decoding="async" alt="" className="w-full h-full object-cover" />
+    <div className={`${className} relative rounded-xl sm:rounded-2xl bg-slate-900 overflow-hidden shadow-lg shadow-black/30 ring-1 ring-white/10`}>
+      {!loaded && (
+        <div className="absolute inset-0 bg-gradient-to-br from-slate-800 to-slate-900 animate-pulse" />
+      )}
+      <img
+        src={uri}
+        loading="lazy"
+        decoding="async"
+        alt=""
+        onLoad={() => setLoaded(true)}
+        onError={() => setLoaded(true)}
+        className={`w-full h-full object-cover transition-opacity duration-300 ${loaded ? "opacity-100" : "opacity-0"}`}
+      />
     </div>
   );
 }
+
 
 function emailIdentity(email: Pick<Email, "id" | "account_label">) {
   return `${email.account_label || "Primary"}:${email.id}`;
