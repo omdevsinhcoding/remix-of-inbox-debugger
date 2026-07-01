@@ -2185,7 +2185,7 @@ function AvatarRow({
           ))}
         </div>
       ) : (
-        <div className="flex sm:grid sm:grid-cols-6 lg:grid-cols-8 gap-2 sm:gap-3 px-4 sm:px-5 overflow-x-auto snap-x snap-mandatory pb-2 sm:pb-0 scrollbar-thin">
+        <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2 sm:gap-3 px-4 sm:px-5 pb-2">
           {category.seeds.map((seed) => {
             const id = buildAvatarId(category.style, seed);
             const selected = selectedAvatar === id;
@@ -2195,9 +2195,9 @@ function AvatarRow({
                 onClick={() => onPick(id)}
                 disabled={saving}
                 title={`${category.label} ${seed}`}
-                className={`flex-shrink-0 snap-start rounded-2xl p-1 transition-all active:scale-95 ${selected ? "ring-4 ring-red-500 bg-red-50" : "ring-1 ring-slate-200 hover:ring-slate-400 bg-white"}`}
+                className={`rounded-2xl p-1 transition-all active:scale-95 ${selected ? "ring-4 ring-red-500 bg-red-50" : "ring-1 ring-slate-200 hover:ring-slate-400 bg-white"}`}
               >
-                <ProfileAvatar avatarId={id} name={userName} className="w-20 h-20 sm:w-24 sm:h-24" />
+                <ProfileAvatar avatarId={id} name={userName} className="w-14 h-14 sm:w-20 sm:h-20 md:w-24 md:h-24 mx-auto" />
               </button>
             );
           })}
