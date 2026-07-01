@@ -2805,5 +2805,5 @@ const ProtectedRoute = ({ children, role }: { children: React.ReactNode; role: "
   if (!user) return <Navigate to={role === "admin" ? "/admin" : "/"} />;
   if (role === "admin" && user.role !== "admin") return <Navigate to="/" />;
   if (role === "user" && user.role === "admin" && !localStorage.getItem("admin_backup")) return <Navigate to="/admin/dashboard" />;
-  return <>{children}</>;
+  return <><SessionCountdown role={role} />{children}</>;
 };
