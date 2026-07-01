@@ -155,5 +155,13 @@
       </div>
     </noscript>
     <script type="module" src="/src/main.tsx"></script>
+    <script>
+      window.setTimeout(function () {
+        var root = document.getElementById('root');
+        if (!root || !root.querySelector('.boot-shell')) return;
+        var subtitle = root.querySelector('.boot-subtitle');
+        if (subtitle) subtitle.textContent = 'Still loading. Tap refresh once.';
+      }, 12000);
+    </script>
   </body>
 </html>
