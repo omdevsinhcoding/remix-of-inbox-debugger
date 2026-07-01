@@ -2247,22 +2247,16 @@ function UserProfileModal({
           </button>
         </div>
 
-        <div className="p-5 overflow-y-auto space-y-5">
-          <section>
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-black text-slate-900">Choose profile icon</h3>
-              {savingAvatar && <span className="text-[10px] font-bold text-slate-400">Saving…</span>}
-            </div>
-            <div className="grid grid-cols-4 gap-3">
-              {AVATAR_OPTIONS.map((avatar) => (
-                <button key={avatar.id} onClick={() => saveAvatar(avatar.id)} disabled={savingAvatar}
-                  className={`rounded-2xl p-2 border transition-all active:scale-95 ${selectedAvatar === avatar.id ? "border-red-500 ring-2 ring-red-100 bg-red-50" : "border-slate-200 hover:border-slate-300 bg-white"}`}
-                  title={avatar.label}>
-                  <ProfileAvatar avatarId={avatar.id} name={user.name} className="w-full aspect-square" />
-                </button>
-              ))}
-            </div>
-          </section>
+        <div className="flex-1 overflow-y-auto">
+          <AvatarPicker
+            userName={user.name}
+            selectedAvatar={selectedAvatar}
+            onPick={saveAvatar}
+            saving={savingAvatar}
+          />
+        </div>
+        <div className="p-4 border-t border-slate-100 bg-white/95 backdrop-blur">
+
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <button onClick={() => { onClose(); onPassword(); }}
