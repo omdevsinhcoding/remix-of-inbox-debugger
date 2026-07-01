@@ -1171,6 +1171,7 @@ function AdminPanel() {
       localStorage.setItem("admin_backup", JSON.stringify({ user: adminUser, token: adminToken, adminAuth }));
       localStorage.setItem("user", JSON.stringify(data.user));
       if (data.sessionToken) localStorage.setItem("session_token", data.sessionToken);
+      markSessionStart();
       localStorage.removeItem("admin_auth");
       toast.success(`Viewing as ${targetUser.name}`);
       window.location.href = "/viewer";
