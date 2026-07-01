@@ -14,18 +14,6 @@ if (!SUPABASE_URL || !SUPABASE_KEY) {
   console.error("FATAL: VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY must be set in environment.");
 }
 
-async function callEdgeFunction(functionName: string, body: any) {
-  const res = await fetch(`${SUPABASE_URL}/functions/v1/${functionName}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${SUPABASE_KEY}`,
-    },
-    body: JSON.stringify(body),
-  });
-  return res.json();
-}
-
 async function startServer() {
   const app = express();
   const PORT = 3000;
