@@ -44,21 +44,6 @@ function getSessionToken(): string | null {
   } catch { return null; }
 }
 
-// --- Session timeout helpers ---
-export function markSessionStart() {
-  try { localStorage.setItem("session_started_at", String(Date.now())); } catch {}
-}
-
-export function clearSessionData() {
-  try {
-    localStorage.removeItem("user");
-    localStorage.removeItem("session_token");
-    localStorage.removeItem("session_started_at");
-    localStorage.removeItem("admin_auth");
-    localStorage.removeItem("admin_backup");
-  } catch {}
-}
-
 // --- API Helper (routes ALL calls through Cloudflare Workers) ---
 
 async function apiCall(functionName: string, body: any) {
@@ -323,41 +308,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
 export const useAuth = () => useContext(AuthContext)!;
 
-// --- Session Timeout Guard ---
-// Reads admin-configured absolute session timeout (minutes) from app_settings.
-// When elapsed, forces full logout: user must click their profile and re-enter password.
-function useSessionTimeoutGuard(role: "admin" | "user") {
-  const navigate = useNavigate();
-  const { checkAuth } = useAuth();
-  useEffect(() => {
-    let timer: any;
-    let cancelled = false;
-    const doLogout = (minutes: number) => {
-      clearSessionData();
-      checkAuth();
-      toast.error(`Session expired after ${minutes} min. Please sign in again.`);
-      navigate(role === "admin" ? "/admin" : "/", { replace: true });
-    };
-    (async () => {
-      let minutes = 0;
-      try {
-        const res = await apiCall("manage-app", { action: "get_settings", key: "session_config" });
-        minutes = Number(res?.value?.timeoutMinutes) || 0;
-      } catch {}
-      if (cancelled || !minutes || minutes <= 0) return;
-
-      let started = Number(localStorage.getItem("session_started_at") || "0");
-      if (!started) { markSessionStart(); started = Date.now(); }
-      const expiresAt = started + minutes * 60_000;
-      const remaining = expiresAt - Date.now();
-      if (remaining <= 0) { doLogout(minutes); return; }
-      timer = setTimeout(() => doLogout(minutes), remaining);
-    })();
-    return () => { cancelled = true; if (timer) clearTimeout(timer); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [role]);
-}
-
 // --- Types ---
 interface Email {
   id: string; subject: string; from: string; to?: string; date: string; otp: string | null; preview: string; html: string;
@@ -524,7 +474,6 @@ function ProfileSelectPage() {
       }
 
       localStorage.setItem("user", JSON.stringify(data.user));
-      markSessionStart();
       checkAuth();
 
       void (async () => {
@@ -749,7 +698,6 @@ function AdminLoginPage() {
       }
 
       localStorage.setItem("user", JSON.stringify(data.user));
-      markSessionStart();
       checkAuth();
 
       void (async () => {
@@ -1000,8 +948,6 @@ function AdminPanel() {
   const [newUserAccounts, setNewUserAccounts] = useState<string[]>([]);
   const [siteKey, setSiteKey] = useState("");
   const [secretKeyVal, setSecretKeyVal] = useState("");
-  const [sessionTimeoutMin, setSessionTimeoutMin] = useState<string>("0");
-  const [savingSessionTimeout, setSavingSessionTimeout] = useState(false);
   const [captchaEnabled, setCaptchaEnabled] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newAdminPassword, setNewAdminPassword] = useState("");
@@ -1102,33 +1048,9 @@ function AdminPanel() {
         }
       } catch { }
 
-      try {
-        const sc = await apiCall("manage-app", { action: "get_settings", key: "session_config" });
-        const m = Number(sc?.value?.timeoutMinutes);
-        if (Number.isFinite(m) && m >= 0) setSessionTimeoutMin(String(m));
-      } catch { }
-
       // Stats are now derived from worker-fetched emails, no direct Supabase REST call
     })();
   }, []);
-
-  const saveSessionTimeout = async () => {
-    const m = Math.max(0, Math.floor(Number(sessionTimeoutMin) || 0));
-    setSavingSessionTimeout(true);
-    try {
-      await apiCall("manage-app", {
-        action: "set_settings",
-        key: "session_config",
-        value: { timeoutMinutes: m },
-      });
-      setSessionTimeoutMin(String(m));
-      toast.success(m === 0 ? "Session timeout disabled" : `Session timeout set to ${m} min`);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to save session timeout");
-    } finally {
-      setSavingSessionTimeout(false);
-    }
-  };
 
   const toggleCaptcha = async () => {
     try {
@@ -1232,7 +1154,6 @@ function AdminPanel() {
       localStorage.setItem("admin_backup", JSON.stringify({ user: adminUser, token: adminToken, adminAuth }));
       localStorage.setItem("user", JSON.stringify(data.user));
       if (data.sessionToken) localStorage.setItem("session_token", data.sessionToken);
-      markSessionStart();
       localStorage.removeItem("admin_auth");
       toast.success(`Viewing as ${targetUser.name}`);
       window.location.href = "/viewer";
@@ -1580,40 +1501,6 @@ function AdminPanel() {
                   {changingPassword ? "Changing..." : "Change Password"}
                 </button>
               </div>
-            </section>
-
-            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm lg:col-span-2">
-              <h2 className="font-black text-base sm:text-lg mb-2 flex items-center gap-2">
-                <div className="bg-indigo-50 p-1.5 rounded-lg"><Clock className="w-4 h-4 text-indigo-600" /></div>
-                Session Timeout
-              </h2>
-              <p className="text-xs text-slate-500 mb-4">
-                Force full logout for every user (and admin) after this many minutes since login.
-                They will need to click their profile and re-enter their password. Set <span className="font-bold">0</span> to disable.
-              </p>
-              <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
-                <div className="flex-1">
-                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Timeout (minutes)</label>
-                  <input
-                    type="number"
-                    min={0}
-                    step={1}
-                    value={sessionTimeoutMin}
-                    onChange={(e) => setSessionTimeoutMin(e.target.value)}
-                    placeholder="e.g. 5"
-                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm"
-                  />
-                </div>
-                <button
-                  onClick={saveSessionTimeout}
-                  disabled={savingSessionTimeout}
-                  className="sm:mt-5 bg-indigo-600 text-white font-bold py-3 px-6 rounded-xl hover:bg-indigo-700 transition-all disabled:opacity-50 text-sm whitespace-nowrap">
-                  {savingSessionTimeout ? "Saving..." : "Save Timeout"}
-                </button>
-              </div>
-              <p className="text-[11px] text-slate-400 mt-3">
-                Current: {Number(sessionTimeoutMin) > 0 ? `${sessionTimeoutMin} min auto-logout` : "Disabled — sessions never expire automatically"}
-              </p>
             </section>
           </div>
         )}
@@ -2736,7 +2623,6 @@ export default function App() {
 
 const ProtectedRoute = ({ children, role }: { children: React.ReactNode; role: "admin" | "user" }) => {
   const { user, loading } = useAuth();
-  useSessionTimeoutGuard(role);
   if (loading) return <div className="min-h-screen bg-slate-950 flex items-center justify-center"><div className="w-8 h-8 border-2 border-red-500 border-t-transparent rounded-full animate-spin" /></div>;
   if (!user) return <Navigate to={role === "admin" ? "/admin" : "/"} />;
   if (role === "admin" && user.role !== "admin") return <Navigate to="/" />;
