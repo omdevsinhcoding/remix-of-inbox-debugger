@@ -298,7 +298,7 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
     : "bg-slate-900/90 text-white";
 
   return (
-    <div className={`fixed z-50 top-[calc(env(safe-area-inset-top)+0.35rem)] right-2 sm:top-auto sm:bottom-4 sm:right-4 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full text-[10px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1 sm:gap-1.5 pointer-events-none select-none`}>
+    <div className={`fixed z-50 bottom-[calc(env(safe-area-inset-bottom)+0.5rem)] right-3 sm:bottom-4 sm:right-4 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full text-[10px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1 sm:gap-1.5 pointer-events-none select-none`}>
       <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" />
       Session: {pad(mm)}:{pad(ss)}
     </div>
