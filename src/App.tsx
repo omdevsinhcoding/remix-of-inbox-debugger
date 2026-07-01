@@ -2504,40 +2504,44 @@ function EmailViewer() {
   const fetchEmails = async () => {
     if (refreshing) return;
     setRefreshing(true);
-    const toastId = toast.loading("Syncing new emails...");
+    const before = emails.length;
     try {
-      // 1. Sync IMAP immediately and wait for it
-      await syncViaWorker();
-      // 2. Reload cached emails after sync completes
+      // 1. Show cached instantly (fast)
       await loadCachedEmails();
-      toast.success("Emails synced!", { id: toastId });
+      // 2. Kick off IMAP sync in background — don't block UI
+      syncViaWorker()
+        .then(() => loadCachedEmails())
+        .then(() => {
+          const after = (JSON.parse(localStorage.getItem(cacheKey) || "[]") as Email[]).length;
+          const newCount = after - before;
+          if (newCount > 0) {
+            toast.success(`${newCount} new email${newCount === 1 ? "" : "s"}`);
+          }
+        })
+        .catch((err) => {
+          const msg = err instanceof Error ? err.message : "Sync failed";
+          toast.error(msg);
+        })
+        .finally(() => setRefreshing(false));
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Sync failed";
-      toast.error(msg, { id: toastId });
-      // Still try to show cached emails even if sync failed
-      await loadCachedEmails().catch(() => {});
-    } finally {
+      const msg = err instanceof Error ? err.message : "Failed to load";
+      toast.error(msg);
       setRefreshing(false);
     }
   };
 
+  // Load cached emails immediately on mount — independent of worker discovery
   useEffect(() => {
-    if (workerUrlsLoading) return;
-
-    if (resolvedWorkerUrls.length === 0) {
-      setLoading(false);
-      return;
-    }
-
     let cancelled = false;
-    setLoading(true);
-    loadCachedEmails().then(() => {
+    // Only show full-screen loader if we have no hydrated cache
+    if (emails.length === 0) setLoading(true);
+    loadCachedEmails().finally(() => {
       if (!cancelled) setLoading(false);
     });
 
     const pollInterval = setInterval(() => {
       void loadCachedEmails();
-    }, 30000);
+    }, 15000);
 
     const handleVisibility = () => {
       if (document.visibilityState === "visible") {
@@ -2551,7 +2555,20 @@ function EmailViewer() {
       clearInterval(pollInterval);
       document.removeEventListener("visibilitychange", handleVisibility);
     };
-  }, [workerUrlsLoading, resolvedWorkerUrls.length, loadCachedEmails]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadCachedEmails]);
+
+  // Background sync on first mount (after worker discovery) — so newly arrived
+  // emails show up without user clicking Refresh
+  const initialSyncFired = useRef(false);
+  useEffect(() => {
+    if (workerUrlsLoading || initialSyncFired.current) return;
+    initialSyncFired.current = true;
+    syncViaWorker()
+      .then(() => loadCachedEmails())
+      .catch(() => {});
+  }, [workerUrlsLoading, syncViaWorker, loadCachedEmails]);
+
 
   const copyOtp = (otp: string) => {
     navigator.clipboard.writeText(otp);
