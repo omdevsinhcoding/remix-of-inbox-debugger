@@ -490,7 +490,7 @@ export type Database = {
           audience: string
           body: string
           created_at: string
-          created_by: string | null
+          created_by: string
           expires_at: string | null
           id: string
           target_user_id: string | null
@@ -500,7 +500,7 @@ export type Database = {
           audience: string
           body: string
           created_at?: string
-          created_by?: string | null
+          created_by: string
           expires_at?: string | null
           id?: string
           target_user_id?: string | null
@@ -510,7 +510,7 @@ export type Database = {
           audience?: string
           body?: string
           created_at?: string
-          created_by?: string | null
+          created_by?: string
           expires_at?: string | null
           id?: string
           target_user_id?: string | null
