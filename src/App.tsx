@@ -3225,13 +3225,7 @@ function AdminPanel() {
     try {
       const res: any = await apiCall("manage-app", {
         action: "admin_r2_test",
-        accountId: r2Cfg.accountId.trim(),
-        accessKeyId: r2Cfg.accessKeyId.trim(),
-        secretAccessKey: r2Cfg.secretAccessKey,
-        bucket: r2Cfg.bucket.trim(),
-        publicBaseUrl: r2Cfg.publicBaseUrl.trim(),
-        pathPrefix: (r2Cfg.pathPrefix.trim() || "notifications/"),
-        enabled: r2Cfg.enabled,
+        useSaved: true,
       });
       setR2TestResult({
         ok: res?.success === true,
