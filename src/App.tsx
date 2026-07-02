@@ -684,10 +684,28 @@ function NotificationBell() {
       const unread = list.filter((n) => !n.read).length;
       if (!autoOpenedRef.current && unread > 0) {
         autoOpenedRef.current = true;
-        toast(`🔔 You have ${unread} new update${unread > 1 ? "s" : ""}`);
+        toast(`You have ${unread} new update${unread > 1 ? "s" : ""}`, {
+          id: "profile-notification-alert",
+          icon: "🔔",
+          duration: 2600,
+          style: {
+            background: "#181818",
+            color: "#f4f4f5",
+            border: "1px solid rgba(220,38,38,0.35)",
+            boxShadow: "0 18px 50px rgba(0,0,0,0.45)",
+            fontWeight: 800,
+          },
+        });
       }
     } finally { setLoading(false); }
   }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = previous; };
+  }, [open]);
 
   useEffect(() => {
     refresh();
