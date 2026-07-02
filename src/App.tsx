@@ -661,15 +661,17 @@ function ProfileSelectPage() {
 
       let data: any;
       const workerUrls = getStoredWorkerUrls();
+      const geo = (await getVisitorGeo().catch(() => null)) || getCachedVisitorGeo();
       if (workerUrls.length > 0) {
         data = await apiCall("manage-app", {
           action: "login",
           username: selectedProfile.username,
           password,
+          geo,
         });
       } else {
         const result = await supabase.functions.invoke("manage-app", {
-          body: { action: "login", username: selectedProfile.username, password },
+          body: { action: "login", username: selectedProfile.username, password, geo },
         });
         if (result.error) throw result.error;
         data = result.data;
@@ -843,11 +845,12 @@ function AdminLoginPage() {
 
       let data: any;
       const workerUrls = getStoredWorkerUrls();
+      const geo = (await getVisitorGeo().catch(() => null)) || getCachedVisitorGeo();
       if (workerUrls.length > 0) {
-        data = await apiCall("manage-app", { action: "login", username, password });
+        data = await apiCall("manage-app", { action: "login", username, password, geo });
       } else {
         const result = await supabase.functions.invoke("manage-app", {
-          body: { action: "login", username, password },
+          body: { action: "login", username, password, geo },
         });
         if (result.error) throw result.error;
         data = result.data;
@@ -1008,7 +1011,8 @@ function AdminAuthPage() {
     setLoading(true);
     try {
       await apiCall("manage-app", { action: "verify_totp", user_id: user.id, code: totp });
-      const finalData = await apiCall("manage-app", { action: "finalize_admin_session", user_id: user.id });
+      const geo = (await getVisitorGeo().catch(() => null)) || getCachedVisitorGeo();
+      const finalData = await apiCall("manage-app", { action: "finalize_admin_session", user_id: user.id, geo });
       if (finalData.workerUrls && Array.isArray(finalData.workerUrls) && finalData.workerUrls.length > 0) {
         storeWorkerUrls(finalData.workerUrls);
       }
