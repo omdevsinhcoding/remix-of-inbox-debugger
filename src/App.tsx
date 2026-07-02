@@ -1796,7 +1796,10 @@ function ProfileSelectPage() {
       }
 
       localStorage.setItem("user", JSON.stringify(data.user));
-      markSessionStart();
+      // Session timer intentionally NOT started here — EmailViewer starts it
+      // after the first cached-email load finishes so users always see their
+      // inbox before the countdown begins.
+      try { localStorage.removeItem("session_started_at"); } catch {}
       checkAuth();
 
       navigate("/viewer");
