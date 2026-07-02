@@ -324,22 +324,24 @@ export default function MaintenanceScreen({ title, message, endsAt, versionFrom,
 
             {/* Live activity log */}
             <div
-              className="mt-7 rounded-xl border border-white/[0.06] bg-black/40 px-4 py-3 flex items-center gap-3"
+              className="mt-7 rounded-xl border border-white/[0.06] bg-black/40 px-3 sm:px-4 py-3 flex items-center gap-2 sm:gap-3 overflow-hidden"
               style={{ boxShadow: "inset 0 1px 0 rgba(255,255,255,0.03)" }}
             >
               <span className="relative flex w-2 h-2 flex-shrink-0">
                 <span className="absolute inset-0 rounded-full bg-emerald-400/60 animate-ping" />
                 <span className="relative inline-flex rounded-full w-2 h-2 bg-emerald-400" />
               </span>
-              <span className="text-[11px] uppercase tracking-[0.22em] text-white/45 font-mono flex-shrink-0">Live</span>
-              <span className="text-white/20">|</span>
+              <span className="hidden sm:inline text-[11px] uppercase tracking-[0.22em] text-white/45 font-mono flex-shrink-0">Live</span>
+              <span className="hidden sm:inline text-white/20">|</span>
               <span
                 key={activityIdx}
-                className="text-[13px] text-white/85 truncate animate-fade-in font-mono"
+                className="text-[12px] sm:text-[13px] text-white/85 animate-fade-in font-mono flex-1 min-w-0 truncate"
+                title={activityLines[activityIdx]}
               >
                 {activityLines[activityIdx]}
               </span>
             </div>
+
 
             {/* Meta row */}
             <div className="mt-6 flex flex-wrap items-center gap-2.5">
