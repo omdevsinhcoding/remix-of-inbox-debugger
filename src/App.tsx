@@ -3546,6 +3546,10 @@ function AdminPanel() {
           <LoginEventsPanel />
         )}
 
+        {activeTab === "allmails" && (
+          <AllEmailsPanel />
+        )}
+
         {activeTab === "notifications" && (
           <div className="grid grid-cols-1 xl:grid-cols-[1.15fr_1fr] gap-4 sm:gap-6">
             {/* --- Composer --- */}
