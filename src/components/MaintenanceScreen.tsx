@@ -182,13 +182,31 @@ export default function MaintenanceScreen({ title, message, endsAt, versionFrom,
   ];
   const customTitle = title?.trim();
   const [titleIdx, setTitleIdx] = useState(0);
+  const [titlePhase, setTitlePhase] = useState<"in" | "out">("in");
+  const displayTitle = customTitle || rotatingTitles[titleIdx];
+  const letters = Array.from(displayTitle);
+  const IN_STEP = 45;   // ms between letters appearing
+  const OUT_STEP = 28;  // ms between letters disappearing
+  const IN_DUR = 520;   // per-letter fade-in duration
+  const OUT_DUR = 380;  // per-letter fade-out duration
+  const HOLD = 1100;    // hold time after fully shown
   useEffect(() => {
     if (customTitle) return; // don't rotate when admin pinned a headline
-    const id = setInterval(() => setTitleIdx((i) => (i + 1) % rotatingTitles.length), 3200);
-    return () => clearInterval(id);
+    if (titlePhase === "in") {
+      const totalIn = letters.length * IN_STEP + IN_DUR + HOLD;
+      const t = setTimeout(() => setTitlePhase("out"), totalIn);
+      return () => clearTimeout(t);
+    } else {
+      const totalOut = letters.length * OUT_STEP + OUT_DUR;
+      const t = setTimeout(() => {
+        setTitleIdx((i) => (i + 1) % rotatingTitles.length);
+        setTitlePhase("in");
+      }, totalOut);
+      return () => clearTimeout(t);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [customTitle]);
-  const displayTitle = customTitle || rotatingTitles[titleIdx];
+  }, [customTitle, titlePhase, titleIdx]);
+
   const displayMessage =
     message?.trim() ||
     "The site is offline for a short while so we can make it faster and safer for you. You don't need to do anything — just come back in a few minutes.";
