@@ -390,7 +390,9 @@ function PasswordInput({ value, onChange, placeholder, className, autoFocus, req
   return (
     <div className="relative">
       <input type={show ? "text" : "password"} value={value} onChange={onChange}
-        placeholder={placeholder} className={className} autoFocus={autoFocus} required={required} />
+        placeholder={placeholder}
+        className={(className || "") + " text-slate-900 placeholder:text-slate-400"}
+        autoFocus={autoFocus} required={required} />
       <button type="button" onClick={() => setShow(!show)}
         className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors p-1">
         {show ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
