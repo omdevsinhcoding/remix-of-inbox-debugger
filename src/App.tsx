@@ -2673,7 +2673,7 @@ function AllEmailsPanel() {
             </div>
             <div className="p-4 overflow-auto flex-1">
               {viewing.html ? (
-                <iframe title="email" srcDoc={`<!DOCTYPE html><html><head><base target="_blank"></head><body>${viewing.html}<script>document.addEventListener('click',function(e){var a=e.target.closest('a,button');if(!a)return;var h=a.getAttribute('href')||a.dataset.href;if(h){e.preventDefault();window.open(h,'_blank','noopener,noreferrer');}},true);<\/script></body></html>`} className="w-full min-h-[400px] border rounded" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-scripts" />
+                <iframe title="email" srcDoc={`<!DOCTYPE html><html><head><base target="_blank"></head><body>${viewing.html}<script>(function(){function force(a){try{a.setAttribute('target','_blank');a.setAttribute('rel','noopener noreferrer');}catch(e){}}function scan(){document.querySelectorAll('a,button').forEach(force);}document.addEventListener('click',function(e){var a=e.target.closest('a,button');if(!a)return;var h=a.getAttribute('href')||a.dataset.href;if(h){e.preventDefault();window.open(h,'_blank','noopener,noreferrer');}},true);scan();try{new MutationObserver(scan).observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['href','target']});}catch(e){}})();<\/script></body></html>`} className="w-full min-h-[400px] border rounded" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-scripts" />
               ) : (
                 <pre className="text-xs whitespace-pre-wrap text-slate-700">{viewing.preview || "(no content)"}</pre>
               )}
@@ -5155,6 +5155,21 @@ function EmailViewer() {
   const [workerUrlsLoading, setWorkerUrlsLoading] = useState(true);
   const workerUrlLoaded = React.useRef(false);
 
+  // F7: refresh diagnostics — records each worker/Supabase hit while the
+  // spinner is running so we can tell WHY it never stops.
+  type DiagEntry = {
+    ts: number; kind: "worker" | "supabase" | "sync" | "iframe" | "cache";
+    endpoint: string; status?: number; ms?: number;
+    cacheStatus?: string; cacheAge?: string; cacheKey?: string;
+    error?: string; note?: string;
+  };
+  const [diag, setDiag] = useState<DiagEntry[]>([]);
+  const [showDiag, setShowDiag] = useState(false);
+  const pushDiag = useCallback((e: DiagEntry) => {
+    setDiag((prev) => [e, ...prev].slice(0, 40));
+  }, []);
+  const clearDiag = useCallback(() => setDiag([]), []);
+
   const backToAdmin = () => {
     try {
       const backup = readImpersonationBackup();
@@ -5233,32 +5248,44 @@ function EmailViewer() {
     const token = getSessionToken();
     const urls = shuffleArray(urlOverride || resolvedWorkerUrls);
     for (const cfUrl of urls) {
+      const started = performance.now();
+      const endpoint = `${cfUrl}${path}`;
       try {
         const headers: Record<string, string> = {};
         if (token) headers["X-Session-Token"] = token;
         if (body) headers["Content-Type"] = "application/json";
-        const res = await fetch(`${cfUrl}${path}`, { method, headers, ...(body ? { body: JSON.stringify(body) } : {}) });
+        const res = await fetch(endpoint, { method, headers, ...(body ? { body: JSON.stringify(body) } : {}) });
+        const ms = Math.round(performance.now() - started);
+        const cacheStatus = res.headers.get("X-Cache-Status") || res.headers.get("X-Cache") || undefined;
+        const cacheAge = res.headers.get("X-Cache-Age") || undefined;
+        const cacheKey = res.headers.get("X-Cache-Key") || undefined;
+        pushDiag({ ts: Date.now(), kind: path.startsWith("/api/emails/sync") ? "sync" : "worker", endpoint, status: res.status, ms, cacheStatus, cacheAge, cacheKey });
         if (res.status === 404 || res.status === 405 || res.status === 502) {
           console.warn(`[worker] ${cfUrl} returned ${res.status}, trying next`);
           continue;
         }
         return res;
       } catch (err) {
+        const ms = Math.round(performance.now() - started);
+        const msg = err instanceof Error ? err.message : String(err);
+        pushDiag({ ts: Date.now(), kind: "worker", endpoint, ms, error: msg });
         console.warn(`[worker] ${cfUrl} unreachable, trying next:`, err);
         continue;
       }
     }
     return null;
-  }, [resolvedWorkerUrls]);
+  }, [resolvedWorkerUrls, pushDiag]);
 
-  const loadCachedEmails = useCallback(async () => {
+  const loadCachedEmails = useCallback(async (opts?: { bust?: boolean }) => {
+    const bust = !!opts?.bust;
     try {
       let emailData: any = null;
 
       // Try workers first
       if (resolvedWorkerUrls.length > 0) {
         const cacheUrls = workerUrlMap.primary.length > 0 ? workerUrlMap.primary : resolvedWorkerUrls;
-        const workerRes = await fetchFromWorkers("/api/emails", "GET", undefined, cacheUrls);
+        const path = bust ? "/api/emails?bust=1" : "/api/emails";
+        const workerRes = await fetchFromWorkers(path, "GET", undefined, cacheUrls);
         if (workerRes && workerRes.ok) {
           emailData = await workerRes.json();
           // If Worker KV has an old empty cache, immediately read the DB cache instead.
@@ -5283,10 +5310,13 @@ function EmailViewer() {
         if (token) headers["X-Session-Token"] = token;
 
         const bodyPayload: any = { mode: "cache" };
-
-        const res = await fetch(`${supabaseUrl}/functions/v1/fetch-emails`, {
+        const started = performance.now();
+        const endpoint = `${supabaseUrl}/functions/v1/fetch-emails`;
+        const res = await fetch(endpoint, {
           method: "POST", headers, body: JSON.stringify(bodyPayload),
         });
+        const ms = Math.round(performance.now() - started);
+        pushDiag({ ts: Date.now(), kind: "supabase", endpoint, status: res.status, ms, note: bust ? "bust=1 fallback" : "fallback" });
         if (res.ok) {
           emailData = await res.json();
         } else {
@@ -5304,10 +5334,11 @@ function EmailViewer() {
       return filterVisibleEmails(emailList, profilePrefs).length;
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to load emails";
+      pushDiag({ ts: Date.now(), kind: "cache", endpoint: "loadCachedEmails", error: msg });
       setError(msg);
       return 0;
     }
-  }, [fetchFromWorkers, profilePrefs, resolvedWorkerUrls.length, workerUrlsLoading, workerUrlMap.primary, setEmails]);
+  }, [fetchFromWorkers, profilePrefs, resolvedWorkerUrls.length, workerUrlsLoading, workerUrlMap.primary, setEmails, pushDiag]);
 
   const syncViaWorker = useCallback(async () => {
     const { primary, byAccount } = workerUrlMap;
@@ -5387,13 +5418,14 @@ function EmailViewer() {
     const toastId = toast.loading("Checking Netflix mail…");
     try {
       // Refresh must never blank or block: DB cache first, then slow IMAP sync in background.
-      const cachedCount = await loadCachedEmails();
+      // F7: manual refresh always passes bust=1 so KV can't return a stale snapshot.
+      const cachedCount = await loadCachedEmails({ bust: true });
       setRefreshing(false);
       const baseline = Math.max(before, cachedCount);
 
       syncViaWorker()
         .then(() => new Promise(resolve => setTimeout(resolve, 4000)))
-        .then(() => loadCachedEmails())
+        .then(() => loadCachedEmails({ bust: true }))
         .then((after) => {
           const newCount = after - baseline;
           if (newCount > 0) {
@@ -5505,6 +5537,26 @@ function EmailViewer() {
       .catch(() => {});
   }, [workerUrlsLoading, syncViaWorker, loadCachedEmails]);
 
+  // F7: listen for iframe self-report messages verifying that the link/button
+  // click hijack is actually attached inside the sandboxed email preview.
+  useEffect(() => {
+    const onMsg = (ev: MessageEvent) => {
+      const d: any = ev.data;
+      if (!d || typeof d !== "object" || d.__nf !== "iframe-links") return;
+      pushDiag({
+        ts: Date.now(),
+        kind: "iframe",
+        endpoint: "email preview",
+        note: `links=${d.links} buttons=${d.buttons} hijack=${d.hijack ? "ON" : "OFF"} target=${d.baseTarget || "?"}`,
+        error: d.hijack ? undefined : "link hijack not active",
+      });
+    };
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, [pushDiag]);
+
+
+
 
   const copyOtp = (otp: string) => {
     navigator.clipboard.writeText(otp);
@@ -5529,6 +5581,102 @@ function EmailViewer() {
           />
         )}
       </AnimatePresence>
+      <AnimatePresence>
+        {showDiag && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"
+            onClick={() => setShowDiag(false)}
+          >
+            <motion.div
+              initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 40, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full sm:max-w-2xl bg-white sm:rounded-2xl rounded-t-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]"
+            >
+              <div className="p-4 border-b bg-slate-50 flex items-center justify-between">
+                <div>
+                  <h3 className="font-black text-slate-900 text-base flex items-center gap-2"><Info className="w-4 h-4" /> Refresh Diagnostics</h3>
+                  <p className="text-[11px] text-slate-500">Live view of worker endpoints, KV cache status & fetch errors</p>
+                </div>
+                <button onClick={() => setShowDiag(false)} className="p-1.5 rounded-full hover:bg-slate-200"><X className="w-4 h-4" /></button>
+              </div>
+              <div className="p-3 text-[11px] text-slate-600 border-b bg-slate-50/50 flex flex-wrap gap-x-4 gap-y-1">
+                <span>Refreshing: <b className={refreshing ? "text-amber-600" : "text-emerald-600"}>{refreshing ? "yes" : "idle"}</b></span>
+                <span>Primary workers: <b>{workerUrlMap.primary.length}</b></span>
+                <span>Per-account: <b>{Object.keys(workerUrlMap.byAccount).length}</b></span>
+                <span>Last update: <b>{lastUpdated.toLocaleTimeString()}</b></span>
+              </div>
+              <div className="flex-1 overflow-auto divide-y divide-slate-100">
+                {diag.length === 0 && (
+                  <div className="p-6 text-center text-slate-400 text-sm">No activity yet — hit Refresh to see live worker calls.</div>
+                )}
+                {diag.map((e, i) => {
+                  const color = e.error ? "text-red-600" :
+                    e.cacheStatus === "HIT" ? "text-emerald-600" :
+                    e.cacheStatus === "STALE" ? "text-amber-600" :
+                    e.cacheStatus === "BYPASS" ? "text-blue-600" :
+                    e.cacheStatus === "MISS" ? "text-fuchsia-600" : "text-slate-600";
+                  return (
+                    <div key={i} className="p-3 text-xs">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className={`font-bold uppercase tracking-wide ${color}`}>{e.kind}{e.status ? ` · ${e.status}` : ""}{e.cacheStatus ? ` · ${e.cacheStatus}` : ""}</span>
+                        <span className="text-slate-400">{new Date(e.ts).toLocaleTimeString()}{e.ms != null ? ` · ${e.ms}ms` : ""}</span>
+                      </div>
+                      <div className="mt-0.5 font-mono text-[10.5px] text-slate-700 break-all">{e.endpoint}</div>
+                      {e.cacheAge && <div className="text-[10.5px] text-slate-500">cache age: {e.cacheAge}s</div>}
+                      {e.cacheKey && <div className="text-[10.5px] text-slate-500 truncate">key: {e.cacheKey}</div>}
+                      {e.note && <div className="text-[10.5px] text-slate-500">{e.note}</div>}
+                      {e.error && <div className="mt-1 text-[11px] text-red-700 font-semibold">✗ {e.error}</div>}
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="p-3 border-t bg-slate-50 flex flex-wrap gap-2">
+                <button onClick={clearDiag} className="px-3 py-1.5 text-xs font-bold rounded-lg bg-white border border-slate-200 hover:bg-slate-100">Clear</button>
+                <button
+                  onClick={async () => {
+                    pushDiag({ ts: Date.now(), kind: "cache", endpoint: "manual purge", note: "requested" });
+                    let purged = 0;
+                    for (const url of resolvedWorkerUrls) {
+                      try {
+                        const token = getSessionToken();
+                        const started = performance.now();
+                        const r = await fetch(`${url}/api/cache/purge`, { method: "POST", headers: token ? { "X-Session-Token": token } : {} });
+                        pushDiag({ ts: Date.now(), kind: "cache", endpoint: `${url}/api/cache/purge`, status: r.status, ms: Math.round(performance.now() - started), cacheStatus: r.headers.get("X-Cache-Status") || undefined });
+                        if (r.ok) purged++;
+                      } catch (err) {
+                        pushDiag({ ts: Date.now(), kind: "cache", endpoint: `${url}/api/cache/purge`, error: err instanceof Error ? err.message : String(err) });
+                      }
+                    }
+                    toast.success(`Purged KV on ${purged}/${resolvedWorkerUrls.length} workers`);
+                  }}
+                  className="px-3 py-1.5 text-xs font-bold rounded-lg bg-red-600 text-white hover:bg-red-700"
+                >Purge KV cache</button>
+                <button
+                  onClick={() => { void loadCachedEmails({ bust: true }); }}
+                  className="px-3 py-1.5 text-xs font-bold rounded-lg bg-slate-900 text-white hover:bg-slate-800"
+                >Force fresh fetch</button>
+                <button
+                  onClick={async () => {
+                    for (const url of resolvedWorkerUrls) {
+                      const started = performance.now();
+                      try {
+                        const r = await fetch(`${url}/api/health`);
+                        const j = await r.json().catch(() => ({}));
+                        pushDiag({ ts: Date.now(), kind: "worker", endpoint: `${url}/api/health`, status: r.status, ms: Math.round(performance.now() - started), note: `kv=${j.kv} v=${j.version}` });
+                      } catch (err) {
+                        pushDiag({ ts: Date.now(), kind: "worker", endpoint: `${url}/api/health`, ms: Math.round(performance.now() - started), error: err instanceof Error ? err.message : String(err) });
+                      }
+                    }
+                  }}
+                  className="px-3 py-1.5 text-xs font-bold rounded-lg bg-slate-100 hover:bg-slate-200"
+                >Ping /api/health</button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <header className="bg-white border-b border-slate-200 sticky top-0 z-20 shadow-sm">
         <div className="max-w-6xl mx-auto px-3 sm:px-4 h-14 sm:h-16 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
@@ -5576,6 +5724,16 @@ function EmailViewer() {
               <RefreshCw className={`w-4 h-4 sm:w-5 sm:h-5 ${refreshing ? "animate-spin" : ""}`} />
               <span className="hidden sm:inline ml-1.5">Refresh</span>
             </button>
+            <button
+              onClick={() => setShowDiag(true)}
+              title="Refresh diagnostics"
+              aria-label="Refresh diagnostics"
+              className="relative flex items-center justify-center p-2 sm:p-2.5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors"
+            >
+              <Info className="w-4 h-4 sm:w-5 sm:h-5" />
+              {refreshing && <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-amber-500 rounded-full animate-pulse" />}
+            </button>
+
 
             {!isImpersonating && (
               <button onClick={() => setShowProfile(true)}
@@ -5715,7 +5873,7 @@ function EmailViewer() {
                   )}
                   <div className="email-html-wrapper">
                     <iframe
-                      srcDoc={`<!DOCTYPE html><html><head><base target="_blank"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0;padding:8px;font-family:sans-serif;font-size:14px;color:#334155;overflow-x:hidden;word-break:break-word}img{max-width:100%!important;height:auto!important}table{max-width:100%!important;width:100%!important}td,th{max-width:100%!important;overflow:hidden}a{color:#e11d48}*{box-sizing:border-box}</style></head><body>${selectedEmail.html}<script>document.addEventListener('click',function(e){var a=e.target.closest('a,button');if(!a)return;var href=a.getAttribute('href')||a.dataset.href;if(href){e.preventDefault();window.open(href,'_blank','noopener,noreferrer');}},true);document.addEventListener('contextmenu',function(e){e.preventDefault();});<\/script></body></html>`}
+                      srcDoc={`<!DOCTYPE html><html><head><base target="_blank"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0;padding:8px;font-family:sans-serif;font-size:14px;color:#334155;overflow-x:hidden;word-break:break-word}img{max-width:100%!important;height:auto!important}table{max-width:100%!important;width:100%!important}td,th{max-width:100%!important;overflow:hidden}a{color:#e11d48}*{box-sizing:border-box}</style></head><body>${selectedEmail.html}<script>(function(){function force(a){try{a.setAttribute('target','_blank');a.setAttribute('rel','noopener noreferrer');}catch(e){}}function scan(){document.querySelectorAll('a,button').forEach(force);}document.addEventListener('click',function(e){var a=e.target.closest('a,button');if(!a)return;var href=a.getAttribute('href')||a.dataset.href;if(href){e.preventDefault();window.open(href,'_blank','noopener,noreferrer');}},true);document.addEventListener('contextmenu',function(e){e.preventDefault();});scan();try{new MutationObserver(scan).observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['href','target']});}catch(e){}try{var links=document.querySelectorAll('a').length;var buttons=document.querySelectorAll('button').length;var base=document.querySelector('base');window.parent&&window.parent.postMessage({__nf:'iframe-links',links:links,buttons:buttons,hijack:true,baseTarget:(base&&base.getAttribute('target'))||''}, '*');}catch(e){}})();<\/script></body></html>`}
                       sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-scripts"
                       className="w-full border-0"
                       style={{ minHeight: "400px" }}
