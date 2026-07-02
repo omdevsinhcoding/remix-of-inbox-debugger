@@ -2568,11 +2568,17 @@ function AdminPanel() {
 
   const saveMaintenance = async (nextEnabled?: boolean) => {
     const enabled = typeof nextEnabled === "boolean" ? nextEnabled : maintenanceEnabled;
-    // Convert local datetime-local -> ISO. Empty string means no scheduled end.
-    let endsAtIso: string | null = null;
-    if (maintenanceEndsAt) {
-      const d = new Date(maintenanceEndsAt);
-      if (!isNaN(d.getTime())) endsAtIso = d.toISOString();
+    // Convert local datetime-local -> ISO. Empty string means no scheduled start/end.
+    const toIso = (s: string): string | null => {
+      if (!s) return null;
+      const d = new Date(s);
+      return isNaN(d.getTime()) ? null : d.toISOString();
+    };
+    const startsAtIso = toIso(maintenanceStartsAt);
+    const endsAtIso = toIso(maintenanceEndsAt);
+    if (startsAtIso && endsAtIso && new Date(endsAtIso).getTime() <= new Date(startsAtIso).getTime()) {
+      toast.error("End time must be after start time");
+      return;
     }
     setSavingMaintenance(true);
     try {
@@ -2583,6 +2589,7 @@ function AdminPanel() {
           enabled,
           title: maintenanceTitle.trim(),
           message: maintenanceMessage.trim(),
+          startsAt: startsAtIso,
           endsAt: endsAtIso,
           versionFrom: maintenanceVersionFrom.trim(),
           versionTo: maintenanceVersionTo.trim(),
