@@ -2451,13 +2451,13 @@ function LoginEventsPanel() {
   const [events, setEvents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [riskFilter, setRiskFilter] = useState<string>("");
   const [expanded, setExpanded] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
     try {
-      const res: any = await apiCall("manage-app", { action: "list_login_events", limit: 300, search: search || undefined, risk: riskFilter || undefined });
+      const res: any = await apiCall("manage-app", { action: "list_login_events", limit: 300, search: search || undefined });
+
       setEvents(res?.events || []);
     } catch (e: any) {
       toast.error(e?.message || "Failed to load login events");
