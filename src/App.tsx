@@ -4445,18 +4445,21 @@ function AdminPanel() {
                     </div>
                     <div className="bg-black/30 border border-white/[0.06] rounded-xl p-2 max-h-[240px] overflow-y-auto [scrollbar-width:thin] [scrollbar-color:rgba(255,255,255,0.15)_transparent]">
                       <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5">
-                        {PLATFORM_OPTIONS.filter((p) => !platformSearch.trim() || p.label.toLowerCase().includes(platformSearch.trim().toLowerCase())).map((p) => {
+                        {!platformLogosReady && (
+                          <div className="col-span-3 sm:col-span-4 py-8 text-center text-[11px] font-semibold text-slate-500">Loading platform logos…</div>
+                        )}
+                        {platformLogosReady && PLATFORM_OPTIONS.filter((p) => platformMatchesSearch(p, platformSearch)).map((p) => {
                           const active = notifPlatformIcon === p.id;
                           return (
                             <button key={p.id || "none"} type="button" onClick={() => setNotifPlatformIcon(p.id)}
                               className={`group relative flex flex-col items-center justify-center gap-1.5 py-2.5 px-1.5 rounded-lg border transition-all min-h-[74px] ${active ? "bg-orange-500/10 border-orange-500/60 shadow-md shadow-orange-500/10" : "bg-white/[0.02] border-white/[0.05] hover:bg-white/[0.05] hover:border-white/15"}`}>
-                              <PlatformChipVisual id={p.id} size={30} />
+                              <PlatformChipVisual id={p.id} size={30} audit={platformLogoResults[p.id || "__custom"]} />
                               <span className={`text-[9.5px] font-medium text-center leading-tight px-0.5 line-clamp-2 ${active ? "text-white" : "text-slate-400 group-hover:text-slate-200"}`}>{p.label}</span>
                             </button>
                           );
                         })}
                       </div>
-                      {PLATFORM_OPTIONS.filter((p) => !platformSearch.trim() || p.label.toLowerCase().includes(platformSearch.trim().toLowerCase())).length === 0 && (
+                      {platformLogosReady && PLATFORM_OPTIONS.filter((p) => platformMatchesSearch(p, platformSearch)).length === 0 && (
                         <p className="text-center text-[11px] text-slate-500 py-4">No platform matches "{platformSearch}"</p>
                       )}
                     </div>
@@ -4622,11 +4625,7 @@ function AdminPanel() {
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2 mb-1 flex-wrap">
-                            {n.platform_icon ? (
-                              <div className="w-5 h-5 rounded-full flex items-center justify-center text-white" style={{ background: PLATFORM_OPTIONS.find(p => p.id === n.platform_icon)?.color || "#7c3aed" }}>
-                                <PlatformIcon id={n.platform_icon} className="w-3 h-3" />
-                              </div>
-                            ) : null}
+                            {n.platform_icon ? <PlatformChipVisual id={n.platform_icon} size={20} audit={platformLogoResults[resolvePlatformOption(n.platform_icon).id || "__custom"]} /> : null}
                             {n.locked && <span className="inline-flex items-center gap-1 text-[9.5px] px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 font-semibold"><Lock className="w-2.5 h-2.5" />Locked</span>}
                             <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-700 capitalize">{n.category || "announcement"}</span>
                             <span className={`inline-flex items-center gap-1 text-[10px] font-semibold capitalize ${n.priority === "critical" ? "text-rose-600" : n.priority === "high" ? "text-amber-600" : n.priority === "normal" ? "text-sky-600" : "text-zinc-500"}`}>
@@ -4691,9 +4690,7 @@ function AdminPanel() {
                       return (
                         <button key={p.id || "none"} type="button" onClick={() => setEditingNotif({ ...editingNotif, platform_icon: p.id })}
                           className={`flex flex-col items-center gap-1 py-2 rounded-lg border transition-all ${active ? "border-orange-500 bg-orange-50" : "border-slate-200 hover:border-slate-300"}`}>
-                          <div className="w-6 h-6 rounded-full flex items-center justify-center text-white" style={{ background: p.color }}>
-                            <PlatformIcon id={p.id} className="w-3 h-3" />
-                          </div>
+                          <PlatformChipVisual id={p.id} size={24} audit={platformLogoResults[p.id || "__custom"]} />
                           <span className="text-[9px] font-medium text-slate-600">{p.label}</span>
                         </button>
                       );
