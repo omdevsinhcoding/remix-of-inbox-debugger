@@ -2878,6 +2878,7 @@ function AdminPanel() {
   const [notifBody, setNotifBody] = useState("");
   const [notifDescription, setNotifDescription] = useState("");
   const [notifImageUrl, setNotifImageUrl] = useState("");
+  const [notifImageUploading, setNotifImageUploading] = useState(false);
   const [notifCategory, setNotifCategory] = useState<"announcement" | "update" | "security" | "maintenance" | "promo" | "billing">("announcement");
   const [notifPriority, setNotifPriority] = useState<"low" | "normal" | "high" | "critical">("normal");
   const [notifActionUrl, setNotifActionUrl] = useState("");
