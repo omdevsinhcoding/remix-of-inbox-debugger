@@ -3428,14 +3428,13 @@ function AdminPanel() {
         locked: notifLocked,
         action_url: notifActionUrl.trim() || null,
         action_label: notifActionLabel.trim() || null,
-        pinned: notifPinned,
         audience: notifAudience,
         target_user_id: notifAudience === "user" ? notifTargetUser : null,
         expiresInDays: notifExpiresDays ? Number(notifExpiresDays) : null,
       });
       toast.success("🔔 Notification sent");
       setNotifTitle(""); setNotifBody(""); setNotifDescription(""); setNotifImageUrl("");
-      setNotifActionUrl(""); setNotifActionLabel(""); setNotifPinned(false);
+      setNotifActionUrl(""); setNotifActionLabel("");
       setNotifExpiresDays(""); setNotifBodyMarkdown(""); setNotifPlatformIcon("");
       setNotifLocked(false);
       await reloadAdminNotifs();
