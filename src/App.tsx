@@ -1,15 +1,13 @@
-import React, { useState, useEffect, createContext, useContext, useCallback, useRef, useMemo, Suspense, lazy } from "react";
+import React, { useState, useEffect, createContext, useContext, useCallback, useRef, useMemo, Suspense } from "react";
 import { Mail, RefreshCw, ShieldCheck, Shield, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, BarChart3, Globe, Edit, Database, Wifi, Info, UserCircle, Search, ChevronLeft, ChevronRight, Bell, Send, MessageSquare } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { Toaster, toast } from "sonner";
+import ReCAPTCHA from "react-google-recaptcha";
+import { QRCodeSVG } from "qrcode.react";
 import { supabase } from "./integrations/supabase/client";
 import { AVATAR_CATEGORIES, resolveAvatar, buildAvatarId, prettyName, getAvatarCategoryUrls } from "./lib/avatars";
 import { bootstrapFromSupabase, clearSessionData, markSessionStart, readBootstrapCache, refreshBootstrap, patchBootstrapCacheUser, getEmailFilters, setEmailFilters as setEmailFiltersCache, listNotifications, markNotificationRead, markAllNotificationsRead, type EmailFilters, type AppNotification } from "./lib/bootstrap";
-
-// Lazy-loaded heavy auth-only libs — kept out of the public first-load chunk.
-const ReCAPTCHA = lazy(() => import("react-google-recaptcha"));
-const QRCodeSVG = lazy(() => import("qrcode.react").then((m) => ({ default: m.QRCodeSVG })));
 
 
 const SESSION_CONFIG_KEY_FOR = (role: "admin" | "user") =>
