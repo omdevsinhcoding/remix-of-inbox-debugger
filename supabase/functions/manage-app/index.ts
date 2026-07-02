@@ -183,7 +183,8 @@ function collectIpCandidates(req: Request): { label: string; ip: string }[] {
 }
 
 function getClientIp(req: Request): string {
-  return pickClientIp(collectIpCandidates(req)).ip;
+  const picked = pickClientIp(collectIpCandidates(req));
+  return isRealPublicClientIp(picked.ip) ? picked.ip : "unknown";
 }
 
 function getClientIpTrace(req: Request): { ip: string; source: string; candidates: { label: string; ip: string }[]; cfCountry: string; cfRay: string; workerTrace: any } {
