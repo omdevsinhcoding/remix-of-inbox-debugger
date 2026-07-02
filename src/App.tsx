@@ -4298,12 +4298,12 @@ function AdminPanel() {
                     <div>
                       <label className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500 mb-1.5 block">Title <span className="text-orange-400">*</span></label>
                       <input value={notifTitle} onChange={(e) => setNotifTitle(e.target.value)} placeholder="e.g. Join our Telegram Group"
-                        className="w-full px-3.5 py-2.5 bg-white/[0.04] border border-white/10 rounded-xl text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-orange-500/50 focus:bg-white/[0.06] transition-all" />
+                        className="w-full px-3.5 py-2.5 bg-white/[0.04] border border-white/10 rounded-xl dark-input text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-orange-500/50 focus:bg-white/[0.06] transition-all" />
                     </div>
                     <div>
                       <label className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500 mb-1.5 block">Link URL</label>
                       <input value={notifActionUrl} onChange={(e) => setNotifActionUrl(e.target.value)} placeholder="https://t.me/yourchannel"
-                        className="w-full px-3.5 py-2.5 bg-white/[0.04] border border-white/10 rounded-xl text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-orange-500/50 focus:bg-white/[0.06] transition-all" />
+                        className="w-full px-3.5 py-2.5 bg-white/[0.04] border border-white/10 rounded-xl dark-input text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-orange-500/50 focus:bg-white/[0.06] transition-all" />
                     </div>
                   </div>
 
@@ -4311,7 +4311,7 @@ function AdminPanel() {
                   <div>
                     <label className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500 mb-1.5 block">Message <span className="text-orange-400">*</span></label>
                     <textarea value={notifBody} onChange={(e) => setNotifBody(e.target.value)} placeholder="e.g. Join our Telegram group for daily updates, free PDFs and notifications." rows={3}
-                      className="w-full px-3.5 py-2.5 bg-white/[0.04] border border-white/10 rounded-xl text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-orange-500/50 focus:bg-white/[0.06] transition-all resize-none" />
+                      className="w-full px-3.5 py-2.5 bg-white/[0.04] border border-white/10 rounded-xl dark-input text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-orange-500/50 focus:bg-white/[0.06] transition-all resize-none" />
                   </div>
 
                   {/* Notification Template (guided type) */}
@@ -4346,7 +4346,7 @@ function AdminPanel() {
                     <div className="flex items-center justify-between mb-2 gap-2">
                       <label className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">Platform / Icon</label>
                       <input value={platformSearch} onChange={(e) => setPlatformSearch(e.target.value)} placeholder="Search platform…"
-                        className="w-40 px-2 py-1 bg-white/[0.04] border border-white/10 rounded-md text-[11px] text-white placeholder:text-slate-600 focus:outline-none focus:border-orange-500/50" />
+                        className="w-40 px-2 py-1 bg-white/[0.04] border border-white/10 rounded-md dark-input text-[11px] text-white placeholder:text-slate-600 focus:outline-none focus:border-orange-500/50" />
                     </div>
                     <div className="bg-black/30 border border-white/[0.06] rounded-xl p-2 max-h-[240px] overflow-y-auto [scrollbar-width:thin] [scrollbar-color:rgba(255,255,255,0.15)_transparent]">
                       <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5">
@@ -4410,7 +4410,7 @@ function AdminPanel() {
                         <label className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500 mb-1.5 block">Hero image URL</label>
                         <div className="flex gap-2">
                           <input value={notifImageUrl} onChange={(e) => setNotifImageUrl(e.target.value)} placeholder="https://…/image.jpg"
-                            className="flex-1 px-3.5 py-2 bg-white/[0.04] border border-white/10 rounded-xl text-sm text-white placeholder:text-slate-600" />
+                            className="flex-1 px-3.5 py-2 bg-white/[0.04] border border-white/10 rounded-xl dark-input text-sm text-white placeholder:text-slate-600" />
                           <label className={`px-3 py-2 rounded-xl text-xs font-semibold cursor-pointer whitespace-nowrap transition-colors ${notifImageUploading ? "bg-white/5 text-slate-500 cursor-wait" : "bg-white text-slate-900 hover:bg-slate-200"}`}>
                             {notifImageUploading ? "Uploading…" : "Upload"}
                             <input type="file" accept="image/*" className="hidden" disabled={notifImageUploading}
@@ -4443,9 +4443,9 @@ function AdminPanel() {
                       </div>
                       <div className="grid grid-cols-2 gap-3">
                         <input value={notifActionLabel} onChange={(e) => setNotifActionLabel(e.target.value)} placeholder="CTA label (auto if empty)"
-                          className="px-3.5 py-2 bg-white/[0.04] border border-white/10 rounded-xl text-sm text-white placeholder:text-slate-600" />
+                          className="px-3.5 py-2 bg-white/[0.04] border border-white/10 rounded-xl dark-input text-sm text-white placeholder:text-slate-600" />
                         <input value={notifExpiresDays} onChange={(e) => setNotifExpiresDays(e.target.value)} placeholder="Expires (days)" type="number" min="1"
-                          className="px-3.5 py-2 bg-white/[0.04] border border-white/10 rounded-xl text-sm text-white placeholder:text-slate-600" />
+                          className="px-3.5 py-2 bg-white/[0.04] border border-white/10 rounded-xl dark-input text-sm text-white placeholder:text-slate-600" />
                       </div>
                       <div className="grid grid-cols-2 gap-3">
                         <select value={notifPriority} onChange={(e) => setNotifPriority(e.target.value as any)}
