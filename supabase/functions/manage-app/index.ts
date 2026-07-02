@@ -632,21 +632,61 @@ async function resolveLocation(ip: string, opts?: { allowIpwho?: boolean }): Pro
   return { merged, confidence, agreed, results, anonymizer };
 }
 
-function parseUserAgent(ua: string): { browser: string; os: string } {
+function parseUserAgent(ua: string): { browser: string; browserVersion?: string; os: string; osVersion?: string } {
   const s = ua || "";
-  let browser = "Unknown";
-  if (/Edg\//.test(s)) browser = "Edge";
-  else if (/OPR\//.test(s)) browser = "Opera";
-  else if (/Chrome\//.test(s) && !/Edg\//.test(s)) browser = "Chrome";
-  else if (/Firefox\//.test(s)) browser = "Firefox";
-  else if (/Safari\//.test(s) && !/Chrome\//.test(s)) browser = "Safari";
-  let os = "Unknown";
-  if (/Windows NT/.test(s)) os = "Windows";
-  else if (/Android/.test(s)) os = "Android";
-  else if (/iPhone|iPad|iOS/.test(s)) os = "iOS";
-  else if (/Mac OS X/.test(s)) os = "macOS";
-  else if (/Linux/.test(s)) os = "Linux";
-  return { browser, os };
+  let browser = "Unknown"; let browserVersion: string | undefined;
+  const m = (re: RegExp) => { const r = s.match(re); return r?.[1]; };
+  if (/Edg\//.test(s)) { browser = "Edge"; browserVersion = m(/Edg\/([\d.]+)/); }
+  else if (/OPR\/|Opera/.test(s)) { browser = "Opera"; browserVersion = m(/OPR\/([\d.]+)/); }
+  else if (/SamsungBrowser\//.test(s)) { browser = "Samsung Internet"; browserVersion = m(/SamsungBrowser\/([\d.]+)/); }
+  else if (/MiuiBrowser\//.test(s)) { browser = "Mi Browser"; browserVersion = m(/MiuiBrowser\/([\d.]+)/); }
+  else if (/Chrome\//.test(s) && !/Edg\//.test(s)) { browser = "Chrome"; browserVersion = m(/Chrome\/([\d.]+)/); }
+  else if (/Firefox\//.test(s)) { browser = "Firefox"; browserVersion = m(/Firefox\/([\d.]+)/); }
+  else if (/Safari\//.test(s) && !/Chrome\//.test(s)) { browser = "Safari"; browserVersion = m(/Version\/([\d.]+)/); }
+  let os = "Unknown"; let osVersion: string | undefined;
+  if (/Windows NT/.test(s)) { os = "Windows"; const v = m(/Windows NT ([\d.]+)/); const map: Record<string,string> = {"10.0":"10/11","6.3":"8.1","6.2":"8","6.1":"7"}; osVersion = v ? (map[v] || v) : undefined; }
+  else if (/Android/.test(s)) { os = "Android"; osVersion = m(/Android ([\d.]+)/); }
+  else if (/iPhone|iPad|iPod/.test(s)) { os = /iPad/.test(s) ? "iPadOS" : "iOS"; osVersion = (m(/OS ([\d_]+)/) || "").replace(/_/g, "."); }
+  else if (/Mac OS X/.test(s)) { os = "macOS"; osVersion = (m(/Mac OS X ([\d_.]+)/) || "").replace(/_/g, "."); }
+  else if (/CrOS/.test(s)) { os = "ChromeOS"; }
+  else if (/Linux/.test(s)) { os = "Linux"; }
+  return { browser, browserVersion, os, osVersion };
+}
+
+function inferDeviceModel(ua: string, device?: DeviceFingerprint): { model: string; type: string; vendor: string } {
+  const s = ua || "";
+  let model = device?.uaModel || "";
+  let vendor = "";
+  let type = "Desktop";
+  const mobile = device?.mobile ?? /Mobi|Android|iPhone|iPod/.test(s);
+  const tablet = /iPad|Tablet|Nexus 7|Nexus 10|SM-T\d/.test(s);
+  type = tablet ? "Tablet" : mobile ? "Mobile" : "Desktop";
+  if (!model) {
+    if (/iPhone/.test(s)) { model = "iPhone"; vendor = "Apple"; }
+    else if (/iPad/.test(s)) { model = "iPad"; vendor = "Apple"; }
+    else if (/iPod/.test(s)) { model = "iPod"; vendor = "Apple"; }
+    else {
+      const andm = s.match(/Android[^;]*;\s*[^;]*;\s*([^;)]+)\s+Build/) || s.match(/;\s*([^;)]+)\)\s+AppleWebKit/);
+      if (andm) model = andm[1].trim();
+      const m2 = s.match(/;\s*([A-Z]{1,4}-[A-Z0-9]+)\s/i); if (m2 && !model) model = m2[1];
+    }
+  }
+  if (!vendor) {
+    if (/Samsung|SM-|GT-/.test(s + " " + model)) vendor = "Samsung";
+    else if (/Xiaomi|Redmi|MI |POCO/i.test(s + " " + model)) vendor = "Xiaomi";
+    else if (/OnePlus/i.test(s + " " + model)) vendor = "OnePlus";
+    else if (/Pixel/i.test(s + " " + model)) vendor = "Google";
+    else if (/HUAWEI|Honor/i.test(s + " " + model)) vendor = "Huawei";
+    else if (/Realme/i.test(s + " " + model)) vendor = "Realme";
+    else if (/OPPO/i.test(s + " " + model)) vendor = "Oppo";
+    else if (/Vivo/i.test(s + " " + model)) vendor = "Vivo";
+    else if (/Motorola|Moto /i.test(s + " " + model)) vendor = "Motorola";
+    else if (/Apple|iPhone|iPad|Macintosh/.test(s)) vendor = "Apple";
+    else if (/Windows/.test(s)) vendor = "PC";
+  }
+  if (!model && device?.uaPlatform) model = `${device.uaPlatform}${device.uaPlatformVersion ? " " + device.uaPlatformVersion : ""}`;
+  if (!model) model = type;
+  return { model, type, vendor };
 }
 
 async function sendPrimaryLoginAlert(
