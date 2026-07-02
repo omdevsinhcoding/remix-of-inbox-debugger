@@ -3193,25 +3193,81 @@ function AdminPanel() {
         )}
 
         {activeTab === "notifications" && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+          <div className="grid grid-cols-1 xl:grid-cols-[1.15fr_1fr] gap-4 sm:gap-6">
+            {/* --- Composer --- */}
             <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
               <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
                 <div className="bg-red-50 p-1.5 rounded-lg"><Bell className="w-4 h-4 text-red-600" /></div>
-                Push Notification
+                Compose Notification
               </h2>
               <div className="space-y-3">
-                <input value={notifTitle} onChange={(e) => setNotifTitle(e.target.value)} placeholder="Title"
-                  className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900" />
-                <textarea value={notifBody} onChange={(e) => setNotifBody(e.target.value)} placeholder="Message body" rows={4}
-                  className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900" />
-                <div className="flex gap-3 text-sm">
+                <div>
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1 block">Title</label>
+                  <input value={notifTitle} onChange={(e) => setNotifTitle(e.target.value)} placeholder="e.g. New content available"
+                    className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900" />
+                </div>
+                <div>
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1 block">Short body (list preview)</label>
+                  <textarea value={notifBody} onChange={(e) => setNotifBody(e.target.value)} placeholder="One or two lines shown in the list" rows={2}
+                    className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900" />
+                </div>
+                <div>
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1 block">Long description (detail view)</label>
+                  <textarea value={notifDescription} onChange={(e) => setNotifDescription(e.target.value)} placeholder="Full description shown when the user opens it" rows={4}
+                    className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900" />
+                </div>
+                <div>
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1 block">Hero image URL (https)</label>
+                  <input value={notifImageUrl} onChange={(e) => setNotifImageUrl(e.target.value)} placeholder="https://…/image.jpg"
+                    className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900" />
+                  <p className="text-[10.5px] text-slate-400 mt-1">Paste any https image URL. Cloudflare R2 uploader coming next once credentials are added.</p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1 block">Category</label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {(["announcement","update","security","maintenance","promo","billing"] as const).map((c) => (
+                        <button key={c} type="button" onClick={() => setNotifCategory(c)}
+                          className={`px-2.5 py-1 rounded-full text-[11px] font-medium capitalize border transition-colors ${notifCategory === c ? "bg-slate-900 text-white border-slate-900" : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"}`}>
+                          {c}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1 block">Priority</label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {(["low","normal","high","critical"] as const).map((p) => {
+                        const dot = p === "critical" ? "bg-rose-500" : p === "high" ? "bg-amber-500" : p === "normal" ? "bg-sky-500" : "bg-zinc-400";
+                        return (
+                          <button key={p} type="button" onClick={() => setNotifPriority(p)}
+                            className={`px-2.5 py-1 rounded-full text-[11px] font-medium capitalize border inline-flex items-center gap-1.5 transition-colors ${notifPriority === p ? "bg-slate-900 text-white border-slate-900" : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"}`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${dot}`} /> {p}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <input value={notifActionLabel} onChange={(e) => setNotifActionLabel(e.target.value)} placeholder="CTA label (e.g. Watch now)"
+                    className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900" />
+                  <input value={notifActionUrl} onChange={(e) => setNotifActionUrl(e.target.value)} placeholder="CTA URL (https://…)"
+                    className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900" />
+                </div>
+
+                <div className="flex flex-wrap gap-4 items-center text-sm">
                   <label className="flex items-center gap-2 text-slate-800">
-                    <input type="radio" checked={notifAudience === "all"} onChange={() => setNotifAudience("all")} />
-                    All users
+                    <input type="checkbox" checked={notifPinned} onChange={(e) => setNotifPinned(e.target.checked)} />
+                    <Pin className="w-3.5 h-3.5" /> Pin to top
                   </label>
                   <label className="flex items-center gap-2 text-slate-800">
-                    <input type="radio" checked={notifAudience === "user"} onChange={() => setNotifAudience("user")} />
-                    Specific user
+                    <input type="radio" checked={notifAudience === "all"} onChange={() => setNotifAudience("all")} /> All users
+                  </label>
+                  <label className="flex items-center gap-2 text-slate-800">
+                    <input type="radio" checked={notifAudience === "user"} onChange={() => setNotifAudience("user")} /> Specific user
                   </label>
                 </div>
                 {notifAudience === "user" && (
@@ -3230,29 +3286,73 @@ function AdminPanel() {
               </div>
             </section>
 
-            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
-              <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
-                <div className="bg-slate-100 p-1.5 rounded-lg"><MessageSquare className="w-4 h-4 text-slate-700" /></div>
-                Past Notifications
-              </h2>
-              <div className="space-y-2 max-h-[60vh] overflow-y-auto">
-                {adminNotifs.length === 0 && <p className="text-sm text-slate-500">No notifications yet.</p>}
-                {adminNotifs.map((n) => (
-                  <div key={n.id} className="border rounded-lg p-3 flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="font-bold text-sm text-slate-900 truncate">{n.title}</p>
-                      <p className="text-xs text-slate-600 line-clamp-2">{n.body}</p>
-                      <p className="text-[11px] text-slate-400 mt-1">
-                        {n.audience === "all" ? "All users" : "Specific"} • Seen {n.readCount || 0}/{n.totalRecipients || 0}
-                      </p>
+            {/* --- Live preview + Past notifications --- */}
+            <div className="space-y-4 sm:space-y-6">
+              <section className="rounded-2xl overflow-hidden border shadow-sm" style={{ background: "linear-gradient(180deg,#111 0%,#1a1a1c 100%)" }}>
+                <div className="px-4 py-2.5 flex items-center justify-between border-b border-white/[0.06]">
+                  <span className="text-[10.5px] uppercase tracking-[0.16em] text-zinc-400 font-medium">Live Preview</span>
+                  <span className="text-[10px] text-zinc-500">how users will see it</span>
+                </div>
+                <div className="p-5">
+                  <div className="rounded-2xl overflow-hidden mx-auto max-w-[400px]" style={{
+                    background: "rgba(14,14,17,0.92)",
+                    border: "1px solid rgba(255,255,255,0.08)",
+                    boxShadow: "0 20px 50px -10px rgba(0,0,0,0.6)",
+                  }}>
+                    <div className={`h-[3px] ${notifPriority === "critical" ? "bg-rose-500" : notifPriority === "high" ? "bg-amber-500" : notifPriority === "normal" ? "bg-sky-500" : "bg-zinc-500"}`} />
+                    {notifImageUrl && (
+                      <div className="aspect-[16/9] w-full bg-zinc-900 overflow-hidden">
+                        <img src={notifImageUrl} referrerPolicy="no-referrer" className="w-full h-full object-cover" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
+                      </div>
+                    )}
+                    <div className="p-5">
+                      <span className="text-[10px] uppercase tracking-[0.14em] text-zinc-400 font-medium capitalize">{notifCategory}</span>
+                      <h3 className="text-white text-[19px] leading-tight mt-2 mb-2" style={{ fontFamily: "'Instrument Serif', ui-serif, Georgia, serif", letterSpacing: "-0.015em" }}>
+                        {notifTitle || "Your title here"}
+                      </h3>
+                      <p className="text-zinc-300 text-[13px] leading-relaxed font-light">{notifBody || "Short body text preview…"}</p>
+                      {notifDescription && <p className="mt-2 text-zinc-500 text-[12px] leading-relaxed font-light line-clamp-3">{notifDescription}</p>}
+                      {(notifActionLabel || notifActionUrl) && (
+                        <div className="mt-4 py-2 px-4 rounded-xl bg-white text-black text-center text-[13px] font-semibold">
+                          {notifActionLabel || "CTA"}
+                        </div>
+                      )}
                     </div>
-                    <button onClick={() => deleteNotification(n.id)} className="text-red-600 hover:text-red-700 text-xs font-bold">Delete</button>
                   </div>
-                ))}
-              </div>
-            </section>
+                </div>
+              </section>
+
+              <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+                <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
+                  <div className="bg-slate-100 p-1.5 rounded-lg"><MessageSquare className="w-4 h-4 text-slate-700" /></div>
+                  Past Notifications
+                </h2>
+                <div className="space-y-2 max-h-[60vh] overflow-y-auto">
+                  {adminNotifs.length === 0 && <p className="text-sm text-slate-500">No notifications yet.</p>}
+                  {adminNotifs.map((n) => (
+                    <div key={n.id} className="border rounded-lg p-3 flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          {n.pinned && <Pin className="w-3 h-3 text-amber-500" />}
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-700 capitalize">{n.category || "announcement"}</span>
+                          <span className={`w-1.5 h-1.5 rounded-full ${n.priority === "critical" ? "bg-rose-500" : n.priority === "high" ? "bg-amber-500" : n.priority === "normal" ? "bg-sky-500" : "bg-zinc-400"}`} />
+                        </div>
+                        <p className="font-bold text-sm text-slate-900 truncate">{n.title}</p>
+                        <p className="text-xs text-slate-600 line-clamp-2">{n.body}</p>
+                        <p className="text-[11px] text-slate-400 mt-1">
+                          {n.audience === "all" ? "All users" : "Specific"} • Delivered {n.seenCount || 0} · Read {n.readCount || 0} · Clicked {n.clickCount || 0} / {n.totalRecipients || 0}
+                        </p>
+                      </div>
+                      <button onClick={() => deleteNotification(n.id)} className="text-red-600 hover:text-red-700 text-xs font-bold flex-shrink-0">Delete</button>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            </div>
           </div>
         )}
+
+
 
         {activeTab === "inbox" && (
           <div className="max-w-2xl">
