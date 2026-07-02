@@ -2568,6 +2568,12 @@ function AdminPanel() {
 
   const saveMaintenance = async (nextEnabled?: boolean) => {
     const enabled = typeof nextEnabled === "boolean" ? nextEnabled : maintenanceEnabled;
+    // Convert local datetime-local -> ISO. Empty string means no scheduled end.
+    let endsAtIso: string | null = null;
+    if (maintenanceEndsAt) {
+      const d = new Date(maintenanceEndsAt);
+      if (!isNaN(d.getTime())) endsAtIso = d.toISOString();
+    }
     setSavingMaintenance(true);
     try {
       await apiCall("manage-app", {
@@ -2577,7 +2583,9 @@ function AdminPanel() {
           enabled,
           title: maintenanceTitle.trim(),
           message: maintenanceMessage.trim(),
-          eta: maintenanceEta.trim(),
+          endsAt: endsAtIso,
+          versionFrom: maintenanceVersionFrom.trim(),
+          versionTo: maintenanceVersionTo.trim(),
           updated_at: new Date().toISOString(),
         },
       });
@@ -2591,6 +2599,7 @@ function AdminPanel() {
       setSavingMaintenance(false);
     }
   };
+
 
 
 
