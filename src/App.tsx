@@ -2569,7 +2569,6 @@ function AdminPanel() {
   };
 
   const saveMaintenance = async (nextEnabled?: boolean) => {
-    const enabled = typeof nextEnabled === "boolean" ? nextEnabled : maintenanceEnabled;
     // Convert local datetime-local -> ISO. Empty string means no scheduled start/end.
     const toIso = (s: string): string | null => {
       if (!s) return null;
@@ -2582,6 +2581,28 @@ function AdminPanel() {
       toast.error("End time must be after start time");
       return;
     }
+
+    // Auto-enable when the admin fills a schedule (even without flipping the toggle).
+    const hasSchedule = !!(startsAtIso && endsAtIso);
+    const enabled = typeof nextEnabled === "boolean" ? nextEnabled : (maintenanceEnabled || hasSchedule);
+
+    // Version auto-bump: baseline 2.4.4. Each save bumps patch +1 from the previously saved
+    // versionTo unless the admin manually typed a different (higher) version.
+    const bumpPatch = (v: string) => {
+      const parts = String(v || "").replace(/^v/i, "").split(".").map((n) => parseInt(n, 10));
+      while (parts.length < 3) parts.push(0);
+      parts[2] = (Number.isFinite(parts[2]) ? parts[2] : 0) + 1;
+      return parts.map((n) => (Number.isFinite(n) ? n : 0)).join(".");
+    };
+    const prevTo = prevSavedVersionToRef.current || "";
+    let nextVersionTo = maintenanceVersionTo.trim();
+    let autoBumped = false;
+    if (!nextVersionTo || nextVersionTo === prevTo) {
+      nextVersionTo = bumpPatch(prevTo || "2.4.3"); // 2.4.3 -> bump -> 2.4.4 on first save
+      autoBumped = true;
+    }
+    const nextVersionFrom = maintenanceVersionFrom.trim() || prevTo || "2.4.4";
+
     setSavingMaintenance(true);
     try {
       await apiCall("manage-app", {
@@ -2593,15 +2614,22 @@ function AdminPanel() {
           message: maintenanceMessage.trim(),
           startsAt: startsAtIso,
           endsAt: endsAtIso,
-          versionFrom: maintenanceVersionFrom.trim(),
-          versionTo: maintenanceVersionTo.trim(),
+          versionFrom: nextVersionFrom,
+          versionTo: nextVersionTo,
           updated_at: new Date().toISOString(),
         },
       });
       setMaintenanceEnabled(enabled);
+      setMaintenanceVersionFrom(nextVersionFrom);
+      setMaintenanceVersionTo(nextVersionTo);
+      prevSavedVersionToRef.current = nextVersionTo;
       try { await refreshBootstrap(); } catch {}
       window.dispatchEvent(new Event("maintenance:changed"));
-      toast.success(enabled ? "Maintenance mode is ON" : "Maintenance mode is OFF");
+      if (autoBumped) toast.success(`Saved · version auto-bumped to v${nextVersionTo}`);
+      else toast.success(enabled ? `Maintenance ON · v${nextVersionTo}` : `Maintenance OFF · v${nextVersionTo}`);
+      if (hasSchedule && !maintenanceEnabled && typeof nextEnabled !== "boolean") {
+        toast.message("Scheduled — site will auto-lock at start time and auto-unlock at end time.");
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to save maintenance settings");
     } finally {
