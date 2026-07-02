@@ -121,12 +121,61 @@
     </noscript>
     <script type="module" src="/src/main.tsx"></script>
     <script>
-      window.setTimeout(function () {
-        var root = document.getElementById('root');
-        if (!root || !root.querySelector('.boot-shell')) return;
-        var subtitle = root.querySelector('.boot-subtitle');
-        if (subtitle) subtitle.textContent = 'Still loading… tap refresh once.';
-      }, 12000);
+      (function () {
+        var RECOVERY_KEY = 'boot_recovery_v1';
+        var mounted = false;
+        // Detect a broken bundle load (HTML served as JS, or blocked by AV/network)
+        window.addEventListener('error', function (e) {
+          var t = e && e.target;
+          if (t && (t.tagName === 'SCRIPT' || t.tagName === 'LINK') && t.src !== undefined) {
+            var src = t.src || t.href || '';
+            if (src.indexOf('/assets/') !== -1) {
+              tryRecover('asset-error');
+            }
+          }
+        }, true);
+
+        function appMounted() {
+          var root = document.getElementById('root');
+          return !!(root && !root.querySelector('.boot-shell'));
+        }
+
+        function tryRecover(reason) {
+          try {
+            var already = sessionStorage.getItem(RECOVERY_KEY);
+            if (already) { showHardRefresh(reason); return; }
+            sessionStorage.setItem(RECOVERY_KEY, String(Date.now()));
+          } catch (_) {}
+          var url = new URL(window.location.href);
+          url.searchParams.set('v', String(Date.now()));
+          window.location.replace(url.toString());
+        }
+
+        function showHardRefresh(reason) {
+          var root = document.getElementById('root');
+          if (!root) return;
+          root.innerHTML =
+            '<main class="boot-shell"><section class="boot-content">' +
+              '<div class="boot-logo-wrap"><div class="boot-logo" aria-hidden="true">N</div></div>' +
+              '<div><h1 class="boot-title">One hard refresh needed</h1>' +
+              '<p class="boot-subtitle">Press Ctrl+Shift+R (or Cmd+Shift+R) to load the latest version.</p></div>' +
+              '<button id="boot-retry" style="margin-top:8px;padding:10px 18px;border-radius:12px;border:0;background:linear-gradient(135deg,#ef4444,#b91c1c);color:#fff;font-weight:700;cursor:pointer;">Retry now</button>' +
+            '</section></main>';
+          var btn = document.getElementById('boot-retry');
+          if (btn) btn.onclick = function () { try { sessionStorage.removeItem(RECOVERY_KEY); } catch (_) {} window.location.reload(); };
+        }
+
+        // Watchdog: if app hasn't mounted in 8s, attempt cache-busted recovery once.
+        window.setTimeout(function () {
+          if (appMounted()) { try { sessionStorage.removeItem(RECOVERY_KEY); } catch (_) {} return; }
+          tryRecover('timeout');
+        }, 8000);
+
+        // Long-stuck message if even recovery didn't help
+        window.setTimeout(function () {
+          if (!appMounted()) showHardRefresh('final');
+        }, 16000);
+      })();
     </script>
   </body>
 </html>

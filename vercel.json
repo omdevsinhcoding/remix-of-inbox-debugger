@@ -19,7 +19,7 @@
       "destination": "/server.ts"
     },
     {
-      "source": "/(.*)",
+      "source": "/((?!assets/|.*\\.(?:js|mjs|css|map|json|txt|xml|ico|png|jpg|jpeg|gif|svg|webp|avif|woff|woff2|ttf|otf|eot|mp4|webm|mp3|wav|pdf)$).*)",
       "destination": "/index.html"
     }
   ],
