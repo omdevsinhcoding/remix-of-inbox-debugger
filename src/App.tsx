@@ -271,10 +271,11 @@ function useSessionTimeoutGuard(role: "admin" | "user") {
   useEffect(() => {
     let timer: any;
     let cancelled = false;
-    const doLogout = (minutes: number) => {
+    const doLogout = () => {
       clearSessionData();
       checkAuth();
       toast("🔒 Session timed out", {
+        id: "session-timed-out",
         description: "Tap your profile and enter password again.",
         duration: 3000,
       });
@@ -283,7 +284,7 @@ function useSessionTimeoutGuard(role: "admin" | "user") {
     (async () => {
       let minutes = 0;
       try {
-        const res = await apiCall("manage-app", { action: "get_settings", key: "session_config" });
+        const res = await apiCall("manage-app", { action: "get_settings", key: SESSION_CONFIG_KEY_FOR(role) });
         minutes = Number(res?.value?.timeoutMinutes) || 0;
       } catch {}
       if (cancelled || !minutes || minutes <= 0) return;
@@ -292,8 +293,8 @@ function useSessionTimeoutGuard(role: "admin" | "user") {
       if (!started) { markSessionStart(); started = Date.now(); }
       const expiresAt = started + minutes * 60_000;
       const remaining = expiresAt - Date.now();
-      if (remaining <= 0) { doLogout(minutes); return; }
-      timer = setTimeout(() => doLogout(minutes), remaining);
+      if (remaining <= 0) { doLogout(); return; }
+      timer = setTimeout(doLogout, remaining);
     })();
     return () => { cancelled = true; if (timer) clearTimeout(timer); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -310,13 +311,13 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
     let cancelled = false;
     (async () => {
       try {
-        const res = await apiCall("manage-app", { action: "get_settings", key: "session_config" });
+        const res = await apiCall("manage-app", { action: "get_settings", key: SESSION_CONFIG_KEY_FOR(role) });
         const m = Number(res?.value?.timeoutMinutes) || 0;
         if (!cancelled) setMinutes(m);
       } catch {}
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [role]);
 
   useEffect(() => {
     if (!minutes || minutes <= 0) return;
@@ -329,6 +330,7 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
       if (rem > 0 && rem <= 60_000 && !warnedRef.current) {
         warnedRef.current = true;
         toast("⏰ Session ending in 1 minute", {
+          id: "session-1min-warning",
           description: "Finish what you're doing — you'll need to sign in again soon.",
           duration: 5000,
         });
@@ -339,7 +341,7 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
     return () => clearInterval(id);
   }, [minutes]);
 
-  if (role === "admin" || !minutes || minutes <= 0 || remainingMs <= 0) return null;
+  if (!minutes || minutes <= 0 || remainingMs <= 0) return null;
 
   const totalSec = Math.ceil(remainingMs / 1000);
   const mm = Math.floor(totalSec / 60);
@@ -353,10 +355,14 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
     ? "bg-amber-500 text-white"
     : "bg-slate-900/90 text-white";
 
+  // Pill sits top-right on mobile (below status bar), bottom-right on desktop.
+  // pointer-events-none so it never blocks taps beneath it.
   return (
-    <div className={`fixed z-50 bottom-[calc(env(safe-area-inset-bottom)+0.5rem)] right-3 sm:bottom-4 sm:right-4 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full text-[10px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1 sm:gap-1.5 pointer-events-none select-none`}>
+    <div
+      className={`fixed z-40 top-[calc(env(safe-area-inset-top)+0.4rem)] right-2 sm:top-auto sm:bottom-4 sm:right-4 h-6 sm:h-7 px-2 sm:px-3 rounded-full text-[10px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1 sm:gap-1.5 pointer-events-none select-none`}
+    >
       <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" />
-      Session: {pad(mm)}:{pad(ss)}
+      {role === "admin" ? "Admin" : "Session"}: {pad(mm)}:{pad(ss)}
     </div>
   );
 }
