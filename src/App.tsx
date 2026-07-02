@@ -17,7 +17,7 @@ const ReCAPTCHA = lazy(() => import("react-google-recaptcha"));
 const QRCodeSVG = lazy(() => import("qrcode.react").then((m) => ({ default: m.QRCodeSVG })));
 
 // --- Admin composer: platform / icon options + brand SVG icons ---
-type PlatformOption = { id: string; label: string; color: string; mono?: string };
+type PlatformOption = { id: string; label: string; color: string; mono?: string; slug?: string };
 const PLATFORM_OPTIONS: PlatformOption[] = [
   // Social / messaging
   { id: "telegram",     label: "Telegram",     color: "#229ED9" },
@@ -28,26 +28,26 @@ const PLATFORM_OPTIONS: PlatformOption[] = [
   { id: "twitter",      label: "Twitter / X",  color: "#000000" },
   { id: "facebook",     label: "Facebook",     color: "#1877F2" },
   { id: "linkedin",     label: "LinkedIn",     color: "#0A66C2" },
-  // OTT India
-  { id: "netflix",      label: "Netflix",         color: "#E50914", mono: "N" },
-  { id: "prime",        label: "Prime Video",     color: "#00A8E1", mono: "P" },
-  { id: "hotstar",      label: "Disney+ Hotstar", color: "#1F1F49", mono: "H" },
-  { id: "jiohotstar",   label: "JioHotstar",      color: "#0F1E7A", mono: "JH" },
-  { id: "sonyliv",      label: "Sony LIV",        color: "#000000", mono: "SL" },
-  { id: "zee5",         label: "ZEE5",            color: "#8226C0", mono: "Z5" },
-  { id: "jiocinema",    label: "JioCinema",       color: "#E60023", mono: "JC" },
+  // OTT India — brand logos via simpleicons CDN (fall back to monogram)
+  { id: "netflix",      label: "Netflix",         color: "#E50914", mono: "N",  slug: "netflix" },
+  { id: "prime",        label: "Prime Video",     color: "#00A8E1", mono: "P",  slug: "primevideo" },
+  { id: "hotstar",      label: "Disney+ Hotstar", color: "#1F1F49", mono: "H",  slug: "hotstar" },
+  { id: "jiohotstar",   label: "JioHotstar",      color: "#0F1E7A", mono: "JH", slug: "hotstar" },
+  { id: "sonyliv",      label: "Sony LIV",        color: "#000000", mono: "SL", slug: "sonyliv" },
+  { id: "zee5",         label: "ZEE5",            color: "#8226C0", mono: "Z5", slug: "zee5" },
+  { id: "jiocinema",    label: "JioCinema",       color: "#E60023", mono: "JC", slug: "jiocinema" },
   { id: "mxplayer",     label: "MX Player",       color: "#F7B500", mono: "MX" },
-  { id: "minitv",       label: "Amazon miniTV",   color: "#FF9900", mono: "mT" },
-  { id: "appletv",      label: "Apple TV+",       color: "#000000" },
+  { id: "minitv",       label: "Amazon miniTV",   color: "#FF9900", mono: "mT", slug: "amazon" },
+  { id: "appletv",      label: "Apple TV+",       color: "#000000", slug: "appletv" },
   { id: "lionsgate",    label: "Lionsgate Play",  color: "#B48538", mono: "LP" },
-  { id: "discoveryplus",label: "Discovery+",      color: "#1976FF", mono: "D+" },
+  { id: "discoveryplus",label: "Discovery+",      color: "#1976FF", mono: "D+", slug: "discoveryplus" },
   { id: "sunnxt",       label: "Sun NXT",         color: "#F25022", mono: "S" },
   { id: "aha",          label: "Aha",             color: "#FF6A00", mono: "अ" },
   { id: "chaupal",      label: "Chaupal",         color: "#F02728", mono: "C" },
   { id: "hoichoi",      label: "Hoichoi",         color: "#E7263C", mono: "H" },
   { id: "manoramamax",  label: "ManoramaMAX",     color: "#0057A8", mono: "M" },
-  { id: "erosnow",      label: "Eros Now",        color: "#ED1C24", mono: "E" },
-  { id: "mubi",         label: "MUBI",            color: "#000000", mono: "M" },
+  { id: "erosnow",      label: "Eros Now",        color: "#ED1C24", mono: "E",  slug: "erosnow" },
+  { id: "mubi",         label: "MUBI",            color: "#000000", mono: "M",  slug: "mubi" },
   { id: "shemaroome",   label: "ShemarooMe",      color: "#E63A2F", mono: "Sh" },
   { id: "docubay",      label: "DocuBay",         color: "#00B5AD", mono: "DB" },
   { id: "epicon",       label: "EPIC ON",         color: "#FFB300", mono: "E" },
@@ -57,7 +57,7 @@ const PLATFORM_OPTIONS: PlatformOption[] = [
   { id: "klikk",        label: "Klikk",           color: "#7B1FA2", mono: "K" },
   { id: "simplysouth",  label: "Simply South",    color: "#00695C", mono: "SS" },
   { id: "tentkotta",    label: "Tentkotta",       color: "#D32F2F", mono: "TK" },
-  { id: "ytpremium",    label: "YouTube Premium", color: "#0F0F0F", mono: "YT" },
+  { id: "ytpremium",    label: "YouTube Premium", color: "#0F0F0F", mono: "YT", slug: "youtube" },
   // Fallback
   { id: "",             label: "Custom / Bell",   color: "#7c3aed" },
 ];
