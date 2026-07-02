@@ -2192,9 +2192,8 @@ Deno.serve(async (req) => {
       const nowIso = new Date().toISOString();
       const { data: notes, error: nErr } = await supabase
         .from("notifications")
-        .select("id, title, body, description, body_markdown, image_url, category, priority, icon, platform_icon, kind, sub_kind, locked, show_frequency, mode, action_url, action_label, action2_url, action2_label, pinned, audience, target_user_id, created_at, expires_at, publish_at, group_key")
+        .select("id, title, body, description, body_markdown, image_url, category, priority, icon, platform_icon, kind, sub_kind, locked, show_frequency, mode, action_url, action_label, action2_url, action2_label, audience, target_user_id, created_at, expires_at, publish_at, group_key")
         .or(`audience.eq.all,target_user_id.eq.${session.userId}`)
-        .order("pinned", { ascending: false })
         .order("created_at", { ascending: false })
         .limit(100);
       if (nErr) throw nErr;
