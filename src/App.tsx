@@ -85,6 +85,13 @@ const resolvePlatformOption = (value: string | null | undefined) => {
   return PLATFORM_OPTIONS.find((platform) => platform.id === id) || PLATFORM_OPTIONS.find((platform) => platform.id === "")!;
 };
 
+const platformMatchesSearch = (platform: PlatformOption, search: string) => {
+  const query = normalizePlatformKey(search);
+  if (!query) return true;
+  return [platform.id, platform.label, platform.logoFile, ...(platform.aliases || [])]
+    .some((value) => normalizePlatformKey(value).includes(query));
+};
+
 const logPlatformLogoFailure = ({ platform, url, status, reason }: { platform: string; url: string; status?: number | string; reason: string }) => {
   console.error("[platform-logo] failed", {
     platform,
@@ -3092,6 +3099,7 @@ function AdminPanel() {
   const [notifPlatformIcon, setNotifPlatformIcon] = useState<string>("");
   const [notifTemplate, setNotifTemplate] = useState<string>("");
   const [platformSearch, setPlatformSearch] = useState("");
+  const { ready: platformLogosReady, results: platformLogoResults } = usePlatformLogoAudit();
   const [notifLocked, setNotifLocked] = useState(false);
   const [notifShowFrequency, setNotifShowFrequency] = useState<"once" | "always" | "session" | "daily">("once");
   const [notifMode, setNotifMode] = useState<"popup" | "silent" | "banner">("popup");
@@ -3634,7 +3642,7 @@ function AdminPanel() {
         kind: "flash",
         mode: notifMode,
         show_frequency: notifShowFrequency,
-        platform_icon: notifPlatformIcon || null,
+        platform_icon: resolvePlatformOption(notifPlatformIcon).id || null,
         sub_kind: notifTemplate || null,
         locked: notifLocked,
         action_url: notifActionUrl.trim() || null,
@@ -3676,7 +3684,7 @@ function AdminPanel() {
         title: e.title.trim(),
         body: e.body.trim(),
         action_url: e.action_url?.trim() || null,
-        platform_icon: e.platform_icon || null,
+        platform_icon: resolvePlatformOption(e.platform_icon).id || null,
         locked: !!e.locked,
         priority: e.priority || "normal",
         audience: e.audience || "all",
@@ -3696,7 +3704,7 @@ function AdminPanel() {
     setNotifImageUrl(n.image_url || "");
     setNotifActionUrl(n.action_url || "");
     setNotifActionLabel(n.action_label || "");
-    setNotifPlatformIcon(n.platform_icon || "");
+    setNotifPlatformIcon(resolvePlatformOption(n.platform_icon).id || "");
     setNotifLocked(!!n.locked);
     setNotifCategory(n.category || "announcement");
     setNotifPriority(n.priority || "normal");
