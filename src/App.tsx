@@ -3345,15 +3345,15 @@ function AdminPanel() {
       <h1 className="sr-only">Admin Dashboard — Netflix Mail</h1>
       <header className="bg-white border-b px-3 sm:px-6 py-3 sm:py-4 sticky top-0 z-10 shadow-sm">
         <div className="max-w-6xl mx-auto flex justify-between items-center gap-2">
-          <h1 className="text-sm sm:text-xl font-black flex items-center gap-2 min-w-0 truncate">
+          <h2 className="text-sm sm:text-xl font-black flex items-center gap-2 min-w-0 truncate">
             <div className="bg-red-600 p-1.5 sm:p-2 rounded-xl">
-              <Settings className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+              <Settings className="w-4 h-4 sm:w-5 sm:h-5 text-white" aria-hidden="true" />
             </div>
             <span className="hidden sm:inline">Admin Control Panel</span>
             <span className="sm:hidden">Admin</span>
-          </h1>
-          <button onClick={() => { localStorage.clear(); navigate("/"); }} className="p-2 hover:bg-slate-100 rounded-full transition-colors" title="Logout">
-            <LogOut className="w-5 h-5 text-slate-400" />
+          </h2>
+          <button onClick={() => { localStorage.clear(); navigate("/"); }} className="p-2 hover:bg-slate-100 rounded-full transition-colors" title="Logout" aria-label="Logout">
+            <LogOut className="w-5 h-5 text-slate-400" aria-hidden="true" />
           </button>
         </div>
       </header>
@@ -5707,7 +5707,7 @@ function EmailViewer() {
               </button>
             </div>
             <div className="min-w-0">
-              <h1 className="font-bold text-sm sm:text-lg tracking-tight leading-tight text-red-600">Netflix Mail</h1>
+              <h2 className="font-bold text-sm sm:text-lg tracking-tight leading-tight text-red-600">Netflix Mail</h2>
               <span className="text-[10px] sm:text-xs text-slate-500 truncate block max-w-[100px] sm:max-w-[180px]">{user.name}</span>
             </div>
           </div>
