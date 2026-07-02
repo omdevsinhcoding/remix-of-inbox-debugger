@@ -229,7 +229,7 @@ export default function MaintenanceScreen({ title, message, eta, isAdmin, onAdmi
           {eta && (
             <div className="mt-6 inline-flex items-center gap-2 text-white/75 text-[12px] bg-white/[0.04] border border-white/[0.1] rounded-full px-3.5 py-1.5">
               <Clock className="w-3.5 h-3.5 text-[#e50914]" />
-              <span className="tracking-wide">Back online <span className="text-white font-medium">{eta}</span></span>
+              <span className="tracking-wide">Expected back by <span className="text-white font-medium">{eta}</span></span>
             </div>
           )}
 
