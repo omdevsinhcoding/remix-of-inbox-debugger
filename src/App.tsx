@@ -1000,25 +1000,13 @@ function ProfileSelectPage() {
         throw new Error("Too many attempts. Wait 1 minute.");
       }
 
-      let data: any;
       const clientGeo = await requireLoginLocation();
-      const workerUrls = getStoredWorkerUrls();
-      if (workerUrls.length > 0) {
-        data = await apiCall("manage-app", {
-          action: "login",
-          username: selectedProfile.username,
-          password,
-          clientGeo,
-        });
-      } else {
-        const result = await supabase.functions.invoke("manage-app", {
-          body: { action: "login", username: selectedProfile.username, password, clientGeo },
-        });
-        if (result.error) throw result.error;
-        data = result.data;
-        if (!data?.success) throw new Error(data?.error || "Login failed");
-        if (data.sessionToken) localStorage.setItem("session_token", data.sessionToken);
-      }
+      const data: any = await apiCall("manage-app", {
+        action: "login",
+        username: selectedProfile.username,
+        password,
+        clientGeo,
+      });
 
       if (data.workerUrls && Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
         storeWorkerUrls(data.workerUrls);
@@ -1209,20 +1197,8 @@ function AdminLoginPage() {
     try {
       if (!checkRateLimit(`admin_${username}`)) throw new Error("Too many attempts. Wait 1 minute.");
 
-      let data: any;
       const clientGeo = await requireLoginLocation();
-      const workerUrls = getStoredWorkerUrls();
-      if (workerUrls.length > 0) {
-        data = await apiCall("manage-app", { action: "login", username, password, clientGeo });
-      } else {
-        const result = await supabase.functions.invoke("manage-app", {
-          body: { action: "login", username, password, clientGeo },
-        });
-        if (result.error) throw result.error;
-        data = result.data;
-        if (!data?.success) throw new Error(data?.error || "Login failed");
-        if (data.pendingToken) localStorage.setItem("pending_admin_token", data.pendingToken);
-      }
+      const data: any = await apiCall("manage-app", { action: "login", username, password, clientGeo });
 
       if (data.user.role !== "admin") throw new Error("Access denied");
       if (data.pendingToken) localStorage.setItem("pending_admin_token", data.pendingToken);
