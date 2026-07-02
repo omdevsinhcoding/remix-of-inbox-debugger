@@ -1,6 +1,6 @@
 import React, { useState, useEffect, createContext, useContext, useCallback, useRef, useMemo, Suspense, lazy } from "react";
 import { createPortal } from "react-dom";
-import { Mail, RefreshCw, ShieldCheck, Shield, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, BarChart3, Globe, Edit, Database, Wifi, Info, UserCircle, Search, ChevronLeft, ChevronRight, Bell, Send, MessageSquare, Image as ImageIcon, Pin, ExternalLink, Archive, AlertTriangle, Sparkles, Megaphone, Wrench, CreditCard, Tag, ChevronDown } from "lucide-react";
+import { Mail, RefreshCw, ShieldCheck, Shield, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, BarChart3, Globe, Edit, Database, Wifi, Info, UserCircle, Search, ChevronLeft, ChevronRight, Bell, Send, MessageSquare, Image as ImageIcon, Pin, ExternalLink, Archive, AlertTriangle, Sparkles, Megaphone, Wrench, CreditCard, Tag, ChevronDown, HardDrive, Upload, Zap } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import NetflixHouseholdVerificationGuide from "./pages/NetflixHouseholdVerificationGuide";
@@ -2887,6 +2887,14 @@ function AdminPanel() {
   const [notifTargetUser, setNotifTargetUser] = useState<string>("");
   const [notifExpiresDays, setNotifExpiresDays] = useState<string>("");
   const [sendingNotif, setSendingNotif] = useState(false);
+
+  // R2 storage config
+  type R2Cfg = { accountId: string; accessKeyId: string; secretAccessKey: string; bucket: string; publicBaseUrl: string; pathPrefix: string; enabled: boolean; secretAccessKeySet: boolean };
+  const [r2Cfg, setR2Cfg] = useState<R2Cfg>({ accountId: "", accessKeyId: "", secretAccessKey: "", bucket: "", publicBaseUrl: "", pathPrefix: "notifications/", enabled: false, secretAccessKeySet: false });
+  const [r2Saving, setR2Saving] = useState(false);
+  const [r2Testing, setR2Testing] = useState(false);
+  const [r2TestResult, setR2TestResult] = useState<{ ok: boolean; message: string; latencyMs?: number; publicUrlWorks?: boolean } | null>(null);
+  const [r2ShowSecret, setR2ShowSecret] = useState(false);
 
   // Inbox tab
   const [inboxMode, setInboxMode] = useState<"all" | "label" | "days">("days");
