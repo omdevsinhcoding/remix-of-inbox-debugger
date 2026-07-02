@@ -7,7 +7,7 @@ import ReCAPTCHA from "react-google-recaptcha";
 import { supabase } from "./integrations/supabase/client";
 import { QRCodeSVG } from "qrcode.react";
 import { AVATAR_CATEGORIES, resolveAvatar, buildAvatarId, prettyName, getAvatarCategoryUrls } from "./lib/avatars";
-import { bootstrapFromSupabase, clearSessionData, markSessionStart, readBootstrapCache, refreshBootstrap, patchBootstrapCacheUser } from "./lib/bootstrap";
+import { bootstrapFromSupabase, clearSessionData, markSessionStart, readBootstrapCache, refreshBootstrap, patchBootstrapCacheUser, getEmailFilters, setEmailFilters as setEmailFiltersCache, type EmailFilters } from "./lib/bootstrap";
 import { getVisitorGeo, getCachedVisitorGeo } from "./lib/geo";
 
 const SESSION_CONFIG_KEY_FOR = (role: "admin" | "user") =>
@@ -524,14 +524,37 @@ function emailIdentity(email: Pick<Email, "id" | "account_label">) {
   return `${email.account_label || "Primary"}:${email.id}`;
 }
 
+type EmailCategory = "signin" | "password_reset" | "account_update" | "other";
+const RE_SIGNIN = /(sign[\s-]?in code|new sign[\s-]?in|new device|temporary access code|verification code|is using your account|access your account|otp)/i;
+const RE_PASSWORD_RESET = /(password (was |has been )?(changed|reset|updated)|reset your password|new password)/i;
+const RE_ACCOUNT_UPDATE = /(account (information|info|details) (was |has been )?(changed|updated)|changes to your account|email (address )?(was |has been )?(changed|updated)|new email address|membership (was |has been )?(cancell?ed|updated|paused)|account (was |has been )?(cancell?ed|deleted|closed|paused|on hold)|we[’']re sorry to see you go|payment method (was |has been )?(updated|changed|declined)|update your account|make (changes|any changes) to your account)/i;
+
+function classifyEmail(e: Email): EmailCategory {
+  const s = (e.subject || "").toLowerCase();
+  if (RE_ACCOUNT_UPDATE.test(s)) return "account_update";
+  if (RE_PASSWORD_RESET.test(s)) return "password_reset";
+  if (e.otp || RE_SIGNIN.test(s)) return "signin";
+  return "other";
+}
+
 function filterVisibleEmails(list: Email[], prefs?: UserProfilePrefs | null) {
   const hiddenIds = new Set(prefs?.hiddenEmailIds || []);
   const hiddenBeforeTime = prefs?.hiddenBefore ? new Date(prefs.hiddenBefore).getTime() : 0;
+  const filters = getEmailFilters();
+  const hideSignin = filters.showSignInCodes === false;
+  const hideReset = filters.showPasswordResets === false;
+  const hideAccountUpdate = filters.showAccountUpdates === false;
   return list.filter((email) => {
     if (hiddenIds.has(email.id) || hiddenIds.has(emailIdentity(email))) return false;
     if (hiddenBeforeTime) {
       const emailTime = new Date(email.date || 0).getTime();
       if (!Number.isNaN(emailTime) && emailTime <= hiddenBeforeTime) return false;
+    }
+    if (hideSignin || hideReset || hideAccountUpdate) {
+      const cat = classifyEmail(email);
+      if (hideSignin && cat === "signin") return false;
+      if (hideReset && cat === "password_reset") return false;
+      if (hideAccountUpdate && cat === "account_update") return false;
     }
     return true;
   });
@@ -1122,6 +1145,7 @@ function AdminPanel() {
   const [userNewPass, setUserNewPass] = useState("");
   const [showSignInCodes, setShowSignInCodes] = useState(true);
   const [showPasswordResets, setShowPasswordResets] = useState(false);
+  const [showAccountUpdates, setShowAccountUpdates] = useState(false);
   const [editingUserAccounts, setEditingUserAccounts] = useState<string | null>(null);
   const [editAccountsList, setEditAccountsList] = useState<string[]>([]);
   const [serverConfig, setServerConfig] = useState({
@@ -1197,6 +1221,8 @@ function AdminPanel() {
         if (filters.value) {
           setShowSignInCodes(filters.value.showSignInCodes !== false);
           setShowPasswordResets(filters.value.showPasswordResets === true);
+          setShowAccountUpdates(filters.value.showAccountUpdates === true);
+          setEmailFiltersCache(filters.value);
         }
       } catch { }
 
@@ -1293,11 +1319,16 @@ function AdminPanel() {
     }
   };
 
+  const persistEmailFilters = async (next: { showSignInCodes: boolean; showPasswordResets: boolean; showAccountUpdates: boolean }) => {
+    await apiCall("manage-app", { action: "set_settings", key: "email_filters", value: next });
+    setEmailFiltersCache(next);
+  };
+
   const toggleSignInCodeFilter = async () => {
     const newVal = !showSignInCodes;
     setShowSignInCodes(newVal);
     try {
-      await apiCall("manage-app", { action: "set_settings", key: "email_filters", value: { showSignInCodes: newVal, showPasswordResets } });
+      await persistEmailFilters({ showSignInCodes: newVal, showPasswordResets, showAccountUpdates });
       toast.success(newVal ? "Sign-in code emails will be shown" : "Sign-in code emails will be hidden");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to save filter setting");
@@ -1309,11 +1340,23 @@ function AdminPanel() {
     const newVal = !showPasswordResets;
     setShowPasswordResets(newVal);
     try {
-      await apiCall("manage-app", { action: "set_settings", key: "email_filters", value: { showSignInCodes, showPasswordResets: newVal } });
+      await persistEmailFilters({ showSignInCodes, showPasswordResets: newVal, showAccountUpdates });
       toast.success(newVal ? "Password reset emails will be shown" : "Password reset emails will be hidden");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to save filter setting");
       setShowPasswordResets(!newVal);
+    }
+  };
+
+  const toggleAccountUpdateFilter = async () => {
+    const newVal = !showAccountUpdates;
+    setShowAccountUpdates(newVal);
+    try {
+      await persistEmailFilters({ showSignInCodes, showPasswordResets, showAccountUpdates: newVal });
+      toast.success(newVal ? "Account update emails will be shown" : "Account update emails will be hidden");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save filter setting");
+      setShowAccountUpdates(!newVal);
     }
   };
 
@@ -1694,6 +1737,16 @@ function AdminPanel() {
                   <button onClick={togglePasswordResetFilter}
                     className={`relative w-12 h-6 rounded-full transition-colors flex-shrink-0 ml-3 ${showPasswordResets ? "bg-green-500" : "bg-slate-300"}`}>
                     <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${showPasswordResets ? "translate-x-6" : "translate-x-0.5"}`} />
+                  </button>
+                </div>
+                <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border">
+                  <div className="pr-3">
+                    <p className="font-bold text-sm text-slate-900">Show Account Update Emails</p>
+                    <p className="text-xs text-slate-500 mt-1">When OFF, Netflix "account info changed / email changed / membership cancelled / account deleted / on hold" emails are hidden from inbox. Telegram alerts are not affected.</p>
+                  </div>
+                  <button onClick={toggleAccountUpdateFilter}
+                    className={`relative w-12 h-6 rounded-full transition-colors flex-shrink-0 ml-3 ${showAccountUpdates ? "bg-green-500" : "bg-slate-300"}`}>
+                    <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${showAccountUpdates ? "translate-x-6" : "translate-x-0.5"}`} />
                   </button>
                 </div>
               </div>

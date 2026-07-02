@@ -371,6 +371,12 @@ Deno.serve(async (req) => {
         }
       } catch {}
 
+      let emailFilters: any = {};
+      try {
+        const { data: efData } = await supabase.from("app_settings").select("value").eq("key", "email_filters").single();
+        if (efData?.value && typeof efData.value === "object") emailFilters = efData.value;
+      } catch {}
+
       const mappedUsers = (users || []).map((u: any) => ({
         id: u.id,
         username: u.username,
@@ -378,7 +384,7 @@ Deno.serve(async (req) => {
         role: u.role,
         profileAvatar: u.profile_prefs?.avatarId || null,
       }));
-      return new Response(JSON.stringify({ success: true, users: mappedUsers, recaptcha, workerUrls }), {
+      return new Response(JSON.stringify({ success: true, users: mappedUsers, recaptcha, workerUrls, emailFilters }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
