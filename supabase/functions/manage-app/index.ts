@@ -2334,7 +2334,7 @@ Deno.serve(async (req) => {
       if (audience === "user" && !p.target_user_id) throw new Error("target_user_id required for user audience");
       const category = ["announcement","update","security","maintenance","promo","billing"].includes(p.category) ? p.category : "announcement";
       const priority = ["low","normal","high","critical"].includes(p.priority) ? p.priority : "normal";
-      const kind = ["flash","article"].includes(p.kind) ? p.kind : "flash";
+      const kind = "flash";
       const mode = ["popup","silent","banner"].includes(p.mode) ? p.mode : "popup";
       const show_frequency = ["once","always","session","daily"].includes(p.show_frequency) ? p.show_frequency : "once";
       const platform_icon = p.platform_icon ? String(p.platform_icon).slice(0, 40) : null;
@@ -2346,7 +2346,7 @@ Deno.serve(async (req) => {
         title: String(p.title).slice(0, 200),
         body: String(p.body).slice(0, 4000),
         description: p.description ? String(p.description).slice(0, 8000) : null,
-        body_markdown: p.body_markdown ? String(p.body_markdown).slice(0, 40000) : null,
+        body_markdown: null,
         image_url: p.image_url ? String(p.image_url).slice(0, 2048) : null,
         category, priority, kind, mode, show_frequency, platform_icon,
         sub_kind: p.sub_kind ? String(p.sub_kind).slice(0, 40) : null,
