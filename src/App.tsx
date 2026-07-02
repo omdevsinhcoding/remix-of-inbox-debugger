@@ -2506,9 +2506,21 @@ function AdminPanel() {
           setMaintenanceEnabled(mnt.value.enabled === true);
           setMaintenanceTitle(mnt.value.title || "");
           setMaintenanceMessage(mnt.value.message || "");
-          setMaintenanceEta(mnt.value.eta || "");
+          setMaintenanceVersionFrom(mnt.value.versionFrom || "");
+          setMaintenanceVersionTo(mnt.value.versionTo || "");
+          // Convert stored ISO to local "YYYY-MM-DDTHH:mm" for the datetime-local input.
+          if (mnt.value.endsAt) {
+            const d = new Date(mnt.value.endsAt);
+            if (!isNaN(d.getTime())) {
+              const pad = (n: number) => String(n).padStart(2, "0");
+              setMaintenanceEndsAt(
+                `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+              );
+            }
+          }
         }
       } catch { }
+
 
 
       try {
