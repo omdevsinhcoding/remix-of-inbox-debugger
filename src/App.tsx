@@ -2496,6 +2496,17 @@ function AdminPanel() {
       } catch { }
 
       try {
+        const mnt = await apiCall("manage-app", { action: "get_settings", key: "maintenance" });
+        if (mnt?.value) {
+          setMaintenanceEnabled(mnt.value.enabled === true);
+          setMaintenanceTitle(mnt.value.title || "");
+          setMaintenanceMessage(mnt.value.message || "");
+          setMaintenanceEta(mnt.value.eta || "");
+        }
+      } catch { }
+
+
+      try {
         const nl = await apiCall("manage-app", { action: "admin_list_notifications" });
         if (Array.isArray(nl?.notifications)) setAdminNotifs(nl.notifications);
       } catch { }
