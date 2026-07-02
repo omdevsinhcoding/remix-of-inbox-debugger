@@ -1361,48 +1361,8 @@ Deno.serve(async (req) => {
     }
 
     if (action === "login") {
-      const { username, password, clientGeo, captchaToken } = params;
+      const { username, password, clientGeo } = params;
       if (!username || !password) throw new Error("Username and password required");
-
-      // ---- reCAPTCHA v2/v3 (Classic) verification ----
-      // If admin has enabled reCAPTCHA in app_settings, require + verify token here.
-      try {
-        const { data: rcRow } = await supabase
-          .from("app_settings")
-          .select("value")
-          .eq("key", "recaptcha")
-          .maybeSingle();
-        const rc = rcRow?.value as { enabled?: boolean; siteKey?: string; secretKey?: string } | null;
-        if (rc?.enabled === true && rc?.siteKey && rc?.secretKey) {
-          if (!captchaToken || typeof captchaToken !== "string") {
-            throw new Error("CAPTCHA required. Please complete the reCAPTCHA and try again.");
-          }
-          const form = new URLSearchParams();
-          form.set("secret", rc.secretKey);
-          form.set("response", captchaToken);
-          if (ip) form.set("remoteip", ip);
-          const verifyRes = await fetch("https://www.google.com/recaptcha/api/siteverify", {
-            method: "POST",
-            headers: { "Content-Type": "application/x-www-form-urlencoded" },
-            body: form.toString(),
-          });
-          const verifyJson: any = await verifyRes.json().catch(() => ({}));
-          console.log("[login] recaptcha siteverify:", JSON.stringify(verifyJson));
-          if (!verifyJson?.success) {
-            const codes = Array.isArray(verifyJson?.["error-codes"]) ? verifyJson["error-codes"].join(", ") : "unknown";
-            throw new Error(`CAPTCHA verification failed (${codes}). Please try again.`);
-          }
-          // Optional v3 score gate — accept anything >= 0.3 to avoid false blocks.
-          if (typeof verifyJson.score === "number" && verifyJson.score < 0.3) {
-            throw new Error("CAPTCHA score too low. Please try again.");
-          }
-        }
-      } catch (e) {
-        // Re-throw known verification errors, but don't crash login on soft config-lookup errors
-        if (e instanceof Error && /CAPTCHA/i.test(e.message)) throw e;
-        console.warn("[login] recaptcha lookup skipped:", e);
-      }
-
       const verifiedClientGeo = sanitizeClientGeo(clientGeo);
       console.log("[login] incoming clientGeo:", JSON.stringify(clientGeo));
       console.log("[login] verified clientGeo:", JSON.stringify(verifiedClientGeo));
