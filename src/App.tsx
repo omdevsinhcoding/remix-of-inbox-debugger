@@ -1980,7 +1980,7 @@ function ProfileSelectPage() {
 
       <AnimatePresence>
         {showCaptcha && siteKey && (
-          <CaptchaModal siteKey={siteKey} onVerify={() => { setShowCaptcha(false); executeLogin(); }} onCancel={() => setShowCaptcha(false)} />
+          <CaptchaModal siteKey={siteKey} onVerify={(token) => { setShowCaptcha(false); executeLogin(token); }} onCancel={() => setShowCaptcha(false)} />
         )}
       </AnimatePresence>
     </div>
