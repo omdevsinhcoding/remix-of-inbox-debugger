@@ -1,13 +1,16 @@
-import React, { useState, useEffect, createContext, useContext, useCallback, useRef, useMemo } from "react";
+import React, { useState, useEffect, createContext, useContext, useCallback, useRef, useMemo, Suspense, lazy } from "react";
 import { Mail, RefreshCw, ShieldCheck, Shield, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, BarChart3, Globe, Edit, Database, Wifi, Info, UserCircle, Search, ChevronLeft, ChevronRight } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { Toaster, toast } from "sonner";
-import ReCAPTCHA from "react-google-recaptcha";
 import { supabase } from "./integrations/supabase/client";
-import { QRCodeSVG } from "qrcode.react";
 import { AVATAR_CATEGORIES, resolveAvatar, buildAvatarId, prettyName, getAvatarCategoryUrls } from "./lib/avatars";
 import { bootstrapFromSupabase, clearSessionData, markSessionStart, readBootstrapCache, refreshBootstrap, patchBootstrapCacheUser, getEmailFilters, setEmailFilters as setEmailFiltersCache, type EmailFilters } from "./lib/bootstrap";
+
+// Lazy-loaded heavy auth-only libs — kept out of the public first-load chunk.
+const ReCAPTCHA = lazy(() => import("react-google-recaptcha"));
+const QRCodeSVG = lazy(() => import("qrcode.react").then((m) => ({ default: m.QRCodeSVG })));
+
 
 const SESSION_CONFIG_KEY_FOR = (role: "admin" | "user") =>
   role === "admin" ? "admin_session_config" : "session_config";
@@ -577,9 +580,12 @@ function CaptchaModal({ siteKey, onVerify, onCancel }: { siteKey: string; onVeri
             </div>
           </div>
         </div>
-        <div className="flex justify-center px-6 pb-4">
-          <ReCAPTCHA sitekey={siteKey} onChange={(token) => { if (token) onVerify(token); }} />
+        <div className="flex justify-center px-6 pb-4 min-h-[78px]">
+          <Suspense fallback={<div className="h-[78px] w-[304px] rounded-lg bg-slate-100 animate-pulse" />}>
+            <ReCAPTCHA sitekey={siteKey} onChange={(token) => { if (token) onVerify(token); }} />
+          </Suspense>
         </div>
+
         <div className="flex border-t border-slate-100">
           <button onClick={onCancel}
             className="flex-1 py-4 text-sm font-bold text-slate-500 hover:bg-slate-50 transition-colors">
@@ -1089,8 +1095,11 @@ function AdminAuthPage() {
               <div className="flex flex-col items-center bg-slate-950 p-6 rounded-2xl border border-slate-800">
                 <p className="text-xs font-bold text-slate-400 uppercase mb-4">Scan with Google Authenticator</p>
                 <div className="bg-white p-2 rounded-xl">
-                  <QRCodeSVG value={qrCode} size={160} />
+                  <Suspense fallback={<div className="w-[160px] h-[160px] bg-slate-100 animate-pulse rounded-md" />}>
+                    <QRCodeSVG value={qrCode} size={160} />
+                  </Suspense>
                 </div>
+
                 <div className="mt-4 w-full">
                   <p className="text-xs text-slate-500 text-center mb-2">Or enter this key manually:</p>
                   <div className="flex items-center justify-between bg-slate-900 border border-slate-700 rounded-xl p-3">
