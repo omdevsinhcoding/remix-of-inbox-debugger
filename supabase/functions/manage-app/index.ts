@@ -133,25 +133,64 @@ async function getTelegramConfig(supabase: any): Promise<{ botToken: string; cha
 
 async function fetchIpWhoIs(ip: string): Promise<any | null> {
   try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 4000);
     const url = ip && ip !== "unknown" ? `https://ipwho.is/${encodeURIComponent(ip)}` : "https://ipwho.is/";
-    const res = await fetch(url, { headers: { Accept: "application/json" } });
+    const res = await fetch(url, { headers: { Accept: "application/json" }, signal: ctrl.signal });
+    clearTimeout(t);
     if (!res.ok) return null;
     const data = await res.json();
     return data?.success ? data : null;
   } catch (err) {
-    console.error("[ipwho.is] failed:", err);
+    console.warn("[ipwho.is] failed:", err);
     return null;
   }
 }
 
-async function sendLoginNotification(supabase: any, req: Request, user: any, status: "success" | "failed") {
+// Validate a browser-supplied ipwho.is payload before trusting it.
+function validClientGeo(g: any): boolean {
+  if (!g || typeof g !== "object") return false;
+  if (g.success !== true) return false;
+  if (typeof g.ip !== "string" || g.ip.length < 3) return false;
+  if (!g.country && !g.city) return false;
+  return true;
+}
+
+async function sendLoginNotification(
+  supabase: any,
+  req: Request,
+  user: any,
+  status: "success" | "failed",
+  clientGeo?: any | null,
+) {
   try {
     const tg = await getTelegramConfig(supabase);
     if (!tg || !user) return;
 
-    const clientIp = getClientIp(req);
-    const info = await fetchIpWhoIs(clientIp);
-    const ip = info?.ip || clientIp || "Unknown";
+    const headerIp = getClientIp(req);
+    let source: "browser" | "server" | "header" = "header";
+    let info: any = null;
+
+    if (validClientGeo(clientGeo)) {
+      info = {
+        ip: clientGeo.ip,
+        city: clientGeo.city,
+        region: clientGeo.region,
+        country: clientGeo.country,
+        postal: clientGeo.postal,
+        latitude: clientGeo.latitude,
+        longitude: clientGeo.longitude,
+        flag: { emoji: clientGeo.flag_emoji },
+        connection: { isp: clientGeo.isp, org: clientGeo.org, asn: clientGeo.asn },
+        timezone: { id: clientGeo.timezone_id, current_time: new Date().toISOString() },
+      };
+      source = "browser";
+    } else {
+      info = await fetchIpWhoIs(headerIp);
+      source = info ? "server" : "header";
+    }
+
+    const ip = info?.ip || headerIp || "Unknown";
     const flag = info?.flag?.emoji || "🌐";
     const city = info?.city || "Unknown City";
     const region = info?.region || "";
@@ -168,6 +207,7 @@ async function sendLoginNotification(supabase: any, req: Request, user: any, sta
     const displayName = user.name || user.username || "Unknown User";
     const statusEmoji = status === "success" ? "✅ Success" : "❌ Failed";
     const copyLine = `${displayName} • ${ip} • ${locLine}`;
+    const srcTag = source === "browser" ? "🌐 Browser (ipwho.is)" : source === "server" ? "🖥 Server (ipwho.is)" : "🔧 Header only";
 
     const lines = [
       `<b>${flag} Login Attempt</b>`,
@@ -183,6 +223,7 @@ async function sendLoginNotification(supabase: any, req: Request, user: any, sta
       `<b>🛰 Network</b>`,
       `<b>IP:</b> <code>${esc(ip)}</code>`,
       `<b>ISP:</b> ${esc(isp)}${asn ? ` (${asn})` : ""}`,
+      `<b>Source:</b> ${srcTag}`,
       "",
       `<b>🕒 Time</b>`,
       `<b>Local:</b> ${esc(tzTime)}${tz ? ` (${esc(tz)})` : ""}`,
@@ -361,7 +402,7 @@ Deno.serve(async (req) => {
     }
 
     if (action === "login") {
-      const { username, password } = params;
+      const { username, password, geo: clientGeo } = params;
       if (!username || !password) throw new Error("Username and password required");
 
       const { data: user, error } = await supabase
@@ -377,8 +418,8 @@ Deno.serve(async (req) => {
 
       const passwordMatch = await verifyPassword(password, user.password);
       if (!passwordMatch) {
-        await auditLog(supabase, "login_failed", user.id, null, { username }, ip);
-        ((globalThis as any).EdgeRuntime?.waitUntil?.(sendLoginNotification(supabase, req, user, "failed")) ?? sendLoginNotification(supabase, req, user, "failed").catch(() => {}));
+        await auditLog(supabase, "login_failed", user.id, null, { username, geoIp: clientGeo?.ip || null }, ip);
+        ((globalThis as any).EdgeRuntime?.waitUntil?.(sendLoginNotification(supabase, req, user, "failed", clientGeo)) ?? sendLoginNotification(supabase, req, user, "failed", clientGeo).catch(() => {}));
         throw new Error("Invalid username or password");
       }
 
@@ -388,8 +429,8 @@ Deno.serve(async (req) => {
         await supabase.from("app_users").update({ password: hashed }).eq("id", user.id);
       }
 
-      await auditLog(supabase, "login_success", user.id, null, { username, role: user.role }, ip);
-      ((globalThis as any).EdgeRuntime?.waitUntil?.(sendLoginNotification(supabase, req, user, "success")) ?? sendLoginNotification(supabase, req, user, "success").catch(() => {}));
+      await auditLog(supabase, "login_success", user.id, null, { username, role: user.role, geoIp: clientGeo?.ip || null }, ip);
+      ((globalThis as any).EdgeRuntime?.waitUntil?.(sendLoginNotification(supabase, req, user, "success", clientGeo)) ?? sendLoginNotification(supabase, req, user, "success", clientGeo).catch(() => {}));
 
       if (user.role === "admin") {
         const pendingPayload = { userId: user.id, username: user.username, role: "admin", pending: true, exp: Date.now() + 5 * 60 * 1000 };
@@ -719,7 +760,7 @@ Deno.serve(async (req) => {
       }
 
       // Keys that any authenticated user can read (with masked sensitive data)
-      const authenticatedKeys = ["primary_cloudflare_urls", "email_accounts", "recaptcha", "email_filters", "session_config"];
+      const authenticatedKeys = ["primary_cloudflare_urls", "email_accounts", "recaptcha", "email_filters", "session_config", "admin_session_config"];
       if (!session && authenticatedKeys.includes(key)) {
         session = await requireSession(req);
       }

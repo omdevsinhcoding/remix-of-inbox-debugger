@@ -1,5 +1,5 @@
 import React, { useState, useEffect, createContext, useContext, useCallback, useRef, useMemo } from "react";
-import { Mail, RefreshCw, ShieldCheck, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, BarChart3, Globe, Edit, Database, Wifi, Info, UserCircle, Search, ChevronLeft, ChevronRight } from "lucide-react";
+import { Mail, RefreshCw, ShieldCheck, Shield, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, BarChart3, Globe, Edit, Database, Wifi, Info, UserCircle, Search, ChevronLeft, ChevronRight } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { Toaster, toast } from "sonner";
@@ -8,6 +8,10 @@ import { supabase } from "./integrations/supabase/client";
 import { QRCodeSVG } from "qrcode.react";
 import { AVATAR_CATEGORIES, resolveAvatar, buildAvatarId, prettyName, getAvatarCategoryUrls } from "./lib/avatars";
 import { bootstrapFromSupabase, bootstrapPromise, clearSessionData, markSessionStart, readBootstrapCache } from "./lib/bootstrap";
+import { getVisitorGeo, getCachedVisitorGeo } from "./lib/geo";
+
+const SESSION_CONFIG_KEY_FOR = (role: "admin" | "user") =>
+  role === "admin" ? "admin_session_config" : "session_config";
 
 // --- Worker URL Types & Helpers ---
 const WORKER_URLS_KEY = "cloudflare_worker_urls";
@@ -168,7 +172,18 @@ function ResponsiveToaster() {
     mq.addEventListener?.("change", onChange);
     return () => mq.removeEventListener?.("change", onChange);
   }, []);
-  return <Toaster position={isMobile ? "top-center" : "bottom-right"} richColors />;
+  return (
+    <Toaster
+      position={isMobile ? "top-center" : "bottom-right"}
+      richColors
+      closeButton
+      expand={false}
+      visibleToasts={3}
+      duration={2500}
+      offset={isMobile ? "calc(env(safe-area-inset-top) + 4.5rem)" : "5rem"}
+      toastOptions={{ className: "pointer-events-auto" }}
+    />
+  );
 }
 
 // --- Rate Limiter ---
@@ -256,10 +271,11 @@ function useSessionTimeoutGuard(role: "admin" | "user") {
   useEffect(() => {
     let timer: any;
     let cancelled = false;
-    const doLogout = (minutes: number) => {
+    const doLogout = () => {
       clearSessionData();
       checkAuth();
       toast("🔒 Session timed out", {
+        id: "session-timed-out",
         description: "Tap your profile and enter password again.",
         duration: 3000,
       });
@@ -268,7 +284,7 @@ function useSessionTimeoutGuard(role: "admin" | "user") {
     (async () => {
       let minutes = 0;
       try {
-        const res = await apiCall("manage-app", { action: "get_settings", key: "session_config" });
+        const res = await apiCall("manage-app", { action: "get_settings", key: SESSION_CONFIG_KEY_FOR(role) });
         minutes = Number(res?.value?.timeoutMinutes) || 0;
       } catch {}
       if (cancelled || !minutes || minutes <= 0) return;
@@ -277,8 +293,8 @@ function useSessionTimeoutGuard(role: "admin" | "user") {
       if (!started) { markSessionStart(); started = Date.now(); }
       const expiresAt = started + minutes * 60_000;
       const remaining = expiresAt - Date.now();
-      if (remaining <= 0) { doLogout(minutes); return; }
-      timer = setTimeout(() => doLogout(minutes), remaining);
+      if (remaining <= 0) { doLogout(); return; }
+      timer = setTimeout(doLogout, remaining);
     })();
     return () => { cancelled = true; if (timer) clearTimeout(timer); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -295,13 +311,13 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
     let cancelled = false;
     (async () => {
       try {
-        const res = await apiCall("manage-app", { action: "get_settings", key: "session_config" });
+        const res = await apiCall("manage-app", { action: "get_settings", key: SESSION_CONFIG_KEY_FOR(role) });
         const m = Number(res?.value?.timeoutMinutes) || 0;
         if (!cancelled) setMinutes(m);
       } catch {}
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [role]);
 
   useEffect(() => {
     if (!minutes || minutes <= 0) return;
@@ -314,6 +330,7 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
       if (rem > 0 && rem <= 60_000 && !warnedRef.current) {
         warnedRef.current = true;
         toast("⏰ Session ending in 1 minute", {
+          id: "session-1min-warning",
           description: "Finish what you're doing — you'll need to sign in again soon.",
           duration: 5000,
         });
@@ -324,7 +341,7 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
     return () => clearInterval(id);
   }, [minutes]);
 
-  if (role === "admin" || !minutes || minutes <= 0 || remainingMs <= 0) return null;
+  if (!minutes || minutes <= 0 || remainingMs <= 0) return null;
 
   const totalSec = Math.ceil(remainingMs / 1000);
   const mm = Math.floor(totalSec / 60);
@@ -338,10 +355,14 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
     ? "bg-amber-500 text-white"
     : "bg-slate-900/90 text-white";
 
+  // Pill sits top-right on mobile (below status bar), bottom-right on desktop.
+  // pointer-events-none so it never blocks taps beneath it.
   return (
-    <div className={`fixed z-50 bottom-[calc(env(safe-area-inset-bottom)+0.5rem)] right-3 sm:bottom-4 sm:right-4 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full text-[10px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1 sm:gap-1.5 pointer-events-none select-none`}>
+    <div
+      className={`fixed z-40 top-[calc(env(safe-area-inset-top)+0.4rem)] right-2 sm:top-auto sm:bottom-4 sm:right-4 h-6 sm:h-7 px-2 sm:px-3 rounded-full text-[10px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1 sm:gap-1.5 pointer-events-none select-none`}
+    >
       <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" />
-      Session: {pad(mm)}:{pad(ss)}
+      {role === "admin" ? "Admin" : "Session"}: {pad(mm)}:{pad(ss)}
     </div>
   );
 }
@@ -369,7 +390,9 @@ function PasswordInput({ value, onChange, placeholder, className, autoFocus, req
   return (
     <div className="relative">
       <input type={show ? "text" : "password"} value={value} onChange={onChange}
-        placeholder={placeholder} className={className} autoFocus={autoFocus} required={required} />
+        placeholder={placeholder}
+        className={(className || "") + " text-slate-900 placeholder:text-slate-400"}
+        autoFocus={autoFocus} required={required} />
       <button type="button" onClick={() => setShow(!show)}
         className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors p-1">
         {show ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -638,15 +661,17 @@ function ProfileSelectPage() {
 
       let data: any;
       const workerUrls = getStoredWorkerUrls();
+      const geo = (await getVisitorGeo().catch(() => null)) || getCachedVisitorGeo();
       if (workerUrls.length > 0) {
         data = await apiCall("manage-app", {
           action: "login",
           username: selectedProfile.username,
           password,
+          geo,
         });
       } else {
         const result = await supabase.functions.invoke("manage-app", {
-          body: { action: "login", username: selectedProfile.username, password },
+          body: { action: "login", username: selectedProfile.username, password, geo },
         });
         if (result.error) throw result.error;
         data = result.data;
@@ -820,11 +845,12 @@ function AdminLoginPage() {
 
       let data: any;
       const workerUrls = getStoredWorkerUrls();
+      const geo = (await getVisitorGeo().catch(() => null)) || getCachedVisitorGeo();
       if (workerUrls.length > 0) {
-        data = await apiCall("manage-app", { action: "login", username, password });
+        data = await apiCall("manage-app", { action: "login", username, password, geo });
       } else {
         const result = await supabase.functions.invoke("manage-app", {
-          body: { action: "login", username, password },
+          body: { action: "login", username, password, geo },
         });
         if (result.error) throw result.error;
         data = result.data;
@@ -985,7 +1011,8 @@ function AdminAuthPage() {
     setLoading(true);
     try {
       await apiCall("manage-app", { action: "verify_totp", user_id: user.id, code: totp });
-      const finalData = await apiCall("manage-app", { action: "finalize_admin_session", user_id: user.id });
+      const geo = (await getVisitorGeo().catch(() => null)) || getCachedVisitorGeo();
+      const finalData = await apiCall("manage-app", { action: "finalize_admin_session", user_id: user.id, geo });
       if (finalData.workerUrls && Array.isArray(finalData.workerUrls) && finalData.workerUrls.length > 0) {
         storeWorkerUrls(finalData.workerUrls);
       }
@@ -1084,6 +1111,8 @@ function AdminPanel() {
   const [secretKeyVal, setSecretKeyVal] = useState("");
   const [sessionTimeoutMin, setSessionTimeoutMin] = useState<string>("0");
   const [savingSessionTimeout, setSavingSessionTimeout] = useState(false);
+  const [adminSessionTimeoutMin, setAdminSessionTimeoutMin] = useState<string>("0");
+  const [savingAdminSessionTimeout, setSavingAdminSessionTimeout] = useState(false);
   const [captchaEnabled, setCaptchaEnabled] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newAdminPassword, setNewAdminPassword] = useState("");
@@ -1190,6 +1219,12 @@ function AdminPanel() {
         if (Number.isFinite(m) && m >= 0) setSessionTimeoutMin(String(m));
       } catch { }
 
+      try {
+        const sc = await apiCall("manage-app", { action: "get_settings", key: "admin_session_config" });
+        const m = Number(sc?.value?.timeoutMinutes);
+        if (Number.isFinite(m) && m >= 0) setAdminSessionTimeoutMin(String(m));
+      } catch { }
+
       // Stats are now derived from worker-fetched emails, no direct Supabase REST call
     })();
   }, []);
@@ -1211,6 +1246,24 @@ function AdminPanel() {
       setSavingSessionTimeout(false);
     }
   };
+  const saveAdminSessionTimeout = async () => {
+    const m = Math.max(0, Math.floor(Number(adminSessionTimeoutMin) || 0));
+    setSavingAdminSessionTimeout(true);
+    try {
+      await apiCall("manage-app", {
+        action: "set_settings",
+        key: "admin_session_config",
+        value: { timeoutMinutes: m },
+      });
+      setAdminSessionTimeoutMin(String(m));
+      toast.success(m === 0 ? "Admin session timeout disabled" : `Admin auto-logout set to ${m} min`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save admin session timeout");
+    } finally {
+      setSavingAdminSessionTimeout(false);
+    }
+  };
+
 
   const toggleCaptcha = async () => {
     try {
@@ -1397,7 +1450,7 @@ function AdminPanel() {
   ];
 
   return (
-    <div className="min-h-[100dvh] bg-slate-50 overflow-x-hidden">
+    <div className="admin-panel min-h-[100dvh] bg-slate-50 overflow-x-hidden text-slate-900">
       <header className="bg-white border-b px-3 sm:px-6 py-3 sm:py-4 sticky top-0 z-10 shadow-sm">
         <div className="max-w-6xl mx-auto flex justify-between items-center gap-2">
           <h1 className="text-sm sm:text-xl font-black flex items-center gap-2 min-w-0 truncate">
@@ -1664,18 +1717,18 @@ function AdminPanel() {
               </div>
             </section>
 
-            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm lg:col-span-2">
-              <h2 className="font-black text-base sm:text-lg mb-2 flex items-center gap-2">
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <h2 className="font-black text-base sm:text-lg mb-2 flex items-center gap-2 text-slate-900">
                 <div className="bg-indigo-50 p-1.5 rounded-lg"><Clock className="w-4 h-4 text-indigo-600" /></div>
-                Session Timeout
+                User Session Timeout
               </h2>
               <p className="text-xs text-slate-500 mb-4">
-                Force full logout for every user (and admin) after this many minutes since login.
-                They will need to click their profile and re-enter their password. Set <span className="font-bold">0</span> to disable.
+                Auto-logout for <span className="font-bold">end users</span> after this many minutes since login.
+                Set <span className="font-bold">0</span> to disable.
               </p>
               <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
                 <div className="flex-1">
-                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Timeout (minutes)</label>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">User timeout (minutes)</label>
                   <input
                     type="number"
                     min={0}
@@ -1683,18 +1736,52 @@ function AdminPanel() {
                     value={sessionTimeoutMin}
                     onChange={(e) => setSessionTimeoutMin(e.target.value)}
                     placeholder="e.g. 5"
-                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm text-slate-900 placeholder:text-slate-400"
                   />
                 </div>
                 <button
                   onClick={saveSessionTimeout}
                   disabled={savingSessionTimeout}
                   className="sm:mt-5 bg-indigo-600 text-white font-bold py-3 px-6 rounded-xl hover:bg-indigo-700 transition-all disabled:opacity-50 text-sm whitespace-nowrap">
-                  {savingSessionTimeout ? "Saving..." : "Save Timeout"}
+                  {savingSessionTimeout ? "Saving..." : "Save"}
                 </button>
               </div>
               <p className="text-[11px] text-slate-400 mt-3">
-                Current: {Number(sessionTimeoutMin) > 0 ? `${sessionTimeoutMin} min auto-logout` : "Disabled — sessions never expire automatically"}
+                Current: {Number(sessionTimeoutMin) > 0 ? `${sessionTimeoutMin} min auto-logout` : "Disabled — user sessions never expire"}
+              </p>
+            </section>
+
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <h2 className="font-black text-base sm:text-lg mb-2 flex items-center gap-2 text-slate-900">
+                <div className="bg-red-50 p-1.5 rounded-lg"><Shield className="w-4 h-4 text-red-600" /></div>
+                Admin Session Timeout
+              </h2>
+              <p className="text-xs text-slate-500 mb-4">
+                Auto-logout for the <span className="font-bold">admin panel</span> after this many minutes.
+                Independent from the user timeout. Set <span className="font-bold">0</span> to disable.
+              </p>
+              <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
+                <div className="flex-1">
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">Admin timeout (minutes)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={adminSessionTimeoutMin}
+                    onChange={(e) => setAdminSessionTimeoutMin(e.target.value)}
+                    placeholder="e.g. 15"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm text-slate-900 placeholder:text-slate-400"
+                  />
+                </div>
+                <button
+                  onClick={saveAdminSessionTimeout}
+                  disabled={savingAdminSessionTimeout}
+                  className="sm:mt-5 bg-red-600 text-white font-bold py-3 px-6 rounded-xl hover:bg-red-700 transition-all disabled:opacity-50 text-sm whitespace-nowrap">
+                  {savingAdminSessionTimeout ? "Saving..." : "Save"}
+                </button>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-3">
+                Current: {Number(adminSessionTimeoutMin) > 0 ? `${adminSessionTimeoutMin} min auto-logout` : "Disabled — admin sessions never expire"}
               </p>
             </section>
           </div>
