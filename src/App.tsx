@@ -2346,9 +2346,27 @@ function AdminAuthPage() {
         </div>
 
         <h2 className="text-2xl font-black text-center text-white tracking-tight mb-2">3-Factor Auth</h2>
-        <p className="text-slate-400 text-center text-sm mb-8">
+        <p className="text-slate-400 text-center text-sm mb-3">
           {step === 1 ? "OTP sent to Telegram" : "Enter Google Authenticator code"}
         </p>
+        <div className="flex justify-center mb-6">
+          {expired ? (
+            <span className="inline-flex items-center gap-1.5 text-[11px] font-bold px-3 py-1 rounded-full bg-red-500/15 border border-red-500/30 text-red-400 uppercase tracking-wider">
+              <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" /> Session expired
+            </span>
+          ) : (
+            <span className={`inline-flex items-center gap-1.5 text-[11px] font-bold px-3 py-1 rounded-full border uppercase tracking-wider ${remainingMs < 60_000 ? "bg-amber-500/10 border-amber-500/30 text-amber-400" : "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"}`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${remainingMs < 60_000 ? "bg-amber-400" : "bg-emerald-400"} animate-pulse`} /> Expires in {mm}:{ss}
+            </span>
+          )}
+        </div>
+        {expired && (
+          <button type="button" onClick={restartLogin}
+            className="w-full mb-6 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-semibold py-3 rounded-2xl transition-colors">
+            Restart login
+          </button>
+        )}
+
 
         {step === 1 ? (
           <form onSubmit={handleTelegramOtpSubmit} className="space-y-6" noValidate>
