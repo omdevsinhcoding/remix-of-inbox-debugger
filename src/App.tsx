@@ -882,7 +882,7 @@ function ProfileSelectPage() {
                   type="text"
                   value={profileSearch}
                   onChange={(e) => setProfileSearch(e.target.value)}
-                  placeholder={`Search ${profiles.length} profiles…`}
+                  placeholder="Search profiles by name…"
                   className="w-full bg-slate-900/70 backdrop-blur-sm border border-slate-700/60 text-white text-sm rounded-full pl-10 pr-10 py-2.5 outline-none focus:ring-2 focus:ring-red-500/70 focus:border-red-500/30 placeholder:text-slate-500"
                 />
                 {profileSearch && (
@@ -3437,14 +3437,35 @@ function EmailViewer() {
         .then((after) => {
           const newCount = after - baseline;
           if (newCount > 0) {
-            toast.success(`✨ ${newCount} new email${newCount === 1 ? "" : "s"} arrived`, { id: toastId, duration: 3500 });
+            toast.success(`📬 ${newCount} new email${newCount === 1 ? "" : "s"} arrived`, {
+              id: toastId,
+              duration: 3500,
+              style: {
+                background: "linear-gradient(135deg, #7c1d6f 0%, #c026d3 50%, #e11d48 100%)",
+                color: "#fff",
+                border: "1px solid rgba(255,255,255,0.15)",
+                boxShadow: "0 10px 30px -10px rgba(225,29,72,0.55)",
+                fontWeight: 700,
+              },
+            });
           } else {
             toast.success("✓ Inbox already up to date", { id: toastId, duration: 2200 });
           }
         })
         .catch((err) => {
           const msg = err instanceof Error ? err.message : "Sync failed";
-          toast.error(msg, { id: toastId, duration: 3500 });
+          toast.error(msg, {
+            id: toastId,
+            duration: 4000,
+            icon: "⚠️",
+            style: {
+              background: "#1f0a12",
+              color: "#fff",
+              border: "1px solid #e11d48",
+              boxShadow: "0 10px 30px -10px rgba(225,29,72,0.55)",
+              fontWeight: 700,
+            },
+          });
         })
         .finally(() => setRefreshing(false));
     } catch (err) {

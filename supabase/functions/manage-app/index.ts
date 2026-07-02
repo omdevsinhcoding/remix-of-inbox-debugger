@@ -145,7 +145,7 @@ async function getTelegramConfig(supabase: any): Promise<{ botToken: string; cha
   return botToken && chatId ? { botToken, chatId } : null;
 }
 
-// --- Multi-provider IP geolocation (parallel, timeout-guarded) ---
+// --- Multi-provider IP geolocation (parallel, timeout-guarded) with VPN/proxy detection ---
 type LocResult = {
   provider: string;
   ip?: string;
@@ -161,12 +161,18 @@ type LocResult = {
   asn?: string;
   timezone?: string;
   flag?: string;
+  // Threat / anonymizer signals
+  proxy?: boolean;
+  vpn?: boolean;
+  tor?: boolean;
+  hosting?: boolean;
+  threatScore?: number; // 0-100
 };
 
-function fetchWithTimeout(url: string, ms: number): Promise<Response> {
+function fetchWithTimeout(url: string, ms: number, init?: RequestInit): Promise<Response> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), ms);
-  return fetch(url, { headers: { Accept: "application/json" }, signal: ctrl.signal })
+  return fetch(url, { headers: { Accept: "application/json" }, signal: ctrl.signal, ...(init || {}) })
     .finally(() => clearTimeout(t));
 }
 
@@ -178,7 +184,7 @@ function countryToFlag(cc?: string): string {
 
 async function providerIpapiCo(ip: string): Promise<LocResult | null> {
   try {
-    const r = await fetchWithTimeout(`https://ipapi.co/${encodeURIComponent(ip)}/json/`, 1800);
+    const r = await fetchWithTimeout(`https://ipapi.co/${encodeURIComponent(ip)}/json/`, 2500);
     if (!r.ok) return null;
     const d = await r.json();
     if (d?.error) return null;
@@ -198,9 +204,10 @@ async function providerIpapiCo(ip: string): Promise<LocResult | null> {
 
 async function providerIpApiCom(ip: string): Promise<LocResult | null> {
   try {
+    // include proxy/hosting/mobile flags for VPN detection
     const r = await fetchWithTimeout(
-      `https://ip-api.com/json/${encodeURIComponent(ip)}?fields=status,country,countryCode,region,regionName,city,zip,lat,lon,timezone,isp,org,as,query`,
-      1800,
+      `http://ip-api.com/json/${encodeURIComponent(ip)}?fields=status,country,countryCode,region,regionName,city,zip,lat,lon,timezone,isp,org,as,query,proxy,hosting,mobile`,
+      2500,
     );
     if (!r.ok) return null;
     const d = await r.json();
@@ -215,6 +222,8 @@ async function providerIpApiCom(ip: string): Promise<LocResult | null> {
       isp: d.isp, org: d.org, asn: d.as,
       timezone: d.timezone,
       flag: countryToFlag(d.countryCode),
+      proxy: d.proxy === true,
+      hosting: d.hosting === true,
     };
   } catch { return null; }
 }
@@ -222,7 +231,7 @@ async function providerIpApiCom(ip: string): Promise<LocResult | null> {
 async function providerIpwhoIs(ip: string): Promise<LocResult | null> {
   try {
     const url = ip && ip !== "unknown" ? `https://ipwho.is/${encodeURIComponent(ip)}` : "https://ipwho.is/";
-    const r = await fetchWithTimeout(url, 1800);
+    const r = await fetchWithTimeout(url, 2500);
     if (!r.ok) return null;
     const d = await r.json();
     if (!d?.success) return null;
@@ -241,43 +250,120 @@ async function providerIpwhoIs(ip: string): Promise<LocResult | null> {
   } catch { return null; }
 }
 
-async function resolveLocation(ip: string): Promise<{ merged: LocResult; confidence: "high" | "medium" | "low"; agreed: number; results: LocResult[] }> {
-  const settled = await Promise.allSettled([providerIpapiCo(ip), providerIpApiCom(ip), providerIpwhoIs(ip)]);
+async function providerIpinfoIo(ip: string): Promise<LocResult | null> {
+  try {
+    const r = await fetchWithTimeout(`https://ipinfo.io/${encodeURIComponent(ip)}/json`, 2500);
+    if (!r.ok) return null;
+    const d = await r.json();
+    if (!d || d.error) return null;
+    const [latStr, lngStr] = typeof d.loc === "string" ? d.loc.split(",") : [];
+    return {
+      provider: "ipinfo.io",
+      ip: d.ip,
+      country: d.country, countryCode: d.country,
+      region: d.region, city: d.city, postal: d.postal,
+      lat: latStr ? Number(latStr) : undefined,
+      lng: lngStr ? Number(lngStr) : undefined,
+      isp: d.org, org: d.org,
+      timezone: d.timezone,
+      flag: countryToFlag(d.country),
+      // ipinfo's free tier hints "hosting/vpn" in the org string
+      hosting: typeof d.org === "string" && /hosting|datacenter|cloud|server|vpn|proxy/i.test(d.org),
+    };
+  } catch { return null; }
+}
+
+async function providerFreeIpApi(ip: string): Promise<LocResult | null> {
+  try {
+    const r = await fetchWithTimeout(`https://freeipapi.com/api/json/${encodeURIComponent(ip)}`, 2500);
+    if (!r.ok) return null;
+    const d = await r.json();
+    if (!d || (!d.ipAddress && !d.countryName)) return null;
+    return {
+      provider: "freeipapi.com",
+      ip: d.ipAddress,
+      country: d.countryName, countryCode: d.countryCode,
+      region: d.regionName, city: d.cityName, postal: d.zipCode,
+      lat: typeof d.latitude === "number" ? d.latitude : undefined,
+      lng: typeof d.longitude === "number" ? d.longitude : undefined,
+      timezone: d.timeZone,
+      flag: countryToFlag(d.countryCode),
+    };
+  } catch { return null; }
+}
+
+// Dedicated VPN/proxy detector (proxycheck.io — 1000/day free without key)
+async function detectAnonymizer(ip: string): Promise<{ proxy: boolean; vpn: boolean; tor: boolean; hosting: boolean; type?: string; provider?: string } | null> {
+  try {
+    const r = await fetchWithTimeout(`https://proxycheck.io/v2/${encodeURIComponent(ip)}?vpn=1&asn=1&risk=1`, 2500);
+    if (!r.ok) return null;
+    const d = await r.json();
+    const node = d?.[ip];
+    if (!node) return null;
+    const type = (node.type || "").toLowerCase(); // "VPN","TOR","PUB","Hosting","Business","Residential"
+    return {
+      proxy: node.proxy === "yes",
+      vpn: /vpn/.test(type),
+      tor: /tor/.test(type),
+      hosting: /hosting|server|datacenter/.test(type),
+      type: node.type,
+      provider: node.provider,
+    };
+  } catch { return null; }
+}
+
+async function resolveLocation(ip: string): Promise<{
+  merged: LocResult; confidence: "high" | "medium" | "low"; agreed: number; results: LocResult[];
+  anonymizer: { proxy: boolean; vpn: boolean; tor: boolean; hosting: boolean; type?: string; provider?: string } | null;
+}> {
+  const [settled, anonymizer] = await Promise.all([
+    Promise.allSettled([
+      providerIpapiCo(ip),
+      providerIpApiCom(ip),
+      providerIpwhoIs(ip),
+      providerIpinfoIo(ip),
+      providerFreeIpApi(ip),
+    ]),
+    detectAnonymizer(ip),
+  ]);
   const results = settled.map(s => s.status === "fulfilled" ? s.value : null).filter(Boolean) as LocResult[];
   if (results.length === 0) {
-    return { merged: { provider: "none", ip }, confidence: "low", agreed: 0, results: [] };
+    return { merged: { provider: "none", ip }, confidence: "low", agreed: 0, results: [], anonymizer };
   }
-  // Consensus: bucket by country|city
+  // Consensus bucket by country|city
   const buckets = new Map<string, LocResult[]>();
   for (const r of results) {
     const k = `${(r.countryCode || r.country || "").toLowerCase()}|${(r.city || "").toLowerCase()}`;
     if (!buckets.has(k)) buckets.set(k, []);
     buckets.get(k)!.push(r);
   }
-  // Priority order for tie-break: ipapi.co > ip-api.com > ipwho.is
-  const priority = ["ipapi.co", "ip-api.com", "ipwho.is"];
+  const priority = ["ipapi.co", "ip-api.com", "ipinfo.io", "ipwho.is", "freeipapi.com"];
   let bestBucket: LocResult[] = [];
   let bestSize = 0;
   for (const bucket of buckets.values()) {
     if (bucket.length > bestSize) { bestBucket = bucket; bestSize = bucket.length; }
   }
-  // Pick primary within the winning bucket by provider priority
   bestBucket.sort((a, b) => priority.indexOf(a.provider) - priority.indexOf(b.provider));
   const primary = bestBucket[0];
-
-  // Merge: fill empties from any provider, prefer primary
   const merged: LocResult = { ...primary };
   for (const r of results) {
-    for (const key of ["country","countryCode","region","city","postal","lat","lng","isp","org","asn","timezone","flag","ip"] as const) {
+    for (const key of ["country","countryCode","region","city","postal","lat","lng","isp","org","asn","timezone","flag","ip","proxy","hosting"] as const) {
       if (merged[key] === undefined || merged[key] === null || merged[key] === "") {
         (merged as any)[key] = (r as any)[key];
       }
     }
   }
   merged.flag = merged.flag || countryToFlag(merged.countryCode);
+  if (anonymizer) {
+    merged.proxy = merged.proxy || anonymizer.proxy;
+    merged.vpn = anonymizer.vpn;
+    merged.tor = anonymizer.tor;
+    merged.hosting = merged.hosting || anonymizer.hosting;
+  }
   const agreed = bestSize;
-  const confidence: "high" | "medium" | "low" = agreed >= 2 ? "high" : (results.length >= 2 ? "medium" : "low");
-  return { merged, confidence, agreed, results };
+  const confidence: "high" | "medium" | "low" =
+    agreed >= 3 ? "high" : agreed >= 2 ? "medium" : "low";
+  return { merged, confidence, agreed, results, anonymizer };
 }
 
 function parseUserAgent(ua: string): { browser: string; os: string } {
@@ -298,7 +384,10 @@ function parseUserAgent(ua: string): { browser: string; os: string } {
 }
 
 async function sendPrimaryLoginAlert(
-  supabase: any, req: Request, user: any, status: "success" | "failed", ip: string, loc: LocResult, confidence: string, agreed: number,
+  supabase: any, req: Request, user: any, status: "success" | "failed", ip: string,
+  loc: LocResult, confidence: string, agreed: number,
+  anonymizer: { proxy: boolean; vpn: boolean; tor: boolean; hosting: boolean; type?: string; provider?: string } | null,
+  totalProviders: number,
 ) {
   const tg = await getTelegramConfig(supabase);
   if (!tg) return;
@@ -312,6 +401,13 @@ async function sendPrimaryLoginAlert(
   const mapLink = (typeof loc.lat === "number" && typeof loc.lng === "number")
     ? `https://www.google.com/maps?q=${loc.lat},${loc.lng}` : null;
   const statusEmoji = status === "success" ? "✅" : "❌";
+
+  const isAnon = !!(loc.vpn || loc.proxy || loc.tor || loc.hosting);
+  const anonBadge = loc.tor ? "🧅 TOR" : loc.vpn ? "🛡 VPN" : loc.proxy ? "🎭 PROXY" : loc.hosting ? "🖥 HOSTING/DC" : "";
+  const anonNote = isAnon
+    ? `⚠️ <b>Anonymizer detected</b> — ${anonBadge}${anonymizer?.provider ? ` · <i>${esc(anonymizer.provider)}</i>` : ""}\n<i>Displayed location is exit-node, not the real user location.</i>`
+    : "";
+
   const text = [
     `🔔 <b>New Login</b> — ${esc(displayName)} ${statusEmoji}`,
     `━━━━━━━━━━━━━━━━`,
@@ -320,10 +416,12 @@ async function sendPrimaryLoginAlert(
     `🌐 <b>IP:</b> <code>${esc(ip)}</code>`,
     `📍 ${flag} ${esc(locLine)}${loc.postal ? ` · ${esc(loc.postal)}` : ""}`,
     `🏢 <b>ISP:</b> ${esc(isp)}${loc.asn ? ` (${esc(loc.asn)})` : ""}`,
+    loc.timezone ? `⏱ <b>Timezone:</b> ${esc(loc.timezone)}` : "",
     `📱 <b>Device:</b> ${esc(browser)} on ${esc(os)}`,
     mapLink ? `🗺 <a href="${mapLink}">Open in Google Maps</a>` : "",
+    anonNote,
     `━━━━━━━━━━━━━━━━`,
-    `Confidence: <b>${esc(confidence)}</b> (${agreed}/3 providers agreed)`,
+    `Confidence: <b>${esc(confidence)}</b> (${agreed}/${totalProviders} providers agreed)`,
   ].filter(Boolean).join("\n");
   try {
     const tgRes = await fetch(`https://api.telegram.org/bot${tg.botToken}/sendMessage`, {
@@ -362,6 +460,7 @@ async function sendLegacyIpwhoAlert(
   } catch {}
 }
 
+
 async function sendLoginNotification(
   supabase: any,
   req: Request,
@@ -371,9 +470,9 @@ async function sendLoginNotification(
   try {
     if (!user) return;
     const ip = getClientIp(req);
-    const { merged, confidence, agreed, results } = await resolveLocation(ip);
+    const { merged, confidence, agreed, results, anonymizer } = await resolveLocation(ip);
     // Always send the primary (consensus) alert
-    await sendPrimaryLoginAlert(supabase, req, user, status, merged.ip || ip, merged, confidence, agreed);
+    await sendPrimaryLoginAlert(supabase, req, user, status, merged.ip || ip, merged, confidence, agreed, anonymizer, 5);
     // Legacy ipwho.is alert — only if admin toggle enables it (default OFF).
     try {
       const { data } = await supabase.from("app_settings").select("value").eq("key", "ipwho_alert").single();
