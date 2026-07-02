@@ -1,5 +1,5 @@
 import React, { useState, useEffect, createContext, useContext, useCallback, useRef, useMemo } from "react";
-import { Mail, RefreshCw, ShieldCheck, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, BarChart3, Globe, Edit, Database, Wifi, Info, UserCircle, Search } from "lucide-react";
+import { Mail, RefreshCw, ShieldCheck, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, BarChart3, Globe, Edit, Database, Wifi, Info, UserCircle, Search, ChevronLeft, ChevronRight } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { Toaster, toast } from "sonner";
@@ -2330,26 +2330,141 @@ function AvatarPicker({
     });
   };
 
+  const chipScrollRef = useRef<HTMLDivElement | null>(null);
+  const [chipEdges, setChipEdges] = useState<{ left: boolean; right: boolean }>({ left: false, right: false });
+
+  const updateChipEdges = () => {
+    const el = chipScrollRef.current;
+    if (!el) return;
+    const left = el.scrollLeft > 4;
+    const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 4;
+    setChipEdges((prev) => (prev.left === left && prev.right === right ? prev : { left, right }));
+  };
+
+  useEffect(() => {
+    updateChipEdges();
+    const el = chipScrollRef.current;
+    if (!el) return;
+    el.addEventListener("scroll", updateChipEdges, { passive: true });
+    window.addEventListener("resize", updateChipEdges);
+    return () => {
+      el.removeEventListener("scroll", updateChipEdges);
+      window.removeEventListener("resize", updateChipEdges);
+    };
+  }, []);
+
+  // Auto-scroll nudge: scroll right ~120px then back so users notice the row scrolls
+  useEffect(() => {
+    const el = chipScrollRef.current;
+    if (!el) return;
+    if (el.scrollWidth <= el.clientWidth + 8) return;
+    const start = el.scrollLeft;
+    let raf1: number, raf2: number;
+    const t1 = window.setTimeout(() => {
+      el.scrollTo({ left: start + 140, behavior: "smooth" });
+      const t2 = window.setTimeout(() => {
+        el.scrollTo({ left: start, behavior: "smooth" });
+      }, 700);
+      raf2 = t2 as unknown as number;
+    }, 450);
+    raf1 = t1 as unknown as number;
+    return () => {
+      window.clearTimeout(raf1);
+      window.clearTimeout(raf2);
+    };
+  }, []);
+
+  // Center active chip when it changes
+  useEffect(() => {
+    const el = chipScrollRef.current;
+    if (!el) return;
+    const active = el.querySelector<HTMLButtonElement>(`button[data-cat-key="${activeCategoryKey}"]`);
+    if (active) {
+      const target = active.offsetLeft - el.clientWidth / 2 + active.clientWidth / 2;
+      el.scrollTo({ left: Math.max(0, target), behavior: "smooth" });
+    }
+  }, [activeCategoryKey]);
+
+  const scrollChips = (dir: 1 | -1) => {
+    const el = chipScrollRef.current;
+    if (!el) return;
+    el.scrollBy({ left: dir * Math.max(200, el.clientWidth * 0.7), behavior: "smooth" });
+  };
+
   if (!activeCategory) return null;
 
   return (
     <div className="pb-4">
-      <div className="sticky top-0 z-10 bg-white/95 backdrop-blur border-b border-slate-100 px-4 sm:px-5 py-3 space-y-2">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-black text-slate-900">Choose your character</h3>
-          <span className="text-[10px] font-bold text-slate-400">{saving ? "Saving…" : pendingCategoryKey ? "Preparing…" : `${activeCategory.files.length} icons`}</span>
+      <div className="sticky top-0 z-10 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-900 border-b border-red-600/30 px-4 sm:px-5 pt-4 pb-3 space-y-3 shadow-lg shadow-black/40">
+        <div className="flex items-end justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <span className="inline-flex h-8 w-1.5 rounded-full bg-gradient-to-b from-red-500 to-red-700 shadow-[0_0_12px_rgba(239,68,68,0.6)]" />
+            <div>
+              <h3 className="text-base sm:text-lg font-black text-white tracking-tight leading-none">Choose your character</h3>
+              <p className="text-[11px] font-semibold text-red-400/90 mt-1 flex items-center gap-1.5">
+                <span className="inline-block h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
+                Swipe categories &nbsp;·&nbsp; {activeCategory.label}
+              </p>
+            </div>
+          </div>
+          <span className="text-[10px] font-bold uppercase tracking-widest text-white/60 whitespace-nowrap">
+            {saving ? "Saving…" : pendingCategoryKey ? "Preparing…" : `${activeCategory.files.length} icons`}
+          </span>
         </div>
-        <div className="flex gap-1.5 overflow-x-auto scrollbar-thin -mx-1 px-1">
-          {AVATAR_CATEGORIES.map((c) => (
-            <button
-              key={c.key}
-              onClick={() => selectCategory(c.key)}
-              onMouseEnter={() => warmAvatarCategory(c.key, "low")}
-              className={`flex-shrink-0 px-3 py-1 text-[11px] font-bold rounded-full transition-colors ${activeCategoryKey === c.key ? "bg-red-600 text-white" : pendingCategoryKey === c.key ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700 hover:bg-red-100 hover:text-red-700"}`}
-            >
-              {c.label}
-            </button>
-          ))}
+        <div className="relative">
+          {chipEdges.left && (
+            <>
+              <div className="pointer-events-none absolute inset-y-0 left-0 w-10 bg-gradient-to-r from-slate-900 to-transparent z-10" />
+              <button
+                type="button"
+                aria-label="Scroll left"
+                onClick={() => scrollChips(-1)}
+                className="hidden sm:flex absolute left-0 top-1/2 -translate-y-1/2 z-20 h-7 w-7 items-center justify-center rounded-full bg-black/70 border border-white/10 text-white hover:bg-red-600 transition-colors"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+            </>
+          )}
+          {chipEdges.right && (
+            <>
+              <div className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-slate-900 to-transparent z-10" />
+              <button
+                type="button"
+                aria-label="Scroll right"
+                onClick={() => scrollChips(1)}
+                className="hidden sm:flex absolute right-0 top-1/2 -translate-y-1/2 z-20 h-7 w-7 items-center justify-center rounded-full bg-black/70 border border-white/10 text-white hover:bg-red-600 transition-colors"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </>
+          )}
+          <div
+            ref={chipScrollRef}
+            className="flex gap-2 overflow-x-auto scrollbar-none -mx-1 px-1 pb-1 snap-x snap-mandatory"
+            style={{ scrollbarWidth: "none" }}
+          >
+            {AVATAR_CATEGORIES.map((c) => {
+              const active = activeCategoryKey === c.key;
+              const pending = pendingCategoryKey === c.key;
+              return (
+                <button
+                  key={c.key}
+                  data-cat-key={c.key}
+                  onClick={() => selectCategory(c.key)}
+                  onMouseEnter={() => warmAvatarCategory(c.key, "low")}
+                  className={`snap-start flex-shrink-0 px-3.5 py-1.5 text-[12px] font-bold rounded-full transition-all duration-200 border ${
+                    active
+                      ? "bg-gradient-to-r from-red-600 to-red-700 text-white border-red-500 shadow-[0_4px_14px_rgba(239,68,68,0.5)] scale-105"
+                      : pending
+                      ? "bg-white text-slate-900 border-white animate-pulse"
+                      : "bg-white/5 text-white/80 border-white/10 hover:bg-white/10 hover:text-white hover:border-red-500/40"
+                  }`}
+                >
+                  {c.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
       <div className="pt-4">
