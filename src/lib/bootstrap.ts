@@ -231,9 +231,6 @@ export async function markNotificationSeen(ids: string[]): Promise<void> {
   if (!ids?.length) return;
   try { await callManage("mark_notifications_seen", { ids }); } catch {}
 }
-export async function archiveNotification(id: string): Promise<void> {
-  try { await callManage("archive_notification", { notification_id: id }); } catch {}
-}
 export async function deleteNotificationForMe(id: string): Promise<void> {
   try { await callManage("user_delete_notification", { notification_id: id }); } catch {}
 }
