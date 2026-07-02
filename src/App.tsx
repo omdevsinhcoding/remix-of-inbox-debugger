@@ -1403,9 +1403,18 @@ function AdminPanel() {
         if (Number.isFinite(m) && m >= 0) setAdminSessionTimeoutMin(String(m));
       } catch { }
 
-      // Stats are now derived from worker-fetched emails, no direct Supabase REST call
+      try {
+        const ipw = await apiCall("manage-app", { action: "get_settings", key: "ipwho_alert" });
+        setIpwhoAlertEnabled(ipw?.value?.enabled === true);
+      } catch { }
+
+      try {
+        const nl = await apiCall("manage-app", { action: "admin_list_notifications" });
+        if (Array.isArray(nl?.notifications)) setAdminNotifs(nl.notifications);
+      } catch { }
     })();
   }, []);
+
 
   const saveSessionTimeout = async () => {
     const m = Math.max(0, Math.floor(Number(sessionTimeoutMin) || 0));
