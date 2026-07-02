@@ -4111,6 +4111,20 @@ function AdminPanel() {
                 Compose Notification
               </h2>
               <div className="space-y-3">
+                {/* Kind toggle: Flash Card vs Article */}
+                <div className="p-1 bg-slate-100 rounded-xl inline-flex gap-1 w-full">
+                  {([
+                    { id: "flash", label: "⚡ Flash Card", desc: "Short pop-up alert" },
+                    { id: "article", label: "📄 Article", desc: "Long-form with markdown" },
+                  ] as const).map((k) => (
+                    <button key={k.id} type="button" onClick={() => setNotifKind(k.id)}
+                      className={`flex-1 px-3 py-2 rounded-lg text-xs font-bold transition-all ${notifKind === k.id ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
+                      <div>{k.label}</div>
+                      <div className="text-[10px] font-normal opacity-70 mt-0.5">{k.desc}</div>
+                    </button>
+                  ))}
+                </div>
+
                 <div>
                   <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1 block">Title</label>
                   <input value={notifTitle} onChange={(e) => setNotifTitle(e.target.value)} placeholder="e.g. New content available"
@@ -4121,10 +4135,43 @@ function AdminPanel() {
                   <textarea value={notifBody} onChange={(e) => setNotifBody(e.target.value)} placeholder="One or two lines shown in the list" rows={2}
                     className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900" />
                 </div>
+                {notifKind === "flash" && (
+                  <div>
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1 block">Long description (detail view)</label>
+                    <textarea value={notifDescription} onChange={(e) => setNotifDescription(e.target.value)} placeholder="Full description shown when the user opens it" rows={4}
+                      className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900" />
+                  </div>
+                )}
+                {notifKind === "article" && (
+                  <div>
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1 block">Article body (markdown)</label>
+                    <textarea value={notifBodyMarkdown} onChange={(e) => setNotifBodyMarkdown(e.target.value)} placeholder={"# Heading\n\nSupports **bold**, *italic*, [links](https://…), lists, images…"} rows={10}
+                      className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900 font-mono" />
+                    <p className="text-[10.5px] text-slate-400 mt-1">Rendered in the article reader (Phase 3). AI translation is opt-in per user.</p>
+                  </div>
+                )}
+
+                {/* Platform icon picker */}
                 <div>
-                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1 block">Long description (detail view)</label>
-                  <textarea value={notifDescription} onChange={(e) => setNotifDescription(e.target.value)} placeholder="Full description shown when the user opens it" rows={4}
-                    className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900" />
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1 block">Platform icon (optional)</label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {[
+                      { id: "", label: "None" },
+                      { id: "netflix", label: "Netflix" },
+                      { id: "prime", label: "Prime" },
+                      { id: "disney", label: "Disney+" },
+                      { id: "hotstar", label: "Hotstar" },
+                      { id: "hbo", label: "HBO" },
+                      { id: "spotify", label: "Spotify" },
+                      { id: "youtube", label: "YouTube" },
+                      { id: "appletv", label: "Apple TV" },
+                    ].map((p) => (
+                      <button key={p.id || "none"} type="button" onClick={() => setNotifPlatformIcon(p.id)}
+                        className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors ${notifPlatformIcon === p.id ? "bg-slate-900 text-white border-slate-900" : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"}`}>
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
                 <div>
                   <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1 block">Hero image</label>
