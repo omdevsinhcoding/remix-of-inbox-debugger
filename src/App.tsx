@@ -2948,14 +2948,15 @@ function AdminPanel() {
       parts[2] = (Number.isFinite(parts[2]) ? parts[2] : 0) + 1;
       return parts.map((n) => (Number.isFinite(n) ? n : 0)).join(".");
     };
-    const prevTo = prevSavedVersionToRef.current || "";
+    const prevTo = prevSavedVersionToRef.current || "2.4.3";
     let nextVersionTo = maintenanceVersionTo.trim();
     let autoBumped = false;
     if (!nextVersionTo || nextVersionTo === prevTo) {
-      nextVersionTo = bumpPatch(prevTo || "2.4.3"); // 2.4.3 -> bump -> 2.4.4 on first save
+      nextVersionTo = bumpPatch(prevTo); // auto-bump patch from previously stored versionTo
       autoBumped = true;
     }
-    const nextVersionFrom = maintenanceVersionFrom.trim() || prevTo || "2.4.4";
+    // Current version is ALWAYS the previously stored upgrade target — admin cannot override via UI.
+    const nextVersionFrom = prevTo;
 
     setSavingMaintenance(true);
     try {
@@ -4387,17 +4388,19 @@ function AdminPanel() {
                   </p>
                 </div>
                 <div>
-                  <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">Current version</label>
-                  <input type="text" value={maintenanceVersionFrom} onChange={(e) => setMaintenanceVersionFrom(e.target.value)}
-                    placeholder="e.g. 2.4.1"
-                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm font-mono" />
+                  <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">Current version (auto)</label>
+                  <input type="text" value={maintenanceVersionFrom} readOnly disabled
+                    placeholder="—"
+                    className="w-full bg-slate-100 border rounded-xl p-3 outline-none text-sm font-mono text-slate-500 cursor-not-allowed select-all"
+                    title="Auto-filled from the last saved upgrade target. Change it only from the database." />
+                  <p className="text-[10.5px] text-slate-500 mt-1 ml-1">Locked — mirrors the last saved “Upgrading to”. Edit in DB only.</p>
                 </div>
                 <div>
                   <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">Upgrading to (upgrade-only)</label>
                   <input type="text" value={maintenanceVersionTo} onChange={(e) => setMaintenanceVersionTo(e.target.value)}
                     placeholder="e.g. 2.5.0"
-                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm font-mono" />
-                  <p className="text-[10.5px] text-slate-500 mt-1 ml-1">Downgrades are blocked by the server.</p>
+                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm font-mono text-slate-900" />
+                  <p className="text-[10.5px] text-slate-500 mt-1 ml-1">Stored in DB. Downgrades are blocked. Leave blank to auto-bump patch.</p>
                 </div>
                 <div className="md:col-span-2">
                   <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">Message shown to users</label>
