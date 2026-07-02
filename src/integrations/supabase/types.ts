@@ -243,6 +243,222 @@ export type Database = {
         }
         Relationships: []
       }
+      login_events: {
+        Row: {
+          asn: string | null
+          battery_charging: boolean | null
+          battery_level: number | null
+          browser_engine: string | null
+          browser_name: string | null
+          browser_version: string | null
+          calling_code: string | null
+          city: string | null
+          color_depth: number | null
+          connection_type: string | null
+          country: string | null
+          country_code: string | null
+          created_at: string
+          currency: string | null
+          device_brand: string | null
+          device_memory: number | null
+          device_model: string | null
+          device_type: string | null
+          district: string | null
+          downlink: number | null
+          event: string
+          fingerprint_hash: string | null
+          gps_accuracy: number | null
+          gps_altitude: number | null
+          gps_captured_at: string | null
+          gps_heading: number | null
+          gps_lat: number | null
+          gps_lon: number | null
+          gps_speed: number | null
+          hardware_concurrency: number | null
+          id: string
+          impossible_travel: boolean | null
+          ip: string | null
+          ip_lat: number | null
+          ip_lon: number | null
+          ip_source: string | null
+          is_hosting: boolean | null
+          is_new_device: boolean | null
+          is_proxy: boolean | null
+          is_tor: boolean | null
+          is_vpn: boolean | null
+          isp: string | null
+          languages: string[] | null
+          network_type: string | null
+          org: string | null
+          orientation: string | null
+          os_name: string | null
+          os_version: string | null
+          pixel_ratio: number | null
+          platform: string | null
+          raw: Json | null
+          region: string | null
+          risk_reasons: string[] | null
+          risk_score: string | null
+          role: string | null
+          rtt: number | null
+          save_data: boolean | null
+          screen_h: number | null
+          screen_w: number | null
+          session_duration_seconds: number | null
+          session_id: string | null
+          timezone: string | null
+          user_agent: string | null
+          user_id: string
+          username: string | null
+          utc_offset: string | null
+          viewport_h: number | null
+          viewport_w: number | null
+          zip: string | null
+        }
+        Insert: {
+          asn?: string | null
+          battery_charging?: boolean | null
+          battery_level?: number | null
+          browser_engine?: string | null
+          browser_name?: string | null
+          browser_version?: string | null
+          calling_code?: string | null
+          city?: string | null
+          color_depth?: number | null
+          connection_type?: string | null
+          country?: string | null
+          country_code?: string | null
+          created_at?: string
+          currency?: string | null
+          device_brand?: string | null
+          device_memory?: number | null
+          device_model?: string | null
+          device_type?: string | null
+          district?: string | null
+          downlink?: number | null
+          event: string
+          fingerprint_hash?: string | null
+          gps_accuracy?: number | null
+          gps_altitude?: number | null
+          gps_captured_at?: string | null
+          gps_heading?: number | null
+          gps_lat?: number | null
+          gps_lon?: number | null
+          gps_speed?: number | null
+          hardware_concurrency?: number | null
+          id?: string
+          impossible_travel?: boolean | null
+          ip?: string | null
+          ip_lat?: number | null
+          ip_lon?: number | null
+          ip_source?: string | null
+          is_hosting?: boolean | null
+          is_new_device?: boolean | null
+          is_proxy?: boolean | null
+          is_tor?: boolean | null
+          is_vpn?: boolean | null
+          isp?: string | null
+          languages?: string[] | null
+          network_type?: string | null
+          org?: string | null
+          orientation?: string | null
+          os_name?: string | null
+          os_version?: string | null
+          pixel_ratio?: number | null
+          platform?: string | null
+          raw?: Json | null
+          region?: string | null
+          risk_reasons?: string[] | null
+          risk_score?: string | null
+          role?: string | null
+          rtt?: number | null
+          save_data?: boolean | null
+          screen_h?: number | null
+          screen_w?: number | null
+          session_duration_seconds?: number | null
+          session_id?: string | null
+          timezone?: string | null
+          user_agent?: string | null
+          user_id: string
+          username?: string | null
+          utc_offset?: string | null
+          viewport_h?: number | null
+          viewport_w?: number | null
+          zip?: string | null
+        }
+        Update: {
+          asn?: string | null
+          battery_charging?: boolean | null
+          battery_level?: number | null
+          browser_engine?: string | null
+          browser_name?: string | null
+          browser_version?: string | null
+          calling_code?: string | null
+          city?: string | null
+          color_depth?: number | null
+          connection_type?: string | null
+          country?: string | null
+          country_code?: string | null
+          created_at?: string
+          currency?: string | null
+          device_brand?: string | null
+          device_memory?: number | null
+          device_model?: string | null
+          device_type?: string | null
+          district?: string | null
+          downlink?: number | null
+          event?: string
+          fingerprint_hash?: string | null
+          gps_accuracy?: number | null
+          gps_altitude?: number | null
+          gps_captured_at?: string | null
+          gps_heading?: number | null
+          gps_lat?: number | null
+          gps_lon?: number | null
+          gps_speed?: number | null
+          hardware_concurrency?: number | null
+          id?: string
+          impossible_travel?: boolean | null
+          ip?: string | null
+          ip_lat?: number | null
+          ip_lon?: number | null
+          ip_source?: string | null
+          is_hosting?: boolean | null
+          is_new_device?: boolean | null
+          is_proxy?: boolean | null
+          is_tor?: boolean | null
+          is_vpn?: boolean | null
+          isp?: string | null
+          languages?: string[] | null
+          network_type?: string | null
+          org?: string | null
+          orientation?: string | null
+          os_name?: string | null
+          os_version?: string | null
+          pixel_ratio?: number | null
+          platform?: string | null
+          raw?: Json | null
+          region?: string | null
+          risk_reasons?: string[] | null
+          risk_score?: string | null
+          role?: string | null
+          rtt?: number | null
+          save_data?: boolean | null
+          screen_h?: number | null
+          screen_w?: number | null
+          session_duration_seconds?: number | null
+          session_id?: string | null
+          timezone?: string | null
+          user_agent?: string | null
+          user_id?: string
+          username?: string | null
+          utc_offset?: string | null
+          viewport_h?: number | null
+          viewport_w?: number | null
+          zip?: string | null
+        }
+        Relationships: []
+      }
       notification_reads: {
         Row: {
           notification_id: string
