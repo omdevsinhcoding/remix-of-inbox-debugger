@@ -1810,75 +1810,95 @@ function ProfileSelectPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 flex flex-col items-center justify-center px-4 py-8 sm:p-6 relative overflow-hidden">
-      {/* Background effects */}
-      <div className="absolute inset-0 bg-[linear-gradient(to_right,#4f4f4f12_1px,transparent_1px),linear-gradient(to_bottom,#4f4f4f12_1px,transparent_1px)] bg-[size:20px_20px] [mask-image:radial-gradient(ellipse_80%_60%_at_50%_0%,#000_50%,transparent_100%)]" />
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[500px] sm:w-[700px] h-[250px] sm:h-[350px] bg-red-600/15 blur-[100px] sm:blur-[140px] rounded-full pointer-events-none" />
-      <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[400px] h-[200px] bg-indigo-600/10 blur-[100px] rounded-full pointer-events-none" />
+    <div className="min-h-screen bg-[#141414] flex flex-col items-center px-4 pt-10 sm:pt-14 pb-12 relative overflow-hidden">
+      {/* Netflix-style top wordmark */}
+      <div className="w-full max-w-6xl mx-auto flex items-center justify-start px-2 sm:px-6 absolute top-4 sm:top-6 left-1/2 -translate-x-1/2 z-20">
+        <span
+          className="text-[#e50914] font-black tracking-[-0.06em] text-[26px] sm:text-[34px] leading-none select-none"
+          style={{ fontFamily: '"Bebas Neue","Netflix Sans","Helvetica Neue",Impact,sans-serif' }}
+        >
+          NETFLIX
+        </span>
+      </div>
 
       <AnimatePresence mode="wait">
         {!selectedProfile ? (
-          <motion.div key="profiles" initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
-            transition={{ duration: 0.4, ease: "easeOut" }}
-            className="relative z-10 w-full max-w-2xl">
-            {/* Logo */}
-            <motion.div className="flex justify-center mb-5 sm:mb-8"
-              initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ delay: 0.1 }}>
-              <div className="bg-gradient-to-br from-red-500 to-red-700 p-3 sm:p-4 rounded-2xl shadow-xl shadow-red-900/40 ring-1 ring-white/10">
-                <Mail className="text-white w-6 h-6 sm:w-8 sm:h-8" />
-              </div>
-            </motion.div>
-
-            <motion.h1 initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}
-              className="text-2xl sm:text-4xl font-black text-white text-center mb-1 sm:mb-2 tracking-tight">
-              Who's viewing?
+          <motion.div
+            key="profiles"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.35, ease: "easeOut" }}
+            className="relative z-10 w-full max-w-6xl flex flex-col items-center mt-14 sm:mt-20"
+          >
+            <motion.h1
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.05 }}
+              className="text-white text-center font-normal tracking-tight text-[32px] sm:text-[56px] leading-[1.1] mb-8 sm:mb-12"
+              style={{ fontFamily: '"Netflix Sans","Helvetica Neue",Arial,sans-serif', fontWeight: 400 }}
+            >
+              Who's watching?
             </motion.h1>
-            <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }}
-              className="text-slate-500 text-center text-xs sm:text-sm mb-6 sm:mb-10">
-              Select your profile to continue
-            </motion.p>
 
             {profiles.length > 6 && (
-              <div className="relative mb-4 sm:mb-6 max-w-md mx-auto px-2">
-                <Search className="absolute left-6 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
+              <div className="relative mb-6 sm:mb-8 w-full max-w-md px-2">
+                <Search className="absolute left-6 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500 pointer-events-none" />
                 <input
                   type="text"
                   value={profileSearch}
                   onChange={(e) => setProfileSearch(e.target.value)}
-                  placeholder="Search profiles by name…"
-                  className="w-full bg-slate-900/70 backdrop-blur-sm border border-slate-700/60 text-white text-sm rounded-full pl-10 pr-10 py-2.5 outline-none focus:ring-2 focus:ring-red-500/70 focus:border-red-500/30 placeholder:text-slate-500"
+                  placeholder="Search profiles"
+                  className="w-full bg-[#1f1f1f] border border-neutral-800 text-white text-sm rounded-md pl-10 pr-10 py-2.5 outline-none focus:border-neutral-500 placeholder:text-neutral-500"
                 />
                 {profileSearch && (
-                  <button onClick={() => setProfileSearch("")}
-                    className="absolute right-5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white p-1">
+                  <button
+                    onClick={() => setProfileSearch("")}
+                    className="absolute right-5 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-white p-1"
+                  >
                     <X className="w-4 h-4" />
                   </button>
                 )}
               </div>
             )}
+
             {displayProfiles.length === 0 ? (
-              <div className="text-center py-12">
-                <p className="text-slate-500 text-sm">
+              <div className="text-center py-16">
+                <p className="text-neutral-500 text-sm">
                   {loading ? "Loading profiles…" : profileSearch ? `No profiles match "${profileSearch}"` : "No profiles yet. Ask admin to create users."}
                 </p>
               </div>
             ) : (
               <div
-                className="overflow-y-auto overscroll-contain px-2 pb-2 max-h-[60vh] sm:max-h-[62vh] scroll-smooth [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-slate-700/60 [&::-webkit-scrollbar-thumb]:rounded-full"
+                className="w-full overflow-y-auto overscroll-contain px-2 sm:px-4 pb-4 max-h-[62vh] sm:max-h-[64vh] scroll-smooth [scrollbar-width:thin] [scrollbar-color:#2a2a2a_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-neutral-800 [&::-webkit-scrollbar-thumb]:rounded-full"
               >
-                <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 sm:gap-5 justify-items-center">
+                <div
+                  className="grid gap-x-4 gap-y-8 sm:gap-x-6 sm:gap-y-10 justify-center"
+                  style={{ gridTemplateColumns: "repeat(auto-fill, minmax(96px, 1fr))" }}
+                >
                   {displayProfiles.map((profile, i) => (
-                    <motion.button key={profile.id}
-                      initial={fromCache ? false : { opacity: 0, scale: 0.8 }}
+                    <motion.button
+                      key={profile.id}
+                      initial={fromCache ? false : { opacity: 0, scale: 0.92 }}
                       animate={{ opacity: 1, scale: 1 }}
-                      transition={fromCache ? { duration: 0 } : { delay: Math.min(0.1 + i * 0.02, 0.6) }}
-                      whileHover={{ scale: 1.08, y: -4 }} whileTap={{ scale: 0.92 }}
+                      transition={fromCache ? { duration: 0 } : { delay: Math.min(0.04 + i * 0.015, 0.5), duration: 0.25 }}
+                      whileHover={{ scale: 1.06 }}
+                      whileTap={{ scale: 0.95 }}
                       onClick={() => setSelectedProfile(profile)}
-                      className="flex flex-col items-center gap-2 sm:gap-3 group w-full max-w-[100px] sm:max-w-[120px]">
-                      <div className="group-hover:shadow-xl group-hover:ring-2 group-hover:ring-white/40 rounded-xl sm:rounded-2xl transition-all duration-200">
-                        <ProfileAvatar avatarId={profile.profileAvatar} name={profile.name} className="w-16 h-16 sm:w-24 sm:h-24" fallbackColor={PROFILE_COLORS[i % PROFILE_COLORS.length]} eager />
+                      className="flex flex-col items-center gap-2 sm:gap-3 group focus:outline-none"
+                    >
+                      <div className="relative rounded-md overflow-hidden ring-0 group-hover:ring-2 group-hover:ring-white transition-all duration-150 aspect-square w-[84px] sm:w-[120px] md:w-[140px]">
+                        <ProfileAvatar
+                          avatarId={profile.profileAvatar}
+                          name={profile.name}
+                          className="w-full h-full"
+                          fallbackColor={PROFILE_COLORS[i % PROFILE_COLORS.length]}
+                          eager
+                        />
                       </div>
-                      <span className="text-slate-400 font-semibold text-[11px] sm:text-sm group-hover:text-white transition-colors duration-200 truncate w-full text-center">{profile.name}</span>
+                      <span className="text-neutral-400 group-hover:text-white text-[12px] sm:text-[14px] font-normal transition-colors duration-150 truncate max-w-[120px] text-center">
+                        {profile.name}
+                      </span>
                     </motion.button>
                   ))}
                 </div>
