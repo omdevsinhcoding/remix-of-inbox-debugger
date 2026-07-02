@@ -127,16 +127,39 @@ function isCloudflareIp(ip: string): boolean {
   return false;
 }
 
+function normalizeIp(raw: string | null | undefined): string {
+  if (!raw) return "";
+  let ip = String(raw).trim().replace(/^"|"$/g, "");
+  if (ip.startsWith("::ffff:")) ip = ip.slice(7);
+  const bracket = ip.match(/^\[([^\]]+)\](?::\d+)?$/);
+  if (bracket) return bracket[1].trim();
+  if (/^\d{1,3}(\.\d{1,3}){3}:\d+$/.test(ip)) ip = ip.replace(/:\d+$/, "");
+  return ip.trim();
+}
+
+function isKnownEdgeIp(ip: string): boolean {
+  // AWS Global Accelerator / Vercel-style edge ranges commonly show up as an
+  // intermediate XFF hop. They are infrastructure, not the user's residential IP.
+  return /^(13\.248\.|76\.223\.|75\.2\.)/.test(ip || "");
+}
+
+function isPublicIp(ip: string): boolean {
+  return !!ip && ip !== "unknown" && !isPrivateIp(ip);
+}
+
 function pickClientIp(candidates: { label: string; ip: string }[]): { ip: string; label: string } {
-  const clean = candidates.filter(c => c.ip);
-  // 1) first public non-CF
-  let sel = clean.find(c => !isPrivateIp(c.ip) && !isCloudflareIp(c.ip));
-  if (sel) return sel;
-  // 2) first public (may be CF)
-  sel = clean.find(c => !isPrivateIp(c.ip));
-  if (sel) return sel;
-  // 3) anything
-  return clean[0] || { ip: "unknown", label: "none" };
+  const clean = candidates
+    .map(c => ({ label: c.label, ip: normalizeIp(c.ip) }))
+    .filter(c => c.ip);
+  const sel = clean.find(c => c.label === "cf-connecting-ip" && isPublicIp(c.ip))
+    || clean.find(c => c.label === "true-client-ip" && isPublicIp(c.ip))
+    || clean.find(c => c.label === "x-real-ip" && isPublicIp(c.ip))
+    || clean.find(c => c.label === "x-client-ip" && isPublicIp(c.ip) && !isKnownEdgeIp(c.ip))
+    || clean.find(c => c.label === "x-forwarded-for" && isPublicIp(c.ip) && !isCloudflareIp(c.ip) && !isKnownEdgeIp(c.ip))
+    || clean.find(c => isPublicIp(c.ip) && !isKnownEdgeIp(c.ip))
+    || clean.find(c => isPublicIp(c.ip))
+    || clean[0];
+  return sel || { ip: "unknown", label: "none" };
 }
 
 function collectIpCandidates(req: Request): { label: string; ip: string }[] {
@@ -144,7 +167,7 @@ function collectIpCandidates(req: Request): { label: string; ip: string }[] {
   const push = (label: string, val: string | null | undefined) => {
     if (!val) return;
     for (const raw of String(val).split(",")) {
-      const ip = raw.trim();
+      const ip = normalizeIp(raw);
       if (ip) out.push({ label, ip });
     }
   };
@@ -168,12 +191,17 @@ function getClientIpTrace(req: Request): { ip: string; source: string; candidate
     const raw = req.headers.get("x-ip-trace");
     if (raw) workerTrace = JSON.parse(raw);
   } catch {}
+  const workerCandidates = Array.isArray(workerTrace?.candidates)
+    ? workerTrace.candidates.map((c: any) => ({ label: String(c?.h || c?.label || "worker"), ip: normalizeIp(c?.ip) })).filter((c: any) => c.ip)
+    : [];
+  const combined = [...candidates, ...workerCandidates];
+  const best = pickClientIp(combined);
   return {
-    ip: picked.ip,
-    source: picked.label,
-    candidates,
-    cfCountry: req.headers.get("cf-ipcountry") || "",
-    cfRay: req.headers.get("cf-ray") || "",
+    ip: best.ip,
+    source: best.label,
+    candidates: combined,
+    cfCountry: req.headers.get("cf-ipcountry") || workerTrace?.cfCountry || "",
+    cfRay: req.headers.get("cf-ray") || workerTrace?.cfRay || "",
     workerTrace,
   };
 }
@@ -273,7 +301,7 @@ function countryToFlag(cc?: string): string {
 
 async function providerIpapiCo(ip: string): Promise<LocResult | null> {
   try {
-    if (!ip || ip === "unknown" || isPrivateIp(ip) || isCloudflareIp(ip)) return null;
+    if (!ip || ip === "unknown" || isPrivateIp(ip) || isCloudflareIp(ip) || isKnownEdgeIp(ip)) return null;
     const r = await fetchWithTimeout(`https://ipapi.co/${encodeURIComponent(ip)}/json/`, 2500);
     if (!r.ok) return null;
     const d = await r.json();
@@ -294,7 +322,7 @@ async function providerIpapiCo(ip: string): Promise<LocResult | null> {
 
 async function providerIpApiCom(ip: string): Promise<LocResult | null> {
   try {
-    if (!ip || ip === "unknown" || isPrivateIp(ip) || isCloudflareIp(ip)) return null;
+    if (!ip || ip === "unknown" || isPrivateIp(ip) || isCloudflareIp(ip) || isKnownEdgeIp(ip)) return null;
     // include proxy/hosting/mobile flags for VPN detection
     const r = await fetchWithTimeout(
       `http://ip-api.com/json/${encodeURIComponent(ip)}?fields=status,country,countryCode,region,regionName,city,zip,lat,lon,timezone,isp,org,as,query,proxy,hosting,mobile`,
@@ -322,7 +350,7 @@ async function providerIpApiCom(ip: string): Promise<LocResult | null> {
 async function providerIpwhoIs(ip: string): Promise<LocResult | null> {
   try {
     // NEVER call ipwho.is without an IP — it would geolocate the CALLER (Supabase edge = Portland).
-    if (!ip || ip === "unknown" || isPrivateIp(ip) || isCloudflareIp(ip)) return null;
+    if (!ip || ip === "unknown" || isPrivateIp(ip) || isCloudflareIp(ip) || isKnownEdgeIp(ip)) return null;
     const url = `https://ipwho.is/${encodeURIComponent(ip)}`;
     console.log("[ipwho.is] Request:", url);
     const r = await fetchWithTimeout(url, 2500);
@@ -347,7 +375,7 @@ async function providerIpwhoIs(ip: string): Promise<LocResult | null> {
 
 async function providerIpinfoIo(ip: string): Promise<LocResult | null> {
   try {
-    if (!ip || ip === "unknown" || isPrivateIp(ip) || isCloudflareIp(ip)) return null;
+    if (!ip || ip === "unknown" || isPrivateIp(ip) || isCloudflareIp(ip) || isKnownEdgeIp(ip)) return null;
     const r = await fetchWithTimeout(`https://ipinfo.io/${encodeURIComponent(ip)}/json`, 2500);
     if (!r.ok) return null;
     const d = await r.json();
@@ -371,7 +399,7 @@ async function providerIpinfoIo(ip: string): Promise<LocResult | null> {
 
 async function providerFreeIpApi(ip: string): Promise<LocResult | null> {
   try {
-    if (!ip || ip === "unknown" || isPrivateIp(ip) || isCloudflareIp(ip)) return null;
+    if (!ip || ip === "unknown" || isPrivateIp(ip) || isCloudflareIp(ip) || isKnownEdgeIp(ip)) return null;
     const r = await fetchWithTimeout(`https://freeipapi.com/api/json/${encodeURIComponent(ip)}`, 2500);
     if (!r.ok) return null;
     const d = await r.json();
@@ -422,7 +450,7 @@ async function reverseGpsLocation(geo: ClientGeoPayload): Promise<LocResult | nu
 // Dedicated VPN/proxy detector (proxycheck.io — 1000/day free without key)
 async function detectAnonymizer(ip: string): Promise<{ proxy: boolean; vpn: boolean; tor: boolean; hosting: boolean; type?: string; provider?: string } | null> {
   try {
-    if (!ip || ip === "unknown" || isPrivateIp(ip) || isCloudflareIp(ip)) return null;
+    if (!ip || ip === "unknown" || isPrivateIp(ip) || isCloudflareIp(ip) || isKnownEdgeIp(ip)) return null;
     const r = await fetchWithTimeout(`https://proxycheck.io/v2/${encodeURIComponent(ip)}?vpn=1&asn=1&risk=1`, 2500);
     if (!r.ok) return null;
     const d = await r.json();
@@ -463,8 +491,8 @@ async function resolveLocation(ip: string, opts?: { allowIpwho?: boolean }): Pro
 
   // HARD GUARD: never call geo providers without a real, public, non-CF client IP.
   // Otherwise every provider falls back to the CALLER (Supabase edge = Portland, OR).
-  if (!ip || ip === "unknown" || isPrivateIp(ip) || isCloudflareIp(ip)) {
-    console.warn("[resolveLocation] refusing lookup — invalid client IP:", JSON.stringify({ ip, reason: !ip || ip === "unknown" ? "missing" : isPrivateIp(ip) ? "private" : "cloudflare-edge" }));
+  if (!ip || ip === "unknown" || isPrivateIp(ip) || isCloudflareIp(ip) || isKnownEdgeIp(ip)) {
+    console.warn("[resolveLocation] refusing lookup — invalid client IP:", JSON.stringify({ ip, reason: !ip || ip === "unknown" ? "missing" : isPrivateIp(ip) ? "private" : isCloudflareIp(ip) ? "cloudflare-edge" : "hosting-edge-hop" }));
     return { merged: { provider: "none", ip: ip || "unknown" }, confidence: "low", agreed: 0, results: [], anonymizer: null };
   }
 
@@ -552,7 +580,8 @@ async function sendPrimaryLoginAlert(
 ) {
   const tg = await getTelegramConfig(supabase);
   if (!tg) return;
-  const { browser, os } = parseUserAgent(req.headers.get("user-agent") || "");
+  const forwardedUa = req.headers.get("x-client-user-agent") || req.headers.get("user-agent") || "";
+  const { browser, os } = parseUserAgent(forwardedUa);
   const displayName = user?.name || user?.username || "Unknown";
   const role = user?.role || "user";
   const isGps = loc.provider === "device-gps";
@@ -573,10 +602,11 @@ async function sendPrimaryLoginAlert(
   const time = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata", hour12: true });
   const statusEmoji = status === "success" ? "✅" : "❌";
 
-  const isAnon = !!(ipLoc.vpn || ipLoc.proxy || ipLoc.tor || ipLoc.hosting || anonymizer?.vpn || anonymizer?.proxy || anonymizer?.tor || anonymizer?.hosting);
+  const isInvalidEdgeIp = !ip || ip === "unknown" || isPrivateIp(ip) || isCloudflareIp(ip) || isKnownEdgeIp(ip);
+  const isAnon = !isGps && !!(ipLoc.vpn || ipLoc.proxy || ipLoc.tor || ipLoc.hosting || anonymizer?.vpn || anonymizer?.proxy || anonymizer?.tor || anonymizer?.hosting);
   const anonBadge = (ipLoc.tor || anonymizer?.tor) ? "🧅 TOR" : (ipLoc.vpn || anonymizer?.vpn) ? "🛡 VPN" : (ipLoc.proxy || anonymizer?.proxy) ? "🎭 PROXY" : (ipLoc.hosting || anonymizer?.hosting) ? "🖥 HOSTING/DC" : "";
   const anonNote = isAnon
-    ? `⚠️ <b>Anonymizer detected</b> — ${anonBadge}${anonymizer?.provider ? ` · <i>${esc(anonymizer.provider)}</i>` : ""}\n<i>${isGps ? "Device GPS was used for the map; IP location is a VPN/proxy exit-node." : "User did not provide device GPS, so displayed location is only IP/VPN exit-node — NOT the real user location."}</i>`
+    ? `⚠️ <b>Network IP is masked</b> — ${anonBadge}${anonymizer?.provider ? ` · <i>${esc(anonymizer.provider)}</i>` : ""}\n<i>No device GPS was available, so IP location may be only a VPN/proxy exit-node.</i>`
     : "";
 
   const gpsLine = clientGeo?.status === "granted"
@@ -585,14 +615,17 @@ async function sendPrimaryLoginAlert(
 
   const locationSource = isGps ? "Device GPS (exact)" : "IP lookup (approximate — may be VPN/proxy)";
 
-  const ipTraceLine = ipTrace ? `🧭 <b>IP source:</b> <code>${esc(ipTrace.source)}</code>${ipTrace.cfCountry ? ` · CF ${esc(ipTrace.cfCountry)}` : ""}${ipTrace.candidates?.length ? ` · seen ${ipTrace.candidates.length}` : ""}` : "";
+  const networkIpLine = isInvalidEdgeIp
+    ? `🌐 <b>Network IP:</b> <code>unavailable</code> <i>(only edge/proxy hop seen${ip && ip !== "unknown" ? `: ${esc(ip)}` : ""})</i>`
+    : `🌐 <b>Network IP:</b> <code>${esc(ip)}</code>`;
+  const ipTraceLine = ipTrace ? `🧭 <b>IP source:</b> <code>${esc(ipTrace.source)}</code>${ipTrace.cfCountry ? ` · CF ${esc(ipTrace.cfCountry)}` : ""}${ipTrace.candidates?.length ? ` · checked ${ipTrace.candidates.length}` : ""}` : "";
 
   const text = [
     `🔔 <b>New Login</b> — ${esc(displayName)} ${statusEmoji}`,
     `━━━━━━━━━━━━━━━━`,
     `👤 <b>User:</b> ${esc(displayName)} (<code>${esc(user?.username || "")}</code>) · <b>${esc(role)}</b>`,
     `🕐 <b>Time:</b> ${esc(time)} IST`,
-    `🌐 <b>Network IP:</b> <code>${esc(ip)}</code>`,
+    networkIpLine,
     ipTraceLine,
     `📍 ${flag} <b>${esc(locationSource)}:</b> ${esc(locLine)}${loc.postal ? ` · ${esc(loc.postal)}` : ""}`,
     gpsLine,
@@ -602,7 +635,7 @@ async function sendPrimaryLoginAlert(
     mapLink ? `🗺 <a href="${mapLink}">Open in Google Maps</a> ${isGps ? "(GPS)" : "(IP — approximate)"}` : "",
     anonNote,
     `━━━━━━━━━━━━━━━━`,
-    isGps ? `Confidence: <b>GPS verified</b>${clientGeo?.accuracy ? ` (±${esc(String(clientGeo.accuracy))}m)` : ""}` : `Confidence: <b>${esc(confidence)}</b> (${agreed}/${totalProviders} IP providers agreed)`,
+    isGps ? `Confidence: <b>GPS verified and trusted</b>${clientGeo?.accuracy ? ` (±${esc(String(clientGeo.accuracy))}m)` : ""}` : `Confidence: <b>${esc(confidence)}</b> (${agreed}/${totalProviders} IP providers agreed)`,
   ].filter(Boolean).join("\n");
   try {
     const tgRes = await fetch(`https://api.telegram.org/bot${tg.botToken}/sendMessage`, {

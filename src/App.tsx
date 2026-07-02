@@ -35,7 +35,12 @@ function shuffleArray<T>(arr: T[]): T[] {
 function getStoredWorkerUrls(): string[] {
   try {
     const stored = localStorage.getItem(WORKER_URLS_KEY);
-    if (stored) return JSON.parse(stored);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+    const cached = readBootstrapCache();
+    if (Array.isArray(cached?.workerUrls) && cached.workerUrls.length > 0) return cached.workerUrls;
   } catch {}
   return [];
 }
@@ -193,6 +198,18 @@ async function requireLoginLocation(): Promise<LoginLocationPayload> {
 
 async function apiCall(functionName: string, body: any) {
   let workerUrls = getStoredWorkerUrls();
+  const mustUseWorker = functionName === "manage-app" && body?.action === "login";
+  if (mustUseWorker && workerUrls.length === 0) {
+    try {
+      const bootstrap = await bootstrapFromSupabase();
+      if (Array.isArray(bootstrap.workerUrls) && bootstrap.workerUrls.length > 0) {
+        storeWorkerUrls(bootstrap.workerUrls);
+        workerUrls = bootstrap.workerUrls;
+      }
+    } catch (err) {
+      console.warn("[apiCall] login worker bootstrap failed:", err);
+    }
+  }
   
   const token = getSessionToken();
   const pendingToken = (() => { try { return localStorage.getItem("pending_admin_token"); } catch { return null; } })();
@@ -245,6 +262,10 @@ async function apiCall(functionName: string, body: any) {
         continue;
       }
     }
+  }
+
+  if (mustUseWorker) {
+    throw new Error("Secure login route is unavailable. Please refresh once and try again.");
   }
 
   // Fallback: call Supabase edge function directly
@@ -990,25 +1011,13 @@ function ProfileSelectPage() {
         throw new Error("Too many attempts. Wait 1 minute.");
       }
 
-      let data: any;
       const clientGeo = await requireLoginLocation();
-      const workerUrls = getStoredWorkerUrls();
-      if (workerUrls.length > 0) {
-        data = await apiCall("manage-app", {
-          action: "login",
-          username: selectedProfile.username,
-          password,
-          clientGeo,
-        });
-      } else {
-        const result = await supabase.functions.invoke("manage-app", {
-          body: { action: "login", username: selectedProfile.username, password, clientGeo },
-        });
-        if (result.error) throw result.error;
-        data = result.data;
-        if (!data?.success) throw new Error(data?.error || "Login failed");
-        if (data.sessionToken) localStorage.setItem("session_token", data.sessionToken);
-      }
+      const data: any = await apiCall("manage-app", {
+        action: "login",
+        username: selectedProfile.username,
+        password,
+        clientGeo,
+      });
 
       if (data.workerUrls && Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
         storeWorkerUrls(data.workerUrls);
@@ -1199,20 +1208,8 @@ function AdminLoginPage() {
     try {
       if (!checkRateLimit(`admin_${username}`)) throw new Error("Too many attempts. Wait 1 minute.");
 
-      let data: any;
       const clientGeo = await requireLoginLocation();
-      const workerUrls = getStoredWorkerUrls();
-      if (workerUrls.length > 0) {
-        data = await apiCall("manage-app", { action: "login", username, password, clientGeo });
-      } else {
-        const result = await supabase.functions.invoke("manage-app", {
-          body: { action: "login", username, password, clientGeo },
-        });
-        if (result.error) throw result.error;
-        data = result.data;
-        if (!data?.success) throw new Error(data?.error || "Login failed");
-        if (data.pendingToken) localStorage.setItem("pending_admin_token", data.pendingToken);
-      }
+      const data: any = await apiCall("manage-app", { action: "login", username, password, clientGeo });
 
       if (data.user.role !== "admin") throw new Error("Access denied");
       if (data.pendingToken) localStorage.setItem("pending_admin_token", data.pendingToken);
