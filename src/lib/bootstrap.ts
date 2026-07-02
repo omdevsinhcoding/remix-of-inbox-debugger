@@ -12,7 +12,20 @@ const BOOTSTRAP_CACHE_KEY = "bootstrap_cache_v1";
 const BOOTSTRAP_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const BOOTSTRAP_TIMEOUT_MS = 8000;
 
-export type BootstrapResult = { users: any[]; recaptcha: any; workerUrls: string[] };
+export type EmailFilters = { showSignInCodes?: boolean; showPasswordResets?: boolean; showAccountUpdates?: boolean };
+export type BootstrapResult = { users: any[]; recaptcha: any; workerUrls: string[]; emailFilters?: EmailFilters };
+
+// Module-level filter cache — read synchronously by filterVisibleEmails.
+let currentEmailFilters: EmailFilters = { showSignInCodes: true, showPasswordResets: false, showAccountUpdates: false };
+try {
+  const raw = typeof localStorage !== "undefined" ? localStorage.getItem("email_filters_cache_v1") : null;
+  if (raw) currentEmailFilters = { ...currentEmailFilters, ...JSON.parse(raw) };
+} catch {}
+export function getEmailFilters(): EmailFilters { return currentEmailFilters; }
+export function setEmailFilters(next: EmailFilters) {
+  currentEmailFilters = { ...currentEmailFilters, ...next };
+  try { localStorage.setItem("email_filters_cache_v1", JSON.stringify(currentEmailFilters)); } catch {}
+}
 
 function storeWorkerUrls(urls: string[]) {
   try {
