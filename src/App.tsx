@@ -3909,6 +3909,64 @@ function AdminPanel() {
               </div>
             </section>
 
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm lg:col-span-2">
+              <div className="flex items-start justify-between gap-4 flex-wrap">
+                <div className="min-w-0">
+                  <h2 className="font-black text-base sm:text-lg mb-1 flex items-center gap-2">
+                    <div className={`p-1.5 rounded-lg ${maintenanceEnabled ? "bg-amber-100" : "bg-slate-100"}`}>
+                      <AlertTriangle className={`w-4 h-4 ${maintenanceEnabled ? "text-amber-600" : "text-slate-500"}`} />
+                    </div>
+                    Maintenance Mode
+                  </h2>
+                  <p className="text-xs text-slate-500 max-w-md">When enabled, all non-admin users see an animated maintenance screen. Admins can still browse the site normally.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => saveMaintenance(!maintenanceEnabled)}
+                  disabled={savingMaintenance}
+                  aria-pressed={maintenanceEnabled}
+                  className={`relative inline-flex h-8 w-14 flex-shrink-0 items-center rounded-full transition-colors disabled:opacity-60 ${maintenanceEnabled ? "bg-amber-500" : "bg-slate-300"}`}
+                >
+                  <span className={`inline-block w-6 h-6 bg-white rounded-full shadow transform transition-transform ${maintenanceEnabled ? "translate-x-7" : "translate-x-1"}`} />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-5">
+                <div className="md:col-span-2">
+                  <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">Headline (optional)</label>
+                  <input type="text" value={maintenanceTitle} onChange={(e) => setMaintenanceTitle(e.target.value)}
+                    placeholder="We're polishing things up"
+                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm" />
+                </div>
+                <div>
+                  <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">ETA (optional)</label>
+                  <input type="text" value={maintenanceEta} onChange={(e) => setMaintenanceEta(e.target.value)}
+                    placeholder="e.g. 30 min · 9:00 PM IST"
+                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm" />
+                </div>
+                <div className="md:col-span-3">
+                  <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">Message shown to users</label>
+                  <textarea value={maintenanceMessage} onChange={(e) => setMaintenanceMessage(e.target.value)} rows={3}
+                    placeholder="Netflix ID Manager is temporarily offline for scheduled maintenance. We'll be back shortly."
+                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm resize-none" />
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 mt-4">
+                <button onClick={() => saveMaintenance()} disabled={savingMaintenance}
+                  className="px-4 py-2 rounded-xl bg-slate-900 text-white text-sm font-bold hover:bg-slate-800 disabled:opacity-60">
+                  {savingMaintenance ? "Saving…" : "Save message"}
+                </button>
+                {maintenanceEnabled && (
+                  <span className="text-[11px] px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200 inline-flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" /> Site is in maintenance mode
+                  </span>
+                )}
+              </div>
+            </section>
+
+
+
             <div className="lg:col-span-2">
               <button onClick={saveServerConfig} disabled={savingConfig}
                 className="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl hover:bg-slate-800 transition-all disabled:opacity-50 shadow-sm">
