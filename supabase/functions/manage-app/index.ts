@@ -431,12 +431,34 @@ async function detectAnonymizer(ip: string): Promise<{ proxy: boolean; vpn: bool
   } catch { return null; }
 }
 
+// Reject responses that clearly geolocate our own infrastructure (Supabase/Deno edge
+// in Oregon/Portland, or a Cloudflare datacenter) — happens when a provider is called
+// without a valid client IP and falls back to the CALLER's IP.
+function isInfraResponse(r: LocResult): boolean {
+  const org = `${r.isp || ""} ${r.org || ""}`.toLowerCase();
+  if (/cloudflare|amazon|aws|google|microsoft|azure|digitalocean|hetzner|ovh|linode|oracle|fastly|akamai|deno|supabase|datacenter|hosting/.test(org)) return true;
+  const city = (r.city || "").toLowerCase();
+  const region = (r.region || "").toLowerCase();
+  // Supabase edge in us-west-2 geolocates to Portland/Boardman, Oregon
+  if (city === "portland" && /oregon|or/.test(region)) return true;
+  if (city === "boardman") return true;
+  return false;
+}
+
 async function resolveLocation(ip: string, opts?: { allowIpwho?: boolean }): Promise<{
   merged: LocResult; confidence: "high" | "medium" | "low"; agreed: number; results: LocResult[];
   anonymizer: { proxy: boolean; vpn: boolean; tor: boolean; hosting: boolean; type?: string; provider?: string } | null;
 }> {
   // Fail closed: ipwho.is must be explicitly enabled by admin.
   const allowIpwho = opts?.allowIpwho === true;
+
+  // HARD GUARD: never call geo providers without a real, public, non-CF client IP.
+  // Otherwise every provider falls back to the CALLER (Supabase edge = Portland, OR).
+  if (!ip || ip === "unknown" || isPrivateIp(ip) || isCloudflareIp(ip)) {
+    console.warn("[resolveLocation] refusing lookup — invalid client IP:", JSON.stringify({ ip, reason: !ip || ip === "unknown" ? "missing" : isPrivateIp(ip) ? "private" : "cloudflare-edge" }));
+    return { merged: { provider: "none", ip: ip || "unknown" }, confidence: "low", agreed: 0, results: [], anonymizer: null };
+  }
+
   const providers: Array<Promise<LocResult | null>> = [
     providerIpapiCo(ip),
     providerIpApiCom(ip),
@@ -448,8 +470,15 @@ async function resolveLocation(ip: string, opts?: { allowIpwho?: boolean }): Pro
     Promise.allSettled(providers),
     detectAnonymizer(ip),
   ]);
-  const results = settled.map(s => s.status === "fulfilled" ? s.value : null).filter(Boolean) as LocResult[];
+  let results = settled.map(s => s.status === "fulfilled" ? s.value : null).filter(Boolean) as LocResult[];
+
+  // Drop any provider result that geolocates OUR infra (Portland/CF/AWS/etc.) —
+  // that indicates the provider ignored our IP and geolocated the caller.
+  const filtered = results.filter(r => !isInfraResponse(r));
+  if (filtered.length > 0) results = filtered;
+
   if (results.length === 0) {
+    console.warn("[resolveLocation] all providers returned infra/no data for ip=", ip);
     return { merged: { provider: "none", ip }, confidence: "low", agreed: 0, results: [], anonymizer };
   }
   const buckets = new Map<string, LocResult[]>();
