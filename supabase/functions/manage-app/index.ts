@@ -2500,7 +2500,7 @@ Deno.serve(async (req) => {
       const { error } = await supabase.from("app_settings").upsert({ key: "r2_storage", value }, { onConflict: "key" });
       if (error) throw error;
       await auditLog(supabase, "r2_config_updated", session.userId, null, { bucket: value.bucket, enabled: value.enabled }, ip);
-      return new Response(JSON.stringify({ success: true, warnings: normalized.warnings }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ success: true, warnings: normalized.warnings, config: value }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     if (action === "admin_r2_test") {
