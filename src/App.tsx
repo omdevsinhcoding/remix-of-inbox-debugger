@@ -2371,10 +2371,18 @@ function AdminPanel() {
   const [adminNotifs, setAdminNotifs] = useState<any[]>([]);
   const [notifTitle, setNotifTitle] = useState("");
   const [notifBody, setNotifBody] = useState("");
+  const [notifDescription, setNotifDescription] = useState("");
+  const [notifImageUrl, setNotifImageUrl] = useState("");
+  const [notifCategory, setNotifCategory] = useState<"announcement" | "update" | "security" | "maintenance" | "promo" | "billing">("announcement");
+  const [notifPriority, setNotifPriority] = useState<"low" | "normal" | "high" | "critical">("normal");
+  const [notifActionUrl, setNotifActionUrl] = useState("");
+  const [notifActionLabel, setNotifActionLabel] = useState("");
+  const [notifPinned, setNotifPinned] = useState(false);
   const [notifAudience, setNotifAudience] = useState<"all" | "user">("all");
   const [notifTargetUser, setNotifTargetUser] = useState<string>("");
   const [notifExpiresDays, setNotifExpiresDays] = useState<string>("");
   const [sendingNotif, setSendingNotif] = useState(false);
+
   // Inbox tab
   const [inboxMode, setInboxMode] = useState<"all" | "label" | "days">("days");
   const [inboxLabel, setInboxLabel] = useState("");
