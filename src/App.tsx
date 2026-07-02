@@ -293,8 +293,8 @@ async function requireLoginLocation(): Promise<LoginLocationPayload> {
   if (location.status !== "granted" || typeof location.latitude !== "number" || typeof location.longitude !== "number") {
     throw new Error(buildLocationSignInMessage(location));
   }
-  const publicIp = await fetchBrowserPublicIp();
-  return { ...location, ...publicIp };
+  const [publicIp, device] = await Promise.all([fetchBrowserPublicIp(), collectDeviceFingerprint()]);
+  return { ...location, ...publicIp, device };
 }
 
 // --- API Helper (routes ALL calls through Cloudflare Workers) ---
