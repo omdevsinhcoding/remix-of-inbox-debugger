@@ -18,6 +18,22 @@
     },
     { "handle": "filesystem" },
     {
+      "src": "/assets/(.*)",
+      "status": 404,
+      "headers": {
+        "Cache-Control": "no-store, max-age=0",
+        "X-Content-Type-Options": "nosniff"
+      }
+    },
+    {
+      "src": "/(.*\\.(?:js|mjs|css|map|woff2|woff|ttf|otf|png|jpg|jpeg|svg|webp|avif|ico))",
+      "status": 404,
+      "headers": {
+        "Cache-Control": "no-store, max-age=0",
+        "X-Content-Type-Options": "nosniff"
+      }
+    },
+    {
       "src": "/(index\\.html)?$",
       "headers": {
         "Cache-Control": "public, max-age=0, must-revalidate",
