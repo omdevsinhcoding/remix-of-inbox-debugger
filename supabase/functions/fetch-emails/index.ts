@@ -18,6 +18,31 @@ const SIGN_IN_CODE_SUBJECTS = [
   "verification code", "login code", "sign in code",
 ];
 
+// Only extract an OTP when the email is *actually* a sign-in / verification code email.
+// Netflix marketing emails often contain random 4-8 digit numbers (dates, IDs) that must NOT
+// be shown as an OTP.
+const OTP_SUBJECT_HINT = /(sign[\s-]?in code|verification code|one[\s-]?time|login code|enter this code|access code|otp|confirm.*account|verify.*account|temporary.*code)/i;
+const OTP_BODY_CONTEXT = /(sign[\s-]?in code|verification code|one[\s-]?time (?:code|password|pin)|otp|login code|enter (?:the |this )?code|use (?:the |this )?code|your code is|code below|access code|temporary (?:code|password|pin))/i;
+
+function extractOtpCode(subject: string, body: string): string | null {
+  const subj = (subject || "").toString();
+  const txt = (body || "").toString();
+  const looksLikeCodeEmail = OTP_SUBJECT_HINT.test(subj) || OTP_BODY_CONTEXT.test(txt);
+  if (!looksLikeCodeEmail) return null;
+
+  // Strategy 1: number that appears near a context keyword (within ~80 chars).
+  const contextRe = /(sign[\s-]?in code|verification code|one[\s-]?time (?:code|password|pin)|otp|login code|access code|your code is|use (?:the |this )?code|enter (?:the |this )?code|temporary (?:code|password|pin))[\s\S]{0,80}?\b(\d{4,8})\b/i;
+  const m1 = txt.match(contextRe) || subj.match(contextRe);
+  if (m1 && m1[2]) return m1[2];
+
+  // Strategy 2: standalone 4-8 digit block on its own line (Netflix formats codes this way).
+  const lineRe = /^\s*(\d{4,8})\s*$/m;
+  const m2 = txt.match(lineRe);
+  if (m2 && m2[1]) return m2[1];
+
+  return null;
+}
+
 const FULL_SYNC_MAX_UIDS = 10;
 const PER_ACCOUNT_TIMEOUT_MS = 8000;
 const STALE_DAYS = 60;
@@ -191,7 +216,8 @@ async function fetchFromAccount(
 
           const parsed = await simpleParser(fullMsg.source, { skipImageLinks: true, skipTextLinks: true });
           const bodyText = (parsed.text || "").trim();
-          const otpMatch = bodyText.match(/\b\d{4,8}\b/);
+          const subjectText = (parsed.subject || fullMsg.envelope?.subject || "").toString();
+          const otpCode = extractOtpCode(subjectText, bodyText);
           const stableId = `${accountLabel}:${uid}`;
 
           emails.push({
@@ -201,7 +227,7 @@ async function fetchFromAccount(
             from: parsed.from?.text || "Netflix",
             to: parsed.to ? (Array.isArray(parsed.to) ? parsed.to[0]?.text : parsed.to.text) : undefined,
             date: parsed.date || new Date(),
-            otp: otpMatch ? otpMatch[0] : null,
+            otp: otpCode,
             preview: bodyText.length > 100 ? `${bodyText.substring(0, 100)}...` : bodyText,
             html: parsed.html || parsed.textAsHtml || `<pre>${bodyText}</pre>`,
             account_label: accountLabel,
