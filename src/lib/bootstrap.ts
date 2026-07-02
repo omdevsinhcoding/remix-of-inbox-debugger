@@ -55,15 +55,34 @@ export function clearSessionData() {
     }
   } catch {}
   try {
+    // Capture the user id BEFORE clearing so we can purge that profile's OTP cache too.
+    let uid: string | null = null;
+    try {
+      const raw = localStorage.getItem("user");
+      if (raw) uid = JSON.parse(raw)?.id || null;
+    } catch {}
     localStorage.removeItem("user");
     localStorage.removeItem("session_token");
     localStorage.removeItem("session_started_at");
     localStorage.removeItem("admin_auth");
-    localStorage.removeItem("admin_backup");
     localStorage.removeItem("pending_admin_token");
     localStorage.removeItem("pending_admin_user");
+    // F4: impersonation backup is now in sessionStorage; sweep both stores for safety.
+    localStorage.removeItem("admin_backup");
+    try { sessionStorage.removeItem("admin_backup"); } catch {}
+    // F8: purge cached Netflix OTP emails so the next profile on this device
+    // can't read the previous profile's inbox after a timeout/forced logout.
+    if (uid) localStorage.removeItem(`cached_emails_v1:${uid}`);
+    try {
+      // Belt-and-suspenders: sweep any lingering per-profile caches.
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith("cached_emails_v1:")) localStorage.removeItem(k);
+      }
+    } catch {}
   } catch {}
 }
+
 
 export function readBootstrapCache(): BootstrapResult | null {
   try {
