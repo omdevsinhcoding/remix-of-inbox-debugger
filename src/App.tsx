@@ -736,12 +736,16 @@ function NotificationBell() {
               onClick={() => setOpen(false)}
             />
             <motion.div
-              initial={{ opacity: 0, y: -8, scale: 0.98 }}
+              initial={{ opacity: 0, y: 40, scale: 1 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -8, scale: 0.98 }}
-              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-              className="fixed left-3 right-3 top-[70px] sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-3 sm:w-[400px] max-w-[calc(100vw-24px)] bg-[#141414] rounded-2xl shadow-[0_25px_70px_-10px_rgba(0,0,0,0.9)] border border-white/[0.08] z-50 overflow-hidden"
+              exit={{ opacity: 0, y: 40, scale: 1 }}
+              transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+              className="fixed left-0 right-0 bottom-0 rounded-t-3xl max-h-[85vh] sm:max-h-none sm:rounded-2xl sm:absolute sm:left-auto sm:right-0 sm:bottom-auto sm:top-full sm:mt-3 sm:w-[400px] bg-[#141414] shadow-[0_-20px_60px_-10px_rgba(0,0,0,0.9)] sm:shadow-[0_25px_70px_-10px_rgba(0,0,0,0.9)] border border-white/[0.08] z-50 overflow-hidden flex flex-col"
             >
+              {/* Mobile drag handle */}
+              <div className="sm:hidden flex justify-center pt-2.5 pb-1 flex-shrink-0 bg-[#1f1f1f]">
+                <div className="w-10 h-1 rounded-full bg-white/20" />
+              </div>
               {/* Header — Netflix dark with red accent bar */}
               <div className="relative bg-gradient-to-b from-[#1f1f1f] to-[#141414] border-b border-white/[0.06]">
                 <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-[#e50914]" />
