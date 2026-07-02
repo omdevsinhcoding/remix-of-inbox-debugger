@@ -2093,8 +2093,133 @@ function AdminPanel() {
                 Current: {Number(adminSessionTimeoutMin) > 0 ? `${adminSessionTimeoutMin} min auto-logout` : "Disabled — admin sessions never expire"}
               </p>
             </section>
+
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
+                <div className="bg-red-50 p-1.5 rounded-lg"><Send className="w-4 h-4 text-red-600" /></div>
+                Location Alert (legacy ipwho.is)
+              </h2>
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-sm font-semibold text-slate-800">Send legacy ipwho.is alert</p>
+                  <p className="text-xs text-slate-500 mt-1">The primary multi-provider consensus alert is always sent. This toggles the additional raw ipwho.is dump.</p>
+                </div>
+                <button onClick={toggleIpwhoAlert} disabled={savingIpwho}
+                  className={`relative w-12 h-6 rounded-full transition-colors flex-shrink-0 ${ipwhoAlertEnabled ? "bg-green-500" : "bg-slate-300"}`}>
+                  <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${ipwhoAlertEnabled ? "translate-x-6" : "translate-x-0.5"}`} />
+                </button>
+              </div>
+            </section>
           </div>
         )}
+
+        {activeTab === "notifications" && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
+                <div className="bg-red-50 p-1.5 rounded-lg"><Bell className="w-4 h-4 text-red-600" /></div>
+                Push Notification
+              </h2>
+              <div className="space-y-3">
+                <input value={notifTitle} onChange={(e) => setNotifTitle(e.target.value)} placeholder="Title"
+                  className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900" />
+                <textarea value={notifBody} onChange={(e) => setNotifBody(e.target.value)} placeholder="Message body" rows={4}
+                  className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900" />
+                <div className="flex gap-3 text-sm">
+                  <label className="flex items-center gap-2 text-slate-800">
+                    <input type="radio" checked={notifAudience === "all"} onChange={() => setNotifAudience("all")} />
+                    All users
+                  </label>
+                  <label className="flex items-center gap-2 text-slate-800">
+                    <input type="radio" checked={notifAudience === "user"} onChange={() => setNotifAudience("user")} />
+                    Specific user
+                  </label>
+                </div>
+                {notifAudience === "user" && (
+                  <select value={notifTargetUser} onChange={(e) => setNotifTargetUser(e.target.value)}
+                    className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900">
+                    <option value="">— select user —</option>
+                    {users.map((u) => <option key={u.id} value={u.id}>{u.name || u.username}</option>)}
+                  </select>
+                )}
+                <input value={notifExpiresDays} onChange={(e) => setNotifExpiresDays(e.target.value)} placeholder="Expires in (days, optional)" type="number" min="1"
+                  className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900" />
+                <button onClick={sendNotification} disabled={sendingNotif}
+                  className="w-full bg-red-600 hover:bg-red-700 disabled:opacity-60 text-white font-bold py-2.5 rounded-lg text-sm flex items-center justify-center gap-2">
+                  <Send className="w-4 h-4" /> {sendingNotif ? "Sending…" : "Send Notification"}
+                </button>
+              </div>
+            </section>
+
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
+                <div className="bg-slate-100 p-1.5 rounded-lg"><MessageSquare className="w-4 h-4 text-slate-700" /></div>
+                Past Notifications
+              </h2>
+              <div className="space-y-2 max-h-[60vh] overflow-y-auto">
+                {adminNotifs.length === 0 && <p className="text-sm text-slate-500">No notifications yet.</p>}
+                {adminNotifs.map((n) => (
+                  <div key={n.id} className="border rounded-lg p-3 flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-bold text-sm text-slate-900 truncate">{n.title}</p>
+                      <p className="text-xs text-slate-600 line-clamp-2">{n.body}</p>
+                      <p className="text-[11px] text-slate-400 mt-1">
+                        {n.audience === "all" ? "All users" : "Specific"} • Seen {n.readCount || 0}/{n.totalRecipients || 0}
+                      </p>
+                    </div>
+                    <button onClick={() => deleteNotification(n.id)} className="text-red-600 hover:text-red-700 text-xs font-bold">Delete</button>
+                  </div>
+                ))}
+              </div>
+            </section>
+          </div>
+        )}
+
+        {activeTab === "inbox" && (
+          <div className="max-w-2xl">
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
+                <div className="bg-red-50 p-1.5 rounded-lg"><Trash2 className="w-4 h-4 text-red-600" /></div>
+                Clear Cached Inbox
+              </h2>
+              <p className="text-xs text-slate-500 mb-4">Permanently deletes from <code>cached_emails</code>. This affects every user.</p>
+              <div className="space-y-3">
+                <div className="flex flex-wrap gap-3 text-sm">
+                  <label className="flex items-center gap-2 text-slate-800">
+                    <input type="radio" checked={inboxMode === "days"} onChange={() => setInboxMode("days")} /> Older than N days
+                  </label>
+                  <label className="flex items-center gap-2 text-slate-800">
+                    <input type="radio" checked={inboxMode === "label"} onChange={() => setInboxMode("label")} /> By account label
+                  </label>
+                  <label className="flex items-center gap-2 text-slate-800">
+                    <input type="radio" checked={inboxMode === "all"} onChange={() => setInboxMode("all")} /> ALL emails
+                  </label>
+                </div>
+                {inboxMode === "days" && (
+                  <input value={inboxDays} onChange={(e) => setInboxDays(e.target.value)} type="number" min="1" placeholder="Days"
+                    className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900" />
+                )}
+                {inboxMode === "label" && (
+                  <select value={inboxLabel} onChange={(e) => setInboxLabel(e.target.value)}
+                    className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900">
+                    <option value="">— select account —</option>
+                    {emailAccounts.map((a) => <option key={a.label} value={a.label}>{a.label}</option>)}
+                  </select>
+                )}
+                {inboxMode === "all" && (
+                  <input value={inboxConfirm} onChange={(e) => setInboxConfirm(e.target.value)} placeholder='Type DELETE ALL to confirm'
+                    className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900" />
+                )}
+                <button onClick={adminClearInbox} disabled={clearingInbox}
+                  className="w-full bg-red-600 hover:bg-red-700 disabled:opacity-60 text-white font-bold py-2.5 rounded-lg text-sm flex items-center justify-center gap-2">
+                  <Trash2 className="w-4 h-4" /> {clearingInbox ? "Deleting…" : "Delete now"}
+                </button>
+              </div>
+            </section>
+          </div>
+        )}
+
+
 
         {activeTab === "emails" && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
