@@ -1287,6 +1287,20 @@ Deno.serve(async (req) => {
         if (efData?.value && typeof efData.value === "object") emailFilters = efData.value;
       } catch {}
 
+      let maintenance: any = { enabled: false };
+      try {
+        const { data: mData } = await supabase.from("app_settings").select("value").eq("key", "maintenance").single();
+        if (mData?.value && typeof mData.value === "object") {
+          maintenance = {
+            enabled: !!mData.value.enabled,
+            title: typeof mData.value.title === "string" ? mData.value.title : "",
+            message: typeof mData.value.message === "string" ? mData.value.message : "",
+            eta: typeof mData.value.eta === "string" ? mData.value.eta : "",
+            updated_at: mData.value.updated_at || null,
+          };
+        }
+      } catch {}
+
       const mappedUsers = (users || []).map((u: any) => ({
         id: u.id,
         username: u.username,
@@ -1294,10 +1308,11 @@ Deno.serve(async (req) => {
         role: u.role,
         profileAvatar: u.profile_prefs?.avatarId || null,
       }));
-      return new Response(JSON.stringify({ success: true, users: mappedUsers, recaptcha, workerUrls, emailFilters }), {
+      return new Response(JSON.stringify({ success: true, users: mappedUsers, recaptcha, workerUrls, emailFilters, maintenance }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
 
     if (action === "list") {
       // Admin dashboard only

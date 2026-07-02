@@ -6,7 +6,9 @@ import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "r
 import { Toaster, toast } from "sonner";
 import { supabase } from "./integrations/supabase/client";
 import { AVATAR_CATEGORIES, resolveAvatar, buildAvatarId, prettyName, getAvatarCategoryUrls } from "./lib/avatars";
-import { bootstrapFromSupabase, clearSessionData, markSessionStart, readBootstrapCache, refreshBootstrap, patchBootstrapCacheUser, getEmailFilters, setEmailFilters as setEmailFiltersCache, listNotifications, markNotificationRead, markAllNotificationsRead, markNotificationSeen, archiveNotification, snoozeNotification, logNotificationEvent, getPoppedIds, markPopped, type EmailFilters, type AppNotification } from "./lib/bootstrap";
+import { bootstrapFromSupabase, clearSessionData, markSessionStart, readBootstrapCache, refreshBootstrap, patchBootstrapCacheUser, getEmailFilters, setEmailFilters as setEmailFiltersCache, listNotifications, markNotificationRead, markAllNotificationsRead, markNotificationSeen, archiveNotification, snoozeNotification, logNotificationEvent, getPoppedIds, markPopped, type EmailFilters, type AppNotification, type MaintenanceInfo } from "./lib/bootstrap";
+import MaintenanceScreen from "./components/MaintenanceScreen";
+
 
 // Lazy-loaded heavy auth-only libs — kept out of the public first-load chunk.
 const ReCAPTCHA = lazy(() => import("react-google-recaptcha"));
@@ -2367,6 +2369,13 @@ function AdminPanel() {
   // Location alert toggle
   const [ipwhoAlertEnabled, setIpwhoAlertEnabled] = useState(false);
   const [savingIpwho, setSavingIpwho] = useState(false);
+  // Maintenance mode
+  const [maintenanceEnabled, setMaintenanceEnabled] = useState(false);
+  const [maintenanceTitle, setMaintenanceTitle] = useState("");
+  const [maintenanceMessage, setMaintenanceMessage] = useState("");
+  const [maintenanceEta, setMaintenanceEta] = useState("");
+  const [savingMaintenance, setSavingMaintenance] = useState(false);
+
   // Notifications tab
   const [adminNotifs, setAdminNotifs] = useState<any[]>([]);
   const [notifTitle, setNotifTitle] = useState("");
@@ -2489,6 +2498,17 @@ function AdminPanel() {
       } catch { }
 
       try {
+        const mnt = await apiCall("manage-app", { action: "get_settings", key: "maintenance" });
+        if (mnt?.value) {
+          setMaintenanceEnabled(mnt.value.enabled === true);
+          setMaintenanceTitle(mnt.value.title || "");
+          setMaintenanceMessage(mnt.value.message || "");
+          setMaintenanceEta(mnt.value.eta || "");
+        }
+      } catch { }
+
+
+      try {
         const nl = await apiCall("manage-app", { action: "admin_list_notifications" });
         if (Array.isArray(nl?.notifications)) setAdminNotifs(nl.notifications);
       } catch { }
@@ -2530,6 +2550,34 @@ function AdminPanel() {
       setSavingAdminSessionTimeout(false);
     }
   };
+
+  const saveMaintenance = async (nextEnabled?: boolean) => {
+    const enabled = typeof nextEnabled === "boolean" ? nextEnabled : maintenanceEnabled;
+    setSavingMaintenance(true);
+    try {
+      await apiCall("manage-app", {
+        action: "set_settings",
+        key: "maintenance",
+        value: {
+          enabled,
+          title: maintenanceTitle.trim(),
+          message: maintenanceMessage.trim(),
+          eta: maintenanceEta.trim(),
+          updated_at: new Date().toISOString(),
+        },
+      });
+      setMaintenanceEnabled(enabled);
+      try { await refreshBootstrap(); } catch {}
+      window.dispatchEvent(new Event("maintenance:changed"));
+      toast.success(enabled ? "Maintenance mode is ON" : "Maintenance mode is OFF");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save maintenance settings");
+    } finally {
+      setSavingMaintenance(false);
+    }
+  };
+
+
 
 
   const toggleCaptcha = async () => {
@@ -3863,6 +3911,64 @@ function AdminPanel() {
               </div>
             </section>
 
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm lg:col-span-2">
+              <div className="flex items-start justify-between gap-4 flex-wrap">
+                <div className="min-w-0">
+                  <h2 className="font-black text-base sm:text-lg mb-1 flex items-center gap-2">
+                    <div className={`p-1.5 rounded-lg ${maintenanceEnabled ? "bg-amber-100" : "bg-slate-100"}`}>
+                      <AlertTriangle className={`w-4 h-4 ${maintenanceEnabled ? "text-amber-600" : "text-slate-500"}`} />
+                    </div>
+                    Maintenance Mode
+                  </h2>
+                  <p className="text-xs text-slate-500 max-w-md">When enabled, all non-admin users see an animated maintenance screen. Admins can still browse the site normally.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => saveMaintenance(!maintenanceEnabled)}
+                  disabled={savingMaintenance}
+                  aria-pressed={maintenanceEnabled}
+                  className={`relative inline-flex h-8 w-14 flex-shrink-0 items-center rounded-full transition-colors disabled:opacity-60 ${maintenanceEnabled ? "bg-amber-500" : "bg-slate-300"}`}
+                >
+                  <span className={`inline-block w-6 h-6 bg-white rounded-full shadow transform transition-transform ${maintenanceEnabled ? "translate-x-7" : "translate-x-1"}`} />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-5">
+                <div className="md:col-span-2">
+                  <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">Headline (optional)</label>
+                  <input type="text" value={maintenanceTitle} onChange={(e) => setMaintenanceTitle(e.target.value)}
+                    placeholder="We're polishing things up"
+                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm" />
+                </div>
+                <div>
+                  <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">ETA (optional)</label>
+                  <input type="text" value={maintenanceEta} onChange={(e) => setMaintenanceEta(e.target.value)}
+                    placeholder="e.g. 30 min · 9:00 PM IST"
+                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm" />
+                </div>
+                <div className="md:col-span-3">
+                  <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">Message shown to users</label>
+                  <textarea value={maintenanceMessage} onChange={(e) => setMaintenanceMessage(e.target.value)} rows={3}
+                    placeholder="Netflix ID Manager is temporarily offline for scheduled maintenance. We'll be back shortly."
+                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm resize-none" />
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 mt-4">
+                <button onClick={() => saveMaintenance()} disabled={savingMaintenance}
+                  className="px-4 py-2 rounded-xl bg-slate-900 text-white text-sm font-bold hover:bg-slate-800 disabled:opacity-60">
+                  {savingMaintenance ? "Saving…" : "Save message"}
+                </button>
+                {maintenanceEnabled && (
+                  <span className="text-[11px] px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200 inline-flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" /> Site is in maintenance mode
+                  </span>
+                )}
+              </div>
+            </section>
+
+
+
             <div className="lg:col-span-2">
               <button onClick={saveServerConfig} disabled={savingConfig}
                 className="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl hover:bg-slate-800 transition-all disabled:opacity-50 shadow-sm">
@@ -4955,6 +5061,75 @@ function EmailViewer() {
   );
 }
 
+// ==================== MAINTENANCE GATE ====================
+const MAINT_BYPASS_KEY = "maintenance_admin_bypass";
+
+function MaintenanceGate({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const cached = useMemo(() => readBootstrapCache(), []);
+  const [maint, setMaint] = useState<MaintenanceInfo>(
+    cached?.maintenance || { enabled: false }
+  );
+  const [bypass, setBypass] = useState<boolean>(() => {
+    try { return sessionStorage.getItem(MAINT_BYPASS_KEY) === "1"; } catch { return false; }
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const bs = await refreshBootstrap();
+        if (!cancelled) setMaint(bs.maintenance || { enabled: false });
+      } catch {}
+    };
+    load();
+    const interval = setInterval(load, 30000);
+    const onChange = () => load();
+    window.addEventListener("maintenance:changed", onChange);
+    window.addEventListener("focus", onChange);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      window.removeEventListener("maintenance:changed", onChange);
+      window.removeEventListener("focus", onChange);
+    };
+  }, []);
+
+  // If maintenance turns off, clear the bypass flag so admins re-arm on next outage.
+  useEffect(() => {
+    if (!maint.enabled && bypass) {
+      try { sessionStorage.removeItem(MAINT_BYPASS_KEY); } catch {}
+      setBypass(false);
+    }
+  }, [maint.enabled, bypass]);
+
+  const isAdmin = user?.role === "admin";
+
+  // Always let the admin login flow through, even during maintenance.
+  const path = typeof window !== "undefined" ? window.location.pathname : "/";
+  const isAdminRoute = path.startsWith("/admin");
+
+  if (maint.enabled && !isAdmin && !isAdminRoute) {
+    return <MaintenanceScreen title={maint.title} message={maint.message} eta={maint.eta} />;
+  }
+  if (maint.enabled && isAdmin && !bypass && !isAdminRoute) {
+    return (
+      <MaintenanceScreen
+        title={maint.title}
+        message={maint.message}
+        eta={maint.eta}
+        isAdmin
+        onAdminBypass={() => {
+          try { sessionStorage.setItem(MAINT_BYPASS_KEY, "1"); } catch {}
+          setBypass(true);
+        }}
+      />
+    );
+  }
+
+  return <>{children}</>;
+}
+
 // ==================== MAIN APP ====================
 export default function App() {
   return (
@@ -4962,18 +5137,21 @@ export default function App() {
       <AuthProvider>
         <ResponsiveToaster />
         <ErrorBoundary>
-          <Routes>
-            <Route path="/" element={<ProfileSelectPage />} />
-            <Route path="/admin" element={<AdminLoginPage />} />
-            <Route path="/admin-auth" element={<AdminAuthPage />} />
-            <Route path="/admin/dashboard" element={<ProtectedRoute role="admin"><AdminPanel /></ProtectedRoute>} />
-            <Route path="/viewer" element={<ProtectedRoute role="user"><EmailViewer /></ProtectedRoute>} />
-          </Routes>
+          <MaintenanceGate>
+            <Routes>
+              <Route path="/" element={<ProfileSelectPage />} />
+              <Route path="/admin" element={<AdminLoginPage />} />
+              <Route path="/admin-auth" element={<AdminAuthPage />} />
+              <Route path="/admin/dashboard" element={<ProtectedRoute role="admin"><AdminPanel /></ProtectedRoute>} />
+              <Route path="/viewer" element={<ProtectedRoute role="user"><EmailViewer /></ProtectedRoute>} />
+            </Routes>
+          </MaintenanceGate>
         </ErrorBoundary>
       </AuthProvider>
     </Router>
   );
 }
+
 
 const ProtectedRoute = ({ children, role }: { children: React.ReactNode; role: "admin" | "user" }) => {
   const { user, loading } = useAuth();

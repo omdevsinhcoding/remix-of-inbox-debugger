@@ -6,7 +6,9 @@ const BOOTSTRAP_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const BOOTSTRAP_TIMEOUT_MS = 8000;
 
 export type EmailFilters = { showSignInCodes?: boolean; showPasswordResets?: boolean; showAccountUpdates?: boolean };
-export type BootstrapResult = { users: any[]; recaptcha: any; workerUrls: string[]; emailFilters?: EmailFilters };
+export type MaintenanceInfo = { enabled: boolean; title?: string; message?: string; eta?: string; updated_at?: string | null };
+export type BootstrapResult = { users: any[]; recaptcha: any; workerUrls: string[]; emailFilters?: EmailFilters; maintenance?: MaintenanceInfo };
+
 
 // Module-level filter cache — read synchronously by filterVisibleEmails.
 let currentEmailFilters: EmailFilters = { showSignInCodes: true, showPasswordResets: false, showAccountUpdates: false };
@@ -70,7 +72,7 @@ export function readBootstrapCache(): BootstrapResult | null {
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return null;
     if (!parsed.savedAt || Date.now() - parsed.savedAt > BOOTSTRAP_CACHE_TTL_MS) return null;
-    return { users: parsed.users || [], recaptcha: parsed.recaptcha, workerUrls: parsed.workerUrls || [], emailFilters: parsed.emailFilters };
+    return { users: parsed.users || [], recaptcha: parsed.recaptcha, workerUrls: parsed.workerUrls || [], emailFilters: parsed.emailFilters, maintenance: parsed.maintenance };
   } catch { return null; }
 }
 
@@ -99,11 +101,12 @@ export async function bootstrapFromSupabase(): Promise<BootstrapResult> {
     storeWorkerUrls(data.workerUrls);
   }
 
-  const result: BootstrapResult = { users: data.users || [], recaptcha: data.recaptcha, workerUrls: data.workerUrls || [], emailFilters: data.emailFilters || {} };
+  const result: BootstrapResult = { users: data.users || [], recaptcha: data.recaptcha, workerUrls: data.workerUrls || [], emailFilters: data.emailFilters || {}, maintenance: data.maintenance || { enabled: false } };
   if (data.emailFilters && typeof data.emailFilters === "object") setEmailFilters(data.emailFilters);
   writeBootstrapCache(result);
   return result;
 }
+
 
 export const bootstrapPromise: Promise<BootstrapResult> = bootstrapFromSupabase().catch((err) => {
   console.warn("[bootstrap] prefetch failed:", err);
