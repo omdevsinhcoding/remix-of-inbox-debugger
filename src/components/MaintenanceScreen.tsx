@@ -304,12 +304,17 @@ export default function MaintenanceScreen({ title, message, endsAt, versionFrom,
 
             {/* Meta row */}
             <div className="mt-6 flex flex-wrap items-center gap-2.5">
-              {eta && (
-                <div className="inline-flex items-center gap-2 text-white/80 text-[12.5px] bg-white/[0.05] border border-white/[0.08] rounded-lg px-3 py-1.5">
+              {endsValid && (
+                <div className="inline-flex items-center gap-2 text-white/85 text-[12.5px] bg-white/[0.05] border border-white/[0.08] rounded-lg px-3 py-1.5">
                   <Clock className="w-3.5 h-3.5 text-[#e50914]" />
-                  <span>Back around <span className="text-white font-medium">{eta}</span></span>
+                  <span>
+                    Back at <span className="text-white font-semibold">{backAtLabel}</span>
+                    <span className="text-white/45"> · in </span>
+                    <span className="text-white font-semibold tabular-nums">{countdownLabel}</span>
+                  </span>
                 </div>
               )}
+
               <div className="inline-flex items-center gap-2 text-white/60 text-[12.5px] bg-white/[0.03] border border-white/[0.08] rounded-lg px-3 py-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
                 <span>No action needed from you</span>
