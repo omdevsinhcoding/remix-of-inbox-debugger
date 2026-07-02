@@ -2427,6 +2427,39 @@ Deno.serve(async (req) => {
       });
     }
 
+    if (action === "admin_update_notification") {
+      const session = await requireAdmin(req);
+      const p = params as any;
+      if (!p?.id) throw new Error("id required");
+      const patch: Record<string, any> = {};
+      if (typeof p.title === "string") patch.title = p.title.slice(0, 200);
+      if (typeof p.body === "string") patch.body = p.body.slice(0, 4000);
+      if ("description" in p) patch.description = p.description ? String(p.description).slice(0, 8000) : null;
+      if ("image_url" in p) patch.image_url = p.image_url ? String(p.image_url).slice(0, 2048) : null;
+      if ("action_url" in p) patch.action_url = p.action_url ? String(p.action_url).slice(0, 2048) : null;
+      if ("action_label" in p) patch.action_label = p.action_label ? String(p.action_label).slice(0, 80) : null;
+      if ("platform_icon" in p) patch.platform_icon = p.platform_icon ? String(p.platform_icon).slice(0, 40) : null;
+      if ("locked" in p) patch.locked = !!p.locked;
+      if (p.category && ["announcement","update","security","maintenance","promo","billing"].includes(p.category)) patch.category = p.category;
+      if (p.priority && ["low","normal","high","critical"].includes(p.priority)) patch.priority = p.priority;
+      if (p.show_frequency && ["once","always","session","daily"].includes(p.show_frequency)) patch.show_frequency = p.show_frequency;
+      if (p.mode && ["popup","silent","banner"].includes(p.mode)) patch.mode = p.mode;
+      if (p.audience && ["all","user"].includes(p.audience)) patch.audience = p.audience;
+      if ("target_user_id" in p) patch.target_user_id = p.target_user_id || null;
+      if ("expiresInDays" in p) {
+        patch.expires_at = p.expiresInDays && Number(p.expiresInDays) > 0
+          ? new Date(Date.now() + Number(p.expiresInDays) * 86400_000).toISOString()
+          : null;
+      }
+      if (Object.keys(patch).length === 0) throw new Error("Nothing to update");
+      const { error } = await supabase.from("notifications").update(patch).eq("id", p.id);
+      if (error) throw error;
+      await auditLog(supabase, "notification_updated", session.userId, p.id, { fields: Object.keys(patch) }, ip);
+      return new Response(JSON.stringify({ success: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
 
     if (action === "list_login_events") {
       await requireAdmin(req);
