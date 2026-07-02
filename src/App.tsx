@@ -107,14 +107,14 @@ const PlatformChipVisual: React.FC<{ id: string; size?: number }> = ({ id, size 
   const p = PLATFORM_OPTIONS.find((x) => x.id === id);
   const bg = p?.color || "#7c3aed";
   const iconSize = Math.round(size * 0.55);
-  const svgIcon = PlatformIcon({ id, className: "" });
+  const svgIcon = PlatformIcon({ id, className: "" }) as React.ReactElement<any> | null;
   return (
     <div
       className="rounded-full flex items-center justify-center text-white shadow-md font-black leading-none shrink-0"
       style={{ width: size, height: size, background: bg, fontSize: Math.round(size * 0.38) }}
     >
       {svgIcon
-        ? React.cloneElement(svgIcon as React.ReactElement, {
+        ? React.cloneElement(svgIcon, {
             style: { width: iconSize, height: iconSize },
             className: "",
           })
