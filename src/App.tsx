@@ -2283,6 +2283,24 @@ function AdminAuthPage() {
     void verifyTotp(normalizedTotp);
   };
 
+  const handleOtpInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    e.stopPropagation();
+    const normalizedOtp = e.currentTarget.value.replace(/\D/g, "").slice(0, 6);
+    if (normalizedOtp !== otp) setOtp(normalizedOtp);
+    void verifyTelegramOtp(normalizedOtp);
+  };
+
+  const handleTotpInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    e.stopPropagation();
+    const normalizedTotp = e.currentTarget.value.replace(/\D/g, "").slice(0, 6);
+    if (normalizedTotp !== totp) setTotp(normalizedTotp);
+    void verifyTotp(normalizedTotp);
+  };
+
   return (
     <div className="min-h-[100dvh] bg-slate-950 flex items-center justify-center px-4 py-6 pt-[calc(env(safe-area-inset-top)+1rem)] relative overflow-hidden">
       <div className="absolute inset-0 bg-[linear-gradient(to_right,#4f4f4f2e_1px,transparent_1px),linear-gradient(to_bottom,#4f4f4f2e_1px,transparent_1px)] bg-[size:14px_24px] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_0%,#000_70%,transparent_100%)]" />
@@ -2305,18 +2323,18 @@ function AdminAuthPage() {
         </p>
 
         {step === 1 ? (
-          <form onSubmit={handleTelegramOtpSubmit} className="space-y-6">
-            <input name="telegramOtp" type="text" inputMode="numeric" autoComplete="one-time-code" autoFocus value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+          <form onSubmit={handleTelegramOtpSubmit} className="space-y-6" noValidate>
+            <input name="telegramOtp" type="text" inputMode="numeric" autoComplete="one-time-code" autoFocus value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))} onKeyDown={handleOtpInputKeyDown}
               className="w-full bg-slate-950 border border-slate-800 text-white text-center tracking-[0.75em] font-mono text-2xl rounded-2xl py-5 focus:ring-2 focus:ring-red-500 outline-none placeholder:tracking-normal placeholder:text-sm placeholder:text-slate-600"
               placeholder="••••••" maxLength={6} />
-            <button type="submit" disabled={loading || otp.length < 6}
+            <button type="submit" disabled={loading}
               className="w-full bg-gradient-to-r from-red-600 to-red-700 text-white font-bold py-4 rounded-2xl hover:from-red-500 hover:to-red-600 shadow-lg shadow-red-900/20 transition-all active:scale-[0.98] disabled:opacity-50">
               {loading ? "Verifying..." : "Verify Telegram OTP"}
             </button>
             {error && <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-xs p-4 rounded-xl text-center">{error}</div>}
           </form>
         ) : (
-          <form onSubmit={handleTotpSubmit} className="space-y-6">
+          <form onSubmit={handleTotpSubmit} className="space-y-6" noValidate>
             {qrCode && (
               <div className="flex flex-col items-center bg-slate-950 p-6 rounded-2xl border border-slate-800">
                 <p className="text-xs font-bold text-slate-400 uppercase mb-4">Scan with Google Authenticator</p>
@@ -2338,10 +2356,10 @@ function AdminAuthPage() {
                 </div>
               </div>
             )}
-            <input name="totpCode" type="text" inputMode="numeric" autoComplete="one-time-code" autoFocus value={totp} onChange={(e) => setTotp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+            <input name="totpCode" type="text" inputMode="numeric" autoComplete="one-time-code" autoFocus value={totp} onChange={(e) => setTotp(e.target.value.replace(/\D/g, "").slice(0, 6))} onKeyDown={handleTotpInputKeyDown}
               className="w-full bg-slate-950 border border-slate-800 text-white text-center tracking-[0.75em] font-mono text-2xl rounded-2xl py-5 focus:ring-2 focus:ring-red-500 outline-none placeholder:tracking-normal placeholder:text-sm placeholder:text-slate-600"
               placeholder="••••••" maxLength={6} />
-            <button type="submit" disabled={loading || totp.length < 6}
+            <button type="submit" disabled={loading}
               className="w-full bg-gradient-to-r from-red-600 to-red-700 text-white font-bold py-4 rounded-2xl hover:from-red-500 hover:to-red-600 shadow-lg shadow-red-900/20 transition-all active:scale-[0.98] disabled:opacity-50">
               {loading ? "Verifying..." : "Verify & Enter Admin"}
             </button>
