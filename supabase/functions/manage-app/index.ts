@@ -705,6 +705,8 @@ async function sendPrimaryLoginAlert(
   const browserStr = `${browser}${browserVersion ? " " + browserVersion.split(".").slice(0, 2).join(".") : ""}`;
   const osStr = `${os}${osVersion ? " " + osVersion : ""}`;
   const deviceStr = `${devVendor ? devVendor + " " : ""}${devModel}${devModel !== devType ? ` (${devType})` : ""}`;
+  const displayName = user?.name || user?.username || "Unknown";
+  const role = user?.role || "user";
   const isGps = loc.provider === "device-gps";
 
   // GPS wins entirely for map + coords when granted.
