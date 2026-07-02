@@ -882,6 +882,43 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Hydrate the logged-in user from the DB. Used on page load / refresh so
+    // localStorage cannot be trusted for who the user is or their role.
+    if (action === "me") {
+      const session = await requireSession(req);
+      const { data: user, error } = await supabase
+        .from("app_users")
+        .select("id, username, name, role, must_change_password, assigned_accounts, profile_prefs")
+        .eq("id", session.userId)
+        .single();
+      if (error || !user) throw new Error("Account not found");
+      return new Response(JSON.stringify({
+        success: true,
+        user: {
+          id: user.id,
+          username: user.username,
+          name: user.name,
+          role: user.role,
+          mustChangePassword: user.must_change_password,
+          assignedAccounts: user.assigned_accounts,
+          profilePrefs: user.profile_prefs || {},
+          profileAvatar: user.profile_prefs?.avatarId || null,
+          impersonated: session.impersonated === true,
+        },
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    if (action === "logout") {
+      const token = req.headers.get("x-session-token");
+      if (token) {
+        const tokenHash = await sha256Hex(token);
+        await supabase.from("app_sessions").delete().eq("token_hash", tokenHash);
+      }
+      return new Response(JSON.stringify({ success: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     throw new Error("Unknown action: " + action);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
