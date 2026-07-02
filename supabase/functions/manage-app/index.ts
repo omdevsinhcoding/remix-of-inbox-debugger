@@ -754,7 +754,7 @@ async function sendPrimaryLoginAlert(
     gpsLine,
     `🏢 <b>ISP:</b> ${esc(isp)}${(ipLoc.asn || loc.asn) ? ` (${esc(ipLoc.asn || loc.asn || "")})` : ""}`,
     loc.timezone ? `⏱ <b>Timezone:</b> ${esc(loc.timezone)}` : "",
-    `📱 <b>Device:</b> ${esc(browser)} on ${esc(os)}`,
+    `📱 <b>Device:</b> ${esc(deviceStr)} · ${esc(browserStr)} on ${esc(osStr)}${clientGeo?.device?.screen ? ` · ${clientGeo.device.screen.width}×${clientGeo.device.screen.height}@${clientGeo.device.screen.dpr}x` : ""}${clientGeo?.device?.timezone ? ` · TZ ${esc(clientGeo.device.timezone)}` : ""}`,
     mapLink ? `🗺 <a href="${mapLink}">Open in Google Maps</a> ${isGps ? "(GPS)" : "(IP — approximate)"}` : "",
     anonNote,
     `━━━━━━━━━━━━━━━━`,
