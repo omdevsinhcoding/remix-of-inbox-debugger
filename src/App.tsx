@@ -1333,7 +1333,6 @@ function groupByDate(list: AppNotification[]) {
   const startYest = startToday - 86400_000;
   const startWeek = startToday - 6 * 86400_000;
   const buckets: { label: string; rows: AppNotification[] }[] = [
-    { label: "Pinned", rows: [] },
     { label: "Today", rows: [] },
     { label: "Yesterday", rows: [] },
     { label: "This week", rows: [] },
@@ -1341,11 +1340,10 @@ function groupByDate(list: AppNotification[]) {
   ];
   for (const n of list) {
     const t = new Date(n.created_at).getTime();
-    if (n.pinned) buckets[0].rows.push(n);
-    else if (t >= startToday) buckets[1].rows.push(n);
-    else if (t >= startYest) buckets[2].rows.push(n);
-    else if (t >= startWeek) buckets[3].rows.push(n);
-    else buckets[4].rows.push(n);
+    if (t >= startToday) buckets[0].rows.push(n);
+    else if (t >= startYest) buckets[1].rows.push(n);
+    else if (t >= startWeek) buckets[2].rows.push(n);
+    else buckets[3].rows.push(n);
   }
   return buckets.filter((b) => b.rows.length);
 }
