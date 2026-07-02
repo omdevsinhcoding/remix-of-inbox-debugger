@@ -432,9 +432,9 @@ function loadAvatarUrl(url: string): Promise<void> {
   return promise;
 }
 
-function preloadAvatarUrls(urls: string[], maxWaitMs = 6000): Promise<void> {
+function preloadAvatarUrls(urls: string[], maxWaitMs = 6000, priority: "high" | "low" = "high"): Promise<void> {
   if (urls.length === 0) return Promise.resolve();
-  warmAvatarUrls(urls, "high");
+  warmAvatarUrls(urls, priority);
   return Promise.race([
     Promise.allSettled(urls.map(loadAvatarUrl)).then(() => undefined),
     new Promise<void>((resolve) => window.setTimeout(resolve, maxWaitMs)),
@@ -451,8 +451,8 @@ function warmAvatarCategory(categoryKey: string, priority: "high" | "low" = "low
   warmAvatarUrls(getAvatarCategoryUrls(categoryKey), priority);
 }
 
-function preloadAvatarCategory(categoryKey: string, maxWaitMs?: number) {
-  return preloadAvatarUrls(getAvatarCategoryUrls(categoryKey), maxWaitMs);
+function preloadAvatarCategory(categoryKey: string, maxWaitMs?: number, priority: "high" | "low" = "high") {
+  return preloadAvatarUrls(getAvatarCategoryUrls(categoryKey), maxWaitMs, priority);
 }
 
 
@@ -2302,7 +2302,7 @@ function AvatarPicker({
       for (const category of ordered) {
         if (cancelled) return;
         warmAvatarCategory(category.key, "low");
-        await preloadAvatarCategory(category.key, 1200);
+        await preloadAvatarCategory(category.key, 1200, "low");
         await new Promise((resolve) => window.setTimeout(resolve, 120));
       }
     };
