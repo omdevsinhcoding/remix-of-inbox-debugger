@@ -814,6 +814,7 @@ Deno.serve(async (req) => {
         .single();
       if (error || !targetUser) throw new Error("User not found");
 
+      const expMs = Date.now() + 30 * 60 * 1000;
       const impersonatePayload = {
         userId: targetUser.id,
         username: targetUser.username,
@@ -821,9 +822,10 @@ Deno.serve(async (req) => {
         assignedAccounts: targetUser.assigned_accounts || null,
         impersonated: true,
         adminId: session.userId,
-        exp: Date.now() + 30 * 60 * 1000,
+        exp: expMs,
       };
       const token = await createSessionToken(impersonatePayload, SESSION_SECRET);
+      await persistSession(targetUser.id, "user", token, expMs);
 
       await auditLog(supabase, "impersonate", session.userId, targetUser.id, { targetUsername: targetUser.username }, ip);
 
