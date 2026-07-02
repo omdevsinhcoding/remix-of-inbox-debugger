@@ -985,7 +985,7 @@ function AutoPopupNotification() {
 }
 
 // ---------- Full Notification Center (unified popup: mobile sheet + desktop modal) ----------
-type Tab = "all" | "unread" | "pinned" | "archived";
+type Tab = "all" | "unread";
 
 function NotificationCenter({ open, onClose, initialId, items, loading, onChange }: {
   open: boolean;
