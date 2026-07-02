@@ -757,28 +757,53 @@ function ProfileSelectPage() {
               Select your profile to continue
             </motion.p>
 
-            {displayProfiles.length === 0 ? (
-              <div className="text-center py-12">
-                <p className="text-slate-500 text-sm">{loading ? "Loading profiles…" : "No profiles yet. Ask admin to create users."}</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 sm:gap-5 justify-items-center px-2">
-                {displayProfiles.map((profile, i) => (
-                  <motion.button key={profile.id}
-                    initial={fromCache ? false : { opacity: 0, scale: 0.8 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    transition={fromCache ? { duration: 0 } : { delay: 0.1 + i * 0.04 }}
-                    whileHover={{ scale: 1.08, y: -4 }} whileTap={{ scale: 0.92 }}
-                    onClick={() => setSelectedProfile(profile)}
-                    className="flex flex-col items-center gap-2 sm:gap-3 group w-full max-w-[100px] sm:max-w-[120px]">
-                    <div className="group-hover:shadow-xl group-hover:ring-2 group-hover:ring-white/40 rounded-xl sm:rounded-2xl transition-all duration-200">
-                      <ProfileAvatar avatarId={profile.profileAvatar} name={profile.name} className="w-16 h-16 sm:w-24 sm:h-24" fallbackColor={PROFILE_COLORS[i % PROFILE_COLORS.length]} eager />
-                    </div>
-                    <span className="text-slate-400 font-semibold text-[11px] sm:text-sm group-hover:text-white transition-colors duration-200 truncate w-full text-center">{profile.name}</span>
-                  </motion.button>
-                ))}
+            {profiles.length > 6 && (
+              <div className="relative mb-4 sm:mb-6 max-w-md mx-auto px-2">
+                <Search className="absolute left-6 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
+                <input
+                  type="text"
+                  value={profileSearch}
+                  onChange={(e) => setProfileSearch(e.target.value)}
+                  placeholder={`Search ${profiles.length} profiles…`}
+                  className="w-full bg-slate-900/70 backdrop-blur-sm border border-slate-700/60 text-white text-sm rounded-full pl-10 pr-10 py-2.5 outline-none focus:ring-2 focus:ring-red-500/70 focus:border-red-500/30 placeholder:text-slate-500"
+                />
+                {profileSearch && (
+                  <button onClick={() => setProfileSearch("")}
+                    className="absolute right-5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white p-1">
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
               </div>
             )}
+            {displayProfiles.length === 0 ? (
+              <div className="text-center py-12">
+                <p className="text-slate-500 text-sm">
+                  {loading ? "Loading profiles…" : profileSearch ? `No profiles match "${profileSearch}"` : "No profiles yet. Ask admin to create users."}
+                </p>
+              </div>
+            ) : (
+              <div
+                className="overflow-y-auto overscroll-contain px-2 pb-2 max-h-[60vh] sm:max-h-[62vh] scroll-smooth [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-slate-700/60 [&::-webkit-scrollbar-thumb]:rounded-full"
+              >
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 sm:gap-5 justify-items-center">
+                  {displayProfiles.map((profile, i) => (
+                    <motion.button key={profile.id}
+                      initial={fromCache ? false : { opacity: 0, scale: 0.8 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={fromCache ? { duration: 0 } : { delay: Math.min(0.1 + i * 0.02, 0.6) }}
+                      whileHover={{ scale: 1.08, y: -4 }} whileTap={{ scale: 0.92 }}
+                      onClick={() => setSelectedProfile(profile)}
+                      className="flex flex-col items-center gap-2 sm:gap-3 group w-full max-w-[100px] sm:max-w-[120px]">
+                      <div className="group-hover:shadow-xl group-hover:ring-2 group-hover:ring-white/40 rounded-xl sm:rounded-2xl transition-all duration-200">
+                        <ProfileAvatar avatarId={profile.profileAvatar} name={profile.name} className="w-16 h-16 sm:w-24 sm:h-24" fallbackColor={PROFILE_COLORS[i % PROFILE_COLORS.length]} eager />
+                      </div>
+                      <span className="text-slate-400 font-semibold text-[11px] sm:text-sm group-hover:text-white transition-colors duration-200 truncate w-full text-center">{profile.name}</span>
+                    </motion.button>
+                  ))}
+                </div>
+              </div>
+            )}
+
           </motion.div>
         ) : (
           <motion.div key="password" initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
