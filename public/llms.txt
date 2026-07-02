@@ -1,0 +1,10 @@
+# Netflix Mail
+
+> Fast, private inbox viewer for shared Netflix login codes and household verification prompts.
+
+Netflix Mail is a lightweight web app that lets trusted household members quickly view sign-in codes, OTPs, and household verification emails sent to a shared Netflix account inbox — without exposing the underlying mailbox credentials.
+
+## Pages
+
+- [Home](/): Profile selection and secure code viewer entry point.
+- [Netflix Household Verification Guide](/guides/netflix-household-verification): Detailed walkthrough of Netflix's "Whose TV is this?" prompts, 7-day travel codes, and household management.
