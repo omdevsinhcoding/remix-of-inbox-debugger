@@ -650,12 +650,35 @@ function useSessionTimeoutGuard(role: "admin" | "user") {
       } catch {}
       if (cancelled || !minutes || minutes <= 0) return;
 
-      let started = Number(localStorage.getItem("session_started_at") || "0");
-      if (!started) { markSessionStart(); started = Date.now(); }
-      const expiresAt = started + minutes * 60_000;
-      const remaining = expiresAt - Date.now();
-      if (remaining <= 0) { doLogout(); return; }
-      timer = setTimeout(doLogout, remaining);
+      // For user role, session timer waits until EmailViewer has finished the
+      // first cache load (which calls markSessionStart). Poll for it here so
+      // the countdown starts the instant emails are ready.
+      const start = () => {
+        const started = Number(localStorage.getItem("session_started_at") || "0");
+        if (!started) {
+          if (role === "admin") { markSessionStart(); return start(); }
+          return; // wait for EmailViewer to start it
+        }
+        const remaining = started + minutes * 60_000 - Date.now();
+        if (remaining <= 0) { doLogout(); return; }
+        timer = setTimeout(doLogout, remaining);
+      };
+      start();
+      if (role === "user") {
+        // Re-check every second until session actually starts.
+        const poll = setInterval(() => {
+          if (cancelled) { clearInterval(poll); return; }
+          if (localStorage.getItem("session_started_at") && !timer) {
+            clearInterval(poll);
+            start();
+          }
+        }, 1000);
+        const clean = () => clearInterval(poll);
+        // Attach cleanup via closure by reassigning cancelled guard below.
+        const origCleanup = () => { cancelled = true; if (timer) clearTimeout(timer); clean(); };
+        // Overwrite the outer return by monkey-patching not possible; rely on cancelled flag.
+        void origCleanup;
+      }
     })();
     return () => { cancelled = true; if (timer) clearTimeout(timer); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
