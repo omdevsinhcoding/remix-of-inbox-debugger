@@ -1828,19 +1828,20 @@ function ProfileSelectPage() {
           {/* Premium OTP pill — baseline-aligned with the logo */}
           <span
             aria-label="OTP"
-            className="relative inline-flex items-center gap-1.5 rounded-[6px] px-2 py-[3px] sm:px-2.5 sm:py-[4px] text-[9px] sm:text-[10px] font-extrabold tracking-[0.28em] uppercase text-white whitespace-nowrap mb-[2px] sm:mb-[3px]"
+            className="relative inline-flex items-center gap-1.5 rounded-full pl-2 pr-2.5 sm:pl-2.5 sm:pr-3 py-[3px] sm:py-[4px] text-[10px] sm:text-[11px] font-bold tracking-[0.32em] uppercase whitespace-nowrap mb-[3px] sm:mb-[4px]"
             style={{
               background:
-                "linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0) 55%), linear-gradient(135deg, #ff2733 0%, #e50914 45%, #8b0710 100%)",
-              border: "1px solid rgba(255,255,255,0.18)",
+                "linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0) 60%), #0b0b0b",
+              border: "1px solid rgba(229,9,20,0.55)",
+              color: "#ffe6e8",
               boxShadow:
-                "0 6px 16px -6px rgba(229,9,20,0.7), 0 0 0 1px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.28), inset 0 -1px 0 rgba(0,0,0,0.35)",
-              textShadow: "0 1px 0 rgba(0,0,0,0.35)",
+                "0 0 0 1px rgba(0,0,0,0.6), 0 6px 18px -8px rgba(229,9,20,0.75), inset 0 0 12px rgba(229,9,20,0.18)",
+              textShadow: "0 0 8px rgba(229,9,20,0.5)",
             }}
           >
             <span
-              className="w-[4px] h-[4px] rounded-full bg-white"
-              style={{ boxShadow: "0 0 6px rgba(255,255,255,0.95), 0 0 12px rgba(255,120,120,0.7)" }}
+              className="w-[5px] h-[5px] rounded-full bg-[#e50914] animate-pulse"
+              style={{ boxShadow: "0 0 6px #e50914, 0 0 12px rgba(229,9,20,0.85)" }}
             />
             OTP
           </span>
