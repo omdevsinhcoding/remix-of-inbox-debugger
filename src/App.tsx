@@ -5754,15 +5754,18 @@ function EmailViewer() {
               <RefreshCw className={`w-4 h-4 sm:w-5 sm:h-5 ${refreshing ? "animate-spin" : ""}`} />
               <span className="hidden sm:inline ml-1.5">Refresh</span>
             </button>
-            <button
-              onClick={() => setShowDiag(true)}
-              title="Refresh diagnostics"
-              aria-label="Refresh diagnostics"
-              className="relative flex items-center justify-center p-2 sm:p-2.5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors"
-            >
-              <Info className="w-4 h-4 sm:w-5 sm:h-5" />
-              {refreshing && <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-amber-500 rounded-full animate-pulse" />}
-            </button>
+            {isImpersonating && (
+              <button
+                onClick={() => setShowDiag(true)}
+                title="Refresh diagnostics (admin only)"
+                aria-label="Refresh diagnostics"
+                className="relative flex items-center justify-center p-2 sm:p-2.5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors"
+              >
+                <Info className="w-4 h-4 sm:w-5 sm:h-5" />
+                {refreshing && <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-amber-500 rounded-full animate-pulse" />}
+              </button>
+            )}
+
 
 
             {!isImpersonating && (
