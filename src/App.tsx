@@ -2492,6 +2492,10 @@ function AdminPanel() {
           </div>
         )}
 
+        {activeTab === "logins" && (
+          <LoginEventsPanel />
+        )}
+
         {activeTab === "notifications" && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
             <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
