@@ -1195,7 +1195,13 @@ Deno.serve(async (req) => {
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
   );
 
-  const SESSION_SECRET = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  // F5: split signing key (session tokens) from encryption key (IMAP passwords).
+  // ENCRYPTION_SECRET must remain SUPABASE_SERVICE_ROLE_KEY so existing AES-GCM
+  // ciphertexts in app_settings.email_accounts can still be decrypted.
+  const ENCRYPTION_SECRET = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const SIGNING_SECRET = Deno.env.get("SESSION_SIGNING_SECRET") || ENCRYPTION_SECRET;
+  const LEGACY_SIGNING = ENCRYPTION_SECRET;
+
   const ip = getClientIp(req);
 
   // --- Persist a session row in DB (source of truth for logged-in status) ---
