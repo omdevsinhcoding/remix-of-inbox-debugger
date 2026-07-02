@@ -63,11 +63,17 @@ type DeviceFingerprint = {
   vendor?: string;
   language?: string;
   languages?: string[];
-  screen?: { width: number; height: number; dpr: number };
+  screen?: { width: number; height: number; dpr: number; availWidth?: number; availHeight?: number; colorDepth?: number; pixelDepth?: number };
+  viewport?: { width: number; height: number };
+  orientation?: string;
   timezone?: string;
+  utcOffsetMinutes?: number;
   touchPoints?: number;
   deviceMemory?: number;
   hardwareConcurrency?: number;
+  cookieEnabled?: boolean;
+  onLine?: boolean;
+  pdfViewerEnabled?: boolean;
   mobile?: boolean;
   uaBrands?: { brand: string; version: string }[];
   uaPlatform?: string;
@@ -76,6 +82,16 @@ type DeviceFingerprint = {
   uaArchitecture?: string;
   uaBitness?: string;
   uaFullVersion?: string;
+  network?: { type?: string; effectiveType?: string; downlink?: number; rtt?: number; saveData?: boolean };
+  battery?: { level?: number; charging?: boolean; chargingTime?: number; dischargingTime?: number };
+  colorScheme?: "dark" | "light" | "no-preference";
+  reducedMotion?: boolean;
+  hdr?: boolean;
+  webglVendor?: string;
+  webglRenderer?: string;
+  canvasHash?: string;
+  webdriver?: boolean;
+  fingerprintHash?: string;
 };
 
 type LoginLocationPayload = {
