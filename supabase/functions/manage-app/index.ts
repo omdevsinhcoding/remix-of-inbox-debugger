@@ -1291,15 +1291,32 @@ Deno.serve(async (req) => {
       try {
         const { data: mData } = await supabase.from("app_settings").select("value").eq("key", "maintenance").single();
         if (mData?.value && typeof mData.value === "object") {
+          const v: any = mData.value;
+          const endsAt = typeof v.endsAt === "string" ? v.endsAt : null;
+          // Auto-expire: if endsAt is in the past, treat as disabled.
+          const expired = !!(endsAt && Date.parse(endsAt) > 0 && Date.parse(endsAt) <= Date.now());
           maintenance = {
-            enabled: !!mData.value.enabled,
-            title: typeof mData.value.title === "string" ? mData.value.title : "",
-            message: typeof mData.value.message === "string" ? mData.value.message : "",
-            eta: typeof mData.value.eta === "string" ? mData.value.eta : "",
-            updated_at: mData.value.updated_at || null,
+            enabled: !!v.enabled && !expired,
+            title: typeof v.title === "string" ? v.title : "",
+            message: typeof v.message === "string" ? v.message : "",
+            eta: typeof v.eta === "string" ? v.eta : "",
+            endsAt,
+            versionFrom: typeof v.versionFrom === "string" ? v.versionFrom : "",
+            versionTo: typeof v.versionTo === "string" ? v.versionTo : "",
+            updated_at: v.updated_at || null,
           };
+          // If we auto-expired, persist the disable so admins see it too.
+          if (expired && v.enabled) {
+            try {
+              await supabase.from("app_settings").upsert(
+                { key: "maintenance", value: { ...v, enabled: false, updated_at: new Date().toISOString() } },
+                { onConflict: "key" }
+              );
+            } catch {}
+          }
         }
       } catch {}
+
 
       const mappedUsers = (users || []).map((u: any) => ({
         id: u.id,
@@ -1750,6 +1767,32 @@ Deno.serve(async (req) => {
       if (key === "ipwho_alert") {
         processedValue = { enabled: value?.enabled === true };
       }
+
+      // Maintenance: enforce upgrade-only version bumps.
+      if (key === "maintenance" && value && typeof value === "object") {
+        const cmpVer = (a: string, b: string): number => {
+          const pa = String(a || "").replace(/^v/i, "").split(".").map((n) => parseInt(n, 10));
+          const pb = String(b || "").replace(/^v/i, "").split(".").map((n) => parseInt(n, 10));
+          const len = Math.max(pa.length, pb.length);
+          for (let i = 0; i < len; i++) {
+            const x = Number.isFinite(pa[i]) ? pa[i] : 0;
+            const y = Number.isFinite(pb[i]) ? pb[i] : 0;
+            if (x !== y) return x - y;
+          }
+          return 0;
+        };
+        try {
+          const { data: prev } = await supabase.from("app_settings").select("value").eq("key", "maintenance").single();
+          const prevTo = prev?.value?.versionTo || "";
+          const nextTo = (value as any).versionTo || "";
+          if (prevTo && nextTo && cmpVer(nextTo, prevTo) < 0) {
+            throw new Error(`Version downgrade blocked: current is ${prevTo}, cannot set to ${nextTo}.`);
+          }
+        } catch (e) {
+          if (e instanceof Error && e.message.startsWith("Version downgrade")) throw e;
+        }
+      }
+
 
       // Encrypt IMAP passwords in email_accounts
       if (key === "email_accounts" && Array.isArray(value)) {

@@ -5,17 +5,20 @@ import { ArrowRight, Clock } from "lucide-react";
 type Props = {
   title?: string;
   message?: string;
-  eta?: string;
+  endsAt?: string | null;
+  versionFrom?: string;
+  versionTo?: string;
   isAdmin?: boolean;
   onAdminBypass?: () => void;
 };
+
 
 /**
  * Netflix-inspired premium maintenance screen.
  * Cinematic black stage, crimson brand palette, Three.js flowing shader,
  * drifting embers, editorial serif headline on a glass card.
  */
-export default function MaintenanceScreen({ title, message, eta, isAdmin, onAdminBypass }: Props) {
+export default function MaintenanceScreen({ title, message, endsAt, versionFrom, versionTo, isAdmin, onAdminBypass }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const particlesRef = useRef<HTMLCanvasElement | null>(null);
   const [now, setNow] = useState<Date>(new Date());
@@ -167,6 +170,32 @@ export default function MaintenanceScreen({ title, message, eta, isAdmin, onAdmi
     message?.trim() ||
     "The site is offline for a short while so we can make it faster and safer for you. You don't need to do anything — just come back in a few minutes.";
 
+  // 12-hour formatted clock
+  const clockText = now.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit", hour12: true });
+
+  // Countdown / back-at label built from endsAt
+  const endsDate = endsAt ? new Date(endsAt) : null;
+  const endsValid = !!(endsDate && !isNaN(endsDate.getTime()) && endsDate.getTime() > Date.now());
+  let backAtLabel = "";
+  let countdownLabel = "";
+  if (endsValid && endsDate) {
+    backAtLabel = endsDate.toLocaleString(undefined, {
+      hour: "numeric", minute: "2-digit", hour12: true,
+      day: "numeric", month: "short",
+    });
+    const diff = Math.max(0, endsDate.getTime() - now.getTime());
+    const totalMin = Math.floor(diff / 60000);
+    const h = Math.floor(totalMin / 60);
+    const m = totalMin % 60;
+    const s = Math.floor((diff % 60000) / 1000);
+    countdownLabel = h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m ${s}s` : `${s}s`;
+  }
+
+  // Version pill (only if admin filled at least one field)
+  const vFrom = (versionFrom || "").trim();
+  const vTo = (versionTo || "").trim();
+  const showVersionPill = !!(vFrom || vTo);
+
   const activityLines = [
     "Applying security updates…",
     "Optimising database queries…",
@@ -181,6 +210,7 @@ export default function MaintenanceScreen({ title, message, eta, isAdmin, onAdmi
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+
   return (
     <div className="fixed inset-0 z-[9999] overflow-hidden bg-black text-white">
       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
@@ -193,9 +223,10 @@ export default function MaintenanceScreen({ title, message, eta, isAdmin, onAdmi
         </div>
         <div className="flex items-center gap-2 text-white/55 text-[11px] font-mono tabular-nums">
           <span className="w-1.5 h-1.5 rounded-full bg-[#e50914] animate-pulse" />
-          <span>{now.toLocaleTimeString()}</span>
+          <span>{clockText}</span>
         </div>
       </div>
+
 
       <div className="relative z-10 h-full flex items-center justify-center px-4 sm:px-6 py-20 overflow-y-auto">
         <div
@@ -214,11 +245,14 @@ export default function MaintenanceScreen({ title, message, eta, isAdmin, onAdmi
               <span className="w-2 h-2 rounded-full bg-[#e50914] shadow-[0_0_10px_#e50914] animate-pulse" />
               <span className="text-[10.5px] tracking-[0.3em] uppercase text-white/70 font-semibold">System update in progress</span>
             </div>
-            <div className="hidden sm:flex items-center gap-1.5 text-[10.5px] tracking-[0.24em] uppercase text-white/40 font-mono">
-              <span>v2.4.1</span>
-              <span className="text-white/20">→</span>
-              <span className="text-white/70">v2.5.0</span>
-            </div>
+            {showVersionPill && (
+              <div className="hidden sm:flex items-center gap-1.5 text-[10.5px] tracking-[0.24em] uppercase text-white/40 font-mono">
+                {vFrom && <span>v{vFrom.replace(/^v/i, "")}</span>}
+                {vFrom && vTo && <span className="text-white/20">→</span>}
+                {vTo && <span className="text-white/80">v{vTo.replace(/^v/i, "")}</span>}
+              </div>
+            )}
+
           </div>
 
           <div className="px-6 sm:px-10 pt-8 sm:pt-10 pb-8 sm:pb-10">
@@ -270,12 +304,17 @@ export default function MaintenanceScreen({ title, message, eta, isAdmin, onAdmi
 
             {/* Meta row */}
             <div className="mt-6 flex flex-wrap items-center gap-2.5">
-              {eta && (
-                <div className="inline-flex items-center gap-2 text-white/80 text-[12.5px] bg-white/[0.05] border border-white/[0.08] rounded-lg px-3 py-1.5">
+              {endsValid && (
+                <div className="inline-flex items-center gap-2 text-white/85 text-[12.5px] bg-white/[0.05] border border-white/[0.08] rounded-lg px-3 py-1.5">
                   <Clock className="w-3.5 h-3.5 text-[#e50914]" />
-                  <span>Back around <span className="text-white font-medium">{eta}</span></span>
+                  <span>
+                    Back at <span className="text-white font-semibold">{backAtLabel}</span>
+                    <span className="text-white/45"> · in </span>
+                    <span className="text-white font-semibold tabular-nums">{countdownLabel}</span>
+                  </span>
                 </div>
               )}
+
               <div className="inline-flex items-center gap-2 text-white/60 text-[12.5px] bg-white/[0.03] border border-white/[0.08] rounded-lg px-3 py-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
                 <span>No action needed from you</span>

@@ -2373,8 +2373,11 @@ function AdminPanel() {
   const [maintenanceEnabled, setMaintenanceEnabled] = useState(false);
   const [maintenanceTitle, setMaintenanceTitle] = useState("");
   const [maintenanceMessage, setMaintenanceMessage] = useState("");
-  const [maintenanceEta, setMaintenanceEta] = useState("");
+  const [maintenanceEndsAt, setMaintenanceEndsAt] = useState(""); // datetime-local value "YYYY-MM-DDTHH:mm"
+  const [maintenanceVersionFrom, setMaintenanceVersionFrom] = useState("");
+  const [maintenanceVersionTo, setMaintenanceVersionTo] = useState("");
   const [savingMaintenance, setSavingMaintenance] = useState(false);
+
 
   // Notifications tab
   const [adminNotifs, setAdminNotifs] = useState<any[]>([]);
@@ -2503,9 +2506,21 @@ function AdminPanel() {
           setMaintenanceEnabled(mnt.value.enabled === true);
           setMaintenanceTitle(mnt.value.title || "");
           setMaintenanceMessage(mnt.value.message || "");
-          setMaintenanceEta(mnt.value.eta || "");
+          setMaintenanceVersionFrom(mnt.value.versionFrom || "");
+          setMaintenanceVersionTo(mnt.value.versionTo || "");
+          // Convert stored ISO to local "YYYY-MM-DDTHH:mm" for the datetime-local input.
+          if (mnt.value.endsAt) {
+            const d = new Date(mnt.value.endsAt);
+            if (!isNaN(d.getTime())) {
+              const pad = (n: number) => String(n).padStart(2, "0");
+              setMaintenanceEndsAt(
+                `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+              );
+            }
+          }
         }
       } catch { }
+
 
 
       try {
@@ -2553,6 +2568,12 @@ function AdminPanel() {
 
   const saveMaintenance = async (nextEnabled?: boolean) => {
     const enabled = typeof nextEnabled === "boolean" ? nextEnabled : maintenanceEnabled;
+    // Convert local datetime-local -> ISO. Empty string means no scheduled end.
+    let endsAtIso: string | null = null;
+    if (maintenanceEndsAt) {
+      const d = new Date(maintenanceEndsAt);
+      if (!isNaN(d.getTime())) endsAtIso = d.toISOString();
+    }
     setSavingMaintenance(true);
     try {
       await apiCall("manage-app", {
@@ -2562,7 +2583,9 @@ function AdminPanel() {
           enabled,
           title: maintenanceTitle.trim(),
           message: maintenanceMessage.trim(),
-          eta: maintenanceEta.trim(),
+          endsAt: endsAtIso,
+          versionFrom: maintenanceVersionFrom.trim(),
+          versionTo: maintenanceVersionTo.trim(),
           updated_at: new Date().toISOString(),
         },
       });
@@ -2576,6 +2599,7 @@ function AdminPanel() {
       setSavingMaintenance(false);
     }
   };
+
 
 
 
@@ -3933,26 +3957,48 @@ function AdminPanel() {
                 </button>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-5">
-                <div className="md:col-span-2">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-5">
+                <div>
                   <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">Headline (optional)</label>
                   <input type="text" value={maintenanceTitle} onChange={(e) => setMaintenanceTitle(e.target.value)}
-                    placeholder="We're polishing things up"
+                    placeholder="We're upgrading the system"
                     className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm" />
                 </div>
                 <div>
-                  <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">ETA (optional)</label>
-                  <input type="text" value={maintenanceEta} onChange={(e) => setMaintenanceEta(e.target.value)}
-                    placeholder="e.g. 30 min · 9:00 PM IST"
-                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm" />
+                  <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">Back online at (date + time)</label>
+                  <input
+                    type="datetime-local"
+                    value={maintenanceEndsAt}
+                    onChange={(e) => setMaintenanceEndsAt(e.target.value)}
+                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm"
+                  />
+                  <p className="text-[10.5px] text-slate-500 mt-1 ml-1">
+                    {maintenanceEndsAt
+                      ? `Site auto-unlocks at ${new Date(maintenanceEndsAt).toLocaleString(undefined, { hour: "numeric", minute: "2-digit", hour12: true, day: "numeric", month: "short" })}`
+                      : "Leave empty for open-ended maintenance."}
+                  </p>
                 </div>
-                <div className="md:col-span-3">
+                <div>
+                  <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">Current version</label>
+                  <input type="text" value={maintenanceVersionFrom} onChange={(e) => setMaintenanceVersionFrom(e.target.value)}
+                    placeholder="e.g. 2.4.1"
+                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm font-mono" />
+                </div>
+                <div>
+                  <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">Upgrading to (upgrade-only)</label>
+                  <input type="text" value={maintenanceVersionTo} onChange={(e) => setMaintenanceVersionTo(e.target.value)}
+                    placeholder="e.g. 2.5.0"
+                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm font-mono" />
+                  <p className="text-[10.5px] text-slate-500 mt-1 ml-1">Downgrades are blocked by the server.</p>
+                </div>
+                <div className="md:col-span-2">
                   <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">Message shown to users</label>
                   <textarea value={maintenanceMessage} onChange={(e) => setMaintenanceMessage(e.target.value)} rows={3}
-                    placeholder="Netflix ID Manager is temporarily offline for scheduled maintenance. We'll be back shortly."
+                    placeholder="The site is offline for a short while so we can make it faster and safer for you. No action needed — please check back soon."
                     className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm resize-none" />
                 </div>
               </div>
+
 
               <div className="flex items-center gap-2 mt-4">
                 <button onClick={() => saveMaintenance()} disabled={savingMaintenance}
@@ -5095,6 +5141,23 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  // Local auto-expiry: when endsAt passes on the client, flip off immediately
+  // without waiting for the next server poll.
+  useEffect(() => {
+    if (!maint.enabled || !maint.endsAt) return;
+    const ms = new Date(maint.endsAt).getTime() - Date.now();
+    if (ms <= 0) {
+      setMaint((m) => ({ ...m, enabled: false }));
+      return;
+    }
+    const t = setTimeout(() => {
+      setMaint((m) => ({ ...m, enabled: false }));
+      // Refresh bootstrap so the server also flips (it auto-expires on read).
+      refreshBootstrap().catch(() => {});
+    }, ms + 500);
+    return () => clearTimeout(t);
+  }, [maint.enabled, maint.endsAt]);
+
   // If maintenance turns off, clear the bypass flag so admins re-arm on next outage.
   useEffect(() => {
     if (!maint.enabled && bypass) {
@@ -5109,15 +5172,21 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
   const path = typeof window !== "undefined" ? window.location.pathname : "/";
   const isAdminRoute = path.startsWith("/admin");
 
+  const screenProps = {
+    title: maint.title,
+    message: maint.message,
+    endsAt: maint.endsAt || null,
+    versionFrom: maint.versionFrom || "",
+    versionTo: maint.versionTo || "",
+  };
+
   if (maint.enabled && !isAdmin && !isAdminRoute) {
-    return <MaintenanceScreen title={maint.title} message={maint.message} eta={maint.eta} />;
+    return <MaintenanceScreen {...screenProps} />;
   }
   if (maint.enabled && isAdmin && !bypass && !isAdminRoute) {
     return (
       <MaintenanceScreen
-        title={maint.title}
-        message={maint.message}
-        eta={maint.eta}
+        {...screenProps}
         isAdmin
         onAdminBypass={() => {
           try { sessionStorage.setItem(MAINT_BYPASS_KEY, "1"); } catch {}
@@ -5126,6 +5195,7 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
       />
     );
   }
+
 
   return <>{children}</>;
 }
