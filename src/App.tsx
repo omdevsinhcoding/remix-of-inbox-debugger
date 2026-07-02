@@ -700,260 +700,683 @@ function useIsMobile() {
   return is;
 }
 
-function NotificationBell() {
+// ==============================================================
+// Notification System — Premium unified popup + auto-popup
+// ==============================================================
+
+const CATEGORY_META: Record<string, { label: string; icon: any; color: string }> = {
+  announcement: { label: "Announcement", icon: Megaphone,     color: "text-sky-300" },
+  update:       { label: "Update",       icon: Sparkles,      color: "text-violet-300" },
+  security:     { label: "Security",     icon: Shield,        color: "text-emerald-300" },
+  maintenance:  { label: "Maintenance",  icon: Wrench,        color: "text-amber-300" },
+  promo:        { label: "Offer",        icon: Tag,           color: "text-pink-300" },
+  billing:      { label: "Billing",      icon: CreditCard,    color: "text-cyan-300" },
+};
+const PRIORITY_ACCENT: Record<string, string> = {
+  low: "bg-zinc-500",
+  normal: "bg-sky-500",
+  high: "bg-amber-500",
+  critical: "bg-rose-500",
+};
+
+function categoryMeta(cat?: string | null) {
+  return CATEGORY_META[cat || "announcement"] || CATEGORY_META.announcement;
+}
+
+// ---- Shared refresh signal so bell + popup + list stay in sync ----
+const NOTIF_REFRESH_EVENT = "notif:refresh";
+function requestNotifRefresh() {
+  window.dispatchEvent(new CustomEvent(NOTIF_REFRESH_EVENT));
+}
+
+// Global notifications store (shared across bell + popup)
+function useNotifications() {
   const [items, setItems] = useState<AppNotification[]>([]);
-  const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
-  const openRef = useRef(false);
-  const lastSigRef = useRef<string>("");
-  const mountedRef = useRef(false);
-  const isMobile = useIsMobile();
+  const inFlightRef = useRef(false);
 
   const refresh = useCallback(async () => {
-    if (openRef.current && mountedRef.current) return; // pause polling while open
-    if (!lastSigRef.current) setLoading(true);
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
+    if (items.length === 0) setLoading(true);
     try {
       const list = await listNotifications();
-      const sig = JSON.stringify(list.map((n) => [n.id, n.read]));
-      if (sig !== lastSigRef.current) {
-        lastSigRef.current = sig;
-        setItems(list);
-      }
-    } finally { setLoading(false); }
-  }, []);
+      setItems(list);
+    } finally {
+      setLoading(false);
+      inFlightRef.current = false;
+    }
+  }, [items.length]);
 
   useEffect(() => {
     refresh();
-    mountedRef.current = true;
-    const id = setInterval(refresh, 60_000);
-    return () => clearInterval(id);
-  }, [refresh]);
+    const id = setInterval(refresh, 30_000);
+    const onEvt = () => refresh();
+    window.addEventListener(NOTIF_REFRESH_EVENT, onEvt);
+    return () => { clearInterval(id); window.removeEventListener(NOTIF_REFRESH_EVENT, onEvt); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  // Broadcast open/close so SessionCountdown hides itself.
+  return { items, setItems, loading, refresh };
+}
+
+// ---------- Auto-popup: premium modal shown on first sight of a notification ----------
+function AutoPopupNotification() {
+  const [queue, setQueue] = useState<AppNotification[]>([]);
+  const [dismissing, setDismissing] = useState(false);
+  const seenRef = useRef<Set<string>>(getPoppedIds());
+
   useEffect(() => {
-    openRef.current = open;
-    window.dispatchEvent(new CustomEvent(open ? "notif:open" : "notif:close"));
-    if (open) {
-      // fresh fetch on open — but bypass the pause guard
-      openRef.current = false;
-      refresh().finally(() => { openRef.current = true; });
-      // lock body scroll on mobile sheet
-      if (isMobile) {
-        const prev = document.body.style.overflow;
-        document.body.style.overflow = "hidden";
-        return () => { document.body.style.overflow = prev; };
+    let cancelled = false;
+    async function tick() {
+      const list = await listNotifications();
+      if (cancelled) return;
+      const fresh = list.filter((n) =>
+        !seenRef.current.has(n.id) &&
+        !n.read && !n.archived &&
+        (!n.snoozed_until || new Date(n.snoozed_until) < new Date())
+      );
+      if (fresh.length) {
+        // pin/critical first, then newest
+        fresh.sort((a, b) => {
+          const pa = a.pinned ? 1 : 0, pb = b.pinned ? 1 : 0;
+          if (pa !== pb) return pb - pa;
+          const cra = a.priority === "critical" ? 1 : 0, crb = b.priority === "critical" ? 1 : 0;
+          if (cra !== crb) return crb - cra;
+          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+        });
+        setQueue((prev) => (prev.length ? prev : fresh.slice(0, 3)));
       }
     }
-  }, [open, isMobile, refresh]);
+    tick();
+    const id = setInterval(tick, 30_000);
+    const onEvt = () => tick();
+    window.addEventListener(NOTIF_REFRESH_EVENT, onEvt);
+    return () => { cancelled = true; clearInterval(id); window.removeEventListener(NOTIF_REFRESH_EVENT, onEvt); };
+  }, []);
 
-  const unread = items.filter((n) => !n.read).length;
+  const current = queue[0];
 
-  const handleMarkRead = async (id: string) => {
-    setItems((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
-    lastSigRef.current = "";
-    await markNotificationRead(id);
+  useEffect(() => {
+    if (!current) return;
+    // hide session countdown while modal is open
+    window.dispatchEvent(new CustomEvent("notif:open"));
+    logNotificationEvent(current.id, "delivered").catch(() => {});
+    markNotificationSeen([current.id]).catch(() => {});
+    return () => { window.dispatchEvent(new CustomEvent("notif:close")); };
+  }, [current?.id]);
+
+  const dismiss = async (opened = false) => {
+    if (!current) return;
+    setDismissing(true);
+    markPopped(current.id);
+    seenRef.current.add(current.id);
+    if (!opened) await logNotificationEvent(current.id, "dismissed").catch(() => {});
+    setTimeout(() => {
+      setDismissing(false);
+      setQueue((q) => q.slice(1));
+    }, 180);
   };
-  const handleMarkAll = async () => {
-    setItems((prev) => prev.map((n) => ({ ...n, read: true })));
-    lastSigRef.current = "";
+
+  const openInBell = () => {
+    dismiss(true);
+    setTimeout(() => window.dispatchEvent(new CustomEvent("notif:openCenter", { detail: { id: current?.id } })), 220);
+  };
+
+  if (!current || typeof document === "undefined") return null;
+  const cat = categoryMeta(current.category);
+  const CatIcon = cat.icon;
+  const accent = PRIORITY_ACCENT[current.priority || "normal"] || PRIORITY_ACCENT.normal;
+
+  return createPortal(
+    <AnimatePresence>
+      {!dismissing && (
+        <motion.div
+          key={`popup-${current.id}`}
+          className="fixed inset-0 z-[110] flex items-center justify-center p-3 sm:p-6"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.18 }}
+        >
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-md" onClick={() => dismiss(false)} />
+          <motion.div
+            role="dialog"
+            aria-modal="true"
+            initial={{ scale: 0.94, y: 16, opacity: 0 }}
+            animate={{ scale: 1, y: 0, opacity: 1 }}
+            exit={{ scale: 0.96, y: 8, opacity: 0 }}
+            transition={{ duration: 0.22, ease: [0.32, 0.72, 0, 1] }}
+            className="relative w-full max-w-[440px] rounded-3xl overflow-hidden"
+            style={{
+              background: "rgba(14,14,17,0.92)",
+              backdropFilter: "blur(28px) saturate(160%)",
+              WebkitBackdropFilter: "blur(28px) saturate(160%)",
+              border: "1px solid rgba(255,255,255,0.08)",
+              boxShadow: "0 40px 100px -20px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.06)",
+            }}
+          >
+            {/* priority accent bar */}
+            <div className={`absolute inset-x-0 top-0 h-[3px] ${accent}`} />
+
+            {/* close */}
+            <button
+              onClick={() => dismiss(false)}
+              className="absolute top-3 right-3 z-10 p-1.5 rounded-full text-zinc-400 hover:text-white hover:bg-white/10 transition-colors"
+              aria-label="Close"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            {/* hero image */}
+            {current.image_url ? (
+              <div className="relative aspect-[16/9] w-full overflow-hidden bg-zinc-900">
+                <img
+                  src={current.image_url}
+                  alt=""
+                  referrerPolicy="no-referrer"
+                  loading="lazy"
+                  className="absolute inset-0 w-full h-full object-cover"
+                  onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
+              </div>
+            ) : (
+              <div className="pt-10" />
+            )}
+
+            <div className="px-6 pb-6 pt-5">
+              {/* icon medallion */}
+              <div className="flex items-center gap-2.5 mb-3">
+                <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-white/[0.06] border border-white/10">
+                  <CatIcon className={`w-4 h-4 ${cat.color}`} />
+                </span>
+                <span className="text-[10.5px] uppercase tracking-[0.14em] text-zinc-400 font-medium">
+                  {cat.label}
+                </span>
+                {current.pinned && (
+                  <span className="inline-flex items-center gap-1 text-[10px] text-amber-300/90 font-medium uppercase tracking-wider">
+                    <Pin className="w-3 h-3" /> Pinned
+                  </span>
+                )}
+              </div>
+
+              <h2
+                className="text-white text-[22px] leading-tight mb-2"
+                style={{ fontFamily: "'Instrument Serif', 'Cormorant Garamond', ui-serif, Georgia, serif", letterSpacing: "-0.015em" }}
+              >
+                {current.title}
+              </h2>
+              <p className="text-zinc-300 text-[13.5px] leading-relaxed font-light whitespace-pre-wrap">
+                {current.body}
+              </p>
+              {current.description && (
+                <p className="mt-3 text-zinc-400 text-[12.5px] leading-relaxed font-light whitespace-pre-wrap line-clamp-6">
+                  {current.description}
+                </p>
+              )}
+
+              <div className="mt-5 flex flex-col-reverse sm:flex-row gap-2.5">
+                <button
+                  onClick={() => dismiss(false)}
+                  className="flex-1 py-2.5 rounded-xl text-[13px] font-medium text-zinc-300 bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 transition-colors"
+                >
+                  Later
+                </button>
+                {current.action_url && current.action_label ? (
+                  <a
+                    href={current.action_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => { logNotificationEvent(current.id, "clicked", { url: current.action_url }).catch(() => {}); markNotificationRead(current.id).catch(() => {}); dismiss(true); }}
+                    className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold text-white bg-white hover:bg-zinc-100 !text-black flex items-center justify-center gap-1.5 transition-colors"
+                  >
+                    {current.action_label} <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                ) : (
+                  <button
+                    onClick={openInBell}
+                    className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold text-black bg-white hover:bg-zinc-100 transition-colors"
+                  >
+                    Read more
+                  </button>
+                )}
+              </div>
+
+              <p className="mt-3 text-center text-[10.5px] text-zinc-500 tracking-wide">
+                Dismiss — you can reopen this from the <Bell className="inline w-3 h-3 -mt-0.5" /> bell any time.
+              </p>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>,
+    document.body,
+  );
+}
+
+// ---------- Full Notification Center (unified popup: mobile sheet + desktop modal) ----------
+type Tab = "all" | "unread" | "pinned" | "archived";
+
+function NotificationCenter({ open, onClose, initialId, items, loading, onChange }: {
+  open: boolean;
+  onClose: () => void;
+  initialId?: string | null;
+  items: AppNotification[];
+  loading: boolean;
+  onChange: () => void;
+}) {
+  const isMobile = useIsMobile();
+  const [tab, setTab] = useState<Tab>("all");
+  const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) { setSelected(null); return; }
+    if (initialId) setSelected(initialId);
+    window.dispatchEvent(new CustomEvent("notif:open"));
+    // mark visible as seen
+    const visibleIds = items.filter((n) => !n.seen).map((n) => n.id);
+    if (visibleIds.length) markNotificationSeen(visibleIds).catch(() => {});
+    if (isMobile) {
+      const prev = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+      return () => {
+        document.body.style.overflow = prev;
+        window.dispatchEvent(new CustomEvent("notif:close"));
+      };
+    }
+    return () => { window.dispatchEvent(new CustomEvent("notif:close")); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, initialId]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        if (selected) setSelected(null);
+        else onClose();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, selected, onClose]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return items.filter((n) => {
+      if (tab === "unread" && n.read) return false;
+      if (tab === "pinned" && !n.pinned) return false;
+      if (tab === "archived" && !n.archived) return false;
+      if (tab !== "archived" && n.archived) return false;
+      if (q && !(`${n.title} ${n.body} ${n.description || ""}`.toLowerCase().includes(q))) return false;
+      return true;
+    });
+  }, [items, tab, query]);
+
+  const detail = selected ? items.find((n) => n.id === selected) : null;
+
+  const handleOpenDetail = async (n: AppNotification) => {
+    setSelected(n.id);
+    if (!n.read) {
+      await markNotificationRead(n.id).catch(() => {});
+      onChange();
+    }
+  };
+
+  const handleArchive = async (id: string) => {
+    await archiveNotification(id);
+    onChange();
+    if (selected === id) setSelected(null);
+  };
+
+  const handleSnooze = async (id: string, hours: number) => {
+    const until = new Date(Date.now() + hours * 3600_000).toISOString();
+    await snoozeNotification(id, until);
+    onChange();
+    toast.success(`Snoozed for ${hours}h`);
+  };
+
+  const handleMarkAllRead = async () => {
     await markAllNotificationsRead();
+    onChange();
+    toast.success("All caught up");
   };
 
-  // ---------- Shared list body ----------
-  const ListBody = (
-    <div className="overflow-y-auto overscroll-contain">
+  // ---- grouped rendering ----
+  const groups = useMemo(() => groupByDate(filtered), [filtered]);
+
+  const Header = (
+    <div className="px-5 pt-5 pb-3 border-b border-white/[0.06]">
+      <div className="flex items-center justify-between">
+        <div className="flex items-baseline gap-2.5">
+          <h3
+            className="text-white text-[22px] leading-none"
+            style={{ fontFamily: "'Instrument Serif', 'Cormorant Garamond', ui-serif, Georgia, serif", letterSpacing: "-0.015em" }}
+          >
+            {detail ? "Notification" : "Notifications"}
+          </h3>
+          {!detail && items.filter((n) => !n.read && !n.archived).length > 0 && (
+            <span className="text-[10.5px] font-medium text-rose-300/90 tracking-wider uppercase">
+              {items.filter((n) => !n.read && !n.archived).length} new
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-1">
+          {detail ? (
+            <button onClick={() => setSelected(null)} className="p-2 rounded-lg text-zinc-400 hover:text-white hover:bg-white/[0.06] transition-colors" aria-label="Back">
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+          ) : (
+            items.some((n) => !n.read) && (
+              <button onClick={handleMarkAllRead} title="Mark all read" className="p-2 rounded-lg text-zinc-400 hover:text-white hover:bg-white/[0.06] transition-colors">
+                <CheckCircle2 className="w-4 h-4" />
+              </button>
+            )
+          )}
+          <button onClick={onClose} className="p-2 rounded-lg text-zinc-400 hover:text-white hover:bg-white/[0.06] transition-colors" aria-label="Close">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {!detail && (
+        <>
+          <div className="mt-4 flex items-center gap-1.5 overflow-x-auto no-scrollbar -mx-1 px-1">
+            {(["all", "unread", "pinned", "archived"] as Tab[]).map((t) => (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                className={`px-3 py-1.5 rounded-full text-[11.5px] font-medium tracking-wide capitalize transition-colors whitespace-nowrap ${
+                  tab === t ? "bg-white text-black" : "text-zinc-400 hover:text-white bg-white/[0.04] hover:bg-white/[0.08]"
+                }`}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+          <div className="mt-3 relative">
+            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search notifications"
+              className="w-full pl-9 pr-3 py-2 rounded-xl text-[12.5px] bg-white/[0.04] border border-white/[0.06] text-white placeholder:text-zinc-500 focus:outline-none focus:border-white/20"
+            />
+          </div>
+        </>
+      )}
+    </div>
+  );
+
+  const List = (
+    <div className="overflow-y-auto overscroll-contain flex-1">
       {loading && items.length === 0 && (
         <div className="py-16 text-center text-zinc-500 text-sm font-light tracking-wide">
-          <div className="w-5 h-5 mx-auto mb-3 border border-zinc-600 border-t-red-500 rounded-full animate-spin" />
+          <div className="w-5 h-5 mx-auto mb-3 border border-zinc-600 border-t-rose-500 rounded-full animate-spin" />
           Loading
         </div>
       )}
-      {!loading && items.length === 0 && (
+      {!loading && filtered.length === 0 && (
         <div className="py-20 px-6 text-center">
-          <Bell className="w-8 h-8 mx-auto mb-4 text-zinc-600 stroke-[1.25]" />
-          <p className="text-zinc-300 text-[13px] font-light tracking-wide">Nothing new to read.</p>
+          <div className="w-14 h-14 mx-auto mb-4 rounded-full bg-white/[0.04] border border-white/10 flex items-center justify-center">
+            <Bell className="w-6 h-6 text-zinc-500 stroke-[1.25]" />
+          </div>
+          <p className="text-zinc-200 text-[14px] font-light tracking-wide">You're all caught up</p>
+          <p className="text-zinc-500 text-[12px] mt-1 font-light">Nothing new here right now.</p>
         </div>
       )}
-      <ul className="divide-y divide-white/[0.04]">
-        {items.map((n, i) => (
-          <motion.li
-            key={n.id}
-            initial={{ opacity: 0, y: 4 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.18, delay: Math.min(i, 8) * 0.02, ease: "easeOut" }}
-          >
-            <button
-              onClick={() => !n.read && handleMarkRead(n.id)}
-              className={`w-full text-left px-5 py-4 flex gap-4 transition-colors ${
-                !n.read ? "bg-white/[0.02] hover:bg-white/[0.04]" : "hover:bg-white/[0.02]"
-              }`}
-            >
-              {/* thin rail + dot */}
-              <div className="flex-shrink-0 flex flex-col items-center pt-1.5">
-                <span
-                  className={`w-2 h-2 rounded-full ${
-                    !n.read
-                      ? "bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.7)]"
-                      : "border border-zinc-600 bg-transparent"
-                  }`}
-                />
-                <span className="mt-1 w-px flex-1 bg-white/[0.06]" />
-              </div>
-              <div className="min-w-0 flex-1 pb-1">
-                <div className="flex items-baseline justify-between gap-3">
-                  <p
-                    className={`text-[13.5px] leading-snug truncate ${
-                      !n.read ? "text-white font-medium" : "text-zinc-400 font-normal"
-                    }`}
-                    style={{ letterSpacing: "-0.005em" }}
+      {groups.map(({ label, rows }) => (
+        <div key={label}>
+          <div className="px-5 pt-4 pb-1 text-[10px] uppercase tracking-[0.14em] text-zinc-500 font-medium">{label}</div>
+          <ul>
+            {rows.map((n) => {
+              const cat = categoryMeta(n.category);
+              const CatIcon = cat.icon;
+              const accent = PRIORITY_ACCENT[n.priority || "normal"] || PRIORITY_ACCENT.normal;
+              return (
+                <li key={n.id} className="group relative">
+                  <button
+                    onClick={() => handleOpenDetail(n)}
+                    className={`w-full text-left px-5 py-3.5 flex gap-3 transition-colors ${!n.read ? "bg-white/[0.02] hover:bg-white/[0.05]" : "hover:bg-white/[0.03]"}`}
                   >
-                    {n.title}
-                  </p>
-                  <span
-                    className="text-[10.5px] text-zinc-500 font-light tabular-nums flex-shrink-0"
-                    title={new Date(n.created_at).toLocaleString()}
-                  >
-                    {formatRelative(n.created_at)}
-                  </span>
-                </div>
-                <p className="text-zinc-400 text-[12.5px] mt-1.5 leading-relaxed line-clamp-3 whitespace-pre-wrap font-light">
-                  {n.body}
-                </p>
-              </div>
-            </button>
-          </motion.li>
-        ))}
-      </ul>
+                    <div className="flex flex-col items-center flex-shrink-0">
+                      <span className={`w-1 h-full rounded-full ${accent} opacity-70`} style={{ minHeight: 30 }} />
+                    </div>
+                    {n.image_url ? (
+                      <img src={n.image_url} referrerPolicy="no-referrer" loading="lazy" alt=""
+                        className="w-11 h-11 rounded-lg object-cover flex-shrink-0 bg-zinc-800" />
+                    ) : (
+                      <div className="w-11 h-11 rounded-lg bg-white/[0.04] border border-white/10 flex-shrink-0 flex items-center justify-center">
+                        <CatIcon className={`w-4 h-4 ${cat.color}`} />
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-baseline justify-between gap-3">
+                        <p className={`text-[13px] leading-snug truncate ${!n.read ? "text-white font-medium" : "text-zinc-400 font-normal"}`}>
+                          {n.pinned && <Pin className="inline w-3 h-3 mr-1 text-amber-300/80 -mt-0.5" />}
+                          {n.title}
+                        </p>
+                        <span className="text-[10.5px] text-zinc-500 font-light tabular-nums flex-shrink-0" title={new Date(n.created_at).toLocaleString()}>
+                          {formatRelative(n.created_at)}
+                        </span>
+                      </div>
+                      <p className="text-zinc-500 text-[12px] mt-1 leading-relaxed line-clamp-2 font-light">{n.body}</p>
+                    </div>
+                    {!n.read && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.7)] mt-1.5 flex-shrink-0" />
+                    )}
+                  </button>
+                  {!n.archived && (
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2 hidden group-hover:flex gap-1">
+                      <button onClick={(e) => { e.stopPropagation(); handleSnooze(n.id, 24); }} className="p-1.5 rounded-md bg-black/40 text-zinc-400 hover:text-white" title="Snooze 24h"><Clock className="w-3.5 h-3.5" /></button>
+                      <button onClick={(e) => { e.stopPropagation(); handleArchive(n.id); }} className="p-1.5 rounded-md bg-black/40 text-zinc-400 hover:text-white" title="Archive"><Archive className="w-3.5 h-3.5" /></button>
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ))}
     </div>
   );
 
-  // ---------- Header (shared) ----------
-  const Header = (
-    <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-white/[0.05]">
-      <div className="flex items-baseline gap-2.5">
-        <h3
-          className="text-white text-[19px] leading-none"
-          style={{ fontFamily: "'Instrument Serif', 'Cormorant Garamond', ui-serif, Georgia, serif", letterSpacing: "-0.01em" }}
-        >
-          Notifications
-        </h3>
-        {unread > 0 && (
-          <span className="text-[10.5px] font-medium text-red-400/90 tracking-wider uppercase">
-            {unread} new
-          </span>
+  const Detail = detail && (() => {
+    const cat = categoryMeta(detail.category);
+    const CatIcon = cat.icon;
+    const accent = PRIORITY_ACCENT[detail.priority || "normal"] || PRIORITY_ACCENT.normal;
+    return (
+      <div className="overflow-y-auto overscroll-contain flex-1">
+        {detail.image_url && (
+          <div className="relative aspect-[16/9] w-full overflow-hidden bg-zinc-900">
+            <img src={detail.image_url} alt="" referrerPolicy="no-referrer" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
+          </div>
         )}
+        <div className="px-6 py-5">
+          <div className="flex items-center gap-2 mb-3">
+            <span className={`w-1.5 h-1.5 rounded-full ${accent}`} />
+            <span className="inline-flex items-center gap-1.5 text-[10.5px] uppercase tracking-[0.14em] text-zinc-400 font-medium">
+              <CatIcon className={`w-3.5 h-3.5 ${cat.color}`} /> {cat.label}
+            </span>
+            <span className="text-[10.5px] text-zinc-500 ml-auto">{new Date(detail.created_at).toLocaleString()}</span>
+          </div>
+          <h2 className="text-white text-[24px] leading-tight mb-3" style={{ fontFamily: "'Instrument Serif', ui-serif, Georgia, serif", letterSpacing: "-0.015em" }}>
+            {detail.title}
+          </h2>
+          <p className="text-zinc-200 text-[14px] leading-relaxed font-light whitespace-pre-wrap">{detail.body}</p>
+          {detail.description && (
+            <p className="mt-4 text-zinc-400 text-[13px] leading-relaxed font-light whitespace-pre-wrap">{detail.description}</p>
+          )}
+          <div className="mt-6 flex flex-wrap gap-2">
+            {detail.action_url && detail.action_label && (
+              <a href={detail.action_url} target="_blank" rel="noopener noreferrer"
+                onClick={() => logNotificationEvent(detail.id, "clicked", { url: detail.action_url }).catch(() => {})}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-semibold bg-white text-black hover:bg-zinc-100 transition-colors">
+                {detail.action_label} <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+            )}
+            {detail.action2_url && detail.action2_label && (
+              <a href={detail.action2_url} target="_blank" rel="noopener noreferrer"
+                onClick={() => logNotificationEvent(detail.id, "clicked", { url: detail.action2_url, secondary: true }).catch(() => {})}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-medium bg-white/[0.06] text-white hover:bg-white/[0.12] border border-white/10 transition-colors">
+                {detail.action2_label}
+              </a>
+            )}
+          </div>
+          <div className="mt-6 pt-4 border-t border-white/[0.05] flex gap-2">
+            <button onClick={() => handleSnooze(detail.id, 24)} className="flex-1 py-2 rounded-lg text-[12px] text-zinc-300 bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 transition-colors inline-flex items-center justify-center gap-1.5">
+              <Clock className="w-3.5 h-3.5" /> Snooze 24h
+            </button>
+            <button onClick={() => handleArchive(detail.id)} className="flex-1 py-2 rounded-lg text-[12px] text-zinc-300 bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 transition-colors inline-flex items-center justify-center gap-1.5">
+              <Archive className="w-3.5 h-3.5" /> Archive
+            </button>
+          </div>
+        </div>
       </div>
-      {items.length > 0 && unread > 0 && (
-        <button
-          onClick={handleMarkAll}
-          title="Mark all as read"
-          aria-label="Mark all as read"
-          className="p-1.5 rounded-md text-zinc-400 hover:text-white hover:bg-white/[0.06] transition-colors"
-        >
-          <CheckCircle2 className="w-4 h-4 stroke-[1.5]" />
-        </button>
-      )}
-    </div>
-  );
+    );
+  })();
 
-  // ---------- Trigger button ----------
-  const Trigger = (
-    <button
-      onClick={() => setOpen((v) => !v)}
-      className="relative flex items-center justify-center p-2.5 bg-slate-900 text-white rounded-full hover:bg-slate-800 transition-all active:scale-95"
-      title="Notifications"
-      aria-label={`Notifications (${unread} unread)`}
+  if (!open || typeof document === "undefined") return null;
+
+  const surfaceStyle: React.CSSProperties = {
+    background: "rgba(10,10,12,0.88)",
+    backdropFilter: "blur(32px) saturate(160%)",
+    WebkitBackdropFilter: "blur(32px) saturate(160%)",
+    border: "1px solid rgba(255,255,255,0.06)",
+    boxShadow: "0 30px 80px -20px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.05)",
+  };
+
+  const Panel = isMobile ? (
+    <motion.div
+      role="dialog"
+      aria-modal="true"
+      initial={{ y: "100%" }}
+      animate={{ y: 0 }}
+      exit={{ y: "100%" }}
+      transition={{ type: "tween", duration: 0.28, ease: [0.32, 0.72, 0, 1] }}
+      className="absolute left-0 right-0 bottom-0 flex flex-col rounded-t-3xl overflow-hidden"
+      style={{ ...surfaceStyle, height: "min(78dvh, 720px)", paddingBottom: "env(safe-area-inset-bottom)" }}
     >
-      <Bell className={`w-4 h-4 sm:w-5 sm:h-5 ${unread > 0 ? "animate-pulse" : ""}`} />
-      {unread > 0 && (
-        <>
-          <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-red-500 rounded-full animate-ping" />
-          <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-red-500 rounded-full ring-2 ring-white" />
-        </>
-      )}
-    </button>
+      <button
+        onClick={onClose}
+        aria-label="Close"
+        className="mx-auto mt-2.5 mb-1 w-10 h-1 rounded-full bg-white/25 hover:bg-white/40 transition-colors flex-shrink-0"
+      />
+      {Header}
+      {detail ? Detail : List}
+    </motion.div>
+  ) : (
+    <motion.div
+      role="dialog"
+      aria-modal="true"
+      initial={{ scale: 0.96, y: 8, opacity: 0 }}
+      animate={{ scale: 1, y: 0, opacity: 1 }}
+      exit={{ scale: 0.98, opacity: 0 }}
+      transition={{ duration: 0.16, ease: "easeOut" }}
+      className="relative w-full max-w-[560px] flex flex-col rounded-3xl overflow-hidden"
+      style={{ ...surfaceStyle, maxHeight: "min(80vh, 780px)" }}
+    >
+      {Header}
+      {detail ? Detail : List}
+    </motion.div>
   );
 
-  // ---------- Mobile bottom sheet (portal) ----------
-  const MobileSheet = open && typeof document !== "undefined"
-    ? createPortal(
-        <AnimatePresence>
-          <motion.div
-            key="notif-sheet"
-            className="fixed inset-0 z-[100]"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-          >
-            <div
-              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-              onClick={() => setOpen(false)}
-            />
-            <motion.div
-              role="dialog"
-              aria-modal="true"
-              initial={{ y: "100%" }}
-              animate={{ y: 0 }}
-              exit={{ y: "100%" }}
-              transition={{ type: "tween", duration: 0.28, ease: [0.32, 0.72, 0, 1] }}
-              className="absolute left-0 right-0 bottom-0 max-h-[85dvh] flex flex-col rounded-t-3xl border-t border-white/[0.08] shadow-[0_-20px_60px_rgba(0,0,0,0.6)]"
-              style={{
-                background: "rgba(12,12,14,0.92)",
-                backdropFilter: "blur(28px) saturate(140%)",
-                WebkitBackdropFilter: "blur(28px) saturate(140%)",
-                paddingBottom: "env(safe-area-inset-bottom)",
-              }}
-            >
-              <button
-                onClick={() => setOpen(false)}
-                aria-label="Close notifications"
-                className="mx-auto mt-2.5 mb-1 w-10 h-1 rounded-full bg-white/20 hover:bg-white/30 transition-colors"
-              />
-              {Header}
-              <div className="flex-1 overflow-y-auto overscroll-contain">{ListBody}</div>
-            </motion.div>
-          </motion.div>
-        </AnimatePresence>,
-        document.body,
-      )
-    : null;
-
-  // ---------- Desktop anchored panel ----------
-  const DesktopPanel = (
+  return createPortal(
     <AnimatePresence>
-      {open && !isMobile && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <motion.div
-            initial={{ opacity: 0, y: -4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={{ duration: 0.16, ease: "easeOut" }}
-            className="absolute right-0 mt-3 w-[380px] rounded-2xl overflow-hidden z-50"
-            style={{
-              background: "rgba(15,15,17,0.78)",
-              backdropFilter: "blur(28px) saturate(140%)",
-              WebkitBackdropFilter: "blur(28px) saturate(140%)",
-              border: "1px solid rgba(255,255,255,0.06)",
-              boxShadow: "0 30px 80px -20px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.04)",
-            }}
-          >
-            {Header}
-            <div className="max-h-[65vh] overflow-y-auto">{ListBody}</div>
-          </motion.div>
-        </>
-      )}
-    </AnimatePresence>
-  );
-
-  return (
-    <div className="relative">
-      {Trigger}
-      {isMobile ? MobileSheet : DesktopPanel}
-    </div>
+      <motion.div
+        key="notif-center"
+        className={`fixed inset-0 z-[100] ${isMobile ? "" : "flex items-center justify-center p-4"}`}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.18 }}
+      >
+        <div className="absolute inset-0 bg-black/65 backdrop-blur-sm" onClick={onClose} />
+        {Panel}
+      </motion.div>
+    </AnimatePresence>,
+    document.body,
   );
 }
+
+function groupByDate(list: AppNotification[]) {
+  const now = new Date();
+  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const startYest = startToday - 86400_000;
+  const startWeek = startToday - 6 * 86400_000;
+  const buckets: { label: string; rows: AppNotification[] }[] = [
+    { label: "Pinned", rows: [] },
+    { label: "Today", rows: [] },
+    { label: "Yesterday", rows: [] },
+    { label: "This week", rows: [] },
+    { label: "Earlier", rows: [] },
+  ];
+  for (const n of list) {
+    const t = new Date(n.created_at).getTime();
+    if (n.pinned) buckets[0].rows.push(n);
+    else if (t >= startToday) buckets[1].rows.push(n);
+    else if (t >= startYest) buckets[2].rows.push(n);
+    else if (t >= startWeek) buckets[3].rows.push(n);
+    else buckets[4].rows.push(n);
+  }
+  return buckets.filter((b) => b.rows.length);
+}
+
+function NotificationBell() {
+  const { items, loading, refresh } = useNotifications();
+  const [open, setOpen] = useState(false);
+  const [initialId, setInitialId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const onOpenCenter = (e: any) => {
+      setInitialId(e?.detail?.id || null);
+      setOpen(true);
+    };
+    window.addEventListener("notif:openCenter", onOpenCenter);
+    return () => window.removeEventListener("notif:openCenter", onOpenCenter);
+  }, []);
+
+  const active = items.filter((n) => !n.archived);
+  const unread = active.filter((n) => !n.read).length;
+  const highestPriority = active.filter((n) => !n.read).reduce<string>((acc, n) => {
+    const rank = (p?: string) => ({ low: 1, normal: 2, high: 3, critical: 4 } as any)[p || "normal"] || 2;
+    return rank(n.priority) > rank(acc) ? (n.priority || "normal") : acc;
+  }, "normal");
+  const dotColor = highestPriority === "critical" ? "bg-rose-500"
+    : highestPriority === "high" ? "bg-amber-500"
+    : "bg-rose-500";
+
+  return (
+    <>
+      <button
+        onClick={() => { setInitialId(null); setOpen(true); }}
+        className="relative flex items-center justify-center p-2.5 bg-slate-900 text-white rounded-full hover:bg-slate-800 transition-all active:scale-95"
+        title="Notifications"
+        aria-label={`Notifications (${unread} unread)`}
+      >
+        <Bell className={`w-4 h-4 sm:w-5 sm:h-5 ${unread > 0 ? "animate-pulse" : ""}`} />
+        {unread > 0 && (
+          <>
+            <span className={`absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full animate-ping ${dotColor}`} />
+            <span className={`absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-white ${dotColor}`} />
+          </>
+        )}
+      </button>
+      <NotificationCenter
+        open={open}
+        onClose={() => { setOpen(false); refresh(); }}
+        initialId={initialId}
+        items={items}
+        loading={loading}
+        onChange={refresh}
+      />
+      <AutoPopupNotification />
+    </>
+  );
+}
+
 
 
 
