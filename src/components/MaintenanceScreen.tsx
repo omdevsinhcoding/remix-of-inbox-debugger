@@ -198,7 +198,7 @@ export default function MaintenanceScreen({ title, message, eta, isAdmin, onAdmi
               <span className="absolute inset-0 rounded-full bg-[#e50914]/70 animate-ping" />
               <span className="relative inline-flex rounded-full w-2 h-2 bg-[#e50914]" />
             </span>
-            <span className="text-[10px] sm:text-[10.5px] uppercase tracking-[0.24em] font-semibold text-red-100/90">Scheduled maintenance</span>
+            <span className="text-[10px] sm:text-[10.5px] uppercase tracking-[0.24em] font-semibold text-red-100/90">Site under maintenance</span>
           </div>
 
           <div className="mx-auto mb-6 sm:mb-8 relative w-16 h-16 sm:w-20 sm:h-20">
