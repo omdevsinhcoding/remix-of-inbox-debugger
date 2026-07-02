@@ -1,13 +1,13 @@
 import React, { useState, useEffect, createContext, useContext, useCallback, useRef, useMemo, Suspense, lazy } from "react";
 import { createPortal } from "react-dom";
-import { Mail, RefreshCw, ShieldCheck, Shield, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, BarChart3, Globe, Edit, Database, Wifi, Info, UserCircle, Search, ChevronLeft, ChevronRight, Bell, Send, MessageSquare, Image as ImageIcon, Pin, ExternalLink, Archive, AlertTriangle, Sparkles, Megaphone, Wrench, CreditCard, Tag, ChevronDown, HardDrive, Upload, Zap } from "lucide-react";
+import { Mail, RefreshCw, ShieldCheck, Shield, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, BarChart3, Globe, Edit, Database, Wifi, Info, UserCircle, Search, ChevronLeft, ChevronRight, Bell, Send, MessageSquare, Image as ImageIcon, ExternalLink, AlertTriangle, Sparkles, Megaphone, Wrench, CreditCard, Tag, ChevronDown, HardDrive, Upload, Zap } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import NetflixHouseholdVerificationGuide from "./pages/NetflixHouseholdVerificationGuide";
 import { Toaster, toast } from "sonner";
 import { supabase } from "./integrations/supabase/client";
 import { AVATAR_CATEGORIES, resolveAvatar, buildAvatarId, prettyName, getAvatarCategoryUrls } from "./lib/avatars";
-import { bootstrapFromSupabase, clearSessionData, markSessionStart, readBootstrapCache, refreshBootstrap, patchBootstrapCacheUser, getEmailFilters, setEmailFilters as setEmailFiltersCache, listNotifications, markNotificationRead, markAllNotificationsRead, markNotificationSeen, archiveNotification, deleteNotificationForMe, snoozeNotification, logNotificationEvent, getPoppedIds, markPopped, type EmailFilters, type AppNotification, type MaintenanceInfo } from "./lib/bootstrap";
+import { bootstrapFromSupabase, clearSessionData, markSessionStart, readBootstrapCache, refreshBootstrap, patchBootstrapCacheUser, getEmailFilters, setEmailFilters as setEmailFiltersCache, listNotifications, markNotificationRead, markAllNotificationsRead, markNotificationSeen, deleteNotificationForMe, snoozeNotification, logNotificationEvent, getPoppedIds, markPopped, type EmailFilters, type AppNotification, type MaintenanceInfo } from "./lib/bootstrap";
 import MaintenanceScreen from "./components/MaintenanceScreen";
 import DateTimePicker from "./components/DateTimePicker";
 
@@ -807,10 +807,8 @@ function AutoPopupNotification() {
         (!n.snoozed_until || new Date(n.snoozed_until) < new Date())
       );
       if (fresh.length) {
-        // pin/critical first, then newest
+        // critical first, then newest
         fresh.sort((a, b) => {
-          const pa = a.pinned ? 1 : 0, pb = b.pinned ? 1 : 0;
-          if (pa !== pb) return pb - pa;
           const cra = a.priority === "critical" ? 1 : 0, crb = b.priority === "critical" ? 1 : 0;
           if (cra !== crb) return crb - cra;
           return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
@@ -924,11 +922,6 @@ function AutoPopupNotification() {
                 <span className="text-[10.5px] uppercase tracking-[0.14em] text-zinc-400 font-medium">
                   {cat.label}
                 </span>
-                {current.pinned && (
-                  <span className="inline-flex items-center gap-1 text-[10px] text-amber-300/90 font-medium uppercase tracking-wider">
-                    <Pin className="w-3 h-3" /> Pinned
-                  </span>
-                )}
               </div>
 
               <h2
@@ -1182,7 +1175,6 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
                     <div className="min-w-0 flex-1">
                       <div className="flex items-baseline justify-between gap-3">
                         <p className={`text-[13px] leading-snug truncate ${!n.read ? "text-white font-medium" : "text-zinc-400 font-normal"}`}>
-                          {n.pinned && <Pin className="inline w-3 h-3 mr-1 text-amber-300/80 -mt-0.5" />}
                           {n.title}
                         </p>
                         <span className="text-[10.5px] text-zinc-500 font-light tabular-nums flex-shrink-0" title={new Date(n.created_at).toLocaleString()}>
@@ -1341,7 +1333,6 @@ function groupByDate(list: AppNotification[]) {
   const startYest = startToday - 86400_000;
   const startWeek = startToday - 6 * 86400_000;
   const buckets: { label: string; rows: AppNotification[] }[] = [
-    { label: "Pinned", rows: [] },
     { label: "Today", rows: [] },
     { label: "Yesterday", rows: [] },
     { label: "This week", rows: [] },
@@ -1349,11 +1340,10 @@ function groupByDate(list: AppNotification[]) {
   ];
   for (const n of list) {
     const t = new Date(n.created_at).getTime();
-    if (n.pinned) buckets[0].rows.push(n);
-    else if (t >= startToday) buckets[1].rows.push(n);
-    else if (t >= startYest) buckets[2].rows.push(n);
-    else if (t >= startWeek) buckets[3].rows.push(n);
-    else buckets[4].rows.push(n);
+    if (t >= startToday) buckets[0].rows.push(n);
+    else if (t >= startYest) buckets[1].rows.push(n);
+    else if (t >= startWeek) buckets[2].rows.push(n);
+    else buckets[3].rows.push(n);
   }
   return buckets.filter((b) => b.rows.length);
 }
@@ -2887,7 +2877,7 @@ function AdminPanel() {
   const [notifPriority, setNotifPriority] = useState<"low" | "normal" | "high" | "critical">("normal");
   const [notifActionUrl, setNotifActionUrl] = useState("");
   const [notifActionLabel, setNotifActionLabel] = useState("");
-  const [notifPinned, setNotifPinned] = useState(false);
+  
   const [notifAudience, setNotifAudience] = useState<"all" | "user">("all");
   const [notifTargetUser, setNotifTargetUser] = useState<string>("");
   const [notifExpiresDays, setNotifExpiresDays] = useState<string>("");
@@ -3438,14 +3428,13 @@ function AdminPanel() {
         locked: notifLocked,
         action_url: notifActionUrl.trim() || null,
         action_label: notifActionLabel.trim() || null,
-        pinned: notifPinned,
         audience: notifAudience,
         target_user_id: notifAudience === "user" ? notifTargetUser : null,
         expiresInDays: notifExpiresDays ? Number(notifExpiresDays) : null,
       });
       toast.success("🔔 Notification sent");
       setNotifTitle(""); setNotifBody(""); setNotifDescription(""); setNotifImageUrl("");
-      setNotifActionUrl(""); setNotifActionLabel(""); setNotifPinned(false);
+      setNotifActionUrl(""); setNotifActionLabel("");
       setNotifExpiresDays(""); setNotifBodyMarkdown(""); setNotifPlatformIcon("");
       setNotifLocked(false);
       await reloadAdminNotifs();
@@ -4289,10 +4278,6 @@ function AdminPanel() {
                 </div>
 
                 <div className="flex flex-wrap gap-4 items-center text-sm">
-                  <label className="flex items-center gap-2 text-slate-800">
-                    <input type="checkbox" checked={notifPinned} onChange={(e) => setNotifPinned(e.target.checked)} />
-                    <Pin className="w-3.5 h-3.5" /> Pin to top
-                  </label>
                   <label className="flex items-center gap-2 text-slate-800" title="Users cannot dismiss or delete a locked notification">
                     <input type="checkbox" checked={notifLocked} onChange={(e) => setNotifLocked(e.target.checked)} />
                     <Lock className="w-3.5 h-3.5" /> Locked
@@ -4367,7 +4352,7 @@ function AdminPanel() {
                     <div key={n.id} className="border rounded-lg p-3 flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 mb-1">
-                          {n.pinned && <Pin className="w-3 h-3 text-amber-500" />}
+                          {n.locked && <Lock className="w-3 h-3 text-slate-500" />}
                           <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-700 capitalize">{n.category || "announcement"}</span>
                           <span className={`w-1.5 h-1.5 rounded-full ${n.priority === "critical" ? "bg-rose-500" : n.priority === "high" ? "bg-amber-500" : n.priority === "normal" ? "bg-sky-500" : "bg-zinc-400"}`} />
                         </div>

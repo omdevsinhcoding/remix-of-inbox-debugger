@@ -2192,9 +2192,8 @@ Deno.serve(async (req) => {
       const nowIso = new Date().toISOString();
       const { data: notes, error: nErr } = await supabase
         .from("notifications")
-        .select("id, title, body, description, body_markdown, image_url, category, priority, icon, platform_icon, kind, sub_kind, locked, show_frequency, mode, action_url, action_label, action2_url, action2_label, pinned, audience, target_user_id, created_at, expires_at, publish_at, group_key")
+        .select("id, title, body, description, body_markdown, image_url, category, priority, icon, platform_icon, kind, sub_kind, locked, show_frequency, mode, action_url, action_label, action2_url, action2_label, audience, target_user_id, created_at, expires_at, publish_at, group_key")
         .or(`audience.eq.all,target_user_id.eq.${session.userId}`)
-        .order("pinned", { ascending: false })
         .order("created_at", { ascending: false })
         .limit(100);
       if (nErr) throw nErr;
@@ -2231,7 +2230,7 @@ Deno.serve(async (req) => {
           locked: !!n.locked, show_frequency: n.show_frequency, mode: n.mode,
           action_url: n.action_url, action_label: n.action_label,
           action2_url: n.action2_url, action2_label: n.action2_label,
-          pinned: !!n.pinned, audience: n.audience,
+          audience: n.audience,
           created_at: n.created_at, expires_at: n.expires_at, publish_at: n.publish_at,
           read: readSet.has(n.id),
           seen: seenSet.has(n.id),
@@ -2296,19 +2295,6 @@ Deno.serve(async (req) => {
       });
     }
 
-    if (action === "archive_notification") {
-      const session = await requireSession(req);
-      const { notification_id } = params as { notification_id?: string };
-      if (!notification_id) throw new Error("notification_id required");
-      const nowIso = new Date().toISOString();
-      const { error } = await supabase.from("notification_reads").upsert(
-        { notification_id, user_id: session.userId, archived_at: nowIso, seen_at: nowIso },
-        { onConflict: "notification_id,user_id" },
-      );
-      if (error) throw error;
-      await supabase.from("notification_events").insert({ notification_id, user_id: session.userId, event: "archived" });
-      return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
 
     if (action === "snooze_notification") {
       const session = await requireSession(req);
@@ -2342,7 +2328,7 @@ Deno.serve(async (req) => {
       const session = await requireSession(req);
       const { notification_id, event, meta } = params as { notification_id?: string; event?: string; meta?: any };
       if (!notification_id || !event) throw new Error("notification_id and event required");
-      const allowed = ["delivered", "seen", "read", "clicked", "dismissed", "snoozed", "archived"];
+      const allowed = ["delivered", "seen", "read", "clicked", "dismissed", "snoozed"];
       if (!allowed.includes(event)) throw new Error("invalid event");
       await supabase.from("notification_events").insert({ notification_id, user_id: session.userId, event, meta: meta || null });
       return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -2380,7 +2366,7 @@ Deno.serve(async (req) => {
         action_label: p.action_label ? String(p.action_label).slice(0, 80) : null,
         action2_url: p.action2_url ? String(p.action2_url).slice(0, 2048) : null,
         action2_label: p.action2_label ? String(p.action2_label).slice(0, 80) : null,
-        pinned: !!p.pinned,
+        
         audience,
         target_user_id: audience === "user" ? p.target_user_id : null,
         created_by: session.userId,

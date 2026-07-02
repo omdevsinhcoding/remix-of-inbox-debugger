@@ -187,14 +187,14 @@ export type AppNotification = {
   action_label?: string | null;
   action2_url?: string | null;
   action2_label?: string | null;
-  pinned?: boolean;
+  
   audience: "all" | "user";
   created_at: string;
   expires_at: string | null;
   publish_at?: string | null;
   read: boolean;
   seen?: boolean;
-  archived?: boolean;
+  
   snoozed_until?: string | null;
 };
 
@@ -230,9 +230,6 @@ export async function markAllNotificationsRead(): Promise<void> {
 export async function markNotificationSeen(ids: string[]): Promise<void> {
   if (!ids?.length) return;
   try { await callManage("mark_notifications_seen", { ids }); } catch {}
-}
-export async function archiveNotification(id: string): Promise<void> {
-  try { await callManage("archive_notification", { notification_id: id }); } catch {}
 }
 export async function deleteNotificationForMe(id: string): Promise<void> {
   try { await callManage("user_delete_notification", { notification_id: id }); } catch {}
