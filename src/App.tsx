@@ -3977,7 +3977,7 @@ function AdminPanel() {
                 </label>
               </div>
               <p className="text-xs text-slate-500 mb-4">
-                Where notification hero images live. Credentials are stored in the database (encrypted at rest) and never sent to the browser after saving.
+                Where notification hero images live. Admins can view and edit every R2 value here; the app uses exactly what is saved, with no hardcoded fallback.
                 When disabled, admins can still paste an https image URL manually.
               </p>
 
