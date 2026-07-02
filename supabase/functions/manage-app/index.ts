@@ -490,7 +490,7 @@ async function sendPrimaryLoginAlert(
     `🌐 <b>IP:</b> <code>${esc(ip)}</code>`,
     `📍 ${flag} <b>${esc(locationSource)}:</b> ${esc(locLine)}${loc.postal ? ` · ${esc(loc.postal)}` : ""}`,
     gpsLine,
-    `🏢 <b>ISP:</b> ${esc(isp)}${loc.asn ? ` (${esc(loc.asn)})` : ""}`,
+    `🏢 <b>ISP:</b> ${esc(isp)}${(ipLoc.asn || loc.asn) ? ` (${esc(ipLoc.asn || loc.asn || "")})` : ""}`,
     loc.timezone ? `⏱ <b>Timezone:</b> ${esc(loc.timezone)}` : "",
     `📱 <b>Device:</b> ${esc(browser)} on ${esc(os)}`,
     mapLink ? `🗺 <a href="${mapLink}">Open in Google Maps</a>` : "",
@@ -731,7 +731,7 @@ Deno.serve(async (req) => {
     }
 
     if (action === "login") {
-      const { username, password } = params;
+      const { username, password, clientGeo } = params;
       if (!username || !password) throw new Error("Username and password required");
 
       const { data: user, error } = await supabase
@@ -748,7 +748,7 @@ Deno.serve(async (req) => {
       const passwordMatch = await verifyPassword(password, user.password);
       if (!passwordMatch) {
         await auditLog(supabase, "login_failed", user.id, null, { username }, ip);
-        ((globalThis as any).EdgeRuntime?.waitUntil?.(sendLoginNotification(supabase, req, user, "failed")) ?? sendLoginNotification(supabase, req, user, "failed").catch(() => {}));
+        ((globalThis as any).EdgeRuntime?.waitUntil?.(sendLoginNotification(supabase, req, user, "failed", clientGeo)) ?? sendLoginNotification(supabase, req, user, "failed", clientGeo).catch(() => {}));
         throw new Error("Invalid username or password");
       }
 
@@ -759,7 +759,7 @@ Deno.serve(async (req) => {
       }
 
       await auditLog(supabase, "login_success", user.id, null, { username, role: user.role }, ip);
-      ((globalThis as any).EdgeRuntime?.waitUntil?.(sendLoginNotification(supabase, req, user, "success")) ?? sendLoginNotification(supabase, req, user, "success").catch(() => {}));
+      ((globalThis as any).EdgeRuntime?.waitUntil?.(sendLoginNotification(supabase, req, user, "success", clientGeo)) ?? sendLoginNotification(supabase, req, user, "success", clientGeo).catch(() => {}));
 
       if (user.role === "admin") {
         const pendingPayload = { userId: user.id, username: user.username, role: "admin", pending: true, exp: Date.now() + 5 * 60 * 1000 };
