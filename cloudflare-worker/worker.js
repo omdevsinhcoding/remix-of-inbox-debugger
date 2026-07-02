@@ -142,9 +142,11 @@ export default {
       return handleSync(env, session, sessionToken, reqBody);
     }
 
-    if (url.pathname === "/api/debug" && request.method === "GET") {
-      return handleDebug(env);
-    }
+    // F6: /api/debug removed. It disclosed whether SESSION_SECRET / KV bindings
+    // were configured, which helped attackers detect when worker auth was off.
+    // If you need it back for local debugging, gate it behind env.DEBUG_TOKEN.
+
+
 
     // Proxy manage-app and other edge functions through worker
     if (url.pathname.startsWith("/api/fn/") && request.method === "POST") {
