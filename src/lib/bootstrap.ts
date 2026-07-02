@@ -187,7 +187,7 @@ export type AppNotification = {
   action_label?: string | null;
   action2_url?: string | null;
   action2_label?: string | null;
-  pinned?: boolean;
+  
   audience: "all" | "user";
   created_at: string;
   expires_at: string | null;
