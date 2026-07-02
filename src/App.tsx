@@ -2307,13 +2307,17 @@ function AvatarPicker({
       }
     };
     const run = () => void warmRest();
-    const idle = "requestIdleCallback" in window
-      ? window.requestIdleCallback(run, { timeout: 1200 })
+    const win = window as Window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    const idle = win.requestIdleCallback
+      ? win.requestIdleCallback(run, { timeout: 1200 })
       : window.setTimeout(run, 700);
     return () => {
       cancelled = true;
       if (typeof idle === "number") window.clearTimeout(idle);
-      else if ("cancelIdleCallback" in window) window.cancelIdleCallback(idle as IdleCallbackHandle);
+      if (win.cancelIdleCallback) win.cancelIdleCallback(idle);
     };
   }, [activeCategory?.key]);
 
