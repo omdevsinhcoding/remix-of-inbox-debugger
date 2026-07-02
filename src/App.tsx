@@ -8,6 +8,10 @@ import { supabase } from "./integrations/supabase/client";
 import { QRCodeSVG } from "qrcode.react";
 import { AVATAR_CATEGORIES, resolveAvatar, buildAvatarId, prettyName, getAvatarCategoryUrls } from "./lib/avatars";
 import { bootstrapFromSupabase, bootstrapPromise, clearSessionData, markSessionStart, readBootstrapCache } from "./lib/bootstrap";
+import { getVisitorGeo, getCachedVisitorGeo } from "./lib/geo";
+
+const SESSION_CONFIG_KEY_FOR = (role: "admin" | "user") =>
+  role === "admin" ? "admin_session_config" : "session_config";
 
 // --- Worker URL Types & Helpers ---
 const WORKER_URLS_KEY = "cloudflare_worker_urls";
@@ -168,7 +172,18 @@ function ResponsiveToaster() {
     mq.addEventListener?.("change", onChange);
     return () => mq.removeEventListener?.("change", onChange);
   }, []);
-  return <Toaster position={isMobile ? "top-center" : "bottom-right"} richColors />;
+  return (
+    <Toaster
+      position={isMobile ? "top-center" : "bottom-right"}
+      richColors
+      closeButton
+      expand={false}
+      visibleToasts={3}
+      duration={2500}
+      offset={isMobile ? "calc(env(safe-area-inset-top) + 4.5rem)" : "5rem"}
+      toastOptions={{ className: "pointer-events-auto" }}
+    />
+  );
 }
 
 // --- Rate Limiter ---
