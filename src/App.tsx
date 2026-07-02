@@ -52,6 +52,73 @@ function getSessionToken(): string | null {
   } catch { return null; }
 }
 
+type LoginLocationPayload = {
+  status: "granted" | "denied" | "timeout" | "unavailable" | "unsupported" | "error";
+  permissionState?: PermissionState | "unknown";
+  latitude?: number;
+  longitude?: number;
+  accuracy?: number;
+  altitude?: number | null;
+  heading?: number | null;
+  speed?: number | null;
+  timestamp?: number;
+  error?: string;
+};
+
+const LOGIN_GEO_TIMEOUT_MS = 6500;
+
+async function collectLoginLocation(): Promise<LoginLocationPayload> {
+  if (typeof window === "undefined" || typeof navigator === "undefined" || !navigator.geolocation) {
+    return { status: "unsupported", permissionState: "unknown", error: "Geolocation is not supported on this device." };
+  }
+
+  let permissionState: LoginLocationPayload["permissionState"] = "unknown";
+  try {
+    if (navigator.permissions?.query) {
+      const permission = await navigator.permissions.query({ name: "geolocation" as PermissionName });
+      permissionState = permission.state;
+      if (permission.state === "denied") {
+        return { status: "denied", permissionState, error: "Location permission is blocked in the browser." };
+      }
+    }
+  } catch {}
+
+  return await new Promise<LoginLocationPayload>((resolve) => {
+    let settled = false;
+    const finish = (payload: LoginLocationPayload) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({ permissionState, ...payload });
+    };
+    const timer = window.setTimeout(() => {
+      finish({ status: "timeout", error: "Location permission or GPS fix timed out." });
+    }, LOGIN_GEO_TIMEOUT_MS);
+
+    try {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => finish({
+          status: "granted",
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude,
+          accuracy: pos.coords.accuracy,
+          altitude: pos.coords.altitude,
+          heading: pos.coords.heading,
+          speed: pos.coords.speed,
+          timestamp: pos.timestamp,
+        }),
+        (err) => {
+          const status = err.code === err.PERMISSION_DENIED ? "denied" : err.code === err.TIMEOUT ? "timeout" : "unavailable";
+          finish({ status, error: err.message || "Could not get device location." });
+        },
+        { enableHighAccuracy: true, timeout: 6000, maximumAge: 15_000 },
+      );
+    } catch (err: any) {
+      finish({ status: "error", error: err?.message || "Could not start location request." });
+    }
+  });
+}
+
 // --- API Helper (routes ALL calls through Cloudflare Workers) ---
 
 async function apiCall(functionName: string, body: any) {
@@ -854,16 +921,18 @@ function ProfileSelectPage() {
       }
 
       let data: any;
+      const clientGeo = await collectLoginLocation();
       const workerUrls = getStoredWorkerUrls();
       if (workerUrls.length > 0) {
         data = await apiCall("manage-app", {
           action: "login",
           username: selectedProfile.username,
           password,
+          clientGeo,
         });
       } else {
         const result = await supabase.functions.invoke("manage-app", {
-          body: { action: "login", username: selectedProfile.username, password },
+          body: { action: "login", username: selectedProfile.username, password, clientGeo },
         });
         if (result.error) throw result.error;
         data = result.data;
@@ -1061,12 +1130,13 @@ function AdminLoginPage() {
       if (!checkRateLimit(`admin_${username}`)) throw new Error("Too many attempts. Wait 1 minute.");
 
       let data: any;
+      const clientGeo = await collectLoginLocation();
       const workerUrls = getStoredWorkerUrls();
       if (workerUrls.length > 0) {
-        data = await apiCall("manage-app", { action: "login", username, password });
+        data = await apiCall("manage-app", { action: "login", username, password, clientGeo });
       } else {
         const result = await supabase.functions.invoke("manage-app", {
-          body: { action: "login", username, password },
+          body: { action: "login", username, password, clientGeo },
         });
         if (result.error) throw result.error;
         data = result.data;

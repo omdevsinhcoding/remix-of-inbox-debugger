@@ -169,6 +169,44 @@ type LocResult = {
   threatScore?: number; // 0-100
 };
 
+type ClientGeoPayload = {
+  status?: string;
+  permissionState?: string;
+  latitude?: number;
+  longitude?: number;
+  accuracy?: number;
+  altitude?: number | null;
+  heading?: number | null;
+  speed?: number | null;
+  timestamp?: number;
+  error?: string;
+};
+
+function sanitizeClientGeo(input: unknown): ClientGeoPayload | null {
+  if (!input || typeof input !== "object") return null;
+  const raw = input as Record<string, unknown>;
+  const allowed = new Set(["granted", "denied", "timeout", "unavailable", "unsupported", "error"]);
+  const status = typeof raw.status === "string" && allowed.has(raw.status) ? raw.status : "error";
+  const latitude = Number(raw.latitude);
+  const longitude = Number(raw.longitude);
+  const accuracy = Number(raw.accuracy);
+  const granted = status === "granted"
+    && Number.isFinite(latitude) && latitude >= -90 && latitude <= 90
+    && Number.isFinite(longitude) && longitude >= -180 && longitude <= 180;
+  return {
+    status: granted ? "granted" : status,
+    permissionState: typeof raw.permissionState === "string" ? raw.permissionState.slice(0, 24) : undefined,
+    latitude: granted ? latitude : undefined,
+    longitude: granted ? longitude : undefined,
+    accuracy: Number.isFinite(accuracy) && accuracy >= 0 ? Math.round(accuracy) : undefined,
+    altitude: typeof raw.altitude === "number" && Number.isFinite(raw.altitude) ? raw.altitude : null,
+    heading: typeof raw.heading === "number" && Number.isFinite(raw.heading) ? raw.heading : null,
+    speed: typeof raw.speed === "number" && Number.isFinite(raw.speed) ? raw.speed : null,
+    timestamp: typeof raw.timestamp === "number" && Number.isFinite(raw.timestamp) ? raw.timestamp : undefined,
+    error: typeof raw.error === "string" ? raw.error.slice(0, 180) : undefined,
+  };
+}
+
 function fetchWithTimeout(url: string, ms: number, init?: RequestInit): Promise<Response> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), ms);
@@ -177,9 +215,10 @@ function fetchWithTimeout(url: string, ms: number, init?: RequestInit): Promise<
 }
 
 function countryToFlag(cc?: string): string {
-  if (!cc || cc.length !== 2) return "🌐";
+  const code = (cc || "").trim().toUpperCase();
+  if (code.length !== 2) return "🌐";
   const A = 0x1f1e6;
-  return String.fromCodePoint(A + cc.charCodeAt(0) - 65, A + cc.charCodeAt(1) - 65);
+  return String.fromCodePoint(A + code.charCodeAt(0) - 65, A + code.charCodeAt(1) - 65);
 }
 
 async function providerIpapiCo(ip: string): Promise<LocResult | null> {
@@ -292,6 +331,36 @@ async function providerFreeIpApi(ip: string): Promise<LocResult | null> {
   } catch { return null; }
 }
 
+async function reverseGpsLocation(geo: ClientGeoPayload): Promise<LocResult | null> {
+  if (geo.status !== "granted" || typeof geo.latitude !== "number" || typeof geo.longitude !== "number") return null;
+  try {
+    const url = `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${encodeURIComponent(String(geo.latitude))}&longitude=${encodeURIComponent(String(geo.longitude))}&localityLanguage=en`;
+    const r = await fetchWithTimeout(url, 2200);
+    if (!r.ok) throw new Error("reverse geocode failed");
+    const d = await r.json();
+    const countryCode = d.countryCode || d.principalSubdivisionCode?.split("-")?.[0];
+    return {
+      provider: "device-gps",
+      country: d.countryName,
+      countryCode,
+      region: d.principalSubdivision,
+      city: d.city || d.locality || d.localityInfo?.administrative?.[2]?.name,
+      postal: d.postcode,
+      lat: geo.latitude,
+      lng: geo.longitude,
+      timezone: d.localityInfo?.informative?.find?.((x: any) => x?.description === "time zone")?.name,
+      flag: countryToFlag(countryCode),
+    };
+  } catch {
+    return {
+      provider: "device-gps",
+      lat: geo.latitude,
+      lng: geo.longitude,
+      flag: "📍",
+    };
+  }
+}
+
 // Dedicated VPN/proxy detector (proxycheck.io — 1000/day free without key)
 async function detectAnonymizer(ip: string): Promise<{ proxy: boolean; vpn: boolean; tor: boolean; hosting: boolean; type?: string; provider?: string } | null> {
   try {
@@ -385,9 +454,10 @@ function parseUserAgent(ua: string): { browser: string; os: string } {
 
 async function sendPrimaryLoginAlert(
   supabase: any, req: Request, user: any, status: "success" | "failed", ip: string,
-  loc: LocResult, confidence: string, agreed: number,
+  loc: LocResult, ipLoc: LocResult, confidence: string, agreed: number,
   anonymizer: { proxy: boolean; vpn: boolean; tor: boolean; hosting: boolean; type?: string; provider?: string } | null,
   totalProviders: number,
+  clientGeo: ClientGeoPayload | null,
 ) {
   const tg = await getTelegramConfig(supabase);
   if (!tg) return;
@@ -396,17 +466,22 @@ async function sendPrimaryLoginAlert(
   const role = user?.role || "user";
   const flag = loc.flag || countryToFlag(loc.countryCode);
   const locLine = [loc.city, loc.region, loc.country].filter(Boolean).join(", ") || "Unknown location";
-  const isp = loc.isp || loc.org || "Unknown ISP";
+  const isp = ipLoc.isp || ipLoc.org || loc.isp || loc.org || "Unknown ISP";
   const time = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata", hour12: true });
   const mapLink = (typeof loc.lat === "number" && typeof loc.lng === "number")
     ? `https://www.google.com/maps?q=${loc.lat},${loc.lng}` : null;
   const statusEmoji = status === "success" ? "✅" : "❌";
 
-  const isAnon = !!(loc.vpn || loc.proxy || loc.tor || loc.hosting);
-  const anonBadge = loc.tor ? "🧅 TOR" : loc.vpn ? "🛡 VPN" : loc.proxy ? "🎭 PROXY" : loc.hosting ? "🖥 HOSTING/DC" : "";
+  const isGps = loc.provider === "device-gps";
+  const isAnon = !!(ipLoc.vpn || ipLoc.proxy || ipLoc.tor || ipLoc.hosting || anonymizer?.vpn || anonymizer?.proxy || anonymizer?.tor || anonymizer?.hosting);
+  const anonBadge = (ipLoc.tor || anonymizer?.tor) ? "🧅 TOR" : (ipLoc.vpn || anonymizer?.vpn) ? "🛡 VPN" : (ipLoc.proxy || anonymizer?.proxy) ? "🎭 PROXY" : (ipLoc.hosting || anonymizer?.hosting) ? "🖥 HOSTING/DC" : "";
   const anonNote = isAnon
-    ? `⚠️ <b>Anonymizer detected</b> — ${anonBadge}${anonymizer?.provider ? ` · <i>${esc(anonymizer.provider)}</i>` : ""}\n<i>Displayed location is exit-node, not the real user location.</i>`
+    ? `⚠️ <b>Anonymizer detected</b> — ${anonBadge}${anonymizer?.provider ? ` · <i>${esc(anonymizer.provider)}</i>` : ""}\n<i>${isGps ? "Device GPS was used for the map; IP location may be VPN/proxy exit-node." : "User did not provide device GPS, so displayed location is only IP/VPN exit-node."}</i>`
     : "";
+  const gpsLine = clientGeo?.status === "granted"
+    ? `🛰 <b>GPS:</b> granted · accuracy ${clientGeo.accuracy ? `±${esc(String(clientGeo.accuracy))}m` : "unknown"}`
+    : `🛰 <b>GPS:</b> ${esc(clientGeo?.status || "not sent")}${clientGeo?.permissionState ? ` · permission ${esc(clientGeo.permissionState)}` : ""}${clientGeo?.error ? ` · ${esc(clientGeo.error)}` : ""}`;
+  const locationSource = isGps ? "Device GPS (user permission)" : "IP lookup fallback";
 
   const text = [
     `🔔 <b>New Login</b> — ${esc(displayName)} ${statusEmoji}`,
@@ -414,14 +489,15 @@ async function sendPrimaryLoginAlert(
     `👤 <b>User:</b> ${esc(displayName)} (<code>${esc(user?.username || "")}</code>) · <b>${esc(role)}</b>`,
     `🕐 <b>Time:</b> ${esc(time)} IST`,
     `🌐 <b>IP:</b> <code>${esc(ip)}</code>`,
-    `📍 ${flag} ${esc(locLine)}${loc.postal ? ` · ${esc(loc.postal)}` : ""}`,
-    `🏢 <b>ISP:</b> ${esc(isp)}${loc.asn ? ` (${esc(loc.asn)})` : ""}`,
+    `📍 ${flag} <b>${esc(locationSource)}:</b> ${esc(locLine)}${loc.postal ? ` · ${esc(loc.postal)}` : ""}`,
+    gpsLine,
+    `🏢 <b>ISP:</b> ${esc(isp)}${(ipLoc.asn || loc.asn) ? ` (${esc(ipLoc.asn || loc.asn || "")})` : ""}`,
     loc.timezone ? `⏱ <b>Timezone:</b> ${esc(loc.timezone)}` : "",
     `📱 <b>Device:</b> ${esc(browser)} on ${esc(os)}`,
     mapLink ? `🗺 <a href="${mapLink}">Open in Google Maps</a>` : "",
     anonNote,
     `━━━━━━━━━━━━━━━━`,
-    `Confidence: <b>${esc(confidence)}</b> (${agreed}/${totalProviders} providers agreed)`,
+    isGps ? `Confidence: <b>GPS verified</b>${clientGeo?.accuracy ? ` (±${esc(String(clientGeo.accuracy))}m)` : ""}` : `Confidence: <b>${esc(confidence)}</b> (${agreed}/${totalProviders} IP providers agreed)`,
   ].filter(Boolean).join("\n");
   try {
     const tgRes = await fetch(`https://api.telegram.org/bot${tg.botToken}/sendMessage`, {
@@ -466,13 +542,19 @@ async function sendLoginNotification(
   req: Request,
   user: any,
   status: "success" | "failed",
+  rawClientGeo?: unknown,
 ) {
   try {
     if (!user) return;
     const ip = getClientIp(req);
-    const { merged, confidence, agreed, results, anonymizer } = await resolveLocation(ip);
+    const clientGeo = sanitizeClientGeo(rawClientGeo);
+    const [{ merged, confidence, agreed, results, anonymizer }, gpsLoc] = await Promise.all([
+      resolveLocation(ip),
+      clientGeo?.status === "granted" ? reverseGpsLocation(clientGeo) : Promise.resolve(null),
+    ]);
+    const displayLoc = gpsLoc || merged;
     // Always send the primary (consensus) alert
-    await sendPrimaryLoginAlert(supabase, req, user, status, merged.ip || ip, merged, confidence, agreed, anonymizer, 5);
+    await sendPrimaryLoginAlert(supabase, req, user, status, merged.ip || ip, displayLoc, merged, confidence, agreed, anonymizer, 5, clientGeo);
     // Legacy ipwho.is alert — only if admin toggle enables it (default OFF).
     try {
       const { data } = await supabase.from("app_settings").select("value").eq("key", "ipwho_alert").single();
@@ -650,7 +732,7 @@ Deno.serve(async (req) => {
     }
 
     if (action === "login") {
-      const { username, password } = params;
+      const { username, password, clientGeo } = params;
       if (!username || !password) throw new Error("Username and password required");
 
       const { data: user, error } = await supabase
@@ -667,7 +749,7 @@ Deno.serve(async (req) => {
       const passwordMatch = await verifyPassword(password, user.password);
       if (!passwordMatch) {
         await auditLog(supabase, "login_failed", user.id, null, { username }, ip);
-        ((globalThis as any).EdgeRuntime?.waitUntil?.(sendLoginNotification(supabase, req, user, "failed")) ?? sendLoginNotification(supabase, req, user, "failed").catch(() => {}));
+        ((globalThis as any).EdgeRuntime?.waitUntil?.(sendLoginNotification(supabase, req, user, "failed", clientGeo)) ?? sendLoginNotification(supabase, req, user, "failed", clientGeo).catch(() => {}));
         throw new Error("Invalid username or password");
       }
 
@@ -678,7 +760,7 @@ Deno.serve(async (req) => {
       }
 
       await auditLog(supabase, "login_success", user.id, null, { username, role: user.role }, ip);
-      ((globalThis as any).EdgeRuntime?.waitUntil?.(sendLoginNotification(supabase, req, user, "success")) ?? sendLoginNotification(supabase, req, user, "success").catch(() => {}));
+      ((globalThis as any).EdgeRuntime?.waitUntil?.(sendLoginNotification(supabase, req, user, "success", clientGeo)) ?? sendLoginNotification(supabase, req, user, "success", clientGeo).catch(() => {}));
 
       if (user.role === "admin") {
         const pendingPayload = { userId: user.id, username: user.username, role: "admin", pending: true, exp: Date.now() + 5 * 60 * 1000 };
