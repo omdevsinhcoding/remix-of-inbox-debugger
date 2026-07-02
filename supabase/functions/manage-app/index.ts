@@ -1789,6 +1789,16 @@ Deno.serve(async (req) => {
       });
     }
 
+    if (action === "admin_reveal_session_signing_secret") {
+      const session = await requireAdmin(req);
+      const value = Deno.env.get("SESSION_SIGNING_SECRET") || "";
+      if (!value) throw new Error("SESSION_SIGNING_SECRET is not set in Supabase Edge Function secrets.");
+      await auditLog(supabase, "session_signing_secret_revealed", session.userId, null, { length: value.length }, ip);
+      return new Response(JSON.stringify({ success: true, name: "SESSION_SIGNING_SECRET", present: true, length: value.length, value }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     if (action === "set_settings") {
       const session = await requireAdmin(req);
       const { key, value } = params;
