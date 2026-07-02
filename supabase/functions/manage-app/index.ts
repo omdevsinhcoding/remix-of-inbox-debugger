@@ -544,33 +544,61 @@ async function providerFreeIpApi(ip: string): Promise<LocResult | null> {
 
 async function reverseGpsLocation(geo: ClientGeoPayload): Promise<LocResult | null> {
   if (geo.status !== "granted" || typeof geo.latitude !== "number" || typeof geo.longitude !== "number") return null;
-  try {
-    const url = `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${encodeURIComponent(String(geo.latitude))}&longitude=${encodeURIComponent(String(geo.longitude))}&localityLanguage=en`;
-    const r = await fetchWithTimeout(url, 2200);
-    if (!r.ok) throw new Error("reverse geocode failed");
-    const d = await r.json();
-    const countryCode = d.countryCode || d.principalSubdivisionCode?.split("-")?.[0];
-    return {
-      provider: "device-gps",
-      country: d.countryName,
-      countryCode,
-      region: d.principalSubdivision,
-      city: d.city || d.locality || d.localityInfo?.administrative?.[2]?.name,
-      postal: d.postcode,
-      lat: geo.latitude,
-      lng: geo.longitude,
-      timezone: d.localityInfo?.informative?.find?.((x: any) => x?.description === "time zone")?.name,
-      flag: countryToFlag(countryCode),
-    };
-  } catch {
-    return {
-      provider: "device-gps",
-      lat: geo.latitude,
-      lng: geo.longitude,
-      flag: "📍",
-    };
-  }
+  const lat = geo.latitude, lng = geo.longitude;
+
+  // Provider 1: BigDataCloud (fast, generous free tier, no key)
+  const tryBdc = async (): Promise<LocResult | null> => {
+    try {
+      const url = `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=en`;
+      const r = await fetchWithTimeout(url, 3500);
+      if (!r.ok) return null;
+      const d = await r.json();
+      const countryCode = d.countryCode || d.principalSubdivisionCode?.split("-")?.[0];
+      const city = d.city || d.locality || d.localityInfo?.administrative?.[3]?.name || d.localityInfo?.administrative?.[2]?.name;
+      if (!city && !d.principalSubdivision && !d.countryName) return null;
+      return {
+        provider: "device-gps",
+        country: d.countryName, countryCode,
+        region: d.principalSubdivision,
+        city,
+        postal: d.postcode,
+        lat, lng,
+        timezone: d.localityInfo?.informative?.find?.((x: any) => x?.description === "time zone")?.name,
+        flag: countryToFlag(countryCode),
+      };
+    } catch { return null; }
+  };
+
+  // Provider 2: OpenStreetMap Nominatim (very accurate, free, requires UA)
+  const tryNominatim = async (): Promise<LocResult | null> => {
+    try {
+      const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=14&addressdetails=1`;
+      const r = await fetchWithTimeout(url, 4000, { headers: { "User-Agent": "netflix-otp-manager/1.0 (login-alerts)", "Accept-Language": "en" } as any });
+      if (!r.ok) return null;
+      const d = await r.json();
+      const a = d.address || {};
+      const city = a.city || a.town || a.village || a.municipality || a.suburb || a.county || a.state_district;
+      const countryCode = (a.country_code || "").toUpperCase();
+      if (!city && !a.state && !a.country) return null;
+      return {
+        provider: "device-gps",
+        country: a.country, countryCode,
+        region: a.state || a.region,
+        city, postal: a.postcode,
+        lat, lng,
+        flag: countryToFlag(countryCode),
+      };
+    } catch { return null; }
+  };
+
+  // Try both in parallel; prefer whichever returns a city first.
+  const [a, b] = await Promise.all([tryBdc(), tryNominatim()]);
+  const pick = (a?.city ? a : (b?.city ? b : (a || b)));
+  if (pick) return pick;
+
+  return { provider: "device-gps", lat, lng, flag: "📍" };
 }
+
 
 // Dedicated VPN/proxy detector (proxycheck.io — 1000/day free without key)
 async function detectAnonymizer(ip: string): Promise<{ proxy: boolean; vpn: boolean; tor: boolean; hosting: boolean; type?: string; provider?: string } | null> {
