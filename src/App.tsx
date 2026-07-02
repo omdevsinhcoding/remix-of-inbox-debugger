@@ -1943,13 +1943,15 @@ function ProfileSelectPage() {
                   className="w-full overflow-y-scroll overscroll-contain pr-2 sm:pr-3 py-2 sm:py-3 max-h-[58vh] sm:max-h-[62vh] scroll-smooth [scrollbar-width:thin] [scrollbar-color:#e50914_rgba(255,255,255,0.04)] [&::-webkit-scrollbar]:w-[10px] [&::-webkit-scrollbar-track]:bg-white/[0.03] [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-thumb]:bg-gradient-to-b [&::-webkit-scrollbar-thumb]:from-[#e50914] [&::-webkit-scrollbar-thumb]:to-[#7a0006] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb:hover]:from-[#ff1a25] [&::-webkit-scrollbar-thumb:hover]:to-[#a30009]"
                 >
                   <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-x-4 gap-y-7 sm:gap-x-6 sm:gap-y-9 mx-auto pb-4">
-                    {displayProfiles.map((profile, i) => (
+                    {displayProfiles.map((profile, i) => {
+                      const d = `${Math.min(i, 30) * 75}ms`;
+                      return (
                       <button
                         key={profile.id}
                         type="button"
                         onClick={() => setSelectedProfile(profile)}
                         className="flex flex-col items-center gap-2 sm:gap-3 group focus:outline-none min-w-0 profile-item-in"
-                        style={{ animationDelay: `${Math.min(i, 24) * 45}ms` }}
+                        style={{ animationDelay: d, ["--tile-delay" as any]: d }}
                       >
                         <div className="relative rounded-md overflow-hidden ring-0 group-hover:ring-2 group-hover:ring-white aspect-square w-full max-w-[140px] transform-gpu transition-transform duration-150 ease-out group-hover:scale-105 group-active:scale-95 will-change-transform">
                           <ProfileAvatar
@@ -1964,7 +1966,8 @@ function ProfileSelectPage() {
                           {profile.name}
                         </span>
                       </button>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               </div>

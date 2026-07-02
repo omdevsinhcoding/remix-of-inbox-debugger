@@ -28,15 +28,46 @@
   max-width: min(92vw, 420px);
 }
 
-/* Profile grid entrance + skeleton */
-@keyframes profileItemIn {
-  0%   { opacity: 0; transform: translateY(14px) scale(0.94); filter: blur(6px); }
-  60%  { filter: blur(0); }
-  100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+/* Profile grid entrance + skeleton — matches maintenance-mode reveal cadence */
+@keyframes profileTileIn {
+  0% {
+    opacity: 0;
+    transform: translateY(22px) scale(0.86);
+    filter: blur(10px) brightness(1.4);
+    clip-path: inset(0 100% 0 0);
+  }
+  55% {
+    filter: blur(0) brightness(1.15);
+    clip-path: inset(0 0 0 0);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0) brightness(1);
+    clip-path: inset(0 0 0 0);
+  }
+}
+@keyframes profileNameIn {
+  0%   { opacity: 0; transform: translateY(6px); letter-spacing: 0.12em; }
+  100% { opacity: 1; transform: translateY(0);  letter-spacing: normal; }
+}
+@keyframes profileGlowPulse {
+  0%   { box-shadow: 0 0 0 0 rgba(229,9,20,0.55); }
+  100% { box-shadow: 0 0 0 14px rgba(229,9,20,0); }
 }
 .profile-item-in {
   opacity: 0;
-  animation: profileItemIn 520ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation: profileTileIn 720ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+.profile-item-in > div:first-child {
+  animation: profileGlowPulse 900ms ease-out;
+  animation-delay: inherit;
+  border-radius: 0.375rem;
+}
+.profile-item-in > span {
+  opacity: 0;
+  animation: profileNameIn 420ms ease-out forwards;
+  animation-delay: calc(var(--tile-delay, 0ms) + 260ms);
 }
 @keyframes profileGridFade {
   from { opacity: 0; transform: translateY(6px); }
@@ -61,5 +92,11 @@
   animation: profileSkeleton 1.4s ease-in-out infinite;
 }
 @media (prefers-reduced-motion: reduce) {
-  .profile-item-in, .profile-grid-enter, .profile-skeleton { animation: none !important; opacity: 1 !important; }
+  .profile-item-in, .profile-item-in > span, .profile-item-in > div:first-child,
+  .profile-grid-enter, .profile-skeleton {
+    animation: none !important;
+    opacity: 1 !important;
+    clip-path: none !important;
+    filter: none !important;
+  }
 }
