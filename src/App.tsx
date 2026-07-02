@@ -7,7 +7,7 @@ import NetflixHouseholdVerificationGuide from "./pages/NetflixHouseholdVerificat
 import { Toaster, toast } from "sonner";
 import { supabase } from "./integrations/supabase/client";
 import { AVATAR_CATEGORIES, resolveAvatar, buildAvatarId, prettyName, getAvatarCategoryUrls } from "./lib/avatars";
-import { bootstrapFromSupabase, clearSessionData, markSessionStart, readBootstrapCache, refreshBootstrap, patchBootstrapCacheUser, getEmailFilters, setEmailFilters as setEmailFiltersCache, listNotifications, markNotificationRead, markAllNotificationsRead, markNotificationSeen, archiveNotification, snoozeNotification, logNotificationEvent, getPoppedIds, markPopped, type EmailFilters, type AppNotification, type MaintenanceInfo } from "./lib/bootstrap";
+import { bootstrapFromSupabase, clearSessionData, markSessionStart, readBootstrapCache, refreshBootstrap, patchBootstrapCacheUser, getEmailFilters, setEmailFilters as setEmailFiltersCache, listNotifications, markNotificationRead, markAllNotificationsRead, markNotificationSeen, archiveNotification, deleteNotificationForMe, snoozeNotification, logNotificationEvent, getPoppedIds, markPopped, type EmailFilters, type AppNotification, type MaintenanceInfo } from "./lib/bootstrap";
 import MaintenanceScreen from "./components/MaintenanceScreen";
 import DateTimePicker from "./components/DateTimePicker";
 
@@ -802,7 +802,8 @@ function AutoPopupNotification() {
       if (cancelled) return;
       const fresh = list.filter((n) =>
         !seenRef.current.has(n.id) &&
-        !n.read && !n.archived &&
+        !n.read &&
+        !(n.locked) &&
         (!n.snoozed_until || new Date(n.snoozed_until) < new Date())
       );
       if (fresh.length) {
@@ -985,7 +986,7 @@ function AutoPopupNotification() {
 }
 
 // ---------- Full Notification Center (unified popup: mobile sheet + desktop modal) ----------
-type Tab = "all" | "unread" | "pinned" | "archived";
+type Tab = "all" | "unread";
 
 function NotificationCenter({ open, onClose, initialId, items, loading, onChange }: {
   open: boolean;
@@ -1035,9 +1036,6 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
     const q = query.trim().toLowerCase();
     return items.filter((n) => {
       if (tab === "unread" && n.read) return false;
-      if (tab === "pinned" && !n.pinned) return false;
-      if (tab === "archived" && !n.archived) return false;
-      if (tab !== "archived" && n.archived) return false;
       if (q && !(`${n.title} ${n.body} ${n.description || ""}`.toLowerCase().includes(q))) return false;
       return true;
     });
@@ -1053,8 +1051,8 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
     }
   };
 
-  const handleArchive = async (id: string) => {
-    await archiveNotification(id);
+  const handleDelete = async (id: string) => {
+    await deleteNotificationForMe(id);
     onChange();
     if (selected === id) setSelected(null);
   };
@@ -1085,9 +1083,9 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
           >
             {detail ? "Notification" : "Notifications"}
           </h3>
-          {!detail && items.filter((n) => !n.read && !n.archived).length > 0 && (
+          {!detail && items.filter((n) => !n.read).length > 0 && (
             <span className="text-[10.5px] font-medium text-rose-300/90 tracking-wider uppercase">
-              {items.filter((n) => !n.read && !n.archived).length} new
+              {items.filter((n) => !n.read).length} new
             </span>
           )}
         </div>
@@ -1112,7 +1110,7 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
       {!detail && (
         <>
           <div className="mt-4 flex items-center gap-1.5 overflow-x-auto no-scrollbar -mx-1 px-1">
-            {(["all", "unread", "pinned", "archived"] as Tab[]).map((t) => (
+            {(["all", "unread"] as Tab[]).map((t) => (
               <button
                 key={t}
                 onClick={() => setTab(t)}
@@ -1197,12 +1195,12 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
                       <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.7)] mt-1.5 flex-shrink-0" />
                     )}
                   </button>
-                  {!n.archived && (
-                    <div className="absolute right-3 top-1/2 -translate-y-1/2 hidden group-hover:flex gap-1">
-                      <button onClick={(e) => { e.stopPropagation(); handleSnooze(n.id, 24); }} className="p-1.5 rounded-md bg-black/40 text-zinc-400 hover:text-white" title="Snooze 24h"><Clock className="w-3.5 h-3.5" /></button>
-                      <button onClick={(e) => { e.stopPropagation(); handleArchive(n.id); }} className="p-1.5 rounded-md bg-black/40 text-zinc-400 hover:text-white" title="Archive"><Archive className="w-3.5 h-3.5" /></button>
-                    </div>
-                  )}
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2 hidden group-hover:flex gap-1">
+                    <button onClick={(e) => { e.stopPropagation(); handleSnooze(n.id, 24); }} className="p-1.5 rounded-md bg-black/40 text-zinc-400 hover:text-white" title="Snooze 24h"><Clock className="w-3.5 h-3.5" /></button>
+                    {!n.locked && (
+                      <button onClick={(e) => { e.stopPropagation(); handleDelete(n.id); }} className="p-1.5 rounded-md bg-black/40 text-zinc-400 hover:text-rose-300" title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
+                    )}
+                  </div>
                 </li>
               );
             })}
@@ -1259,9 +1257,15 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
             <button onClick={() => handleSnooze(detail.id, 24)} className="flex-1 py-2 rounded-lg text-[12px] text-zinc-300 bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 transition-colors inline-flex items-center justify-center gap-1.5">
               <Clock className="w-3.5 h-3.5" /> Snooze 24h
             </button>
-            <button onClick={() => handleArchive(detail.id)} className="flex-1 py-2 rounded-lg text-[12px] text-zinc-300 bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 transition-colors inline-flex items-center justify-center gap-1.5">
-              <Archive className="w-3.5 h-3.5" /> Archive
-            </button>
+            {detail.locked ? (
+              <div className="flex-1 py-2 rounded-lg text-[12px] text-zinc-500 bg-white/[0.02] border border-white/5 inline-flex items-center justify-center gap-1.5">
+                <Lock className="w-3.5 h-3.5" /> Locked by admin
+              </div>
+            ) : (
+              <button onClick={() => handleDelete(detail.id)} className="flex-1 py-2 rounded-lg text-[12px] text-rose-300 bg-rose-500/[0.06] hover:bg-rose-500/[0.12] border border-rose-500/20 transition-colors inline-flex items-center justify-center gap-1.5">
+                <Trash2 className="w-3.5 h-3.5" /> Delete
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -1305,8 +1309,8 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
       animate={{ scale: 1, y: 0, opacity: 1 }}
       exit={{ scale: 0.98, opacity: 0 }}
       transition={{ duration: 0.16, ease: "easeOut" }}
-      className="relative w-full max-w-[560px] flex flex-col rounded-3xl overflow-hidden"
-      style={{ ...surfaceStyle, maxHeight: "min(80vh, 780px)" }}
+      className="relative w-full max-w-[680px] flex flex-col rounded-3xl overflow-hidden"
+      style={{ ...surfaceStyle, maxHeight: "min(84vh, 860px)" }}
     >
       {Header}
       {detail ? Detail : List}
@@ -1368,7 +1372,7 @@ function NotificationBell() {
     return () => window.removeEventListener("notif:openCenter", onOpenCenter);
   }, []);
 
-  const active = items.filter((n) => !n.archived);
+  const active = items;
   const unread = active.filter((n) => !n.read).length;
   const highestPriority = active.filter((n) => !n.read).reduce<string>((acc, n) => {
     const rank = (p?: string) => ({ low: 1, normal: 2, high: 3, critical: 4 } as any)[p || "normal"] || 2;
@@ -2887,6 +2891,12 @@ function AdminPanel() {
   const [notifAudience, setNotifAudience] = useState<"all" | "user">("all");
   const [notifTargetUser, setNotifTargetUser] = useState<string>("");
   const [notifExpiresDays, setNotifExpiresDays] = useState<string>("");
+  const [notifKind, setNotifKind] = useState<"flash" | "article">("flash");
+  const [notifPlatformIcon, setNotifPlatformIcon] = useState<string>("");
+  const [notifLocked, setNotifLocked] = useState(false);
+  const [notifBodyMarkdown, setNotifBodyMarkdown] = useState("");
+  const [notifShowFrequency, setNotifShowFrequency] = useState<"once" | "always" | "session" | "daily">("once");
+  const [notifMode, setNotifMode] = useState<"popup" | "silent" | "banner">("popup");
   const [sendingNotif, setSendingNotif] = useState(false);
 
   // R2 storage config
@@ -3417,9 +3427,15 @@ function AdminPanel() {
         title: notifTitle.trim(),
         body: notifBody.trim(),
         description: notifDescription.trim() || null,
+        body_markdown: notifKind === "article" ? (notifBodyMarkdown.trim() || null) : null,
         image_url: notifImageUrl.trim() || null,
         category: notifCategory,
         priority: notifPriority,
+        kind: notifKind,
+        mode: notifMode,
+        show_frequency: notifShowFrequency,
+        platform_icon: notifPlatformIcon || null,
+        locked: notifLocked,
         action_url: notifActionUrl.trim() || null,
         action_label: notifActionLabel.trim() || null,
         pinned: notifPinned,
@@ -3430,7 +3446,8 @@ function AdminPanel() {
       toast.success("🔔 Notification sent");
       setNotifTitle(""); setNotifBody(""); setNotifDescription(""); setNotifImageUrl("");
       setNotifActionUrl(""); setNotifActionLabel(""); setNotifPinned(false);
-      setNotifExpiresDays("");
+      setNotifExpiresDays(""); setNotifBodyMarkdown(""); setNotifPlatformIcon("");
+      setNotifLocked(false);
       await reloadAdminNotifs();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to send");
@@ -4102,6 +4119,20 @@ function AdminPanel() {
                 Compose Notification
               </h2>
               <div className="space-y-3">
+                {/* Kind toggle: Flash Card vs Article */}
+                <div className="p-1 bg-slate-100 rounded-xl inline-flex gap-1 w-full">
+                  {([
+                    { id: "flash", label: "⚡ Flash Card", desc: "Short pop-up alert" },
+                    { id: "article", label: "📄 Article", desc: "Long-form with markdown" },
+                  ] as const).map((k) => (
+                    <button key={k.id} type="button" onClick={() => setNotifKind(k.id)}
+                      className={`flex-1 px-3 py-2 rounded-lg text-xs font-bold transition-all ${notifKind === k.id ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
+                      <div>{k.label}</div>
+                      <div className="text-[10px] font-normal opacity-70 mt-0.5">{k.desc}</div>
+                    </button>
+                  ))}
+                </div>
+
                 <div>
                   <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1 block">Title</label>
                   <input value={notifTitle} onChange={(e) => setNotifTitle(e.target.value)} placeholder="e.g. New content available"
@@ -4112,10 +4143,43 @@ function AdminPanel() {
                   <textarea value={notifBody} onChange={(e) => setNotifBody(e.target.value)} placeholder="One or two lines shown in the list" rows={2}
                     className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900" />
                 </div>
+                {notifKind === "flash" && (
+                  <div>
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1 block">Long description (detail view)</label>
+                    <textarea value={notifDescription} onChange={(e) => setNotifDescription(e.target.value)} placeholder="Full description shown when the user opens it" rows={4}
+                      className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900" />
+                  </div>
+                )}
+                {notifKind === "article" && (
+                  <div>
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1 block">Article body (markdown)</label>
+                    <textarea value={notifBodyMarkdown} onChange={(e) => setNotifBodyMarkdown(e.target.value)} placeholder={"# Heading\n\nSupports **bold**, *italic*, [links](https://…), lists, images…"} rows={10}
+                      className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900 font-mono" />
+                    <p className="text-[10.5px] text-slate-400 mt-1">Rendered in the article reader (Phase 3). AI translation is opt-in per user.</p>
+                  </div>
+                )}
+
+                {/* Platform icon picker */}
                 <div>
-                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1 block">Long description (detail view)</label>
-                  <textarea value={notifDescription} onChange={(e) => setNotifDescription(e.target.value)} placeholder="Full description shown when the user opens it" rows={4}
-                    className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900" />
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1 block">Platform icon (optional)</label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {[
+                      { id: "", label: "None" },
+                      { id: "netflix", label: "Netflix" },
+                      { id: "prime", label: "Prime" },
+                      { id: "disney", label: "Disney+" },
+                      { id: "hotstar", label: "Hotstar" },
+                      { id: "hbo", label: "HBO" },
+                      { id: "spotify", label: "Spotify" },
+                      { id: "youtube", label: "YouTube" },
+                      { id: "appletv", label: "Apple TV" },
+                    ].map((p) => (
+                      <button key={p.id || "none"} type="button" onClick={() => setNotifPlatformIcon(p.id)}
+                        className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors ${notifPlatformIcon === p.id ? "bg-slate-900 text-white border-slate-900" : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"}`}>
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
                 <div>
                   <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1 block">Hero image</label>
@@ -4202,10 +4266,36 @@ function AdminPanel() {
                     className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900" />
                 </div>
 
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1 block">Show frequency</label>
+                    <select value={notifShowFrequency} onChange={(e) => setNotifShowFrequency(e.target.value as any)}
+                      className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900">
+                      <option value="once">Once (dismiss forever)</option>
+                      <option value="session">Every session</option>
+                      <option value="daily">Once per day</option>
+                      <option value="always">Always until read</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1 block">Delivery mode</label>
+                    <select value={notifMode} onChange={(e) => setNotifMode(e.target.value as any)}
+                      className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900">
+                      <option value="popup">Popup (auto-open)</option>
+                      <option value="banner">Banner (top strip)</option>
+                      <option value="silent">Silent (bell only)</option>
+                    </select>
+                  </div>
+                </div>
+
                 <div className="flex flex-wrap gap-4 items-center text-sm">
                   <label className="flex items-center gap-2 text-slate-800">
                     <input type="checkbox" checked={notifPinned} onChange={(e) => setNotifPinned(e.target.checked)} />
                     <Pin className="w-3.5 h-3.5" /> Pin to top
+                  </label>
+                  <label className="flex items-center gap-2 text-slate-800" title="Users cannot dismiss or delete a locked notification">
+                    <input type="checkbox" checked={notifLocked} onChange={(e) => setNotifLocked(e.target.checked)} />
+                    <Lock className="w-3.5 h-3.5" /> Locked
                   </label>
                   <label className="flex items-center gap-2 text-slate-800">
                     <input type="radio" checked={notifAudience === "all"} onChange={() => setNotifAudience("all")} /> All users

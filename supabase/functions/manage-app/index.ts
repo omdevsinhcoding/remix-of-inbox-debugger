@@ -2192,7 +2192,7 @@ Deno.serve(async (req) => {
       const nowIso = new Date().toISOString();
       const { data: notes, error: nErr } = await supabase
         .from("notifications")
-        .select("id, title, body, description, image_url, category, priority, icon, action_url, action_label, action2_url, action2_label, pinned, audience, target_user_id, created_at, expires_at, publish_at, group_key")
+        .select("id, title, body, description, body_markdown, image_url, category, priority, icon, platform_icon, kind, sub_kind, locked, show_frequency, mode, action_url, action_label, action2_url, action2_label, pinned, audience, target_user_id, created_at, expires_at, publish_at, group_key")
         .or(`audience.eq.all,target_user_id.eq.${session.userId}`)
         .order("pinned", { ascending: false })
         .order("created_at", { ascending: false })
@@ -2206,38 +2206,42 @@ Deno.serve(async (req) => {
       const ids = active.map((n: any) => n.id);
       const readSet = new Set<string>();
       const seenSet = new Set<string>();
-      const archivedSet = new Set<string>();
+      const deletedSet = new Set<string>();
       const snoozeMap = new Map<string, string>();
       if (ids.length) {
         const { data: reads } = await supabase
           .from("notification_reads")
-          .select("notification_id, read_at, seen_at, archived_at, snoozed_until")
+          .select("notification_id, read_at, seen_at, deleted_at, snoozed_until")
           .in("notification_id", ids)
           .eq("user_id", session.userId);
         for (const r of reads || []) {
           if (r.read_at) readSet.add(r.notification_id);
           if (r.seen_at) seenSet.add(r.notification_id);
-          if (r.archived_at) archivedSet.add(r.notification_id);
+          if (r.deleted_at) deletedSet.add(r.notification_id);
           if (r.snoozed_until) snoozeMap.set(r.notification_id, r.snoozed_until);
         }
       }
-      const payload = active.map((n: any) => ({
-        id: n.id, title: n.title, body: n.body,
-        description: n.description, image_url: n.image_url,
-        category: n.category, priority: n.priority, icon: n.icon,
-        action_url: n.action_url, action_label: n.action_label,
-        action2_url: n.action2_url, action2_label: n.action2_label,
-        pinned: !!n.pinned, audience: n.audience,
-        created_at: n.created_at, expires_at: n.expires_at, publish_at: n.publish_at,
-        read: readSet.has(n.id),
-        seen: seenSet.has(n.id),
-        archived: archivedSet.has(n.id),
-        snoozed_until: snoozeMap.get(n.id) || null,
-      }));
+      const payload = active
+        .filter((n: any) => !deletedSet.has(n.id))
+        .map((n: any) => ({
+          id: n.id, title: n.title, body: n.body,
+          description: n.description, body_markdown: n.body_markdown, image_url: n.image_url,
+          category: n.category, priority: n.priority, icon: n.icon,
+          platform_icon: n.platform_icon, kind: n.kind, sub_kind: n.sub_kind,
+          locked: !!n.locked, show_frequency: n.show_frequency, mode: n.mode,
+          action_url: n.action_url, action_label: n.action_label,
+          action2_url: n.action2_url, action2_label: n.action2_label,
+          pinned: !!n.pinned, audience: n.audience,
+          created_at: n.created_at, expires_at: n.expires_at, publish_at: n.publish_at,
+          read: readSet.has(n.id),
+          seen: seenSet.has(n.id),
+          snoozed_until: snoozeMap.get(n.id) || null,
+        }));
       return new Response(JSON.stringify({ success: true, notifications: payload }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
 
     if (action === "mark_notification_read") {
       const session = await requireSession(req);
@@ -2319,6 +2323,21 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    if (action === "user_delete_notification") {
+      const session = await requireSession(req);
+      const { notification_id } = params as { notification_id?: string };
+      if (!notification_id) throw new Error("notification_id required");
+      const nowIso = new Date().toISOString();
+      const { error } = await supabase.from("notification_reads").upsert(
+        { notification_id, user_id: session.userId, deleted_at: nowIso, seen_at: nowIso },
+        { onConflict: "notification_id,user_id" },
+      );
+      if (error) throw error;
+      await supabase.from("notification_events").insert({ notification_id, user_id: session.userId, event: "dismissed", meta: { deleted: true } });
+      return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+
     if (action === "log_notification_event") {
       const session = await requireSession(req);
       const { notification_id, event, meta } = params as { notification_id?: string; event?: string; meta?: any };
@@ -2339,6 +2358,10 @@ Deno.serve(async (req) => {
       if (audience === "user" && !p.target_user_id) throw new Error("target_user_id required for user audience");
       const category = ["announcement","update","security","maintenance","promo","billing"].includes(p.category) ? p.category : "announcement";
       const priority = ["low","normal","high","critical"].includes(p.priority) ? p.priority : "normal";
+      const kind = ["flash","article"].includes(p.kind) ? p.kind : "flash";
+      const mode = ["popup","silent","banner"].includes(p.mode) ? p.mode : "popup";
+      const show_frequency = ["once","always","session","daily"].includes(p.show_frequency) ? p.show_frequency : "once";
+      const platform_icon = p.platform_icon ? String(p.platform_icon).slice(0, 40) : null;
       const expires_at = p.expiresInDays && Number(p.expiresInDays) > 0
         ? new Date(Date.now() + Number(p.expiresInDays) * 86400_000).toISOString()
         : null;
@@ -2347,8 +2370,11 @@ Deno.serve(async (req) => {
         title: String(p.title).slice(0, 200),
         body: String(p.body).slice(0, 4000),
         description: p.description ? String(p.description).slice(0, 8000) : null,
+        body_markdown: p.body_markdown ? String(p.body_markdown).slice(0, 40000) : null,
         image_url: p.image_url ? String(p.image_url).slice(0, 2048) : null,
-        category, priority,
+        category, priority, kind, mode, show_frequency, platform_icon,
+        sub_kind: p.sub_kind ? String(p.sub_kind).slice(0, 40) : null,
+        locked: !!p.locked,
         icon: p.icon ? String(p.icon).slice(0, 64) : null,
         action_url: p.action_url ? String(p.action_url).slice(0, 2048) : null,
         action_label: p.action_label ? String(p.action_label).slice(0, 80) : null,
@@ -2363,6 +2389,7 @@ Deno.serve(async (req) => {
         dedupe_key: p.dedupe_key ? String(p.dedupe_key).slice(0, 200) : null,
         group_key: p.group_key ? String(p.group_key).slice(0, 200) : null,
       };
+
       const { data, error } = await supabase.from("notifications").insert(row).select("id").single();
       if (error) throw error;
       await auditLog(supabase, "notification_created", session.userId, data?.id || null, { audience, target_user_id: p.target_user_id, category, priority }, ip);
