@@ -2323,6 +2323,21 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    if (action === "user_delete_notification") {
+      const session = await requireSession(req);
+      const { notification_id } = params as { notification_id?: string };
+      if (!notification_id) throw new Error("notification_id required");
+      const nowIso = new Date().toISOString();
+      const { error } = await supabase.from("notification_reads").upsert(
+        { notification_id, user_id: session.userId, deleted_at: nowIso, seen_at: nowIso },
+        { onConflict: "notification_id,user_id" },
+      );
+      if (error) throw error;
+      await supabase.from("notification_events").insert({ notification_id, user_id: session.userId, event: "dismissed", meta: { deleted: true } });
+      return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+
     if (action === "log_notification_event") {
       const session = await requireSession(req);
       const { notification_id, event, meta } = params as { notification_id?: string; event?: string; meta?: any };
