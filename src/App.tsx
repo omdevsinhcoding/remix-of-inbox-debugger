@@ -2162,9 +2162,19 @@ function AdminAuthPage() {
   }, [step, user]);
 
   const verifyTelegramOtp = async () => {
+    const code = otp.trim();
+    if (loading) return;
+    if (!user?.id) {
+      navigate("/admin", { replace: true });
+      return;
+    }
+    if (code.length < 6) {
+      setError("Enter the 6-digit Telegram OTP.");
+      return;
+    }
     setLoading(true);
     try {
-      await apiCall("manage-app", { action: "verify_otp", user_id: user.id, otp });
+      await apiCall("manage-app", { action: "verify_otp", user_id: user.id, otp: code });
       setStep(2);
       setError("");
     } catch (err) {
@@ -2177,9 +2187,19 @@ function AdminAuthPage() {
   };
 
   const verifyTotp = async () => {
+    const code = totp.trim();
+    if (loading) return;
+    if (!user?.id) {
+      navigate("/admin", { replace: true });
+      return;
+    }
+    if (code.length < 6) {
+      setError("Enter the 6-digit authenticator code.");
+      return;
+    }
     setLoading(true);
     try {
-      await apiCall("manage-app", { action: "verify_totp", user_id: user.id, code: totp });
+      await apiCall("manage-app", { action: "verify_totp", user_id: user.id, code });
       const finalData = await apiCall("manage-app", { action: "finalize_admin_session", user_id: user.id });
       if (finalData.workerUrls && Array.isArray(finalData.workerUrls) && finalData.workerUrls.length > 0) {
         storeWorkerUrls(finalData.workerUrls);
@@ -2198,6 +2218,24 @@ function AdminAuthPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleTelegramOtpSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const formOtp = new FormData(e.currentTarget).get("telegramOtp")?.toString() ?? otp;
+    const normalizedOtp = formOtp.replace(/\D/g, "").slice(0, 6);
+    if (normalizedOtp !== otp) setOtp(normalizedOtp);
+    void verifyTelegramOtp(normalizedOtp);
+  };
+
+  const handleTotpSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const formTotp = new FormData(e.currentTarget).get("totpCode")?.toString() ?? totp;
+    const normalizedTotp = formTotp.replace(/\D/g, "").slice(0, 6);
+    if (normalizedTotp !== totp) setTotp(normalizedTotp);
+    void verifyTotp(normalizedTotp);
   };
 
   return (
