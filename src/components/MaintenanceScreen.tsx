@@ -182,13 +182,31 @@ export default function MaintenanceScreen({ title, message, endsAt, versionFrom,
   ];
   const customTitle = title?.trim();
   const [titleIdx, setTitleIdx] = useState(0);
+  const [titlePhase, setTitlePhase] = useState<"in" | "out">("in");
+  const displayTitle = customTitle || rotatingTitles[titleIdx];
+  const letters = Array.from(displayTitle);
+  const IN_STEP = 45;   // ms between letters appearing
+  const OUT_STEP = 28;  // ms between letters disappearing
+  const IN_DUR = 520;   // per-letter fade-in duration
+  const OUT_DUR = 380;  // per-letter fade-out duration
+  const HOLD = 1100;    // hold time after fully shown
   useEffect(() => {
     if (customTitle) return; // don't rotate when admin pinned a headline
-    const id = setInterval(() => setTitleIdx((i) => (i + 1) % rotatingTitles.length), 3200);
-    return () => clearInterval(id);
+    if (titlePhase === "in") {
+      const totalIn = letters.length * IN_STEP + IN_DUR + HOLD;
+      const t = setTimeout(() => setTitlePhase("out"), totalIn);
+      return () => clearTimeout(t);
+    } else {
+      const totalOut = letters.length * OUT_STEP + OUT_DUR;
+      const t = setTimeout(() => {
+        setTitleIdx((i) => (i + 1) % rotatingTitles.length);
+        setTitlePhase("in");
+      }, totalOut);
+      return () => clearTimeout(t);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [customTitle]);
-  const displayTitle = customTitle || rotatingTitles[titleIdx];
+  }, [customTitle, titlePhase, titleIdx]);
+
   const displayMessage =
     message?.trim() ||
     "The site is offline for a short while so we can make it faster and safer for you. You don't need to do anything — just come back in a few minutes.";
@@ -297,25 +315,44 @@ export default function MaintenanceScreen({ title, message, endsAt, versionFrom,
             </div>
 
             <h1
-              className="text-[28px] sm:text-[40px] font-semibold text-white leading-[1.08] tracking-[-0.02em] mb-3 min-h-[1.2em]"
+              className="text-[28px] sm:text-[40px] font-semibold text-white leading-[1.15] tracking-[-0.02em] mb-3 min-h-[1.2em]"
               style={{ fontFamily: "'Inter', 'Helvetica Neue', system-ui, sans-serif" }}
             >
-              <span key={customTitle ? "static" : titleIdx} className="inline-block whitespace-pre-wrap">
-                {Array.from(displayTitle).map((ch, i) => (
-                  <span
-                    key={i}
-                    className="inline-block"
-                    style={{
-                      animation: `maint-letter-in 520ms cubic-bezier(0.22,0.61,0.36,1) both`,
-                      animationDelay: `${i * 35}ms`,
-                    }}
-                  >
-                    {ch === " " ? "\u00A0" : ch}
+              {(() => {
+                const words = displayTitle.split(" ");
+                let letterIndex = -1;
+                return (
+                  <span key={`${titleIdx}-${titlePhase}`} className="inline">
+                    {words.map((word, wi) => (
+                      <span key={wi} className="inline-block whitespace-nowrap">
+                        {Array.from(word).map((ch) => {
+                          letterIndex += 1;
+                          const isOut = titlePhase === "out";
+                          const delay = isOut
+                            ? letterIndex * OUT_STEP
+                            : letterIndex * IN_STEP;
+                          return (
+                            <span
+                              key={letterIndex}
+                              className="inline-block"
+                              style={{
+                                animation: isOut
+                                  ? `maint-letter-out ${OUT_DUR}ms cubic-bezier(0.55,0.06,0.68,0.19) both`
+                                  : `maint-letter-in ${IN_DUR}ms cubic-bezier(0.22,0.61,0.36,1) both`,
+                                animationDelay: `${delay}ms`,
+                              }}
+                            >
+                              {ch}
+                            </span>
+                          );
+                        })}
+                        {wi < words.length - 1 && <span className="inline-block">&nbsp;</span>}
+                      </span>
+                    ))}
                   </span>
-                ))}
-              </span>
+                );
+              })()}
             </h1>
-
 
 
             <p className="text-white/60 text-[14px] sm:text-[15.5px] leading-relaxed font-light max-w-[520px]">
@@ -331,8 +368,8 @@ export default function MaintenanceScreen({ title, message, endsAt, versionFrom,
                 <span className="absolute inset-0 rounded-full bg-emerald-400/60 animate-ping" />
                 <span className="relative inline-flex rounded-full w-2 h-2 bg-emerald-400" />
               </span>
-              <span className="hidden sm:inline text-[11px] uppercase tracking-[0.22em] text-white/45 font-mono flex-shrink-0">Live</span>
-              <span className="hidden sm:inline text-white/20">|</span>
+              <span className="text-[10px] sm:text-[11px] uppercase tracking-[0.2em] sm:tracking-[0.22em] text-white/45 font-mono flex-shrink-0">Live</span>
+              <span className="text-white/20 flex-shrink-0">|</span>
               <span
                 key={activityIdx}
                 className="text-[12px] sm:text-[13px] text-white/85 animate-fade-in font-mono flex-1 min-w-0 truncate"
@@ -341,6 +378,7 @@ export default function MaintenanceScreen({ title, message, endsAt, versionFrom,
                 {activityLines[activityIdx]}
               </span>
             </div>
+
 
 
             {/* Meta row */}
@@ -400,6 +438,11 @@ export default function MaintenanceScreen({ title, message, endsAt, versionFrom,
           60%  { opacity: 1; filter: blur(0); }
           100% { opacity: 1; transform: translateY(0) rotateX(0);           filter: blur(0); }
         }
+        @keyframes maint-letter-out {
+          0%   { opacity: 1; transform: translateY(0) rotateX(0);            filter: blur(0); }
+          100% { opacity: 0; transform: translateY(-0.5em) rotateX(35deg);   filter: blur(3px); }
+        }
+
 
       `}</style>
 
