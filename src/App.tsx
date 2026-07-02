@@ -65,7 +65,24 @@ type LoginLocationPayload = {
   error?: string;
 };
 
-const LOGIN_GEO_TIMEOUT_MS = 18_000;
+const LOGIN_GEO_TIMEOUT_MS = 24_000;
+const LOGIN_GEO_TARGET_ACCURACY_M = 120;
+
+function buildLocationSignInMessage(location: LoginLocationPayload): string {
+  if (location.status === "denied" || location.permissionState === "denied") {
+    return "Location is blocked. Allow location for this site in browser settings, then try again.";
+  }
+  if (location.status === "unsupported") {
+    return "This browser/device does not support GPS location. Use Chrome with location services enabled.";
+  }
+  if (location.status === "timeout") {
+    return "Location permission is already allowed, but your phone did not return a GPS fix. Turn on device Location/Precise Location and try again.";
+  }
+  if (location.status === "unavailable") {
+    return "Location is allowed, but GPS is unavailable right now. Turn on device Location/Precise Location and move near an open signal.";
+  }
+  return "Could not read device GPS coordinates. VPN/IP location is not accepted.";
+}
 
 async function collectLoginLocation(): Promise<LoginLocationPayload> {
   if (typeof window === "undefined" || typeof navigator === "undefined" || !navigator.geolocation) {
@@ -85,33 +102,54 @@ async function collectLoginLocation(): Promise<LoginLocationPayload> {
 
   return await new Promise<LoginLocationPayload>((resolve) => {
     let settled = false;
+    let watchId: number | null = null;
+    let bestPosition: GeolocationPosition | null = null;
     const finish = (payload: LoginLocationPayload) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      if (watchId !== null) {
+        try { navigator.geolocation.clearWatch(watchId); } catch {}
+      }
       resolve({ permissionState, ...payload });
     };
+    const finishWithPosition = (pos: GeolocationPosition) => finish({
+      status: "granted",
+      latitude: pos.coords.latitude,
+      longitude: pos.coords.longitude,
+      accuracy: pos.coords.accuracy,
+      altitude: pos.coords.altitude,
+      heading: pos.coords.heading,
+      speed: pos.coords.speed,
+      timestamp: pos.timestamp,
+    });
+    const rememberPosition = (pos: GeolocationPosition) => {
+      if (!bestPosition || pos.coords.accuracy < bestPosition.coords.accuracy) bestPosition = pos;
+      if (pos.coords.accuracy <= LOGIN_GEO_TARGET_ACCURACY_M) finishWithPosition(pos);
+    };
     const timer = window.setTimeout(() => {
-      finish({ status: "timeout", error: "Location permission or GPS fix timed out." });
+      if (bestPosition) finishWithPosition(bestPosition);
+      else finish({ status: "timeout", error: "GPS fix timed out after permission was allowed." });
     }, LOGIN_GEO_TIMEOUT_MS);
 
     try {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => finish({
-          status: "granted",
-          latitude: pos.coords.latitude,
-          longitude: pos.coords.longitude,
-          accuracy: pos.coords.accuracy,
-          altitude: pos.coords.altitude,
-          heading: pos.coords.heading,
-          speed: pos.coords.speed,
-          timestamp: pos.timestamp,
-        }),
+      watchId = navigator.geolocation.watchPosition(
+        rememberPosition,
         (err) => {
+          if (bestPosition && err.code !== err.PERMISSION_DENIED) return;
           const status = err.code === err.PERMISSION_DENIED ? "denied" : err.code === err.TIMEOUT ? "timeout" : "unavailable";
           finish({ status, error: err.message || "Could not get device location." });
         },
-        { enableHighAccuracy: true, timeout: 16_000, maximumAge: 0 },
+        { enableHighAccuracy: true, timeout: LOGIN_GEO_TIMEOUT_MS - 2_000, maximumAge: 0 },
+      );
+      navigator.geolocation.getCurrentPosition(
+        rememberPosition,
+        (err) => {
+          if (bestPosition || settled) return;
+          const status = err.code === err.PERMISSION_DENIED ? "denied" : err.code === err.TIMEOUT ? "timeout" : "unavailable";
+          finish({ status, error: err.message || "Could not get device location." });
+        },
+        { enableHighAccuracy: true, timeout: LOGIN_GEO_TIMEOUT_MS - 4_000, maximumAge: 0 },
       );
     } catch (err: any) {
       finish({ status: "error", error: err?.message || "Could not start location request." });
@@ -122,7 +160,7 @@ async function collectLoginLocation(): Promise<LoginLocationPayload> {
 async function requireLoginLocation(): Promise<LoginLocationPayload> {
   const location = await collectLoginLocation();
   if (location.status !== "granted" || typeof location.latitude !== "number" || typeof location.longitude !== "number") {
-    throw new Error("Please allow precise location to sign in. VPN/IP location is not accepted.");
+    throw new Error(buildLocationSignInMessage(location));
   }
   return location;
 }
