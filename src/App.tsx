@@ -3199,7 +3199,7 @@ function AdminPanel() {
         enabled: r2Cfg.enabled,
       });
       const persisted = r2Cfg.secretAccessKey.length > 0 || r2Cfg.secretAccessKeySet;
-      setR2Cfg((c) => ({ ...c, secretAccessKey: "", secretAccessKeySet: persisted }));
+      setR2Cfg((c) => ({ ...c, secretAccessKeySet: persisted }));
       toast.success(r2Cfg.enabled ? "R2 storage saved & enabled" : "R2 storage saved");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to save R2 config");
