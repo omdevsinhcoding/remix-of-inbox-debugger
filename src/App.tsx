@@ -1319,11 +1319,16 @@ function AdminPanel() {
     }
   };
 
+  const persistEmailFilters = async (next: { showSignInCodes: boolean; showPasswordResets: boolean; showAccountUpdates: boolean }) => {
+    await apiCall("manage-app", { action: "set_settings", key: "email_filters", value: next });
+    setEmailFiltersCache(next);
+  };
+
   const toggleSignInCodeFilter = async () => {
     const newVal = !showSignInCodes;
     setShowSignInCodes(newVal);
     try {
-      await apiCall("manage-app", { action: "set_settings", key: "email_filters", value: { showSignInCodes: newVal, showPasswordResets } });
+      await persistEmailFilters({ showSignInCodes: newVal, showPasswordResets, showAccountUpdates });
       toast.success(newVal ? "Sign-in code emails will be shown" : "Sign-in code emails will be hidden");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to save filter setting");
@@ -1335,11 +1340,23 @@ function AdminPanel() {
     const newVal = !showPasswordResets;
     setShowPasswordResets(newVal);
     try {
-      await apiCall("manage-app", { action: "set_settings", key: "email_filters", value: { showSignInCodes, showPasswordResets: newVal } });
+      await persistEmailFilters({ showSignInCodes, showPasswordResets: newVal, showAccountUpdates });
       toast.success(newVal ? "Password reset emails will be shown" : "Password reset emails will be hidden");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to save filter setting");
       setShowPasswordResets(!newVal);
+    }
+  };
+
+  const toggleAccountUpdateFilter = async () => {
+    const newVal = !showAccountUpdates;
+    setShowAccountUpdates(newVal);
+    try {
+      await persistEmailFilters({ showSignInCodes, showPasswordResets, showAccountUpdates: newVal });
+      toast.success(newVal ? "Account update emails will be shown" : "Account update emails will be hidden");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save filter setting");
+      setShowAccountUpdates(!newVal);
     }
   };
 
