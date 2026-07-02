@@ -4218,11 +4218,12 @@ function AdminPanel() {
 
                   {notifAudience === "user" && (
                     <select value={notifTargetUser} onChange={(e) => setNotifTargetUser(e.target.value)}
-                      className="w-full px-3.5 py-2.5 bg-white/[0.04] border border-white/10 rounded-xl text-sm text-white">
+                      className="w-full px-3.5 py-2.5 bg-white border border-white/10 rounded-xl text-sm text-slate-900 font-medium focus:outline-none focus:border-orange-500/60">
                       <option value="">— select user —</option>
-                      {users.map((u) => <option key={u.id} value={u.id} className="bg-slate-900">{u.name || u.username}</option>)}
+                      {users.map((u) => <option key={u.id} value={u.id}>{u.name || u.username}</option>)}
                     </select>
                   )}
+
 
                   {/* Advanced toggle */}
                   <details className="group">
@@ -4274,17 +4275,18 @@ function AdminPanel() {
                       </div>
                       <div className="grid grid-cols-2 gap-3">
                         <select value={notifPriority} onChange={(e) => setNotifPriority(e.target.value as any)}
-                          className="px-3.5 py-2 bg-white/[0.04] border border-white/10 rounded-xl text-sm text-white">
-                          {(["low","normal","high","critical"] as const).map(p => <option key={p} value={p} className="bg-slate-900 capitalize">{p} priority</option>)}
+                          className="px-3.5 py-2 bg-white border border-white/10 rounded-xl text-sm text-slate-900 font-medium capitalize focus:outline-none focus:border-orange-500/60">
+                          {(["low","normal","high","critical"] as const).map(p => <option key={p} value={p} className="capitalize">{p} priority</option>)}
                         </select>
                         <select value={notifShowFrequency} onChange={(e) => setNotifShowFrequency(e.target.value as any)}
-                          className="px-3.5 py-2 bg-white/[0.04] border border-white/10 rounded-xl text-sm text-white">
-                          <option value="once" className="bg-slate-900">Show once</option>
-                          <option value="session" className="bg-slate-900">Every session</option>
-                          <option value="daily" className="bg-slate-900">Once per day</option>
-                          <option value="always" className="bg-slate-900">Always until read</option>
+                          className="px-3.5 py-2 bg-white border border-white/10 rounded-xl text-sm text-slate-900 font-medium focus:outline-none focus:border-orange-500/60">
+                          <option value="once">Show once</option>
+                          <option value="session">Every session</option>
+                          <option value="daily">Once per day</option>
+                          <option value="always">Always until read</option>
                         </select>
                       </div>
+
                     </div>
                   </details>
 
