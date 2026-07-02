@@ -2895,6 +2895,11 @@ function AdminPanel() {
   const [r2Testing, setR2Testing] = useState(false);
   const [r2TestResult, setR2TestResult] = useState<{ ok: boolean; message: string; latencyMs?: number; publicUrlWorks?: boolean; warnings?: string[] } | null>(null);
   const [r2ShowSecret, setR2ShowSecret] = useState(false);
+  const [r2Dirty, setR2Dirty] = useState(false);
+  const updateR2Cfg = useCallback((patch: Partial<R2Cfg>) => {
+    setR2Dirty(true);
+    setR2Cfg((c) => ({ ...c, ...patch }));
+  }, []);
 
   // Inbox tab
   const [inboxMode, setInboxMode] = useState<"all" | "label" | "days">("days");
@@ -3040,7 +3045,7 @@ function AdminPanel() {
     try {
       const r2 = await apiCall("manage-app", { action: "admin_get_r2_config" });
       if (r2?.config) {
-        setR2Cfg({
+        setR2Cfg((current) => r2Dirty ? current : ({
           accountId: r2.config.accountId || "",
           accessKeyId: r2.config.accessKeyId || "",
           secretAccessKey: r2.config.secretAccessKey || "",
@@ -3049,10 +3054,10 @@ function AdminPanel() {
           pathPrefix: r2.config.pathPrefix || "notifications/",
           enabled: r2.config.enabled === true,
           secretAccessKeySet: r2.config.secretAccessKeySet === true,
-        });
+        }));
       }
     } catch { }
-  }, []);
+  }, [r2Dirty]);
 
   useEffect(() => {
     // Initial full load
@@ -3203,13 +3208,17 @@ function AdminPanel() {
           ...c,
           accountId: res.config.accountId ?? c.accountId,
           accessKeyId: res.config.accessKeyId ?? c.accessKeyId,
+          secretAccessKey: res.config.secretAccessKey ?? c.secretAccessKey,
           bucket: res.config.bucket ?? c.bucket,
           publicBaseUrl: res.config.publicBaseUrl ?? c.publicBaseUrl,
           pathPrefix: res.config.pathPrefix ?? c.pathPrefix,
+          enabled: res.config.enabled ?? c.enabled,
+          secretAccessKeySet: res.config.secretAccessKeySet ?? c.secretAccessKeySet,
         }));
       }
       const persisted = r2Cfg.secretAccessKey.length > 0 || r2Cfg.secretAccessKeySet;
       setR2Cfg((c) => ({ ...c, secretAccessKeySet: persisted }));
+      setR2Dirty(false);
       const note = Array.isArray(res?.warnings) && res.warnings.length ? ` (${res.warnings[0]})` : "";
       toast.success(`${r2Cfg.enabled ? "R2 storage saved & enabled" : "R2 storage saved"}${note}`);
     } catch (err) {
@@ -3962,7 +3971,7 @@ function AdminPanel() {
                   <span className="text-[11px] font-semibold text-slate-600 uppercase tracking-wider">{r2Cfg.enabled ? "Enabled" : "Disabled"}</span>
                   <button
                     type="button"
-                    onClick={() => setR2Cfg((c) => ({ ...c, enabled: !c.enabled }))}
+                    onClick={() => updateR2Cfg({ enabled: !r2Cfg.enabled })}
                     className={`relative w-12 h-6 rounded-full transition-colors ${r2Cfg.enabled ? "bg-green-500" : "bg-slate-300"}`}
                     aria-label="Toggle R2 enabled"
                   >
@@ -3979,20 +3988,20 @@ function AdminPanel() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Account ID</label>
-                    <input value={r2Cfg.accountId} onChange={(e) => setR2Cfg((c) => ({ ...c, accountId: e.target.value }))}
+                    <input value={r2Cfg.accountId} onChange={(e) => updateR2Cfg({ accountId: e.target.value })}
                       placeholder="abcdef1234567890"
                       className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900 font-mono" />
                   </div>
                   <div>
                     <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Bucket</label>
-                    <input value={r2Cfg.bucket} onChange={(e) => setR2Cfg((c) => ({ ...c, bucket: e.target.value }))}
+                    <input value={r2Cfg.bucket} onChange={(e) => updateR2Cfg({ bucket: e.target.value })}
                       placeholder="notification-media"
                       className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900 font-mono" />
                   </div>
                 </div>
                 <div>
                   <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Access Key ID</label>
-                  <input value={r2Cfg.accessKeyId} onChange={(e) => setR2Cfg((c) => ({ ...c, accessKeyId: e.target.value }))}
+                  <input value={r2Cfg.accessKeyId} onChange={(e) => updateR2Cfg({ accessKeyId: e.target.value })}
                     placeholder="R2 API token — Access Key ID"
                     className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900 font-mono" />
                 </div>
@@ -4003,21 +4012,21 @@ function AdminPanel() {
                     )}</span>
                   </label>
                   <input type="text" value={r2Cfg.secretAccessKey}
-                    onChange={(e) => setR2Cfg((c) => ({ ...c, secretAccessKey: e.target.value }))}
+                    onChange={(e) => updateR2Cfg({ secretAccessKey: e.target.value })}
                     placeholder="Paste secret access key"
                     className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900 font-mono" />
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Public Base URL</label>
-                    <input value={r2Cfg.publicBaseUrl} onChange={(e) => setR2Cfg((c) => ({ ...c, publicBaseUrl: e.target.value }))}
+                    <input value={r2Cfg.publicBaseUrl} onChange={(e) => updateR2Cfg({ publicBaseUrl: e.target.value })}
                       placeholder="https://cdn.example.com  (or  https://pub-xxx.r2.dev)"
                       className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900" />
                     <p className="text-[10.5px] text-slate-400 mt-1">Custom domain, or the r2.dev URL enabled on the bucket.</p>
                   </div>
                   <div>
                     <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Path Prefix</label>
-                    <input value={r2Cfg.pathPrefix} onChange={(e) => setR2Cfg((c) => ({ ...c, pathPrefix: e.target.value }))}
+                    <input value={r2Cfg.pathPrefix} onChange={(e) => updateR2Cfg({ pathPrefix: e.target.value })}
                       placeholder="notifications/"
                       className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900 font-mono" />
                   </div>
