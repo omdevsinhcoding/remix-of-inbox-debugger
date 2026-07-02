@@ -6,7 +6,7 @@ import { Toaster, toast } from "sonner";
 import ReCAPTCHA from "react-google-recaptcha";
 import { supabase } from "./integrations/supabase/client";
 import { QRCodeSVG } from "qrcode.react";
-import { AVATAR_CATEGORIES, resolveAvatar, buildAvatarId, prettyName } from "./lib/avatars";
+import { AVATAR_CATEGORIES, resolveAvatar, buildAvatarId, prettyName, getAvatarCategoryUrls } from "./lib/avatars";
 import { bootstrapFromSupabase, bootstrapPromise, clearSessionData, markSessionStart, readBootstrapCache } from "./lib/bootstrap";
 
 // --- Worker URL Types & Helpers ---
@@ -387,6 +387,72 @@ function ProfileAvatar({ avatarId, name, className = "w-16 h-16", fallbackColor 
       />
     </div>
   );
+}
+
+const warmedAvatarUrls = new Set<string>();
+const loadedAvatarUrls = new Set<string>();
+const avatarLoadPromises = new Map<string, Promise<void>>();
+
+function warmAvatarUrls(urls: string[], priority: "high" | "low" = "low") {
+  if (typeof window === "undefined") return;
+  urls.forEach((url) => {
+    if (warmedAvatarUrls.has(`${priority}:${url}`)) return;
+    warmedAvatarUrls.add(`${priority}:${url}`);
+    const link = document.createElement("link");
+    link.rel = priority === "high" ? "preload" : "prefetch";
+    link.as = "image";
+    link.href = url;
+    if (priority === "high") link.setAttribute("fetchpriority", "high");
+    document.head.appendChild(link);
+
+    const img = new Image();
+    img.decoding = priority === "high" ? "sync" : "async";
+    img.src = url;
+  });
+}
+
+function loadAvatarUrl(url: string): Promise<void> {
+  if (loadedAvatarUrls.has(url)) return Promise.resolve();
+  const existing = avatarLoadPromises.get(url);
+  if (existing) return existing;
+
+  const promise = new Promise<void>((resolve) => {
+    const img = new Image();
+    img.decoding = "async";
+    const done = () => {
+      loadedAvatarUrls.add(url);
+      resolve();
+    };
+    img.onload = done;
+    img.onerror = done;
+    img.src = url;
+    if (img.complete) done();
+  });
+  avatarLoadPromises.set(url, promise);
+  return promise;
+}
+
+function preloadAvatarUrls(urls: string[], maxWaitMs = 6000, priority: "high" | "low" = "high"): Promise<void> {
+  if (urls.length === 0) return Promise.resolve();
+  warmAvatarUrls(urls, priority);
+  return Promise.race([
+    Promise.allSettled(urls.map(loadAvatarUrl)).then(() => undefined),
+    new Promise<void>((resolve) => window.setTimeout(resolve, maxWaitMs)),
+  ]);
+}
+
+function getCategoryKeyFromAvatarId(avatarId?: string | null): string | null {
+  if (!avatarId?.startsWith("netflix:")) return null;
+  const [, key] = avatarId.split(":");
+  return AVATAR_CATEGORIES.some((category) => category.key === key) ? key : null;
+}
+
+function warmAvatarCategory(categoryKey: string, priority: "high" | "low" = "low") {
+  warmAvatarUrls(getAvatarCategoryUrls(categoryKey), priority);
+}
+
+function preloadAvatarCategory(categoryKey: string, maxWaitMs?: number, priority: "high" | "low" = "high") {
+  return preloadAvatarUrls(getAvatarCategoryUrls(categoryKey), maxWaitMs, priority);
 }
 
 
@@ -2215,40 +2281,86 @@ function AvatarPicker({
   onPick: (id: string) => void;
   saving: boolean;
 }) {
-  const scrollToRow = (key: string) => {
-    const el = document.getElementById(`avatar-row-${key}`);
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  const [activeCategoryKey, setActiveCategoryKey] = useState(() => getCategoryKeyFromAvatarId(selectedAvatar) || AVATAR_CATEGORIES[0]?.key || "");
+  const [pendingCategoryKey, setPendingCategoryKey] = useState<string | null>(null);
+  const activeCategory = AVATAR_CATEGORIES.find((c) => c.key === activeCategoryKey) || AVATAR_CATEGORIES[0];
+  const activeIndex = Math.max(0, AVATAR_CATEGORIES.findIndex((c) => c.key === activeCategory.key));
+
+  useEffect(() => {
+    if (!activeCategory) return;
+    void preloadAvatarCategory(activeCategory.key, 2500);
+    const next = AVATAR_CATEGORIES[activeIndex + 1];
+    const prev = AVATAR_CATEGORIES[activeIndex - 1];
+    if (next) warmAvatarCategory(next.key, "low");
+    if (prev) warmAvatarCategory(prev.key, "low");
+  }, [activeCategory?.key, activeIndex]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const warmRest = async () => {
+      const ordered = AVATAR_CATEGORIES.filter((category) => category.key !== activeCategory?.key);
+      for (const category of ordered) {
+        if (cancelled) return;
+        warmAvatarCategory(category.key, "low");
+        await preloadAvatarCategory(category.key, 1200, "low");
+        await new Promise((resolve) => window.setTimeout(resolve, 120));
+      }
+    };
+    const run = () => void warmRest();
+    const win = window as Window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    const idle = win.requestIdleCallback
+      ? win.requestIdleCallback(run, { timeout: 1200 })
+      : window.setTimeout(run, 700);
+    return () => {
+      cancelled = true;
+      if (typeof idle === "number") window.clearTimeout(idle);
+      if (win.cancelIdleCallback) win.cancelIdleCallback(idle);
+    };
+  }, [activeCategory?.key]);
+
+  const selectCategory = (key: string) => {
+    if (key === activeCategoryKey || pendingCategoryKey) return;
+    setPendingCategoryKey(key);
+    preloadAvatarCategory(key, 5000).finally(() => {
+      setActiveCategoryKey(key);
+      setPendingCategoryKey(null);
+    });
   };
+
+  if (!activeCategory) return null;
+
   return (
     <div className="pb-4">
       <div className="sticky top-0 z-10 bg-white/95 backdrop-blur border-b border-slate-100 px-4 sm:px-5 py-3 space-y-2">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-black text-slate-900">Choose your character</h3>
-          {saving && <span className="text-[10px] font-bold text-slate-400">Saving…</span>}
+          <span className="text-[10px] font-bold text-slate-400">{saving ? "Saving…" : pendingCategoryKey ? "Preparing…" : `${activeCategory.files.length} icons`}</span>
         </div>
         <div className="flex gap-1.5 overflow-x-auto scrollbar-thin -mx-1 px-1">
           {AVATAR_CATEGORIES.map((c) => (
             <button
               key={c.key}
-              onClick={() => scrollToRow(c.key)}
-              className="flex-shrink-0 px-3 py-1 text-[11px] font-bold rounded-full bg-slate-100 text-slate-700 hover:bg-red-100 hover:text-red-700 transition-colors"
+              onClick={() => selectCategory(c.key)}
+              onMouseEnter={() => warmAvatarCategory(c.key, "low")}
+              className={`flex-shrink-0 px-3 py-1 text-[11px] font-bold rounded-full transition-colors ${activeCategoryKey === c.key ? "bg-red-600 text-white" : pendingCategoryKey === c.key ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700 hover:bg-red-100 hover:text-red-700"}`}
             >
               {c.label}
             </button>
           ))}
         </div>
       </div>
-      <div className="space-y-5 pt-4">
-        {AVATAR_CATEGORIES.map((c) => (
-          <AvatarRow
-            key={c.key}
-            category={c}
-            userName={userName}
-            selectedAvatar={selectedAvatar}
-            onPick={onPick}
-            saving={saving}
-          />
-        ))}
+      <div className="pt-4">
+        <AvatarRow
+          key={activeCategory.key}
+          category={activeCategory}
+          userName={userName}
+          selectedAvatar={selectedAvatar}
+          onPick={onPick}
+          saving={saving}
+        />
       </div>
     </div>
   );
@@ -2271,6 +2383,12 @@ function UserProfileModal({
 }) {
   const [savingAvatar, setSavingAvatar] = useState(false);
   const selectedAvatar = prefs.avatarId || getStableProfileAvatar(user);
+
+  useEffect(() => {
+    const selectedUri = getAvatarUri(selectedAvatar);
+    warmAvatarUrls(selectedUri ? [selectedUri] : [], "high");
+    if (AVATAR_CATEGORIES[0]) warmAvatarCategory(AVATAR_CATEGORIES[0].key, "high");
+  }, [selectedAvatar]);
 
   const saveAvatar = async (avatarId: string) => {
     if (savingAvatar) return;
