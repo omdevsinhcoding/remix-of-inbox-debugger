@@ -1035,9 +1035,6 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
     const q = query.trim().toLowerCase();
     return items.filter((n) => {
       if (tab === "unread" && n.read) return false;
-      if (tab === "pinned" && !n.pinned) return false;
-      if (tab === "archived" && !n.archived) return false;
-      if (tab !== "archived" && n.archived) return false;
       if (q && !(`${n.title} ${n.body} ${n.description || ""}`.toLowerCase().includes(q))) return false;
       return true;
     });
