@@ -72,7 +72,7 @@ export function readBootstrapCache(): BootstrapResult | null {
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return null;
     if (!parsed.savedAt || Date.now() - parsed.savedAt > BOOTSTRAP_CACHE_TTL_MS) return null;
-    return { users: parsed.users || [], recaptcha: parsed.recaptcha, workerUrls: parsed.workerUrls || [], emailFilters: parsed.emailFilters };
+    return { users: parsed.users || [], recaptcha: parsed.recaptcha, workerUrls: parsed.workerUrls || [], emailFilters: parsed.emailFilters, maintenance: parsed.maintenance };
   } catch { return null; }
 }
 
@@ -101,11 +101,12 @@ export async function bootstrapFromSupabase(): Promise<BootstrapResult> {
     storeWorkerUrls(data.workerUrls);
   }
 
-  const result: BootstrapResult = { users: data.users || [], recaptcha: data.recaptcha, workerUrls: data.workerUrls || [], emailFilters: data.emailFilters || {} };
+  const result: BootstrapResult = { users: data.users || [], recaptcha: data.recaptcha, workerUrls: data.workerUrls || [], emailFilters: data.emailFilters || {}, maintenance: data.maintenance || { enabled: false } };
   if (data.emailFilters && typeof data.emailFilters === "object") setEmailFilters(data.emailFilters);
   writeBootstrapCache(result);
   return result;
 }
+
 
 export const bootstrapPromise: Promise<BootstrapResult> = bootstrapFromSupabase().catch((err) => {
   console.warn("[bootstrap] prefetch failed:", err);
