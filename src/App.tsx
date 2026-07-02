@@ -174,13 +174,13 @@ function ResponsiveToaster() {
   }, []);
   return (
     <Toaster
-      position={isMobile ? "top-center" : "bottom-right"}
+      position={isMobile ? "bottom-center" : "bottom-right"}
       richColors
       closeButton
       expand={false}
-      visibleToasts={3}
+      visibleToasts={2}
       duration={2500}
-      offset={isMobile ? "calc(env(safe-area-inset-top) + 4.5rem)" : "5rem"}
+      offset={isMobile ? "calc(env(safe-area-inset-bottom) + 5.5rem)" : "5rem"}
       toastOptions={{ className: "pointer-events-auto" }}
     />
   );
