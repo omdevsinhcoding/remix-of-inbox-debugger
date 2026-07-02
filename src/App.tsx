@@ -4248,6 +4248,34 @@ function AdminPanel() {
                   <div className="px-2.5 pb-3 space-y-2">
                     <p className="text-[11px] text-blue-800 bg-blue-100 rounded-lg p-2">✅ Sab kuch phone browser se hoga — koi terminal ya PC ki zaroorat nahi!</p>
 
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 space-y-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="text-xs font-black text-amber-900">🔐 SESSION_SIGNING_SECRET yahi se copy karo</p>
+                          <p className="text-[11px] text-amber-800 mt-0.5">Admin login ke bina value nahi dikhegi. Cloudflare me Type hamesha <b>Secret</b> select karna, Plaintext nahi.</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={revealSigningSecret}
+                          disabled={revealingSigningSecret}
+                          className="shrink-0 rounded-lg bg-slate-900 px-3 py-2 text-[11px] font-black text-white hover:bg-slate-800 disabled:opacity-60"
+                        >
+                          {revealingSigningSecret ? "Opening..." : signingSecretReveal ? "Reveal again" : "Reveal"}
+                        </button>
+                      </div>
+                      {signingSecretReveal && (
+                        <div className="rounded-lg border border-amber-300 bg-white p-2">
+                          <div className="flex items-center justify-between gap-2 mb-1">
+                            <span className="text-[10px] font-black uppercase text-amber-700">SESSION_SIGNING_SECRET · {signingSecretReveal.length} chars</span>
+                            <button type="button" onClick={copySigningSecret} className="inline-flex items-center gap-1 rounded-md bg-amber-100 px-2 py-1 text-[10px] font-black text-amber-900 hover:bg-amber-200">
+                              <Copy className="w-3 h-3" /> Copy
+                            </button>
+                          </div>
+                          <code className="block max-h-20 overflow-auto break-all rounded-md bg-slate-950 p-2 text-[11px] leading-relaxed text-amber-100">{signingSecretReveal.value}</code>
+                        </div>
+                      )}
+                    </div>
+
                     {[
                       {
                         step: "1",
