@@ -5418,13 +5418,14 @@ function EmailViewer() {
     const toastId = toast.loading("Checking Netflix mail…");
     try {
       // Refresh must never blank or block: DB cache first, then slow IMAP sync in background.
-      const cachedCount = await loadCachedEmails();
+      // F7: manual refresh always passes bust=1 so KV can't return a stale snapshot.
+      const cachedCount = await loadCachedEmails({ bust: true });
       setRefreshing(false);
       const baseline = Math.max(before, cachedCount);
 
       syncViaWorker()
         .then(() => new Promise(resolve => setTimeout(resolve, 4000)))
-        .then(() => loadCachedEmails())
+        .then(() => loadCachedEmails({ bust: true }))
         .then((after) => {
           const newCount = after - baseline;
           if (newCount > 0) {
