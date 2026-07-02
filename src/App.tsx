@@ -2478,20 +2478,16 @@ function LoginEventsPanel() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a"); a.href = url; a.download = `login_events_${Date.now()}.json`; a.click(); URL.revokeObjectURL(url);
   };
-  const riskColor = (r: string) => r === "critical" ? "bg-red-600 text-white" : r === "high" ? "bg-orange-500 text-white" : r === "medium" ? "bg-amber-400 text-slate-900" : "bg-emerald-500 text-white";
 
   return (
-    <section className="bg-white p-4 sm:p-6 rounded-2xl border shadow-sm">
+    <section className="bg-white p-3 sm:p-6 rounded-2xl border shadow-sm">
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <h2 className="font-black text-base sm:text-lg flex items-center gap-2 mr-auto">
           <div className="bg-red-50 p-1.5 rounded-lg"><ShieldCheck className="w-4 h-4 text-red-600" /></div>
           Login Events <span className="text-xs font-normal text-slate-500">({events.length})</span>
         </h2>
         <input value={search} onChange={e => setSearch(e.target.value)} onKeyDown={e => e.key === "Enter" && load()}
-          placeholder="Search user/IP/city/ISP…" aria-label="Search login events" className="border rounded-lg px-3 py-1.5 text-sm w-48" />
-        <select value={riskFilter} onChange={e => { setRiskFilter(e.target.value); }} className="border rounded-lg px-2 py-1.5 text-sm">
-          <option value="">All risks</option><option value="safe">Safe</option><option value="medium">Medium</option><option value="high">High</option><option value="critical">Critical</option>
-        </select>
+          placeholder="Search user/IP/city/ISP…" aria-label="Search login events" className="border rounded-lg px-3 py-1.5 text-sm w-full sm:w-48" />
         <button onClick={load} className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm font-semibold">Refresh</button>
         <button onClick={exportCsv} className="px-3 py-1.5 bg-slate-900 text-white hover:bg-slate-800 rounded-lg text-sm font-semibold">CSV</button>
         <button onClick={exportJson} className="px-3 py-1.5 bg-slate-700 text-white hover:bg-slate-800 rounded-lg text-sm font-semibold">JSON</button>
@@ -2501,55 +2497,128 @@ function LoginEventsPanel() {
       ) : events.length === 0 ? (
         <div className="py-12 text-center text-slate-500 text-sm">No login events yet.</div>
       ) : (
-        <div className="overflow-auto -mx-4 sm:mx-0 border rounded-lg max-h-[65vh]">
-          <table className="w-full text-xs sm:text-sm min-w-[900px]">
-            <thead className="bg-slate-50 text-left text-slate-600 uppercase text-[10px] tracking-wider sticky top-0 z-10">
-              <tr>
-                <th className="p-2">Time</th><th className="p-2">User</th><th className="p-2">Risk</th>
-                <th className="p-2">Device</th><th className="p-2">Browser · OS</th>
-                <th className="p-2">IP</th><th className="p-2">ISP</th><th className="p-2">Location</th>
-                <th className="p-2">Flags</th><th className="p-2">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {events.map(e => (
-                <React.Fragment key={e.id}>
-                  <tr className="hover:bg-slate-50">
-                    <td className="p-2 whitespace-nowrap text-slate-600">{new Date(e.created_at).toLocaleString()}</td>
-                    <td className="p-2 font-semibold">{e.username}<div className="text-[10px] text-slate-400">{e.role}</div></td>
-                    <td className="p-2"><span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${riskColor(e.risk_score || "safe")}`}>{(e.risk_score || "safe").toUpperCase()}</span>{e.is_new_device && <div className="text-[10px] text-orange-600 mt-1">🆕 new device</div>}</td>
-                    <td className="p-2">{[e.device_brand, e.device_model].filter(Boolean).join(" ") || "—"}<div className="text-[10px] text-slate-400">{e.device_type}</div></td>
-                    <td className="p-2">{e.browser_name} {e.browser_version?.split(".")[0]}<div className="text-[10px] text-slate-400">{e.os_name} {e.os_version}</div></td>
-                    <td className="p-2 font-mono text-[11px]">{e.ip || "—"}<div className="text-[10px] text-slate-400">{e.ip_source}</div></td>
-                    <td className="p-2">{e.isp || "—"}<div className="text-[10px] text-slate-400">{e.asn}</div></td>
-                    <td className="p-2">{[e.city, e.region, e.country_code].filter(Boolean).join(", ") || "—"}{typeof e.gps_lat === "number" && <div className="text-[10px] text-emerald-600">GPS ±{Math.round(e.gps_accuracy || 0)}m</div>}</td>
-                    <td className="p-2 space-x-1">
-                      {e.is_vpn && <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-[10px]">VPN</span>}
-                      {e.is_proxy && <span className="px-1.5 py-0.5 rounded bg-orange-100 text-orange-700 text-[10px]">PROXY</span>}
-                      {e.is_tor && <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 text-[10px]">TOR</span>}
-                      {e.is_hosting && <span className="px-1.5 py-0.5 rounded bg-slate-200 text-slate-700 text-[10px]">HOST</span>}
-                      {e.impossible_travel && <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-[10px]">IMP-TRAVEL</span>}
-                    </td>
-                    <td className="p-2 whitespace-nowrap">
-                      {(typeof e.gps_lat === "number" || typeof e.ip_lat === "number") && (
-                        <a target="_blank" rel="noreferrer" href={`https://maps.google.com/?q=${e.gps_lat ?? e.ip_lat},${e.gps_lon ?? e.ip_lon}`} className="text-blue-600 hover:underline text-[11px] mr-2">Map</a>
+        <>
+          {/* Desktop / tablet table */}
+          <div className="hidden md:block overflow-auto border rounded-lg max-h-[65vh]">
+            <table className="w-full text-xs sm:text-sm min-w-[820px]">
+              <thead className="bg-slate-50 text-left text-slate-600 uppercase text-[10px] tracking-wider sticky top-0 z-10">
+                <tr>
+                  <th className="p-2">Time</th><th className="p-2">User</th>
+                  <th className="p-2">Device</th><th className="p-2">Browser · OS</th>
+                  <th className="p-2">IP</th><th className="p-2">ISP</th><th className="p-2">Location</th>
+                  <th className="p-2">Flags</th><th className="p-2">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {events.map(e => (
+                  <React.Fragment key={e.id}>
+                    <tr className="hover:bg-slate-50">
+                      <td className="p-2 whitespace-nowrap text-slate-600">{new Date(e.created_at).toLocaleString()}</td>
+                      <td className="p-2 font-semibold">{e.username}<div className="text-[10px] text-slate-400">{e.role}</div>{e.is_new_device && <div className="text-[10px] text-orange-600 mt-1">🆕 new device</div>}</td>
+                      <td className="p-2">{[e.device_brand, e.device_model].filter(Boolean).join(" ") || "—"}<div className="text-[10px] text-slate-400">{e.device_type}</div></td>
+                      <td className="p-2">{e.browser_name} {e.browser_version?.split(".")[0]}<div className="text-[10px] text-slate-400">{e.os_name} {e.os_version}</div></td>
+                      <td className="p-2 font-mono text-[11px]">{e.ip || "—"}<div className="text-[10px] text-slate-400">{e.ip_source}</div></td>
+                      <td className="p-2">{e.isp || "—"}<div className="text-[10px] text-slate-400">{e.asn}</div></td>
+                      <td className="p-2">{[e.city, e.region, e.country_code].filter(Boolean).join(", ") || "—"}{typeof e.gps_lat === "number" && <div className="text-[10px] text-emerald-600">GPS ±{Math.round(e.gps_accuracy || 0)}m</div>}</td>
+                      <td className="p-2 space-x-1">
+                        {e.is_vpn && <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-[10px]">VPN</span>}
+                        {e.is_proxy && <span className="px-1.5 py-0.5 rounded bg-orange-100 text-orange-700 text-[10px]">PROXY</span>}
+                        {e.is_tor && <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 text-[10px]">TOR</span>}
+                        {e.is_hosting && <span className="px-1.5 py-0.5 rounded bg-slate-200 text-slate-700 text-[10px]">HOST</span>}
+                      </td>
+                      <td className="p-2 whitespace-nowrap">
+                        {(typeof e.gps_lat === "number" || typeof e.ip_lat === "number") && (
+                          <a target="_blank" rel="noreferrer" href={`https://maps.google.com/?q=${e.gps_lat ?? e.ip_lat},${e.gps_lon ?? e.ip_lon}`} className="text-blue-600 hover:underline text-[11px] mr-2">Map</a>
+                        )}
+                        {e.ip && <button onClick={() => { navigator.clipboard.writeText(e.ip); toast.success("IP copied"); }} className="text-slate-600 hover:underline text-[11px] mr-2">Copy IP</button>}
+                        <button onClick={() => setExpanded(expanded === e.id ? null : e.id)} className="text-slate-600 hover:underline text-[11px]">{expanded === e.id ? "Hide" : "Raw"}</button>
+                      </td>
+                    </tr>
+                    {expanded === e.id && (
+                      <tr><td colSpan={9} className="p-2 bg-slate-50"><pre className="text-[10px] overflow-x-auto max-h-96">{JSON.stringify(e, null, 2)}</pre></td></tr>
+                    )}
+                  </React.Fragment>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile card list — no horizontal scroll */}
+          <div className="md:hidden space-y-3 max-h-[65vh] overflow-y-auto pr-1">
+            {events.map(e => {
+              const isOpen = expanded === e.id;
+              const flags: { label: string; cls: string }[] = [];
+              if (e.is_vpn) flags.push({ label: "VPN", cls: "bg-red-100 text-red-700" });
+              if (e.is_proxy) flags.push({ label: "PROXY", cls: "bg-orange-100 text-orange-700" });
+              if (e.is_tor) flags.push({ label: "TOR", cls: "bg-purple-100 text-purple-700" });
+              if (e.is_hosting) flags.push({ label: "HOST", cls: "bg-slate-200 text-slate-700" });
+              return (
+                <div key={e.id} className="border rounded-xl p-3 bg-white shadow-sm">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="font-bold text-sm text-slate-900 truncate">{e.username}</p>
+                      <p className="text-[10px] uppercase tracking-wide text-slate-400">{e.role}</p>
+                    </div>
+                    <p className="text-[10px] text-slate-500 whitespace-nowrap">{new Date(e.created_at).toLocaleString()}</p>
+                  </div>
+
+                  {e.is_new_device && <p className="text-[10px] text-orange-600 mt-1">🆕 new device</p>}
+
+                  <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px]">
+                    <div>
+                      <p className="text-slate-400 text-[9px] uppercase tracking-wider">Device</p>
+                      <p className="text-slate-700 truncate">{[e.device_brand, e.device_model].filter(Boolean).join(" ") || "—"}</p>
+                      <p className="text-slate-400 text-[10px]">{e.device_type}</p>
+                    </div>
+                    <div>
+                      <p className="text-slate-400 text-[9px] uppercase tracking-wider">Browser · OS</p>
+                      <p className="text-slate-700 truncate">{e.browser_name} {e.browser_version?.split(".")[0]}</p>
+                      <p className="text-slate-400 text-[10px] truncate">{e.os_name} {e.os_version}</p>
+                    </div>
+                    <div className="col-span-2">
+                      <p className="text-slate-400 text-[9px] uppercase tracking-wider">IP · ISP</p>
+                      <p className="font-mono text-[11px] text-slate-700 break-all">{e.ip || "—"}</p>
+                      <p className="text-slate-500 text-[10px] truncate">{e.isp || "—"} {e.asn ? `· ${e.asn}` : ""}</p>
+                    </div>
+                    <div className="col-span-2">
+                      <p className="text-slate-400 text-[9px] uppercase tracking-wider">Location</p>
+                      <p className="text-slate-700 text-[11px]">{[e.city, e.region, e.country_code].filter(Boolean).join(", ") || "—"}</p>
+                      {typeof e.gps_lat === "number" && (
+                        <p className="text-emerald-600 text-[10px]">GPS ±{Math.round(e.gps_accuracy || 0)}m</p>
                       )}
-                      {e.ip && <button onClick={() => { navigator.clipboard.writeText(e.ip); toast.success("IP copied"); }} className="text-slate-600 hover:underline text-[11px] mr-2">Copy IP</button>}
-                      <button onClick={() => setExpanded(expanded === e.id ? null : e.id)} className="text-slate-600 hover:underline text-[11px]">{expanded === e.id ? "Hide" : "Raw"}</button>
-                    </td>
-                  </tr>
-                  {expanded === e.id && (
-                    <tr><td colSpan={10} className="p-2 bg-slate-50"><pre className="text-[10px] overflow-x-auto max-h-96">{JSON.stringify(e, null, 2)}</pre></td></tr>
+                    </div>
+                  </div>
+
+                  {flags.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {flags.map(f => (
+                        <span key={f.label} className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${f.cls}`}>{f.label}</span>
+                      ))}
+                    </div>
                   )}
-                </React.Fragment>
-              ))}
-            </tbody>
-          </table>
-        </div>
+
+                  <div className="mt-3 flex flex-wrap gap-2 pt-2 border-t">
+                    {(typeof e.gps_lat === "number" || typeof e.ip_lat === "number") && (
+                      <a target="_blank" rel="noreferrer" href={`https://maps.google.com/?q=${e.gps_lat ?? e.ip_lat},${e.gps_lon ?? e.ip_lon}`}
+                        className="text-blue-600 hover:underline text-[11px] font-semibold">Map</a>
+                    )}
+                    {e.ip && <button onClick={() => { navigator.clipboard.writeText(e.ip); toast.success("IP copied"); }} className="text-slate-600 hover:underline text-[11px] font-semibold">Copy IP</button>}
+                    <button onClick={() => setExpanded(isOpen ? null : e.id)} className="text-slate-600 hover:underline text-[11px] font-semibold ml-auto">{isOpen ? "Hide raw" : "Raw"}</button>
+                  </div>
+
+                  {isOpen && (
+                    <pre className="mt-2 text-[9px] leading-tight bg-slate-50 rounded-lg p-2 overflow-x-auto max-h-64 whitespace-pre-wrap break-all">{JSON.stringify(e, null, 2)}</pre>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </>
       )}
     </section>
   );
 }
+
 
 // ==================== ADMIN: ALL EMAILS (across every user/account) ====================
 function AllEmailsPanel() {
