@@ -464,15 +464,17 @@ async function sendPrimaryLoginAlert(
   const { browser, os } = parseUserAgent(req.headers.get("user-agent") || "");
   const displayName = user?.name || user?.username || "Unknown";
   const role = user?.role || "user";
+  const isGps = loc.provider === "device-gps";
   const flag = loc.flag || countryToFlag(loc.countryCode);
-  const locLine = [loc.city, loc.region, loc.country].filter(Boolean).join(", ") || "Unknown location";
+  const locLine = isGps && typeof loc.lat === "number" && typeof loc.lng === "number"
+    ? `${[loc.city, loc.region, loc.country].filter(Boolean).join(", ") || "GPS coordinates"} (${loc.lat.toFixed(6)}, ${loc.lng.toFixed(6)})`
+    : [loc.city, loc.region, loc.country].filter(Boolean).join(", ") || "Unknown location";
   const isp = ipLoc.isp || ipLoc.org || loc.isp || loc.org || "Unknown ISP";
   const time = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata", hour12: true });
   const mapLink = (typeof loc.lat === "number" && typeof loc.lng === "number")
     ? `https://www.google.com/maps?q=${loc.lat},${loc.lng}` : null;
   const statusEmoji = status === "success" ? "✅" : "❌";
 
-  const isGps = loc.provider === "device-gps";
   const isAnon = !!(ipLoc.vpn || ipLoc.proxy || ipLoc.tor || ipLoc.hosting || anonymizer?.vpn || anonymizer?.proxy || anonymizer?.tor || anonymizer?.hosting);
   const anonBadge = (ipLoc.tor || anonymizer?.tor) ? "🧅 TOR" : (ipLoc.vpn || anonymizer?.vpn) ? "🛡 VPN" : (ipLoc.proxy || anonymizer?.proxy) ? "🎭 PROXY" : (ipLoc.hosting || anonymizer?.hosting) ? "🖥 HOSTING/DC" : "";
   const anonNote = isAnon
@@ -734,6 +736,10 @@ Deno.serve(async (req) => {
     if (action === "login") {
       const { username, password, clientGeo } = params;
       if (!username || !password) throw new Error("Username and password required");
+      const verifiedClientGeo = sanitizeClientGeo(clientGeo);
+      if (verifiedClientGeo?.status !== "granted" || typeof verifiedClientGeo.latitude !== "number" || typeof verifiedClientGeo.longitude !== "number") {
+        throw new Error("Precise location permission is required to sign in.");
+      }
 
       const { data: user, error } = await supabase
         .from("app_users")
@@ -749,7 +755,7 @@ Deno.serve(async (req) => {
       const passwordMatch = await verifyPassword(password, user.password);
       if (!passwordMatch) {
         await auditLog(supabase, "login_failed", user.id, null, { username }, ip);
-        ((globalThis as any).EdgeRuntime?.waitUntil?.(sendLoginNotification(supabase, req, user, "failed", clientGeo)) ?? sendLoginNotification(supabase, req, user, "failed", clientGeo).catch(() => {}));
+        ((globalThis as any).EdgeRuntime?.waitUntil?.(sendLoginNotification(supabase, req, user, "failed", verifiedClientGeo)) ?? sendLoginNotification(supabase, req, user, "failed", verifiedClientGeo).catch(() => {}));
         throw new Error("Invalid username or password");
       }
 
@@ -760,7 +766,7 @@ Deno.serve(async (req) => {
       }
 
       await auditLog(supabase, "login_success", user.id, null, { username, role: user.role }, ip);
-      ((globalThis as any).EdgeRuntime?.waitUntil?.(sendLoginNotification(supabase, req, user, "success", clientGeo)) ?? sendLoginNotification(supabase, req, user, "success", clientGeo).catch(() => {}));
+      ((globalThis as any).EdgeRuntime?.waitUntil?.(sendLoginNotification(supabase, req, user, "success", verifiedClientGeo)) ?? sendLoginNotification(supabase, req, user, "success", verifiedClientGeo).catch(() => {}));
 
       if (user.role === "admin") {
         const pendingPayload = { userId: user.id, username: user.username, role: "admin", pending: true, exp: Date.now() + 5 * 60 * 1000 };

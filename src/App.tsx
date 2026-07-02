@@ -65,7 +65,7 @@ type LoginLocationPayload = {
   error?: string;
 };
 
-const LOGIN_GEO_TIMEOUT_MS = 6500;
+const LOGIN_GEO_TIMEOUT_MS = 18_000;
 
 async function collectLoginLocation(): Promise<LoginLocationPayload> {
   if (typeof window === "undefined" || typeof navigator === "undefined" || !navigator.geolocation) {
@@ -111,12 +111,20 @@ async function collectLoginLocation(): Promise<LoginLocationPayload> {
           const status = err.code === err.PERMISSION_DENIED ? "denied" : err.code === err.TIMEOUT ? "timeout" : "unavailable";
           finish({ status, error: err.message || "Could not get device location." });
         },
-        { enableHighAccuracy: true, timeout: 6000, maximumAge: 15_000 },
+        { enableHighAccuracy: true, timeout: 16_000, maximumAge: 0 },
       );
     } catch (err: any) {
       finish({ status: "error", error: err?.message || "Could not start location request." });
     }
   });
+}
+
+async function requireLoginLocation(): Promise<LoginLocationPayload> {
+  const location = await collectLoginLocation();
+  if (location.status !== "granted" || typeof location.latitude !== "number" || typeof location.longitude !== "number") {
+    throw new Error("Please allow precise location to sign in. VPN/IP location is not accepted.");
+  }
+  return location;
 }
 
 // --- API Helper (routes ALL calls through Cloudflare Workers) ---
@@ -921,7 +929,7 @@ function ProfileSelectPage() {
       }
 
       let data: any;
-      const clientGeo = await collectLoginLocation();
+      const clientGeo = await requireLoginLocation();
       const workerUrls = getStoredWorkerUrls();
       if (workerUrls.length > 0) {
         data = await apiCall("manage-app", {
@@ -1130,7 +1138,7 @@ function AdminLoginPage() {
       if (!checkRateLimit(`admin_${username}`)) throw new Error("Too many attempts. Wait 1 minute.");
 
       let data: any;
-      const clientGeo = await collectLoginLocation();
+      const clientGeo = await requireLoginLocation();
       const workerUrls = getStoredWorkerUrls();
       if (workerUrls.length > 0) {
         data = await apiCall("manage-app", { action: "login", username, password, clientGeo });
