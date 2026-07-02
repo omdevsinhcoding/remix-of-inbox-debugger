@@ -1221,6 +1221,8 @@ function AdminPanel() {
         if (filters.value) {
           setShowSignInCodes(filters.value.showSignInCodes !== false);
           setShowPasswordResets(filters.value.showPasswordResets === true);
+          setShowAccountUpdates(filters.value.showAccountUpdates === true);
+          setEmailFiltersCache(filters.value);
         }
       } catch { }
 
