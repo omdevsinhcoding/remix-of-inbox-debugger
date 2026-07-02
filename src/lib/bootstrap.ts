@@ -6,7 +6,9 @@ const BOOTSTRAP_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const BOOTSTRAP_TIMEOUT_MS = 8000;
 
 export type EmailFilters = { showSignInCodes?: boolean; showPasswordResets?: boolean; showAccountUpdates?: boolean };
-export type BootstrapResult = { users: any[]; recaptcha: any; workerUrls: string[]; emailFilters?: EmailFilters };
+export type MaintenanceInfo = { enabled: boolean; title?: string; message?: string; eta?: string; updated_at?: string | null };
+export type BootstrapResult = { users: any[]; recaptcha: any; workerUrls: string[]; emailFilters?: EmailFilters; maintenance?: MaintenanceInfo };
+
 
 // Module-level filter cache — read synchronously by filterVisibleEmails.
 let currentEmailFilters: EmailFilters = { showSignInCodes: true, showPasswordResets: false, showAccountUpdates: false };
@@ -70,7 +72,7 @@ export function readBootstrapCache(): BootstrapResult | null {
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return null;
     if (!parsed.savedAt || Date.now() - parsed.savedAt > BOOTSTRAP_CACHE_TTL_MS) return null;
-    return { users: parsed.users || [], recaptcha: parsed.recaptcha, workerUrls: parsed.workerUrls || [], emailFilters: parsed.emailFilters };
+    return { users: parsed.users || [], recaptcha: parsed.recaptcha, workerUrls: parsed.workerUrls || [], emailFilters: parsed.emailFilters, maintenance: parsed.maintenance };
   } catch { return null; }
 }
 
@@ -99,11 +101,12 @@ export async function bootstrapFromSupabase(): Promise<BootstrapResult> {
     storeWorkerUrls(data.workerUrls);
   }
 
-  const result: BootstrapResult = { users: data.users || [], recaptcha: data.recaptcha, workerUrls: data.workerUrls || [], emailFilters: data.emailFilters || {} };
+  const result: BootstrapResult = { users: data.users || [], recaptcha: data.recaptcha, workerUrls: data.workerUrls || [], emailFilters: data.emailFilters || {}, maintenance: data.maintenance || { enabled: false } };
   if (data.emailFilters && typeof data.emailFilters === "object") setEmailFilters(data.emailFilters);
   writeBootstrapCache(result);
   return result;
 }
+
 
 export const bootstrapPromise: Promise<BootstrapResult> = bootstrapFromSupabase().catch((err) => {
   console.warn("[bootstrap] prefetch failed:", err);
@@ -138,14 +141,31 @@ export function patchBootstrapCacheUser(userId: string, patch: Record<string, an
 }
 
 // ---------- Notifications helpers ----------
+export type NotificationCategory = "announcement" | "update" | "security" | "maintenance" | "promo" | "billing";
+export type NotificationPriority = "low" | "normal" | "high" | "critical";
+
 export type AppNotification = {
   id: string;
   title: string;
   body: string;
+  description?: string | null;
+  image_url?: string | null;
+  category?: NotificationCategory | string;
+  priority?: NotificationPriority | string;
+  icon?: string | null;
+  action_url?: string | null;
+  action_label?: string | null;
+  action2_url?: string | null;
+  action2_label?: string | null;
+  pinned?: boolean;
   audience: "all" | "user";
   created_at: string;
   expires_at: string | null;
+  publish_at?: string | null;
   read: boolean;
+  seen?: boolean;
+  archived?: boolean;
+  snoozed_until?: string | null;
 };
 
 async function callManage<T = any>(action: string, payload: Record<string, any> = {}): Promise<T> {
@@ -174,13 +194,45 @@ export async function listNotifications(): Promise<AppNotification[]> {
 export async function markNotificationRead(id: string): Promise<void> {
   try { await callManage("mark_notification_read", { notification_id: id }); } catch {}
 }
-
 export async function markAllNotificationsRead(): Promise<void> {
   try { await callManage("mark_all_notifications_read"); } catch {}
+}
+export async function markNotificationSeen(ids: string[]): Promise<void> {
+  if (!ids?.length) return;
+  try { await callManage("mark_notifications_seen", { ids }); } catch {}
+}
+export async function archiveNotification(id: string): Promise<void> {
+  try { await callManage("archive_notification", { notification_id: id }); } catch {}
+}
+export async function snoozeNotification(id: string, until: string): Promise<void> {
+  try { await callManage("snooze_notification", { notification_id: id, until }); } catch {}
+}
+export async function logNotificationEvent(id: string, event: string, meta?: any): Promise<void> {
+  try { await callManage("log_notification_event", { notification_id: id, event, meta }); } catch {}
 }
 
 export async function clearMyInbox(visibleIds: string[]): Promise<any> {
   return await callManage("clear_user_inbox", { visibleIds });
 }
+
+// Auto-popup dedupe: track which notification IDs the user has already been popped for.
+const POPUP_SEEN_KEY = "notif_popup_seen_v1";
+export function getPoppedIds(): Set<string> {
+  try {
+    const raw = localStorage.getItem(POPUP_SEEN_KEY);
+    if (!raw) return new Set();
+    const arr = JSON.parse(raw);
+    return new Set(Array.isArray(arr) ? arr : []);
+  } catch { return new Set(); }
+}
+export function markPopped(id: string) {
+  try {
+    const s = getPoppedIds();
+    s.add(id);
+    const arr = Array.from(s).slice(-200);
+    localStorage.setItem(POPUP_SEEN_KEY, JSON.stringify(arr));
+  } catch {}
+}
+
 
 
