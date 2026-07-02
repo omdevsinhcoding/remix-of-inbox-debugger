@@ -106,12 +106,26 @@ async function auditLog(supabase: any, action: string, actorId: string | null, t
   } catch (e) { console.error("Audit log error:", e); }
 }
 
+function isPrivateIp(ip: string): boolean {
+  if (!ip || ip === "unknown") return true;
+  if (ip === "::1" || ip === "127.0.0.1" || ip.startsWith("::ffff:127.")) return true;
+  if (ip.startsWith("10.") || ip.startsWith("192.168.")) return true;
+  if (ip.startsWith("169.254.") || ip.startsWith("100.64.")) return true;
+  const m = ip.match(/^172\.(\d+)\./);
+  if (m && +m[1] >= 16 && +m[1] <= 31) return true;
+  if (ip.startsWith("fc") || ip.startsWith("fd") || ip.startsWith("fe80")) return true;
+  return false;
+}
+
 function getClientIp(req: Request): string {
-  return req.headers.get("x-client-ip")?.trim()
-    || req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
-    || req.headers.get("cf-connecting-ip")
-    || req.headers.get("x-real-ip")
-    || "unknown";
+  const candidates: string[] = [];
+  const cf = req.headers.get("cf-connecting-ip"); if (cf) candidates.push(cf.trim());
+  const real = req.headers.get("x-real-ip"); if (real) candidates.push(real.trim());
+  const fwd = req.headers.get("x-forwarded-for");
+  if (fwd) for (const p of fwd.split(",")) { const t = p.trim(); if (t) candidates.push(t); }
+  const xci = req.headers.get("x-client-ip"); if (xci) candidates.push(xci.trim());
+  for (const c of candidates) if (!isPrivateIp(c)) return c;
+  return candidates[0] || "unknown";
 }
 
 function esc(s: string): string {
@@ -131,20 +145,221 @@ async function getTelegramConfig(supabase: any): Promise<{ botToken: string; cha
   return botToken && chatId ? { botToken, chatId } : null;
 }
 
-async function fetchIpWhoIs(ip: string): Promise<any | null> {
+// --- Multi-provider IP geolocation (parallel, timeout-guarded) ---
+type LocResult = {
+  provider: string;
+  ip?: string;
+  country?: string;
+  countryCode?: string;
+  region?: string;
+  city?: string;
+  postal?: string;
+  lat?: number;
+  lng?: number;
+  isp?: string;
+  org?: string;
+  asn?: string;
+  timezone?: string;
+  flag?: string;
+};
+
+function fetchWithTimeout(url: string, ms: number): Promise<Response> {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), ms);
+  return fetch(url, { headers: { Accept: "application/json" }, signal: ctrl.signal })
+    .finally(() => clearTimeout(t));
+}
+
+function countryToFlag(cc?: string): string {
+  if (!cc || cc.length !== 2) return "🌐";
+  const A = 0x1f1e6;
+  return String.fromCodePoint(A + cc.charCodeAt(0) - 65, A + cc.charCodeAt(1) - 65);
+}
+
+async function providerIpapiCo(ip: string): Promise<LocResult | null> {
   try {
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 4000);
+    const r = await fetchWithTimeout(`https://ipapi.co/${encodeURIComponent(ip)}/json/`, 1800);
+    if (!r.ok) return null;
+    const d = await r.json();
+    if (d?.error) return null;
+    return {
+      provider: "ipapi.co",
+      ip: d.ip,
+      country: d.country_name, countryCode: d.country_code,
+      region: d.region, city: d.city, postal: d.postal,
+      lat: typeof d.latitude === "number" ? d.latitude : undefined,
+      lng: typeof d.longitude === "number" ? d.longitude : undefined,
+      isp: d.org, org: d.org, asn: d.asn,
+      timezone: d.timezone,
+      flag: countryToFlag(d.country_code),
+    };
+  } catch { return null; }
+}
+
+async function providerIpApiCom(ip: string): Promise<LocResult | null> {
+  try {
+    const r = await fetchWithTimeout(
+      `https://ip-api.com/json/${encodeURIComponent(ip)}?fields=status,country,countryCode,region,regionName,city,zip,lat,lon,timezone,isp,org,as,query`,
+      1800,
+    );
+    if (!r.ok) return null;
+    const d = await r.json();
+    if (d?.status !== "success") return null;
+    return {
+      provider: "ip-api.com",
+      ip: d.query,
+      country: d.country, countryCode: d.countryCode,
+      region: d.regionName || d.region, city: d.city, postal: d.zip,
+      lat: typeof d.lat === "number" ? d.lat : undefined,
+      lng: typeof d.lon === "number" ? d.lon : undefined,
+      isp: d.isp, org: d.org, asn: d.as,
+      timezone: d.timezone,
+      flag: countryToFlag(d.countryCode),
+    };
+  } catch { return null; }
+}
+
+async function providerIpwhoIs(ip: string): Promise<LocResult | null> {
+  try {
     const url = ip && ip !== "unknown" ? `https://ipwho.is/${encodeURIComponent(ip)}` : "https://ipwho.is/";
-    const res = await fetch(url, { headers: { Accept: "application/json" }, signal: ctrl.signal });
-    clearTimeout(t);
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data?.success ? data : null;
-  } catch (err) {
-    console.warn("[ipwho.is] failed:", err);
-    return null;
+    const r = await fetchWithTimeout(url, 1800);
+    if (!r.ok) return null;
+    const d = await r.json();
+    if (!d?.success) return null;
+    return {
+      provider: "ipwho.is",
+      ip: d.ip,
+      country: d.country, countryCode: d.country_code,
+      region: d.region, city: d.city, postal: d.postal,
+      lat: typeof d.latitude === "number" ? d.latitude : undefined,
+      lng: typeof d.longitude === "number" ? d.longitude : undefined,
+      isp: d.connection?.isp, org: d.connection?.org,
+      asn: d.connection?.asn ? `AS${d.connection.asn}` : undefined,
+      timezone: d.timezone?.id,
+      flag: d.flag?.emoji || countryToFlag(d.country_code),
+    };
+  } catch { return null; }
+}
+
+async function resolveLocation(ip: string): Promise<{ merged: LocResult; confidence: "high" | "medium" | "low"; agreed: number; results: LocResult[] }> {
+  const settled = await Promise.allSettled([providerIpapiCo(ip), providerIpApiCom(ip), providerIpwhoIs(ip)]);
+  const results = settled.map(s => s.status === "fulfilled" ? s.value : null).filter(Boolean) as LocResult[];
+  if (results.length === 0) {
+    return { merged: { provider: "none", ip }, confidence: "low", agreed: 0, results: [] };
   }
+  // Consensus: bucket by country|city
+  const buckets = new Map<string, LocResult[]>();
+  for (const r of results) {
+    const k = `${(r.countryCode || r.country || "").toLowerCase()}|${(r.city || "").toLowerCase()}`;
+    if (!buckets.has(k)) buckets.set(k, []);
+    buckets.get(k)!.push(r);
+  }
+  // Priority order for tie-break: ipapi.co > ip-api.com > ipwho.is
+  const priority = ["ipapi.co", "ip-api.com", "ipwho.is"];
+  let bestBucket: LocResult[] = [];
+  let bestSize = 0;
+  for (const bucket of buckets.values()) {
+    if (bucket.length > bestSize) { bestBucket = bucket; bestSize = bucket.length; }
+  }
+  // Pick primary within the winning bucket by provider priority
+  bestBucket.sort((a, b) => priority.indexOf(a.provider) - priority.indexOf(b.provider));
+  const primary = bestBucket[0];
+
+  // Merge: fill empties from any provider, prefer primary
+  const merged: LocResult = { ...primary };
+  for (const r of results) {
+    for (const key of ["country","countryCode","region","city","postal","lat","lng","isp","org","asn","timezone","flag","ip"] as const) {
+      if (merged[key] === undefined || merged[key] === null || merged[key] === "") {
+        (merged as any)[key] = (r as any)[key];
+      }
+    }
+  }
+  merged.flag = merged.flag || countryToFlag(merged.countryCode);
+  const agreed = bestSize;
+  const confidence: "high" | "medium" | "low" = agreed >= 2 ? "high" : (results.length >= 2 ? "medium" : "low");
+  return { merged, confidence, agreed, results };
+}
+
+function parseUserAgent(ua: string): { browser: string; os: string } {
+  const s = ua || "";
+  let browser = "Unknown";
+  if (/Edg\//.test(s)) browser = "Edge";
+  else if (/OPR\//.test(s)) browser = "Opera";
+  else if (/Chrome\//.test(s) && !/Edg\//.test(s)) browser = "Chrome";
+  else if (/Firefox\//.test(s)) browser = "Firefox";
+  else if (/Safari\//.test(s) && !/Chrome\//.test(s)) browser = "Safari";
+  let os = "Unknown";
+  if (/Windows NT/.test(s)) os = "Windows";
+  else if (/Android/.test(s)) os = "Android";
+  else if (/iPhone|iPad|iOS/.test(s)) os = "iOS";
+  else if (/Mac OS X/.test(s)) os = "macOS";
+  else if (/Linux/.test(s)) os = "Linux";
+  return { browser, os };
+}
+
+async function sendPrimaryLoginAlert(
+  supabase: any, req: Request, user: any, status: "success" | "failed", ip: string, loc: LocResult, confidence: string, agreed: number,
+) {
+  const tg = await getTelegramConfig(supabase);
+  if (!tg) return;
+  const { browser, os } = parseUserAgent(req.headers.get("user-agent") || "");
+  const displayName = user?.name || user?.username || "Unknown";
+  const role = user?.role || "user";
+  const flag = loc.flag || countryToFlag(loc.countryCode);
+  const locLine = [loc.city, loc.region, loc.country].filter(Boolean).join(", ") || "Unknown location";
+  const isp = loc.isp || loc.org || "Unknown ISP";
+  const time = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata", hour12: true });
+  const mapLink = (typeof loc.lat === "number" && typeof loc.lng === "number")
+    ? `https://www.google.com/maps?q=${loc.lat},${loc.lng}` : null;
+  const statusEmoji = status === "success" ? "✅" : "❌";
+  const text = [
+    `🔔 <b>New Login</b> — ${esc(displayName)} ${statusEmoji}`,
+    `━━━━━━━━━━━━━━━━`,
+    `👤 <b>User:</b> ${esc(displayName)} (<code>${esc(user?.username || "")}</code>) · <b>${esc(role)}</b>`,
+    `🕐 <b>Time:</b> ${esc(time)} IST`,
+    `🌐 <b>IP:</b> <code>${esc(ip)}</code>`,
+    `📍 ${flag} ${esc(locLine)}${loc.postal ? ` · ${esc(loc.postal)}` : ""}`,
+    `🏢 <b>ISP:</b> ${esc(isp)}${loc.asn ? ` (${esc(loc.asn)})` : ""}`,
+    `📱 <b>Device:</b> ${esc(browser)} on ${esc(os)}`,
+    mapLink ? `🗺 <a href="${mapLink}">Open in Google Maps</a>` : "",
+    `━━━━━━━━━━━━━━━━`,
+    `Confidence: <b>${esc(confidence)}</b> (${agreed}/3 providers agreed)`,
+  ].filter(Boolean).join("\n");
+  try {
+    const tgRes = await fetch(`https://api.telegram.org/bot${tg.botToken}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: tg.chatId, text, parse_mode: "HTML", disable_web_page_preview: true }),
+    });
+    if (!tgRes.ok) console.error("[tg primary alert] failed:", await tgRes.text());
+  } catch (e) { console.error("[tg primary alert] error:", e); }
+}
+
+async function sendLegacyIpwhoAlert(
+  supabase: any, user: any, status: "success" | "failed", ip: string, results: LocResult[],
+) {
+  const tg = await getTelegramConfig(supabase);
+  if (!tg) return;
+  const ipwho = results.find(r => r.provider === "ipwho.is");
+  if (!ipwho) return;
+  const displayName = user?.name || user?.username || "Unknown";
+  const locLine = [ipwho.city, ipwho.region, ipwho.country].filter(Boolean).join(", ");
+  const map = (typeof ipwho.lat === "number" && typeof ipwho.lng === "number")
+    ? `https://www.google.com/maps?q=${ipwho.lat},${ipwho.lng}` : null;
+  const text = [
+    `🛰 <b>Legacy ipwho.is location</b> for ${esc(displayName)} (${status})`,
+    `<b>IP:</b> <code>${esc(ip)}</code>`,
+    `<b>Place:</b> ${esc(locLine || "Unknown")}`,
+    ipwho.isp ? `<b>ISP:</b> ${esc(ipwho.isp)}` : "",
+    map ? `<b>Map:</b> <a href="${map}">Open</a>` : "",
+  ].filter(Boolean).join("\n");
+  try {
+    await fetch(`https://api.telegram.org/bot${tg.botToken}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: tg.chatId, text, parse_mode: "HTML", disable_web_page_preview: true }),
+    });
+  } catch {}
 }
 
 async function sendLoginNotification(
@@ -154,66 +369,23 @@ async function sendLoginNotification(
   status: "success" | "failed",
 ) {
   try {
-    const tg = await getTelegramConfig(supabase);
-    if (!tg || !user) return;
-
-    const headerIp = getClientIp(req);
-    const info = await fetchIpWhoIs(headerIp);
-    const source: "server" | "header" = info ? "server" : "header";
-
-    const ip = info?.ip || headerIp || "Unknown";
-    const flag = info?.flag?.emoji || "🌐";
-    const city = info?.city || "Unknown City";
-    const region = info?.region || "";
-    const country = info?.country || "Unknown Country";
-    const locLine = [city, region, country].filter(Boolean).join(", ");
-    const postal = info?.postal || "";
-    const lat = info?.latitude;
-    const lon = info?.longitude;
-    const isp = info?.connection?.isp || info?.connection?.org || "Unknown ISP";
-    const asn = info?.connection?.asn ? `AS${info.connection.asn}` : "";
-    const tz = info?.timezone?.id || "";
-    const tzTime = info?.timezone?.current_time || new Date().toISOString();
-    const mapsLink = typeof lat === "number" && typeof lon === "number" ? `https://www.google.com/maps?q=${lat},${lon}` : null;
-    const displayName = user.name || user.username || "Unknown User";
-    const statusEmoji = status === "success" ? "✅ Success" : "❌ Failed";
-    const copyLine = `${displayName} • ${ip} • ${locLine}`;
-    const srcTag = source === "server" ? "🖥 Server lookup (ipwho.is)" : "🔧 Request header only";
-
-    const lines = [
-      `<b>${flag} Login Attempt</b>`,
-      `<b>User:</b> ${esc(displayName)} (<code>${esc(user.username || "")}</code>)`,
-      `<b>Status:</b> ${statusEmoji}`,
-      "",
-      `<b>📍 Location</b>`,
-      `<b>Place:</b> ${esc(locLine)}`,
-      postal ? `<b>Postal:</b> <code>${esc(postal)}</code>` : "",
-      typeof lat === "number" && typeof lon === "number" ? `<b>Coords:</b> <code>${lat.toFixed(4)}, ${lon.toFixed(4)}</code>` : "",
-      mapsLink ? `<b>Map:</b> <a href="${mapsLink}">Open in Google Maps</a>` : "",
-      "",
-      `<b>🛰 Network</b>`,
-      `<b>IP:</b> <code>${esc(ip)}</code>`,
-      `<b>ISP:</b> ${esc(isp)}${asn ? ` (${asn})` : ""}`,
-      `<b>Source:</b> ${srcTag}`,
-      "",
-      `<b>🕒 Time</b>`,
-      `<b>Local:</b> ${esc(tzTime)}${tz ? ` (${esc(tz)})` : ""}`,
-      `<b>IST:</b> ${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata", hour12: true })}`,
-      "",
-      `<b>📋 Quick Copy</b>`,
-      `<code>${esc(copyLine)}</code>`,
-    ].filter(Boolean).join("\n");
-
-    const tgRes = await fetch(`https://api.telegram.org/bot${tg.botToken}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: tg.chatId, text: lines, parse_mode: "HTML", disable_web_page_preview: true }),
-    });
-    if (!tgRes.ok) console.error("[telegram] login notify failed:", await tgRes.text());
+    if (!user) return;
+    const ip = getClientIp(req);
+    const { merged, confidence, agreed, results } = await resolveLocation(ip);
+    // Always send the primary (consensus) alert
+    await sendPrimaryLoginAlert(supabase, req, user, status, merged.ip || ip, merged, confidence, agreed);
+    // Legacy ipwho.is alert — only if admin toggle enables it (default OFF).
+    try {
+      const { data } = await supabase.from("app_settings").select("value").eq("key", "ipwho_alert").single();
+      if (data?.value?.enabled === true) {
+        await sendLegacyIpwhoAlert(supabase, user, status, merged.ip || ip, results);
+      }
+    } catch {}
   } catch (err) {
     console.error("[notification] login notify failed:", err);
   }
 }
+
 
 async function loadWorkerUrls(supabase: any): Promise<string[]> {
   const workerUrls: string[] = [];
