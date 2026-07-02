@@ -301,7 +301,7 @@ function countryToFlag(cc?: string): string {
 
 async function providerIpapiCo(ip: string): Promise<LocResult | null> {
   try {
-    if (!ip || ip === "unknown" || isPrivateIp(ip) || isCloudflareIp(ip)) return null;
+    if (!ip || ip === "unknown" || isPrivateIp(ip) || isCloudflareIp(ip) || isKnownEdgeIp(ip)) return null;
     const r = await fetchWithTimeout(`https://ipapi.co/${encodeURIComponent(ip)}/json/`, 2500);
     if (!r.ok) return null;
     const d = await r.json();
@@ -322,7 +322,7 @@ async function providerIpapiCo(ip: string): Promise<LocResult | null> {
 
 async function providerIpApiCom(ip: string): Promise<LocResult | null> {
   try {
-    if (!ip || ip === "unknown" || isPrivateIp(ip) || isCloudflareIp(ip)) return null;
+    if (!ip || ip === "unknown" || isPrivateIp(ip) || isCloudflareIp(ip) || isKnownEdgeIp(ip)) return null;
     // include proxy/hosting/mobile flags for VPN detection
     const r = await fetchWithTimeout(
       `http://ip-api.com/json/${encodeURIComponent(ip)}?fields=status,country,countryCode,region,regionName,city,zip,lat,lon,timezone,isp,org,as,query,proxy,hosting,mobile`,
@@ -350,7 +350,7 @@ async function providerIpApiCom(ip: string): Promise<LocResult | null> {
 async function providerIpwhoIs(ip: string): Promise<LocResult | null> {
   try {
     // NEVER call ipwho.is without an IP — it would geolocate the CALLER (Supabase edge = Portland).
-    if (!ip || ip === "unknown" || isPrivateIp(ip) || isCloudflareIp(ip)) return null;
+    if (!ip || ip === "unknown" || isPrivateIp(ip) || isCloudflareIp(ip) || isKnownEdgeIp(ip)) return null;
     const url = `https://ipwho.is/${encodeURIComponent(ip)}`;
     console.log("[ipwho.is] Request:", url);
     const r = await fetchWithTimeout(url, 2500);
@@ -375,7 +375,7 @@ async function providerIpwhoIs(ip: string): Promise<LocResult | null> {
 
 async function providerIpinfoIo(ip: string): Promise<LocResult | null> {
   try {
-    if (!ip || ip === "unknown" || isPrivateIp(ip) || isCloudflareIp(ip)) return null;
+    if (!ip || ip === "unknown" || isPrivateIp(ip) || isCloudflareIp(ip) || isKnownEdgeIp(ip)) return null;
     const r = await fetchWithTimeout(`https://ipinfo.io/${encodeURIComponent(ip)}/json`, 2500);
     if (!r.ok) return null;
     const d = await r.json();
@@ -399,7 +399,7 @@ async function providerIpinfoIo(ip: string): Promise<LocResult | null> {
 
 async function providerFreeIpApi(ip: string): Promise<LocResult | null> {
   try {
-    if (!ip || ip === "unknown" || isPrivateIp(ip) || isCloudflareIp(ip)) return null;
+    if (!ip || ip === "unknown" || isPrivateIp(ip) || isCloudflareIp(ip) || isKnownEdgeIp(ip)) return null;
     const r = await fetchWithTimeout(`https://freeipapi.com/api/json/${encodeURIComponent(ip)}`, 2500);
     if (!r.ok) return null;
     const d = await r.json();
@@ -450,7 +450,7 @@ async function reverseGpsLocation(geo: ClientGeoPayload): Promise<LocResult | nu
 // Dedicated VPN/proxy detector (proxycheck.io — 1000/day free without key)
 async function detectAnonymizer(ip: string): Promise<{ proxy: boolean; vpn: boolean; tor: boolean; hosting: boolean; type?: string; provider?: string } | null> {
   try {
-    if (!ip || ip === "unknown" || isPrivateIp(ip) || isCloudflareIp(ip)) return null;
+    if (!ip || ip === "unknown" || isPrivateIp(ip) || isCloudflareIp(ip) || isKnownEdgeIp(ip)) return null;
     const r = await fetchWithTimeout(`https://proxycheck.io/v2/${encodeURIComponent(ip)}?vpn=1&asn=1&risk=1`, 2500);
     if (!r.ok) return null;
     const d = await r.json();
@@ -491,8 +491,8 @@ async function resolveLocation(ip: string, opts?: { allowIpwho?: boolean }): Pro
 
   // HARD GUARD: never call geo providers without a real, public, non-CF client IP.
   // Otherwise every provider falls back to the CALLER (Supabase edge = Portland, OR).
-  if (!ip || ip === "unknown" || isPrivateIp(ip) || isCloudflareIp(ip)) {
-    console.warn("[resolveLocation] refusing lookup — invalid client IP:", JSON.stringify({ ip, reason: !ip || ip === "unknown" ? "missing" : isPrivateIp(ip) ? "private" : "cloudflare-edge" }));
+  if (!ip || ip === "unknown" || isPrivateIp(ip) || isCloudflareIp(ip) || isKnownEdgeIp(ip)) {
+    console.warn("[resolveLocation] refusing lookup — invalid client IP:", JSON.stringify({ ip, reason: !ip || ip === "unknown" ? "missing" : isPrivateIp(ip) ? "private" : isCloudflareIp(ip) ? "cloudflare-edge" : "hosting-edge-hop" }));
     return { merged: { provider: "none", ip: ip || "unknown" }, confidence: "low", agreed: 0, results: [], anonymizer: null };
   }
 
