@@ -27,10 +27,14 @@
 .admin-panel textarea.dark-input,
 .admin-panel select.dark-input {
   color: #ffffff !important;
+  caret-color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
 }
 .admin-panel input.dark-input::placeholder,
 .admin-panel textarea.dark-input::placeholder {
-  color: rgb(71 85 105) !important; /* slate-600 */
+  color: rgb(148 163 184) !important; /* slate-400 */
+  -webkit-text-fill-color: rgb(148 163 184) !important;
+  opacity: 1 !important;
 }
 
 /* Sonner: ensure toasts never sit on top of the sticky app header on mobile
