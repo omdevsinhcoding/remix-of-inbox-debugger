@@ -1,4 +1,11 @@
 import { supabase } from "../integrations/supabase/client";
+import { getVisitorGeo } from "./geo";
+
+// Prime the visitor geo lookup as early as possible so the login call has
+// the accurate IP/coords ready in sessionStorage.
+if (typeof window !== "undefined") {
+  void getVisitorGeo();
+}
 
 const WORKER_URLS_KEY = "cloudflare_worker_urls";
 const BOOTSTRAP_CACHE_KEY = "bootstrap_cache_v1";
