@@ -1742,10 +1742,20 @@ function getAvatarUri(avatarId?: string | null): string | null {
   return resolveAvatar(avatarId);
 }
 
+const DEFAULT_PROFILE_AVATAR_IDS = AVATAR_CATEGORIES.flatMap((category) =>
+  category.files.map((file) => buildAvatarId(category.key, file))
+);
+
 function getStableProfileAvatar(profile?: Pick<UserData, "id" | "username" | "name" | "profileAvatar"> | null): string | null {
   if (!profile) return null;
   if (profile.profileAvatar && getAvatarUri(profile.profileAvatar)) return profile.profileAvatar;
-  return null;
+  if (DEFAULT_PROFILE_AVATAR_IDS.length === 0) return null;
+  const seed = `${profile.id || profile.username || "profile"}`;
+  let hash = 0;
+  for (let i = 0; i < seed.length; i += 1) {
+    hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+  }
+  return DEFAULT_PROFILE_AVATAR_IDS[hash % DEFAULT_PROFILE_AVATAR_IDS.length];
 }
 
 function ProfileAvatar({ avatarId, name, className = "w-16 h-16", fallbackColor = "bg-red-500", eager = false }: { avatarId?: string | null; name?: string; className?: string; fallbackColor?: string; eager?: boolean }) {
