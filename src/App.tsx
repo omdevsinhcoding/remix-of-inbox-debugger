@@ -2996,6 +2996,8 @@ function AdminPanel() {
   const [notifTargetUser, setNotifTargetUser] = useState<string>("");
   const [notifExpiresDays, setNotifExpiresDays] = useState<string>("");
   const [notifPlatformIcon, setNotifPlatformIcon] = useState<string>("");
+  const [notifTemplate, setNotifTemplate] = useState<string>("");
+  const [platformSearch, setPlatformSearch] = useState("");
   const [notifLocked, setNotifLocked] = useState(false);
   const [notifShowFrequency, setNotifShowFrequency] = useState<"once" | "always" | "session" | "daily">("once");
   const [notifMode, setNotifMode] = useState<"popup" | "silent" | "banner">("popup");
