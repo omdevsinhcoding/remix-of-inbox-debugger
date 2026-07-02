@@ -2948,14 +2948,15 @@ function AdminPanel() {
       parts[2] = (Number.isFinite(parts[2]) ? parts[2] : 0) + 1;
       return parts.map((n) => (Number.isFinite(n) ? n : 0)).join(".");
     };
-    const prevTo = prevSavedVersionToRef.current || "";
+    const prevTo = prevSavedVersionToRef.current || "2.4.3";
     let nextVersionTo = maintenanceVersionTo.trim();
     let autoBumped = false;
     if (!nextVersionTo || nextVersionTo === prevTo) {
-      nextVersionTo = bumpPatch(prevTo || "2.4.3"); // 2.4.3 -> bump -> 2.4.4 on first save
+      nextVersionTo = bumpPatch(prevTo); // auto-bump patch from previously stored versionTo
       autoBumped = true;
     }
-    const nextVersionFrom = maintenanceVersionFrom.trim() || prevTo || "2.4.4";
+    // Current version is ALWAYS the previously stored upgrade target — admin cannot override via UI.
+    const nextVersionFrom = prevTo;
 
     setSavingMaintenance(true);
     try {
