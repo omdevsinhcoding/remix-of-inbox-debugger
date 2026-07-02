@@ -2542,7 +2542,8 @@ Deno.serve(async (req) => {
       const saved: any = data?.value || {};
       const draft: any = params || {};
       const hasDraftConfig = draft.useSaved !== true && ["accountId", "accessKeyId", "secretAccessKey", "bucket", "publicBaseUrl", "pathPrefix", "enabled"].some((k) => k in draft);
-      const normalized = normalizeR2Config(hasDraftConfig ? { ...saved, ...draft } : saved, saved.secretAccessKey || "");
+      const source = hasDraftConfig ? { ...saved, ...draft } : saved;
+      const normalized = normalizeR2Config(source, saved.secretAccessKey || "");
       const v = normalized.config;
       const missing: string[] = [];
       if (!v.accountId) missing.push("Account ID");
@@ -2551,7 +2552,7 @@ Deno.serve(async (req) => {
       if (!v.bucket) missing.push("Bucket");
       if (normalized.errors.length) missing.push(...normalized.errors);
       if (missing.length) {
-        return new Response(JSON.stringify({ success: false, message: `Save your R2 config first — missing: ${missing.join(", ")}` }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify({ success: false, message: `Enter R2 config first — missing: ${missing.join(", ")}` }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
       const { r2Put, r2Delete } = await import("../_shared/r2Sign.ts");
       const creds = { accountId: v.accountId, accessKeyId: v.accessKeyId, secretAccessKey: v.secretAccessKey, bucket: v.bucket };
