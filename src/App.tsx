@@ -4449,7 +4449,7 @@ function AdminPanel() {
                           <div className="col-span-3 sm:col-span-4 py-8 text-center text-[11px] font-semibold text-slate-500">Loading platform logos…</div>
                         )}
                         {platformLogosReady && PLATFORM_OPTIONS.filter((p) => platformMatchesSearch(p, platformSearch)).map((p) => {
-                          const active = notifPlatformIcon === p.id;
+                          const active = resolvePlatformOption(notifPlatformIcon).id === p.id;
                           return (
                             <button key={p.id || "none"} type="button" onClick={() => setNotifPlatformIcon(p.id)}
                               className={`group relative flex flex-col items-center justify-center gap-1.5 py-2.5 px-1.5 rounded-lg border transition-all min-h-[74px] ${active ? "bg-orange-500/10 border-orange-500/60 shadow-md shadow-orange-500/10" : "bg-white/[0.02] border-white/[0.05] hover:bg-white/[0.05] hover:border-white/15"}`}>
@@ -4685,8 +4685,11 @@ function AdminPanel() {
                 <div>
                   <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1.5 block">Platform / Icon</label>
                   <div className="grid grid-cols-5 gap-1.5">
-                    {PLATFORM_OPTIONS.map((p) => {
-                      const active = (editingNotif.platform_icon || "") === p.id;
+                    {!platformLogosReady && (
+                      <div className="col-span-5 py-6 text-center text-[11px] font-semibold text-slate-500">Loading platform logos…</div>
+                    )}
+                    {platformLogosReady && PLATFORM_OPTIONS.map((p) => {
+                      const active = resolvePlatformOption(editingNotif.platform_icon).id === p.id;
                       return (
                         <button key={p.id || "none"} type="button" onClick={() => setEditingNotif({ ...editingNotif, platform_icon: p.id })}
                           className={`flex flex-col items-center gap-1 py-2 rounded-lg border transition-all ${active ? "border-orange-500 bg-orange-50" : "border-slate-200 hover:border-slate-300"}`}>
