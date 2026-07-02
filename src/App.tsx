@@ -2673,7 +2673,7 @@ function AllEmailsPanel() {
             </div>
             <div className="p-4 overflow-auto flex-1">
               {viewing.html ? (
-                <iframe title="email" srcDoc={viewing.html} className="w-full min-h-[400px] border rounded" sandbox="" />
+                <iframe title="email" srcDoc={`<!DOCTYPE html><html><head><base target="_blank"></head><body>${viewing.html}<script>document.addEventListener('click',function(e){var a=e.target.closest('a,button');if(!a)return;var h=a.getAttribute('href')||a.dataset.href;if(h){e.preventDefault();window.open(h,'_blank','noopener,noreferrer');}},true);<\/script></body></html>`} className="w-full min-h-[400px] border rounded" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-scripts" />
               ) : (
                 <pre className="text-xs whitespace-pre-wrap text-slate-700">{viewing.preview || "(no content)"}</pre>
               )}
@@ -5715,8 +5715,8 @@ function EmailViewer() {
                   )}
                   <div className="email-html-wrapper">
                     <iframe
-                      srcDoc={`<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0;padding:8px;font-family:sans-serif;font-size:14px;color:#334155;overflow-x:hidden;word-break:break-word}img{max-width:100%!important;height:auto!important}table{max-width:100%!important;width:100%!important}td,th{max-width:100%!important;overflow:hidden}a{color:#e11d48}*{box-sizing:border-box}</style></head><body>${selectedEmail.html}</body></html>`}
-                      sandbox="allow-same-origin"
+                      srcDoc={`<!DOCTYPE html><html><head><base target="_blank"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0;padding:8px;font-family:sans-serif;font-size:14px;color:#334155;overflow-x:hidden;word-break:break-word}img{max-width:100%!important;height:auto!important}table{max-width:100%!important;width:100%!important}td,th{max-width:100%!important;overflow:hidden}a{color:#e11d48}*{box-sizing:border-box}</style></head><body>${selectedEmail.html}<script>document.addEventListener('click',function(e){var a=e.target.closest('a,button');if(!a)return;var href=a.getAttribute('href')||a.dataset.href;if(href){e.preventDefault();window.open(href,'_blank','noopener,noreferrer');}},true);document.addEventListener('contextmenu',function(e){e.preventDefault();});<\/script></body></html>`}
+                      sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-scripts"
                       className="w-full border-0"
                       style={{ minHeight: "400px" }}
                       title="Email content"
