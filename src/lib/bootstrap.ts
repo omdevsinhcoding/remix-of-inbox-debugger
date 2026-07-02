@@ -6,7 +6,9 @@ const BOOTSTRAP_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const BOOTSTRAP_TIMEOUT_MS = 8000;
 
 export type EmailFilters = { showSignInCodes?: boolean; showPasswordResets?: boolean; showAccountUpdates?: boolean };
-export type BootstrapResult = { users: any[]; recaptcha: any; workerUrls: string[]; emailFilters?: EmailFilters };
+export type MaintenanceInfo = { enabled: boolean; title?: string; message?: string; eta?: string; updated_at?: string | null };
+export type BootstrapResult = { users: any[]; recaptcha: any; workerUrls: string[]; emailFilters?: EmailFilters; maintenance?: MaintenanceInfo };
+
 
 // Module-level filter cache — read synchronously by filterVisibleEmails.
 let currentEmailFilters: EmailFilters = { showSignInCodes: true, showPasswordResets: false, showAccountUpdates: false };
