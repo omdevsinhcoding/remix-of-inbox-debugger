@@ -1742,10 +1742,6 @@ function getAvatarUri(avatarId?: string | null): string | null {
   return resolveAvatar(avatarId);
 }
 
-const DEFAULT_PROFILE_AVATAR_IDS = AVATAR_CATEGORIES.flatMap((category) =>
-  category.files.map((file) => buildAvatarId(category.key, file))
-);
-
 function getStableProfileAvatar(profile?: Pick<UserData, "id" | "username" | "name" | "profileAvatar"> | null): string | null {
   if (!profile) return null;
   if (profile.profileAvatar && getAvatarUri(profile.profileAvatar)) return profile.profileAvatar;
