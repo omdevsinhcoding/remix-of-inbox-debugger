@@ -162,11 +162,10 @@ export default function MaintenanceScreen({ title, message, eta, isAdmin, onAdmi
     return () => { cancelAnimationFrame(raf); window.removeEventListener("resize", resize); };
   }, []);
 
-  const displayTitle = title?.trim() || "We'll be back soon";
+  const displayTitle = title?.trim() || "Just a quick tune-up";
   const displayMessage =
     message?.trim() ||
-    "Our site is temporarily down for scheduled maintenance. We're upgrading the system to make things faster and more reliable for you. Please check back in a little while — no action is needed on your side.";
-
+    "We're making the site better behind the scenes. It'll be back up in a few minutes — no need to do anything, just come back a little later.";
 
   return (
     <div className="fixed inset-0 z-[9999] overflow-hidden bg-black text-white">
@@ -186,75 +185,151 @@ export default function MaintenanceScreen({ title, message, eta, isAdmin, onAdmi
 
       <div className="relative z-10 h-full flex items-center justify-center px-4 sm:px-5 py-20 overflow-y-auto">
         <div
-          className="w-full max-w-[620px] rounded-[24px] px-6 sm:px-12 py-8 sm:py-12 text-center backdrop-blur-2xl border animate-fade-in"
+          className="relative w-full max-w-[560px] rounded-[28px] overflow-hidden animate-fade-in"
           style={{
-            background: "linear-gradient(180deg, rgba(15,6,8,0.72) 0%, rgba(6,3,4,0.82) 100%)",
-            borderColor: "rgba(255,255,255,0.08)",
-            boxShadow: "0 40px 140px -20px rgba(229,9,20,0.25), 0 20px 60px -10px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.06)",
+            background:
+              "linear-gradient(180deg, rgba(20,10,12,0.85) 0%, rgba(8,4,5,0.92) 100%)",
+            border: "1px solid rgba(255,255,255,0.07)",
+            boxShadow:
+              "0 60px 160px -30px rgba(229,9,20,0.28), 0 30px 80px -20px rgba(0,0,0,0.85), inset 0 1px 0 rgba(255,255,255,0.06)",
           }}
         >
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-[#e50914]/30 bg-[#e50914]/[0.08] mb-6 sm:mb-7">
-            <span className="relative flex w-2 h-2">
-              <span className="absolute inset-0 rounded-full bg-[#e50914]/70 animate-ping" />
-              <span className="relative inline-flex rounded-full w-2 h-2 bg-[#e50914]" />
-            </span>
-            <span className="text-[10px] sm:text-[10.5px] uppercase tracking-[0.24em] font-semibold text-red-100/90">Site under maintenance</span>
-          </div>
+          {/* Top hairline accent */}
+          <div
+            className="absolute top-0 inset-x-0 h-px"
+            style={{ background: "linear-gradient(90deg, transparent, rgba(229,9,20,0.7), transparent)" }}
+          />
 
-          <div className="mx-auto mb-6 sm:mb-8 relative w-16 h-16 sm:w-20 sm:h-20">
-            <div
-              className="absolute inset-0 rounded-2xl flex items-center justify-center font-black text-white text-[38px] sm:text-[46px] leading-none"
-              style={{
-                background: "linear-gradient(135deg,#e50914 0%,#7a0910 100%)",
-                boxShadow: "0 20px 40px -10px rgba(229,9,20,0.6), inset 0 1px 0 rgba(255,255,255,0.15)",
-                fontFamily: "'Bebas Neue', 'Arial Black', sans-serif",
-              }}
-            >
-              N
+          <div className="px-7 sm:px-12 pt-10 sm:pt-12 pb-9 sm:pb-11 text-center">
+            {/* Animated maintenance icon: rotating gears + pulsing ring */}
+            <div className="relative mx-auto mb-8 w-[92px] h-[92px] sm:w-[108px] sm:h-[108px]">
+              {/* Soft glow */}
+              <div className="absolute inset-0 rounded-full bg-[#e50914]/25 blur-2xl animate-pulse" />
+              {/* Orbit ring */}
+              <div
+                className="absolute inset-0 rounded-full border border-[#e50914]/25"
+                style={{ animation: "maint-spin 14s linear infinite" }}
+              >
+                <span className="absolute -top-[3px] left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-[#e50914] shadow-[0_0_12px_#e50914]" />
+                <span className="absolute -bottom-[3px] left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-[#e50914]/60" />
+              </div>
+              {/* Inner disc */}
+              <div
+                className="absolute inset-[14%] rounded-full flex items-center justify-center"
+                style={{
+                  background:
+                    "radial-gradient(circle at 30% 25%, rgba(255,120,120,0.35), rgba(120,10,15,0.9) 55%, rgba(30,4,6,1) 100%)",
+                  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.12), 0 10px 30px -8px rgba(229,9,20,0.55)",
+                }}
+              >
+                {/* Gears */}
+                <svg viewBox="0 0 64 64" className="w-[62%] h-[62%]" fill="none">
+                  <g style={{ transformOrigin: "24px 32px", animation: "maint-spin 6s linear infinite" }}>
+                    <path
+                      d="M24 20a12 12 0 100 24 12 12 0 000-24zm0 8a4 4 0 110 8 4 4 0 010-8z"
+                      fill="white"
+                      fillOpacity="0.95"
+                    />
+                    {[0, 45, 90, 135, 180, 225, 270, 315].map((a) => (
+                      <rect
+                        key={a}
+                        x="22.5"
+                        y="15"
+                        width="3"
+                        height="4"
+                        rx="0.8"
+                        fill="white"
+                        fillOpacity="0.95"
+                        transform={`rotate(${a} 24 32)`}
+                      />
+                    ))}
+                  </g>
+                  <g style={{ transformOrigin: "44px 44px", animation: "maint-spin-rev 4.5s linear infinite" }}>
+                    <path
+                      d="M44 36a8 8 0 100 16 8 8 0 000-16zm0 5a3 3 0 110 6 3 3 0 010-6z"
+                      fill="#ff5a63"
+                    />
+                    {[0, 60, 120, 180, 240, 300].map((a) => (
+                      <rect
+                        key={a}
+                        x="42.8"
+                        y="32.5"
+                        width="2.4"
+                        height="3"
+                        rx="0.6"
+                        fill="#ff5a63"
+                        transform={`rotate(${a} 44 44)`}
+                      />
+                    ))}
+                  </g>
+                </svg>
+              </div>
             </div>
-            <div className="absolute -inset-2 rounded-2xl bg-[#e50914]/25 blur-xl -z-10 animate-pulse" />
-          </div>
 
-          <h1
-            className="text-[28px] sm:text-[44px] leading-[1.05] tracking-tight text-white mb-4"
-            style={{ fontFamily: "'Instrument Serif', ui-serif, Georgia, serif", letterSpacing: "-0.02em" }}
-          >
-            {displayTitle}
-          </h1>
-
-          <p className="text-white/65 text-[13.5px] sm:text-[15px] leading-relaxed font-light max-w-[460px] mx-auto">
-            {displayMessage}
-          </p>
-
-          {eta && (
-            <div className="mt-6 inline-flex items-center gap-2 text-white/75 text-[12px] bg-white/[0.04] border border-white/[0.1] rounded-full px-3.5 py-1.5">
-              <Clock className="w-3.5 h-3.5 text-[#e50914]" />
-              <span className="tracking-wide">Expected back by <span className="text-white font-medium">{eta}</span></span>
+            {/* Status chip */}
+            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-white/10 bg-white/[0.03] mb-5">
+              <span className="relative flex w-1.5 h-1.5">
+                <span className="absolute inset-0 rounded-full bg-[#e50914]/70 animate-ping" />
+                <span className="relative inline-flex rounded-full w-1.5 h-1.5 bg-[#e50914]" />
+              </span>
+              <span className="text-[10.5px] uppercase tracking-[0.28em] font-semibold text-white/80">Under maintenance</span>
             </div>
-          )}
 
-          <div className="mt-8 h-[3px] w-full rounded-full overflow-hidden bg-white/[0.06]">
-            <div className="h-full w-1/3 rounded-full" style={{ background: "linear-gradient(90deg, transparent, #e50914 40%, #ff3b47 60%, transparent)", animation: "maint-shimmer 1.8s linear infinite" }} />
-          </div>
-
-          {isAdmin && onAdminBypass && (
-            <button
-              onClick={onAdminBypass}
-              className="mt-8 group inline-flex items-center gap-2 px-6 py-3 rounded-md text-white text-[13px] font-semibold transition-all hover:gap-3"
-              style={{ background: "linear-gradient(180deg,#e50914,#b0060f)", boxShadow: "0 10px 30px -8px rgba(229,9,20,0.55)" }}
+            <h1
+              className="text-[30px] sm:text-[44px] leading-[1.05] tracking-tight text-white mb-4"
+              style={{ fontFamily: "'Instrument Serif', ui-serif, Georgia, serif", letterSpacing: "-0.02em" }}
             >
-              Enter as admin
-              <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5" />
-            </button>
-          )}
+              {displayTitle}
+            </h1>
+
+            <p className="text-white/60 text-[14px] sm:text-[15.5px] leading-relaxed font-light max-w-[440px] mx-auto">
+              {displayMessage}
+            </p>
+
+            {eta && (
+              <div className="mt-7 inline-flex items-center gap-2 text-white/80 text-[12.5px] bg-white/[0.04] border border-white/[0.1] rounded-full px-4 py-2">
+                <Clock className="w-3.5 h-3.5 text-[#e50914]" />
+                <span className="tracking-wide">Expected back around <span className="text-white font-medium">{eta}</span></span>
+              </div>
+            )}
+
+            {/* Progress bar */}
+            <div className="mt-8 h-[3px] w-full rounded-full overflow-hidden bg-white/[0.06]">
+              <div
+                className="h-full w-1/3 rounded-full"
+                style={{
+                  background:
+                    "linear-gradient(90deg, transparent, #e50914 40%, #ff3b47 60%, transparent)",
+                  animation: "maint-shimmer 1.8s linear infinite",
+                }}
+              />
+            </div>
+            <div className="mt-3 text-[11px] text-white/40 tracking-wide">Working on it — hang tight</div>
+
+            {isAdmin && onAdminBypass && (
+              <button
+                onClick={onAdminBypass}
+                className="mt-8 group inline-flex items-center gap-2 px-6 py-3 rounded-md text-white text-[13px] font-semibold transition-all hover:gap-3"
+                style={{ background: "linear-gradient(180deg,#e50914,#b0060f)", boxShadow: "0 10px 30px -8px rgba(229,9,20,0.55)" }}
+              >
+                Enter as admin
+                <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5" />
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
       <div className="absolute bottom-3 inset-x-0 text-center text-[10px] sm:text-[10.5px] text-white/35 tracking-[0.24em] uppercase z-10">
-        Thanks for your patience — we'll be right back
+        Thanks for waiting — see you in a bit
       </div>
 
-      <style>{`@keyframes maint-shimmer { 0%{transform:translateX(-100%);} 100%{transform:translateX(400%);} }`}</style>
+      <style>{`
+        @keyframes maint-shimmer { 0%{transform:translateX(-100%);} 100%{transform:translateX(400%);} }
+        @keyframes maint-spin { to { transform: rotate(360deg); } }
+        @keyframes maint-spin-rev { to { transform: rotate(-360deg); } }
+      `}</style>
+
     </div>
   );
 }
