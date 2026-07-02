@@ -841,7 +841,7 @@ function AdminLoginPage() {
               <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5 z-10" />
               <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)}
                 className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 pl-12 pr-12 text-slate-900 placeholder:text-slate-400 focus:ring-2 focus:ring-red-500 transition-all outline-none"
-                placeholder="••••••••" required autoComplete="current-password" />
+                placeholder="••••••••" required />
             </div>
           </div>
           {error && (
