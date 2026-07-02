@@ -81,46 +81,76 @@ export default function MaintenanceScreen({ title, message, eta, isAdmin, onAdmi
           return 130.0*dot(m,g);
         }
 
-        // Layered flowing noise → gradient blend
         float fbm(vec2 p){
           float v=0.0; float a=0.5;
-          for(int i=0;i<5;i++){ v+=a*snoise(p); p*=2.02; a*=0.5; }
+          for(int i=0;i<6;i++){ v+=a*snoise(p); p=p*2.03+vec2(1.7,-1.3); a*=0.5; }
           return v;
+        }
+
+        // Soft aurora ribbon — a horizontal band of light that undulates
+        float ribbon(vec2 uv, float yCenter, float thickness, float warp, float t){
+          float y = uv.y - yCenter;
+          float wave = fbm(vec2(uv.x*2.4 + t*0.35, t*0.25)) * warp;
+          float d = abs(y - wave);
+          return smoothstep(thickness, 0.0, d);
         }
 
         void main(){
           vec2 uv=vUv;
           vec2 p=(uv-0.5)*vec2(uResolution.x/uResolution.y,1.0);
+          float t=uTime*0.06;
 
-          float t=uTime*0.08;
-          vec2 q=vec2(fbm(p*1.6+t), fbm(p*1.6-t+3.7));
-          float n=fbm(p*2.2+q*1.4+t*0.9);
+          // -------- Onyx base with slow vertical falloff --------
+          vec3 base = mix(vec3(0.010,0.012,0.020), vec3(0.028,0.034,0.058), smoothstep(0.0,1.0,uv.y));
+          base = mix(base, vec3(0.006,0.008,0.014), smoothstep(0.4,1.0,length(p)*0.9));
 
-          // Palette: obsidian → deep violet → magenta ember → warm gold spark
-          vec3 c1=vec3(0.035,0.031,0.055);       // near-black indigo
-          vec3 c2=vec3(0.16,0.08,0.28);          // violet
-          vec3 c3=vec3(0.92,0.32,0.45);          // ember red/pink
-          vec3 c4=vec3(1.0,0.78,0.42);           // warm gold
+          // -------- Editorial palette (cool → cinematic) --------
+          vec3 cCobalt   = vec3(0.16,0.34,0.78);   // deep sapphire
+          vec3 cTeal     = vec3(0.20,0.72,0.78);   // aqua highlight
+          vec3 cPlatinum = vec3(0.86,0.90,1.00);   // frosted platinum
+          vec3 cViolet   = vec3(0.36,0.22,0.62);   // soft aurora violet
 
-          vec3 col=mix(c1,c2, smoothstep(-0.6,0.4,n));
-          col=mix(col,c3, smoothstep(0.15,0.75,n)*0.55);
-          col=mix(col,c4, smoothstep(0.55,0.95,n)*0.28);
+          // -------- Two aurora ribbons drifting at different speeds --------
+          float r1 = ribbon(uv, 0.42, 0.18, 0.22, t*1.0);
+          float r2 = ribbon(uv, 0.58, 0.14, 0.28, -t*0.8 + 4.0);
+          float r3 = ribbon(uv, 0.30, 0.10, 0.34,  t*1.6 + 2.0);
 
-          // Cursor-driven glow
-          float d=distance(uv,uMouse);
-          col+=vec3(0.9,0.5,0.35)*smoothstep(0.35,0.0,d)*0.10;
+          vec3 col = base;
+          col += cCobalt   * r1 * 0.55;
+          col += cTeal     * r2 * 0.35;
+          col += cViolet   * r3 * 0.30;
 
-          // Vignette
-          float vig=smoothstep(1.15,0.35,length(p));
-          col*=mix(0.55,1.0,vig);
+          // -------- Distant light haze (large slow fbm) --------
+          float haze = fbm(p*0.9 + vec2(t*0.3, -t*0.2));
+          col += cCobalt * smoothstep(0.15, 0.9, haze) * 0.08;
 
-          // Subtle grain
-          float grain=fract(sin(dot(uv*uResolution,vec2(12.9898,78.233)))*43758.5453);
-          col+=(grain-0.5)*0.025;
+          // -------- Diagonal light sweep --------
+          float sweep = smoothstep(0.0, 0.5, sin((uv.x + uv.y)*3.14159 + uTime*0.15)*0.5+0.5);
+          col += cPlatinum * pow(sweep, 6.0) * 0.05;
 
-          gl_FragColor=vec4(col,1.0);
+          // -------- Cursor spotlight (subtle, cool) --------
+          float d = distance(uv, uMouse);
+          col += cPlatinum * smoothstep(0.42, 0.0, d) * 0.06;
+
+          // -------- Bloom of platinum along ribbon peaks --------
+          float peaks = max(r1, max(r2, r3));
+          col += cPlatinum * pow(peaks, 6.0) * 0.35;
+
+          // -------- Deep vignette --------
+          float vig = smoothstep(1.25, 0.35, length(p));
+          col *= mix(0.45, 1.0, vig);
+
+          // -------- Filmic grain --------
+          float grain = fract(sin(dot(uv*uResolution, vec2(12.9898,78.233))) * 43758.5453);
+          col += (grain - 0.5) * 0.02;
+
+          // -------- Gentle tone curve for premium contrast --------
+          col = pow(col, vec3(0.92));
+
+          gl_FragColor = vec4(col, 1.0);
         }
       `,
+
     });
 
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
