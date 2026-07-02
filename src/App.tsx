@@ -2378,6 +2378,7 @@ function AdminPanel() {
   const [maintenanceVersionFrom, setMaintenanceVersionFrom] = useState("");
   const [maintenanceVersionTo, setMaintenanceVersionTo] = useState("");
   const [savingMaintenance, setSavingMaintenance] = useState(false);
+  const prevSavedVersionToRef = useRef<string>("");
 
 
   // Notifications tab
