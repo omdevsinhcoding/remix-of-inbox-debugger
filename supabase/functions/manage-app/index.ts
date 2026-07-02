@@ -294,6 +294,7 @@ async function providerIpapiCo(ip: string): Promise<LocResult | null> {
 
 async function providerIpApiCom(ip: string): Promise<LocResult | null> {
   try {
+    if (!ip || ip === "unknown" || isPrivateIp(ip) || isCloudflareIp(ip)) return null;
     // include proxy/hosting/mobile flags for VPN detection
     const r = await fetchWithTimeout(
       `http://ip-api.com/json/${encodeURIComponent(ip)}?fields=status,country,countryCode,region,regionName,city,zip,lat,lon,timezone,isp,org,as,query,proxy,hosting,mobile`,
