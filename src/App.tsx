@@ -736,12 +736,16 @@ function NotificationBell() {
               onClick={() => setOpen(false)}
             />
             <motion.div
-              initial={{ opacity: 0, y: -8, scale: 0.98 }}
+              initial={{ opacity: 0, y: 40, scale: 1 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -8, scale: 0.98 }}
-              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-              className="fixed left-3 right-3 top-[70px] sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-3 sm:w-[400px] max-w-[calc(100vw-24px)] bg-[#141414] rounded-2xl shadow-[0_25px_70px_-10px_rgba(0,0,0,0.9)] border border-white/[0.08] z-50 overflow-hidden"
+              exit={{ opacity: 0, y: 40, scale: 1 }}
+              transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+              className="fixed left-0 right-0 bottom-0 rounded-t-3xl max-h-[85vh] sm:max-h-none sm:rounded-2xl sm:absolute sm:left-auto sm:right-0 sm:bottom-auto sm:top-full sm:mt-3 sm:w-[400px] bg-[#141414] shadow-[0_-20px_60px_-10px_rgba(0,0,0,0.9)] sm:shadow-[0_25px_70px_-10px_rgba(0,0,0,0.9)] border border-white/[0.08] z-50 overflow-hidden flex flex-col"
             >
+              {/* Mobile drag handle */}
+              <div className="sm:hidden flex justify-center pt-2.5 pb-1 flex-shrink-0 bg-[#1f1f1f]">
+                <div className="w-10 h-1 rounded-full bg-white/20" />
+              </div>
               {/* Header — Netflix dark with red accent bar */}
               <div className="relative bg-gradient-to-b from-[#1f1f1f] to-[#141414] border-b border-white/[0.06]">
                 <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-[#e50914]" />
@@ -4103,7 +4107,15 @@ function EmailViewer() {
         <div className="max-w-6xl mx-auto px-3 sm:px-4 h-14 sm:h-16 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <div className="flex-shrink-0 flex items-center gap-1.5">
-              <NetflixNLogo className="w-6 h-6 sm:w-8 sm:h-8" />
+              {/* Mobile: profile avatar as brand; Desktop: Netflix N + avatar */}
+              <button
+                onClick={() => !isImpersonating && setShowProfile(true)}
+                className="sm:hidden rounded-full ring-2 ring-red-600/70 active:scale-95 transition-transform"
+                title="Profile"
+              >
+                <ProfileAvatar avatarId={profilePrefs.avatarId || user.profileAvatar} name={user.name} className="w-8 h-8" fallbackColor="bg-red-600" eager />
+              </button>
+              <NetflixNLogo className="hidden sm:block w-8 h-8" />
               <div className="hidden sm:block h-8 w-px bg-slate-200 ml-1" />
               <ProfileAvatar avatarId={profilePrefs.avatarId || user.profileAvatar} name={user.name} className="hidden sm:block w-9 h-9 ml-1" fallbackColor="bg-red-600" eager />
             </div>
@@ -4131,7 +4143,7 @@ function EmailViewer() {
 
             {!isImpersonating && (
               <button onClick={() => setShowProfile(true)}
-                className="flex items-center p-2.5 sm:px-3 sm:py-2 bg-gradient-to-r from-violet-500 to-purple-600 text-white rounded-full text-sm font-bold hover:from-violet-600 hover:to-purple-700 transition-all active:scale-95 shadow-md shadow-purple-200"
+                className="hidden sm:flex items-center p-2.5 sm:px-3 sm:py-2 bg-gradient-to-r from-violet-500 to-purple-600 text-white rounded-full text-sm font-bold hover:from-violet-600 hover:to-purple-700 transition-all active:scale-95 shadow-md shadow-purple-200"
                 title="Profile">
                 <UserCircle className="w-4 h-4 sm:w-5 sm:h-5" />
                 <span className="hidden sm:inline ml-1.5">Profile</span>
