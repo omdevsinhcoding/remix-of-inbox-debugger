@@ -170,6 +170,32 @@ export default function MaintenanceScreen({ title, message, endsAt, versionFrom,
     message?.trim() ||
     "The site is offline for a short while so we can make it faster and safer for you. You don't need to do anything — just come back in a few minutes.";
 
+  // 12-hour formatted clock
+  const clockText = now.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit", hour12: true });
+
+  // Countdown / back-at label built from endsAt
+  const endsDate = endsAt ? new Date(endsAt) : null;
+  const endsValid = !!(endsDate && !isNaN(endsDate.getTime()) && endsDate.getTime() > Date.now());
+  let backAtLabel = "";
+  let countdownLabel = "";
+  if (endsValid && endsDate) {
+    backAtLabel = endsDate.toLocaleString(undefined, {
+      hour: "numeric", minute: "2-digit", hour12: true,
+      day: "numeric", month: "short",
+    });
+    const diff = Math.max(0, endsDate.getTime() - now.getTime());
+    const totalMin = Math.floor(diff / 60000);
+    const h = Math.floor(totalMin / 60);
+    const m = totalMin % 60;
+    const s = Math.floor((diff % 60000) / 1000);
+    countdownLabel = h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m ${s}s` : `${s}s`;
+  }
+
+  // Version pill (only if admin filled at least one field)
+  const vFrom = (versionFrom || "").trim();
+  const vTo = (versionTo || "").trim();
+  const showVersionPill = !!(vFrom || vTo);
+
   const activityLines = [
     "Applying security updates…",
     "Optimising database queries…",
@@ -183,6 +209,7 @@ export default function MaintenanceScreen({ title, message, endsAt, versionFrom,
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
 
   return (
     <div className="fixed inset-0 z-[9999] overflow-hidden bg-black text-white">
