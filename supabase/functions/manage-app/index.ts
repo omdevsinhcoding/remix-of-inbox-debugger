@@ -2019,15 +2019,31 @@ Deno.serve(async (req) => {
       const expires_at = expiresInDays && Number(expiresInDays) > 0
         ? new Date(Date.now() + Number(expiresInDays) * 86400_000).toISOString()
         : null;
+
+      // Resolve a safe created_by: prefer session user if it exists in app_users,
+      // else fall back to any admin row, else leave null (column is nullable).
+      let createdBy: string | null = null;
+      if (session.userId) {
+        const { data: exists } = await supabase.from("app_users").select("id").eq("id", session.userId).maybeSingle();
+        if (exists?.id) createdBy = exists.id;
+      }
+      if (!createdBy) {
+        const { data: anyAdmin } = await supabase.from("app_users").select("id").eq("role", "admin").limit(1).maybeSingle();
+        if (anyAdmin?.id) createdBy = anyAdmin.id;
+      }
+
       const { data, error } = await supabase.from("notifications").insert({
         title: String(title).slice(0, 200),
         body: String(body).slice(0, 4000),
         audience,
         target_user_id: audience === "user" ? target_user_id : null,
-        created_by: session.userId,
+        created_by: createdBy,
         expires_at,
       }).select("id").single();
-      if (error) throw error;
+      if (error) {
+        console.error("[admin_create_notification] insert failed:", error.message, error);
+        throw new Error(`Failed to create notification: ${error.message}`);
+      }
       await auditLog(supabase, "notification_created", session.userId, data?.id || null, { audience, target_user_id }, ip);
       return new Response(JSON.stringify({ success: true, id: data?.id }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
