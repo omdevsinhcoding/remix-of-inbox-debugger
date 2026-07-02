@@ -4307,10 +4307,9 @@ function AdminPanel() {
                       className="w-full px-3.5 py-2.5 bg-white/[0.04] border border-white/10 rounded-xl text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-orange-500/50 focus:bg-white/[0.06] transition-all resize-none" />
                   </div>
 
-                  {/* Platform / Icon */}
-                  <div>
                   {/* Notification Template (guided type) */}
                   <div>
+
                     <div className="flex items-center justify-between mb-2">
                       <label className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">Notification Type</label>
                       {notifTemplate && (
