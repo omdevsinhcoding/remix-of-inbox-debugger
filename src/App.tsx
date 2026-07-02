@@ -807,10 +807,8 @@ function AutoPopupNotification() {
         (!n.snoozed_until || new Date(n.snoozed_until) < new Date())
       );
       if (fresh.length) {
-        // pin/critical first, then newest
+        // critical first, then newest
         fresh.sort((a, b) => {
-          const pa = a.pinned ? 1 : 0, pb = b.pinned ? 1 : 0;
-          if (pa !== pb) return pb - pa;
           const cra = a.priority === "critical" ? 1 : 0, crb = b.priority === "critical" ? 1 : 0;
           if (cra !== crb) return crb - cra;
           return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
