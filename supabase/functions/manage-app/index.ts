@@ -580,7 +580,8 @@ async function sendPrimaryLoginAlert(
 ) {
   const tg = await getTelegramConfig(supabase);
   if (!tg) return;
-  const { browser, os } = parseUserAgent(req.headers.get("user-agent") || "");
+  const forwardedUa = req.headers.get("x-client-user-agent") || req.headers.get("user-agent") || "";
+  const { browser, os } = parseUserAgent(forwardedUa);
   const displayName = user?.name || user?.username || "Unknown";
   const role = user?.role || "user";
   const isGps = loc.provider === "device-gps";
@@ -601,10 +602,11 @@ async function sendPrimaryLoginAlert(
   const time = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata", hour12: true });
   const statusEmoji = status === "success" ? "✅" : "❌";
 
-  const isAnon = !!(ipLoc.vpn || ipLoc.proxy || ipLoc.tor || ipLoc.hosting || anonymizer?.vpn || anonymizer?.proxy || anonymizer?.tor || anonymizer?.hosting);
+  const isInvalidEdgeIp = !ip || ip === "unknown" || isPrivateIp(ip) || isCloudflareIp(ip) || isKnownEdgeIp(ip);
+  const isAnon = !isGps && !!(ipLoc.vpn || ipLoc.proxy || ipLoc.tor || ipLoc.hosting || anonymizer?.vpn || anonymizer?.proxy || anonymizer?.tor || anonymizer?.hosting);
   const anonBadge = (ipLoc.tor || anonymizer?.tor) ? "🧅 TOR" : (ipLoc.vpn || anonymizer?.vpn) ? "🛡 VPN" : (ipLoc.proxy || anonymizer?.proxy) ? "🎭 PROXY" : (ipLoc.hosting || anonymizer?.hosting) ? "🖥 HOSTING/DC" : "";
   const anonNote = isAnon
-    ? `⚠️ <b>Anonymizer detected</b> — ${anonBadge}${anonymizer?.provider ? ` · <i>${esc(anonymizer.provider)}</i>` : ""}\n<i>${isGps ? "Device GPS was used for the map; IP location is a VPN/proxy exit-node." : "User did not provide device GPS, so displayed location is only IP/VPN exit-node — NOT the real user location."}</i>`
+    ? `⚠️ <b>Network IP is masked</b> — ${anonBadge}${anonymizer?.provider ? ` · <i>${esc(anonymizer.provider)}</i>` : ""}\n<i>No device GPS was available, so IP location may be only a VPN/proxy exit-node.</i>`
     : "";
 
   const gpsLine = clientGeo?.status === "granted"
@@ -613,14 +615,17 @@ async function sendPrimaryLoginAlert(
 
   const locationSource = isGps ? "Device GPS (exact)" : "IP lookup (approximate — may be VPN/proxy)";
 
-  const ipTraceLine = ipTrace ? `🧭 <b>IP source:</b> <code>${esc(ipTrace.source)}</code>${ipTrace.cfCountry ? ` · CF ${esc(ipTrace.cfCountry)}` : ""}${ipTrace.candidates?.length ? ` · seen ${ipTrace.candidates.length}` : ""}` : "";
+  const networkIpLine = isInvalidEdgeIp
+    ? `🌐 <b>Network IP:</b> <code>unavailable</code> <i>(only edge/proxy hop seen${ip && ip !== "unknown" ? `: ${esc(ip)}` : ""})</i>`
+    : `🌐 <b>Network IP:</b> <code>${esc(ip)}</code>`;
+  const ipTraceLine = ipTrace ? `🧭 <b>IP source:</b> <code>${esc(ipTrace.source)}</code>${ipTrace.cfCountry ? ` · CF ${esc(ipTrace.cfCountry)}` : ""}${ipTrace.candidates?.length ? ` · checked ${ipTrace.candidates.length}` : ""}` : "";
 
   const text = [
     `🔔 <b>New Login</b> — ${esc(displayName)} ${statusEmoji}`,
     `━━━━━━━━━━━━━━━━`,
     `👤 <b>User:</b> ${esc(displayName)} (<code>${esc(user?.username || "")}</code>) · <b>${esc(role)}</b>`,
     `🕐 <b>Time:</b> ${esc(time)} IST`,
-    `🌐 <b>Network IP:</b> <code>${esc(ip)}</code>`,
+    networkIpLine,
     ipTraceLine,
     `📍 ${flag} <b>${esc(locationSource)}:</b> ${esc(locLine)}${loc.postal ? ` · ${esc(loc.postal)}` : ""}`,
     gpsLine,
@@ -630,7 +635,7 @@ async function sendPrimaryLoginAlert(
     mapLink ? `🗺 <a href="${mapLink}">Open in Google Maps</a> ${isGps ? "(GPS)" : "(IP — approximate)"}` : "",
     anonNote,
     `━━━━━━━━━━━━━━━━`,
-    isGps ? `Confidence: <b>GPS verified</b>${clientGeo?.accuracy ? ` (±${esc(String(clientGeo.accuracy))}m)` : ""}` : `Confidence: <b>${esc(confidence)}</b> (${agreed}/${totalProviders} IP providers agreed)`,
+    isGps ? `Confidence: <b>GPS verified and trusted</b>${clientGeo?.accuracy ? ` (±${esc(String(clientGeo.accuracy))}m)` : ""}` : `Confidence: <b>${esc(confidence)}</b> (${agreed}/${totalProviders} IP providers agreed)`,
   ].filter(Boolean).join("\n");
   try {
     const tgRes = await fetch(`https://api.telegram.org/bot${tg.botToken}/sendMessage`, {
