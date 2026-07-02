@@ -3318,12 +3318,14 @@ function EmailViewer() {
       <header className="bg-white border-b border-slate-200 sticky top-0 z-20 shadow-sm">
         <div className="max-w-6xl mx-auto px-3 sm:px-4 h-14 sm:h-16 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-            <div className="flex-shrink-0">
-              <ProfileAvatar avatarId={profilePrefs.avatarId || user.profileAvatar} name={user.name} className="w-8 h-8 sm:w-10 sm:h-10" fallbackColor="bg-red-600" eager />
+            <div className="flex-shrink-0 flex items-center gap-1.5">
+              <NetflixNLogo className="w-6 h-6 sm:w-8 sm:h-8" />
+              <div className="hidden sm:block h-8 w-px bg-slate-200 ml-1" />
+              <ProfileAvatar avatarId={profilePrefs.avatarId || user.profileAvatar} name={user.name} className="hidden sm:block w-9 h-9 ml-1" fallbackColor="bg-red-600" eager />
             </div>
             <div className="min-w-0">
-              <h1 className="font-bold text-base sm:text-xl tracking-tight leading-tight text-red-600">Netflix Mail</h1>
-              <span className="text-[10px] sm:text-xs text-slate-500 truncate block max-w-[80px] sm:max-w-[150px]">{user.name}</span>
+              <h1 className="font-bold text-sm sm:text-lg tracking-tight leading-tight text-red-600">Netflix Mail</h1>
+              <span className="text-[10px] sm:text-xs text-slate-500 truncate block max-w-[100px] sm:max-w-[180px]">{user.name}</span>
             </div>
           </div>
           <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
@@ -3335,12 +3337,14 @@ function EmailViewer() {
                 <span className="sm:hidden">Admin</span>
               </button>
             )}
+            <NotificationBell />
             <button onClick={() => fetchEmails()}
               disabled={refreshing}
               className="flex items-center p-2.5 sm:px-4 sm:py-2 bg-slate-900 text-white rounded-full text-sm font-bold hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-60">
               <RefreshCw className={`w-4 h-4 sm:w-5 sm:h-5 ${refreshing ? "animate-spin" : ""}`} />
               <span className="hidden sm:inline ml-1.5">Refresh</span>
             </button>
+
             {!isImpersonating && (
               <button onClick={() => setShowProfile(true)}
                 className="flex items-center p-2.5 sm:px-3 sm:py-2 bg-gradient-to-r from-violet-500 to-purple-600 text-white rounded-full text-sm font-bold hover:from-violet-600 hover:to-purple-700 transition-all active:scale-95 shadow-md shadow-purple-200"
