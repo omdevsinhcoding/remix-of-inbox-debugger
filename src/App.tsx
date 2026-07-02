@@ -1639,10 +1639,13 @@ function AdminPanel() {
 
   const tabs = [
     { id: "users" as const, label: "Users", icon: Users },
+    { id: "notifications" as const, label: "Notifications", icon: Bell },
+    { id: "inbox" as const, label: "Inbox", icon: Mail },
     { id: "security" as const, label: "Security", icon: ShieldCheck },
-    { id: "emails" as const, label: "Email Accounts", icon: Mail },
+    { id: "emails" as const, label: "Email Accounts", icon: Server },
     { id: "settings" as const, label: "Settings", icon: Settings },
   ];
+
 
   return (
     <div className="admin-panel min-h-[100dvh] bg-slate-50 overflow-x-hidden text-slate-900">
