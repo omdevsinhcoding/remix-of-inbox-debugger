@@ -840,36 +840,49 @@ async function sendPrimaryLoginAlert(
 
   const text = [
     headline,
-    div,
+    ``,
     `${roleChip}  <b>${esc(displayName)}</b>  <i>@${esc(user?.username || "")}</i>`,
     `🕐 <i>${esc(time)}</i>`,
     ``,
+    ``,
     `${bar} 📍 <b>LOCATION</b>   <i>· ${sourceLabel}</i>`,
+    ``,
     `${flag}  <b>${esc(cityLine)}</b>${loc.postal ? ` <i>· ${esc(loc.postal)}</i>` : ""}`,
-    coordsRaw ? `🧭  <code>${esc(coordsRaw)}</code>` : "",
-    mapLink ? `🗺  <a href="${mapLink}"><b>Open in Google Maps →</b></a>` : "",
+    coordsRaw ? `` : null,
+    coordsRaw ? `🧭  <code>${esc(coordsRaw)}</code>` : null,
+    mapLink ? `` : null,
+    mapLink ? `🗺  <a href="${mapLink}"><b>Open in Google Maps →</b></a>` : null,
+    ``,
     ``,
     `${bar} 🌐 <b>NETWORK</b>   <i>· ${trustLabel}</i>`,
+    ``,
     isInvalidEdgeIp
-      ? `IP    <i>unavailable (edge hop${ip && ip !== "unknown" ? ": " + esc(ip) : ""})</i>`
-      : `IP    <code>${esc(ip)}</code>`,
-    `ISP   ${esc(ispRaw)}`,
-    asnRaw ? `ASN   <code>${esc(asnRaw)}</code>${tzRaw ? `   <i>· ${esc(tzRaw)}</i>` : ""}` : (tzRaw ? `TZ    <i>${esc(tzRaw)}</i>` : ""),
+      ? `IP     <i>unavailable (edge hop${ip && ip !== "unknown" ? ": " + esc(ip) : ""})</i>`
+      : `IP     <code>${esc(ip)}</code>`,
+    ``,
+    `ISP    ${esc(ispRaw)}`,
+    asnRaw || tzRaw ? `` : null,
+    asnRaw ? `ASN    <code>${esc(asnRaw)}</code>${tzRaw ? `   <i>· ${esc(tzRaw)}</i>` : ""}` : (tzRaw ? `TZ     <i>${esc(tzRaw)}</i>` : null),
+    ``,
     ``,
     `${bar} 📱 <b>DEVICE</b>`,
-    `<b>${esc(deviceStr)}</b>`,
-    `🌐 ${esc(browserStr)}   💻 ${esc(osStr)}`,
-    screenLine ? `🖥 <i>${screenLine}</i>` : "",
-    anonNote ? `\n⚠️ <b>Anonymizer detected</b> — ${anonBadge}${anonymizer?.provider ? ` <i>· ${esc(anonymizer.provider)}</i>` : ""}\n<i>No device GPS available — IP may be a VPN/proxy exit-node.</i>` : "",
     ``,
-    `${bar} 📋 <b>QUICK COPY</b>  <i>· tap the block to copy</i>`,
+    `<b>${esc(deviceStr)}</b>`,
+    ``,
+    `🌐 ${esc(browserStr)}    💻 ${esc(osStr)}`,
+    screenLine ? `` : null,
+    screenLine ? `🖥 <i>${screenLine}</i>` : null,
+    anonNote ? `` : null,
+    anonNote ? `⚠️ <b>Anonymizer detected</b> — ${anonBadge}${anonymizer?.provider ? ` <i>· ${esc(anonymizer.provider)}</i>` : ""}` : null,
+    anonNote ? `<i>No device GPS available — IP may be a VPN/proxy exit-node.</i>` : null,
+    ``,
+    ``,
+    `${bar} 📋 <b>QUICK COPY</b>  <i>· tap the block below to copy</i>`,
+    ``,
     `<pre>${esc(summaryOneLiner)}</pre>`,
+    ``,
     `<blockquote expandable><b>🔎 Raw technical details</b>\n${esc(rawDetails)}</blockquote>`,
-    div,
-    isGps
-      ? `<i>✨ Verified by <b>device GPS</b>${clientGeo?.publicIp ? ` + <b>browser IP</b>` : ""}</i>`
-      : `<i>Confidence: <b>${esc(confidence)}</b> · ${agreed}/${totalProviders} providers agreed</i>`,
-  ].filter(Boolean).join("\n");
+  ].filter((l) => l !== null).join("\n");
 
 
   try {
