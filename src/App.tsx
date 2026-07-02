@@ -3198,7 +3198,14 @@ function AdminPanel() {
       const adminUser = localStorage.getItem("user");
       const adminToken = localStorage.getItem("session_token");
       const adminAuth = localStorage.getItem("admin_auth");
-      localStorage.setItem("admin_backup", JSON.stringify({ user: adminUser, token: adminToken, adminAuth }));
+      // F4: Use sessionStorage (auto-cleared on tab close) with a 10-min TTL so a
+      // shared-device user or same-origin script can't lift the admin session token.
+      try {
+        sessionStorage.setItem("admin_backup", JSON.stringify({
+          user: adminUser, token: adminToken, adminAuth, exp: Date.now() + 10 * 60_000,
+        }));
+      } catch {}
+      try { localStorage.removeItem("admin_backup"); } catch {}
       localStorage.setItem("user", JSON.stringify(data.user));
       if (data.sessionToken) localStorage.setItem("session_token", data.sessionToken);
       // Impersonation: also defer session timer until EmailViewer loads inbox.
@@ -3210,6 +3217,7 @@ function AdminPanel() {
       toast.error(err instanceof Error ? err.message : "Failed to impersonate user");
     }
   };
+
 
   const createUser = async () => {
     if (!newUsername || !newPassword || !newName) { toast.error("Please fill all fields"); return; }
