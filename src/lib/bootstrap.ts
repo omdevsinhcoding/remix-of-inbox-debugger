@@ -106,7 +106,8 @@ export async function bootstrapFromSupabase(): Promise<BootstrapResult> {
     storeWorkerUrls(data.workerUrls);
   }
 
-  const result: BootstrapResult = { users: data.users || [], recaptcha: data.recaptcha, workerUrls: data.workerUrls || [] };
+  const result: BootstrapResult = { users: data.users || [], recaptcha: data.recaptcha, workerUrls: data.workerUrls || [], emailFilters: data.emailFilters || {} };
+  if (data.emailFilters && typeof data.emailFilters === "object") setEmailFilters(data.emailFilters);
   writeBootstrapCache(result);
   return result;
 }
