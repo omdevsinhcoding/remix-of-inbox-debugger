@@ -120,17 +120,28 @@ export default {
     const sessionToken = request.headers.get("X-Session-Token") || request.headers.get("x-session-token");
     let session = null;
 
-    if (sessionToken && env.SESSION_SECRET) {
-      session = await verifySessionToken(sessionToken, env.SESSION_SECRET);
+    // F5: prefer the dedicated SESSION_SIGNING_SECRET; fall back to legacy
+    // SESSION_SECRET (which used to be the Supabase service-role key) so
+    // sessions issued before the rotation still verify until they expire.
+    const signingPrimary = env.SESSION_SIGNING_SECRET || env.SESSION_SECRET;
+    const signingLegacy = env.SESSION_SECRET;
+    const hasSigning = !!signingPrimary;
+
+    if (sessionToken && signingPrimary) {
+      session = await verifySessionToken(sessionToken, signingPrimary);
+      if (!session && signingLegacy && signingLegacy !== signingPrimary) {
+        session = await verifySessionToken(sessionToken, signingLegacy);
+      }
     }
 
     if ((url.pathname === "/api/emails" || url.pathname === "/api/emails/sync") && !session) {
-      if (env.SESSION_SECRET) {
+      if (hasSigning) {
         return new Response(JSON.stringify({ error: "Authentication required" }), {
           status: 401, headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
         });
       }
     }
+
 
     if (url.pathname === "/api/emails" && request.method === "GET") {
       return handleGetEmails(env, session, sessionToken);
