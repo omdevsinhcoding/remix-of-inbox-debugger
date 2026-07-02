@@ -1553,7 +1553,81 @@ function AdminPanel() {
     }
   };
 
-  const changeAdminPassword = async () => {
+  const toggleIpwhoAlert = async () => {
+    const next = !ipwhoAlertEnabled;
+    setIpwhoAlertEnabled(next);
+    setSavingIpwho(true);
+    try {
+      await apiCall("manage-app", { action: "set_settings", key: "ipwho_alert", value: { enabled: next } });
+      toast.success(next ? "Legacy ipwho.is alert enabled" : "Legacy ipwho.is alert disabled");
+    } catch (err) {
+      setIpwhoAlertEnabled(!next);
+      toast.error(err instanceof Error ? err.message : "Failed");
+    } finally { setSavingIpwho(false); }
+  };
+
+  const reloadAdminNotifs = async () => {
+    try {
+      const nl = await apiCall("manage-app", { action: "admin_list_notifications" });
+      if (Array.isArray(nl?.notifications)) setAdminNotifs(nl.notifications);
+    } catch (err) { console.warn(err); }
+  };
+
+  const sendNotification = async () => {
+    if (!notifTitle.trim() || !notifBody.trim()) { toast.error("Title and body required"); return; }
+    if (notifAudience === "user" && !notifTargetUser) { toast.error("Choose a target user"); return; }
+    setSendingNotif(true);
+    try {
+      await apiCall("manage-app", {
+        action: "admin_create_notification",
+        title: notifTitle.trim(),
+        body: notifBody.trim(),
+        audience: notifAudience,
+        target_user_id: notifAudience === "user" ? notifTargetUser : null,
+        expiresInDays: notifExpiresDays ? Number(notifExpiresDays) : null,
+      });
+      toast.success("🔔 Notification sent");
+      setNotifTitle(""); setNotifBody(""); setNotifExpiresDays("");
+      await reloadAdminNotifs();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to send");
+    } finally { setSendingNotif(false); }
+  };
+
+  const deleteNotification = async (id: string) => {
+    if (!confirm("Delete this notification for everyone?")) return;
+    try {
+      await apiCall("manage-app", { action: "admin_delete_notification", id });
+      setAdminNotifs((prev) => prev.filter((n) => n.id !== id));
+      toast.success("Deleted");
+    } catch (err) { toast.error(err instanceof Error ? err.message : "Failed"); }
+  };
+
+  const adminClearInbox = async () => {
+    if (inboxMode === "all" && inboxConfirm !== "DELETE ALL") {
+      toast.error('Type DELETE ALL to confirm');
+      return;
+    }
+    if (inboxMode === "label" && !inboxLabel) { toast.error("Choose an account label"); return; }
+    if (inboxMode === "days" && !inboxDays) { toast.error("Enter days"); return; }
+    if (!confirm("This permanently deletes emails from the database. Continue?")) return;
+    setClearingInbox(true);
+    try {
+      const res = await apiCall("manage-app", {
+        action: "admin_clear_inbox",
+        mode: inboxMode,
+        accountLabel: inboxMode === "label" ? inboxLabel : undefined,
+        days: inboxMode === "days" ? Number(inboxDays) : undefined,
+        confirm: inboxMode === "all" ? inboxConfirm : undefined,
+      });
+      toast.success(`Deleted ${res.deleted || 0} email(s)`);
+      setInboxConfirm("");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed");
+    } finally { setClearingInbox(false); }
+  };
+
+
     if (!currentPassword || !newAdminPassword) { toast.error("Fill both fields"); return; }
     setChangingPassword(true);
     try {
