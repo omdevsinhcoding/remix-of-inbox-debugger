@@ -5,4 +5,4 @@ Disallow: /admin-auth
 Disallow: /admin/
 Disallow: /viewer
 
-Sitemap: https://joyful-fetch.lovable.app/sitemap.xml
+Sitemap: https://nfotp.netlify.app/sitemap.xml
