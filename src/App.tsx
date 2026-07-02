@@ -1873,8 +1873,8 @@ function ProfileSelectPage() {
                 className="w-full overflow-y-auto overscroll-contain px-2 sm:px-4 pb-4 max-h-[62vh] sm:max-h-[64vh] scroll-smooth [scrollbar-width:thin] [scrollbar-color:#2a2a2a_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-neutral-800 [&::-webkit-scrollbar-thumb]:rounded-full"
               >
                 <div
-                  className="grid gap-x-4 gap-y-8 sm:gap-x-6 sm:gap-y-10 justify-center"
-                  style={{ gridTemplateColumns: "repeat(auto-fill, minmax(96px, 1fr))" }}
+                  className="grid gap-x-4 gap-y-8 sm:gap-x-6 sm:gap-y-10 justify-center mx-auto"
+                  style={{ gridTemplateColumns: "repeat(auto-fill, minmax(112px, 160px))" }}
                 >
                   {displayProfiles.map((profile, i) => (
                     <motion.button
@@ -1885,9 +1885,9 @@ function ProfileSelectPage() {
                       whileHover={{ scale: 1.06 }}
                       whileTap={{ scale: 0.95 }}
                       onClick={() => setSelectedProfile(profile)}
-                      className="flex flex-col items-center gap-2 sm:gap-3 group focus:outline-none"
+                      className="flex flex-col items-center gap-2 sm:gap-3 group focus:outline-none min-w-0"
                     >
-                      <div className="relative rounded-md overflow-hidden ring-0 group-hover:ring-2 group-hover:ring-white transition-all duration-150 aspect-square w-[84px] sm:w-[120px] md:w-[140px]">
+                      <div className="relative rounded-md overflow-hidden ring-0 group-hover:ring-2 group-hover:ring-white transition-all duration-150 aspect-square w-full max-w-[140px]">
                         <ProfileAvatar
                           avatarId={profile.profileAvatar}
                           name={profile.name}
@@ -1896,6 +1896,7 @@ function ProfileSelectPage() {
                           eager
                         />
                       </div>
+
                       <span className="text-neutral-400 group-hover:text-white text-[12px] sm:text-[14px] font-normal transition-colors duration-150 truncate max-w-[120px] text-center">
                         {profile.name}
                       </span>
