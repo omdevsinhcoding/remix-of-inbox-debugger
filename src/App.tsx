@@ -601,7 +601,9 @@ function ProfileSelectPage() {
 
   useEffect(() => {
     let cancelled = false;
-    bootstrapPromise
+    // Always fetch fresh on mount so after logout / avatar change the profile
+    // grid reflects the latest data instead of the stale module singleton.
+    refreshBootstrap()
       .then((bootstrap) => {
         if (cancelled) return;
         setProfiles((bootstrap.users || []).filter((u: UserData) => u.role === "user"));
