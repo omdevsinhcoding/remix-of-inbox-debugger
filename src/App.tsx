@@ -4003,12 +4003,29 @@ function AdminPanel() {
                 </div>
                 <div>
                   <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">Starts at (date + time)</label>
-                  <input
-                    type="datetime-local"
-                    value={maintenanceStartsAt}
-                    onChange={(e) => setMaintenanceStartsAt(e.target.value)}
-                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm"
-                  />
+                  {(() => {
+                    const [d = "", t = ""] = (maintenanceStartsAt || "").split("T");
+                    const time = t.slice(0, 5);
+                    const today = new Date();
+                    const pad = (n: number) => String(n).padStart(2, "0");
+                    const fallbackDate = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+                    return (
+                      <div className="flex gap-2">
+                        <input
+                          type="date"
+                          value={d}
+                          onChange={(e) => setMaintenanceStartsAt(e.target.value ? `${e.target.value}T${time || "00:00"}` : "")}
+                          className="flex-1 min-w-0 bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm"
+                        />
+                        <input
+                          type="time"
+                          value={time}
+                          onChange={(e) => setMaintenanceStartsAt(`${d || fallbackDate}T${e.target.value || "00:00"}`)}
+                          className="w-[130px] bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm"
+                        />
+                      </div>
+                    );
+                  })()}
                   <p className="text-[10.5px] text-slate-500 mt-1 ml-1">
                     {maintenanceStartsAt
                       ? `Site locks at ${new Date(maintenanceStartsAt).toLocaleString(undefined, { hour: "numeric", minute: "2-digit", hour12: true, day: "numeric", month: "short" })}`
@@ -4017,12 +4034,29 @@ function AdminPanel() {
                 </div>
                 <div>
                   <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">Back online at (date + time)</label>
-                  <input
-                    type="datetime-local"
-                    value={maintenanceEndsAt}
-                    onChange={(e) => setMaintenanceEndsAt(e.target.value)}
-                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm"
-                  />
+                  {(() => {
+                    const [d = "", t = ""] = (maintenanceEndsAt || "").split("T");
+                    const time = t.slice(0, 5);
+                    const today = new Date();
+                    const pad = (n: number) => String(n).padStart(2, "0");
+                    const fallbackDate = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+                    return (
+                      <div className="flex gap-2">
+                        <input
+                          type="date"
+                          value={d}
+                          onChange={(e) => setMaintenanceEndsAt(e.target.value ? `${e.target.value}T${time || "00:00"}` : "")}
+                          className="flex-1 min-w-0 bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm"
+                        />
+                        <input
+                          type="time"
+                          value={time}
+                          onChange={(e) => setMaintenanceEndsAt(`${d || fallbackDate}T${e.target.value || "00:00"}`)}
+                          className="w-[130px] bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm"
+                        />
+                      </div>
+                    );
+                  })()}
                   <p className="text-[10.5px] text-slate-500 mt-1 ml-1">
                     {maintenanceEndsAt
                       ? `Site auto-unlocks at ${new Date(maintenanceEndsAt).toLocaleString(undefined, { hour: "numeric", minute: "2-digit", hour12: true, day: "numeric", month: "short" })}`
