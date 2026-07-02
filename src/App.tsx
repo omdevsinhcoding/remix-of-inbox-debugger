@@ -1653,6 +1653,110 @@ function AdminAuthPage() {
 }
 
 // ==================== ADMIN PANEL ====================
+function LoginEventsPanel() {
+  const [events, setEvents] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [riskFilter, setRiskFilter] = useState<string>("");
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const res: any = await apiCall("manage-app", { action: "list_login_events", limit: 300, search: search || undefined, risk: riskFilter || undefined });
+      setEvents(res?.events || []);
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to load login events");
+    } finally { setLoading(false); }
+  };
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
+
+  const exportCsv = () => {
+    if (!events.length) return;
+    const cols = ["created_at","username","role","event","risk_score","ip","isp","country","city","device_brand","device_model","device_type","os_name","os_version","browser_name","browser_version","gps_lat","gps_lon","gps_accuracy","is_vpn","is_proxy","is_tor","is_hosting","is_new_device","impossible_travel","fingerprint_hash"];
+    const rows = [cols.join(",")].concat(events.map(e => cols.map(c => JSON.stringify(e?.[c] ?? "")).join(",")));
+    const blob = new Blob([rows.join("\n")], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = `login_events_${Date.now()}.csv`; a.click(); URL.revokeObjectURL(url);
+  };
+  const exportJson = () => {
+    const blob = new Blob([JSON.stringify(events, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = `login_events_${Date.now()}.json`; a.click(); URL.revokeObjectURL(url);
+  };
+  const riskColor = (r: string) => r === "critical" ? "bg-red-600 text-white" : r === "high" ? "bg-orange-500 text-white" : r === "medium" ? "bg-amber-400 text-slate-900" : "bg-emerald-500 text-white";
+
+  return (
+    <section className="bg-white p-4 sm:p-6 rounded-2xl border shadow-sm">
+      <div className="flex flex-wrap items-center gap-2 mb-4">
+        <h2 className="font-black text-base sm:text-lg flex items-center gap-2 mr-auto">
+          <div className="bg-red-50 p-1.5 rounded-lg"><ShieldCheck className="w-4 h-4 text-red-600" /></div>
+          Login Events <span className="text-xs font-normal text-slate-500">({events.length})</span>
+        </h2>
+        <input value={search} onChange={e => setSearch(e.target.value)} onKeyDown={e => e.key === "Enter" && load()}
+          placeholder="Search user/IP/city/ISP…" className="border rounded-lg px-3 py-1.5 text-sm w-48" />
+        <select value={riskFilter} onChange={e => { setRiskFilter(e.target.value); }} className="border rounded-lg px-2 py-1.5 text-sm">
+          <option value="">All risks</option><option value="safe">Safe</option><option value="medium">Medium</option><option value="high">High</option><option value="critical">Critical</option>
+        </select>
+        <button onClick={load} className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm font-semibold">Refresh</button>
+        <button onClick={exportCsv} className="px-3 py-1.5 bg-slate-900 text-white hover:bg-slate-800 rounded-lg text-sm font-semibold">CSV</button>
+        <button onClick={exportJson} className="px-3 py-1.5 bg-slate-700 text-white hover:bg-slate-800 rounded-lg text-sm font-semibold">JSON</button>
+      </div>
+      {loading ? (
+        <div className="py-12 text-center text-slate-500 text-sm">Loading…</div>
+      ) : events.length === 0 ? (
+        <div className="py-12 text-center text-slate-500 text-sm">No login events yet.</div>
+      ) : (
+        <div className="overflow-x-auto -mx-4 sm:mx-0">
+          <table className="w-full text-xs sm:text-sm min-w-[900px]">
+            <thead className="bg-slate-50 text-left text-slate-600 uppercase text-[10px] tracking-wider">
+              <tr>
+                <th className="p-2">Time</th><th className="p-2">User</th><th className="p-2">Risk</th>
+                <th className="p-2">Device</th><th className="p-2">Browser · OS</th>
+                <th className="p-2">IP</th><th className="p-2">ISP</th><th className="p-2">Location</th>
+                <th className="p-2">Flags</th><th className="p-2">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {events.map(e => (
+                <>
+                  <tr key={e.id} className="hover:bg-slate-50">
+                    <td className="p-2 whitespace-nowrap text-slate-600">{new Date(e.created_at).toLocaleString()}</td>
+                    <td className="p-2 font-semibold">{e.username}<div className="text-[10px] text-slate-400">{e.role}</div></td>
+                    <td className="p-2"><span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${riskColor(e.risk_score || "safe")}`}>{(e.risk_score || "safe").toUpperCase()}</span>{e.is_new_device && <div className="text-[10px] text-orange-600 mt-1">🆕 new device</div>}</td>
+                    <td className="p-2">{[e.device_brand, e.device_model].filter(Boolean).join(" ") || "—"}<div className="text-[10px] text-slate-400">{e.device_type}</div></td>
+                    <td className="p-2">{e.browser_name} {e.browser_version?.split(".")[0]}<div className="text-[10px] text-slate-400">{e.os_name} {e.os_version}</div></td>
+                    <td className="p-2 font-mono text-[11px]">{e.ip || "—"}<div className="text-[10px] text-slate-400">{e.ip_source}</div></td>
+                    <td className="p-2">{e.isp || "—"}<div className="text-[10px] text-slate-400">{e.asn}</div></td>
+                    <td className="p-2">{[e.city, e.region, e.country_code].filter(Boolean).join(", ") || "—"}{typeof e.gps_lat === "number" && <div className="text-[10px] text-emerald-600">GPS ±{Math.round(e.gps_accuracy || 0)}m</div>}</td>
+                    <td className="p-2 space-x-1">
+                      {e.is_vpn && <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-[10px]">VPN</span>}
+                      {e.is_proxy && <span className="px-1.5 py-0.5 rounded bg-orange-100 text-orange-700 text-[10px]">PROXY</span>}
+                      {e.is_tor && <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 text-[10px]">TOR</span>}
+                      {e.is_hosting && <span className="px-1.5 py-0.5 rounded bg-slate-200 text-slate-700 text-[10px]">HOST</span>}
+                      {e.impossible_travel && <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-[10px]">IMP-TRAVEL</span>}
+                    </td>
+                    <td className="p-2 whitespace-nowrap">
+                      {(typeof e.gps_lat === "number" || typeof e.ip_lat === "number") && (
+                        <a target="_blank" rel="noreferrer" href={`https://maps.google.com/?q=${e.gps_lat ?? e.ip_lat},${e.gps_lon ?? e.ip_lon}`} className="text-blue-600 hover:underline text-[11px] mr-2">Map</a>
+                      )}
+                      {e.ip && <button onClick={() => { navigator.clipboard.writeText(e.ip); toast.success("IP copied"); }} className="text-slate-600 hover:underline text-[11px] mr-2">Copy IP</button>}
+                      <button onClick={() => setExpanded(expanded === e.id ? null : e.id)} className="text-slate-600 hover:underline text-[11px]">{expanded === e.id ? "Hide" : "Raw"}</button>
+                    </td>
+                  </tr>
+                  {expanded === e.id && (
+                    <tr><td colSpan={10} className="p-2 bg-slate-50"><pre className="text-[10px] overflow-x-auto max-h-96">{JSON.stringify(e, null, 2)}</pre></td></tr>
+                  )}
+                </>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function AdminPanel() {
   const [activeTab, setActiveTab] = useState<"users" | "security" | "emails" | "settings" | "notifications" | "inbox" | "logins">("users");
   const [users, setUsers] = useState<UserData[]>([]);
