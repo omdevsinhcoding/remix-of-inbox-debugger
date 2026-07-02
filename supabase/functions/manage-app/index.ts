@@ -1292,14 +1292,18 @@ Deno.serve(async (req) => {
         const { data: mData } = await supabase.from("app_settings").select("value").eq("key", "maintenance").single();
         if (mData?.value && typeof mData.value === "object") {
           const v: any = mData.value;
+          const startsAt = typeof v.startsAt === "string" ? v.startsAt : null;
           const endsAt = typeof v.endsAt === "string" ? v.endsAt : null;
           // Auto-expire: if endsAt is in the past, treat as disabled.
           const expired = !!(endsAt && Date.parse(endsAt) > 0 && Date.parse(endsAt) <= Date.now());
+          // Not-yet-started: if startsAt is in the future, keep enabled flag but suppress activation.
+          const notYet = !!(startsAt && Date.parse(startsAt) > Date.now());
           maintenance = {
-            enabled: !!v.enabled && !expired,
+            enabled: !!v.enabled && !expired && !notYet,
             title: typeof v.title === "string" ? v.title : "",
             message: typeof v.message === "string" ? v.message : "",
             eta: typeof v.eta === "string" ? v.eta : "",
+            startsAt,
             endsAt,
             versionFrom: typeof v.versionFrom === "string" ? v.versionFrom : "",
             versionTo: typeof v.versionTo === "string" ? v.versionTo : "",

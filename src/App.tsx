@@ -2373,6 +2373,7 @@ function AdminPanel() {
   const [maintenanceEnabled, setMaintenanceEnabled] = useState(false);
   const [maintenanceTitle, setMaintenanceTitle] = useState("");
   const [maintenanceMessage, setMaintenanceMessage] = useState("");
+  const [maintenanceStartsAt, setMaintenanceStartsAt] = useState(""); // datetime-local "YYYY-MM-DDTHH:mm"
   const [maintenanceEndsAt, setMaintenanceEndsAt] = useState(""); // datetime-local value "YYYY-MM-DDTHH:mm"
   const [maintenanceVersionFrom, setMaintenanceVersionFrom] = useState("");
   const [maintenanceVersionTo, setMaintenanceVersionTo] = useState("");
@@ -2509,15 +2510,14 @@ function AdminPanel() {
           setMaintenanceVersionFrom(mnt.value.versionFrom || "");
           setMaintenanceVersionTo(mnt.value.versionTo || "");
           // Convert stored ISO to local "YYYY-MM-DDTHH:mm" for the datetime-local input.
-          if (mnt.value.endsAt) {
-            const d = new Date(mnt.value.endsAt);
-            if (!isNaN(d.getTime())) {
-              const pad = (n: number) => String(n).padStart(2, "0");
-              setMaintenanceEndsAt(
-                `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-              );
-            }
-          }
+          const toLocalInput = (iso: string) => {
+            const d = new Date(iso);
+            if (isNaN(d.getTime())) return "";
+            const pad = (n: number) => String(n).padStart(2, "0");
+            return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+          };
+          if (mnt.value.startsAt) setMaintenanceStartsAt(toLocalInput(mnt.value.startsAt));
+          if (mnt.value.endsAt) setMaintenanceEndsAt(toLocalInput(mnt.value.endsAt));
         }
       } catch { }
 
@@ -2568,11 +2568,17 @@ function AdminPanel() {
 
   const saveMaintenance = async (nextEnabled?: boolean) => {
     const enabled = typeof nextEnabled === "boolean" ? nextEnabled : maintenanceEnabled;
-    // Convert local datetime-local -> ISO. Empty string means no scheduled end.
-    let endsAtIso: string | null = null;
-    if (maintenanceEndsAt) {
-      const d = new Date(maintenanceEndsAt);
-      if (!isNaN(d.getTime())) endsAtIso = d.toISOString();
+    // Convert local datetime-local -> ISO. Empty string means no scheduled start/end.
+    const toIso = (s: string): string | null => {
+      if (!s) return null;
+      const d = new Date(s);
+      return isNaN(d.getTime()) ? null : d.toISOString();
+    };
+    const startsAtIso = toIso(maintenanceStartsAt);
+    const endsAtIso = toIso(maintenanceEndsAt);
+    if (startsAtIso && endsAtIso && new Date(endsAtIso).getTime() <= new Date(startsAtIso).getTime()) {
+      toast.error("End time must be after start time");
+      return;
     }
     setSavingMaintenance(true);
     try {
@@ -2583,6 +2589,7 @@ function AdminPanel() {
           enabled,
           title: maintenanceTitle.trim(),
           message: maintenanceMessage.trim(),
+          startsAt: startsAtIso,
           endsAt: endsAtIso,
           versionFrom: maintenanceVersionFrom.trim(),
           versionTo: maintenanceVersionTo.trim(),
@@ -3958,11 +3965,25 @@ function AdminPanel() {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-5">
-                <div>
+                <div className="md:col-span-2">
                   <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">Headline (optional)</label>
                   <input type="text" value={maintenanceTitle} onChange={(e) => setMaintenanceTitle(e.target.value)}
                     placeholder="We're upgrading the system"
                     className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm" />
+                </div>
+                <div>
+                  <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">Starts at (date + time)</label>
+                  <input
+                    type="datetime-local"
+                    value={maintenanceStartsAt}
+                    onChange={(e) => setMaintenanceStartsAt(e.target.value)}
+                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm"
+                  />
+                  <p className="text-[10.5px] text-slate-500 mt-1 ml-1">
+                    {maintenanceStartsAt
+                      ? `Site locks at ${new Date(maintenanceStartsAt).toLocaleString(undefined, { hour: "numeric", minute: "2-digit", hour12: true, day: "numeric", month: "short" })}`
+                      : "Leave empty to start immediately when enabled."}
+                  </p>
                 </div>
                 <div>
                   <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">Back online at (date + time)</label>
@@ -3999,11 +4020,47 @@ function AdminPanel() {
                 </div>
               </div>
 
+              {/* Live preview */}
+              <div className="mt-5 rounded-2xl overflow-hidden border border-slate-800 bg-black text-white p-5 sm:p-6 relative">
+                <div className="flex items-center gap-2 text-[10px] tracking-[0.28em] uppercase text-white/60 font-semibold mb-3">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#e50914] animate-pulse" />
+                  Live preview — this is what users see
+                </div>
+                <div className="text-[22px] sm:text-[28px] font-semibold leading-[1.2] tracking-[-0.02em] mb-2 min-h-[1.2em]">
+                  {maintenanceTitle.trim() || <span className="text-white/40 italic">(rotating headlines when empty)</span>}
+                </div>
+                <p className="text-white/70 text-sm leading-relaxed">
+                  {maintenanceMessage.trim() || <span className="text-white/40 italic">The site is offline for a short while so we can make it faster and safer for you. You don't need to do anything — just come back in a few minutes.</span>}
+                </p>
+                {(maintenanceStartsAt || maintenanceEndsAt) && (
+                  <div className="mt-4 flex flex-wrap gap-2 text-[11.5px]">
+                    {maintenanceStartsAt && (
+                      <span className="inline-flex items-center gap-1.5 bg-white/[0.06] border border-white/10 rounded-lg px-2.5 py-1">
+                        <span className="text-white/50">Starts:</span>
+                        <span className="text-white">{new Date(maintenanceStartsAt).toLocaleString(undefined, { hour: "numeric", minute: "2-digit", hour12: true, day: "numeric", month: "short" })}</span>
+                      </span>
+                    )}
+                    {maintenanceEndsAt && (
+                      <span className="inline-flex items-center gap-1.5 bg-white/[0.06] border border-white/10 rounded-lg px-2.5 py-1">
+                        <span className="text-white/50">Back at:</span>
+                        <span className="text-white">{new Date(maintenanceEndsAt).toLocaleString(undefined, { hour: "numeric", minute: "2-digit", hour12: true, day: "numeric", month: "short" })}</span>
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
 
-              <div className="flex items-center gap-2 mt-4">
+              <div className="flex items-center gap-2 mt-4 flex-wrap">
                 <button onClick={() => saveMaintenance()} disabled={savingMaintenance}
                   className="px-4 py-2 rounded-xl bg-slate-900 text-white text-sm font-bold hover:bg-slate-800 disabled:opacity-60">
-                  {savingMaintenance ? "Saving…" : "Save message"}
+                  {savingMaintenance ? "Saving…" : "Save changes"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setMaintenanceStartsAt(""); setMaintenanceEndsAt(""); }}
+                  className="px-4 py-2 rounded-xl bg-white border text-slate-700 text-sm font-semibold hover:bg-slate-50"
+                >
+                  Clear schedule
                 </button>
                 {maintenanceEnabled && (
                   <span className="text-[11px] px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200 inline-flex items-center gap-1.5">
