@@ -2192,7 +2192,7 @@ Deno.serve(async (req) => {
       const nowIso = new Date().toISOString();
       const { data: notes, error: nErr } = await supabase
         .from("notifications")
-        .select("id, title, body, description, image_url, category, priority, icon, action_url, action_label, action2_url, action2_label, pinned, audience, target_user_id, created_at, expires_at, publish_at, group_key")
+        .select("id, title, body, description, body_markdown, image_url, category, priority, icon, platform_icon, kind, sub_kind, locked, show_frequency, mode, action_url, action_label, action2_url, action2_label, pinned, audience, target_user_id, created_at, expires_at, publish_at, group_key")
         .or(`audience.eq.all,target_user_id.eq.${session.userId}`)
         .order("pinned", { ascending: false })
         .order("created_at", { ascending: false })
@@ -2206,38 +2206,42 @@ Deno.serve(async (req) => {
       const ids = active.map((n: any) => n.id);
       const readSet = new Set<string>();
       const seenSet = new Set<string>();
-      const archivedSet = new Set<string>();
+      const deletedSet = new Set<string>();
       const snoozeMap = new Map<string, string>();
       if (ids.length) {
         const { data: reads } = await supabase
           .from("notification_reads")
-          .select("notification_id, read_at, seen_at, archived_at, snoozed_until")
+          .select("notification_id, read_at, seen_at, deleted_at, snoozed_until")
           .in("notification_id", ids)
           .eq("user_id", session.userId);
         for (const r of reads || []) {
           if (r.read_at) readSet.add(r.notification_id);
           if (r.seen_at) seenSet.add(r.notification_id);
-          if (r.archived_at) archivedSet.add(r.notification_id);
+          if (r.deleted_at) deletedSet.add(r.notification_id);
           if (r.snoozed_until) snoozeMap.set(r.notification_id, r.snoozed_until);
         }
       }
-      const payload = active.map((n: any) => ({
-        id: n.id, title: n.title, body: n.body,
-        description: n.description, image_url: n.image_url,
-        category: n.category, priority: n.priority, icon: n.icon,
-        action_url: n.action_url, action_label: n.action_label,
-        action2_url: n.action2_url, action2_label: n.action2_label,
-        pinned: !!n.pinned, audience: n.audience,
-        created_at: n.created_at, expires_at: n.expires_at, publish_at: n.publish_at,
-        read: readSet.has(n.id),
-        seen: seenSet.has(n.id),
-        archived: archivedSet.has(n.id),
-        snoozed_until: snoozeMap.get(n.id) || null,
-      }));
+      const payload = active
+        .filter((n: any) => !deletedSet.has(n.id))
+        .map((n: any) => ({
+          id: n.id, title: n.title, body: n.body,
+          description: n.description, body_markdown: n.body_markdown, image_url: n.image_url,
+          category: n.category, priority: n.priority, icon: n.icon,
+          platform_icon: n.platform_icon, kind: n.kind, sub_kind: n.sub_kind,
+          locked: !!n.locked, show_frequency: n.show_frequency, mode: n.mode,
+          action_url: n.action_url, action_label: n.action_label,
+          action2_url: n.action2_url, action2_label: n.action2_label,
+          pinned: !!n.pinned, audience: n.audience,
+          created_at: n.created_at, expires_at: n.expires_at, publish_at: n.publish_at,
+          read: readSet.has(n.id),
+          seen: seenSet.has(n.id),
+          snoozed_until: snoozeMap.get(n.id) || null,
+        }));
       return new Response(JSON.stringify({ success: true, notifications: payload }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
 
     if (action === "mark_notification_read") {
       const session = await requireSession(req);
