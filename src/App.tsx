@@ -8,6 +8,7 @@ import { supabase } from "./integrations/supabase/client";
 import { AVATAR_CATEGORIES, resolveAvatar, buildAvatarId, prettyName, getAvatarCategoryUrls } from "./lib/avatars";
 import { bootstrapFromSupabase, clearSessionData, markSessionStart, readBootstrapCache, refreshBootstrap, patchBootstrapCacheUser, getEmailFilters, setEmailFilters as setEmailFiltersCache, listNotifications, markNotificationRead, markAllNotificationsRead, markNotificationSeen, archiveNotification, snoozeNotification, logNotificationEvent, getPoppedIds, markPopped, type EmailFilters, type AppNotification, type MaintenanceInfo } from "./lib/bootstrap";
 import MaintenanceScreen from "./components/MaintenanceScreen";
+import DateTimePicker from "./components/DateTimePicker";
 
 
 // Lazy-loaded heavy auth-only libs — kept out of the public first-load chunk.
@@ -4362,12 +4363,9 @@ function AdminPanel() {
                 </div>
                 <div>
                   <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">Starts at (date + time)</label>
-                  <input
-                    type="datetime-local"
+                  <DateTimePicker
                     value={maintenanceStartsAt}
-                    onChange={(e) => setMaintenanceStartsAt(e.target.value)}
-                    step={60}
-                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm"
+                    onChange={setMaintenanceStartsAt}
                   />
                   <p className="text-[10.5px] text-slate-500 mt-1 ml-1">
                     {maintenanceStartsAt
@@ -4377,13 +4375,10 @@ function AdminPanel() {
                 </div>
                 <div>
                   <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">Back online at (date + time)</label>
-                  <input
-                    type="datetime-local"
+                  <DateTimePicker
                     value={maintenanceEndsAt}
-                    onChange={(e) => setMaintenanceEndsAt(e.target.value)}
+                    onChange={setMaintenanceEndsAt}
                     min={maintenanceStartsAt || undefined}
-                    step={60}
-                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm"
                   />
                   <p className="text-[10.5px] text-slate-500 mt-1 ml-1">
                     {maintenanceEndsAt
