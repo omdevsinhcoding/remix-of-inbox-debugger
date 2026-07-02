@@ -71,11 +71,15 @@ async function verifySessionToken(token: string, secret: string): Promise<Sessio
   } catch { return null; }
 }
 
-async function requireSession(req: Request, body: any, secret: string): Promise<Session | null> {
+async function requireSession(req: Request, body: any, primary: string, legacy?: string): Promise<Session | null> {
   const token = req.headers.get("x-session-token") || body.sessionToken;
   if (!token) return null;
-  return await verifySessionToken(token, secret);
+  const p = await verifySessionToken(token, primary);
+  if (p) return p;
+  if (legacy && legacy !== primary) return await verifySessionToken(token, legacy);
+  return null;
 }
+
 
 async function deriveEncKey(secret: string): Promise<CryptoKey> {
   const encoder = new TextEncoder();
