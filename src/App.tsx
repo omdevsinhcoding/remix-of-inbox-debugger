@@ -3695,9 +3695,15 @@ function EmailViewer() {
                   <h2 className="text-base sm:text-2xl font-bold text-slate-900 mb-2 sm:mb-4 leading-tight">{selectedEmail.subject}</h2>
                   <div className="flex items-center justify-between flex-wrap gap-2">
                     <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-                      <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-red-100 flex items-center justify-center text-red-600 font-bold text-sm sm:text-lg flex-shrink-0">
-                        {(selectedEmail.from?.charAt(0) || "?").toUpperCase()}
-                      </div>
+                      {/netflix\.com/i.test(selectedEmail.from || "") ? (
+                        <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-black flex items-center justify-center flex-shrink-0 ring-1 ring-slate-200">
+                          <span className="text-red-600 font-black text-base sm:text-xl leading-none" style={{ fontFamily: "'Bebas Neue', 'Arial Black', system-ui, sans-serif", letterSpacing: "-0.05em" }}>N</span>
+                        </div>
+                      ) : (
+                        <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-red-100 flex items-center justify-center text-red-600 font-bold text-sm sm:text-lg flex-shrink-0">
+                          {(selectedEmail.from?.charAt(0) || "?").toUpperCase()}
+                        </div>
+                      )}
                       <div className="min-w-0">
                         <span className="font-bold text-xs sm:text-sm text-slate-900 truncate block">
                           {selectedEmail.from?.split("<")[0]?.trim() || "Unknown Sender"}
