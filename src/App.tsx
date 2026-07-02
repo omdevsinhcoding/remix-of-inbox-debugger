@@ -6,7 +6,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "r
 import { Toaster, toast } from "sonner";
 import { supabase } from "./integrations/supabase/client";
 import { AVATAR_CATEGORIES, resolveAvatar, buildAvatarId, prettyName, getAvatarCategoryUrls } from "./lib/avatars";
-import { bootstrapFromSupabase, clearSessionData, markSessionStart, readBootstrapCache, refreshBootstrap, patchBootstrapCacheUser, getEmailFilters, setEmailFilters as setEmailFiltersCache, listNotifications, markNotificationRead, markAllNotificationsRead, type EmailFilters, type AppNotification } from "./lib/bootstrap";
+import { bootstrapFromSupabase, clearSessionData, markSessionStart, readBootstrapCache, refreshBootstrap, patchBootstrapCacheUser, getEmailFilters, setEmailFilters as setEmailFiltersCache, listNotifications, markNotificationRead, markAllNotificationsRead, markNotificationSeen, archiveNotification, snoozeNotification, logNotificationEvent, getPoppedIds, markPopped, type EmailFilters, type AppNotification } from "./lib/bootstrap";
 
 // Lazy-loaded heavy auth-only libs — kept out of the public first-load chunk.
 const ReCAPTCHA = lazy(() => import("react-google-recaptcha"));
