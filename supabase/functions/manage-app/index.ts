@@ -1768,6 +1768,32 @@ Deno.serve(async (req) => {
         processedValue = { enabled: value?.enabled === true };
       }
 
+      // Maintenance: enforce upgrade-only version bumps.
+      if (key === "maintenance" && value && typeof value === "object") {
+        const cmpVer = (a: string, b: string): number => {
+          const pa = String(a || "").replace(/^v/i, "").split(".").map((n) => parseInt(n, 10));
+          const pb = String(b || "").replace(/^v/i, "").split(".").map((n) => parseInt(n, 10));
+          const len = Math.max(pa.length, pb.length);
+          for (let i = 0; i < len; i++) {
+            const x = Number.isFinite(pa[i]) ? pa[i] : 0;
+            const y = Number.isFinite(pb[i]) ? pb[i] : 0;
+            if (x !== y) return x - y;
+          }
+          return 0;
+        };
+        try {
+          const { data: prev } = await supabase.from("app_settings").select("value").eq("key", "maintenance").single();
+          const prevTo = prev?.value?.versionTo || "";
+          const nextTo = (value as any).versionTo || "";
+          if (prevTo && nextTo && cmpVer(nextTo, prevTo) < 0) {
+            throw new Error(`Version downgrade blocked: current is ${prevTo}, cannot set to ${nextTo}.`);
+          }
+        } catch (e) {
+          if (e instanceof Error && e.message.startsWith("Version downgrade")) throw e;
+        }
+      }
+
+
       // Encrypt IMAP passwords in email_accounts
       if (key === "email_accounts" && Array.isArray(value)) {
         // Get existing accounts to preserve encrypted passwords when masked
