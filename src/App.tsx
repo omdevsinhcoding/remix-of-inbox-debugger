@@ -16,51 +16,146 @@ import DateTimePicker from "./components/DateTimePicker";
 const ReCAPTCHA = lazy(() => import("react-google-recaptcha"));
 const QRCodeSVG = lazy(() => import("qrcode.react").then((m) => ({ default: m.QRCodeSVG })));
 
-// --- Admin composer: platform / icon options + brand SVG icons ---
-type PlatformOption = { id: string; label: string; color: string; mono?: string; domain?: string };
+// --- Admin composer: platform logo options ---
+type PlatformOption = { id: string; label: string; logoFile: string; aliases?: string[] };
+const PLATFORM_LOGO_BASE = "/platform-logos/";
+const DEFAULT_PLATFORM_LOGO = `${PLATFORM_LOGO_BASE}default-logo.svg`;
+
+const normalizePlatformKey = (value: string | null | undefined) =>
+  String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+
 const PLATFORM_OPTIONS: PlatformOption[] = [
-  // Social / messaging (inline brand SVG below)
-  { id: "telegram",     label: "Telegram",     color: "#229ED9" },
-  { id: "whatsapp",     label: "WhatsApp",     color: "#25D366" },
-  { id: "youtube",      label: "YouTube",      color: "#FF0000" },
-  { id: "instagram",    label: "Instagram",    color: "linear-gradient(135deg,#f58529,#dd2a7b,#8134af)" },
-  { id: "discord",      label: "Discord",      color: "#5865F2" },
-  { id: "twitter",      label: "Twitter / X",  color: "#000000" },
-  { id: "facebook",     label: "Facebook",     color: "#1877F2" },
-  { id: "linkedin",     label: "LinkedIn",     color: "#0A66C2" },
-  // OTT India — real brand favicons via Google's favicon service (falls back to monogram)
-  { id: "netflix",      label: "Netflix",         color: "#000000", mono: "N",  domain: "netflix.com" },
-  { id: "prime",        label: "Prime Video",     color: "#00A8E1", mono: "P",  domain: "primevideo.com" },
-  { id: "hotstar",      label: "Disney+ Hotstar", color: "#1F1F49", mono: "H",  domain: "hotstar.com" },
-  { id: "jiohotstar",   label: "JioHotstar",      color: "#0F1E7A", mono: "JH", domain: "hotstar.com" },
-  { id: "sonyliv",      label: "Sony LIV",        color: "#000000", mono: "SL", domain: "sonyliv.com" },
-  { id: "zee5",         label: "ZEE5",            color: "#8226C0", mono: "Z5", domain: "zee5.com" },
-  { id: "jiocinema",    label: "JioCinema",       color: "#E60023", mono: "JC", domain: "jio.com" },
-  { id: "mxplayer",     label: "MX Player",       color: "#F7B500", mono: "MX", domain: "mxplayer.in" },
-  { id: "minitv",       label: "Amazon miniTV",   color: "#FF9900", mono: "mT", domain: "amazon.in" },
-  { id: "appletv",      label: "Apple TV+",       color: "#000000",             domain: "tv.apple.com" },
-  { id: "lionsgate",    label: "Lionsgate Play",  color: "#B48538", mono: "LP", domain: "lionsgateplay.com" },
-  { id: "discoveryplus",label: "Discovery+",      color: "#1976FF", mono: "D+", domain: "discoveryplus.in" },
-  { id: "sunnxt",       label: "Sun NXT",         color: "#F25022", mono: "S",  domain: "sunnxt.com" },
-  { id: "aha",          label: "Aha",             color: "#FF6A00", mono: "अ", domain: "aha.video" },
-  { id: "chaupal",      label: "Chaupal",         color: "#F02728", mono: "C",  domain: "chaupal.tv" },
-  { id: "hoichoi",      label: "Hoichoi",         color: "#E7263C", mono: "H",  domain: "hoichoi.tv" },
-  { id: "manoramamax",  label: "ManoramaMAX",     color: "#0057A8", mono: "M",  domain: "manoramamax.com" },
-  { id: "erosnow",      label: "Eros Now",        color: "#ED1C24", mono: "E",  domain: "erosnow.com" },
-  { id: "mubi",         label: "MUBI",            color: "#000000", mono: "M",  domain: "mubi.com" },
-  { id: "shemaroome",   label: "ShemarooMe",      color: "#E63A2F", mono: "Sh", domain: "shemaroome.com" },
-  { id: "docubay",      label: "DocuBay",         color: "#00B5AD", mono: "DB", domain: "docubay.com" },
-  { id: "epicon",       label: "EPIC ON",         color: "#FFB300", mono: "E",  domain: "epicon.epicchannel.com" },
-  { id: "planetmarathi",label: "Planet Marathi",  color: "#F26522", mono: "PM", domain: "planetmarathiott.com" },
-  { id: "stage",        label: "Stage",           color: "#F2C230", mono: "St", domain: "stage.in" },
-  { id: "nammaflix",    label: "NammaFlix",       color: "#B30000", mono: "NF", domain: "nammaflix.com" },
-  { id: "klikk",        label: "Klikk",           color: "#7B1FA2", mono: "K",  domain: "klikk.tv" },
-  { id: "simplysouth",  label: "Simply South",    color: "#00695C", mono: "SS", domain: "simplysouth.tv" },
-  { id: "tentkotta",    label: "Tentkotta",       color: "#D32F2F", mono: "TK", domain: "tentkotta.com" },
-  { id: "ytpremium",    label: "YouTube Premium", color: "#0F0F0F", mono: "YT", domain: "youtube.com" },
-  // Fallback
-  { id: "",             label: "Custom / Bell",   color: "#7c3aed" },
+  { id: "telegram",      label: "Telegram",         logoFile: "telegram.svg" },
+  { id: "whatsapp",      label: "WhatsApp",         logoFile: "whatsapp.svg" },
+  { id: "youtube",       label: "YouTube",          logoFile: "youtube.svg" },
+  { id: "instagram",     label: "Instagram",        logoFile: "instagram.svg" },
+  { id: "discord",       label: "Discord",          logoFile: "discord.svg" },
+  { id: "twitter",       label: "Twitter / X",      logoFile: "twitter.svg", aliases: ["x", "twitterx"] },
+  { id: "facebook",      label: "Facebook",         logoFile: "facebook.svg" },
+  { id: "linkedin",      label: "LinkedIn",         logoFile: "linkedin.svg" },
+  { id: "netflix",       label: "Netflix",          logoFile: "netflix.svg" },
+  { id: "prime",         label: "Prime Video",      logoFile: "primevideo.svg", aliases: ["amazonprimevideo", "primevideo", "amazonprime"] },
+  { id: "hotstar",       label: "Disney+ Hotstar",  logoFile: "disney-hotstar.svg", aliases: ["disneyhotstar", "disneyplushotstar", "hotstar"] },
+  { id: "jiohotstar",    label: "JioHotstar",       logoFile: "jiohotstar.svg", aliases: ["jiohotstar", "jiohotstarapp"] },
+  { id: "sonyliv",       label: "Sony LIV",         logoFile: "sonyliv.png", aliases: ["sonyliv", "sony live", "sony liv"] },
+  { id: "zee5",          label: "ZEE5",             logoFile: "zee5.svg", aliases: ["zee 5", "z5"] },
+  { id: "jiocinema",     label: "JioCinema",        logoFile: "jiocinema.svg", aliases: ["jio cinema", "jio-cinema", "jio.cinema"] },
+  { id: "mxplayer",      label: "MX Player",        logoFile: "mxplayer.png", aliases: ["mx", "mx player"] },
+  { id: "minitv",        label: "Amazon miniTV",    logoFile: "minitv.png", aliases: ["amazonminitv", "mini tv", "minitv"] },
+  { id: "appletv",       label: "Apple TV+",        logoFile: "appletv.svg", aliases: ["apple tv", "apple tv plus", "appletvplus"] },
+  { id: "lionsgate",     label: "Lionsgate Play",   logoFile: "lionsgateplay.png", aliases: ["lionsgate", "lionsgateplay", "lions play", "lionsplay"] },
+  { id: "discoveryplus", label: "Discovery+",       logoFile: "discoveryplus.svg", aliases: ["discovery", "discoveryplus", "discovery plus"] },
+  { id: "sunnxt",        label: "Sun NXT",          logoFile: "sunnxt.png", aliases: ["sun nxt", "sunnext"] },
+  { id: "aha",           label: "Aha",              logoFile: "aha.png", aliases: ["aha video", "ahavideo"] },
+  { id: "chaupal",       label: "Chaupal",          logoFile: "chaupal.svg" },
+  { id: "hoichoi",       label: "Hoichoi",          logoFile: "hoichoi.png" },
+  { id: "manoramamax",   label: "ManoramaMAX",      logoFile: "manoramamax.png", aliases: ["manorama max"] },
+  { id: "erosnow",       label: "Eros Now",         logoFile: "erosnow.svg", aliases: ["eros"] },
+  { id: "mubi",          label: "MUBI",             logoFile: "mubi.png" },
+  { id: "shemaroome",    label: "ShemarooMe",       logoFile: "shemaroome.png", aliases: ["shemaroo", "shemaroo me"] },
+  { id: "docubay",       label: "DocuBay",          logoFile: "docubay.png" },
+  { id: "epicon",        label: "EPIC ON",          logoFile: "epicon.png", aliases: ["epic on", "epic"] },
+  { id: "planetmarathi", label: "Planet Marathi",   logoFile: "planetmarathi.png", aliases: ["planet marathi ott", "planet marathi"] },
+  { id: "stage",         label: "Stage",            logoFile: "stage.png", aliases: ["stage ott"] },
+  { id: "nammaflix",     label: "NammaFlix",        logoFile: "nammaflix.png", aliases: ["namma flix"] },
+  { id: "klikk",         label: "Klikk",            logoFile: "klikk.png", aliases: ["klikk ott"] },
+  { id: "simplysouth",   label: "Simply South",     logoFile: "simplysouth.png", aliases: ["simply south"] },
+  { id: "tentkotta",     label: "Tentkotta",        logoFile: "tentkotta.jpg", aliases: ["tent kotta"] },
+  { id: "ytpremium",     label: "YouTube Premium",  logoFile: "ytpremium.svg", aliases: ["youtube premium", "yt premium"] },
+  { id: "",              label: "Custom / Bell",    logoFile: "default-logo.svg", aliases: ["custom", "bell", "notification"] },
 ];
+
+const PLATFORM_ALIAS_TO_ID = PLATFORM_OPTIONS.reduce<Record<string, string>>((acc, platform) => {
+  [platform.id, platform.label, platform.logoFile.replace(/\.[^.]+$/, ""), ...(platform.aliases || [])].forEach((value) => {
+    const key = normalizePlatformKey(value);
+    if (key) acc[key] = platform.id;
+  });
+  return acc;
+}, {});
+
+const getPlatformLogoUrl = (platform: PlatformOption) => `${PLATFORM_LOGO_BASE}${platform.logoFile}`;
+
+const resolvePlatformOption = (value: string | null | undefined) => {
+  const raw = String(value || "");
+  const exact = PLATFORM_OPTIONS.find((platform) => platform.id === raw);
+  if (exact) return exact;
+  const id = PLATFORM_ALIAS_TO_ID[normalizePlatformKey(raw)];
+  return PLATFORM_OPTIONS.find((platform) => platform.id === id) || PLATFORM_OPTIONS.find((platform) => platform.id === "")!;
+};
+
+const logPlatformLogoFailure = ({ platform, url, status, reason }: { platform: string; url: string; status?: number | string; reason: string }) => {
+  console.error("[platform-logo] failed", {
+    platform,
+    expectedUrl: url,
+    httpStatus: status ?? "unknown",
+    reason,
+  });
+};
+
+type LogoAuditResult = { ok: boolean; status?: number | string; reason?: string; contentType?: string };
+
+const verifyPlatformLogo = async (platform: PlatformOption): Promise<LogoAuditResult> => {
+  const url = getPlatformLogoUrl(platform);
+  try {
+    const response = await fetch(url, { method: "GET", cache: "no-store" });
+    const contentType = response.headers.get("content-type") || "";
+    if (!response.ok) {
+      return { ok: false, status: response.status, contentType, reason: `HTTP ${response.status}` };
+    }
+    if (!contentType.startsWith("image/")) {
+      return { ok: false, status: response.status, contentType, reason: `Invalid MIME type: ${contentType || "missing"}` };
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      const image = new Image();
+      image.decoding = "async";
+      image.referrerPolicy = "no-referrer";
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error("Browser image decode/load failed"));
+      image.src = url;
+    });
+
+    return { ok: true, status: response.status, contentType };
+  } catch (error) {
+    return { ok: false, status: "network/decode", reason: error instanceof Error ? error.message : String(error) };
+  }
+};
+
+const usePlatformLogoAudit = () => {
+  const [ready, setReady] = React.useState(false);
+  const [results, setResults] = React.useState<Record<string, LogoAuditResult>>({});
+
+  React.useEffect(() => {
+    let alive = true;
+
+    (async () => {
+      const entries = await Promise.all(
+        PLATFORM_OPTIONS.map(async (platform) => {
+          const result = await verifyPlatformLogo(platform);
+          if (!result.ok) {
+            logPlatformLogoFailure({
+              platform: platform.label,
+              url: getPlatformLogoUrl(platform),
+              status: result.status,
+              reason: result.reason || "Image request failed",
+            });
+          }
+          return [platform.id || "__custom", result] as const;
+        }),
+      );
+
+      if (!alive) return;
+      setResults(Object.fromEntries(entries));
+      setReady(true);
+    })();
+
+    return () => { alive = false; };
+  }, []);
+
+  return { ready, results };
+};
 
 // --- Notification templates (guided types) ---
 type TemplateOption = { id: string; label: string; color: string; hint: string };
@@ -76,66 +171,41 @@ const TEMPLATE_OPTIONS: TemplateOption[] = [
   { id: "event",        label: "Live Event",     color: "#06B6D4", hint: "Match/premiere/live" },
 ];
 
-const PlatformIcon: React.FC<{ id: string; className?: string }> = ({ id, className = "w-4 h-4" }) => {
-  const c = "currentColor";
-  switch (id) {
-    case "telegram":
-      return (<svg viewBox="0 0 24 24" fill={c} className={className}><path d="M9.78 18.65l.28-4.23 7.68-6.92c.34-.31-.07-.46-.52-.19L7.74 13.3 3.64 12c-.88-.25-.89-.86.2-1.3l15.97-6.16c.73-.33 1.43.18 1.15 1.3l-2.72 12.81c-.19.91-.74 1.13-1.5.71L12.6 16.3l-1.99 1.93c-.23.23-.42.42-.83.42z"/></svg>);
-    case "whatsapp":
-      return (<svg viewBox="0 0 24 24" fill={c} className={className}><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.611-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.095 3.2 5.076 4.487.709.306 1.263.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347zM12 22C6.477 22 2 17.523 2 12S6.477 2 12 2s10 4.477 10 10a9.96 9.96 0 01-1.588 5.393L22 22l-4.72-1.24A9.96 9.96 0 0112 22z"/></svg>);
-    case "youtube":
-    case "ytpremium":
-      return (<svg viewBox="0 0 24 24" fill={c} className={className}><path d="M23.498 6.186a3.016 3.016 0 00-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 00.502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 002.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 002.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>);
-    case "instagram":
-      return (<svg viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" className={className}><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1" fill={c}/></svg>);
-    case "discord":
-      return (<svg viewBox="0 0 24 24" fill={c} className={className}><path d="M20.317 4.37a19.79 19.79 0 00-4.885-1.515.074.074 0 00-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 00-5.487 0 12.64 12.64 0 00-.617-1.25.077.077 0 00-.079-.037A19.736 19.736 0 003.677 4.37a.07.07 0 00-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 00.031.057 19.9 19.9 0 005.993 3.03.078.078 0 00.084-.028 14.09 14.09 0 001.226-1.994.076.076 0 00-.041-.106 13.107 13.107 0 01-1.872-.892.077.077 0 01-.008-.128 10.2 10.2 0 00.372-.292.074.074 0 01.077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 01.078.01c.12.098.246.198.373.292a.077.077 0 01-.006.127 12.3 12.3 0 01-1.873.892.077.077 0 00-.041.107c.36.699.772 1.364 1.225 1.993a.076.076 0 00.084.028 19.84 19.84 0 006.002-3.03.077.077 0 00.032-.055c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 00-.031-.028zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>);
-    case "twitter":
-      return (<svg viewBox="0 0 24 24" fill={c} className={className}><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>);
-    case "facebook":
-      return (<svg viewBox="0 0 24 24" fill={c} className={className}><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>);
-    case "linkedin":
-      return (<svg viewBox="0 0 24 24" fill={c} className={className}><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.063 2.063 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>);
-    case "appletv":
-      return (<svg viewBox="0 0 24 24" fill={c} className={className}><path d="M17.05 12.04c-.02-2.34 1.91-3.46 2-3.52-1.09-1.6-2.79-1.82-3.4-1.85-1.45-.15-2.83.85-3.56.85-.74 0-1.87-.83-3.08-.81-1.58.02-3.04.92-3.86 2.34-1.65 2.85-.42 7.07 1.18 9.39.78 1.13 1.71 2.4 2.92 2.36 1.17-.05 1.62-.76 3.03-.76 1.42 0 1.81.76 3.05.73 1.26-.02 2.06-1.15 2.83-2.29.89-1.31 1.26-2.59 1.28-2.66-.03-.01-2.45-.94-2.47-3.72zM14.72 5.25c.65-.79 1.09-1.88.97-2.97-.94.04-2.08.63-2.75 1.41-.6.69-1.13 1.8-.99 2.87 1.05.08 2.12-.53 2.77-1.31z"/></svg>);
-    default:
-      return null; // monogram rendered by chip wrapper
-  }
-};
+const PlatformChipVisual: React.FC<{ id?: string | null; size?: number; audit?: LogoAuditResult }> = ({ id, size = 32, audit }) => {
+  const p = resolvePlatformOption(id);
+  const logoUrl = getPlatformLogoUrl(p);
+  const [src, setSrc] = React.useState(logoUrl);
 
-const PlatformChipVisual: React.FC<{ id: string; size?: number }> = ({ id, size = 32 }) => {
-  const p = PLATFORM_OPTIONS.find((x) => x.id === id);
-  const bg = p?.color || "#7c3aed";
-  const iconSize = Math.round(size * 0.55);
-  const svgIcon = PlatformIcon({ id, className: "" }) as React.ReactElement<any> | null;
-  const [imgFailed, setImgFailed] = React.useState(false);
-  const showFavicon = !svgIcon && !!p?.domain && !imgFailed;
-  // For favicons, use a light chip so any-color logo reads cleanly.
-  const chipBg = showFavicon ? "#ffffff" : bg;
-  const faviconSize = Math.round(size * 0.72);
+  React.useEffect(() => {
+    setSrc(logoUrl);
+  }, [logoUrl]);
+
+  const fallbackToDefaultLogo = () => {
+    logPlatformLogoFailure({
+      platform: p.label,
+      url: logoUrl,
+      status: audit?.status,
+      reason: audit?.reason || "<img> onError fired while rendering logo",
+    });
+    if (src !== DEFAULT_PLATFORM_LOGO) setSrc(DEFAULT_PLATFORM_LOGO);
+  };
+
   return (
     <div
-      className="rounded-full flex items-center justify-center text-white shadow-md font-black leading-none shrink-0 overflow-hidden ring-1 ring-white/10"
-      style={{ width: size, height: size, background: chipBg, fontSize: Math.round(size * 0.38) }}
+      className="rounded-full flex items-center justify-center bg-white shadow-md leading-none shrink-0 overflow-hidden ring-1 ring-white/10"
+      style={{ width: size, height: size }}
     >
-      {svgIcon ? (
-        React.cloneElement(svgIcon, {
-          style: { width: iconSize, height: iconSize },
-          className: "",
-        })
-      ) : showFavicon ? (
-        <img
-          src={`https://www.google.com/s2/favicons?domain=${p!.domain}&sz=64`}
-          alt=""
-          width={faviconSize}
-          height={faviconSize}
-          loading="lazy"
-          onError={() => setImgFailed(true)}
-          style={{ width: faviconSize, height: faviconSize, objectFit: "contain" }}
-        />
-      ) : (
-        <span style={{ color: "#fff" }}>{p?.mono || (p?.label?.[0] ?? "?")}</span>
-      )}
+      <img
+        src={src}
+        alt={`${p.label} logo`}
+        width={size}
+        height={size}
+        loading="lazy"
+        decoding="async"
+        referrerPolicy="no-referrer"
+        onError={fallbackToDefaultLogo}
+        style={{ width: Math.round(size * 0.82), height: Math.round(size * 0.82), objectFit: "contain" }}
+      />
     </div>
   );
 };
