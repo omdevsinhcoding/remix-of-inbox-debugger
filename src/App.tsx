@@ -2510,6 +2510,7 @@ function AdminPanel() {
           setMaintenanceMessage(mnt.value.message || "");
           setMaintenanceVersionFrom(mnt.value.versionFrom || "");
           setMaintenanceVersionTo(mnt.value.versionTo || "");
+          prevSavedVersionToRef.current = mnt.value.versionTo || "";
           // Convert stored ISO to local "YYYY-MM-DDTHH:mm" for the datetime-local input.
           const toLocalInput = (iso: string) => {
             const d = new Date(iso);
