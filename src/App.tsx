@@ -8,7 +8,6 @@ import { supabase } from "./integrations/supabase/client";
 import { QRCodeSVG } from "qrcode.react";
 import { AVATAR_CATEGORIES, resolveAvatar, buildAvatarId, prettyName, getAvatarCategoryUrls } from "./lib/avatars";
 import { bootstrapFromSupabase, clearSessionData, markSessionStart, readBootstrapCache, refreshBootstrap, patchBootstrapCacheUser, getEmailFilters, setEmailFilters as setEmailFiltersCache, type EmailFilters } from "./lib/bootstrap";
-import { getVisitorGeo, getCachedVisitorGeo } from "./lib/geo";
 
 const SESSION_CONFIG_KEY_FOR = (role: "admin" | "user") =>
   role === "admin" ? "admin_session_config" : "session_config";
@@ -685,17 +684,15 @@ function ProfileSelectPage() {
 
       let data: any;
       const workerUrls = getStoredWorkerUrls();
-      const geo = (await getVisitorGeo().catch(() => null)) || getCachedVisitorGeo();
       if (workerUrls.length > 0) {
         data = await apiCall("manage-app", {
           action: "login",
           username: selectedProfile.username,
           password,
-          geo,
         });
       } else {
         const result = await supabase.functions.invoke("manage-app", {
-          body: { action: "login", username: selectedProfile.username, password, geo },
+          body: { action: "login", username: selectedProfile.username, password },
         });
         if (result.error) throw result.error;
         data = result.data;
@@ -869,12 +866,11 @@ function AdminLoginPage() {
 
       let data: any;
       const workerUrls = getStoredWorkerUrls();
-      const geo = (await getVisitorGeo().catch(() => null)) || getCachedVisitorGeo();
       if (workerUrls.length > 0) {
-        data = await apiCall("manage-app", { action: "login", username, password, geo });
+        data = await apiCall("manage-app", { action: "login", username, password });
       } else {
         const result = await supabase.functions.invoke("manage-app", {
-          body: { action: "login", username, password, geo },
+          body: { action: "login", username, password },
         });
         if (result.error) throw result.error;
         data = result.data;
@@ -1035,8 +1031,7 @@ function AdminAuthPage() {
     setLoading(true);
     try {
       await apiCall("manage-app", { action: "verify_totp", user_id: user.id, code: totp });
-      const geo = (await getVisitorGeo().catch(() => null)) || getCachedVisitorGeo();
-      const finalData = await apiCall("manage-app", { action: "finalize_admin_session", user_id: user.id, geo });
+      const finalData = await apiCall("manage-app", { action: "finalize_admin_session", user_id: user.id });
       if (finalData.workerUrls && Array.isArray(finalData.workerUrls) && finalData.workerUrls.length > 0) {
         storeWorkerUrls(finalData.workerUrls);
       }
