@@ -147,17 +147,20 @@ function isPublicIp(ip: string): boolean {
   return !!ip && ip !== "unknown" && !isPrivateIp(ip);
 }
 
+function isRealPublicClientIp(ip: string): boolean {
+  return isPublicIp(ip) && !isCloudflareIp(ip) && !isKnownEdgeIp(ip);
+}
+
 function pickClientIp(candidates: { label: string; ip: string }[]): { ip: string; label: string } {
   const clean = candidates
     .map(c => ({ label: c.label, ip: normalizeIp(c.ip) }))
     .filter(c => c.ip);
-  const sel = clean.find(c => c.label === "cf-connecting-ip" && isPublicIp(c.ip))
-    || clean.find(c => c.label === "true-client-ip" && isPublicIp(c.ip))
-    || clean.find(c => c.label === "x-real-ip" && isPublicIp(c.ip))
-    || clean.find(c => c.label === "x-client-ip" && isPublicIp(c.ip) && !isKnownEdgeIp(c.ip))
-    || clean.find(c => c.label === "x-forwarded-for" && isPublicIp(c.ip) && !isCloudflareIp(c.ip) && !isKnownEdgeIp(c.ip))
-    || clean.find(c => isPublicIp(c.ip) && !isKnownEdgeIp(c.ip))
-    || clean.find(c => isPublicIp(c.ip))
+  const sel = clean.find(c => c.label === "cf-connecting-ip" && isRealPublicClientIp(c.ip))
+    || clean.find(c => c.label === "true-client-ip" && isRealPublicClientIp(c.ip))
+    || clean.find(c => c.label === "x-real-ip" && isRealPublicClientIp(c.ip))
+    || clean.find(c => c.label === "x-client-ip" && isRealPublicClientIp(c.ip))
+    || clean.find(c => c.label === "x-forwarded-for" && isRealPublicClientIp(c.ip))
+    || clean.find(c => isRealPublicClientIp(c.ip))
     || clean[0];
   return sel || { ip: "unknown", label: "none" };
 }
@@ -196,9 +199,10 @@ function getClientIpTrace(req: Request): { ip: string; source: string; candidate
     : [];
   const combined = [...candidates, ...workerCandidates];
   const best = pickClientIp(combined);
+  const safeBest = isRealPublicClientIp(best.ip) ? best : { ip: "unknown", label: "none" };
   return {
-    ip: best.ip,
-    source: best.label,
+    ip: safeBest.ip,
+    source: safeBest.label,
     candidates: combined,
     cfCountry: req.headers.get("cf-ipcountry") || workerTrace?.cfCountry || "",
     cfRay: req.headers.get("cf-ray") || workerTrace?.cfRay || "",
