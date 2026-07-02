@@ -374,45 +374,88 @@ function NotificationBell() {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -8, scale: 0.98 }}
               transition={{ duration: 0.15 }}
-              className="absolute right-0 mt-2 w-[92vw] max-w-sm bg-slate-950 border border-slate-800 rounded-2xl shadow-2xl z-50 overflow-hidden"
+              className="absolute right-0 mt-3 w-[92vw] max-w-sm bg-white border border-slate-200/80 rounded-2xl shadow-[0_25px_60px_-15px_rgba(15,23,42,0.35)] z-50 overflow-hidden ring-1 ring-black/[0.03]"
             >
-              <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800">
-                <div className="flex items-center gap-2">
-                  <Bell className="w-4 h-4 text-red-500" />
-                  <h3 className="font-bold text-white text-sm">Notifications</h3>
-                  {unread > 0 && <span className="text-[10px] bg-red-600 text-white px-1.5 py-0.5 rounded-full font-bold">{unread}</span>}
+              {/* Premium gradient header */}
+              <div className="relative overflow-hidden">
+                <div className="absolute inset-0 bg-gradient-to-br from-red-600 via-rose-600 to-fuchsia-600" />
+                <div className="absolute -top-10 -right-10 w-40 h-40 bg-white/20 rounded-full blur-3xl" />
+                <div className="absolute -bottom-8 -left-6 w-32 h-32 bg-white/10 rounded-full blur-2xl" />
+                <div className="relative flex items-center justify-between px-4 py-3.5">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center ring-1 ring-white/30">
+                      <Bell className="w-4 h-4 text-white" />
+                    </div>
+                    <div>
+                      <h3 className="font-black text-white text-sm leading-tight tracking-tight">Notifications</h3>
+                      <p className="text-[10px] text-white/80 font-medium">
+                        {unread > 0 ? `${unread} unread update${unread > 1 ? "s" : ""}` : "You're all caught up"}
+                      </p>
+                    </div>
+                  </div>
+                  {items.length > 0 && unread > 0 && (
+                    <button
+                      onClick={handleMarkAll}
+                      className="text-[10.5px] bg-white text-rose-700 hover:bg-rose-50 font-black px-2.5 py-1.5 rounded-lg shadow-sm transition-all active:scale-95"
+                    >
+                      Mark all read
+                    </button>
+                  )}
                 </div>
-                {items.length > 0 && unread > 0 && (
-                  <button onClick={handleMarkAll} className="text-[11px] text-red-400 hover:text-red-300 font-semibold">Mark all read</button>
-                )}
               </div>
-              <div className="max-h-[60vh] overflow-y-auto">
+
+              <div className="max-h-[60vh] overflow-y-auto bg-gradient-to-b from-slate-50/50 to-white">
                 {loading && items.length === 0 && (
-                  <div className="py-10 text-center text-slate-500 text-sm">Loading…</div>
+                  <div className="py-12 text-center text-slate-400 text-sm font-medium">
+                    <div className="w-6 h-6 mx-auto mb-3 border-2 border-rose-500 border-t-transparent rounded-full animate-spin" />
+                    Loading…
+                  </div>
                 )}
                 {!loading && items.length === 0 && (
-                  <div className="py-10 text-center text-slate-500 text-sm">
-                    <MessageSquare className="w-8 h-8 mx-auto mb-2 opacity-40" />
-                    No notifications yet
+                  <div className="py-14 px-6 text-center">
+                    <div className="w-14 h-14 mx-auto mb-3 rounded-2xl bg-gradient-to-br from-rose-100 to-fuchsia-100 flex items-center justify-center ring-1 ring-rose-200/60">
+                      <MessageSquare className="w-6 h-6 text-rose-500" />
+                    </div>
+                    <p className="text-slate-800 text-sm font-bold">All clear</p>
+                    <p className="text-slate-500 text-xs mt-1">No notifications right now.</p>
                   </div>
                 )}
                 {items.map((n) => (
                   <button
                     key={n.id}
                     onClick={() => !n.read && handleMarkRead(n.id)}
-                    className={`w-full text-left px-4 py-3 border-b border-slate-900 hover:bg-slate-900/60 transition-colors flex gap-3 ${
-                      !n.read ? "bg-red-950/20 border-l-2 border-l-red-500" : "opacity-70"
+                    className={`w-full text-left px-4 py-3 border-b border-slate-100 last:border-b-0 transition-all flex gap-3 group ${
+                      !n.read
+                        ? "bg-gradient-to-r from-rose-50/80 via-white to-white hover:from-rose-50 border-l-[3px] border-l-rose-500"
+                        : "hover:bg-slate-50/70"
                     }`}
                   >
-                    <div className={`mt-1 w-2 h-2 rounded-full flex-shrink-0 ${!n.read ? "bg-red-500 animate-pulse" : "bg-slate-700"}`} />
+                    <div className="flex-shrink-0 mt-0.5">
+                      <div className={`w-9 h-9 rounded-xl flex items-center justify-center ring-1 ${
+                        !n.read
+                          ? "bg-gradient-to-br from-rose-500 to-fuchsia-600 ring-rose-300/50 shadow-sm shadow-rose-500/30"
+                          : "bg-slate-100 ring-slate-200"
+                      }`}>
+                        <Bell className={`w-4 h-4 ${!n.read ? "text-white" : "text-slate-400"}`} />
+                      </div>
+                    </div>
                     <div className="min-w-0 flex-1">
-                      <p className="font-bold text-white text-sm truncate">{n.title}</p>
-                      <p className="text-slate-400 text-xs mt-0.5 line-clamp-3 whitespace-pre-wrap">{n.body}</p>
-                      <p className="text-slate-600 text-[10px] mt-1">{new Date(n.created_at).toLocaleString()}</p>
+                      <div className="flex items-center gap-2">
+                        <p className={`font-bold text-sm truncate ${!n.read ? "text-slate-900" : "text-slate-600"}`}>{n.title}</p>
+                        {!n.read && <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse flex-shrink-0" />}
+                      </div>
+                      <p className="text-slate-600 text-xs mt-1 line-clamp-3 whitespace-pre-wrap leading-relaxed">{n.body}</p>
+                      <p className="text-slate-400 text-[10px] mt-1.5 font-medium">{new Date(n.created_at).toLocaleString()}</p>
                     </div>
                   </button>
                 ))}
               </div>
+
+              {items.length > 0 && (
+                <div className="px-4 py-2.5 bg-slate-50/80 border-t border-slate-100 text-center">
+                  <p className="text-[10px] text-slate-500 font-medium">Tap a notification to mark as read</p>
+                </div>
+              )}
             </motion.div>
           </>
         )}
