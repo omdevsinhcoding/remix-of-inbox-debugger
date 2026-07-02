@@ -1717,18 +1717,18 @@ function AdminPanel() {
               </div>
             </section>
 
-            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm lg:col-span-2">
-              <h2 className="font-black text-base sm:text-lg mb-2 flex items-center gap-2">
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <h2 className="font-black text-base sm:text-lg mb-2 flex items-center gap-2 text-slate-900">
                 <div className="bg-indigo-50 p-1.5 rounded-lg"><Clock className="w-4 h-4 text-indigo-600" /></div>
-                Session Timeout
+                User Session Timeout
               </h2>
               <p className="text-xs text-slate-500 mb-4">
-                Force full logout for every user (and admin) after this many minutes since login.
-                They will need to click their profile and re-enter their password. Set <span className="font-bold">0</span> to disable.
+                Auto-logout for <span className="font-bold">end users</span> after this many minutes since login.
+                Set <span className="font-bold">0</span> to disable.
               </p>
               <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
                 <div className="flex-1">
-                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Timeout (minutes)</label>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">User timeout (minutes)</label>
                   <input
                     type="number"
                     min={0}
@@ -1736,18 +1736,52 @@ function AdminPanel() {
                     value={sessionTimeoutMin}
                     onChange={(e) => setSessionTimeoutMin(e.target.value)}
                     placeholder="e.g. 5"
-                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm text-slate-900 placeholder:text-slate-400"
                   />
                 </div>
                 <button
                   onClick={saveSessionTimeout}
                   disabled={savingSessionTimeout}
                   className="sm:mt-5 bg-indigo-600 text-white font-bold py-3 px-6 rounded-xl hover:bg-indigo-700 transition-all disabled:opacity-50 text-sm whitespace-nowrap">
-                  {savingSessionTimeout ? "Saving..." : "Save Timeout"}
+                  {savingSessionTimeout ? "Saving..." : "Save"}
                 </button>
               </div>
               <p className="text-[11px] text-slate-400 mt-3">
-                Current: {Number(sessionTimeoutMin) > 0 ? `${sessionTimeoutMin} min auto-logout` : "Disabled — sessions never expire automatically"}
+                Current: {Number(sessionTimeoutMin) > 0 ? `${sessionTimeoutMin} min auto-logout` : "Disabled — user sessions never expire"}
+              </p>
+            </section>
+
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <h2 className="font-black text-base sm:text-lg mb-2 flex items-center gap-2 text-slate-900">
+                <div className="bg-red-50 p-1.5 rounded-lg"><Shield className="w-4 h-4 text-red-600" /></div>
+                Admin Session Timeout
+              </h2>
+              <p className="text-xs text-slate-500 mb-4">
+                Auto-logout for the <span className="font-bold">admin panel</span> after this many minutes.
+                Independent from the user timeout. Set <span className="font-bold">0</span> to disable.
+              </p>
+              <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
+                <div className="flex-1">
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">Admin timeout (minutes)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={adminSessionTimeoutMin}
+                    onChange={(e) => setAdminSessionTimeoutMin(e.target.value)}
+                    placeholder="e.g. 15"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm text-slate-900 placeholder:text-slate-400"
+                  />
+                </div>
+                <button
+                  onClick={saveAdminSessionTimeout}
+                  disabled={savingAdminSessionTimeout}
+                  className="sm:mt-5 bg-red-600 text-white font-bold py-3 px-6 rounded-xl hover:bg-red-700 transition-all disabled:opacity-50 text-sm whitespace-nowrap">
+                  {savingAdminSessionTimeout ? "Saving..." : "Save"}
+                </button>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-3">
+                Current: {Number(adminSessionTimeoutMin) > 0 ? `${adminSessionTimeoutMin} min auto-logout` : "Disabled — admin sessions never expire"}
               </p>
             </section>
           </div>
