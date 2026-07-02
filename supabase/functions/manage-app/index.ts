@@ -319,10 +319,14 @@ async function providerIpApiCom(ip: string): Promise<LocResult | null> {
 
 async function providerIpwhoIs(ip: string): Promise<LocResult | null> {
   try {
-    const url = ip && ip !== "unknown" ? `https://ipwho.is/${encodeURIComponent(ip)}` : "https://ipwho.is/";
+    // NEVER call ipwho.is without an IP — it would geolocate the CALLER (Supabase edge = Portland).
+    if (!ip || ip === "unknown" || isPrivateIp(ip) || isCloudflareIp(ip)) return null;
+    const url = `https://ipwho.is/${encodeURIComponent(ip)}`;
+    console.log("[ipwho.is] Request:", url);
     const r = await fetchWithTimeout(url, 2500);
     if (!r.ok) return null;
     const d = await r.json();
+    console.log("[ipwho.is] Response:", JSON.stringify({ ip: d.ip, country: d.country, city: d.city, isp: d.connection?.isp, org: d.connection?.org }));
     if (!d?.success) return null;
     return {
       provider: "ipwho.is",
