@@ -5537,6 +5537,26 @@ function EmailViewer() {
       .catch(() => {});
   }, [workerUrlsLoading, syncViaWorker, loadCachedEmails]);
 
+  // F7: listen for iframe self-report messages verifying that the link/button
+  // click hijack is actually attached inside the sandboxed email preview.
+  useEffect(() => {
+    const onMsg = (ev: MessageEvent) => {
+      const d: any = ev.data;
+      if (!d || typeof d !== "object" || d.__nf !== "iframe-links") return;
+      pushDiag({
+        ts: Date.now(),
+        kind: "iframe",
+        endpoint: "email preview",
+        note: `links=${d.links} buttons=${d.buttons} hijack=${d.hijack ? "ON" : "OFF"} target=${d.baseTarget || "?"}`,
+        error: d.hijack ? undefined : "link hijack not active",
+      });
+    };
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, [pushDiag]);
+
+
+
 
   const copyOtp = (otp: string) => {
     navigator.clipboard.writeText(otp);
