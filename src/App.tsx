@@ -1276,7 +1276,7 @@ function AdminAuthPage() {
 
 // ==================== ADMIN PANEL ====================
 function AdminPanel() {
-  const [activeTab, setActiveTab] = useState<"users" | "security" | "emails" | "settings">("users");
+  const [activeTab, setActiveTab] = useState<"users" | "security" | "emails" | "settings" | "notifications" | "inbox">("users");
   const [users, setUsers] = useState<UserData[]>([]);
   const [newUsername, setNewUsername] = useState("");
   const [newPassword, setNewPassword] = useState("");
