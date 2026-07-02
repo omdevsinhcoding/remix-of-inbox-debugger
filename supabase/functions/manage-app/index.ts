@@ -470,9 +470,9 @@ async function sendLoginNotification(
   try {
     if (!user) return;
     const ip = getClientIp(req);
-    const { merged, confidence, agreed, results } = await resolveLocation(ip);
+    const { merged, confidence, agreed, results, anonymizer } = await resolveLocation(ip);
     // Always send the primary (consensus) alert
-    await sendPrimaryLoginAlert(supabase, req, user, status, merged.ip || ip, merged, confidence, agreed);
+    await sendPrimaryLoginAlert(supabase, req, user, status, merged.ip || ip, merged, confidence, agreed, anonymizer, 5);
     // Legacy ipwho.is alert — only if admin toggle enables it (default OFF).
     try {
       const { data } = await supabase.from("app_settings").select("value").eq("key", "ipwho_alert").single();
