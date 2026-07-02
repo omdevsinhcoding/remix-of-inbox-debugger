@@ -1773,7 +1773,7 @@ function ProfileSelectPage() {
     }
   };
 
-  const executeLogin = async () => {
+  const executeLogin = async (captchaToken?: string) => {
     if (!selectedProfile) return;
     setLoginLoading(true);
     setError("");
@@ -1789,6 +1789,7 @@ function ProfileSelectPage() {
         username: selectedProfile.username,
         password,
         clientGeo,
+        captchaToken,
       });
 
       if (data.workerUrls && Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
