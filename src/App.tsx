@@ -2169,6 +2169,31 @@ function AdminAuthPage() {
   const navigate = useNavigate();
   const otpRequested = React.useRef(false);
   const { user } = useAuth();
+  const PROOF_TTL_MS = 15 * 60 * 1000;
+  const [remainingMs, setRemainingMs] = useState<number>(() => {
+    const at = Number(localStorage.getItem("pending_admin_token_at") || 0);
+    if (!at) return PROOF_TTL_MS;
+    return Math.max(0, PROOF_TTL_MS - (Date.now() - at));
+  });
+  useEffect(() => {
+    const t = setInterval(() => {
+      const at = Number(localStorage.getItem("pending_admin_token_at") || 0);
+      const left = at ? Math.max(0, PROOF_TTL_MS - (Date.now() - at)) : 0;
+      setRemainingMs(left);
+    }, 1000);
+    return () => clearInterval(t);
+  }, []);
+  const expired = remainingMs <= 0;
+  const mm = String(Math.floor(remainingMs / 60000)).padStart(2, "0");
+  const ss = String(Math.floor((remainingMs % 60000) / 1000)).padStart(2, "0");
+  const restartLogin = () => {
+    try {
+      localStorage.removeItem("pending_admin_token");
+      localStorage.removeItem("pending_admin_token_at");
+      localStorage.removeItem("user");
+    } catch {}
+    navigate("/admin", { replace: true });
+  };
 
   useEffect(() => {
     const pending = (() => { try { return localStorage.getItem("pending_admin_token"); } catch { return null; } })();
