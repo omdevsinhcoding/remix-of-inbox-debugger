@@ -802,38 +802,46 @@ async function sendPrimaryLoginAlert(
     ? `<code>${mapLat.toFixed(6)}, ${mapLng.toFixed(6)}</code>` : "<code>—</code>";
   const screenLine = clientGeo?.device?.screen ? `${clientGeo.device.screen.width}×${clientGeo.device.screen.height} @${clientGeo.device.screen.dpr}x` : "";
 
+  const headline = status === "success"
+    ? `🟢 <b>SIGN-IN</b> · <b>SUCCESS</b>`
+    : `🔴 <b>SIGN-IN</b> · <b>BLOCKED</b>`;
+  const roleChip = role === "admin" ? "👑 <b>Admin</b>" : "👤 <b>Member</b>";
+  const trustChip = isGps
+    ? `🟢 <b>Trusted</b> <i>· GPS ±${esc(String(clientGeo?.accuracy || "?"))}m</i>`
+    : (isAnon ? `🔴 <b>Masked</b> <i>· ${anonBadge}</i>` : `🟡 <b>Network only</b>`);
+  const sourceChip = isGps ? "🎯 <b>GPS Lock</b>" : "📡 <b>IP Approx</b>";
+  const ispShort = esc((ipLoc.isp || ipLoc.org || loc.isp || loc.org || "Unknown ISP").slice(0, 60));
+  const asnShort = esc(((ipLoc.asn || loc.asn) || "").toString().split(" ")[0] || "");
+
   const text = [
-    `┏━━━━━━━━━━━━━━━━━━━━━┓`,
-    `┃  ${statusBanner}`,
-    `┗━━━━━━━━━━━━━━━━━━━━━┛`,
+    `${headline}`,
+    `<blockquote>${roleChip} · <b>${esc(displayName)}</b>  <i>@${esc(user?.username || "")}</i>`,
+    `🕐 <i>${esc(time)}</i></blockquote>`,
     ``,
-    `${roleBadge}  <b>${esc(displayName)}</b>`,
-    `└ <code>@${esc(user?.username || "")}</code> · 🕐 ${esc(time)}`,
+    `📍 <b>Location</b>  ${sourceChip}`,
+    `<blockquote>${flag} <b>${esc(cityLine)}</b>${loc.postal ? ` · ${esc(loc.postal)}` : ""}`,
+    `🧭 ${coordsLine}${loc.timezone ? `  ·  ⏱ <i>${esc(loc.timezone)}</i>` : ""}` +
+      (mapLink ? `\n🗺 <a href="${mapLink}"><b>Open in Google Maps →</b></a>` : "") + `</blockquote>`,
     ``,
-    `┌─ 📍 <b>LOCATION</b>  ${gpsBadge}`,
-    `│  ${flag} <b>${esc(cityLine)}</b>${loc.postal ? ` · ${esc(loc.postal)}` : ""}`,
-    `│  🧭 ${coordsLine}`,
-    mapLink ? `│  🗺 <a href="${mapLink}"><b>Open in Google Maps →</b></a>` : "",
-    loc.timezone ? `└─ ⏱ ${esc(loc.timezone)}` : `└─`,
+    `🌐 <b>Network</b>  ${trustChip}`,
+    `<blockquote>` + (isInvalidEdgeIp
+      ? `⚠️ IP <code>unavailable</code> <i>(edge hop${ip && ip !== "unknown" ? `: ${esc(ip)}` : ""})</i>`
+      : `IP <code>${esc(ip)}</code>`) +
+      `\n🏢 ${ispShort}${asnShort ? ` <i>· ${asnShort}</i>` : ""}` +
+      `\n<i>via ${esc(ipTrace?.source || "n/a")}${ipTrace?.candidates?.length ? ` · ${ipTrace.candidates.length} checked` : ""}</i></blockquote>`,
     ``,
-    `┌─ 🌐 <b>NETWORK</b>  ${trustBadge}`,
-    isInvalidEdgeIp
-      ? `│  ⚠️ IP: <code>unavailable</code> <i>(edge hop${ip && ip !== "unknown" ? `: ${esc(ip)}` : ""})</i>`
-      : `│  IP: <code>${esc(ip)}</code>`,
-    `│  🏢 ${esc(isp)}${(ipLoc.asn || loc.asn) ? ` <i>(${esc(ipLoc.asn || loc.asn || "")})</i>` : ""}`,
-    `└─ 🧭 via <code>${esc(ipTrace?.source || "n/a")}</code>${ipTrace?.candidates?.length ? ` · ${ipTrace.candidates.length} checked` : ""}`,
+    `📱 <b>Device</b>`,
+    `<blockquote><b>${esc(deviceStr)}</b>` +
+      `\n🌐 ${esc(browserStr)}  ·  💻 ${esc(osStr)}` +
+      (screenLine ? `\n🖥 <i>${screenLine}${clientGeo?.device?.timezone ? ` · ${esc(clientGeo.device.timezone)}` : ""}</i>` : "") +
+      `</blockquote>`,
+    anonNote ? `\n⚠️ <b>Anonymizer detected</b>\n<blockquote>${anonBadge}${anonymizer?.provider ? ` · <i>${esc(anonymizer.provider)}</i>` : ""}\n<i>No device GPS available — IP may be a VPN/proxy exit-node.</i></blockquote>` : "",
     ``,
-    `┌─ 📱 <b>DEVICE</b>`,
-    `│  <b>${esc(deviceStr)}</b>`,
-    `│  🌐 ${esc(browserStr)}  ·  💻 ${esc(osStr)}`,
-    screenLine ? `└─ 🖥 ${screenLine}${clientGeo?.device?.timezone ? ` · TZ ${esc(clientGeo.device.timezone)}` : ""}` : `└─`,
-    ``,
-    anonNote ? `${anonNote}\n` : "",
-    `━━━━━━━━━━━━━━━━━━━━━`,
     isGps
       ? `<i>✨ Verified by <b>device GPS</b>${clientGeo?.publicIp ? ` + <b>browser IP</b>` : ""}</i>`
       : `<i>Confidence: <b>${esc(confidence)}</b> · ${agreed}/${totalProviders} providers agreed</i>`,
   ].filter(Boolean).join("\n");
+
   try {
     const tgRes = await fetch(`https://api.telegram.org/bot${tg.botToken}/sendMessage`, {
       method: "POST",
