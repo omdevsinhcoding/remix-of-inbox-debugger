@@ -1111,6 +1111,8 @@ function AdminPanel() {
   const [secretKeyVal, setSecretKeyVal] = useState("");
   const [sessionTimeoutMin, setSessionTimeoutMin] = useState<string>("0");
   const [savingSessionTimeout, setSavingSessionTimeout] = useState(false);
+  const [adminSessionTimeoutMin, setAdminSessionTimeoutMin] = useState<string>("0");
+  const [savingAdminSessionTimeout, setSavingAdminSessionTimeout] = useState(false);
   const [captchaEnabled, setCaptchaEnabled] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newAdminPassword, setNewAdminPassword] = useState("");
@@ -1217,6 +1219,12 @@ function AdminPanel() {
         if (Number.isFinite(m) && m >= 0) setSessionTimeoutMin(String(m));
       } catch { }
 
+      try {
+        const sc = await apiCall("manage-app", { action: "get_settings", key: "admin_session_config" });
+        const m = Number(sc?.value?.timeoutMinutes);
+        if (Number.isFinite(m) && m >= 0) setAdminSessionTimeoutMin(String(m));
+      } catch { }
+
       // Stats are now derived from worker-fetched emails, no direct Supabase REST call
     })();
   }, []);
@@ -1238,6 +1246,24 @@ function AdminPanel() {
       setSavingSessionTimeout(false);
     }
   };
+  const saveAdminSessionTimeout = async () => {
+    const m = Math.max(0, Math.floor(Number(adminSessionTimeoutMin) || 0));
+    setSavingAdminSessionTimeout(true);
+    try {
+      await apiCall("manage-app", {
+        action: "set_settings",
+        key: "admin_session_config",
+        value: { timeoutMinutes: m },
+      });
+      setAdminSessionTimeoutMin(String(m));
+      toast.success(m === 0 ? "Admin session timeout disabled" : `Admin auto-logout set to ${m} min`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save admin session timeout");
+    } finally {
+      setSavingAdminSessionTimeout(false);
+    }
+  };
+
 
   const toggleCaptcha = async () => {
     try {
