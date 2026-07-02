@@ -1300,8 +1300,8 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
       animate={{ scale: 1, y: 0, opacity: 1 }}
       exit={{ scale: 0.98, opacity: 0 }}
       transition={{ duration: 0.16, ease: "easeOut" }}
-      className="relative w-full max-w-[560px] flex flex-col rounded-3xl overflow-hidden"
-      style={{ ...surfaceStyle, maxHeight: "min(80vh, 780px)" }}
+      className="relative w-full max-w-[680px] flex flex-col rounded-3xl overflow-hidden"
+      style={{ ...surfaceStyle, maxHeight: "min(84vh, 860px)" }}
     >
       {Header}
       {detail ? Detail : List}
