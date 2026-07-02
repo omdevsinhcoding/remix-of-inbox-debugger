@@ -3541,6 +3541,7 @@ function AdminPanel() {
         mode: notifMode,
         show_frequency: notifShowFrequency,
         platform_icon: notifPlatformIcon || null,
+        sub_kind: notifTemplate || null,
         locked: notifLocked,
         action_url: notifActionUrl.trim() || null,
         action_label: notifActionLabel.trim() || null,
@@ -3551,7 +3552,7 @@ function AdminPanel() {
       toast.success("🔔 Notification sent");
       setNotifTitle(""); setNotifBody(""); setNotifDescription(""); setNotifImageUrl("");
       setNotifActionUrl(""); setNotifActionLabel("");
-      setNotifExpiresDays(""); setNotifPlatformIcon("");
+      setNotifExpiresDays(""); setNotifPlatformIcon(""); setNotifTemplate("");
       setNotifLocked(false);
       await reloadAdminNotifs();
     } catch (err) {
