@@ -3531,6 +3531,9 @@ function AdminPanel() {
     setNotifMode(n.mode || "popup");
     toast.success("Copied to composer — edit and publish as new");
     window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+
 
 
   const adminClearInbox = async () => {
