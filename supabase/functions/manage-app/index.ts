@@ -2541,7 +2541,7 @@ Deno.serve(async (req) => {
       const { data } = await supabase.from("app_settings").select("value").eq("key", "r2_storage").maybeSingle();
       const saved: any = data?.value || {};
       const draft: any = params || {};
-      const hasDraftConfig = ["accountId", "accessKeyId", "secretAccessKey", "bucket", "publicBaseUrl", "pathPrefix", "enabled"].some((k) => k in draft);
+      const hasDraftConfig = draft.useSaved !== true && ["accountId", "accessKeyId", "secretAccessKey", "bucket", "publicBaseUrl", "pathPrefix", "enabled"].some((k) => k in draft);
       const normalized = normalizeR2Config(hasDraftConfig ? { ...saved, ...draft } : saved, saved.secretAccessKey || "");
       const v = normalized.config;
       const missing: string[] = [];
