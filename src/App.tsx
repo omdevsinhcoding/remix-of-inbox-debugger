@@ -5581,6 +5581,102 @@ function EmailViewer() {
           />
         )}
       </AnimatePresence>
+      <AnimatePresence>
+        {showDiag && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"
+            onClick={() => setShowDiag(false)}
+          >
+            <motion.div
+              initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 40, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full sm:max-w-2xl bg-white sm:rounded-2xl rounded-t-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]"
+            >
+              <div className="p-4 border-b bg-slate-50 flex items-center justify-between">
+                <div>
+                  <h3 className="font-black text-slate-900 text-base flex items-center gap-2"><Info className="w-4 h-4" /> Refresh Diagnostics</h3>
+                  <p className="text-[11px] text-slate-500">Live view of worker endpoints, KV cache status & fetch errors</p>
+                </div>
+                <button onClick={() => setShowDiag(false)} className="p-1.5 rounded-full hover:bg-slate-200"><X className="w-4 h-4" /></button>
+              </div>
+              <div className="p-3 text-[11px] text-slate-600 border-b bg-slate-50/50 flex flex-wrap gap-x-4 gap-y-1">
+                <span>Refreshing: <b className={refreshing ? "text-amber-600" : "text-emerald-600"}>{refreshing ? "yes" : "idle"}</b></span>
+                <span>Primary workers: <b>{workerUrlMap.primary.length}</b></span>
+                <span>Per-account: <b>{Object.keys(workerUrlMap.byAccount).length}</b></span>
+                <span>Last update: <b>{lastUpdated.toLocaleTimeString()}</b></span>
+              </div>
+              <div className="flex-1 overflow-auto divide-y divide-slate-100">
+                {diag.length === 0 && (
+                  <div className="p-6 text-center text-slate-400 text-sm">No activity yet — hit Refresh to see live worker calls.</div>
+                )}
+                {diag.map((e, i) => {
+                  const color = e.error ? "text-red-600" :
+                    e.cacheStatus === "HIT" ? "text-emerald-600" :
+                    e.cacheStatus === "STALE" ? "text-amber-600" :
+                    e.cacheStatus === "BYPASS" ? "text-blue-600" :
+                    e.cacheStatus === "MISS" ? "text-fuchsia-600" : "text-slate-600";
+                  return (
+                    <div key={i} className="p-3 text-xs">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className={`font-bold uppercase tracking-wide ${color}`}>{e.kind}{e.status ? ` · ${e.status}` : ""}{e.cacheStatus ? ` · ${e.cacheStatus}` : ""}</span>
+                        <span className="text-slate-400">{new Date(e.ts).toLocaleTimeString()}{e.ms != null ? ` · ${e.ms}ms` : ""}</span>
+                      </div>
+                      <div className="mt-0.5 font-mono text-[10.5px] text-slate-700 break-all">{e.endpoint}</div>
+                      {e.cacheAge && <div className="text-[10.5px] text-slate-500">cache age: {e.cacheAge}s</div>}
+                      {e.cacheKey && <div className="text-[10.5px] text-slate-500 truncate">key: {e.cacheKey}</div>}
+                      {e.note && <div className="text-[10.5px] text-slate-500">{e.note}</div>}
+                      {e.error && <div className="mt-1 text-[11px] text-red-700 font-semibold">✗ {e.error}</div>}
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="p-3 border-t bg-slate-50 flex flex-wrap gap-2">
+                <button onClick={clearDiag} className="px-3 py-1.5 text-xs font-bold rounded-lg bg-white border border-slate-200 hover:bg-slate-100">Clear</button>
+                <button
+                  onClick={async () => {
+                    pushDiag({ ts: Date.now(), kind: "cache", endpoint: "manual purge", note: "requested" });
+                    let purged = 0;
+                    for (const url of resolvedWorkerUrls) {
+                      try {
+                        const token = getSessionToken();
+                        const started = performance.now();
+                        const r = await fetch(`${url}/api/cache/purge`, { method: "POST", headers: token ? { "X-Session-Token": token } : {} });
+                        pushDiag({ ts: Date.now(), kind: "cache", endpoint: `${url}/api/cache/purge`, status: r.status, ms: Math.round(performance.now() - started), cacheStatus: r.headers.get("X-Cache-Status") || undefined });
+                        if (r.ok) purged++;
+                      } catch (err) {
+                        pushDiag({ ts: Date.now(), kind: "cache", endpoint: `${url}/api/cache/purge`, error: err instanceof Error ? err.message : String(err) });
+                      }
+                    }
+                    toast.success(`Purged KV on ${purged}/${resolvedWorkerUrls.length} workers`);
+                  }}
+                  className="px-3 py-1.5 text-xs font-bold rounded-lg bg-red-600 text-white hover:bg-red-700"
+                >Purge KV cache</button>
+                <button
+                  onClick={() => { void loadCachedEmails({ bust: true }); }}
+                  className="px-3 py-1.5 text-xs font-bold rounded-lg bg-slate-900 text-white hover:bg-slate-800"
+                >Force fresh fetch</button>
+                <button
+                  onClick={async () => {
+                    for (const url of resolvedWorkerUrls) {
+                      const started = performance.now();
+                      try {
+                        const r = await fetch(`${url}/api/health`);
+                        const j = await r.json().catch(() => ({}));
+                        pushDiag({ ts: Date.now(), kind: "worker", endpoint: `${url}/api/health`, status: r.status, ms: Math.round(performance.now() - started), note: `kv=${j.kv} v=${j.version}` });
+                      } catch (err) {
+                        pushDiag({ ts: Date.now(), kind: "worker", endpoint: `${url}/api/health`, ms: Math.round(performance.now() - started), error: err instanceof Error ? err.message : String(err) });
+                      }
+                    }
+                  }}
+                  className="px-3 py-1.5 text-xs font-bold rounded-lg bg-slate-100 hover:bg-slate-200"
+                >Ping /api/health</button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <header className="bg-white border-b border-slate-200 sticky top-0 z-20 shadow-sm">
         <div className="max-w-6xl mx-auto px-3 sm:px-4 h-14 sm:h-16 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
