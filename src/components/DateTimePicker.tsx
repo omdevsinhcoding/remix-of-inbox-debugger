@@ -116,7 +116,7 @@ export default function DateTimePicker({ value, onChange, min, disabled, id }: P
             const asH24 = period === "AM"
               ? (h === "12" ? 0 : parseInt(h, 10))
               : (h === "12" ? 12 : parseInt(h, 10) + 12);
-            const disabledOpt = sameAsMinDay && asH24 < minHour;
+            const disabledOpt = !!(sameAsMinDay && asH24 < minHour);
             return (
               <option key={h} value={h} disabled={disabledOpt}>{h}</option>
             );
