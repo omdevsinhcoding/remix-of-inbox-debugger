@@ -678,14 +678,16 @@ Deno.serve(async (req) => {
 
       const { data: user, error } = await supabase.from("app_users").select("*").eq("id", pending.userId).single();
       if (error || !user || user.role !== "admin") throw new Error("Admin not found");
+      const expMs = Date.now() + 30 * 60 * 1000;
       const sessionPayload = {
         userId: user.id,
         username: user.username,
         role: "admin",
         assignedAccounts: user.assigned_accounts || null,
-        exp: Date.now() + 30 * 60 * 1000,
+        exp: expMs,
       };
       const sessionToken = await createSessionToken(sessionPayload, SESSION_SECRET);
+      await persistSession(user.id, "admin", sessionToken, expMs);
       const workerUrls = await loadWorkerUrls(supabase);
       await supabase.from("app_admin_2fa_state").delete().eq("token_hash", tokenHash);
       await auditLog(supabase, "admin_2fa_finalized", user.id, user.id, {}, ip);
