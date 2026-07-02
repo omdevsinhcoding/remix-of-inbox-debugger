@@ -1175,7 +1175,6 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
                     <div className="min-w-0 flex-1">
                       <div className="flex items-baseline justify-between gap-3">
                         <p className={`text-[13px] leading-snug truncate ${!n.read ? "text-white font-medium" : "text-zinc-400 font-normal"}`}>
-                          {n.pinned && <Pin className="inline w-3 h-3 mr-1 text-amber-300/80 -mt-0.5" />}
                           {n.title}
                         </p>
                         <span className="text-[10.5px] text-zinc-500 font-light tabular-nums flex-shrink-0" title={new Date(n.created_at).toLocaleString()}>
