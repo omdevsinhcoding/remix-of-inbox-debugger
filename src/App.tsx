@@ -5065,11 +5065,27 @@ function EmailViewer() {
         <div className="max-w-6xl mx-auto px-3 sm:px-4 h-14 sm:h-16 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <div className="flex-shrink-0 flex items-center gap-1.5">
-              {/* Mobile: user's profile avatar. Desktop: N logo + divider + avatar */}
-              <ProfileAvatar avatarId={profilePrefs.avatarId || user.profileAvatar} name={user.name} className="sm:hidden w-8 h-8 rounded-md overflow-hidden ring-1 ring-red-600/40" fallbackColor="bg-red-600" eager />
+              {/* Mobile: user's profile avatar (click opens profile settings). Desktop: N logo + divider + avatar */}
+              <button
+                type="button"
+                onClick={() => !isImpersonating && setShowProfile(true)}
+                className="sm:hidden rounded-md focus:outline-none focus:ring-2 focus:ring-red-600/60 active:scale-95 transition-transform"
+                aria-label="Open profile settings"
+                title="Profile settings"
+              >
+                <ProfileAvatar avatarId={profilePrefs.avatarId || user.profileAvatar} name={user.name} className="w-8 h-8 rounded-md overflow-hidden ring-1 ring-red-600/40" fallbackColor="bg-red-600" eager />
+              </button>
               <NetflixNLogo className="hidden sm:block w-6 h-6 sm:w-8 sm:h-8" />
               <div className="hidden sm:block h-8 w-px bg-slate-200 ml-1" />
-              <ProfileAvatar avatarId={profilePrefs.avatarId || user.profileAvatar} name={user.name} className="hidden sm:block w-9 h-9 ml-1" fallbackColor="bg-red-600" eager />
+              <button
+                type="button"
+                onClick={() => !isImpersonating && setShowProfile(true)}
+                className="hidden sm:block ml-1 rounded-full focus:outline-none focus:ring-2 focus:ring-red-600/60 active:scale-95 transition-transform"
+                aria-label="Open profile settings"
+                title="Profile settings"
+              >
+                <ProfileAvatar avatarId={profilePrefs.avatarId || user.profileAvatar} name={user.name} className="w-9 h-9" fallbackColor="bg-red-600" eager />
+              </button>
             </div>
             <div className="min-w-0">
               <h1 className="font-bold text-sm sm:text-lg tracking-tight leading-tight text-red-600">Netflix Mail</h1>
