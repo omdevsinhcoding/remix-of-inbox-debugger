@@ -244,24 +244,25 @@ function cleanR2Text(value: any): string {
 
 function normalizeR2AccessKeyId(value: any): { value: string; warnings: string[]; error?: string } {
   const warnings: string[] = [];
-  const original = cleanR2Text(value).replace(/\s+/g, "");
-  let normalized = original;
-  if (/[Oo]/.test(normalized)) {
-    normalized = normalized.replace(/[Oo]/g, "0");
-    warnings.push("Access Key ID contained letter O; Cloudflare R2 S3 keys use zero 0, so it was normalized.");
+  const raw = cleanR2Text(value);
+  const cleaned = raw.replace(/\s+/g, "");
+  if (raw && raw !== cleaned) {
+    warnings.push("Access Key ID contained whitespace; spaces/newlines were removed.");
   }
-  if (/[A-F]/.test(normalized)) {
-    normalized = normalized.toLowerCase();
-    warnings.push("Access Key ID was normalized to lowercase.");
+  if (/[Oo]/.test(cleaned)) {
+    warnings.push("Access Key ID contains the letter O. It is being used exactly as entered — verify Cloudflare shows O, not zero 0.");
   }
-  if (normalized && !/^[a-f0-9]{32}$/.test(normalized)) {
+  if (cleaned && !/^[A-Za-z0-9]{16,128}$/.test(cleaned)) {
     return {
-      value: normalized,
+      value: cleaned,
       warnings,
-      error: "Access Key ID looks invalid. Use the 32-character R2 S3 Access Key ID from Cloudflare R2 → Manage R2 API Tokens.",
+      error: "Access Key ID looks invalid. Paste the R2 S3 Access Key ID exactly as Cloudflare shows it, without spaces.",
     };
   }
-  return { value: normalized, warnings };
+  if (cleaned && cleaned.length !== 32) {
+    warnings.push("R2 Access Key IDs are usually 32 characters. The exact value entered is being used for the test.");
+  }
+  return { value: cleaned, warnings };
 }
 
 function normalizeR2Config(raw: any, previousSecret = "") {
@@ -312,19 +313,45 @@ function normalizeR2Config(raw: any, previousSecret = "") {
 
 function r2FailureMessage(status: number, body: string, warnings: string[]): string {
   const compactBody = body.replace(/\s+/g, " ").trim().slice(0, 220);
+  const xmlTag = (tag: string) => {
+    const m = body.match(new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`, "i"));
+    return m?.[1]?.replace(/\s+/g, " ").trim() || "";
+  };
+  const cfCode = xmlTag("Code");
+  const cfMessage = xmlTag("Message");
+  const responseText = cfCode
+    ? `Cloudflare response: ${cfCode}${cfMessage ? ` — ${cfMessage}` : ""}`
+    : compactBody ? `Cloudflare response: ${compactBody}` : "";
   if (status === 401) {
     return [
       `PUT 401 Unauthorized from Cloudflare R2.`,
       "This means R2 rejected the Access Key ID / Secret Access Key / Account ID combination before upload.",
       warnings.length ? `Note: ${warnings.join(" ")}` : "",
-      compactBody ? `Cloudflare response: ${compactBody}` : "",
+      responseText,
     ].filter(Boolean).join(" ");
   }
   if (status === 403) {
+    if (/SignatureDoesNotMatch/i.test(cfCode)) {
+      return [
+        `PUT 403 Forbidden from Cloudflare R2.`,
+        "SignatureDoesNotMatch means the Secret Access Key does not match this Access Key ID, or one value was copied/rotated incorrectly. The app now signs using the exact Access Key ID you entered; recreate one R2 API token and paste both values from the same token.",
+        warnings.length ? `Note: ${warnings.join(" ")}` : "",
+        responseText,
+      ].filter(Boolean).join(" ");
+    }
+    if (/AccessDenied|InvalidAccessKeyId|Unauthorized/i.test(cfCode + " " + cfMessage)) {
+      return [
+        `PUT 403 Forbidden from Cloudflare R2.`,
+        "Cloudflare accepted the request format but rejected access. Check that this token has Object Read & Write permission for this exact bucket.",
+        warnings.length ? `Note: ${warnings.join(" ")}` : "",
+        responseText,
+      ].filter(Boolean).join(" ");
+    }
     return [
       `PUT 403 Forbidden from Cloudflare R2.`,
-      "The token is valid but does not have Object Read & Write permission for this bucket.",
-      compactBody ? `Cloudflare response: ${compactBody}` : "",
+      "Cloudflare rejected the signed upload request.",
+      warnings.length ? `Note: ${warnings.join(" ")}` : "",
+      responseText,
     ].filter(Boolean).join(" ");
   }
   return `PUT ${status}: ${compactBody}`;
