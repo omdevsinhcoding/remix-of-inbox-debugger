@@ -2471,58 +2471,52 @@ Deno.serve(async (req) => {
       await requireAdmin(req);
       const { data } = await supabase.from("app_settings").select("value").eq("key", "r2_storage").maybeSingle();
       const v: any = data?.value || {};
-      const hasSecret = typeof v.secretAccessKey === "string" && v.secretAccessKey.length > 0;
+      const normalized = normalizeR2Config(v);
+      const hasSecret = typeof normalized.config.secretAccessKey === "string" && normalized.config.secretAccessKey.length > 0;
       return new Response(JSON.stringify({
         success: true,
         config: {
-          accountId: v.accountId || "",
-          accessKeyId: v.accessKeyId || "",
-          secretAccessKey: v.secretAccessKey || "",
-          bucket: v.bucket || "",
-          publicBaseUrl: v.publicBaseUrl || "",
-          pathPrefix: v.pathPrefix || "notifications/",
-          enabled: v.enabled === true,
+          accountId: normalized.config.accountId,
+          accessKeyId: normalized.config.accessKeyId,
+          secretAccessKey: normalized.config.secretAccessKey,
+          bucket: normalized.config.bucket,
+          publicBaseUrl: normalized.config.publicBaseUrl,
+          pathPrefix: normalized.config.pathPrefix,
+          enabled: normalized.config.enabled,
           secretAccessKeySet: hasSecret,
         },
+        warnings: normalized.warnings,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     if (action === "admin_save_r2_config") {
       const session = await requireAdmin(req);
       const p = (params || {}) as any;
-      const clean = (s: any) => (typeof s === "string" ? s.trim() : "");
       const { data: existing } = await supabase.from("app_settings").select("value").eq("key", "r2_storage").maybeSingle();
       const prev: any = existing?.value || {};
-      // If admin left secretAccessKey blank, keep the previous value.
-      const nextSecret = typeof p.secretAccessKey === "string" && p.secretAccessKey.length > 0
-        ? p.secretAccessKey
-        : (prev.secretAccessKey || "");
-      const publicBaseUrl = clean(p.publicBaseUrl).replace(/\/+$/, "");
-      const pathPrefix = (clean(p.pathPrefix) || "notifications/").replace(/^\/+/, "");
-      const value = {
-        accountId: clean(p.accountId),
-        accessKeyId: clean(p.accessKeyId),
-        secretAccessKey: nextSecret,
-        bucket: clean(p.bucket),
-        publicBaseUrl,
-        pathPrefix: pathPrefix.endsWith("/") ? pathPrefix : pathPrefix + "/",
-        enabled: p.enabled === true,
-      };
+      const normalized = normalizeR2Config(p, prev.secretAccessKey || "");
+      if (normalized.errors.length) throw new Error(normalized.errors.join(" "));
+      const value = normalized.config;
       const { error } = await supabase.from("app_settings").upsert({ key: "r2_storage", value }, { onConflict: "key" });
       if (error) throw error;
       await auditLog(supabase, "r2_config_updated", session.userId, null, { bucket: value.bucket, enabled: value.enabled }, ip);
-      return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ success: true, warnings: normalized.warnings }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     if (action === "admin_r2_test") {
       await requireAdmin(req);
       const { data } = await supabase.from("app_settings").select("value").eq("key", "r2_storage").maybeSingle();
-      const v: any = data?.value || {};
+      const saved: any = data?.value || {};
+      const draft: any = params || {};
+      const hasDraftConfig = ["accountId", "accessKeyId", "secretAccessKey", "bucket", "publicBaseUrl", "pathPrefix", "enabled"].some((k) => k in draft);
+      const normalized = normalizeR2Config(hasDraftConfig ? { ...saved, ...draft } : saved, saved.secretAccessKey || "");
+      const v = normalized.config;
       const missing: string[] = [];
       if (!v.accountId) missing.push("Account ID");
       if (!v.accessKeyId) missing.push("Access Key ID");
       if (!v.secretAccessKey) missing.push("Secret Access Key");
       if (!v.bucket) missing.push("Bucket");
+      if (normalized.errors.length) missing.push(...normalized.errors);
       if (missing.length) {
         return new Response(JSON.stringify({ success: false, message: `Save your R2 config first — missing: ${missing.join(", ")}` }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
@@ -2534,7 +2528,7 @@ Deno.serve(async (req) => {
       try {
         const res = await r2Put(creds, key, new TextEncoder().encode("ok"), "text/plain");
         putOk = res.ok;
-        if (!res.ok) putErr = `PUT ${res.status}: ${(await res.text()).slice(0, 200)}`;
+        if (!res.ok) putErr = r2FailureMessage(res.status, await res.text(), normalized.warnings);
       } catch (e) {
         putErr = e instanceof Error ? e.message : String(e);
       }
@@ -2552,6 +2546,7 @@ Deno.serve(async (req) => {
         latencyMs: Date.now() - t0,
         publicUrlWorks,
         publicUrl,
+        warnings: normalized.warnings,
         message: putOk ? "R2 upload OK" : putErr || "R2 test failed",
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -2563,7 +2558,10 @@ Deno.serve(async (req) => {
       const { data } = await supabase.from("app_settings").select("value").eq("key", "r2_storage").maybeSingle();
       const v: any = data?.value || {};
       if (!v.enabled) throw new Error("R2 is not enabled — configure it in Settings → Storage");
-      if (!v.accountId || !v.accessKeyId || !v.secretAccessKey || !v.bucket || !v.publicBaseUrl) {
+      const normalized = normalizeR2Config(v);
+      if (normalized.errors.length) throw new Error(normalized.errors.join(" "));
+      const cfg = normalized.config;
+      if (!cfg.accountId || !cfg.accessKeyId || !cfg.secretAccessKey || !cfg.bucket || !cfg.publicBaseUrl) {
         throw new Error("R2 credentials incomplete");
       }
       const contentType = String(p.contentType || "").slice(0, 100) || "application/octet-stream";
@@ -2579,14 +2577,14 @@ Deno.serve(async (req) => {
       const yyyy = now.getUTCFullYear();
       const mm = String(now.getUTCMonth() + 1).padStart(2, "0");
       const rand = crypto.randomUUID().slice(0, 8);
-      const key = `${v.pathPrefix || "notifications/"}${yyyy}/${mm}/${rand}-${slugifyFilename(p.filename)}`;
-      const creds = { accountId: v.accountId, accessKeyId: v.accessKeyId, secretAccessKey: v.secretAccessKey, bucket: v.bucket };
+      const key = `${cfg.pathPrefix || "notifications/"}${yyyy}/${mm}/${rand}-${slugifyFilename(p.filename)}`;
+      const creds = { accountId: cfg.accountId, accessKeyId: cfg.accessKeyId, secretAccessKey: cfg.secretAccessKey, bucket: cfg.bucket };
       const res = await r2Put(creds, key, bytes, contentType);
       if (!res.ok) {
         const t = await res.text();
-        throw new Error(`R2 upload failed: ${res.status} ${t.slice(0, 200)}`);
+        throw new Error(`R2 upload failed: ${r2FailureMessage(res.status, t, normalized.warnings)}`);
       }
-      const url = `${v.publicBaseUrl.replace(/\/+$/, "")}/${key}`;
+      const url = `${cfg.publicBaseUrl.replace(/\/+$/, "")}/${key}`;
       return new Response(JSON.stringify({ success: true, url, key }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
