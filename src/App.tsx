@@ -2073,7 +2073,10 @@ function AdminLoginPage() {
       const data: any = await apiCall("manage-app", { action: "login", username, password, clientGeo });
 
       if (data.user.role !== "admin") throw new Error("Access denied");
-      if (data.pendingToken) localStorage.setItem("pending_admin_token", data.pendingToken);
+      if (data.pendingToken) {
+        localStorage.setItem("pending_admin_token", data.pendingToken);
+        localStorage.setItem("pending_admin_token_at", String(Date.now()));
+      }
 
       if (data.workerUrls && Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
         storeWorkerUrls(data.workerUrls);
