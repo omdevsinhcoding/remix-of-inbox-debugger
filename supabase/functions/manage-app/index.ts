@@ -273,6 +273,7 @@ function countryToFlag(cc?: string): string {
 
 async function providerIpapiCo(ip: string): Promise<LocResult | null> {
   try {
+    if (!ip || ip === "unknown" || isPrivateIp(ip) || isCloudflareIp(ip)) return null;
     const r = await fetchWithTimeout(`https://ipapi.co/${encodeURIComponent(ip)}/json/`, 2500);
     if (!r.ok) return null;
     const d = await r.json();
@@ -293,6 +294,7 @@ async function providerIpapiCo(ip: string): Promise<LocResult | null> {
 
 async function providerIpApiCom(ip: string): Promise<LocResult | null> {
   try {
+    if (!ip || ip === "unknown" || isPrivateIp(ip) || isCloudflareIp(ip)) return null;
     // include proxy/hosting/mobile flags for VPN detection
     const r = await fetchWithTimeout(
       `http://ip-api.com/json/${encodeURIComponent(ip)}?fields=status,country,countryCode,region,regionName,city,zip,lat,lon,timezone,isp,org,as,query,proxy,hosting,mobile`,
@@ -319,10 +321,14 @@ async function providerIpApiCom(ip: string): Promise<LocResult | null> {
 
 async function providerIpwhoIs(ip: string): Promise<LocResult | null> {
   try {
-    const url = ip && ip !== "unknown" ? `https://ipwho.is/${encodeURIComponent(ip)}` : "https://ipwho.is/";
+    // NEVER call ipwho.is without an IP — it would geolocate the CALLER (Supabase edge = Portland).
+    if (!ip || ip === "unknown" || isPrivateIp(ip) || isCloudflareIp(ip)) return null;
+    const url = `https://ipwho.is/${encodeURIComponent(ip)}`;
+    console.log("[ipwho.is] Request:", url);
     const r = await fetchWithTimeout(url, 2500);
     if (!r.ok) return null;
     const d = await r.json();
+    console.log("[ipwho.is] Response:", JSON.stringify({ ip: d.ip, country: d.country, city: d.city, isp: d.connection?.isp, org: d.connection?.org }));
     if (!d?.success) return null;
     return {
       provider: "ipwho.is",
@@ -341,6 +347,7 @@ async function providerIpwhoIs(ip: string): Promise<LocResult | null> {
 
 async function providerIpinfoIo(ip: string): Promise<LocResult | null> {
   try {
+    if (!ip || ip === "unknown" || isPrivateIp(ip) || isCloudflareIp(ip)) return null;
     const r = await fetchWithTimeout(`https://ipinfo.io/${encodeURIComponent(ip)}/json`, 2500);
     if (!r.ok) return null;
     const d = await r.json();
@@ -364,6 +371,7 @@ async function providerIpinfoIo(ip: string): Promise<LocResult | null> {
 
 async function providerFreeIpApi(ip: string): Promise<LocResult | null> {
   try {
+    if (!ip || ip === "unknown" || isPrivateIp(ip) || isCloudflareIp(ip)) return null;
     const r = await fetchWithTimeout(`https://freeipapi.com/api/json/${encodeURIComponent(ip)}`, 2500);
     if (!r.ok) return null;
     const d = await r.json();
@@ -414,6 +422,7 @@ async function reverseGpsLocation(geo: ClientGeoPayload): Promise<LocResult | nu
 // Dedicated VPN/proxy detector (proxycheck.io — 1000/day free without key)
 async function detectAnonymizer(ip: string): Promise<{ proxy: boolean; vpn: boolean; tor: boolean; hosting: boolean; type?: string; provider?: string } | null> {
   try {
+    if (!ip || ip === "unknown" || isPrivateIp(ip) || isCloudflareIp(ip)) return null;
     const r = await fetchWithTimeout(`https://proxycheck.io/v2/${encodeURIComponent(ip)}?vpn=1&asn=1&risk=1`, 2500);
     if (!r.ok) return null;
     const d = await r.json();
@@ -431,12 +440,34 @@ async function detectAnonymizer(ip: string): Promise<{ proxy: boolean; vpn: bool
   } catch { return null; }
 }
 
+// Reject responses that clearly geolocate our own infrastructure (Supabase/Deno edge
+// in Oregon/Portland, or a Cloudflare datacenter) — happens when a provider is called
+// without a valid client IP and falls back to the CALLER's IP.
+function isInfraResponse(r: LocResult): boolean {
+  const org = `${r.isp || ""} ${r.org || ""}`.toLowerCase();
+  if (/cloudflare|amazon|aws|google|microsoft|azure|digitalocean|hetzner|ovh|linode|oracle|fastly|akamai|deno|supabase|datacenter|hosting/.test(org)) return true;
+  const city = (r.city || "").toLowerCase();
+  const region = (r.region || "").toLowerCase();
+  // Supabase edge in us-west-2 geolocates to Portland/Boardman, Oregon
+  if (city === "portland" && /oregon|or/.test(region)) return true;
+  if (city === "boardman") return true;
+  return false;
+}
+
 async function resolveLocation(ip: string, opts?: { allowIpwho?: boolean }): Promise<{
   merged: LocResult; confidence: "high" | "medium" | "low"; agreed: number; results: LocResult[];
   anonymizer: { proxy: boolean; vpn: boolean; tor: boolean; hosting: boolean; type?: string; provider?: string } | null;
 }> {
   // Fail closed: ipwho.is must be explicitly enabled by admin.
   const allowIpwho = opts?.allowIpwho === true;
+
+  // HARD GUARD: never call geo providers without a real, public, non-CF client IP.
+  // Otherwise every provider falls back to the CALLER (Supabase edge = Portland, OR).
+  if (!ip || ip === "unknown" || isPrivateIp(ip) || isCloudflareIp(ip)) {
+    console.warn("[resolveLocation] refusing lookup — invalid client IP:", JSON.stringify({ ip, reason: !ip || ip === "unknown" ? "missing" : isPrivateIp(ip) ? "private" : "cloudflare-edge" }));
+    return { merged: { provider: "none", ip: ip || "unknown" }, confidence: "low", agreed: 0, results: [], anonymizer: null };
+  }
+
   const providers: Array<Promise<LocResult | null>> = [
     providerIpapiCo(ip),
     providerIpApiCom(ip),
@@ -448,8 +479,15 @@ async function resolveLocation(ip: string, opts?: { allowIpwho?: boolean }): Pro
     Promise.allSettled(providers),
     detectAnonymizer(ip),
   ]);
-  const results = settled.map(s => s.status === "fulfilled" ? s.value : null).filter(Boolean) as LocResult[];
+  let results = settled.map(s => s.status === "fulfilled" ? s.value : null).filter(Boolean) as LocResult[];
+
+  // Drop any provider result that geolocates OUR infra (Portland/CF/AWS/etc.) —
+  // that indicates the provider ignored our IP and geolocated the caller.
+  const filtered = results.filter(r => !isInfraResponse(r));
+  if (filtered.length > 0) results = filtered;
+
   if (results.length === 0) {
+    console.warn("[resolveLocation] all providers returned infra/no data for ip=", ip);
     return { merged: { provider: "none", ip }, confidence: "low", agreed: 0, results: [], anonymizer };
   }
   const buckets = new Map<string, LocResult[]>();
@@ -624,7 +662,24 @@ async function sendLoginNotification(
       ipwhoEnabled = data?.value?.enabled === true;
     } catch {}
 
-    console.log("[login-notify] ip=", ip, "source=", ipTrace.source, "candidates=", ipTrace.candidates.map(c => `${c.label}:${c.ip}`).join("|"), "gps=", clientGeo?.status, "ipwhoEnabled=", ipwhoEnabled);
+    // ---- Explicit debug block (per spec) ----
+    const hdr = (n: string) => req.headers.get(n) || "";
+    console.log(
+      "\n=== [login-notify] IP TRACE ===\n" +
+      "Detected Headers:\n" +
+      `  CF-Connecting-IP: ${hdr("cf-connecting-ip")}\n` +
+      `  True-Client-IP:   ${hdr("true-client-ip")}\n` +
+      `  X-Forwarded-For:  ${hdr("x-forwarded-for")}\n` +
+      `  X-Real-IP:        ${hdr("x-real-ip")}\n` +
+      `  X-Client-IP:      ${hdr("x-client-ip")} (from Cloudflare Worker)\n` +
+      `Selected Client IP: ${ip}   (source: ${ipTrace.source})\n` +
+      `CF Country: ${ipTrace.cfCountry}   CF Ray: ${ipTrace.cfRay}\n` +
+      `Worker Trace: ${JSON.stringify(ipTrace.workerTrace || {})}\n` +
+      `ipwho.is enabled by admin: ${ipwhoEnabled}\n` +
+      `Client GPS: ${clientGeo?.status || "none"}${clientGeo?.status === "granted" ? ` (${clientGeo.latitude},${clientGeo.longitude})` : ""}\n` +
+      "==============================="
+    );
+
 
     const [locRes, gpsLoc] = await Promise.all([
       resolveLocation(ip, { allowIpwho: ipwhoEnabled }),
