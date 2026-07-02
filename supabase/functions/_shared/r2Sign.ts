@@ -71,17 +71,19 @@ export async function signR2Request(
 
   const payloadHash = body && body.length > 0 ? await sha256Hex(body) : await sha256Hex("");
 
-  const headers: Record<string, string> = {
+  // Normalize all header keys to lowercase up-front so the canonical map is stable.
+  const rawHeaders: Record<string, string> = {
     host,
     "x-amz-content-sha256": payloadHash,
     "x-amz-date": amz,
     ...(contentType ? { "content-type": contentType } : {}),
     ...(extraHeaders || {}),
   };
+  const headers: Record<string, string> = {};
+  for (const k of Object.keys(rawHeaders)) headers[k.toLowerCase()] = String(rawHeaders[k]).trim();
 
-  // Canonical headers must be sorted by lowercased name
-  const sortedKeys = Object.keys(headers).map((k) => k.toLowerCase()).sort();
-  const canonicalHeaders = sortedKeys.map((k) => `${k}:${String(headers[k] ?? headers[Object.keys(headers).find((x) => x.toLowerCase() === k) as string]).trim()}\n`).join("");
+  const sortedKeys = Object.keys(headers).sort();
+  const canonicalHeaders = sortedKeys.map((k) => `${k}:${headers[k]}\n`).join("");
   const signedHeaders = sortedKeys.join(";");
 
   const canonicalRequest = [
