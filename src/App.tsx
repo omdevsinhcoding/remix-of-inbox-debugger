@@ -303,7 +303,125 @@ function useSessionTimeoutGuard(role: "admin" | "user") {
   }, [role]);
 }
 
-// ==================== SESSION COUNTDOWN PILL ====================
+// ==================== NETFLIX N LOGO (inline SVG, no external asset) ====================
+function NetflixNLogo({ className = "w-7 h-7 sm:w-8 sm:h-8" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 111 30" xmlns="http://www.w3.org/2000/svg" className={className} aria-label="Netflix" role="img">
+      <path fill="#E50914" d="M105.06 14.28L110.6 30c-1.63-.23-3.26-.53-4.92-.75l-3.13-8.14-3.24 7.47c-1.57-.27-3.11-.36-4.68-.56L100.24 15 95.16 1.65h4.62l2.87 7.35 3.06-7.35H110l-4.94 12.63zM90.72 1.65h-4.19V27.9c1.37.08 2.8.15 4.19.31V1.65zm-7.75 25.72c-3.82-.26-7.66-.5-11.56-.6V1.65h4.24V22.7c2.45.05 4.9.24 7.32.36v4.31zM64.63 11.61v4.29h-5.79v9.61h-4.19V1.65h11.87v4.29h-7.68v5.67h5.79zm-15.36-5.67v20.11c-1.42 0-2.87 0-4.24.03V5.94H40.66V1.65c4.79 0 9.59 0 14.38 0v4.29h-5.77zm-14.5 15.83c1.88.04 3.79.19 5.66.28v4.24c-3.03-.19-6.06-.38-9.15-.45V1.65h4.24v19.35c.11.12-.75.12-.75.77zM26.83 27.4c-1.31-.03-2.65-.03-3.99-.03V1.65h3.99V27.4zM6.29 14.35v14.5c-1.5.16-2.83.36-4.23.58V1.65h3.95l5.4 15.1V1.65h4.24v27.62c-1.5.27-3.03.42-4.61.7L6.29 14.35z"/>
+    </svg>
+  );
+}
+
+// ==================== NOTIFICATION BELL ====================
+function NotificationBell() {
+  const [items, setItems] = useState<AppNotification[]>([]);
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const autoOpenedRef = useRef(false);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      const list = await listNotifications();
+      setItems(list);
+      const unread = list.filter((n) => !n.read).length;
+      if (!autoOpenedRef.current && unread > 0) {
+        autoOpenedRef.current = true;
+        toast(`🔔 You have ${unread} new update${unread > 1 ? "s" : ""}`);
+      }
+    } finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => {
+    refresh();
+    const id = setInterval(refresh, 60_000);
+    return () => clearInterval(id);
+  }, [refresh]);
+
+  const unread = items.filter((n) => !n.read).length;
+
+  const handleMarkRead = async (id: string) => {
+    setItems((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+    await markNotificationRead(id);
+  };
+  const handleMarkAll = async () => {
+    setItems((prev) => prev.map((n) => ({ ...n, read: true })));
+    await markAllNotificationsRead();
+  };
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="relative flex items-center justify-center p-2.5 bg-slate-900 text-white rounded-full hover:bg-slate-800 transition-all active:scale-95"
+        title="Notifications"
+        aria-label={`Notifications (${unread} unread)`}
+      >
+        <Bell className={`w-4 h-4 sm:w-5 sm:h-5 ${unread > 0 ? "animate-pulse" : ""}`} />
+        {unread > 0 && (
+          <>
+            <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-red-500 rounded-full animate-ping" />
+            <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-red-500 rounded-full ring-2 ring-white" />
+          </>
+        )}
+      </button>
+      <AnimatePresence>
+        {open && (
+          <>
+            <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+            <motion.div
+              initial={{ opacity: 0, y: -8, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -8, scale: 0.98 }}
+              transition={{ duration: 0.15 }}
+              className="absolute right-0 mt-2 w-[92vw] max-w-sm bg-slate-950 border border-slate-800 rounded-2xl shadow-2xl z-50 overflow-hidden"
+            >
+              <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800">
+                <div className="flex items-center gap-2">
+                  <Bell className="w-4 h-4 text-red-500" />
+                  <h3 className="font-bold text-white text-sm">Notifications</h3>
+                  {unread > 0 && <span className="text-[10px] bg-red-600 text-white px-1.5 py-0.5 rounded-full font-bold">{unread}</span>}
+                </div>
+                {items.length > 0 && unread > 0 && (
+                  <button onClick={handleMarkAll} className="text-[11px] text-red-400 hover:text-red-300 font-semibold">Mark all read</button>
+                )}
+              </div>
+              <div className="max-h-[60vh] overflow-y-auto">
+                {loading && items.length === 0 && (
+                  <div className="py-10 text-center text-slate-500 text-sm">Loading…</div>
+                )}
+                {!loading && items.length === 0 && (
+                  <div className="py-10 text-center text-slate-500 text-sm">
+                    <MessageSquare className="w-8 h-8 mx-auto mb-2 opacity-40" />
+                    No notifications yet
+                  </div>
+                )}
+                {items.map((n) => (
+                  <button
+                    key={n.id}
+                    onClick={() => !n.read && handleMarkRead(n.id)}
+                    className={`w-full text-left px-4 py-3 border-b border-slate-900 hover:bg-slate-900/60 transition-colors flex gap-3 ${
+                      !n.read ? "bg-red-950/20 border-l-2 border-l-red-500" : "opacity-70"
+                    }`}
+                  >
+                    <div className={`mt-1 w-2 h-2 rounded-full flex-shrink-0 ${!n.read ? "bg-red-500 animate-pulse" : "bg-slate-700"}`} />
+                    <div className="min-w-0 flex-1">
+                      <p className="font-bold text-white text-sm truncate">{n.title}</p>
+                      <p className="text-slate-400 text-xs mt-0.5 line-clamp-3 whitespace-pre-wrap">{n.body}</p>
+                      <p className="text-slate-600 text-[10px] mt-1">{new Date(n.created_at).toLocaleString()}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+
 function SessionCountdown({ role }: { role: "admin" | "user" }) {
   const [minutes, setMinutes] = useState<number>(0);
   const [remainingMs, setRemainingMs] = useState<number>(0);
