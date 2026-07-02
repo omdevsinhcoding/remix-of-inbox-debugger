@@ -438,6 +438,11 @@ export default function MaintenanceScreen({ title, message, endsAt, versionFrom,
           60%  { opacity: 1; filter: blur(0); }
           100% { opacity: 1; transform: translateY(0) rotateX(0);           filter: blur(0); }
         }
+        @keyframes maint-letter-out {
+          0%   { opacity: 1; transform: translateY(0) rotateX(0);            filter: blur(0); }
+          100% { opacity: 0; transform: translateY(-0.5em) rotateX(35deg);   filter: blur(3px); }
+        }
+
 
       `}</style>
 
