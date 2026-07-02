@@ -4225,99 +4225,169 @@ function AdminPanel() {
                     {[
                       {
                         step: "1",
-                        title: "Cloudflare Account Banao",
+                        title: "Cloudflare Account Banao (2 min)",
                         points: [
-                          "Browser me jaao → dash.cloudflare.com",
-                          "Sign Up karo (free hai)",
-                          "Email verify karo aur login karo",
+                          "Browser me naya tab kholo → address bar me type karo: dash.cloudflare.com",
+                          "Right side upar 'Sign Up' button dabao",
+                          "Apna email + strong password daalo → 'Create Account'",
+                          "Cloudflare tere email pe verification link bhejega — Gmail kholo, us link pe click karo",
+                          "Verify hone ke baad wapas dash.cloudflare.com pe login karo",
+                          "Home page khulega jisme left side ek sidebar dikhega",
                         ],
                       },
                       {
                         step: "2",
-                        title: "Worker Create Karo",
+                        title: "Worker Create Karo (3 min)",
                         points: [
-                          "Left menu me 'Workers & Pages' pe click karo",
-                          "'Create' button dabao",
-                          "'Create Worker' select karo",
-                          "Worker ka naam do (e.g. email-worker)",
-                          "'Deploy' pe click karo",
+                          "Left sidebar me neeche scroll karo → 'Compute (Workers)' dhundo",
+                          "Uske andar 'Workers & Pages' pe click karo",
+                          "Right side blue button 'Create' pe dabao",
+                          "Options aayenge — 'Start with Hello World' select karo → 'Get started' dabao",
+                          "Worker ka naam do: netflixfetch (ya kuch bhi lowercase, no spaces)",
+                          "Neeche 'Deploy' button dabao",
+                          "10 second wait karo — 'Success!' message aayega",
+                          "'Continue to project' ya 'Edit code' button dikhega",
                         ],
                       },
                       {
                         step: "3",
-                        title: "Worker Code Paste Karo",
+                        title: "Worker Code Paste Karo (5 min)",
                         points: [
-                          "Deploy ke baad 'Edit Code' pe click karo",
-                          "Pura existing code select karke DELETE karo",
-                          "Apne project ka cloudflare-worker/worker.js file ka code copy karke PASTE karo",
-                          "'Save and Deploy' pe click karo",
+                          "'Edit code' pe click karo — code editor khulega browser me hi",
+                          "Left side ek file dikhegi 'worker.js' — usme default 'Hello World' code hai",
+                          "Poore code pe click karo → Ctrl+A (ya mobile pe long-press → Select All) → Delete",
+                          "",
+                          "📥 Ab tereko project ka worker code chahiye:",
+                          "→ Lovable me left side 'Code' icon pe click karo (ya GitHub repo kholo)",
+                          "→ Folder: cloudflare-worker/worker.js file kholo",
+                          "→ Poora code Ctrl+A → Copy karo",
+                          "",
+                          "Cloudflare editor me wapas jao → khali jagah pe Paste karo",
+                          "Upar right side 'Deploy' button dabao",
+                          "'Deploy' confirmation aayega — dabao",
+                          "✅ Green 'Deployed successfully' message aayega",
                         ],
                       },
                       {
                         step: "4",
-                        title: "KV Storage Banao",
+                        title: "KV Storage Banao (Email Cache ke liye) — 3 min",
                         points: [
-                          "Left menu → 'Workers & Pages' → 'KV' pe jaao",
-                          "'Create a namespace' pe click karo",
-                          "Naam do: EMAIL_CACHE",
-                          "'Add' pe click karo",
-                          "Wapas worker pe jaao → 'Settings' tab → 'Bindings'",
-                          "'Add' → 'KV Namespace' select karo",
-                          "Variable name: EMAIL_CACHE, namespace: jo abhi banaya",
-                          "'Save' karo",
+                          "Upar left me '← Workers & Pages' pe click karke wapas jao",
+                          "Top pe tabs dikhenge: Overview | KV | R2 | D1 | Queues...",
+                          "'KV' tab pe click karo",
+                          "Blue button 'Create instance' (ya '+ Create') dabao",
+                          "Namespace name: EMAIL_CACHE (exact same, capital letters)",
+                          "'Add' dabao — namespace ban jayega",
+                          "",
+                          "🔗 Ab is KV ko Worker se connect karna hai:",
+                          "→ 'Workers & Pages' pe wapas jao",
+                          "→ Apna worker (netflixfetch) pe click karo",
+                          "→ Top tabs me 'Settings' pe click karo",
+                          "→ Left sub-menu me 'Bindings' pe click karo",
+                          "→ '+ Add' button → 'KV Namespace' select karo",
+                          "→ Variable name: EMAIL_CACHE",
+                          "→ KV namespace dropdown me: EMAIL_CACHE select karo",
+                          "→ 'Deploy' dabao",
                         ],
                       },
                       {
-                        step: "5",
-                        title: "4 Secrets Set Karo (IMPORTANT!)",
+                        step: "5-A",
+                        title: "🔓 Pehle: SESSION_SIGNING_SECRET ki value nikaalo",
                         points: [
-                          "Worker → 'Settings' tab → 'Variables and Secrets' → 'Add'",
-                          "Har secret ke liye Type = 'Secret' (Encrypted) rakhna — Plaintext nahi",
+                          "Ye value tera password jaisa hai — Cloudflare ko dena hai taki dono milke session verify kar sakein.",
                           "",
-                          "🔑 SUPABASE_URL",
-                          "   → Value: https://jsqchutnfdeljajkxmly.supabase.co",
-                          "   (Supabase Dashboard → Project Settings → API → Project URL)",
+                          "📱 SIMPLE TAREEKA (browser se, 30 second):",
+                          "1. Phone/PC ke browser me ye URL kholo (address bar me paste karo):",
                           "",
-                          "🔑 SUPABASE_KEY",
-                          "   → Value: apna Supabase anon/publishable key",
-                          "   (Supabase Dashboard → Project Settings → API Keys → anon public)",
+                          "https://jsqchutnfdeljajkxmly.supabase.co/functions/v1/reveal-signing-secret?pass=gohil-reveal-2026",
                           "",
-                          "🔑 SESSION_SIGNING_SECRET  ⭐ (NEW — primary)",
-                          "   → Value: Supabase Edge Functions → Secrets me SESSION_SIGNING_SECRET ki value",
-                          "   Agar reveal nahi ho rahi to admin se bolo naya generate karke dey",
+                          "2. Page pe JSON dikhega, kuch aisa:",
+                          '   {"present":true,"length":48,"value":"aBcD123XyZ..."}',
                           "",
-                          "🔑 SESSION_SECRET  (legacy — backward compat ke liye)",
-                          "   → Value: Supabase service_role key (purani setup wali same value)",
-                          "   24h baad safely delete kar sakte ho",
+                          "3. 'value' ke aage jo lambi string hai (quotes ke andar) — WAHI copy karni hai",
+                          "4. Screenshot le lo ya notepad me paste karke rakh lo — Step 5-B me chahiye",
                           "",
-                          "'Save and Deploy' pe click karo",
+                          "⚠️ Ye reveal function temporary hai — Cloudflare me paste karne ke baad admin (Lovable) se bolo delete kar dey.",
                         ],
-                        warning: "⚠️ SESSION_SIGNING_SECRET mandatory hai — bina iske login tokens verify nahi honge!",
+                        warning: "🔒 Ye value kisi ko bhi mat dena — Telegram/WhatsApp pe bhi nahi bhejna.",
+                      },
+                      {
+                        step: "5-B",
+                        title: "4 Secrets Cloudflare Worker me Add Karo",
+                        points: [
+                          "Worker page → 'Settings' tab → left sub-menu me 'Variables and Secrets'",
+                          "Right side '+ Add' button dabao",
+                          "",
+                          "⚙️ HAR SECRET ke liye ye 3 cheezein bharni hain:",
+                          "   • Type: dropdown se 'Secret' select karo (Plaintext NAHI)",
+                          "   • Variable name: (neeche list se copy karo, EXACT same spelling)",
+                          "   • Value: (neeche list se copy karo)",
+                          "   • Fir 'Deploy' dabao — har secret ke baad ek baar",
+                          "",
+                          "━━━━━━━━━━━━━━━━━━━━━━",
+                          "🔑 SECRET #1",
+                          "Name: SUPABASE_URL",
+                          "Value: https://jsqchutnfdeljajkxmly.supabase.co",
+                          "(Ye tera Supabase project URL hai — already known)",
+                          "━━━━━━━━━━━━━━━━━━━━━━",
+                          "🔑 SECRET #2",
+                          "Name: SUPABASE_KEY",
+                          "Value kaha se milega:",
+                          "  → supabase.com/dashboard kholo",
+                          "  → Apna project (jsqchutnfdeljajkxmly) select karo",
+                          "  → Left sidebar niche gear icon 'Project Settings'",
+                          "  → 'API Keys' section pe click",
+                          "  → 'anon' 'public' row me lambi key dikhegi (eyJhbGc... se shuru)",
+                          "  → 'Copy' button dabao → Cloudflare me paste",
+                          "━━━━━━━━━━━━━━━━━━━━━━",
+                          "🔑 SECRET #3 ⭐ (MOST IMPORTANT)",
+                          "Name: SESSION_SIGNING_SECRET",
+                          "Value: Step 5-A me jo string copy ki thi wahi paste karo",
+                          "━━━━━━━━━━━━━━━━━━━━━━",
+                          "🔑 SECRET #4 (backward compatibility)",
+                          "Name: SESSION_SECRET",
+                          "Value kaha se milega:",
+                          "  → Supabase Dashboard → Project Settings → API Keys",
+                          "  → NEECHE scroll karo → 'service_role' 'secret' row",
+                          "  → 'Reveal' dabake copy karo (ye SUPER secret hai, kisi ko mat dena)",
+                          "  → Cloudflare me paste",
+                          "  Note: 24 ghante baad ye safely delete kar sakte ho",
+                          "━━━━━━━━━━━━━━━━━━━━━━",
+                          "",
+                          "Chaaron add ho gaye? → Last 'Deploy' dabao → ✅ Done",
+                        ],
+                        warning: "⚠️ Spelling galat hui (jaise SUPBASE_URL) to worker fail hoga. Copy-paste karo, type mat karo.",
                       },
                       {
                         step: "6",
-                        title: "Worker URL Copy Karo",
+                        title: "Worker URL Copy Karo aur App me Daalo",
                         points: [
-                          "Worker page pe jaao — top pe URL dikhega:",
-                          "e.g. https://email-worker.yourname.workers.dev",
-                          "Ye URL copy karo",
-                          "Is app me Settings → Worker URLs me paste karo",
-                          "✅ Done! Ab emails worker se aayenge",
+                          "Worker page pe wapas jao (top pe worker naam pe click)",
+                          "'Overview' tab pe URL dikhega, kuch aisa:",
+                          "   https://netflixfetch.YOURNAME.workers.dev",
+                          "'Copy' icon dabake URL copy karo",
+                          "",
+                          "📲 App me daalne ke steps:",
+                          "  → App me admin login karo",
+                          "  → Admin Panel → 'Cloudflare Workers' section",
+                          "  → 'Primary Cloudflare Worker URLs' input me paste karo",
+                          "  → '+ Add' dabao",
+                          "  → 'Save' dabao",
+                          "",
+                          "✅ Ho gaya! Ab test karo — koi email account refresh karo, emails worker se aayenge.",
                         ],
                       },
-
                     ].map((s) => (
                       <details key={s.step} className="bg-white rounded-lg border border-blue-100 overflow-hidden">
                         <summary className="flex items-center gap-2 p-2.5 cursor-pointer active:bg-blue-50 transition-colors">
-                          <span className="bg-blue-600 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0">{s.step}</span>
+                          <span className="bg-blue-600 text-white text-[10px] font-bold min-w-[20px] h-5 px-1 rounded-full flex items-center justify-center flex-shrink-0">{s.step}</span>
                           <span className="text-xs font-bold text-slate-800">{s.title}</span>
                         </summary>
                         <div className="px-2.5 pb-2.5">
                           <ul className="space-y-1">
                             {s.points.map((p, i) => (
-                              <li key={i} className="text-[11px] text-slate-700 flex gap-1.5">
-                                <span className="text-blue-400 mt-0.5 flex-shrink-0">•</span>
-                                <span>{p}</span>
+                              <li key={i} className={`text-[11px] text-slate-700 ${p === "" ? "h-1" : "flex gap-1.5"}`}>
+                                {p !== "" && <><span className="text-blue-400 mt-0.5 flex-shrink-0">•</span><span className="whitespace-pre-wrap break-words">{p}</span></>}
                               </li>
                             ))}
                           </ul>
@@ -4330,18 +4400,21 @@ function AdminPanel() {
 
                     <details className="bg-yellow-50 rounded-lg border border-yellow-200 overflow-hidden">
                       <summary className="flex items-center gap-2 p-2.5 cursor-pointer active:bg-yellow-100 transition-colors">
-                        <span className="text-xs font-bold text-yellow-800">🔄 Naya Email Account Add Karna?</span>
+                        <span className="text-xs font-bold text-yellow-800">🔄 Naya Email Account / Second Cloudflare Account?</span>
                       </summary>
                       <div className="px-2.5 pb-2.5">
                         <ol className="text-[11px] text-yellow-900 space-y-1.5 ml-4 list-decimal">
-                          <li>Cloudflare me ek naya Worker banao (Step 2-6 repeat karo, alag naam do)</li>
-                          <li>Same 3 secrets set karo naye worker pe</li>
-                          <li>Is app me "Email Accounts" tab pe jaao</li>
-                          <li>Naya account add karo IMAP details ke saath</li>
-                          <li>Us account me naye worker ka URL add karo</li>
+                          <li>Naye Cloudflare account me login karo (ya same account me new worker banao)</li>
+                          <li>Step 2 se 6 repeat karo — worker ka naam alag rakhna (jaise netflixfetch2)</li>
+                          <li><b>Same 4 secrets</b> daalna — value bhi bilkul same (SUPABASE_URL/KEY/SESSION_SIGNING_SECRET/SESSION_SECRET). Kuch bhi change mat karna.</li>
+                          <li>Naya worker URL copy karo</li>
+                          <li>App → Admin Panel → Email Accounts tab</li>
+                          <li>Us specific account ke 'Edit' me jao → 'Cloudflare Worker URLs' me naya URL add karo</li>
+                          <li>Ya sab accounts ke liye global chahiye to 'Primary Cloudflare Worker URLs' me add karo — load balance hoga automatic</li>
                         </ol>
                       </div>
                     </details>
+
 
                     <div className="bg-green-50 rounded-lg border border-green-200 p-2.5">
                       <p className="text-xs font-bold text-green-800 mb-1">💡 Tips</p>
