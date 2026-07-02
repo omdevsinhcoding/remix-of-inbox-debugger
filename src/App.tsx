@@ -2367,6 +2367,13 @@ function AdminPanel() {
   // Location alert toggle
   const [ipwhoAlertEnabled, setIpwhoAlertEnabled] = useState(false);
   const [savingIpwho, setSavingIpwho] = useState(false);
+  // Maintenance mode
+  const [maintenanceEnabled, setMaintenanceEnabled] = useState(false);
+  const [maintenanceTitle, setMaintenanceTitle] = useState("");
+  const [maintenanceMessage, setMaintenanceMessage] = useState("");
+  const [maintenanceEta, setMaintenanceEta] = useState("");
+  const [savingMaintenance, setSavingMaintenance] = useState(false);
+
   // Notifications tab
   const [adminNotifs, setAdminNotifs] = useState<any[]>([]);
   const [notifTitle, setNotifTitle] = useState("");
