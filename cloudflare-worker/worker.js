@@ -299,20 +299,8 @@ async function handleSync(env, session, rawToken, requestBody) {
   }
 }
 
-async function handleDebug(env) {
-  const info = {
-    has_supabase_url: !!env.SUPABASE_URL,
-    has_supabase_key: !!env.SUPABASE_KEY,
-    has_session_secret: !!env.SESSION_SECRET,
-    has_kv_v1: !!env.EMAIL_CACHE,
-    has_kv_v2: !!env.EMAIL_CACHE_V2,
-    active_kv: env.EMAIL_CACHE_V2 ? "V2" : env.EMAIL_CACHE ? "V1" : "none",
-    timestamp: new Date().toISOString(),
-  };
-  return new Response(JSON.stringify(info, null, 2), {
-    headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-  });
-}
+// handleDebug removed (F6). Route no longer exposed.
+
 
 async function fetchDirectFromSupabase(env, session, rawToken) {
   try {
