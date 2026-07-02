@@ -1310,6 +1310,24 @@ function AdminPanel() {
   const [savingAccounts, setSavingAccounts] = useState(false);
   const [expandedAccount, setExpandedAccount] = useState<number | null>(null);
   const [primaryCfUrls, setPrimaryCfUrls] = useState<string[]>([]);
+  // Location alert toggle
+  const [ipwhoAlertEnabled, setIpwhoAlertEnabled] = useState(false);
+  const [savingIpwho, setSavingIpwho] = useState(false);
+  // Notifications tab
+  const [adminNotifs, setAdminNotifs] = useState<any[]>([]);
+  const [notifTitle, setNotifTitle] = useState("");
+  const [notifBody, setNotifBody] = useState("");
+  const [notifAudience, setNotifAudience] = useState<"all" | "user">("all");
+  const [notifTargetUser, setNotifTargetUser] = useState<string>("");
+  const [notifExpiresDays, setNotifExpiresDays] = useState<string>("");
+  const [sendingNotif, setSendingNotif] = useState(false);
+  // Inbox tab
+  const [inboxMode, setInboxMode] = useState<"all" | "label" | "days">("days");
+  const [inboxLabel, setInboxLabel] = useState("");
+  const [inboxDays, setInboxDays] = useState("30");
+  const [inboxConfirm, setInboxConfirm] = useState("");
+  const [clearingInbox, setClearingInbox] = useState(false);
+
   const [primaryCfInput, setPrimaryCfInput] = useState("");
   const [editingAccountUrls, setEditingAccountUrls] = useState<number | null>(null);
   const [editCfUrls, setEditCfUrls] = useState<string[]>([]);
