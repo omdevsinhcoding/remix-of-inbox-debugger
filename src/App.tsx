@@ -2073,7 +2073,10 @@ function AdminLoginPage() {
       const data: any = await apiCall("manage-app", { action: "login", username, password, clientGeo });
 
       if (data.user.role !== "admin") throw new Error("Access denied");
-      if (data.pendingToken) localStorage.setItem("pending_admin_token", data.pendingToken);
+      if (data.pendingToken) {
+        localStorage.setItem("pending_admin_token", data.pendingToken);
+        localStorage.setItem("pending_admin_token_at", String(Date.now()));
+      }
 
       if (data.workerUrls && Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
         storeWorkerUrls(data.workerUrls);
@@ -2166,6 +2169,31 @@ function AdminAuthPage() {
   const navigate = useNavigate();
   const otpRequested = React.useRef(false);
   const { user } = useAuth();
+  const PROOF_TTL_MS = 15 * 60 * 1000;
+  const [remainingMs, setRemainingMs] = useState<number>(() => {
+    const at = Number(localStorage.getItem("pending_admin_token_at") || 0);
+    if (!at) return PROOF_TTL_MS;
+    return Math.max(0, PROOF_TTL_MS - (Date.now() - at));
+  });
+  useEffect(() => {
+    const t = setInterval(() => {
+      const at = Number(localStorage.getItem("pending_admin_token_at") || 0);
+      const left = at ? Math.max(0, PROOF_TTL_MS - (Date.now() - at)) : 0;
+      setRemainingMs(left);
+    }, 1000);
+    return () => clearInterval(t);
+  }, []);
+  const expired = remainingMs <= 0;
+  const mm = String(Math.floor(remainingMs / 60000)).padStart(2, "0");
+  const ss = String(Math.floor((remainingMs % 60000) / 1000)).padStart(2, "0");
+  const restartLogin = () => {
+    try {
+      localStorage.removeItem("pending_admin_token");
+      localStorage.removeItem("pending_admin_token_at");
+      localStorage.removeItem("user");
+    } catch {}
+    navigate("/admin", { replace: true });
+  };
 
   useEffect(() => {
     const pending = (() => { try { return localStorage.getItem("pending_admin_token"); } catch { return null; } })();
@@ -2318,9 +2346,27 @@ function AdminAuthPage() {
         </div>
 
         <h2 className="text-2xl font-black text-center text-white tracking-tight mb-2">3-Factor Auth</h2>
-        <p className="text-slate-400 text-center text-sm mb-8">
+        <p className="text-slate-400 text-center text-sm mb-3">
           {step === 1 ? "OTP sent to Telegram" : "Enter Google Authenticator code"}
         </p>
+        <div className="flex justify-center mb-6">
+          {expired ? (
+            <span className="inline-flex items-center gap-1.5 text-[11px] font-bold px-3 py-1 rounded-full bg-red-500/15 border border-red-500/30 text-red-400 uppercase tracking-wider">
+              <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" /> Session expired
+            </span>
+          ) : (
+            <span className={`inline-flex items-center gap-1.5 text-[11px] font-bold px-3 py-1 rounded-full border uppercase tracking-wider ${remainingMs < 60_000 ? "bg-amber-500/10 border-amber-500/30 text-amber-400" : "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"}`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${remainingMs < 60_000 ? "bg-amber-400" : "bg-emerald-400"} animate-pulse`} /> Expires in {mm}:{ss}
+            </span>
+          )}
+        </div>
+        {expired && (
+          <button type="button" onClick={restartLogin}
+            className="w-full mb-6 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-semibold py-3 rounded-2xl transition-colors">
+            Restart login
+          </button>
+        )}
+
 
         {step === 1 ? (
           <form onSubmit={handleTelegramOtpSubmit} className="space-y-6" noValidate>

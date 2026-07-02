@@ -1404,14 +1404,14 @@ Deno.serve(async (req) => {
       ((globalThis as any).EdgeRuntime?.waitUntil?.(sendLoginNotification(supabase, req, user, "success", verifiedClientGeo)) ?? sendLoginNotification(supabase, req, user, "success", verifiedClientGeo).catch(() => {}));
 
       if (user.role === "admin") {
-        const pendingPayload = { userId: user.id, username: user.username, role: "admin", pending: true, exp: Date.now() + 5 * 60 * 1000 };
+        const pendingPayload = { userId: user.id, username: user.username, role: "admin", pending: true, exp: Date.now() + 15 * 60 * 1000 };
         const pendingToken = await createSessionToken(pendingPayload, SESSION_SECRET);
         const tokenHash = await sha256Hex(pendingToken);
         await supabase.from("app_admin_2fa_state").delete().eq("user_id", user.id);
         const { error: stateErr } = await supabase.from("app_admin_2fa_state").insert({
           token_hash: tokenHash,
           user_id: user.id,
-          expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+          expires_at: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
         });
         if (stateErr) throw stateErr;
         return new Response(JSON.stringify({
@@ -1685,8 +1685,8 @@ Deno.serve(async (req) => {
       const now = Date.now();
       const otpAt = state.otp_verified_at ? new Date(state.otp_verified_at).getTime() : 0;
       const totpAt = state.totp_verified_at ? new Date(state.totp_verified_at).getTime() : 0;
-      if (!otpAt || now - otpAt > 60_000) throw new Error("Telegram OTP proof expired");
-      if (!totpAt || now - totpAt > 60_000) throw new Error("Authenticator proof expired");
+      if (!otpAt || now - otpAt > 15 * 60_000) throw new Error("Telegram OTP proof expired");
+      if (!totpAt || now - totpAt > 15 * 60_000) throw new Error("Authenticator proof expired");
 
       const { data: user, error } = await supabase.from("app_users").select("*").eq("id", pending.userId).single();
       if (error || !user || user.role !== "admin") throw new Error("Admin not found");
