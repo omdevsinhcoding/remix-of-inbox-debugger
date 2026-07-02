@@ -220,9 +220,10 @@ export default function MaintenanceScreen({ title, message, eta, isAdmin, onAdmi
         if (p.x < -0.02) p.x = 1.02;
         if (p.x > 1.02) p.x = -0.02;
         const g = ctx.createRadialGradient(p.x * c.width, p.y * c.height, 0, p.x * c.width, p.y * c.height, p.r * 6);
-        g.addColorStop(0, `rgba(255,220,180,${p.a})`);
-        g.addColorStop(1, "rgba(255,220,180,0)");
+        g.addColorStop(0, `rgba(210,230,255,${p.a})`);
+        g.addColorStop(1, "rgba(210,230,255,0)");
         ctx.fillStyle = g;
+
         ctx.beginPath();
         ctx.arc(p.x * c.width, p.y * c.height, p.r * 6, 0, Math.PI * 2);
         ctx.fill();
