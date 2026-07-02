@@ -165,10 +165,34 @@ export default function MaintenanceScreen({ title, message, endsAt, versionFrom,
     return () => { cancelAnimationFrame(raf); window.removeEventListener("resize", resize); };
   }, []);
 
-  const displayTitle = title?.trim() || "We're upgrading the system";
+  // Rotating headlines — used when admin hasn't set a custom title.
+  const rotatingTitles = [
+    "We're upgrading the system",
+    "Tuning things up behind the scenes",
+    "Rolling out a fresh update",
+    "Making the app faster for you",
+    "Polishing a few pixels",
+    "Sharpening the experience",
+    "Deploying new improvements",
+    "Fine-tuning the engine",
+    "Refreshing the servers",
+    "Almost ready — final touches",
+    "Just a quick pit stop",
+    "Back in a few moments",
+  ];
+  const customTitle = title?.trim();
+  const [titleIdx, setTitleIdx] = useState(0);
+  useEffect(() => {
+    if (customTitle) return; // don't rotate when admin pinned a headline
+    const id = setInterval(() => setTitleIdx((i) => (i + 1) % rotatingTitles.length), 3200);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customTitle]);
+  const displayTitle = customTitle || rotatingTitles[titleIdx];
   const displayMessage =
     message?.trim() ||
     "The site is offline for a short while so we can make it faster and safer for you. You don't need to do anything — just come back in a few minutes.";
+
 
   // 12-hour formatted clock
   const clockText = now.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit", hour12: true });
@@ -273,11 +297,18 @@ export default function MaintenanceScreen({ title, message, endsAt, versionFrom,
             </div>
 
             <h1
-              className="text-[28px] sm:text-[40px] font-semibold text-white leading-[1.08] tracking-[-0.02em] mb-3"
+              className="text-[28px] sm:text-[40px] font-semibold text-white leading-[1.08] tracking-[-0.02em] mb-3 min-h-[1.2em]"
               style={{ fontFamily: "'Inter', 'Helvetica Neue', system-ui, sans-serif" }}
             >
-              {displayTitle}
+              <span
+                key={customTitle ? "static" : titleIdx}
+                className="inline-block"
+                style={{ animation: "maint-title-in 620ms cubic-bezier(0.22,0.61,0.36,1) both" }}
+              >
+                {displayTitle}
+              </span>
             </h1>
+
 
             <p className="text-white/60 text-[14px] sm:text-[15.5px] leading-relaxed font-light max-w-[520px]">
               {displayMessage}
@@ -349,6 +380,12 @@ export default function MaintenanceScreen({ title, message, endsAt, versionFrom,
           50%  { height: 85%; opacity: 1; }
           100% { height: 22%; opacity: 0.6; }
         }
+        @keyframes maint-title-in {
+          0%   { opacity: 0; transform: translateY(14px); filter: blur(6px); }
+          60%  { opacity: 1; filter: blur(0); }
+          100% { opacity: 1; transform: translateY(0);   filter: blur(0); }
+        }
+
       `}</style>
     </div>
   );
