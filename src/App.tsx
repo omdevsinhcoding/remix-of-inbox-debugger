@@ -882,7 +882,7 @@ function ProfileSelectPage() {
                   type="text"
                   value={profileSearch}
                   onChange={(e) => setProfileSearch(e.target.value)}
-                  placeholder={`Search ${profiles.length} profiles…`}
+                  placeholder="Search profiles by name…"
                   className="w-full bg-slate-900/70 backdrop-blur-sm border border-slate-700/60 text-white text-sm rounded-full pl-10 pr-10 py-2.5 outline-none focus:ring-2 focus:ring-red-500/70 focus:border-red-500/30 placeholder:text-slate-500"
                 />
                 {profileSearch && (
