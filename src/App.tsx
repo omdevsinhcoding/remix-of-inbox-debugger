@@ -928,7 +928,10 @@ function AdminAuthPage() {
   const { user } = useAuth();
 
   useEffect(() => {
-    if (!user || user.role !== "admin") { navigate("/admin"); return; }
+    const pending = (() => { try { return localStorage.getItem("pending_admin_token"); } catch { return null; } })();
+    if (!pending) { navigate("/admin", { replace: true }); return; }
+    if (!user || user.role !== "admin") { navigate("/admin", { replace: true }); return; }
+
 
     if (step === 1 && !otpRequested.current) {
       otpRequested.current = true;
