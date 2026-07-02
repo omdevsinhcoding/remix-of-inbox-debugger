@@ -699,10 +699,12 @@ async function sendPrimaryLoginAlert(
 ) {
   const tg = await getTelegramConfig(supabase);
   if (!tg) return;
-  const forwardedUa = req.headers.get("x-client-user-agent") || req.headers.get("user-agent") || "";
-  const { browser, os } = parseUserAgent(forwardedUa);
-  const displayName = user?.name || user?.username || "Unknown";
-  const role = user?.role || "user";
+  const forwardedUa = clientGeo?.device?.userAgent || req.headers.get("x-client-user-agent") || req.headers.get("user-agent") || "";
+  const { browser, browserVersion, os, osVersion } = parseUserAgent(forwardedUa);
+  const { model: devModel, type: devType, vendor: devVendor } = inferDeviceModel(forwardedUa, clientGeo?.device);
+  const browserStr = `${browser}${browserVersion ? " " + browserVersion.split(".").slice(0, 2).join(".") : ""}`;
+  const osStr = `${os}${osVersion ? " " + osVersion : ""}`;
+  const deviceStr = `${devVendor ? devVendor + " " : ""}${devModel}${devModel !== devType ? ` (${devType})` : ""}`;
   const isGps = loc.provider === "device-gps";
 
   // GPS wins entirely for map + coords when granted.
