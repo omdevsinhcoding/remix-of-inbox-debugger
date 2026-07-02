@@ -199,7 +199,7 @@ const PlatformChipVisual: React.FC<{ id?: string | null; size?: number; audit?: 
 
   return (
     <div
-      className="rounded-full flex items-center justify-center bg-white shadow-md leading-none shrink-0 overflow-hidden ring-1 ring-white/10"
+      className="rounded-full flex items-center justify-center bg-white shadow-md leading-none shrink-0 overflow-hidden ring-1 ring-black/5"
       style={{ width: size, height: size }}
     >
       <img
@@ -211,7 +211,7 @@ const PlatformChipVisual: React.FC<{ id?: string | null; size?: number; audit?: 
         decoding="async"
         referrerPolicy="no-referrer"
         onError={fallbackToDefaultLogo}
-        style={{ width: Math.round(size * 0.82), height: Math.round(size * 0.82), objectFit: "contain" }}
+        style={{ width: Math.round(size * 0.92), height: Math.round(size * 0.92), objectFit: "contain" }}
       />
     </div>
   );
@@ -1169,7 +1169,7 @@ function AutoPopupNotification() {
                 >
                   Later
                 </button>
-                {current.action_url && current.action_label ? (
+                {current.action_url && current.action_label && !/snooze|archive|24h/i.test(current.action_label) ? (
                   <a
                     href={current.action_url}
                     target="_blank"
@@ -1396,19 +1396,19 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
                         <p className={`text-[13px] leading-snug truncate ${!n.read ? "text-white font-medium" : "text-zinc-400 font-normal"}`}>
                           {n.title}
                         </p>
-                        <span className="text-[10.5px] text-zinc-500 font-light tabular-nums flex-shrink-0" title={new Date(n.created_at).toLocaleString()}>
+                        <span className="text-[10.5px] text-zinc-500 font-light tabular-nums flex-shrink-0 transition-opacity group-hover:opacity-0" title={new Date(n.created_at).toLocaleString()}>
                           {formatRelative(n.created_at)}
                         </span>
                       </div>
                       <p className="text-zinc-500 text-[12px] mt-1 leading-relaxed line-clamp-2 font-light">{n.body}</p>
                     </div>
                     {!n.read && (
-                      <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.7)] mt-1.5 flex-shrink-0" />
+                      <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.7)] mt-1.5 flex-shrink-0 transition-opacity group-hover:opacity-0" />
                     )}
                   </button>
                   {!n.locked && (
-                    <div className="absolute right-3 top-1/2 -translate-y-1/2 hidden group-hover:flex gap-1">
-                      <button onClick={(e) => { e.stopPropagation(); handleDelete(n.id); }} className="p-1.5 rounded-md bg-black/40 text-zinc-400 hover:text-rose-300" title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1 pointer-events-none group-hover:pointer-events-auto">
+                      <button onClick={(e) => { e.stopPropagation(); handleDelete(n.id); }} className="p-1.5 rounded-md bg-black/70 backdrop-blur border border-white/10 text-zinc-300 hover:text-rose-300 hover:bg-black/80 shadow-lg" title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
                     </div>
                   )}
                 </li>
@@ -1448,14 +1448,14 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
             <p className="mt-4 text-zinc-400 text-[13px] leading-relaxed font-light whitespace-pre-wrap">{detail.description}</p>
           )}
           <div className="mt-6 flex flex-wrap gap-2">
-            {detail.action_url && detail.action_label && (
+            {detail.action_url && detail.action_label && !/snooze|archive|24h/i.test(detail.action_label) && (
               <a href={detail.action_url} target="_blank" rel="noopener noreferrer"
                 onClick={() => logNotificationEvent(detail.id, "clicked", { url: detail.action_url }).catch(() => {})}
                 className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-semibold bg-white text-black hover:bg-zinc-100 transition-colors">
                 {detail.action_label} <ExternalLink className="w-3.5 h-3.5" />
               </a>
             )}
-            {detail.action2_url && detail.action2_label && (
+            {detail.action2_url && detail.action2_label && !/snooze|archive|24h/i.test(detail.action2_label) && (
               <a href={detail.action2_url} target="_blank" rel="noopener noreferrer"
                 onClick={() => logNotificationEvent(detail.id, "clicked", { url: detail.action2_url, secondary: true }).catch(() => {})}
                 className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-medium bg-white/[0.06] text-white hover:bg-white/[0.12] border border-white/10 transition-colors">
@@ -4453,7 +4453,7 @@ function AdminPanel() {
                           return (
                             <button key={p.id || "none"} type="button" onClick={() => setNotifPlatformIcon(p.id)}
                               className={`group relative flex flex-col items-center justify-center gap-1.5 py-2.5 px-1.5 rounded-lg border transition-all min-h-[74px] ${active ? "bg-orange-500/10 border-orange-500/60 shadow-md shadow-orange-500/10" : "bg-white/[0.02] border-white/[0.05] hover:bg-white/[0.05] hover:border-white/15"}`}>
-                              <PlatformChipVisual id={p.id} size={30} audit={platformLogoResults[p.id || "__custom"]} />
+                              <PlatformChipVisual id={p.id} size={40} audit={platformLogoResults[p.id || "__custom"]} />
                               <span className={`text-[9.5px] font-medium text-center leading-tight px-0.5 line-clamp-2 ${active ? "text-white" : "text-slate-400 group-hover:text-slate-200"}`}>{p.label}</span>
                             </button>
                           );
@@ -4692,9 +4692,9 @@ function AdminPanel() {
                       const active = resolvePlatformOption(editingNotif.platform_icon).id === p.id;
                       return (
                         <button key={p.id || "none"} type="button" onClick={() => setEditingNotif({ ...editingNotif, platform_icon: p.id })}
-                          className={`flex flex-col items-center gap-1 py-2 rounded-lg border transition-all ${active ? "border-orange-500 bg-orange-50" : "border-slate-200 hover:border-slate-300"}`}>
-                          <PlatformChipVisual id={p.id} size={24} audit={platformLogoResults[p.id || "__custom"]} />
-                          <span className="text-[9px] font-medium text-slate-600">{p.label}</span>
+                          className={`flex flex-col items-center gap-1.5 py-2.5 px-1 rounded-lg border transition-all ${active ? "border-orange-500 bg-orange-50" : "border-slate-200 hover:border-slate-300"}`}>
+                          <PlatformChipVisual id={p.id} size={40} audit={platformLogoResults[p.id || "__custom"]} />
+                          <span className="text-[9px] font-medium text-slate-600 text-center leading-tight">{p.label}</span>
                         </button>
                       );
                     })}
