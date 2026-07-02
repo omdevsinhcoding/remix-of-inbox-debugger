@@ -1197,7 +1197,9 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
                   </button>
                   <div className="absolute right-3 top-1/2 -translate-y-1/2 hidden group-hover:flex gap-1">
                     <button onClick={(e) => { e.stopPropagation(); handleSnooze(n.id, 24); }} className="p-1.5 rounded-md bg-black/40 text-zinc-400 hover:text-white" title="Snooze 24h"><Clock className="w-3.5 h-3.5" /></button>
-                    <button onClick={(e) => { e.stopPropagation(); handleDelete(n.id); }} className="p-1.5 rounded-md bg-black/40 text-zinc-400 hover:text-rose-300" title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
+                    {!n.locked && (
+                      <button onClick={(e) => { e.stopPropagation(); handleDelete(n.id); }} className="p-1.5 rounded-md bg-black/40 text-zinc-400 hover:text-rose-300" title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
+                    )}
                   </div>
                 </li>
               );
