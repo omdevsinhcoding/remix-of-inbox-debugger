@@ -35,7 +35,12 @@ function shuffleArray<T>(arr: T[]): T[] {
 function getStoredWorkerUrls(): string[] {
   try {
     const stored = localStorage.getItem(WORKER_URLS_KEY);
-    if (stored) return JSON.parse(stored);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+    const cached = readBootstrapCache();
+    if (Array.isArray(cached?.workerUrls) && cached.workerUrls.length > 0) return cached.workerUrls;
   } catch {}
   return [];
 }
@@ -193,6 +198,7 @@ async function requireLoginLocation(): Promise<LoginLocationPayload> {
 
 async function apiCall(functionName: string, body: any) {
   let workerUrls = getStoredWorkerUrls();
+  const mustUseWorker = functionName === "manage-app" && body?.action === "login";
   
   const token = getSessionToken();
   const pendingToken = (() => { try { return localStorage.getItem("pending_admin_token"); } catch { return null; } })();
@@ -245,6 +251,10 @@ async function apiCall(functionName: string, body: any) {
         continue;
       }
     }
+  }
+
+  if (mustUseWorker) {
+    throw new Error("Secure login route is unavailable. Please refresh once and try again.");
   }
 
   // Fallback: call Supabase edge function directly
