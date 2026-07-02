@@ -103,8 +103,6 @@ type LoginLocationPayload = {
   speed?: number | null;
   timestamp?: number;
   error?: string;
-  publicIp?: string;
-  publicIpSource?: "ipwho.is";
   device?: DeviceFingerprint;
 };
 
