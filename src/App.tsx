@@ -7,7 +7,7 @@ import ReCAPTCHA from "react-google-recaptcha";
 import { supabase } from "./integrations/supabase/client";
 import { QRCodeSVG } from "qrcode.react";
 import { AVATAR_CATEGORIES, resolveAvatar, buildAvatarId, prettyName, getAvatarCategoryUrls } from "./lib/avatars";
-import { bootstrapFromSupabase, bootstrapPromise, clearSessionData, markSessionStart, readBootstrapCache } from "./lib/bootstrap";
+import { bootstrapFromSupabase, clearSessionData, markSessionStart, readBootstrapCache, refreshBootstrap, patchBootstrapCacheUser } from "./lib/bootstrap";
 import { getVisitorGeo, getCachedVisitorGeo } from "./lib/geo";
 
 const SESSION_CONFIG_KEY_FOR = (role: "admin" | "user") =>
@@ -601,7 +601,9 @@ function ProfileSelectPage() {
 
   useEffect(() => {
     let cancelled = false;
-    bootstrapPromise
+    // Always fetch fresh on mount so after logout / avatar change the profile
+    // grid reflects the latest data instead of the stale module singleton.
+    refreshBootstrap()
       .then((bootstrap) => {
         if (cancelled) return;
         setProfiles((bootstrap.users || []).filter((u: UserData) => u.role === "user"));
@@ -2641,9 +2643,17 @@ function UserProfileModal({
     const nextPrefs = { ...prefs, avatarId };
     setSavingAvatar(true);
     onPrefsSaved(nextPrefs);
+    // Update the cached bootstrap immediately so the profile-selection grid
+    // shows the new avatar the very next time it mounts (e.g. after logout),
+    // without waiting for a network refresh.
+    if (user?.id) {
+      patchBootstrapCacheUser(user.id, { profile_prefs: nextPrefs, profileAvatar: avatarId });
+    }
     try {
       await apiCall("manage-app", { action: "update_profile_prefs", profile_prefs: nextPrefs });
       toast.success("Profile icon updated");
+      // Kick off a background refresh so any other cached fields also update.
+      refreshBootstrap().catch(() => {});
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not save icon");
     } finally {

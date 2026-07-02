@@ -104,3 +104,29 @@ export const bootstrapPromise: Promise<BootstrapResult> = bootstrapFromSupabase(
   if (cached) return cached;
   return { users: [], recaptcha: null, workerUrls: [] };
 });
+
+// Force-refresh: always hits the network, updates cache, returns fresh result.
+export async function refreshBootstrap(): Promise<BootstrapResult> {
+  try {
+    return await bootstrapFromSupabase();
+  } catch (err) {
+    console.warn("[bootstrap] refresh failed:", err);
+    const cached = readBootstrapCache();
+    if (cached) return cached;
+    return { users: [], recaptcha: null, workerUrls: [] };
+  }
+}
+
+// Patch a single user's fields in the cached bootstrap so the next mount
+// renders the new avatar/prefs instantly (no wait for network).
+export function patchBootstrapCacheUser(userId: string, patch: Record<string, any>) {
+  try {
+    const raw = localStorage.getItem(BOOTSTRAP_CACHE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (!parsed || !Array.isArray(parsed.users)) return;
+    parsed.users = parsed.users.map((u: any) => (u && u.id === userId ? { ...u, ...patch } : u));
+    localStorage.setItem(BOOTSTRAP_CACHE_KEY, JSON.stringify(parsed));
+  } catch {}
+}
+
