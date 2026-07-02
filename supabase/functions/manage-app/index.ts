@@ -2015,7 +2015,11 @@ Deno.serve(async (req) => {
       const { title, body, audience, target_user_id, expiresInDays } = params as any;
       if (!title || !body) throw new Error("Title and body required");
       if (!["all", "user"].includes(audience)) throw new Error("Invalid audience");
-      if (audience === "user" && !target_user_id) throw new Error("target_user_id required for user audience");
+      if (audience === "user") {
+        if (!target_user_id) throw new Error("target_user_id required for user audience");
+        const { data: exists } = await supabase.from("app_users").select("id").eq("id", target_user_id).maybeSingle();
+        if (!exists?.id) throw new Error("Target user not found");
+      }
       const expires_at = expiresInDays && Number(expiresInDays) > 0
         ? new Date(Date.now() + Number(expiresInDays) * 86400_000).toISOString()
         : null;
@@ -2039,13 +2043,13 @@ Deno.serve(async (req) => {
         target_user_id: audience === "user" ? target_user_id : null,
         created_by: createdBy,
         expires_at,
-      }).select("id").single();
+      }).select("id, title, body, audience, target_user_id, created_at, expires_at").single();
       if (error) {
         console.error("[admin_create_notification] insert failed:", error.message, error);
         throw new Error(`Failed to create notification: ${error.message}`);
       }
       await auditLog(supabase, "notification_created", session.userId, data?.id || null, { audience, target_user_id }, ip);
-      return new Response(JSON.stringify({ success: true, id: data?.id }), {
+      return new Response(JSON.stringify({ success: true, id: data?.id, notification: data }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
