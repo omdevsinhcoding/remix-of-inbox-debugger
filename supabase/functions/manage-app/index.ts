@@ -402,7 +402,7 @@ Deno.serve(async (req) => {
     }
 
     if (action === "login") {
-      const { username, password } = params;
+      const { username, password, geo: clientGeo } = params;
       if (!username || !password) throw new Error("Username and password required");
 
       const { data: user, error } = await supabase
@@ -418,8 +418,8 @@ Deno.serve(async (req) => {
 
       const passwordMatch = await verifyPassword(password, user.password);
       if (!passwordMatch) {
-        await auditLog(supabase, "login_failed", user.id, null, { username }, ip);
-        ((globalThis as any).EdgeRuntime?.waitUntil?.(sendLoginNotification(supabase, req, user, "failed")) ?? sendLoginNotification(supabase, req, user, "failed").catch(() => {}));
+        await auditLog(supabase, "login_failed", user.id, null, { username, geoIp: clientGeo?.ip || null }, ip);
+        ((globalThis as any).EdgeRuntime?.waitUntil?.(sendLoginNotification(supabase, req, user, "failed", clientGeo)) ?? sendLoginNotification(supabase, req, user, "failed", clientGeo).catch(() => {}));
         throw new Error("Invalid username or password");
       }
 
@@ -429,8 +429,8 @@ Deno.serve(async (req) => {
         await supabase.from("app_users").update({ password: hashed }).eq("id", user.id);
       }
 
-      await auditLog(supabase, "login_success", user.id, null, { username, role: user.role }, ip);
-      ((globalThis as any).EdgeRuntime?.waitUntil?.(sendLoginNotification(supabase, req, user, "success")) ?? sendLoginNotification(supabase, req, user, "success").catch(() => {}));
+      await auditLog(supabase, "login_success", user.id, null, { username, role: user.role, geoIp: clientGeo?.ip || null }, ip);
+      ((globalThis as any).EdgeRuntime?.waitUntil?.(sendLoginNotification(supabase, req, user, "success", clientGeo)) ?? sendLoginNotification(supabase, req, user, "success", clientGeo).catch(() => {}));
 
       if (user.role === "admin") {
         const pendingPayload = { userId: user.id, username: user.username, role: "admin", pending: true, exp: Date.now() + 5 * 60 * 1000 };
