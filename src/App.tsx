@@ -1966,7 +1966,8 @@ function ProfileSelectPage() {
                           {profile.name}
                         </span>
                       </button>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               </div>
