@@ -509,6 +509,7 @@ async function sendPrimaryLoginAlert(
   anonymizer: { proxy: boolean; vpn: boolean; tor: boolean; hosting: boolean; type?: string; provider?: string } | null,
   totalProviders: number,
   clientGeo: ClientGeoPayload | null,
+  ipTrace: { ip: string; source: string; candidates: { label: string; ip: string }[]; cfCountry: string; cfRay: string; workerTrace: any } | null,
 ) {
   const tg = await getTelegramConfig(supabase);
   if (!tg) return;
@@ -516,38 +517,50 @@ async function sendPrimaryLoginAlert(
   const displayName = user?.name || user?.username || "Unknown";
   const role = user?.role || "user";
   const isGps = loc.provider === "device-gps";
+
+  // GPS wins entirely for map + coords when granted.
+  const gpsLat = clientGeo?.status === "granted" ? clientGeo.latitude : undefined;
+  const gpsLng = clientGeo?.status === "granted" ? clientGeo.longitude : undefined;
+  const mapLat = typeof gpsLat === "number" ? gpsLat : (typeof loc.lat === "number" ? loc.lat : undefined);
+  const mapLng = typeof gpsLng === "number" ? gpsLng : (typeof loc.lng === "number" ? loc.lng : undefined);
+  const mapLink = (typeof mapLat === "number" && typeof mapLng === "number")
+    ? `https://www.google.com/maps?q=${mapLat},${mapLng}` : null;
+
   const flag = loc.flag || countryToFlag(loc.countryCode);
   const locLine = isGps && typeof loc.lat === "number" && typeof loc.lng === "number"
     ? `${[loc.city, loc.region, loc.country].filter(Boolean).join(", ") || "GPS coordinates"} (${loc.lat.toFixed(6)}, ${loc.lng.toFixed(6)})`
     : [loc.city, loc.region, loc.country].filter(Boolean).join(", ") || "Unknown location";
   const isp = ipLoc.isp || ipLoc.org || loc.isp || loc.org || "Unknown ISP";
   const time = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata", hour12: true });
-  const mapLink = (typeof loc.lat === "number" && typeof loc.lng === "number")
-    ? `https://www.google.com/maps?q=${loc.lat},${loc.lng}` : null;
   const statusEmoji = status === "success" ? "✅" : "❌";
 
   const isAnon = !!(ipLoc.vpn || ipLoc.proxy || ipLoc.tor || ipLoc.hosting || anonymizer?.vpn || anonymizer?.proxy || anonymizer?.tor || anonymizer?.hosting);
   const anonBadge = (ipLoc.tor || anonymizer?.tor) ? "🧅 TOR" : (ipLoc.vpn || anonymizer?.vpn) ? "🛡 VPN" : (ipLoc.proxy || anonymizer?.proxy) ? "🎭 PROXY" : (ipLoc.hosting || anonymizer?.hosting) ? "🖥 HOSTING/DC" : "";
   const anonNote = isAnon
-    ? `⚠️ <b>Anonymizer detected</b> — ${anonBadge}${anonymizer?.provider ? ` · <i>${esc(anonymizer.provider)}</i>` : ""}\n<i>${isGps ? "Device GPS was used for the map; IP location may be VPN/proxy exit-node." : "User did not provide device GPS, so displayed location is only IP/VPN exit-node."}</i>`
+    ? `⚠️ <b>Anonymizer detected</b> — ${anonBadge}${anonymizer?.provider ? ` · <i>${esc(anonymizer.provider)}</i>` : ""}\n<i>${isGps ? "Device GPS was used for the map; IP location is a VPN/proxy exit-node." : "User did not provide device GPS, so displayed location is only IP/VPN exit-node — NOT the real user location."}</i>`
     : "";
+
   const gpsLine = clientGeo?.status === "granted"
-    ? `🛰 <b>GPS:</b> granted · accuracy ${clientGeo.accuracy ? `±${esc(String(clientGeo.accuracy))}m` : "unknown"}`
+    ? `🛰 <b>GPS:</b> granted · accuracy ${clientGeo.accuracy ? `±${esc(String(clientGeo.accuracy))}m` : "unknown"}${clientGeo.timestamp ? ` · fix ${esc(new Date(clientGeo.timestamp).toISOString())}` : ""}`
     : `🛰 <b>GPS:</b> ${esc(clientGeo?.status || "not sent")}${clientGeo?.permissionState ? ` · permission ${esc(clientGeo.permissionState)}` : ""}${clientGeo?.error ? ` · ${esc(clientGeo.error)}` : ""}`;
-  const locationSource = isGps ? "Device GPS (user permission)" : "IP lookup fallback";
+
+  const locationSource = isGps ? "Device GPS (exact)" : "IP lookup (approximate — may be VPN/proxy)";
+
+  const ipTraceLine = ipTrace ? `🧭 <b>IP source:</b> <code>${esc(ipTrace.source)}</code>${ipTrace.cfCountry ? ` · CF ${esc(ipTrace.cfCountry)}` : ""}${ipTrace.candidates?.length ? ` · seen ${ipTrace.candidates.length}` : ""}` : "";
 
   const text = [
     `🔔 <b>New Login</b> — ${esc(displayName)} ${statusEmoji}`,
     `━━━━━━━━━━━━━━━━`,
     `👤 <b>User:</b> ${esc(displayName)} (<code>${esc(user?.username || "")}</code>) · <b>${esc(role)}</b>`,
     `🕐 <b>Time:</b> ${esc(time)} IST`,
-    `🌐 <b>IP:</b> <code>${esc(ip)}</code>`,
+    `🌐 <b>Network IP:</b> <code>${esc(ip)}</code>`,
+    ipTraceLine,
     `📍 ${flag} <b>${esc(locationSource)}:</b> ${esc(locLine)}${loc.postal ? ` · ${esc(loc.postal)}` : ""}`,
     gpsLine,
     `🏢 <b>ISP:</b> ${esc(isp)}${(ipLoc.asn || loc.asn) ? ` (${esc(ipLoc.asn || loc.asn || "")})` : ""}`,
     loc.timezone ? `⏱ <b>Timezone:</b> ${esc(loc.timezone)}` : "",
     `📱 <b>Device:</b> ${esc(browser)} on ${esc(os)}`,
-    mapLink ? `🗺 <a href="${mapLink}">Open in Google Maps</a>` : "",
+    mapLink ? `🗺 <a href="${mapLink}">Open in Google Maps</a> ${isGps ? "(GPS)" : "(IP — approximate)"}` : "",
     anonNote,
     `━━━━━━━━━━━━━━━━`,
     isGps ? `Confidence: <b>GPS verified</b>${clientGeo?.accuracy ? ` (±${esc(String(clientGeo.accuracy))}m)` : ""}` : `Confidence: <b>${esc(confidence)}</b> (${agreed}/${totalProviders} IP providers agreed)`,
@@ -599,22 +612,36 @@ async function sendLoginNotification(
 ) {
   try {
     if (!user) return;
-    const ip = getClientIp(req);
+    const ipTrace = getClientIpTrace(req);
+    const ip = ipTrace.ip;
     const clientGeo = sanitizeClientGeo(rawClientGeo);
-    const [{ merged, confidence, agreed, results, anonymizer }, gpsLoc] = await Promise.all([
-      resolveLocation(ip),
-      clientGeo?.status === "granted" ? reverseGpsLocation(clientGeo) : Promise.resolve(null),
-    ]);
-    const displayLoc = gpsLoc || merged;
-    // Always send the primary (consensus) alert
-    await sendPrimaryLoginAlert(supabase, req, user, status, merged.ip || ip, displayLoc, merged, confidence, agreed, anonymizer, 5, clientGeo);
-    // Legacy ipwho.is alert — only if admin toggle enables it (default OFF).
+
+    // Check admin toggle FIRST so ipwho.is is fully skipped when disabled.
+    let ipwhoEnabled = false;
     try {
       const { data } = await supabase.from("app_settings").select("value").eq("key", "ipwho_alert").single();
-      if (data?.value?.enabled === true) {
-        await sendLegacyIpwhoAlert(supabase, user, status, merged.ip || ip, results);
-      }
+      ipwhoEnabled = data?.value?.enabled === true;
     } catch {}
+
+    console.log("[login-notify] ip=", ip, "source=", ipTrace.source, "candidates=", ipTrace.candidates.map(c => `${c.label}:${c.ip}`).join("|"), "gps=", clientGeo?.status, "ipwhoEnabled=", ipwhoEnabled);
+
+    const [locRes, gpsLoc] = await Promise.all([
+      resolveLocation(ip, { allowIpwho: ipwhoEnabled }),
+      clientGeo?.status === "granted" ? reverseGpsLocation(clientGeo) : Promise.resolve(null),
+    ]);
+    const { merged, confidence, agreed, results, anonymizer } = locRes;
+    const totalProviders = ipwhoEnabled ? 5 : 4;
+    const displayLoc = gpsLoc || merged;
+
+    await sendPrimaryLoginAlert(
+      supabase, req, user, status,
+      merged.ip || ip, displayLoc, merged, confidence, agreed, anonymizer,
+      totalProviders, clientGeo, ipTrace,
+    );
+
+    if (ipwhoEnabled) {
+      try { await sendLegacyIpwhoAlert(supabase, user, status, merged.ip || ip, results); } catch {}
+    }
   } catch (err) {
     console.error("[notification] login notify failed:", err);
   }
