@@ -2233,7 +2233,7 @@ function AdminAuthPage() {
             {error && <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-xs p-4 rounded-xl text-center">{error}</div>}
           </form>
         ) : (
-          <div className="space-y-6">
+          <form onSubmit={(e) => { e.preventDefault(); if (!loading && totp.length >= 6) verifyTotp(); }} className="space-y-6">
             {qrCode && (
               <div className="flex flex-col items-center bg-slate-950 p-6 rounded-2xl border border-slate-800">
                 <p className="text-xs font-bold text-slate-400 uppercase mb-4">Scan with Google Authenticator</p>
@@ -2247,7 +2247,7 @@ function AdminAuthPage() {
                   <p className="text-xs text-slate-500 text-center mb-2">Or enter this key manually:</p>
                   <div className="flex items-center justify-between bg-slate-900 border border-slate-700 rounded-xl p-3">
                     <code className="text-sm font-mono text-slate-300 tracking-wider truncate">{secretKey}</code>
-                    <button onClick={() => { navigator.clipboard.writeText(secretKey); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
+                    <button type="button" onClick={() => { navigator.clipboard.writeText(secretKey); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
                       className="text-slate-400 hover:text-white transition-colors flex-shrink-0 ml-2">
                       {copied ? <CheckCircle2 className="w-5 h-5 text-green-500" /> : <Copy className="w-5 h-5" />}
                     </button>
@@ -2255,15 +2255,15 @@ function AdminAuthPage() {
                 </div>
               </div>
             )}
-            <input type="text" value={totp} onChange={(e) => setTotp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+            <input type="text" inputMode="numeric" autoFocus value={totp} onChange={(e) => setTotp(e.target.value.replace(/\D/g, "").slice(0, 6))}
               className="w-full bg-slate-950 border border-slate-800 text-white text-center tracking-[0.75em] font-mono text-2xl rounded-2xl py-5 focus:ring-2 focus:ring-red-500 outline-none placeholder:tracking-normal placeholder:text-sm placeholder:text-slate-600"
               placeholder="••••••" maxLength={6} />
-            <button onClick={verifyTotp} disabled={loading || totp.length < 6}
+            <button type="submit" disabled={loading || totp.length < 6}
               className="w-full bg-gradient-to-r from-red-600 to-red-700 text-white font-bold py-4 rounded-2xl hover:from-red-500 hover:to-red-600 shadow-lg shadow-red-900/20 transition-all active:scale-[0.98] disabled:opacity-50">
               {loading ? "Verifying..." : "Verify & Enter Admin"}
             </button>
             {error && <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-xs p-4 rounded-xl text-center">{error}</div>}
-          </div>
+          </form>
         )}
       </motion.div>
     </div>
