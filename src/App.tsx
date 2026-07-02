@@ -3419,9 +3419,15 @@ function AdminPanel() {
         title: notifTitle.trim(),
         body: notifBody.trim(),
         description: notifDescription.trim() || null,
+        body_markdown: notifKind === "article" ? (notifBodyMarkdown.trim() || null) : null,
         image_url: notifImageUrl.trim() || null,
         category: notifCategory,
         priority: notifPriority,
+        kind: notifKind,
+        mode: notifMode,
+        show_frequency: notifShowFrequency,
+        platform_icon: notifPlatformIcon || null,
+        locked: notifLocked,
         action_url: notifActionUrl.trim() || null,
         action_label: notifActionLabel.trim() || null,
         pinned: notifPinned,
@@ -3432,7 +3438,8 @@ function AdminPanel() {
       toast.success("🔔 Notification sent");
       setNotifTitle(""); setNotifBody(""); setNotifDescription(""); setNotifImageUrl("");
       setNotifActionUrl(""); setNotifActionLabel(""); setNotifPinned(false);
-      setNotifExpiresDays("");
+      setNotifExpiresDays(""); setNotifBodyMarkdown(""); setNotifPlatformIcon("");
+      setNotifLocked(false);
       await reloadAdminNotifs();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to send");
