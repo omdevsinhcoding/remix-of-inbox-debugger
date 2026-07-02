@@ -61,6 +61,16 @@ async function verifySessionToken(token: string, secret: string): Promise<Record
   } catch { return null; }
 }
 
+// Verify with the new signing secret first, then fall back to the legacy secret
+// so sessions issued before the rotation still work until they expire naturally.
+async function verifySessionTokenDual(token: string, primary: string, legacy: string): Promise<Record<string, any> | null> {
+  const p = await verifySessionToken(token, primary);
+  if (p) return p;
+  if (legacy && legacy !== primary) return await verifySessionToken(token, legacy);
+  return null;
+}
+
+
 async function sha256Hex(value: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, "0")).join("");
