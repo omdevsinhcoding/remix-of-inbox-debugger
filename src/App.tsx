@@ -2378,6 +2378,7 @@ function AdminPanel() {
   const [maintenanceVersionFrom, setMaintenanceVersionFrom] = useState("");
   const [maintenanceVersionTo, setMaintenanceVersionTo] = useState("");
   const [savingMaintenance, setSavingMaintenance] = useState(false);
+  const prevSavedVersionToRef = useRef<string>("");
 
 
   // Notifications tab
@@ -2509,6 +2510,7 @@ function AdminPanel() {
           setMaintenanceMessage(mnt.value.message || "");
           setMaintenanceVersionFrom(mnt.value.versionFrom || "");
           setMaintenanceVersionTo(mnt.value.versionTo || "");
+          prevSavedVersionToRef.current = mnt.value.versionTo || "";
           // Convert stored ISO to local "YYYY-MM-DDTHH:mm" for the datetime-local input.
           const toLocalInput = (iso: string) => {
             const d = new Date(iso);
@@ -2567,7 +2569,6 @@ function AdminPanel() {
   };
 
   const saveMaintenance = async (nextEnabled?: boolean) => {
-    const enabled = typeof nextEnabled === "boolean" ? nextEnabled : maintenanceEnabled;
     // Convert local datetime-local -> ISO. Empty string means no scheduled start/end.
     const toIso = (s: string): string | null => {
       if (!s) return null;
@@ -2580,6 +2581,28 @@ function AdminPanel() {
       toast.error("End time must be after start time");
       return;
     }
+
+    // Auto-enable when the admin fills a schedule (even without flipping the toggle).
+    const hasSchedule = !!(startsAtIso && endsAtIso);
+    const enabled = typeof nextEnabled === "boolean" ? nextEnabled : (maintenanceEnabled || hasSchedule);
+
+    // Version auto-bump: baseline 2.4.4. Each save bumps patch +1 from the previously saved
+    // versionTo unless the admin manually typed a different (higher) version.
+    const bumpPatch = (v: string) => {
+      const parts = String(v || "").replace(/^v/i, "").split(".").map((n) => parseInt(n, 10));
+      while (parts.length < 3) parts.push(0);
+      parts[2] = (Number.isFinite(parts[2]) ? parts[2] : 0) + 1;
+      return parts.map((n) => (Number.isFinite(n) ? n : 0)).join(".");
+    };
+    const prevTo = prevSavedVersionToRef.current || "";
+    let nextVersionTo = maintenanceVersionTo.trim();
+    let autoBumped = false;
+    if (!nextVersionTo || nextVersionTo === prevTo) {
+      nextVersionTo = bumpPatch(prevTo || "2.4.3"); // 2.4.3 -> bump -> 2.4.4 on first save
+      autoBumped = true;
+    }
+    const nextVersionFrom = maintenanceVersionFrom.trim() || prevTo || "2.4.4";
+
     setSavingMaintenance(true);
     try {
       await apiCall("manage-app", {
@@ -2591,15 +2614,22 @@ function AdminPanel() {
           message: maintenanceMessage.trim(),
           startsAt: startsAtIso,
           endsAt: endsAtIso,
-          versionFrom: maintenanceVersionFrom.trim(),
-          versionTo: maintenanceVersionTo.trim(),
+          versionFrom: nextVersionFrom,
+          versionTo: nextVersionTo,
           updated_at: new Date().toISOString(),
         },
       });
       setMaintenanceEnabled(enabled);
+      setMaintenanceVersionFrom(nextVersionFrom);
+      setMaintenanceVersionTo(nextVersionTo);
+      prevSavedVersionToRef.current = nextVersionTo;
       try { await refreshBootstrap(); } catch {}
       window.dispatchEvent(new Event("maintenance:changed"));
-      toast.success(enabled ? "Maintenance mode is ON" : "Maintenance mode is OFF");
+      if (autoBumped) toast.success(`Saved · version auto-bumped to v${nextVersionTo}`);
+      else toast.success(enabled ? `Maintenance ON · v${nextVersionTo}` : `Maintenance OFF · v${nextVersionTo}`);
+      if (hasSchedule && !maintenanceEnabled && typeof nextEnabled !== "boolean") {
+        toast.message("Scheduled — site will auto-lock at start time and auto-unlock at end time.");
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to save maintenance settings");
     } finally {
@@ -3973,12 +4003,29 @@ function AdminPanel() {
                 </div>
                 <div>
                   <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">Starts at (date + time)</label>
-                  <input
-                    type="datetime-local"
-                    value={maintenanceStartsAt}
-                    onChange={(e) => setMaintenanceStartsAt(e.target.value)}
-                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm"
-                  />
+                  {(() => {
+                    const [d = "", t = ""] = (maintenanceStartsAt || "").split("T");
+                    const time = t.slice(0, 5);
+                    const today = new Date();
+                    const pad = (n: number) => String(n).padStart(2, "0");
+                    const fallbackDate = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+                    return (
+                      <div className="flex gap-2">
+                        <input
+                          type="date"
+                          value={d}
+                          onChange={(e) => setMaintenanceStartsAt(e.target.value ? `${e.target.value}T${time || "00:00"}` : "")}
+                          className="flex-1 min-w-0 bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm"
+                        />
+                        <input
+                          type="time"
+                          value={time}
+                          onChange={(e) => setMaintenanceStartsAt(`${d || fallbackDate}T${e.target.value || "00:00"}`)}
+                          className="w-[130px] bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm"
+                        />
+                      </div>
+                    );
+                  })()}
                   <p className="text-[10.5px] text-slate-500 mt-1 ml-1">
                     {maintenanceStartsAt
                       ? `Site locks at ${new Date(maintenanceStartsAt).toLocaleString(undefined, { hour: "numeric", minute: "2-digit", hour12: true, day: "numeric", month: "short" })}`
@@ -3987,12 +4034,29 @@ function AdminPanel() {
                 </div>
                 <div>
                   <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">Back online at (date + time)</label>
-                  <input
-                    type="datetime-local"
-                    value={maintenanceEndsAt}
-                    onChange={(e) => setMaintenanceEndsAt(e.target.value)}
-                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm"
-                  />
+                  {(() => {
+                    const [d = "", t = ""] = (maintenanceEndsAt || "").split("T");
+                    const time = t.slice(0, 5);
+                    const today = new Date();
+                    const pad = (n: number) => String(n).padStart(2, "0");
+                    const fallbackDate = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+                    return (
+                      <div className="flex gap-2">
+                        <input
+                          type="date"
+                          value={d}
+                          onChange={(e) => setMaintenanceEndsAt(e.target.value ? `${e.target.value}T${time || "00:00"}` : "")}
+                          className="flex-1 min-w-0 bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm"
+                        />
+                        <input
+                          type="time"
+                          value={time}
+                          onChange={(e) => setMaintenanceEndsAt(`${d || fallbackDate}T${e.target.value || "00:00"}`)}
+                          className="w-[130px] bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm"
+                        />
+                      </div>
+                    );
+                  })()}
                   <p className="text-[10.5px] text-slate-500 mt-1 ml-1">
                     {maintenanceEndsAt
                       ? `Site auto-unlocks at ${new Date(maintenanceEndsAt).toLocaleString(undefined, { hour: "numeric", minute: "2-digit", hour12: true, day: "numeric", month: "short" })}`
