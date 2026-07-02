@@ -1890,9 +1890,9 @@ function ProfileSelectPage() {
             ) : (
               <div className="w-full max-w-5xl mx-auto rounded-2xl border border-white/[0.06] bg-white/[0.015] p-3 sm:p-5">
                 <div
-                  className="w-full overflow-y-auto overscroll-contain pr-1 sm:pr-2 max-h-[58vh] sm:max-h-[62vh] scroll-smooth [scrollbar-width:thin] [scrollbar-color:#3a3a3a_transparent] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:bg-neutral-700 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb:hover]:bg-neutral-500"
+                  className="w-full overflow-y-scroll overscroll-contain pr-2 sm:pr-3 py-2 sm:py-3 max-h-[58vh] sm:max-h-[62vh] scroll-smooth [scrollbar-width:thin] [scrollbar-color:#e50914_rgba(255,255,255,0.04)] [&::-webkit-scrollbar]:w-[10px] [&::-webkit-scrollbar-track]:bg-white/[0.03] [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-thumb]:bg-gradient-to-b [&::-webkit-scrollbar-thumb]:from-[#e50914] [&::-webkit-scrollbar-thumb]:to-[#7a0006] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb:hover]:from-[#ff1a25] [&::-webkit-scrollbar-thumb:hover]:to-[#a30009]"
                 >
-                  <div className="grid grid-cols-3 sm:[grid-template-columns:repeat(auto-fill,minmax(128px,160px))] gap-x-4 gap-y-7 sm:gap-x-6 sm:gap-y-10 justify-center mx-auto">
+                  <div className="grid grid-cols-3 sm:[grid-template-columns:repeat(auto-fill,minmax(128px,160px))] gap-x-4 gap-y-7 sm:gap-x-6 sm:gap-y-10 justify-center mx-auto pb-4">
                     {displayProfiles.map((profile, i) => (
                       <motion.button
                         key={profile.id}
