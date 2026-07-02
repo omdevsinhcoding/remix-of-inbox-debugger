@@ -1287,20 +1287,6 @@ Deno.serve(async (req) => {
         if (efData?.value && typeof efData.value === "object") emailFilters = efData.value;
       } catch {}
 
-      let maintenance: any = { enabled: false };
-      try {
-        const { data: mData } = await supabase.from("app_settings").select("value").eq("key", "maintenance").single();
-        if (mData?.value && typeof mData.value === "object") {
-          maintenance = {
-            enabled: !!mData.value.enabled,
-            title: typeof mData.value.title === "string" ? mData.value.title : "",
-            message: typeof mData.value.message === "string" ? mData.value.message : "",
-            eta: typeof mData.value.eta === "string" ? mData.value.eta : "",
-            updated_at: mData.value.updated_at || null,
-          };
-        }
-      } catch {}
-
       const mappedUsers = (users || []).map((u: any) => ({
         id: u.id,
         username: u.username,
@@ -1308,11 +1294,10 @@ Deno.serve(async (req) => {
         role: u.role,
         profileAvatar: u.profile_prefs?.avatarId || null,
       }));
-      return new Response(JSON.stringify({ success: true, users: mappedUsers, recaptcha, workerUrls, emailFilters, maintenance }), {
+      return new Response(JSON.stringify({ success: true, users: mappedUsers, recaptcha, workerUrls, emailFilters }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-
 
     if (action === "list") {
       // Admin dashboard only
@@ -1967,47 +1952,25 @@ Deno.serve(async (req) => {
       const nowIso = new Date().toISOString();
       const { data: notes, error: nErr } = await supabase
         .from("notifications")
-        .select("id, title, body, description, image_url, category, priority, icon, action_url, action_label, action2_url, action2_label, pinned, audience, target_user_id, created_at, expires_at, publish_at, group_key")
+        .select("id, title, body, audience, target_user_id, created_at, expires_at")
         .or(`audience.eq.all,target_user_id.eq.${session.userId}`)
-        .order("pinned", { ascending: false })
         .order("created_at", { ascending: false })
-        .limit(100);
+        .limit(50);
       if (nErr) throw nErr;
-      const active = (notes || []).filter((n: any) => {
-        if (n.expires_at && n.expires_at <= nowIso) return false;
-        if (n.publish_at && n.publish_at > nowIso) return false;
-        return true;
-      });
+      const active = (notes || []).filter((n: any) => !n.expires_at || n.expires_at > nowIso);
       const ids = active.map((n: any) => n.id);
-      const readSet = new Set<string>();
-      const seenSet = new Set<string>();
-      const archivedSet = new Set<string>();
-      const snoozeMap = new Map<string, string>();
+      let readMap = new Set<string>();
       if (ids.length) {
         const { data: reads } = await supabase
           .from("notification_reads")
-          .select("notification_id, read_at, seen_at, archived_at, snoozed_until")
+          .select("notification_id")
           .in("notification_id", ids)
           .eq("user_id", session.userId);
-        for (const r of reads || []) {
-          if (r.read_at) readSet.add(r.notification_id);
-          if (r.seen_at) seenSet.add(r.notification_id);
-          if (r.archived_at) archivedSet.add(r.notification_id);
-          if (r.snoozed_until) snoozeMap.set(r.notification_id, r.snoozed_until);
-        }
+        readMap = new Set((reads || []).map((r: any) => r.notification_id));
       }
       const payload = active.map((n: any) => ({
-        id: n.id, title: n.title, body: n.body,
-        description: n.description, image_url: n.image_url,
-        category: n.category, priority: n.priority, icon: n.icon,
-        action_url: n.action_url, action_label: n.action_label,
-        action2_url: n.action2_url, action2_label: n.action2_label,
-        pinned: !!n.pinned, audience: n.audience,
-        created_at: n.created_at, expires_at: n.expires_at, publish_at: n.publish_at,
-        read: readSet.has(n.id),
-        seen: seenSet.has(n.id),
-        archived: archivedSet.has(n.id),
-        snoozed_until: snoozeMap.get(n.id) || null,
+        id: n.id, title: n.title, body: n.body, audience: n.audience,
+        created_at: n.created_at, expires_at: n.expires_at, read: readMap.has(n.id),
       }));
       return new Response(JSON.stringify({ success: true, notifications: payload }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -2018,32 +1981,11 @@ Deno.serve(async (req) => {
       const session = await requireSession(req);
       const { notification_id } = params as { notification_id?: string };
       if (!notification_id) throw new Error("notification_id required");
-      const nowIso = new Date().toISOString();
       const { error } = await supabase.from("notification_reads").upsert(
-        { notification_id, user_id: session.userId, read_at: nowIso, seen_at: nowIso },
+        { notification_id, user_id: session.userId },
         { onConflict: "notification_id,user_id" },
       );
       if (error) throw error;
-      await supabase.from("notification_events").insert({
-        notification_id, user_id: session.userId, event: "read",
-      });
-      return new Response(JSON.stringify({ success: true }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    if (action === "mark_notifications_seen") {
-      const session = await requireSession(req);
-      const { ids } = params as { ids?: string[] };
-      if (!Array.isArray(ids) || !ids.length) {
-        return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
-      const nowIso = new Date().toISOString();
-      const rows = ids.slice(0, 200).map((id: string) => ({ notification_id: id, user_id: session.userId, seen_at: nowIso }));
-      const { error } = await supabase.from("notification_reads").upsert(rows, { onConflict: "notification_id,user_id" });
-      if (error) throw error;
-      const eventRows = ids.slice(0, 200).map((id: string) => ({ notification_id: id, user_id: session.userId, event: "seen" }));
-      await supabase.from("notification_events").insert(eventRows);
       return new Response(JSON.stringify({ success: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -2058,7 +2000,7 @@ Deno.serve(async (req) => {
         .or(`audience.eq.all,target_user_id.eq.${session.userId}`);
       const ids = (notes || []).filter((n: any) => !n.expires_at || n.expires_at > nowIso).map((n: any) => n.id);
       if (ids.length) {
-        const rows = ids.map((id: string) => ({ notification_id: id, user_id: session.userId, read_at: nowIso, seen_at: nowIso }));
+        const rows = ids.map((id: string) => ({ notification_id: id, user_id: session.userId }));
         const { error } = await supabase.from("notification_reads").upsert(rows, { onConflict: "notification_id,user_id" });
         if (error) throw error;
       }
@@ -2067,80 +2009,26 @@ Deno.serve(async (req) => {
       });
     }
 
-    if (action === "archive_notification") {
-      const session = await requireSession(req);
-      const { notification_id } = params as { notification_id?: string };
-      if (!notification_id) throw new Error("notification_id required");
-      const nowIso = new Date().toISOString();
-      const { error } = await supabase.from("notification_reads").upsert(
-        { notification_id, user_id: session.userId, archived_at: nowIso, seen_at: nowIso },
-        { onConflict: "notification_id,user_id" },
-      );
-      if (error) throw error;
-      await supabase.from("notification_events").insert({ notification_id, user_id: session.userId, event: "archived" });
-      return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-
-    if (action === "snooze_notification") {
-      const session = await requireSession(req);
-      const { notification_id, until } = params as { notification_id?: string; until?: string };
-      if (!notification_id || !until) throw new Error("notification_id and until required");
-      const { error } = await supabase.from("notification_reads").upsert(
-        { notification_id, user_id: session.userId, snoozed_until: until },
-        { onConflict: "notification_id,user_id" },
-      );
-      if (error) throw error;
-      await supabase.from("notification_events").insert({ notification_id, user_id: session.userId, event: "snoozed", meta: { until } });
-      return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-
-    if (action === "log_notification_event") {
-      const session = await requireSession(req);
-      const { notification_id, event, meta } = params as { notification_id?: string; event?: string; meta?: any };
-      if (!notification_id || !event) throw new Error("notification_id and event required");
-      const allowed = ["delivered", "seen", "read", "clicked", "dismissed", "snoozed", "archived"];
-      if (!allowed.includes(event)) throw new Error("invalid event");
-      await supabase.from("notification_events").insert({ notification_id, user_id: session.userId, event, meta: meta || null });
-      return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-
     // ---------- Notifications: admin side ----------
     if (action === "admin_create_notification") {
       const session = await requireAdmin(req);
-      const p = params as any;
-      if (!p?.title || !p?.body) throw new Error("Title and body required");
-      const audience = p.audience || "all";
+      const { title, body, audience, target_user_id, expiresInDays } = params as any;
+      if (!title || !body) throw new Error("Title and body required");
       if (!["all", "user"].includes(audience)) throw new Error("Invalid audience");
-      if (audience === "user" && !p.target_user_id) throw new Error("target_user_id required for user audience");
-      const category = ["announcement","update","security","maintenance","promo","billing"].includes(p.category) ? p.category : "announcement";
-      const priority = ["low","normal","high","critical"].includes(p.priority) ? p.priority : "normal";
-      const expires_at = p.expiresInDays && Number(p.expiresInDays) > 0
-        ? new Date(Date.now() + Number(p.expiresInDays) * 86400_000).toISOString()
+      if (audience === "user" && !target_user_id) throw new Error("target_user_id required for user audience");
+      const expires_at = expiresInDays && Number(expiresInDays) > 0
+        ? new Date(Date.now() + Number(expiresInDays) * 86400_000).toISOString()
         : null;
-      const publish_at = p.publish_at ? new Date(p.publish_at).toISOString() : null;
-      const row: Record<string, any> = {
-        title: String(p.title).slice(0, 200),
-        body: String(p.body).slice(0, 4000),
-        description: p.description ? String(p.description).slice(0, 8000) : null,
-        image_url: p.image_url ? String(p.image_url).slice(0, 2048) : null,
-        category, priority,
-        icon: p.icon ? String(p.icon).slice(0, 64) : null,
-        action_url: p.action_url ? String(p.action_url).slice(0, 2048) : null,
-        action_label: p.action_label ? String(p.action_label).slice(0, 80) : null,
-        action2_url: p.action2_url ? String(p.action2_url).slice(0, 2048) : null,
-        action2_label: p.action2_label ? String(p.action2_label).slice(0, 80) : null,
-        pinned: !!p.pinned,
+      const { data, error } = await supabase.from("notifications").insert({
+        title: String(title).slice(0, 200),
+        body: String(body).slice(0, 4000),
         audience,
-        target_user_id: audience === "user" ? p.target_user_id : null,
+        target_user_id: audience === "user" ? target_user_id : null,
         created_by: session.userId,
         expires_at,
-        publish_at,
-        dedupe_key: p.dedupe_key ? String(p.dedupe_key).slice(0, 200) : null,
-        group_key: p.group_key ? String(p.group_key).slice(0, 200) : null,
-      };
-      const { data, error } = await supabase.from("notifications").insert(row).select("id").single();
+      }).select("id").single();
       if (error) throw error;
-      await auditLog(supabase, "notification_created", session.userId, data?.id || null, { audience, target_user_id: p.target_user_id, category, priority }, ip);
+      await auditLog(supabase, "notification_created", session.userId, data?.id || null, { audience, target_user_id }, ip);
       return new Response(JSON.stringify({ success: true, id: data?.id }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -2150,37 +2038,26 @@ Deno.serve(async (req) => {
       await requireAdmin(req);
       const { data: notes, error } = await supabase
         .from("notifications")
-        .select("*")
+        .select("id, title, body, audience, target_user_id, created_at, expires_at")
         .order("created_at", { ascending: false })
         .limit(200);
       if (error) throw error;
+      // Attach read counts
       const ids = (notes || []).map((n: any) => n.id);
       const readCounts = new Map<string, number>();
-      const seenCounts = new Map<string, number>();
-      const clickCounts = new Map<string, number>();
       if (ids.length) {
         const { data: reads } = await supabase
           .from("notification_reads")
-          .select("notification_id, read_at, seen_at")
+          .select("notification_id")
           .in("notification_id", ids);
-        for (const r of reads || []) {
-          if (r.seen_at) seenCounts.set(r.notification_id, (seenCounts.get(r.notification_id) || 0) + 1);
-          if (r.read_at) readCounts.set(r.notification_id, (readCounts.get(r.notification_id) || 0) + 1);
-        }
-        const { data: evs } = await supabase
-          .from("notification_events")
-          .select("notification_id, event")
-          .in("notification_id", ids)
-          .eq("event", "clicked");
-        for (const e of evs || []) clickCounts.set(e.notification_id, (clickCounts.get(e.notification_id) || 0) + 1);
+        for (const r of reads || []) readCounts.set(r.notification_id, (readCounts.get(r.notification_id) || 0) + 1);
       }
+      // Total recipients: for 'all', count non-admin users; for 'user', 1.
       const { count: totalUsers } = await supabase.from("app_users").select("id", { count: "exact", head: true }).neq("role", "admin");
       const payload = (notes || []).map((n: any) => ({
         ...n,
-        readCount: readCounts.get(n.id) || 0,
-        seenCount: seenCounts.get(n.id) || 0,
-        clickCount: clickCounts.get(n.id) || 0,
-        totalRecipients: n.audience === "all" ? (totalUsers || 0) : 1,
+        read_count: readCounts.get(n.id) || 0,
+        total_recipients: n.audience === "all" ? (totalUsers || 0) : 1,
       }));
       return new Response(JSON.stringify({ success: true, notifications: payload }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -2198,7 +2075,6 @@ Deno.serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-
 
     if (action === "list_login_events") {
       await requireAdmin(req);

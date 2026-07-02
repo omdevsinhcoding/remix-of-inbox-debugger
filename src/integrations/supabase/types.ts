@@ -459,107 +459,20 @@ export type Database = {
         }
         Relationships: []
       }
-      notification_events: {
-        Row: {
-          at: string
-          event: string
-          id: string
-          meta: Json | null
-          notification_id: string
-          user_id: string
-        }
-        Insert: {
-          at?: string
-          event: string
-          id?: string
-          meta?: Json | null
-          notification_id: string
-          user_id: string
-        }
-        Update: {
-          at?: string
-          event?: string
-          id?: string
-          meta?: Json | null
-          notification_id?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
-      notification_prefs: {
-        Row: {
-          category: string
-          created_at: string
-          digest_frequency: string
-          email_enabled: boolean
-          id: string
-          in_app_enabled: boolean
-          push_enabled: boolean
-          quiet_hours_end: string | null
-          quiet_hours_start: string | null
-          quiet_tz: string | null
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          category?: string
-          created_at?: string
-          digest_frequency?: string
-          email_enabled?: boolean
-          id?: string
-          in_app_enabled?: boolean
-          push_enabled?: boolean
-          quiet_hours_end?: string | null
-          quiet_hours_start?: string | null
-          quiet_tz?: string | null
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          category?: string
-          created_at?: string
-          digest_frequency?: string
-          email_enabled?: boolean
-          id?: string
-          in_app_enabled?: boolean
-          push_enabled?: boolean
-          quiet_hours_end?: string | null
-          quiet_hours_start?: string | null
-          quiet_tz?: string | null
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
       notification_reads: {
         Row: {
-          archived_at: string | null
-          clicked_at: string | null
-          dismissed_at: string | null
           notification_id: string
           read_at: string
-          seen_at: string | null
-          snoozed_until: string | null
           user_id: string
         }
         Insert: {
-          archived_at?: string | null
-          clicked_at?: string | null
-          dismissed_at?: string | null
           notification_id: string
           read_at?: string
-          seen_at?: string | null
-          snoozed_until?: string | null
           user_id: string
         }
         Update: {
-          archived_at?: string | null
-          clicked_at?: string | null
-          dismissed_at?: string | null
           notification_id?: string
           read_at?: string
-          seen_at?: string | null
-          snoozed_until?: string | null
           user_id?: string
         }
         Relationships: [
@@ -574,106 +487,34 @@ export type Database = {
       }
       notifications: {
         Row: {
-          action_label: string | null
-          action_url: string | null
-          action2_label: string | null
-          action2_url: string | null
           audience: string
           body: string
-          category: string
           created_at: string
           created_by: string | null
-          dedupe_key: string | null
-          description: string | null
           expires_at: string | null
-          group_key: string | null
-          icon: string | null
           id: string
-          image_key: string | null
-          image_url: string | null
-          pinned: boolean
-          priority: string
-          publish_at: string | null
           target_user_id: string | null
           title: string
         }
         Insert: {
-          action_label?: string | null
-          action_url?: string | null
-          action2_label?: string | null
-          action2_url?: string | null
           audience: string
           body: string
-          category?: string
           created_at?: string
           created_by?: string | null
-          dedupe_key?: string | null
-          description?: string | null
           expires_at?: string | null
-          group_key?: string | null
-          icon?: string | null
           id?: string
-          image_key?: string | null
-          image_url?: string | null
-          pinned?: boolean
-          priority?: string
-          publish_at?: string | null
           target_user_id?: string | null
           title: string
         }
         Update: {
-          action_label?: string | null
-          action_url?: string | null
-          action2_label?: string | null
-          action2_url?: string | null
           audience?: string
           body?: string
-          category?: string
           created_at?: string
           created_by?: string | null
-          dedupe_key?: string | null
-          description?: string | null
           expires_at?: string | null
-          group_key?: string | null
-          icon?: string | null
           id?: string
-          image_key?: string | null
-          image_url?: string | null
-          pinned?: boolean
-          priority?: string
-          publish_at?: string | null
           target_user_id?: string | null
           title?: string
-        }
-        Relationships: []
-      }
-      push_subscriptions: {
-        Row: {
-          auth: string
-          created_at: string
-          endpoint: string
-          id: string
-          p256dh: string
-          ua: string | null
-          user_id: string
-        }
-        Insert: {
-          auth: string
-          created_at?: string
-          endpoint: string
-          id?: string
-          p256dh: string
-          ua?: string | null
-          user_id: string
-        }
-        Update: {
-          auth?: string
-          created_at?: string
-          endpoint?: string
-          id?: string
-          p256dh?: string
-          ua?: string | null
-          user_id?: string
         }
         Relationships: []
       }
