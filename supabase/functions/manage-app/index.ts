@@ -662,7 +662,24 @@ async function sendLoginNotification(
       ipwhoEnabled = data?.value?.enabled === true;
     } catch {}
 
-    console.log("[login-notify] ip=", ip, "source=", ipTrace.source, "candidates=", ipTrace.candidates.map(c => `${c.label}:${c.ip}`).join("|"), "gps=", clientGeo?.status, "ipwhoEnabled=", ipwhoEnabled);
+    // ---- Explicit debug block (per spec) ----
+    const hdr = (n: string) => req.headers.get(n) || "";
+    console.log(
+      "\n=== [login-notify] IP TRACE ===\n" +
+      "Detected Headers:\n" +
+      `  CF-Connecting-IP: ${hdr("cf-connecting-ip")}\n` +
+      `  True-Client-IP:   ${hdr("true-client-ip")}\n` +
+      `  X-Forwarded-For:  ${hdr("x-forwarded-for")}\n` +
+      `  X-Real-IP:        ${hdr("x-real-ip")}\n` +
+      `  X-Client-IP:      ${hdr("x-client-ip")} (from Cloudflare Worker)\n` +
+      `Selected Client IP: ${ip}   (source: ${ipTrace.source})\n` +
+      `CF Country: ${ipTrace.cfCountry}   CF Ray: ${ipTrace.cfRay}\n` +
+      `Worker Trace: ${JSON.stringify(ipTrace.workerTrace || {})}\n` +
+      `ipwho.is enabled by admin: ${ipwhoEnabled}\n` +
+      `Client GPS: ${clientGeo?.status || "none"}${clientGeo?.status === "granted" ? ` (${clientGeo.latitude},${clientGeo.longitude})` : ""}\n` +
+      "==============================="
+    );
+
 
     const [locRes, gpsLoc] = await Promise.all([
       resolveLocation(ip, { allowIpwho: ipwhoEnabled }),
