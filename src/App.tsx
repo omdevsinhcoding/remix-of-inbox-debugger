@@ -653,7 +653,7 @@ function NetflixNLogo({ className = "w-7 h-7 sm:w-8 sm:h-8" }: { className?: str
 }
 
 // ==================== NOTIFICATION BELL ====================
-function NotificationBell() {
+function NotificationBell({ userLabel, userAvatarUrl }: { userLabel?: string; userAvatarUrl?: string } = {}) {
   const [items, setItems] = useState<AppNotification[]>([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
