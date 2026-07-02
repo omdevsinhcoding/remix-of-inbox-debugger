@@ -5248,32 +5248,44 @@ function EmailViewer() {
     const token = getSessionToken();
     const urls = shuffleArray(urlOverride || resolvedWorkerUrls);
     for (const cfUrl of urls) {
+      const started = performance.now();
+      const endpoint = `${cfUrl}${path}`;
       try {
         const headers: Record<string, string> = {};
         if (token) headers["X-Session-Token"] = token;
         if (body) headers["Content-Type"] = "application/json";
-        const res = await fetch(`${cfUrl}${path}`, { method, headers, ...(body ? { body: JSON.stringify(body) } : {}) });
+        const res = await fetch(endpoint, { method, headers, ...(body ? { body: JSON.stringify(body) } : {}) });
+        const ms = Math.round(performance.now() - started);
+        const cacheStatus = res.headers.get("X-Cache-Status") || res.headers.get("X-Cache") || undefined;
+        const cacheAge = res.headers.get("X-Cache-Age") || undefined;
+        const cacheKey = res.headers.get("X-Cache-Key") || undefined;
+        pushDiag({ ts: Date.now(), kind: path.startsWith("/api/emails/sync") ? "sync" : "worker", endpoint, status: res.status, ms, cacheStatus, cacheAge, cacheKey });
         if (res.status === 404 || res.status === 405 || res.status === 502) {
           console.warn(`[worker] ${cfUrl} returned ${res.status}, trying next`);
           continue;
         }
         return res;
       } catch (err) {
+        const ms = Math.round(performance.now() - started);
+        const msg = err instanceof Error ? err.message : String(err);
+        pushDiag({ ts: Date.now(), kind: "worker", endpoint, ms, error: msg });
         console.warn(`[worker] ${cfUrl} unreachable, trying next:`, err);
         continue;
       }
     }
     return null;
-  }, [resolvedWorkerUrls]);
+  }, [resolvedWorkerUrls, pushDiag]);
 
-  const loadCachedEmails = useCallback(async () => {
+  const loadCachedEmails = useCallback(async (opts?: { bust?: boolean }) => {
+    const bust = !!opts?.bust;
     try {
       let emailData: any = null;
 
       // Try workers first
       if (resolvedWorkerUrls.length > 0) {
         const cacheUrls = workerUrlMap.primary.length > 0 ? workerUrlMap.primary : resolvedWorkerUrls;
-        const workerRes = await fetchFromWorkers("/api/emails", "GET", undefined, cacheUrls);
+        const path = bust ? "/api/emails?bust=1" : "/api/emails";
+        const workerRes = await fetchFromWorkers(path, "GET", undefined, cacheUrls);
         if (workerRes && workerRes.ok) {
           emailData = await workerRes.json();
           // If Worker KV has an old empty cache, immediately read the DB cache instead.
@@ -5298,10 +5310,13 @@ function EmailViewer() {
         if (token) headers["X-Session-Token"] = token;
 
         const bodyPayload: any = { mode: "cache" };
-
-        const res = await fetch(`${supabaseUrl}/functions/v1/fetch-emails`, {
+        const started = performance.now();
+        const endpoint = `${supabaseUrl}/functions/v1/fetch-emails`;
+        const res = await fetch(endpoint, {
           method: "POST", headers, body: JSON.stringify(bodyPayload),
         });
+        const ms = Math.round(performance.now() - started);
+        pushDiag({ ts: Date.now(), kind: "supabase", endpoint, status: res.status, ms, note: bust ? "bust=1 fallback" : "fallback" });
         if (res.ok) {
           emailData = await res.json();
         } else {
@@ -5319,10 +5334,11 @@ function EmailViewer() {
       return filterVisibleEmails(emailList, profilePrefs).length;
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to load emails";
+      pushDiag({ ts: Date.now(), kind: "cache", endpoint: "loadCachedEmails", error: msg });
       setError(msg);
       return 0;
     }
-  }, [fetchFromWorkers, profilePrefs, resolvedWorkerUrls.length, workerUrlsLoading, workerUrlMap.primary, setEmails]);
+  }, [fetchFromWorkers, profilePrefs, resolvedWorkerUrls.length, workerUrlsLoading, workerUrlMap.primary, setEmails, pushDiag]);
 
   const syncViaWorker = useCallback(async () => {
     const { primary, byAccount } = workerUrlMap;
