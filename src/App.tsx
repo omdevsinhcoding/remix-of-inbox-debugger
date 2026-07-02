@@ -3043,7 +3043,7 @@ function AdminPanel() {
         setR2Cfg({
           accountId: r2.config.accountId || "",
           accessKeyId: r2.config.accessKeyId || "",
-          secretAccessKey: "", // never sent from server
+          secretAccessKey: r2.config.secretAccessKey || "",
           bucket: r2.config.bucket || "",
           publicBaseUrl: r2.config.publicBaseUrl || "",
           pathPrefix: r2.config.pathPrefix || "notifications/",
