@@ -1892,19 +1892,15 @@ function ProfileSelectPage() {
                 <div
                   className="w-full overflow-y-scroll overscroll-contain pr-2 sm:pr-3 py-2 sm:py-3 max-h-[58vh] sm:max-h-[62vh] scroll-smooth [scrollbar-width:thin] [scrollbar-color:#e50914_rgba(255,255,255,0.04)] [&::-webkit-scrollbar]:w-[10px] [&::-webkit-scrollbar-track]:bg-white/[0.03] [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-thumb]:bg-gradient-to-b [&::-webkit-scrollbar-thumb]:from-[#e50914] [&::-webkit-scrollbar-thumb]:to-[#7a0006] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb:hover]:from-[#ff1a25] [&::-webkit-scrollbar-thumb:hover]:to-[#a30009]"
                 >
-                  <div className="grid grid-cols-3 sm:[grid-template-columns:repeat(auto-fill,minmax(128px,160px))] gap-x-4 gap-y-7 sm:gap-x-6 sm:gap-y-10 justify-center mx-auto pb-4">
+                  <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-x-4 gap-y-7 sm:gap-x-6 sm:gap-y-9 mx-auto pb-4">
                     {displayProfiles.map((profile, i) => (
-                      <motion.button
+                      <button
                         key={profile.id}
-                        initial={fromCache ? false : { opacity: 0, scale: 0.92 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        transition={fromCache ? { duration: 0 } : { delay: Math.min(0.04 + i * 0.015, 0.5), duration: 0.25 }}
-                        whileHover={{ scale: 1.06 }}
-                        whileTap={{ scale: 0.95 }}
+                        type="button"
                         onClick={() => setSelectedProfile(profile)}
                         className="flex flex-col items-center gap-2 sm:gap-3 group focus:outline-none min-w-0"
                       >
-                        <div className="relative rounded-md overflow-hidden ring-0 group-hover:ring-2 group-hover:ring-white transition-all duration-150 aspect-square w-full max-w-[140px]">
+                        <div className="relative rounded-md overflow-hidden ring-0 group-hover:ring-2 group-hover:ring-white aspect-square w-full max-w-[140px] transform-gpu transition-transform duration-150 ease-out group-hover:scale-105 group-active:scale-95 will-change-transform">
                           <ProfileAvatar
                             avatarId={profile.profileAvatar}
                             name={profile.name}
@@ -1916,7 +1912,7 @@ function ProfileSelectPage() {
                         <span className="text-neutral-400 group-hover:text-white text-[12px] sm:text-[14px] font-normal transition-colors duration-150 truncate max-w-full text-center">
                           {profile.name}
                         </span>
-                      </motion.button>
+                      </button>
                     ))}
                   </div>
                 </div>
