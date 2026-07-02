@@ -4152,7 +4152,7 @@ function EmailViewer() {
                 <span className="sm:hidden">Admin</span>
               </button>
             )}
-            <NotificationBell />
+            <NotificationBell userLabel={user.name} userAvatarUrl={resolveAvatar(profilePrefs.avatarId || user.profileAvatar)} />
             <button onClick={() => fetchEmails()}
               disabled={refreshing}
               className="flex items-center p-2.5 sm:px-4 sm:py-2 bg-slate-900 text-white rounded-full text-sm font-bold hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-60">
