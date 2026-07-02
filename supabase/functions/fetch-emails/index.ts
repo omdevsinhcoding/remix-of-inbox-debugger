@@ -191,7 +191,8 @@ async function fetchFromAccount(
 
           const parsed = await simpleParser(fullMsg.source, { skipImageLinks: true, skipTextLinks: true });
           const bodyText = (parsed.text || "").trim();
-          const otpMatch = bodyText.match(/\b\d{4,8}\b/);
+          const subjectText = (parsed.subject || fullMsg.envelope?.subject || "").toString();
+          const otpCode = extractOtpCode(subjectText, bodyText);
           const stableId = `${accountLabel}:${uid}`;
 
           emails.push({
