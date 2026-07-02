@@ -5580,7 +5580,8 @@ function EmailViewer() {
 const MAINT_BYPASS_KEY = "maintenance_admin_bypass";
 
 function MaintenanceGate({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
+  const { user, checkAuth } = useAuth();
+  const navigate = useNavigate();
   const cached = useMemo(() => readBootstrapCache(), []);
   const [maint, setMaint] = useState<MaintenanceInfo>(
     cached?.maintenance || { enabled: false }
@@ -5588,6 +5589,26 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
   const [bypass, setBypass] = useState<boolean>(() => {
     try { return sessionStorage.getItem(MAINT_BYPASS_KEY) === "1"; } catch { return false; }
   });
+
+  // 🚨 Force-kick non-admin users the moment maintenance turns ON.
+  // Admins are never kicked — they can bypass to continue working.
+  useEffect(() => {
+    if (!maint.enabled) return;
+    if (!user) return;
+    if (user.role === "admin") return;
+    const path = typeof window !== "undefined" ? window.location.pathname : "/";
+    if (path.startsWith("/admin")) return;
+    try { clearSessionData(); } catch {}
+    try { sessionStorage.removeItem(MAINT_BYPASS_KEY); } catch {}
+    checkAuth();
+    toast("🛠 Maintenance started", {
+      id: "maint-kick",
+      description: "You've been signed out while we perform updates.",
+      duration: 4000,
+    });
+    navigate("/", { replace: true });
+  }, [maint.enabled, user?.id, user?.role]);
+
 
   useEffect(() => {
     let cancelled = false;
