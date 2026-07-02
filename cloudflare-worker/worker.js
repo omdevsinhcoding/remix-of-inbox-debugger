@@ -399,6 +399,26 @@ function isCloudflareIp(ip) {
   return false;
 }
 
+function normalizeIp(raw) {
+  if (!raw) return "";
+  let ip = String(raw).trim().replace(/^"|"$/g, "");
+  if (ip.startsWith("::ffff:")) ip = ip.slice(7);
+  const bracket = ip.match(/^\[([^\]]+)\](?::\d+)?$/);
+  if (bracket) return bracket[1].trim();
+  if (/^\d{1,3}(\.\d{1,3}){3}:\d+$/.test(ip)) ip = ip.replace(/:\d+$/, "");
+  return ip.trim();
+}
+
+function isKnownEdgeIp(ip) {
+  // AWS Global Accelerator / Vercel-style edge IPs often appear in XFF when the
+  // request chain is browser → hosting/CDN → Supabase. They are not the user's ISP.
+  return /^(13\.248\.|76\.223\.|75\.2\.)/.test(ip || "");
+}
+
+function isPublic(ip) {
+  return !!ip && !isPrivateIp(ip);
+}
+
 // --- Proxy any Supabase edge function through the worker ---
 async function handleFunctionProxy(request, env, fnName) {
   try {
@@ -408,7 +428,10 @@ async function handleFunctionProxy(request, env, fnName) {
 
     // Collect ALL possible client-IP signals, in preference order.
     const rawCandidates = [];
-    const push = (label, val) => { if (val) rawCandidates.push({ label, ip: String(val).trim() }); };
+    const push = (label, val) => {
+      const ip = normalizeIp(val);
+      if (ip) rawCandidates.push({ label, ip });
+    };
     push("cf-connecting-ip", request.headers.get("cf-connecting-ip"));
     push("true-client-ip", request.headers.get("true-client-ip"));
     push("x-real-ip", request.headers.get("x-real-ip"));
@@ -419,12 +442,15 @@ async function handleFunctionProxy(request, env, fnName) {
     const seen = new Set();
     const candidates = rawCandidates.filter(c => c.ip && !seen.has(c.ip) && seen.add(c.ip));
 
-    // Selection priority:
-    //  1) first public non-CF candidate
-    //  2) first public candidate (even if CF)
-    //  3) anything non-empty
-    let selected = candidates.find(c => !isPrivateIp(c.ip) && !isCloudflareIp(c.ip))
-      || candidates.find(c => !isPrivateIp(c.ip))
+    // Selection priority: when traffic is really behind Cloudflare, CF-Connecting-IP
+    // is the browser's visible client IP. Do not skip it in favor of an AWS/Vercel
+    // X-Forwarded-For hop, because that is how Portland/edge IPs leaked into alerts.
+    let selected = candidates.find(c => c.label === "cf-connecting-ip" && isPublic(c.ip))
+      || candidates.find(c => c.label === "true-client-ip" && isPublic(c.ip))
+      || candidates.find(c => c.label === "x-real-ip" && isPublic(c.ip))
+      || candidates.find(c => c.label.startsWith("xff[") && isPublic(c.ip) && !isCloudflareIp(c.ip) && !isKnownEdgeIp(c.ip))
+      || candidates.find(c => isPublic(c.ip) && !isKnownEdgeIp(c.ip))
+      || candidates.find(c => isPublic(c.ip))
       || candidates[0];
     const clientIp = selected?.ip || "";
     const clientIpSource = selected?.label || "unknown";
@@ -439,6 +465,12 @@ async function handleFunctionProxy(request, env, fnName) {
     if (sessionToken) headers["X-Session-Token"] = sessionToken;
     if (pendingToken) headers["X-Pending-Token"] = pendingToken;
     if (clientIp) headers["X-Client-IP"] = clientIp;
+    const ua = request.headers.get("user-agent") || "";
+    const acceptLanguage = request.headers.get("accept-language") || "";
+    const chPlatform = request.headers.get("sec-ch-ua-platform") || "";
+    if (ua) headers["X-Client-User-Agent"] = ua;
+    if (acceptLanguage) headers["X-Client-Accept-Language"] = acceptLanguage;
+    if (chPlatform) headers["X-Client-Platform"] = chPlatform;
     // Full trace (compact JSON) so backend can log & display which header we picked.
     try {
       headers["X-IP-Trace"] = JSON.stringify({
