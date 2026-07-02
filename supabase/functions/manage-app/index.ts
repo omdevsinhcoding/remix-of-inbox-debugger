@@ -1685,8 +1685,8 @@ Deno.serve(async (req) => {
       const now = Date.now();
       const otpAt = state.otp_verified_at ? new Date(state.otp_verified_at).getTime() : 0;
       const totpAt = state.totp_verified_at ? new Date(state.totp_verified_at).getTime() : 0;
-      if (!otpAt || now - otpAt > 60_000) throw new Error("Telegram OTP proof expired");
-      if (!totpAt || now - totpAt > 60_000) throw new Error("Authenticator proof expired");
+      if (!otpAt || now - otpAt > 15 * 60_000) throw new Error("Telegram OTP proof expired");
+      if (!totpAt || now - totpAt > 15 * 60_000) throw new Error("Authenticator proof expired");
 
       const { data: user, error } = await supabase.from("app_users").select("*").eq("id", pending.userId).single();
       if (error || !user || user.role !== "admin") throw new Error("Admin not found");
