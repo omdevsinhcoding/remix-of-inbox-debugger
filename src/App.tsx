@@ -1,4 +1,5 @@
 import React, { useState, useEffect, createContext, useContext, useCallback, useRef, useMemo, Suspense, lazy } from "react";
+import { createPortal } from "react-dom";
 import { Mail, RefreshCw, ShieldCheck, Shield, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, BarChart3, Globe, Edit, Database, Wifi, Info, UserCircle, Search, ChevronLeft, ChevronRight, Bell, Send, MessageSquare } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
@@ -860,6 +861,18 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
     return () => clearInterval(id);
   }, [minutes]);
 
+  const [hidden, setHidden] = useState(false);
+  useEffect(() => {
+    const onOpen = () => setHidden(true);
+    const onClose = () => setHidden(false);
+    window.addEventListener("notif:open", onOpen);
+    window.addEventListener("notif:close", onClose);
+    return () => {
+      window.removeEventListener("notif:open", onOpen);
+      window.removeEventListener("notif:close", onClose);
+    };
+  }, []);
+  if (hidden) return null;
   if (!minutes || minutes <= 0 || remainingMs <= 0) return null;
 
   const totalSec = Math.ceil(remainingMs / 1000);
