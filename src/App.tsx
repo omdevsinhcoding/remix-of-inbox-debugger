@@ -5155,6 +5155,21 @@ function EmailViewer() {
   const [workerUrlsLoading, setWorkerUrlsLoading] = useState(true);
   const workerUrlLoaded = React.useRef(false);
 
+  // F7: refresh diagnostics — records each worker/Supabase hit while the
+  // spinner is running so we can tell WHY it never stops.
+  type DiagEntry = {
+    ts: number; kind: "worker" | "supabase" | "sync" | "iframe" | "cache";
+    endpoint: string; status?: number; ms?: number;
+    cacheStatus?: string; cacheAge?: string; cacheKey?: string;
+    error?: string; note?: string;
+  };
+  const [diag, setDiag] = useState<DiagEntry[]>([]);
+  const [showDiag, setShowDiag] = useState(false);
+  const pushDiag = useCallback((e: DiagEntry) => {
+    setDiag((prev) => [e, ...prev].slice(0, 40));
+  }, []);
+  const clearDiag = useCallback(() => setDiag([]), []);
+
   const backToAdmin = () => {
     try {
       const backup = readImpersonationBackup();
