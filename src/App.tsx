@@ -5949,6 +5949,21 @@ function EmailViewer() {
 // ==================== MAINTENANCE GATE ====================
 const MAINT_BYPASS_KEY = "maintenance_admin_bypass";
 
+function hasActiveAdminImpersonationBackup(): boolean {
+  try {
+    const raw = sessionStorage.getItem("admin_backup");
+    if (!raw) return false;
+    const parsed = JSON.parse(raw);
+    if (!parsed || (parsed.exp && Date.now() > parsed.exp)) {
+      sessionStorage.removeItem("admin_backup");
+      return false;
+    }
+    return !!parsed.token && !!parsed.user;
+  } catch {
+    return false;
+  }
+}
+
 function MaintenanceGate({ children }: { children: React.ReactNode }) {
   const { user, checkAuth } = useAuth();
   const navigate = useNavigate();
@@ -5966,6 +5981,7 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
     if (!maint.enabled) return;
     if (!user) return;
     if (user.role === "admin") return;
+    if (user.impersonated === true || hasActiveAdminImpersonationBackup()) return;
     const path = typeof window !== "undefined" ? window.location.pathname : "/";
     if (path.startsWith("/admin")) return;
     try { clearSessionData(); } catch {}
@@ -6026,7 +6042,7 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
     }
   }, [maint.enabled, bypass]);
 
-  const isAdmin = user?.role === "admin";
+  const isAdmin = user?.role === "admin" || user?.impersonated === true || hasActiveAdminImpersonationBackup();
 
   // Always let the admin login flow through, even during maintenance.
   const path = typeof window !== "undefined" ? window.location.pathname : "/";
