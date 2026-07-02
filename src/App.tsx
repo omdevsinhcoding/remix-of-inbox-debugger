@@ -3957,26 +3957,48 @@ function AdminPanel() {
                 </button>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-5">
-                <div className="md:col-span-2">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-5">
+                <div>
                   <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">Headline (optional)</label>
                   <input type="text" value={maintenanceTitle} onChange={(e) => setMaintenanceTitle(e.target.value)}
-                    placeholder="We're polishing things up"
+                    placeholder="We're upgrading the system"
                     className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm" />
                 </div>
                 <div>
-                  <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">ETA (optional)</label>
-                  <input type="text" value={maintenanceEta} onChange={(e) => setMaintenanceEta(e.target.value)}
-                    placeholder="e.g. 30 min · 9:00 PM IST"
-                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm" />
+                  <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">Back online at (date + time)</label>
+                  <input
+                    type="datetime-local"
+                    value={maintenanceEndsAt}
+                    onChange={(e) => setMaintenanceEndsAt(e.target.value)}
+                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm"
+                  />
+                  <p className="text-[10.5px] text-slate-500 mt-1 ml-1">
+                    {maintenanceEndsAt
+                      ? `Site auto-unlocks at ${new Date(maintenanceEndsAt).toLocaleString(undefined, { hour: "numeric", minute: "2-digit", hour12: true, day: "numeric", month: "short" })}`
+                      : "Leave empty for open-ended maintenance."}
+                  </p>
                 </div>
-                <div className="md:col-span-3">
+                <div>
+                  <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">Current version</label>
+                  <input type="text" value={maintenanceVersionFrom} onChange={(e) => setMaintenanceVersionFrom(e.target.value)}
+                    placeholder="e.g. 2.4.1"
+                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm font-mono" />
+                </div>
+                <div>
+                  <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">Upgrading to (upgrade-only)</label>
+                  <input type="text" value={maintenanceVersionTo} onChange={(e) => setMaintenanceVersionTo(e.target.value)}
+                    placeholder="e.g. 2.5.0"
+                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm font-mono" />
+                  <p className="text-[10.5px] text-slate-500 mt-1 ml-1">Downgrades are blocked by the server.</p>
+                </div>
+                <div className="md:col-span-2">
                   <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">Message shown to users</label>
                   <textarea value={maintenanceMessage} onChange={(e) => setMaintenanceMessage(e.target.value)} rows={3}
-                    placeholder="Netflix ID Manager is temporarily offline for scheduled maintenance. We'll be back shortly."
+                    placeholder="The site is offline for a short while so we can make it faster and safer for you. No action needed — please check back soon."
                     className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm resize-none" />
                 </div>
               </div>
+
 
               <div className="flex items-center gap-2 mt-4">
                 <button onClick={() => saveMaintenance()} disabled={savingMaintenance}
