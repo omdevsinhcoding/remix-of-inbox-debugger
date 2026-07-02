@@ -149,13 +149,28 @@ export default {
 
 
     if (url.pathname === "/api/emails" && request.method === "GET") {
-      return handleGetEmails(env, session, sessionToken);
+      const bust = url.searchParams.get("bust") === "1" || url.searchParams.get("bust") === "true";
+      return handleGetEmails(env, session, sessionToken, { bust });
     }
 
     if (url.pathname === "/api/emails/sync" && request.method === "POST") {
       let reqBody = {};
       try { reqBody = await request.clone().json(); } catch {}
       return handleSync(env, session, sessionToken, reqBody);
+    }
+
+    if (url.pathname === "/api/cache/purge" && request.method === "POST") {
+      return handleCachePurge(env, session);
+    }
+
+    if (url.pathname === "/api/health" && request.method === "GET") {
+      return new Response(JSON.stringify({
+        ok: true,
+        version: CACHE_SCHEMA_VERSION,
+        kv: !!getKV(env),
+        signing: !!(env.SESSION_SIGNING_SECRET || env.SESSION_SECRET),
+        ts: Date.now(),
+      }), { headers: { ...CORS_HEADERS, "Content-Type": "application/json", "Cache-Control": "no-store" } });
     }
 
     // F6: /api/debug removed. It disclosed whether SESSION_SECRET / KV bindings
