@@ -4103,7 +4103,15 @@ function EmailViewer() {
         <div className="max-w-6xl mx-auto px-3 sm:px-4 h-14 sm:h-16 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <div className="flex-shrink-0 flex items-center gap-1.5">
-              <NetflixNLogo className="w-6 h-6 sm:w-8 sm:h-8" />
+              {/* Mobile: profile avatar as brand; Desktop: Netflix N + avatar */}
+              <button
+                onClick={() => !isImpersonating && setShowProfile(true)}
+                className="sm:hidden rounded-full ring-2 ring-red-600/70 active:scale-95 transition-transform"
+                title="Profile"
+              >
+                <ProfileAvatar avatarId={profilePrefs.avatarId || user.profileAvatar} name={user.name} className="w-8 h-8" fallbackColor="bg-red-600" eager />
+              </button>
+              <NetflixNLogo className="hidden sm:block w-8 h-8" />
               <div className="hidden sm:block h-8 w-px bg-slate-200 ml-1" />
               <ProfileAvatar avatarId={profilePrefs.avatarId || user.profileAvatar} name={user.name} className="hidden sm:block w-9 h-9 ml-1" fallbackColor="bg-red-600" eager />
             </div>
@@ -4131,7 +4139,7 @@ function EmailViewer() {
 
             {!isImpersonating && (
               <button onClick={() => setShowProfile(true)}
-                className="flex items-center p-2.5 sm:px-3 sm:py-2 bg-gradient-to-r from-violet-500 to-purple-600 text-white rounded-full text-sm font-bold hover:from-violet-600 hover:to-purple-700 transition-all active:scale-95 shadow-md shadow-purple-200"
+                className="hidden sm:flex items-center p-2.5 sm:px-3 sm:py-2 bg-gradient-to-r from-violet-500 to-purple-600 text-white rounded-full text-sm font-bold hover:from-violet-600 hover:to-purple-700 transition-all active:scale-95 shadow-md shadow-purple-200"
                 title="Profile">
                 <UserCircle className="w-4 h-4 sm:w-5 sm:h-5" />
                 <span className="hidden sm:inline ml-1.5">Profile</span>
