@@ -194,7 +194,7 @@ export type AppNotification = {
   publish_at?: string | null;
   read: boolean;
   seen?: boolean;
-  archived?: boolean;
+  
   snoozed_until?: string | null;
 };
 
