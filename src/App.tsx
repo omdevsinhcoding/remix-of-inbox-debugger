@@ -1749,13 +1749,7 @@ const DEFAULT_PROFILE_AVATAR_IDS = AVATAR_CATEGORIES.flatMap((category) =>
 function getStableProfileAvatar(profile?: Pick<UserData, "id" | "username" | "name" | "profileAvatar"> | null): string | null {
   if (!profile) return null;
   if (profile.profileAvatar && getAvatarUri(profile.profileAvatar)) return profile.profileAvatar;
-  if (DEFAULT_PROFILE_AVATAR_IDS.length === 0) return null;
-  const seed = `${profile.id || ""}:${profile.username || ""}:${profile.name || ""}`;
-  let hash = 0;
-  for (let i = 0; i < seed.length; i += 1) {
-    hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
-  }
-  return DEFAULT_PROFILE_AVATAR_IDS[hash % DEFAULT_PROFILE_AVATAR_IDS.length];
+  return null;
 }
 
 function ProfileAvatar({ avatarId, name, className = "w-16 h-16", fallbackColor = "bg-red-500", eager = false }: { avatarId?: string | null; name?: string; className?: string; fallbackColor?: string; eager?: boolean }) {
@@ -3987,9 +3981,12 @@ function AdminPanel() {
                   <div key={u.id} className="p-3 sm:p-4 bg-slate-50 rounded-2xl border border-slate-100 hover:border-slate-200 transition-colors min-w-0">
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                       <div className="flex items-center gap-3 min-w-0">
-                        <div className={`w-10 h-10 rounded-xl ${u.role === "admin" ? "bg-red-500" : "bg-blue-500"} flex items-center justify-center`}>
-                          <span className="text-white font-black text-sm">{u.name.charAt(0).toUpperCase()}</span>
-                        </div>
+                        <ProfileAvatar
+                          avatarId={getStableProfileAvatar(u)}
+                          name={u.name}
+                          className="w-10 h-10 !rounded-xl"
+                          fallbackColor={u.role === "admin" ? "bg-red-500" : "bg-blue-500"}
+                        />
                         <div className="min-w-0">
                           <p className="font-bold text-slate-900 truncate">{u.name}</p>
                           <p className="text-xs text-slate-500 truncate">@{u.username} • <span className={u.role === "admin" ? "text-red-600 font-bold" : "text-blue-600"}>{u.role}</span></p>
