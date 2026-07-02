@@ -2695,7 +2695,7 @@ function usePageHead(title: string, description: string, path: string) {
   useEffect(() => {
     const prev = document.title;
     document.title = title;
-    const url = `https://joyful-fetch.lovable.app${path}`;
+    const url = `https://nfotp.netlify.app${path}`;
     const upsert = (sel: string, create: () => HTMLElement, attr: string, value: string) => {
       let el = document.head.querySelector<HTMLElement>(sel);
       if (!el) { el = create(); document.head.appendChild(el); }
