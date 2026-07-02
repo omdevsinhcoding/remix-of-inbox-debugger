@@ -922,9 +922,6 @@ function AutoPopupNotification() {
                 <span className="text-[10.5px] uppercase tracking-[0.14em] text-zinc-400 font-medium">
                   {cat.label}
                 </span>
-                {current.pinned && (
-                  <span className="inline-flex items-center gap-1 text-[10px] text-amber-300/90 font-medium uppercase tracking-wider">
-                    <Pin className="w-3 h-3" /> Pinned
                   </span>
                 )}
               </div>
