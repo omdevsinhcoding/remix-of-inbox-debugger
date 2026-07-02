@@ -328,8 +328,9 @@ export default function MaintenanceScreen({ title, message, endsAt, versionFrom,
                         {Array.from(word).map((ch) => {
                           letterIndex += 1;
                           const isOut = titlePhase === "out";
+                          const capturedIndex = letterIndex;
                           const delay = isOut
-                            ? letterIndex * OUT_STEP
+                            ? (letters.length - 1 - capturedIndex) * OUT_STEP
                             : letterIndex * IN_STEP;
                           return (
                             <span
