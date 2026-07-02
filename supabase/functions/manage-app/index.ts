@@ -273,6 +273,7 @@ function countryToFlag(cc?: string): string {
 
 async function providerIpapiCo(ip: string): Promise<LocResult | null> {
   try {
+    if (!ip || ip === "unknown" || isPrivateIp(ip) || isCloudflareIp(ip)) return null;
     const r = await fetchWithTimeout(`https://ipapi.co/${encodeURIComponent(ip)}/json/`, 2500);
     if (!r.ok) return null;
     const d = await r.json();
