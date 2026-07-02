@@ -1169,7 +1169,7 @@ function AutoPopupNotification() {
                 >
                   Later
                 </button>
-                {current.action_url && current.action_label ? (
+                {current.action_url && current.action_label && !/snooze|archive|24h/i.test(current.action_label) ? (
                   <a
                     href={current.action_url}
                     target="_blank"
