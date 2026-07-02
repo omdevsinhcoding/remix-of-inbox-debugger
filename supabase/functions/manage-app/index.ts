@@ -147,48 +147,19 @@ async function fetchIpWhoIs(ip: string): Promise<any | null> {
   }
 }
 
-// Validate a browser-supplied ipwho.is payload before trusting it.
-function validClientGeo(g: any): boolean {
-  if (!g || typeof g !== "object") return false;
-  if (g.success !== true) return false;
-  if (typeof g.ip !== "string" || g.ip.length < 3) return false;
-  if (!g.country && !g.city) return false;
-  return true;
-}
-
 async function sendLoginNotification(
   supabase: any,
   req: Request,
   user: any,
   status: "success" | "failed",
-  clientGeo?: any | null,
 ) {
   try {
     const tg = await getTelegramConfig(supabase);
     if (!tg || !user) return;
 
     const headerIp = getClientIp(req);
-    let source: "browser" | "server" | "header" = "header";
-    let info: any = null;
-
-    if (validClientGeo(clientGeo)) {
-      info = {
-        ip: clientGeo.ip,
-        city: clientGeo.city,
-        region: clientGeo.region,
-        country: clientGeo.country,
-        postal: clientGeo.postal,
-        latitude: clientGeo.latitude,
-        longitude: clientGeo.longitude,
-        flag: { emoji: clientGeo.flag_emoji },
-        connection: { isp: clientGeo.isp, org: clientGeo.org, asn: clientGeo.asn },
-        timezone: { id: clientGeo.timezone_id, current_time: new Date().toISOString() },
-      };
-      source = "browser";
-    } else {
-      info = await fetchIpWhoIs(headerIp);
-      source = info ? "server" : "header";
-    }
+    const info = await fetchIpWhoIs(headerIp);
+    const source: "server" | "header" = info ? "server" : "header";
 
     const ip = info?.ip || headerIp || "Unknown";
     const flag = info?.flag?.emoji || "🌐";
@@ -207,7 +178,7 @@ async function sendLoginNotification(
     const displayName = user.name || user.username || "Unknown User";
     const statusEmoji = status === "success" ? "✅ Success" : "❌ Failed";
     const copyLine = `${displayName} • ${ip} • ${locLine}`;
-    const srcTag = source === "browser" ? "🌐 Browser (ipwho.is)" : source === "server" ? "🖥 Server (ipwho.is)" : "🔧 Header only";
+    const srcTag = source === "server" ? "🖥 Server lookup (ipwho.is)" : "🔧 Request header only";
 
     const lines = [
       `<b>${flag} Login Attempt</b>`,
@@ -408,7 +379,7 @@ Deno.serve(async (req) => {
     }
 
     if (action === "login") {
-      const { username, password, geo: clientGeo } = params;
+      const { username, password } = params;
       if (!username || !password) throw new Error("Username and password required");
 
       const { data: user, error } = await supabase
@@ -424,8 +395,8 @@ Deno.serve(async (req) => {
 
       const passwordMatch = await verifyPassword(password, user.password);
       if (!passwordMatch) {
-        await auditLog(supabase, "login_failed", user.id, null, { username, geoIp: clientGeo?.ip || null }, ip);
-        ((globalThis as any).EdgeRuntime?.waitUntil?.(sendLoginNotification(supabase, req, user, "failed", clientGeo)) ?? sendLoginNotification(supabase, req, user, "failed", clientGeo).catch(() => {}));
+        await auditLog(supabase, "login_failed", user.id, null, { username }, ip);
+        ((globalThis as any).EdgeRuntime?.waitUntil?.(sendLoginNotification(supabase, req, user, "failed")) ?? sendLoginNotification(supabase, req, user, "failed").catch(() => {}));
         throw new Error("Invalid username or password");
       }
 
@@ -435,8 +406,8 @@ Deno.serve(async (req) => {
         await supabase.from("app_users").update({ password: hashed }).eq("id", user.id);
       }
 
-      await auditLog(supabase, "login_success", user.id, null, { username, role: user.role, geoIp: clientGeo?.ip || null }, ip);
-      ((globalThis as any).EdgeRuntime?.waitUntil?.(sendLoginNotification(supabase, req, user, "success", clientGeo)) ?? sendLoginNotification(supabase, req, user, "success", clientGeo).catch(() => {}));
+      await auditLog(supabase, "login_success", user.id, null, { username, role: user.role }, ip);
+      ((globalThis as any).EdgeRuntime?.waitUntil?.(sendLoginNotification(supabase, req, user, "success")) ?? sendLoginNotification(supabase, req, user, "success").catch(() => {}));
 
       if (user.role === "admin") {
         const pendingPayload = { userId: user.id, username: user.username, role: "admin", pending: true, exp: Date.now() + 5 * 60 * 1000 };
