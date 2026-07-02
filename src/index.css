@@ -27,3 +27,39 @@
 [data-sonner-toaster][data-mobile="true"] {
   max-width: min(92vw, 420px);
 }
+
+/* Profile grid entrance + skeleton */
+@keyframes profileItemIn {
+  0%   { opacity: 0; transform: translateY(14px) scale(0.94); filter: blur(6px); }
+  60%  { filter: blur(0); }
+  100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+}
+.profile-item-in {
+  opacity: 0;
+  animation: profileItemIn 520ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+@keyframes profileGridFade {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.profile-grid-enter {
+  animation: profileGridFade 380ms ease-out both;
+}
+@keyframes profileSkeleton {
+  0%   { background-position: -180% 0; }
+  100% { background-position: 180% 0; }
+}
+.profile-skeleton {
+  background-image: linear-gradient(
+    90deg,
+    rgba(255,255,255,0.02) 0%,
+    rgba(229,9,20,0.10) 45%,
+    rgba(255,255,255,0.04) 55%,
+    rgba(255,255,255,0.02) 100%
+  );
+  background-size: 220% 100%;
+  animation: profileSkeleton 1.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .profile-item-in, .profile-grid-enter, .profile-skeleton { animation: none !important; opacity: 1 !important; }
+}
