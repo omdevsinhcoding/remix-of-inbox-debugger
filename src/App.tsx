@@ -1857,15 +1857,17 @@ function emailIdentity(email: Pick<Email, "id" | "account_label">) {
 }
 
 type EmailCategory = "signin" | "password_reset" | "account_update" | "other";
-const RE_SIGNIN = /(sign[\s-]?in code|new sign[\s-]?in|new device|temporary access code|verification code|is using your account|access your account|otp)/i;
+const RE_SIGNIN = /(sign[\s-]?in code|new sign[\s-]?in|new device|temporary access code|is using your account|access your account|otp)/i;
 const RE_PASSWORD_RESET = /(password (was |has been )?(changed|reset|updated)|reset your password|new password)/i;
-const RE_ACCOUNT_UPDATE = /(account (information|info|details) (was |has been )?(changed|updated)|changes to your account|email (address )?(was |has been )?(changed|updated)|new email address|membership (was |has been )?(cancell?ed|updated|paused)|account (was |has been )?(cancell?ed|deleted|closed|paused|on hold)|we[’']re sorry to see you go|payment method (was |has been )?(updated|changed|declined)|update your account|make (changes|any changes) to your account)/i;
+const RE_ACCOUNT_UPDATE = /(account (information|info|details) (was |has been )?(changed|updated)|changes to your account|change to your account|email (address )?(was |has been )?(changed|updated)|new email address|membership (was |has been )?(cancell?ed|updated|paused)|account (was |has been )?(cancell?ed|deleted|closed|paused|on hold)|we[’']re sorry to see you go|payment method (was |has been )?(updated|changed|declined)|update your account|make (a |any )?(change|changes) to your account|confirm your account change|request to make a change)/i;
 
 function classifyEmail(e: Email): EmailCategory {
-  const s = (e.subject || "").toLowerCase();
-  if (RE_ACCOUNT_UPDATE.test(s)) return "account_update";
-  if (RE_PASSWORD_RESET.test(s)) return "password_reset";
-  if (e.otp || RE_SIGNIN.test(s)) return "signin";
+  const subject = (e.subject || "").toLowerCase();
+  const preview = (e.preview || "").toLowerCase();
+  const combined = `${subject} ${preview}`;
+  if (RE_ACCOUNT_UPDATE.test(combined)) return "account_update";
+  if (RE_PASSWORD_RESET.test(combined)) return "password_reset";
+  if (e.otp || RE_SIGNIN.test(combined) || /verification code/i.test(subject)) return "signin";
   return "other";
 }
 
