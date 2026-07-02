@@ -5141,6 +5141,23 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  // Local auto-expiry: when endsAt passes on the client, flip off immediately
+  // without waiting for the next server poll.
+  useEffect(() => {
+    if (!maint.enabled || !maint.endsAt) return;
+    const ms = new Date(maint.endsAt).getTime() - Date.now();
+    if (ms <= 0) {
+      setMaint((m) => ({ ...m, enabled: false }));
+      return;
+    }
+    const t = setTimeout(() => {
+      setMaint((m) => ({ ...m, enabled: false }));
+      // Refresh bootstrap so the server also flips (it auto-expires on read).
+      refreshBootstrap().catch(() => {});
+    }, ms + 500);
+    return () => clearTimeout(t);
+  }, [maint.enabled, maint.endsAt]);
+
   // If maintenance turns off, clear the bypass flag so admins re-arm on next outage.
   useEffect(() => {
     if (!maint.enabled && bypass) {
@@ -5155,15 +5172,21 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
   const path = typeof window !== "undefined" ? window.location.pathname : "/";
   const isAdminRoute = path.startsWith("/admin");
 
+  const screenProps = {
+    title: maint.title,
+    message: maint.message,
+    endsAt: maint.endsAt || null,
+    versionFrom: maint.versionFrom || "",
+    versionTo: maint.versionTo || "",
+  };
+
   if (maint.enabled && !isAdmin && !isAdminRoute) {
-    return <MaintenanceScreen title={maint.title} message={maint.message} eta={maint.eta} />;
+    return <MaintenanceScreen {...screenProps} />;
   }
   if (maint.enabled && isAdmin && !bypass && !isAdminRoute) {
     return (
       <MaintenanceScreen
-        title={maint.title}
-        message={maint.message}
-        eta={maint.eta}
+        {...screenProps}
         isAdmin
         onAdminBypass={() => {
           try { sessionStorage.setItem(MAINT_BYPASS_KEY, "1"); } catch {}
@@ -5172,6 +5195,7 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
       />
     );
   }
+
 
   return <>{children}</>;
 }
