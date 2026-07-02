@@ -108,17 +108,31 @@ const PlatformChipVisual: React.FC<{ id: string; size?: number }> = ({ id, size 
   const bg = p?.color || "#7c3aed";
   const iconSize = Math.round(size * 0.55);
   const svgIcon = PlatformIcon({ id, className: "" }) as React.ReactElement<any> | null;
+  const [imgFailed, setImgFailed] = React.useState(false);
+  const showImg = !svgIcon && p?.slug && !imgFailed;
   return (
     <div
-      className="rounded-full flex items-center justify-center text-white shadow-md font-black leading-none shrink-0"
+      className="rounded-full flex items-center justify-center text-white shadow-md font-black leading-none shrink-0 overflow-hidden"
       style={{ width: size, height: size, background: bg, fontSize: Math.round(size * 0.38) }}
     >
-      {svgIcon
-        ? React.cloneElement(svgIcon, {
-            style: { width: iconSize, height: iconSize },
-            className: "",
-          })
-        : (p?.mono || (p?.label?.[0] ?? "?"))}
+      {svgIcon ? (
+        React.cloneElement(svgIcon, {
+          style: { width: iconSize, height: iconSize },
+          className: "",
+        })
+      ) : showImg ? (
+        <img
+          src={`https://cdn.simpleicons.org/${p!.slug}/ffffff`}
+          alt=""
+          width={iconSize}
+          height={iconSize}
+          loading="lazy"
+          onError={() => setImgFailed(true)}
+          style={{ width: iconSize, height: iconSize, objectFit: "contain" }}
+        />
+      ) : (
+        p?.mono || (p?.label?.[0] ?? "?")
+      )}
     </div>
   );
 };
