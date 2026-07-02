@@ -2295,19 +2295,6 @@ Deno.serve(async (req) => {
       });
     }
 
-    if (action === "archive_notification") {
-      const session = await requireSession(req);
-      const { notification_id } = params as { notification_id?: string };
-      if (!notification_id) throw new Error("notification_id required");
-      const nowIso = new Date().toISOString();
-      const { error } = await supabase.from("notification_reads").upsert(
-        { notification_id, user_id: session.userId, archived_at: nowIso, seen_at: nowIso },
-        { onConflict: "notification_id,user_id" },
-      );
-      if (error) throw error;
-      await supabase.from("notification_events").insert({ notification_id, user_id: session.userId, event: "archived" });
-      return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
 
     if (action === "snooze_notification") {
       const session = await requireSession(req);
