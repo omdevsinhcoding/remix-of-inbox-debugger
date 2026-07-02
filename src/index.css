@@ -22,6 +22,17 @@
   color: rgb(100 116 139); /* slate-500 for labels stays subtle */
 }
 
+/* Opt-out: dark surfaces inside admin panel keep white text. */
+.admin-panel input.dark-input,
+.admin-panel textarea.dark-input,
+.admin-panel select.dark-input {
+  color: #ffffff !important;
+}
+.admin-panel input.dark-input::placeholder,
+.admin-panel textarea.dark-input::placeholder {
+  color: rgb(71 85 105) !important; /* slate-600 */
+}
+
 /* Sonner: ensure toasts never sit on top of the sticky app header on mobile
    and never occupy the entire viewport width. */
 [data-sonner-toaster][data-mobile="true"] {

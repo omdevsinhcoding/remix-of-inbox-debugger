@@ -17,7 +17,7 @@ const ReCAPTCHA = lazy(() => import("react-google-recaptcha"));
 const QRCodeSVG = lazy(() => import("qrcode.react").then((m) => ({ default: m.QRCodeSVG })));
 
 // --- Admin composer: platform / icon options + brand SVG icons ---
-type PlatformOption = { id: string; label: string; color: string; mono?: string };
+type PlatformOption = { id: string; label: string; color: string; mono?: string; slug?: string };
 const PLATFORM_OPTIONS: PlatformOption[] = [
   // Social / messaging
   { id: "telegram",     label: "Telegram",     color: "#229ED9" },
@@ -28,26 +28,26 @@ const PLATFORM_OPTIONS: PlatformOption[] = [
   { id: "twitter",      label: "Twitter / X",  color: "#000000" },
   { id: "facebook",     label: "Facebook",     color: "#1877F2" },
   { id: "linkedin",     label: "LinkedIn",     color: "#0A66C2" },
-  // OTT India
-  { id: "netflix",      label: "Netflix",         color: "#E50914", mono: "N" },
-  { id: "prime",        label: "Prime Video",     color: "#00A8E1", mono: "P" },
-  { id: "hotstar",      label: "Disney+ Hotstar", color: "#1F1F49", mono: "H" },
-  { id: "jiohotstar",   label: "JioHotstar",      color: "#0F1E7A", mono: "JH" },
-  { id: "sonyliv",      label: "Sony LIV",        color: "#000000", mono: "SL" },
-  { id: "zee5",         label: "ZEE5",            color: "#8226C0", mono: "Z5" },
-  { id: "jiocinema",    label: "JioCinema",       color: "#E60023", mono: "JC" },
+  // OTT India — brand logos via simpleicons CDN (fall back to monogram)
+  { id: "netflix",      label: "Netflix",         color: "#E50914", mono: "N",  slug: "netflix" },
+  { id: "prime",        label: "Prime Video",     color: "#00A8E1", mono: "P",  slug: "primevideo" },
+  { id: "hotstar",      label: "Disney+ Hotstar", color: "#1F1F49", mono: "H",  slug: "hotstar" },
+  { id: "jiohotstar",   label: "JioHotstar",      color: "#0F1E7A", mono: "JH", slug: "hotstar" },
+  { id: "sonyliv",      label: "Sony LIV",        color: "#000000", mono: "SL", slug: "sonyliv" },
+  { id: "zee5",         label: "ZEE5",            color: "#8226C0", mono: "Z5", slug: "zee5" },
+  { id: "jiocinema",    label: "JioCinema",       color: "#E60023", mono: "JC", slug: "jiocinema" },
   { id: "mxplayer",     label: "MX Player",       color: "#F7B500", mono: "MX" },
-  { id: "minitv",       label: "Amazon miniTV",   color: "#FF9900", mono: "mT" },
-  { id: "appletv",      label: "Apple TV+",       color: "#000000" },
+  { id: "minitv",       label: "Amazon miniTV",   color: "#FF9900", mono: "mT", slug: "amazon" },
+  { id: "appletv",      label: "Apple TV+",       color: "#000000", slug: "appletv" },
   { id: "lionsgate",    label: "Lionsgate Play",  color: "#B48538", mono: "LP" },
-  { id: "discoveryplus",label: "Discovery+",      color: "#1976FF", mono: "D+" },
+  { id: "discoveryplus",label: "Discovery+",      color: "#1976FF", mono: "D+", slug: "discoveryplus" },
   { id: "sunnxt",       label: "Sun NXT",         color: "#F25022", mono: "S" },
   { id: "aha",          label: "Aha",             color: "#FF6A00", mono: "अ" },
   { id: "chaupal",      label: "Chaupal",         color: "#F02728", mono: "C" },
   { id: "hoichoi",      label: "Hoichoi",         color: "#E7263C", mono: "H" },
   { id: "manoramamax",  label: "ManoramaMAX",     color: "#0057A8", mono: "M" },
-  { id: "erosnow",      label: "Eros Now",        color: "#ED1C24", mono: "E" },
-  { id: "mubi",         label: "MUBI",            color: "#000000", mono: "M" },
+  { id: "erosnow",      label: "Eros Now",        color: "#ED1C24", mono: "E",  slug: "erosnow" },
+  { id: "mubi",         label: "MUBI",            color: "#000000", mono: "M",  slug: "mubi" },
   { id: "shemaroome",   label: "ShemarooMe",      color: "#E63A2F", mono: "Sh" },
   { id: "docubay",      label: "DocuBay",         color: "#00B5AD", mono: "DB" },
   { id: "epicon",       label: "EPIC ON",         color: "#FFB300", mono: "E" },
@@ -57,7 +57,7 @@ const PLATFORM_OPTIONS: PlatformOption[] = [
   { id: "klikk",        label: "Klikk",           color: "#7B1FA2", mono: "K" },
   { id: "simplysouth",  label: "Simply South",    color: "#00695C", mono: "SS" },
   { id: "tentkotta",    label: "Tentkotta",       color: "#D32F2F", mono: "TK" },
-  { id: "ytpremium",    label: "YouTube Premium", color: "#0F0F0F", mono: "YT" },
+  { id: "ytpremium",    label: "YouTube Premium", color: "#0F0F0F", mono: "YT", slug: "youtube" },
   // Fallback
   { id: "",             label: "Custom / Bell",   color: "#7c3aed" },
 ];
@@ -108,17 +108,31 @@ const PlatformChipVisual: React.FC<{ id: string; size?: number }> = ({ id, size 
   const bg = p?.color || "#7c3aed";
   const iconSize = Math.round(size * 0.55);
   const svgIcon = PlatformIcon({ id, className: "" }) as React.ReactElement<any> | null;
+  const [imgFailed, setImgFailed] = React.useState(false);
+  const showImg = !svgIcon && p?.slug && !imgFailed;
   return (
     <div
-      className="rounded-full flex items-center justify-center text-white shadow-md font-black leading-none shrink-0"
+      className="rounded-full flex items-center justify-center text-white shadow-md font-black leading-none shrink-0 overflow-hidden"
       style={{ width: size, height: size, background: bg, fontSize: Math.round(size * 0.38) }}
     >
-      {svgIcon
-        ? React.cloneElement(svgIcon, {
-            style: { width: iconSize, height: iconSize },
-            className: "",
-          })
-        : (p?.mono || (p?.label?.[0] ?? "?"))}
+      {svgIcon ? (
+        React.cloneElement(svgIcon, {
+          style: { width: iconSize, height: iconSize },
+          className: "",
+        })
+      ) : showImg ? (
+        <img
+          src={`https://cdn.simpleicons.org/${p!.slug}/ffffff`}
+          alt=""
+          width={iconSize}
+          height={iconSize}
+          loading="lazy"
+          onError={() => setImgFailed(true)}
+          style={{ width: iconSize, height: iconSize, objectFit: "contain" }}
+        />
+      ) : (
+        p?.mono || (p?.label?.[0] ?? "?")
+      )}
     </div>
   );
 };
@@ -4298,12 +4312,12 @@ function AdminPanel() {
                     <div>
                       <label className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500 mb-1.5 block">Title <span className="text-orange-400">*</span></label>
                       <input value={notifTitle} onChange={(e) => setNotifTitle(e.target.value)} placeholder="e.g. Join our Telegram Group"
-                        className="w-full px-3.5 py-2.5 bg-white/[0.04] border border-white/10 rounded-xl text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-orange-500/50 focus:bg-white/[0.06] transition-all" />
+                        className="w-full px-3.5 py-2.5 bg-white/[0.04] border border-white/10 rounded-xl dark-input text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-orange-500/50 focus:bg-white/[0.06] transition-all" />
                     </div>
                     <div>
                       <label className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500 mb-1.5 block">Link URL</label>
                       <input value={notifActionUrl} onChange={(e) => setNotifActionUrl(e.target.value)} placeholder="https://t.me/yourchannel"
-                        className="w-full px-3.5 py-2.5 bg-white/[0.04] border border-white/10 rounded-xl text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-orange-500/50 focus:bg-white/[0.06] transition-all" />
+                        className="w-full px-3.5 py-2.5 bg-white/[0.04] border border-white/10 rounded-xl dark-input text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-orange-500/50 focus:bg-white/[0.06] transition-all" />
                     </div>
                   </div>
 
@@ -4311,7 +4325,7 @@ function AdminPanel() {
                   <div>
                     <label className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500 mb-1.5 block">Message <span className="text-orange-400">*</span></label>
                     <textarea value={notifBody} onChange={(e) => setNotifBody(e.target.value)} placeholder="e.g. Join our Telegram group for daily updates, free PDFs and notifications." rows={3}
-                      className="w-full px-3.5 py-2.5 bg-white/[0.04] border border-white/10 rounded-xl text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-orange-500/50 focus:bg-white/[0.06] transition-all resize-none" />
+                      className="w-full px-3.5 py-2.5 bg-white/[0.04] border border-white/10 rounded-xl dark-input text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-orange-500/50 focus:bg-white/[0.06] transition-all resize-none" />
                   </div>
 
                   {/* Notification Template (guided type) */}
@@ -4346,7 +4360,7 @@ function AdminPanel() {
                     <div className="flex items-center justify-between mb-2 gap-2">
                       <label className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">Platform / Icon</label>
                       <input value={platformSearch} onChange={(e) => setPlatformSearch(e.target.value)} placeholder="Search platform…"
-                        className="w-40 px-2 py-1 bg-white/[0.04] border border-white/10 rounded-md text-[11px] text-white placeholder:text-slate-600 focus:outline-none focus:border-orange-500/50" />
+                        className="w-40 px-2 py-1 bg-white/[0.04] border border-white/10 rounded-md dark-input text-[11px] text-white placeholder:text-slate-600 focus:outline-none focus:border-orange-500/50" />
                     </div>
                     <div className="bg-black/30 border border-white/[0.06] rounded-xl p-2 max-h-[240px] overflow-y-auto [scrollbar-width:thin] [scrollbar-color:rgba(255,255,255,0.15)_transparent]">
                       <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5">
@@ -4410,7 +4424,7 @@ function AdminPanel() {
                         <label className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500 mb-1.5 block">Hero image URL</label>
                         <div className="flex gap-2">
                           <input value={notifImageUrl} onChange={(e) => setNotifImageUrl(e.target.value)} placeholder="https://…/image.jpg"
-                            className="flex-1 px-3.5 py-2 bg-white/[0.04] border border-white/10 rounded-xl text-sm text-white placeholder:text-slate-600" />
+                            className="flex-1 px-3.5 py-2 bg-white/[0.04] border border-white/10 rounded-xl dark-input text-sm text-white placeholder:text-slate-600" />
                           <label className={`px-3 py-2 rounded-xl text-xs font-semibold cursor-pointer whitespace-nowrap transition-colors ${notifImageUploading ? "bg-white/5 text-slate-500 cursor-wait" : "bg-white text-slate-900 hover:bg-slate-200"}`}>
                             {notifImageUploading ? "Uploading…" : "Upload"}
                             <input type="file" accept="image/*" className="hidden" disabled={notifImageUploading}
@@ -4443,9 +4457,9 @@ function AdminPanel() {
                       </div>
                       <div className="grid grid-cols-2 gap-3">
                         <input value={notifActionLabel} onChange={(e) => setNotifActionLabel(e.target.value)} placeholder="CTA label (auto if empty)"
-                          className="px-3.5 py-2 bg-white/[0.04] border border-white/10 rounded-xl text-sm text-white placeholder:text-slate-600" />
+                          className="px-3.5 py-2 bg-white/[0.04] border border-white/10 rounded-xl dark-input text-sm text-white placeholder:text-slate-600" />
                         <input value={notifExpiresDays} onChange={(e) => setNotifExpiresDays(e.target.value)} placeholder="Expires (days)" type="number" min="1"
-                          className="px-3.5 py-2 bg-white/[0.04] border border-white/10 rounded-xl text-sm text-white placeholder:text-slate-600" />
+                          className="px-3.5 py-2 bg-white/[0.04] border border-white/10 rounded-xl dark-input text-sm text-white placeholder:text-slate-600" />
                       </div>
                       <div className="grid grid-cols-2 gap-3">
                         <select value={notifPriority} onChange={(e) => setNotifPriority(e.target.value as any)}
