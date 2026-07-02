@@ -376,6 +376,29 @@ async function refreshFromSupabase(env, session, rawToken, cacheKey, tsKey) {
   }
 }
 
+// --- IP helpers ---
+function isPrivateIp(ip) {
+  if (!ip) return true;
+  if (ip === "::1" || ip === "127.0.0.1" || ip.startsWith("::ffff:127.")) return true;
+  if (ip.startsWith("10.") || ip.startsWith("192.168.")) return true;
+  if (ip.startsWith("169.254.") || ip.startsWith("100.64.")) return true;
+  const m = ip.match(/^172\.(\d+)\./);
+  if (m && +m[1] >= 16 && +m[1] <= 31) return true;
+  if (ip.startsWith("fc") || ip.startsWith("fd") || ip.startsWith("fe80")) return true;
+  return false;
+}
+// Cloudflare's own IP ranges (Warp/proxy). If cf-connecting-ip returns one of these,
+// the *real* user is likely behind Warp — but a forwarded IPv4 might still be better.
+function isCloudflareIp(ip) {
+  if (!ip) return false;
+  if (ip.startsWith("2a06:98c") || ip.startsWith("2606:4700") || ip.startsWith("2803:f800")
+    || ip.startsWith("2405:b500") || ip.startsWith("2405:8100") || ip.startsWith("2c0f:f248")
+    || ip.startsWith("2a06:98d")) return true;
+  // Common IPv4 CF ranges (partial list)
+  if (/^(104\.16\.|104\.17\.|104\.18\.|104\.19\.|172\.6[4-7]\.|172\.68\.|172\.69\.|172\.70\.|172\.71\.|173\.245\.4[8-9]\.|173\.245\.5\d\.|103\.21\.244\.|103\.22\.200\.|103\.31\.4\.|141\.101\.6[4-9]\.|141\.101\.7\d\.|141\.101\.12[0-7]\.|108\.162\.19[2-9]\.|108\.162\.2\d\d\.|190\.93\.240\.|190\.93\.24[1-9]\.|190\.93\.25[0-5]\.|188\.114\.9[6-9]\.|197\.234\.240\.|198\.41\.12[8-9]\.|198\.41\.1[3-9]\d\.|198\.41\.2\d\d\.|162\.158\.)/.test(ip)) return true;
+  return false;
+}
+
 // --- Proxy any Supabase edge function through the worker ---
 async function handleFunctionProxy(request, env, fnName) {
   try {
@@ -383,11 +406,30 @@ async function handleFunctionProxy(request, env, fnName) {
     const sessionToken = request.headers.get("X-Session-Token") || request.headers.get("x-session-token");
     const pendingToken = request.headers.get("X-Pending-Token") || request.headers.get("x-pending-token");
 
-    // Resolve real client IP from Cloudflare headers
-    const clientIp = request.headers.get("cf-connecting-ip")
-      || request.headers.get("x-real-ip")
-      || (request.headers.get("x-forwarded-for") || "").split(",")[0].trim()
-      || "";
+    // Collect ALL possible client-IP signals, in preference order.
+    const rawCandidates = [];
+    const push = (label, val) => { if (val) rawCandidates.push({ label, ip: String(val).trim() }); };
+    push("cf-connecting-ip", request.headers.get("cf-connecting-ip"));
+    push("true-client-ip", request.headers.get("true-client-ip"));
+    push("x-real-ip", request.headers.get("x-real-ip"));
+    const xff = request.headers.get("x-forwarded-for") || "";
+    xff.split(",").forEach((p, i) => push(`xff[${i}]`, p));
+
+    // Deduplicate while preserving order.
+    const seen = new Set();
+    const candidates = rawCandidates.filter(c => c.ip && !seen.has(c.ip) && seen.add(c.ip));
+
+    // Selection priority:
+    //  1) first public non-CF candidate
+    //  2) first public candidate (even if CF)
+    //  3) anything non-empty
+    let selected = candidates.find(c => !isPrivateIp(c.ip) && !isCloudflareIp(c.ip))
+      || candidates.find(c => !isPrivateIp(c.ip))
+      || candidates[0];
+    const clientIp = selected?.ip || "";
+    const clientIpSource = selected?.label || "unknown";
+    const cfCountry = request.headers.get("cf-ipcountry") || "";
+    const cfRay = request.headers.get("cf-ray") || "";
 
     const headers = {
       "Content-Type": "application/json",
@@ -397,6 +439,16 @@ async function handleFunctionProxy(request, env, fnName) {
     if (sessionToken) headers["X-Session-Token"] = sessionToken;
     if (pendingToken) headers["X-Pending-Token"] = pendingToken;
     if (clientIp) headers["X-Client-IP"] = clientIp;
+    // Full trace (compact JSON) so backend can log & display which header we picked.
+    try {
+      headers["X-IP-Trace"] = JSON.stringify({
+        selected: clientIp,
+        selectedFrom: clientIpSource,
+        cfCountry,
+        cfRay,
+        candidates: candidates.map(c => ({ h: c.label, ip: c.ip })),
+      }).slice(0, 1800);
+    } catch {}
 
     const res = await fetch(`${env.SUPABASE_URL}/functions/v1/${fnName}`, {
       method: "POST",

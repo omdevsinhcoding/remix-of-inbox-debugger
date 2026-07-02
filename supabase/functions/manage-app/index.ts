@@ -117,15 +117,65 @@ function isPrivateIp(ip: string): boolean {
   return false;
 }
 
+// Cloudflare's own proxy/Warp ranges. Prefer non-CF candidates when available.
+function isCloudflareIp(ip: string): boolean {
+  if (!ip) return false;
+  if (ip.startsWith("2a06:98c") || ip.startsWith("2606:4700") || ip.startsWith("2803:f800")
+    || ip.startsWith("2405:b500") || ip.startsWith("2405:8100") || ip.startsWith("2c0f:f248")
+    || ip.startsWith("2a06:98d")) return true;
+  if (/^(104\.1[6-9]\.|172\.6[4-9]\.|172\.7[01]\.|173\.245\.[45]\d\.|103\.21\.244\.|103\.22\.200\.|103\.31\.4\.|141\.101\.(6[4-9]|7\d|12[0-7])\.|108\.162\.(19[2-9]|2\d\d)\.|190\.93\.(240|24[1-9]|25[0-5])\.|188\.114\.9[6-9]\.|197\.234\.240\.|198\.41\.(12[8-9]|1[3-9]\d|2\d\d)\.|162\.158\.)/.test(ip)) return true;
+  return false;
+}
+
+function pickClientIp(candidates: { label: string; ip: string }[]): { ip: string; label: string } {
+  const clean = candidates.filter(c => c.ip);
+  // 1) first public non-CF
+  let sel = clean.find(c => !isPrivateIp(c.ip) && !isCloudflareIp(c.ip));
+  if (sel) return sel;
+  // 2) first public (may be CF)
+  sel = clean.find(c => !isPrivateIp(c.ip));
+  if (sel) return sel;
+  // 3) anything
+  return clean[0] || { ip: "unknown", label: "none" };
+}
+
+function collectIpCandidates(req: Request): { label: string; ip: string }[] {
+  const out: { label: string; ip: string }[] = [];
+  const push = (label: string, val: string | null | undefined) => {
+    if (!val) return;
+    for (const raw of String(val).split(",")) {
+      const ip = raw.trim();
+      if (ip) out.push({ label, ip });
+    }
+  };
+  push("x-client-ip", req.headers.get("x-client-ip"));
+  push("cf-connecting-ip", req.headers.get("cf-connecting-ip"));
+  push("true-client-ip", req.headers.get("true-client-ip"));
+  push("x-real-ip", req.headers.get("x-real-ip"));
+  push("x-forwarded-for", req.headers.get("x-forwarded-for"));
+  return out;
+}
+
 function getClientIp(req: Request): string {
-  const candidates: string[] = [];
-  const cf = req.headers.get("cf-connecting-ip"); if (cf) candidates.push(cf.trim());
-  const real = req.headers.get("x-real-ip"); if (real) candidates.push(real.trim());
-  const fwd = req.headers.get("x-forwarded-for");
-  if (fwd) for (const p of fwd.split(",")) { const t = p.trim(); if (t) candidates.push(t); }
-  const xci = req.headers.get("x-client-ip"); if (xci) candidates.push(xci.trim());
-  for (const c of candidates) if (!isPrivateIp(c)) return c;
-  return candidates[0] || "unknown";
+  return pickClientIp(collectIpCandidates(req)).ip;
+}
+
+function getClientIpTrace(req: Request): { ip: string; source: string; candidates: { label: string; ip: string }[]; cfCountry: string; cfRay: string; workerTrace: any } {
+  const candidates = collectIpCandidates(req);
+  const picked = pickClientIp(candidates);
+  let workerTrace: any = null;
+  try {
+    const raw = req.headers.get("x-ip-trace");
+    if (raw) workerTrace = JSON.parse(raw);
+  } catch {}
+  return {
+    ip: picked.ip,
+    source: picked.label,
+    candidates,
+    cfCountry: req.headers.get("cf-ipcountry") || "",
+    cfRay: req.headers.get("cf-ray") || "",
+    workerTrace,
+  };
 }
 
 function esc(s: string): string {
@@ -381,25 +431,26 @@ async function detectAnonymizer(ip: string): Promise<{ proxy: boolean; vpn: bool
   } catch { return null; }
 }
 
-async function resolveLocation(ip: string): Promise<{
+async function resolveLocation(ip: string, opts?: { allowIpwho?: boolean }): Promise<{
   merged: LocResult; confidence: "high" | "medium" | "low"; agreed: number; results: LocResult[];
   anonymizer: { proxy: boolean; vpn: boolean; tor: boolean; hosting: boolean; type?: string; provider?: string } | null;
 }> {
+  const allowIpwho = opts?.allowIpwho !== false;
+  const providers: Array<Promise<LocResult | null>> = [
+    providerIpapiCo(ip),
+    providerIpApiCom(ip),
+    providerIpinfoIo(ip),
+    providerFreeIpApi(ip),
+  ];
+  if (allowIpwho) providers.push(providerIpwhoIs(ip));
   const [settled, anonymizer] = await Promise.all([
-    Promise.allSettled([
-      providerIpapiCo(ip),
-      providerIpApiCom(ip),
-      providerIpwhoIs(ip),
-      providerIpinfoIo(ip),
-      providerFreeIpApi(ip),
-    ]),
+    Promise.allSettled(providers),
     detectAnonymizer(ip),
   ]);
   const results = settled.map(s => s.status === "fulfilled" ? s.value : null).filter(Boolean) as LocResult[];
   if (results.length === 0) {
     return { merged: { provider: "none", ip }, confidence: "low", agreed: 0, results: [], anonymizer };
   }
-  // Consensus bucket by country|city
   const buckets = new Map<string, LocResult[]>();
   for (const r of results) {
     const k = `${(r.countryCode || r.country || "").toLowerCase()}|${(r.city || "").toLowerCase()}`;
@@ -458,6 +509,7 @@ async function sendPrimaryLoginAlert(
   anonymizer: { proxy: boolean; vpn: boolean; tor: boolean; hosting: boolean; type?: string; provider?: string } | null,
   totalProviders: number,
   clientGeo: ClientGeoPayload | null,
+  ipTrace: { ip: string; source: string; candidates: { label: string; ip: string }[]; cfCountry: string; cfRay: string; workerTrace: any } | null,
 ) {
   const tg = await getTelegramConfig(supabase);
   if (!tg) return;
@@ -465,38 +517,50 @@ async function sendPrimaryLoginAlert(
   const displayName = user?.name || user?.username || "Unknown";
   const role = user?.role || "user";
   const isGps = loc.provider === "device-gps";
+
+  // GPS wins entirely for map + coords when granted.
+  const gpsLat = clientGeo?.status === "granted" ? clientGeo.latitude : undefined;
+  const gpsLng = clientGeo?.status === "granted" ? clientGeo.longitude : undefined;
+  const mapLat = typeof gpsLat === "number" ? gpsLat : (typeof loc.lat === "number" ? loc.lat : undefined);
+  const mapLng = typeof gpsLng === "number" ? gpsLng : (typeof loc.lng === "number" ? loc.lng : undefined);
+  const mapLink = (typeof mapLat === "number" && typeof mapLng === "number")
+    ? `https://www.google.com/maps?q=${mapLat},${mapLng}` : null;
+
   const flag = loc.flag || countryToFlag(loc.countryCode);
   const locLine = isGps && typeof loc.lat === "number" && typeof loc.lng === "number"
     ? `${[loc.city, loc.region, loc.country].filter(Boolean).join(", ") || "GPS coordinates"} (${loc.lat.toFixed(6)}, ${loc.lng.toFixed(6)})`
     : [loc.city, loc.region, loc.country].filter(Boolean).join(", ") || "Unknown location";
   const isp = ipLoc.isp || ipLoc.org || loc.isp || loc.org || "Unknown ISP";
   const time = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata", hour12: true });
-  const mapLink = (typeof loc.lat === "number" && typeof loc.lng === "number")
-    ? `https://www.google.com/maps?q=${loc.lat},${loc.lng}` : null;
   const statusEmoji = status === "success" ? "✅" : "❌";
 
   const isAnon = !!(ipLoc.vpn || ipLoc.proxy || ipLoc.tor || ipLoc.hosting || anonymizer?.vpn || anonymizer?.proxy || anonymizer?.tor || anonymizer?.hosting);
   const anonBadge = (ipLoc.tor || anonymizer?.tor) ? "🧅 TOR" : (ipLoc.vpn || anonymizer?.vpn) ? "🛡 VPN" : (ipLoc.proxy || anonymizer?.proxy) ? "🎭 PROXY" : (ipLoc.hosting || anonymizer?.hosting) ? "🖥 HOSTING/DC" : "";
   const anonNote = isAnon
-    ? `⚠️ <b>Anonymizer detected</b> — ${anonBadge}${anonymizer?.provider ? ` · <i>${esc(anonymizer.provider)}</i>` : ""}\n<i>${isGps ? "Device GPS was used for the map; IP location may be VPN/proxy exit-node." : "User did not provide device GPS, so displayed location is only IP/VPN exit-node."}</i>`
+    ? `⚠️ <b>Anonymizer detected</b> — ${anonBadge}${anonymizer?.provider ? ` · <i>${esc(anonymizer.provider)}</i>` : ""}\n<i>${isGps ? "Device GPS was used for the map; IP location is a VPN/proxy exit-node." : "User did not provide device GPS, so displayed location is only IP/VPN exit-node — NOT the real user location."}</i>`
     : "";
+
   const gpsLine = clientGeo?.status === "granted"
-    ? `🛰 <b>GPS:</b> granted · accuracy ${clientGeo.accuracy ? `±${esc(String(clientGeo.accuracy))}m` : "unknown"}`
+    ? `🛰 <b>GPS:</b> granted · accuracy ${clientGeo.accuracy ? `±${esc(String(clientGeo.accuracy))}m` : "unknown"}${clientGeo.timestamp ? ` · fix ${esc(new Date(clientGeo.timestamp).toISOString())}` : ""}`
     : `🛰 <b>GPS:</b> ${esc(clientGeo?.status || "not sent")}${clientGeo?.permissionState ? ` · permission ${esc(clientGeo.permissionState)}` : ""}${clientGeo?.error ? ` · ${esc(clientGeo.error)}` : ""}`;
-  const locationSource = isGps ? "Device GPS (user permission)" : "IP lookup fallback";
+
+  const locationSource = isGps ? "Device GPS (exact)" : "IP lookup (approximate — may be VPN/proxy)";
+
+  const ipTraceLine = ipTrace ? `🧭 <b>IP source:</b> <code>${esc(ipTrace.source)}</code>${ipTrace.cfCountry ? ` · CF ${esc(ipTrace.cfCountry)}` : ""}${ipTrace.candidates?.length ? ` · seen ${ipTrace.candidates.length}` : ""}` : "";
 
   const text = [
     `🔔 <b>New Login</b> — ${esc(displayName)} ${statusEmoji}`,
     `━━━━━━━━━━━━━━━━`,
     `👤 <b>User:</b> ${esc(displayName)} (<code>${esc(user?.username || "")}</code>) · <b>${esc(role)}</b>`,
     `🕐 <b>Time:</b> ${esc(time)} IST`,
-    `🌐 <b>IP:</b> <code>${esc(ip)}</code>`,
+    `🌐 <b>Network IP:</b> <code>${esc(ip)}</code>`,
+    ipTraceLine,
     `📍 ${flag} <b>${esc(locationSource)}:</b> ${esc(locLine)}${loc.postal ? ` · ${esc(loc.postal)}` : ""}`,
     gpsLine,
     `🏢 <b>ISP:</b> ${esc(isp)}${(ipLoc.asn || loc.asn) ? ` (${esc(ipLoc.asn || loc.asn || "")})` : ""}`,
     loc.timezone ? `⏱ <b>Timezone:</b> ${esc(loc.timezone)}` : "",
     `📱 <b>Device:</b> ${esc(browser)} on ${esc(os)}`,
-    mapLink ? `🗺 <a href="${mapLink}">Open in Google Maps</a>` : "",
+    mapLink ? `🗺 <a href="${mapLink}">Open in Google Maps</a> ${isGps ? "(GPS)" : "(IP — approximate)"}` : "",
     anonNote,
     `━━━━━━━━━━━━━━━━`,
     isGps ? `Confidence: <b>GPS verified</b>${clientGeo?.accuracy ? ` (±${esc(String(clientGeo.accuracy))}m)` : ""}` : `Confidence: <b>${esc(confidence)}</b> (${agreed}/${totalProviders} IP providers agreed)`,
@@ -548,22 +612,36 @@ async function sendLoginNotification(
 ) {
   try {
     if (!user) return;
-    const ip = getClientIp(req);
+    const ipTrace = getClientIpTrace(req);
+    const ip = ipTrace.ip;
     const clientGeo = sanitizeClientGeo(rawClientGeo);
-    const [{ merged, confidence, agreed, results, anonymizer }, gpsLoc] = await Promise.all([
-      resolveLocation(ip),
-      clientGeo?.status === "granted" ? reverseGpsLocation(clientGeo) : Promise.resolve(null),
-    ]);
-    const displayLoc = gpsLoc || merged;
-    // Always send the primary (consensus) alert
-    await sendPrimaryLoginAlert(supabase, req, user, status, merged.ip || ip, displayLoc, merged, confidence, agreed, anonymizer, 5, clientGeo);
-    // Legacy ipwho.is alert — only if admin toggle enables it (default OFF).
+
+    // Check admin toggle FIRST so ipwho.is is fully skipped when disabled.
+    let ipwhoEnabled = false;
     try {
       const { data } = await supabase.from("app_settings").select("value").eq("key", "ipwho_alert").single();
-      if (data?.value?.enabled === true) {
-        await sendLegacyIpwhoAlert(supabase, user, status, merged.ip || ip, results);
-      }
+      ipwhoEnabled = data?.value?.enabled === true;
     } catch {}
+
+    console.log("[login-notify] ip=", ip, "source=", ipTrace.source, "candidates=", ipTrace.candidates.map(c => `${c.label}:${c.ip}`).join("|"), "gps=", clientGeo?.status, "ipwhoEnabled=", ipwhoEnabled);
+
+    const [locRes, gpsLoc] = await Promise.all([
+      resolveLocation(ip, { allowIpwho: ipwhoEnabled }),
+      clientGeo?.status === "granted" ? reverseGpsLocation(clientGeo) : Promise.resolve(null),
+    ]);
+    const { merged, confidence, agreed, results, anonymizer } = locRes;
+    const totalProviders = ipwhoEnabled ? 5 : 4;
+    const displayLoc = gpsLoc || merged;
+
+    await sendPrimaryLoginAlert(
+      supabase, req, user, status,
+      merged.ip || ip, displayLoc, merged, confidence, agreed, anonymizer,
+      totalProviders, clientGeo, ipTrace,
+    );
+
+    if (ipwhoEnabled) {
+      try { await sendLegacyIpwhoAlert(supabase, user, status, merged.ip || ip, results); } catch {}
+    }
   } catch (err) {
     console.error("[notification] login notify failed:", err);
   }

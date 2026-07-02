@@ -2218,12 +2218,12 @@ function AdminPanel() {
             <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
               <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
                 <div className="bg-red-50 p-1.5 rounded-lg"><Send className="w-4 h-4 text-red-600" /></div>
-                Location Alert (legacy ipwho.is)
+                ipwho.is provider
               </h2>
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="text-sm font-semibold text-slate-800">Send legacy ipwho.is alert</p>
-                  <p className="text-xs text-slate-500 mt-1">The primary multi-provider consensus alert is always sent. This toggles the additional raw ipwho.is dump.</p>
+                  <p className="text-sm font-semibold text-slate-800">Enable ipwho.is for login location</p>
+                  <p className="text-xs text-slate-500 mt-1">When OFF, ipwho.is is not called at all — no IP goes to ipwho.is and the extra ipwho.is Telegram dump is not sent. Other providers (ipapi.co, ip-api.com, ipinfo.io, freeipapi.com) and device GPS still work.</p>
                 </div>
                 <button onClick={toggleIpwhoAlert} disabled={savingIpwho}
                   className={`relative w-12 h-6 rounded-full transition-colors flex-shrink-0 ${ipwhoAlertEnabled ? "bg-green-500" : "bg-slate-300"}`}>
