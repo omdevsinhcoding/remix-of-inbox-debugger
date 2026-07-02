@@ -4355,7 +4355,7 @@ function AdminPanel() {
                     <div key={n.id} className="border rounded-lg p-3 flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 mb-1">
-                          {n.pinned && <Pin className="w-3 h-3 text-amber-500" />}
+                          {n.locked && <Lock className="w-3 h-3 text-slate-500" />}
                           <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-700 capitalize">{n.category || "announcement"}</span>
                           <span className={`w-1.5 h-1.5 rounded-full ${n.priority === "critical" ? "bg-rose-500" : n.priority === "high" ? "bg-amber-500" : n.priority === "normal" ? "bg-sky-500" : "bg-zinc-400"}`} />
                         </div>
