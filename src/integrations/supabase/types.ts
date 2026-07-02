@@ -81,6 +81,42 @@ export type Database = {
           },
         ]
       }
+      app_sessions: {
+        Row: {
+          created_at: string
+          expires_at: string
+          id: string
+          ip: string | null
+          last_seen_at: string
+          role: string
+          token_hash: string
+          user_agent: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          expires_at: string
+          id?: string
+          ip?: string | null
+          last_seen_at?: string
+          role?: string
+          token_hash: string
+          user_agent?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string
+          id?: string
+          ip?: string | null
+          last_seen_at?: string
+          role?: string
+          token_hash?: string
+          user_agent?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       app_settings: {
         Row: {
           key: string
