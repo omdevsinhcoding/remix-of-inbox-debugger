@@ -1186,7 +1186,6 @@ function CaptchaModal({ siteKey, onVerify, onCancel }: { siteKey: string; onVeri
         </div>
         <div className="flex justify-center px-6 pb-4 min-h-[78px]">
           <ReCAPTCHA sitekey={siteKey} onChange={(token) => { if (token) onVerify(token); }} />
-          </Suspense>
         </div>
 
         <div className="flex border-t border-slate-100">
