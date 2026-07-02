@@ -3036,6 +3036,22 @@ function AdminPanel() {
         if (mnt.value.endsAt) setMaintenanceEndsAt(toLocalInput(mnt.value.endsAt));
       }
     } catch { }
+
+    try {
+      const r2 = await apiCall("manage-app", { action: "admin_get_r2_config" });
+      if (r2?.config) {
+        setR2Cfg({
+          accountId: r2.config.accountId || "",
+          accessKeyId: r2.config.accessKeyId || "",
+          secretAccessKey: "", // never sent from server
+          bucket: r2.config.bucket || "",
+          publicBaseUrl: r2.config.publicBaseUrl || "",
+          pathPrefix: r2.config.pathPrefix || "notifications/",
+          enabled: r2.config.enabled === true,
+          secretAccessKeySet: r2.config.secretAccessKeySet === true,
+        });
+      }
+    } catch { }
   }, []);
 
   useEffect(() => {
