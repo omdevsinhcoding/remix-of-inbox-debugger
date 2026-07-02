@@ -2826,116 +2826,145 @@ function AdminPanel() {
     return labels;
   };
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const usersData = await apiCall("manage-app", { action: "list" });
-        const usersList = usersData.users || [];
-        setUsers(usersList);
-        setStats(prev => ({ ...prev, totalUsers: usersList.length }));
-      } catch { }
+  const loadAdminData = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = !!opts?.silent;
+    // Users
+    try {
+      const usersData = await apiCall("manage-app", { action: "list" });
+      const usersList = usersData.users || [];
+      setUsers(usersList);
+      setStats(prev => ({ ...prev, totalUsers: usersList.length }));
+    } catch { }
 
-      try {
-        const recaptcha = await apiCall("manage-app", { action: "get_settings", key: "recaptcha" });
-        if (recaptcha.value) {
-          setSiteKey(recaptcha.value.siteKey || "");
-          setSecretKeyVal(recaptcha.value.secretKey || "");
-          setCaptchaEnabled(recaptcha.value.enabled === true);
-        }
-      } catch { }
+    // Total emails count (light: limit=1, we only care about total)
+    try {
+      const res: any = await apiCall("manage-app", { action: "admin_list_emails", limit: 1, offset: 0 });
+      setStats(prev => ({ ...prev, totalEmails: res?.total || 0 }));
+    } catch { }
 
-      try {
-        const config = await apiCall("manage-app", { action: "get_settings", key: "config" });
-        if (config.value) {
-          const c = config.value as any;
-          setServerConfig({
-            TELEGRAM_BOT_TOKEN: c.TELEGRAM_BOT_TOKEN || "",
-            TELEGRAM_CHAT_ID: c.TELEGRAM_CHAT_ID || "",
-            IMAP_HOST: c.IMAP_HOST || "",
-            IMAP_PORT: c.IMAP_PORT || "",
-            IMAP_USER: c.IMAP_USER || "",
-            IMAP_PASSWORD: c.IMAP_PASSWORD || "",
-          });
-        }
-      } catch { }
+    // Admin notifications
+    try {
+      const nl = await apiCall("manage-app", { action: "admin_list_notifications" });
+      if (Array.isArray(nl?.notifications)) setAdminNotifs(nl.notifications);
+    } catch { }
 
-      try {
-        const pcf = await apiCall("manage-app", { action: "get_settings", key: "primary_cloudflare_urls" });
-        if (pcf.value && Array.isArray(pcf.value)) {
-          setPrimaryCfUrls(pcf.value);
-        }
-      } catch { }
+    if (silent) return; // settings below are rarely-changing — only load them on mount
+    try {
+      const recaptcha = await apiCall("manage-app", { action: "get_settings", key: "recaptcha" });
+      if (recaptcha.value) {
+        setSiteKey(recaptcha.value.siteKey || "");
+        setSecretKeyVal(recaptcha.value.secretKey || "");
+        setCaptchaEnabled(recaptcha.value.enabled === true);
+      }
+    } catch { }
 
-      try {
-        const filters = await apiCall("manage-app", { action: "get_settings", key: "email_filters" });
-        if (filters.value) {
-          setShowSignInCodes(filters.value.showSignInCodes !== false);
-          setShowPasswordResets(filters.value.showPasswordResets === true);
-          setShowAccountUpdates(filters.value.showAccountUpdates === true);
-          setEmailFiltersCache(filters.value);
-        }
-      } catch { }
+    try {
+      const config = await apiCall("manage-app", { action: "get_settings", key: "config" });
+      if (config.value) {
+        const c = config.value as any;
+        setServerConfig({
+          TELEGRAM_BOT_TOKEN: c.TELEGRAM_BOT_TOKEN || "",
+          TELEGRAM_CHAT_ID: c.TELEGRAM_CHAT_ID || "",
+          IMAP_HOST: c.IMAP_HOST || "",
+          IMAP_PORT: c.IMAP_PORT || "",
+          IMAP_USER: c.IMAP_USER || "",
+          IMAP_PASSWORD: c.IMAP_PASSWORD || "",
+        });
+      }
+    } catch { }
 
-      try {
-        const accounts = await apiCall("manage-app", { action: "get_settings", key: "email_accounts" });
-        if (accounts.value && Array.isArray(accounts.value)) {
-          const migrated = accounts.value.map((acc: any) => {
-            if (acc.cloudflareUrls && Array.isArray(acc.cloudflareUrls)) return acc;
-            const urls: string[] = [];
-            if (acc.cloudflareUrl && acc.cloudflareUrl.trim()) urls.push(acc.cloudflareUrl.trim());
-            const { cloudflareUrl, ...rest } = acc;
-            return { ...rest, cloudflareUrls: urls };
-          });
-          setEmailAccounts(migrated);
-        }
-      } catch { }
+    try {
+      const pcf = await apiCall("manage-app", { action: "get_settings", key: "primary_cloudflare_urls" });
+      if (pcf.value && Array.isArray(pcf.value)) {
+        setPrimaryCfUrls(pcf.value);
+      }
+    } catch { }
 
-      try {
-        const sc = await apiCall("manage-app", { action: "get_settings", key: "session_config" });
-        const m = Number(sc?.value?.timeoutMinutes);
-        if (Number.isFinite(m) && m >= 0) setSessionTimeoutMin(String(m));
-      } catch { }
+    try {
+      const filters = await apiCall("manage-app", { action: "get_settings", key: "email_filters" });
+      if (filters.value) {
+        setShowSignInCodes(filters.value.showSignInCodes !== false);
+        setShowPasswordResets(filters.value.showPasswordResets === true);
+        setShowAccountUpdates(filters.value.showAccountUpdates === true);
+        setEmailFiltersCache(filters.value);
+      }
+    } catch { }
 
-      try {
-        const sc = await apiCall("manage-app", { action: "get_settings", key: "admin_session_config" });
-        const m = Number(sc?.value?.timeoutMinutes);
-        if (Number.isFinite(m) && m >= 0) setAdminSessionTimeoutMin(String(m));
-      } catch { }
+    try {
+      const accounts = await apiCall("manage-app", { action: "get_settings", key: "email_accounts" });
+      if (accounts.value && Array.isArray(accounts.value)) {
+        const migrated = accounts.value.map((acc: any) => {
+          if (acc.cloudflareUrls && Array.isArray(acc.cloudflareUrls)) return acc;
+          const urls: string[] = [];
+          if (acc.cloudflareUrl && acc.cloudflareUrl.trim()) urls.push(acc.cloudflareUrl.trim());
+          const { cloudflareUrl, ...rest } = acc;
+          return { ...rest, cloudflareUrls: urls };
+        });
+        setEmailAccounts(migrated);
+      }
+    } catch { }
 
-      try {
-        const ipw = await apiCall("manage-app", { action: "get_settings", key: "ipwho_alert" });
-        setIpwhoAlertEnabled(ipw?.value?.enabled === true);
-      } catch { }
+    try {
+      const sc = await apiCall("manage-app", { action: "get_settings", key: "session_config" });
+      const m = Number(sc?.value?.timeoutMinutes);
+      if (Number.isFinite(m) && m >= 0) setSessionTimeoutMin(String(m));
+    } catch { }
 
-      try {
-        const mnt = await apiCall("manage-app", { action: "get_settings", key: "maintenance" });
-        if (mnt?.value) {
-          setMaintenanceEnabled(mnt.value.enabled === true);
-          setMaintenanceTitle(mnt.value.title || "");
-          setMaintenanceMessage(mnt.value.message || "");
-          setMaintenanceVersionFrom(mnt.value.versionFrom || "");
-          setMaintenanceVersionTo(mnt.value.versionTo || "");
-          prevSavedVersionToRef.current = mnt.value.versionTo || "";
-          // Convert stored ISO to local "YYYY-MM-DDTHH:mm" for the datetime-local input.
-          const toLocalInput = (iso: string) => {
-            const d = new Date(iso);
-            if (isNaN(d.getTime())) return "";
-            const pad = (n: number) => String(n).padStart(2, "0");
-            return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-          };
-          if (mnt.value.startsAt) setMaintenanceStartsAt(toLocalInput(mnt.value.startsAt));
-          if (mnt.value.endsAt) setMaintenanceEndsAt(toLocalInput(mnt.value.endsAt));
-        }
-      } catch { }
+    try {
+      const sc = await apiCall("manage-app", { action: "get_settings", key: "admin_session_config" });
+      const m = Number(sc?.value?.timeoutMinutes);
+      if (Number.isFinite(m) && m >= 0) setAdminSessionTimeoutMin(String(m));
+    } catch { }
 
+    try {
+      const ipw = await apiCall("manage-app", { action: "get_settings", key: "ipwho_alert" });
+      setIpwhoAlertEnabled(ipw?.value?.enabled === true);
+    } catch { }
 
-
-      try {
-        const nl = await apiCall("manage-app", { action: "admin_list_notifications" });
-        if (Array.isArray(nl?.notifications)) setAdminNotifs(nl.notifications);
-      } catch { }
-    })();
+    try {
+      const mnt = await apiCall("manage-app", { action: "get_settings", key: "maintenance" });
+      if (mnt?.value) {
+        setMaintenanceEnabled(mnt.value.enabled === true);
+        setMaintenanceTitle(mnt.value.title || "");
+        setMaintenanceMessage(mnt.value.message || "");
+        setMaintenanceVersionFrom(mnt.value.versionFrom || "");
+        setMaintenanceVersionTo(mnt.value.versionTo || "");
+        prevSavedVersionToRef.current = mnt.value.versionTo || "";
+        const toLocalInput = (iso: string) => {
+          const d = new Date(iso);
+          if (isNaN(d.getTime())) return "";
+          const pad = (n: number) => String(n).padStart(2, "0");
+          return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        };
+        if (mnt.value.startsAt) setMaintenanceStartsAt(toLocalInput(mnt.value.startsAt));
+        if (mnt.value.endsAt) setMaintenanceEndsAt(toLocalInput(mnt.value.endsAt));
+      }
+    } catch { }
   }, []);
+
+  useEffect(() => {
+    // Initial full load
+    void loadAdminData();
+
+    // Auto-refresh live data (users, emails count, notifications) every 8s
+    // while tab is visible — so admin panel never lags behind actual state.
+    let interval: number | null = null;
+    const start = () => {
+      if (interval != null) return;
+      interval = window.setInterval(() => { void loadAdminData({ silent: true }); }, 8000);
+    };
+    const stop = () => {
+      if (interval != null) { clearInterval(interval); interval = null; }
+    };
+    const onVis = () => {
+      if (document.visibilityState === "visible") { void loadAdminData({ silent: true }); start(); }
+      else stop();
+    };
+    start();
+    document.addEventListener("visibilitychange", onVis);
+    return () => { stop(); document.removeEventListener("visibilitychange", onVis); };
+  }, [loadAdminData]);
+
 
 
   const saveSessionTimeout = async () => {
