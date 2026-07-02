@@ -4269,16 +4269,30 @@ function AdminPanel() {
                       },
                       {
                         step: "5",
-                        title: "3 Secrets Set Karo (IMPORTANT!)",
+                        title: "4 Secrets Set Karo (IMPORTANT!)",
                         points: [
-                          "Worker → 'Settings' tab → 'Variables and Secrets'",
-                          "'Add' pe click karo aur ye 3 secrets ek-ek karke add karo:",
-                          "🔑 SUPABASE_URL → apna Supabase project URL",
-                          "🔑 SUPABASE_KEY → apna Supabase anon key",
-                          "🔑 SESSION_SECRET → apna Supabase service_role key",
+                          "Worker → 'Settings' tab → 'Variables and Secrets' → 'Add'",
+                          "Har secret ke liye Type = 'Secret' (Encrypted) rakhna — Plaintext nahi",
+                          "",
+                          "🔑 SUPABASE_URL",
+                          "   → Value: https://jsqchutnfdeljajkxmly.supabase.co",
+                          "   (Supabase Dashboard → Project Settings → API → Project URL)",
+                          "",
+                          "🔑 SUPABASE_KEY",
+                          "   → Value: apna Supabase anon/publishable key",
+                          "   (Supabase Dashboard → Project Settings → API Keys → anon public)",
+                          "",
+                          "🔑 SESSION_SIGNING_SECRET  ⭐ (NEW — primary)",
+                          "   → Value: Supabase Edge Functions → Secrets me SESSION_SIGNING_SECRET ki value",
+                          "   Agar reveal nahi ho rahi to admin se bolo naya generate karke dey",
+                          "",
+                          "🔑 SESSION_SECRET  (legacy — backward compat ke liye)",
+                          "   → Value: Supabase service_role key (purani setup wali same value)",
+                          "   24h baad safely delete kar sakte ho",
+                          "",
                           "'Save and Deploy' pe click karo",
                         ],
-                        warning: "⚠️ Bina SESSION_SECRET ke worker kaam nahi karega!",
+                        warning: "⚠️ SESSION_SIGNING_SECRET mandatory hai — bina iske login tokens verify nahi honge!",
                       },
                       {
                         step: "6",
@@ -4291,6 +4305,7 @@ function AdminPanel() {
                           "✅ Done! Ab emails worker se aayenge",
                         ],
                       },
+
                     ].map((s) => (
                       <details key={s.step} className="bg-white rounded-lg border border-blue-100 overflow-hidden">
                         <summary className="flex items-center gap-2 p-2.5 cursor-pointer active:bg-blue-50 transition-colors">
