@@ -1465,6 +1465,12 @@ Deno.serve(async (req) => {
         }
       } catch {}
 
+      let avatarBaseUrl = "";
+      try {
+        const { data: r2Data } = await supabase.from("app_settings").select("value").eq("key", "r2_storage").single();
+        const r2 = normalizeR2Config(r2Data?.value || {}).config;
+        avatarBaseUrl = r2.publicBaseUrl || "";
+      } catch {}
 
       const mappedUsers = (users || []).map((u: any) => ({
         id: u.id,
@@ -1473,7 +1479,7 @@ Deno.serve(async (req) => {
         role: u.role,
         profileAvatar: u.profile_prefs?.avatarId || null,
       }));
-      return new Response(JSON.stringify({ success: true, users: mappedUsers, recaptcha, workerUrls, emailFilters, maintenance }), {
+      return new Response(JSON.stringify({ success: true, users: mappedUsers, recaptcha, workerUrls, emailFilters, maintenance, avatarBaseUrl }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
