@@ -1739,6 +1739,16 @@ function AdminPanel() {
                     <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${showPasswordResets ? "translate-x-6" : "translate-x-0.5"}`} />
                   </button>
                 </div>
+                <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border">
+                  <div className="pr-3">
+                    <p className="font-bold text-sm text-slate-900">Show Account Update Emails</p>
+                    <p className="text-xs text-slate-500 mt-1">When OFF, Netflix "account info changed / email changed / membership cancelled / account deleted / on hold" emails are hidden from inbox. Telegram alerts are not affected.</p>
+                  </div>
+                  <button onClick={toggleAccountUpdateFilter}
+                    className={`relative w-12 h-6 rounded-full transition-colors flex-shrink-0 ml-3 ${showAccountUpdates ? "bg-green-500" : "bg-slate-300"}`}>
+                    <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${showAccountUpdates ? "translate-x-6" : "translate-x-0.5"}`} />
+                  </button>
+                </div>
               </div>
             </section>
 
