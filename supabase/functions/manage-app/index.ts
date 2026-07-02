@@ -1109,6 +1109,186 @@ Deno.serve(async (req) => {
       });
     }
 
+    // ---------- User: clear own inbox (hide-only) ----------
+    if (action === "clear_user_inbox") {
+      const session = await requireSession(req);
+      const { visibleIds } = params as { visibleIds?: string[] };
+      const { data: u, error: uErr } = await supabase
+        .from("app_users").select("profile_prefs").eq("id", session.userId).single();
+      if (uErr || !u) throw new Error("User not found");
+      const prefs = (u.profile_prefs || {}) as any;
+      const existing: string[] = Array.isArray(prefs.hiddenEmailIds) ? prefs.hiddenEmailIds : [];
+      const merged = Array.from(new Set([...existing, ...(Array.isArray(visibleIds) ? visibleIds : [])])).slice(-5000);
+      const nextPrefs = { ...prefs, hiddenBefore: new Date().toISOString(), hiddenEmailIds: merged };
+      const { error: upErr } = await supabase.from("app_users").update({ profile_prefs: nextPrefs }).eq("id", session.userId);
+      if (upErr) throw upErr;
+      await auditLog(supabase, "user_clear_inbox", session.userId, session.userId, { count: merged.length }, ip);
+      return new Response(JSON.stringify({ success: true, profilePrefs: nextPrefs }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ---------- Admin: destructive DB clear ----------
+    if (action === "admin_clear_inbox") {
+      const session = await requireAdmin(req);
+      const { mode, accountLabel, days, confirm } = params as any;
+      let q = supabase.from("cached_emails").delete();
+      let details: any = { mode };
+      if (mode === "all") {
+        if (confirm !== "DELETE ALL") throw new Error("Confirmation phrase required");
+        q = q.neq("id", "__nonexistent__");
+      } else if (mode === "label") {
+        if (!accountLabel) throw new Error("accountLabel required");
+        q = q.eq("account_label", accountLabel);
+        details.accountLabel = accountLabel;
+      } else if (mode === "days") {
+        const n = Number(days);
+        if (!Number.isFinite(n) || n < 0) throw new Error("Valid days required");
+        const cutoff = new Date(Date.now() - n * 86400_000).toISOString();
+        q = q.lt("date", cutoff);
+        details.days = n;
+      } else {
+        throw new Error("Invalid mode");
+      }
+      const { error, count } = await q.select("id", { count: "exact", head: true });
+      if (error) throw error;
+      details.deleted = count || 0;
+      await auditLog(supabase, "admin_clear_inbox", session.userId, null, details, ip);
+      return new Response(JSON.stringify({ success: true, deleted: count || 0 }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ---------- Notifications: user side ----------
+    if (action === "list_notifications") {
+      const session = await requireSession(req);
+      const nowIso = new Date().toISOString();
+      const { data: notes, error: nErr } = await supabase
+        .from("notifications")
+        .select("id, title, body, audience, target_user_id, created_at, expires_at")
+        .or(`audience.eq.all,target_user_id.eq.${session.userId}`)
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (nErr) throw nErr;
+      const active = (notes || []).filter((n: any) => !n.expires_at || n.expires_at > nowIso);
+      const ids = active.map((n: any) => n.id);
+      let readMap = new Set<string>();
+      if (ids.length) {
+        const { data: reads } = await supabase
+          .from("notification_reads")
+          .select("notification_id")
+          .in("notification_id", ids)
+          .eq("user_id", session.userId);
+        readMap = new Set((reads || []).map((r: any) => r.notification_id));
+      }
+      const payload = active.map((n: any) => ({
+        id: n.id, title: n.title, body: n.body, audience: n.audience,
+        created_at: n.created_at, expires_at: n.expires_at, read: readMap.has(n.id),
+      }));
+      return new Response(JSON.stringify({ success: true, notifications: payload }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "mark_notification_read") {
+      const session = await requireSession(req);
+      const { notification_id } = params as { notification_id?: string };
+      if (!notification_id) throw new Error("notification_id required");
+      const { error } = await supabase.from("notification_reads").upsert(
+        { notification_id, user_id: session.userId },
+        { onConflict: "notification_id,user_id" },
+      );
+      if (error) throw error;
+      return new Response(JSON.stringify({ success: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "mark_all_notifications_read") {
+      const session = await requireSession(req);
+      const nowIso = new Date().toISOString();
+      const { data: notes } = await supabase
+        .from("notifications")
+        .select("id, expires_at")
+        .or(`audience.eq.all,target_user_id.eq.${session.userId}`);
+      const ids = (notes || []).filter((n: any) => !n.expires_at || n.expires_at > nowIso).map((n: any) => n.id);
+      if (ids.length) {
+        const rows = ids.map((id: string) => ({ notification_id: id, user_id: session.userId }));
+        const { error } = await supabase.from("notification_reads").upsert(rows, { onConflict: "notification_id,user_id" });
+        if (error) throw error;
+      }
+      return new Response(JSON.stringify({ success: true, count: ids.length }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ---------- Notifications: admin side ----------
+    if (action === "admin_create_notification") {
+      const session = await requireAdmin(req);
+      const { title, body, audience, target_user_id, expiresInDays } = params as any;
+      if (!title || !body) throw new Error("Title and body required");
+      if (!["all", "user"].includes(audience)) throw new Error("Invalid audience");
+      if (audience === "user" && !target_user_id) throw new Error("target_user_id required for user audience");
+      const expires_at = expiresInDays && Number(expiresInDays) > 0
+        ? new Date(Date.now() + Number(expiresInDays) * 86400_000).toISOString()
+        : null;
+      const { data, error } = await supabase.from("notifications").insert({
+        title: String(title).slice(0, 200),
+        body: String(body).slice(0, 4000),
+        audience,
+        target_user_id: audience === "user" ? target_user_id : null,
+        created_by: session.userId,
+        expires_at,
+      }).select("id").single();
+      if (error) throw error;
+      await auditLog(supabase, "notification_created", session.userId, data?.id || null, { audience, target_user_id }, ip);
+      return new Response(JSON.stringify({ success: true, id: data?.id }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "admin_list_notifications") {
+      await requireAdmin(req);
+      const { data: notes, error } = await supabase
+        .from("notifications")
+        .select("id, title, body, audience, target_user_id, created_at, expires_at")
+        .order("created_at", { ascending: false })
+        .limit(200);
+      if (error) throw error;
+      // Attach read counts
+      const ids = (notes || []).map((n: any) => n.id);
+      const readCounts = new Map<string, number>();
+      if (ids.length) {
+        const { data: reads } = await supabase
+          .from("notification_reads")
+          .select("notification_id")
+          .in("notification_id", ids);
+        for (const r of reads || []) readCounts.set(r.notification_id, (readCounts.get(r.notification_id) || 0) + 1);
+      }
+      // Total recipients: for 'all', count non-admin users; for 'user', 1.
+      const { count: totalUsers } = await supabase.from("app_users").select("id", { count: "exact", head: true }).neq("role", "admin");
+      const payload = (notes || []).map((n: any) => ({
+        ...n,
+        read_count: readCounts.get(n.id) || 0,
+        total_recipients: n.audience === "all" ? (totalUsers || 0) : 1,
+      }));
+      return new Response(JSON.stringify({ success: true, notifications: payload }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "admin_delete_notification") {
+      const session = await requireAdmin(req);
+      const { id } = params as { id?: string };
+      if (!id) throw new Error("id required");
+      const { error } = await supabase.from("notifications").delete().eq("id", id);
+      if (error) throw error;
+      await auditLog(supabase, "notification_deleted", session.userId, id, {}, ip);
+      return new Response(JSON.stringify({ success: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     throw new Error("Unknown action: " + action);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
