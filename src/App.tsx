@@ -2161,8 +2161,8 @@ function AdminAuthPage() {
     }
   }, [step, user]);
 
-  const verifyTelegramOtp = async () => {
-    const code = otp.trim();
+  const verifyTelegramOtp = async (submittedOtp = otp) => {
+    const code = submittedOtp.trim();
     if (loading) return;
     if (!user?.id) {
       navigate("/admin", { replace: true });
@@ -2186,8 +2186,8 @@ function AdminAuthPage() {
     }
   };
 
-  const verifyTotp = async () => {
-    const code = totp.trim();
+  const verifyTotp = async (submittedTotp = totp) => {
+    const code = submittedTotp.trim();
     if (loading) return;
     if (!user?.id) {
       navigate("/admin", { replace: true });
@@ -2260,8 +2260,8 @@ function AdminAuthPage() {
         </p>
 
         {step === 1 ? (
-          <form onSubmit={(e) => { e.preventDefault(); if (!loading && otp.length >= 6) verifyTelegramOtp(); }} className="space-y-6">
-            <input type="text" inputMode="numeric" autoFocus value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+          <form onSubmit={handleTelegramOtpSubmit} className="space-y-6">
+            <input name="telegramOtp" type="text" inputMode="numeric" autoComplete="one-time-code" autoFocus value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
               className="w-full bg-slate-950 border border-slate-800 text-white text-center tracking-[0.75em] font-mono text-2xl rounded-2xl py-5 focus:ring-2 focus:ring-red-500 outline-none placeholder:tracking-normal placeholder:text-sm placeholder:text-slate-600"
               placeholder="••••••" maxLength={6} />
             <button type="submit" disabled={loading || otp.length < 6}
@@ -2271,7 +2271,7 @@ function AdminAuthPage() {
             {error && <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-xs p-4 rounded-xl text-center">{error}</div>}
           </form>
         ) : (
-          <form onSubmit={(e) => { e.preventDefault(); if (!loading && totp.length >= 6) verifyTotp(); }} className="space-y-6">
+          <form onSubmit={handleTotpSubmit} className="space-y-6">
             {qrCode && (
               <div className="flex flex-col items-center bg-slate-950 p-6 rounded-2xl border border-slate-800">
                 <p className="text-xs font-bold text-slate-400 uppercase mb-4">Scan with Google Authenticator</p>
@@ -2293,7 +2293,7 @@ function AdminAuthPage() {
                 </div>
               </div>
             )}
-            <input type="text" inputMode="numeric" autoFocus value={totp} onChange={(e) => setTotp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+            <input name="totpCode" type="text" inputMode="numeric" autoComplete="one-time-code" autoFocus value={totp} onChange={(e) => setTotp(e.target.value.replace(/\D/g, "").slice(0, 6))}
               className="w-full bg-slate-950 border border-slate-800 text-white text-center tracking-[0.75em] font-mono text-2xl rounded-2xl py-5 focus:ring-2 focus:ring-red-500 outline-none placeholder:tracking-normal placeholder:text-sm placeholder:text-slate-600"
               placeholder="••••••" maxLength={6} />
             <button type="submit" disabled={loading || totp.length < 6}
