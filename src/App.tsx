@@ -1450,7 +1450,7 @@ function AdminPanel() {
   ];
 
   return (
-    <div className="min-h-[100dvh] bg-slate-50 overflow-x-hidden">
+    <div className="admin-panel min-h-[100dvh] bg-slate-50 overflow-x-hidden text-slate-900">
       <header className="bg-white border-b px-3 sm:px-6 py-3 sm:py-4 sticky top-0 z-10 shadow-sm">
         <div className="max-w-6xl mx-auto flex justify-between items-center gap-2">
           <h1 className="text-sm sm:text-xl font-black flex items-center gap-2 min-w-0 truncate">
