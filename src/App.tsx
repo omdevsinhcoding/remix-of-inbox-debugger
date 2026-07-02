@@ -1773,7 +1773,7 @@ function ProfileSelectPage() {
     }
   };
 
-  const executeLogin = async () => {
+  const executeLogin = async (captchaToken?: string) => {
     if (!selectedProfile) return;
     setLoginLoading(true);
     setError("");
@@ -1789,6 +1789,7 @@ function ProfileSelectPage() {
         username: selectedProfile.username,
         password,
         clientGeo,
+        captchaToken,
       });
 
       if (data.workerUrls && Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
@@ -1979,7 +1980,7 @@ function ProfileSelectPage() {
 
       <AnimatePresence>
         {showCaptcha && siteKey && (
-          <CaptchaModal siteKey={siteKey} onVerify={() => { setShowCaptcha(false); executeLogin(); }} onCancel={() => setShowCaptcha(false)} />
+          <CaptchaModal siteKey={siteKey} onVerify={(token) => { setShowCaptcha(false); executeLogin(token); }} onCancel={() => setShowCaptcha(false)} />
         )}
       </AnimatePresence>
     </div>
@@ -2018,14 +2019,14 @@ function AdminLoginPage() {
     }
   };
 
-  const executeLogin = async () => {
+  const executeLogin = async (captchaToken?: string) => {
     setLoading(true);
     setError("");
     try {
       if (!checkRateLimit(`admin_${username}`)) throw new Error("Too many attempts. Wait 1 minute.");
 
       const clientGeo = await requireLoginLocation();
-      const data: any = await apiCall("manage-app", { action: "login", username, password, clientGeo });
+      const data: any = await apiCall("manage-app", { action: "login", username, password, clientGeo, captchaToken });
 
       if (data.user.role !== "admin") throw new Error("Access denied");
       if (data.pendingToken) localStorage.setItem("pending_admin_token", data.pendingToken);
@@ -2101,7 +2102,7 @@ function AdminLoginPage() {
 
       <AnimatePresence>
         {showCaptcha && siteKey && (
-          <CaptchaModal siteKey={siteKey} onVerify={() => { setShowCaptcha(false); executeLogin(); }} onCancel={() => setShowCaptcha(false)} />
+          <CaptchaModal siteKey={siteKey} onVerify={(token) => { setShowCaptcha(false); executeLogin(token); }} onCancel={() => setShowCaptcha(false)} />
         )}
       </AnimatePresence>
     </div>
