@@ -2638,23 +2638,35 @@ function AdminPanel() {
   const sendNotification = async () => {
     if (!notifTitle.trim() || !notifBody.trim()) { toast.error("Title and body required"); return; }
     if (notifAudience === "user" && !notifTargetUser) { toast.error("Choose a target user"); return; }
+    if (notifImageUrl.trim() && !/^https:\/\//i.test(notifImageUrl.trim())) { toast.error("Image URL must start with https://"); return; }
+    if (notifActionUrl.trim() && !/^https?:\/\//i.test(notifActionUrl.trim())) { toast.error("Action URL must be a valid link"); return; }
     setSendingNotif(true);
     try {
       await apiCall("manage-app", {
         action: "admin_create_notification",
         title: notifTitle.trim(),
         body: notifBody.trim(),
+        description: notifDescription.trim() || null,
+        image_url: notifImageUrl.trim() || null,
+        category: notifCategory,
+        priority: notifPriority,
+        action_url: notifActionUrl.trim() || null,
+        action_label: notifActionLabel.trim() || null,
+        pinned: notifPinned,
         audience: notifAudience,
         target_user_id: notifAudience === "user" ? notifTargetUser : null,
         expiresInDays: notifExpiresDays ? Number(notifExpiresDays) : null,
       });
       toast.success("🔔 Notification sent");
-      setNotifTitle(""); setNotifBody(""); setNotifExpiresDays("");
+      setNotifTitle(""); setNotifBody(""); setNotifDescription(""); setNotifImageUrl("");
+      setNotifActionUrl(""); setNotifActionLabel(""); setNotifPinned(false);
+      setNotifExpiresDays("");
       await reloadAdminNotifs();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to send");
     } finally { setSendingNotif(false); }
   };
+
 
   const deleteNotification = async (id: string) => {
     if (!confirm("Delete this notification for everyone?")) return;
