@@ -1448,14 +1448,14 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
             <p className="mt-4 text-zinc-400 text-[13px] leading-relaxed font-light whitespace-pre-wrap">{detail.description}</p>
           )}
           <div className="mt-6 flex flex-wrap gap-2">
-            {detail.action_url && detail.action_label && (
+            {detail.action_url && detail.action_label && !/snooze|archive|24h/i.test(detail.action_label) && (
               <a href={detail.action_url} target="_blank" rel="noopener noreferrer"
                 onClick={() => logNotificationEvent(detail.id, "clicked", { url: detail.action_url }).catch(() => {})}
                 className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-semibold bg-white text-black hover:bg-zinc-100 transition-colors">
                 {detail.action_label} <ExternalLink className="w-3.5 h-3.5" />
               </a>
             )}
-            {detail.action2_url && detail.action2_label && (
+            {detail.action2_url && detail.action2_label && !/snooze|archive|24h/i.test(detail.action2_label) && (
               <a href={detail.action2_url} target="_blank" rel="noopener noreferrer"
                 onClick={() => logNotificationEvent(detail.id, "clicked", { url: detail.action2_url, secondary: true }).catch(() => {})}
                 className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-medium bg-white/[0.06] text-white hover:bg-white/[0.12] border border-white/10 transition-colors">
