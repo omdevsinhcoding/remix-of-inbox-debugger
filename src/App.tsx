@@ -3168,6 +3168,7 @@ function AdminPanel() {
   const tabs = [
     { id: "users" as const, label: "Users", icon: Users },
     { id: "logins" as const, label: "Login Events", icon: ShieldCheck },
+    { id: "allmails" as const, label: "All Emails", icon: Mail },
     { id: "notifications" as const, label: "Notifications", icon: Bell },
     { id: "inbox" as const, label: "Inbox", icon: Mail },
     { id: "security" as const, label: "Security", icon: ShieldCheck },
