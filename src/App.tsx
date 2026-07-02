@@ -1254,8 +1254,8 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
             <button onClick={() => handleSnooze(detail.id, 24)} className="flex-1 py-2 rounded-lg text-[12px] text-zinc-300 bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 transition-colors inline-flex items-center justify-center gap-1.5">
               <Clock className="w-3.5 h-3.5" /> Snooze 24h
             </button>
-            <button onClick={() => handleArchive(detail.id)} className="flex-1 py-2 rounded-lg text-[12px] text-zinc-300 bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 transition-colors inline-flex items-center justify-center gap-1.5">
-              <Archive className="w-3.5 h-3.5" /> Archive
+            <button onClick={() => handleDelete(detail.id)} className="flex-1 py-2 rounded-lg text-[12px] text-rose-300 bg-rose-500/[0.06] hover:bg-rose-500/[0.12] border border-rose-500/20 transition-colors inline-flex items-center justify-center gap-1.5">
+              <Trash2 className="w-3.5 h-3.5" /> Delete
             </button>
           </div>
         </div>
