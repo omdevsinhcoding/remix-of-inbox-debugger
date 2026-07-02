@@ -4453,7 +4453,7 @@ function AdminPanel() {
                           return (
                             <button key={p.id || "none"} type="button" onClick={() => setNotifPlatformIcon(p.id)}
                               className={`group relative flex flex-col items-center justify-center gap-1.5 py-2.5 px-1.5 rounded-lg border transition-all min-h-[74px] ${active ? "bg-orange-500/10 border-orange-500/60 shadow-md shadow-orange-500/10" : "bg-white/[0.02] border-white/[0.05] hover:bg-white/[0.05] hover:border-white/15"}`}>
-                              <PlatformChipVisual id={p.id} size={30} audit={platformLogoResults[p.id || "__custom"]} />
+                              <PlatformChipVisual id={p.id} size={40} audit={platformLogoResults[p.id || "__custom"]} />
                               <span className={`text-[9.5px] font-medium text-center leading-tight px-0.5 line-clamp-2 ${active ? "text-white" : "text-slate-400 group-hover:text-slate-200"}`}>{p.label}</span>
                             </button>
                           );
