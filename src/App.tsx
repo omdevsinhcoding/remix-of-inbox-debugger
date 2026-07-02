@@ -2893,7 +2893,7 @@ function AdminPanel() {
   const [r2Cfg, setR2Cfg] = useState<R2Cfg>({ accountId: "", accessKeyId: "", secretAccessKey: "", bucket: "", publicBaseUrl: "", pathPrefix: "notifications/", enabled: false, secretAccessKeySet: false });
   const [r2Saving, setR2Saving] = useState(false);
   const [r2Testing, setR2Testing] = useState(false);
-  const [r2TestResult, setR2TestResult] = useState<{ ok: boolean; message: string; latencyMs?: number; publicUrlWorks?: boolean } | null>(null);
+  const [r2TestResult, setR2TestResult] = useState<{ ok: boolean; message: string; latencyMs?: number; publicUrlWorks?: boolean; warnings?: string[] } | null>(null);
   const [r2ShowSecret, setR2ShowSecret] = useState(false);
 
   // Inbox tab
@@ -3188,7 +3188,7 @@ function AdminPanel() {
     setR2Saving(true);
     setR2TestResult(null);
     try {
-      await apiCall("manage-app", {
+      const res: any = await apiCall("manage-app", {
         action: "admin_save_r2_config",
         accountId: r2Cfg.accountId.trim(),
         accessKeyId: r2Cfg.accessKeyId.trim(),
@@ -3198,9 +3198,20 @@ function AdminPanel() {
         pathPrefix: (r2Cfg.pathPrefix.trim() || "notifications/"),
         enabled: r2Cfg.enabled,
       });
+      if (res?.config) {
+        setR2Cfg((c) => ({
+          ...c,
+          accountId: res.config.accountId ?? c.accountId,
+          accessKeyId: res.config.accessKeyId ?? c.accessKeyId,
+          bucket: res.config.bucket ?? c.bucket,
+          publicBaseUrl: res.config.publicBaseUrl ?? c.publicBaseUrl,
+          pathPrefix: res.config.pathPrefix ?? c.pathPrefix,
+        }));
+      }
       const persisted = r2Cfg.secretAccessKey.length > 0 || r2Cfg.secretAccessKeySet;
       setR2Cfg((c) => ({ ...c, secretAccessKeySet: persisted }));
-      toast.success(r2Cfg.enabled ? "R2 storage saved & enabled" : "R2 storage saved");
+      const note = Array.isArray(res?.warnings) && res.warnings.length ? ` (${res.warnings[0]})` : "";
+      toast.success(`${r2Cfg.enabled ? "R2 storage saved & enabled" : "R2 storage saved"}${note}`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to save R2 config");
     } finally {
@@ -3212,12 +3223,22 @@ function AdminPanel() {
     setR2Testing(true);
     setR2TestResult(null);
     try {
-      const res: any = await apiCall("manage-app", { action: "admin_r2_test" });
+      const res: any = await apiCall("manage-app", {
+        action: "admin_r2_test",
+        accountId: r2Cfg.accountId.trim(),
+        accessKeyId: r2Cfg.accessKeyId.trim(),
+        secretAccessKey: r2Cfg.secretAccessKey,
+        bucket: r2Cfg.bucket.trim(),
+        publicBaseUrl: r2Cfg.publicBaseUrl.trim(),
+        pathPrefix: (r2Cfg.pathPrefix.trim() || "notifications/"),
+        enabled: r2Cfg.enabled,
+      });
       setR2TestResult({
         ok: res?.success === true,
         message: res?.message || (res?.success ? "OK" : "Failed"),
         latencyMs: res?.latencyMs,
         publicUrlWorks: res?.publicUrlWorks,
+        warnings: Array.isArray(res?.warnings) ? res.warnings : undefined,
       });
       if (res?.success) toast.success(`R2 test passed · ${res.latencyMs}ms`);
       else toast.error(res?.message || "R2 test failed");
