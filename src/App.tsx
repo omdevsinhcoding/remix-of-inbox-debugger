@@ -524,14 +524,37 @@ function emailIdentity(email: Pick<Email, "id" | "account_label">) {
   return `${email.account_label || "Primary"}:${email.id}`;
 }
 
+type EmailCategory = "signin" | "password_reset" | "account_update" | "other";
+const RE_SIGNIN = /(sign[\s-]?in code|new sign[\s-]?in|new device|temporary access code|verification code|is using your account|access your account|otp)/i;
+const RE_PASSWORD_RESET = /(password (was |has been )?(changed|reset|updated)|reset your password|new password)/i;
+const RE_ACCOUNT_UPDATE = /(account (information|info|details) (was |has been )?(changed|updated)|changes to your account|email (address )?(was |has been )?(changed|updated)|new email address|membership (was |has been )?(cancell?ed|updated|paused)|account (was |has been )?(cancell?ed|deleted|closed|paused|on hold)|we[’']re sorry to see you go|payment method (was |has been )?(updated|changed|declined)|update your account|make (changes|any changes) to your account)/i;
+
+function classifyEmail(e: Email): EmailCategory {
+  const s = (e.subject || "").toLowerCase();
+  if (RE_ACCOUNT_UPDATE.test(s)) return "account_update";
+  if (RE_PASSWORD_RESET.test(s)) return "password_reset";
+  if (e.otp || RE_SIGNIN.test(s)) return "signin";
+  return "other";
+}
+
 function filterVisibleEmails(list: Email[], prefs?: UserProfilePrefs | null) {
   const hiddenIds = new Set(prefs?.hiddenEmailIds || []);
   const hiddenBeforeTime = prefs?.hiddenBefore ? new Date(prefs.hiddenBefore).getTime() : 0;
+  const filters = getEmailFilters();
+  const hideSignin = filters.showSignInCodes === false;
+  const hideReset = filters.showPasswordResets === false;
+  const hideAccountUpdate = filters.showAccountUpdates === false;
   return list.filter((email) => {
     if (hiddenIds.has(email.id) || hiddenIds.has(emailIdentity(email))) return false;
     if (hiddenBeforeTime) {
       const emailTime = new Date(email.date || 0).getTime();
       if (!Number.isNaN(emailTime) && emailTime <= hiddenBeforeTime) return false;
+    }
+    if (hideSignin || hideReset || hideAccountUpdate) {
+      const cat = classifyEmail(email);
+      if (hideSignin && cat === "signin") return false;
+      if (hideReset && cat === "password_reset") return false;
+      if (hideAccountUpdate && cat === "account_update") return false;
     }
     return true;
   });
