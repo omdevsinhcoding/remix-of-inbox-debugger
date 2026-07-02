@@ -199,6 +199,17 @@ async function requireLoginLocation(): Promise<LoginLocationPayload> {
 async function apiCall(functionName: string, body: any) {
   let workerUrls = getStoredWorkerUrls();
   const mustUseWorker = functionName === "manage-app" && body?.action === "login";
+  if (mustUseWorker && workerUrls.length === 0) {
+    try {
+      const bootstrap = await bootstrapFromSupabase();
+      if (Array.isArray(bootstrap.workerUrls) && bootstrap.workerUrls.length > 0) {
+        storeWorkerUrls(bootstrap.workerUrls);
+        workerUrls = bootstrap.workerUrls;
+      }
+    } catch (err) {
+      console.warn("[apiCall] login worker bootstrap failed:", err);
+    }
+  }
   
   const token = getSessionToken();
   const pendingToken = (() => { try { return localStorage.getItem("pending_admin_token"); } catch { return null; } })();
