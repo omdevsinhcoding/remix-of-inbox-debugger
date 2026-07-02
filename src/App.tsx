@@ -653,10 +653,14 @@ function ProfileSelectPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const displayProfiles = useMemo(
-    () => profiles.map((profile) => ({ ...profile, profileAvatar: getStableProfileAvatar(profile) })),
-    [profiles]
-  );
+  const [profileSearch, setProfileSearch] = useState("");
+  const displayProfiles = useMemo(() => {
+    const list = profiles.map((profile) => ({ ...profile, profileAvatar: getStableProfileAvatar(profile) }));
+    const q = profileSearch.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter((p) => (p.name || "").toLowerCase().includes(q) || (p.username || "").toLowerCase().includes(q));
+  }, [profiles, profileSearch]);
+
 
   // Preload profile avatars into browser cache the instant profiles arrive.
   useEffect(() => {
