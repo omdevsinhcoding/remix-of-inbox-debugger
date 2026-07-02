@@ -452,7 +452,12 @@ async function apiCall(functionName: string, body: any) {
           throw new Error(data?.error || `Request failed with status ${res.status}`);
         }
 
-        if (data.sessionToken) {
+        // Do NOT auto-persist sessionToken for `impersonate` — the caller
+        // (loginAsUser) must back up the admin token first, otherwise the
+        // admin session is silently overwritten and returning from
+        // impersonation yields a `user`-role token that triggers
+        // "Admin access required".
+        if (data.sessionToken && body?.action !== "impersonate") {
           localStorage.setItem("session_token", data.sessionToken);
         }
         return data;
