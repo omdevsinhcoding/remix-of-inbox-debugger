@@ -269,11 +269,17 @@ type DeviceFingerprint = {
   vendor?: string;
   language?: string;
   languages?: string[];
-  screen?: { width: number; height: number; dpr: number };
+  screen?: { width: number; height: number; dpr: number; availWidth?: number; availHeight?: number; colorDepth?: number; pixelDepth?: number };
+  viewport?: { width: number; height: number };
+  orientation?: string;
   timezone?: string;
+  utcOffsetMinutes?: number;
   touchPoints?: number;
   deviceMemory?: number;
   hardwareConcurrency?: number;
+  cookieEnabled?: boolean;
+  onLine?: boolean;
+  pdfViewerEnabled?: boolean;
   mobile?: boolean;
   uaBrands?: { brand: string; version: string }[];
   uaPlatform?: string;
@@ -282,7 +288,97 @@ type DeviceFingerprint = {
   uaArchitecture?: string;
   uaBitness?: string;
   uaFullVersion?: string;
+  network?: { type?: string; effectiveType?: string; downlink?: number; rtt?: number; saveData?: boolean };
+  battery?: { level?: number; charging?: boolean; chargingTime?: number; dischargingTime?: number };
+  colorScheme?: string;
+  reducedMotion?: boolean;
+  hdr?: boolean;
+  webglVendor?: string;
+  webglRenderer?: string;
+  canvasHash?: string;
+  webdriver?: boolean;
+  fingerprintHash?: string;
 };
+
+type ClientGeoPayload = {
+  status?: string;
+  permissionState?: string;
+  latitude?: number;
+  longitude?: number;
+  accuracy?: number;
+  altitude?: number | null;
+  heading?: number | null;
+  speed?: number | null;
+  timestamp?: number;
+  error?: string;
+  publicIp?: string;
+  publicIpSource?: string;
+  device?: DeviceFingerprint;
+};
+
+function sanitizeDevice(raw: any): DeviceFingerprint | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const str = (v: any, max = 240) => (typeof v === "string" ? v.slice(0, max) : undefined);
+  const num = (v: any) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
+  const bool = (v: any) => (typeof v === "boolean" ? v : undefined);
+  const d: DeviceFingerprint = {
+    userAgent: str(raw.userAgent, 512),
+    platform: str(raw.platform, 64),
+    vendor: str(raw.vendor, 64),
+    language: str(raw.language, 32),
+    languages: Array.isArray(raw.languages) ? raw.languages.filter((l: any) => typeof l === "string").slice(0, 6).map((l: string) => l.slice(0, 32)) : undefined,
+    timezone: str(raw.timezone, 64),
+    utcOffsetMinutes: num(raw.utcOffsetMinutes),
+    touchPoints: num(raw.touchPoints),
+    deviceMemory: num(raw.deviceMemory),
+    hardwareConcurrency: num(raw.hardwareConcurrency),
+    cookieEnabled: bool(raw.cookieEnabled),
+    onLine: bool(raw.onLine),
+    pdfViewerEnabled: bool(raw.pdfViewerEnabled),
+    mobile: bool(raw.mobile),
+    uaPlatform: str(raw.uaPlatform, 64),
+    uaPlatformVersion: str(raw.uaPlatformVersion, 64),
+    uaModel: str(raw.uaModel, 128),
+    uaArchitecture: str(raw.uaArchitecture, 32),
+    uaBitness: str(raw.uaBitness, 8),
+    uaFullVersion: str(raw.uaFullVersion, 64),
+    colorScheme: str(raw.colorScheme, 24),
+    reducedMotion: bool(raw.reducedMotion),
+    hdr: bool(raw.hdr),
+    webglVendor: str(raw.webglVendor, 128),
+    webglRenderer: str(raw.webglRenderer, 200),
+    canvasHash: str(raw.canvasHash, 128),
+    webdriver: bool(raw.webdriver),
+    fingerprintHash: str(raw.fingerprintHash, 128),
+    orientation: str(raw.orientation, 32),
+  };
+  if (raw.screen && typeof raw.screen === "object") {
+    const w = num(raw.screen.width), h = num(raw.screen.height), dpr = num(raw.screen.dpr);
+    if (w && h) d.screen = {
+      width: w, height: h, dpr: dpr || 1,
+      availWidth: num(raw.screen.availWidth), availHeight: num(raw.screen.availHeight),
+      colorDepth: num(raw.screen.colorDepth), pixelDepth: num(raw.screen.pixelDepth),
+    };
+  }
+  if (raw.viewport && typeof raw.viewport === "object") {
+    const w = num(raw.viewport.width), h = num(raw.viewport.height);
+    if (w && h) d.viewport = { width: w, height: h };
+  }
+  if (raw.network && typeof raw.network === "object") {
+    d.network = { type: str(raw.network.type, 32), effectiveType: str(raw.network.effectiveType, 16), downlink: num(raw.network.downlink), rtt: num(raw.network.rtt), saveData: bool(raw.network.saveData) };
+  }
+  if (raw.battery && typeof raw.battery === "object") {
+    d.battery = { level: num(raw.battery.level), charging: bool(raw.battery.charging), chargingTime: num(raw.battery.chargingTime), dischargingTime: num(raw.battery.dischargingTime) };
+  }
+  if (Array.isArray(raw.uaBrands)) {
+    d.uaBrands = raw.uaBrands
+      .filter((b: any) => b && typeof b.brand === "string")
+      .slice(0, 6)
+      .map((b: any) => ({ brand: b.brand.slice(0, 64), version: typeof b.version === "string" ? b.version.slice(0, 32) : "" }));
+  }
+  return d;
+}
+
 
 type ClientGeoPayload = {
   status?: string;
