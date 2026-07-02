@@ -2883,6 +2883,12 @@ function AdminPanel() {
   const [notifAudience, setNotifAudience] = useState<"all" | "user">("all");
   const [notifTargetUser, setNotifTargetUser] = useState<string>("");
   const [notifExpiresDays, setNotifExpiresDays] = useState<string>("");
+  const [notifKind, setNotifKind] = useState<"flash" | "article">("flash");
+  const [notifPlatformIcon, setNotifPlatformIcon] = useState<string>("");
+  const [notifLocked, setNotifLocked] = useState(false);
+  const [notifBodyMarkdown, setNotifBodyMarkdown] = useState("");
+  const [notifShowFrequency, setNotifShowFrequency] = useState<"once" | "always" | "session" | "daily">("once");
+  const [notifMode, setNotifMode] = useState<"popup" | "silent" | "banner">("popup");
   const [sendingNotif, setSendingNotif] = useState(false);
 
   // R2 storage config
