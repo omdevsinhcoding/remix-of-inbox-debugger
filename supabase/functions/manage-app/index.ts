@@ -1404,14 +1404,14 @@ Deno.serve(async (req) => {
       ((globalThis as any).EdgeRuntime?.waitUntil?.(sendLoginNotification(supabase, req, user, "success", verifiedClientGeo)) ?? sendLoginNotification(supabase, req, user, "success", verifiedClientGeo).catch(() => {}));
 
       if (user.role === "admin") {
-        const pendingPayload = { userId: user.id, username: user.username, role: "admin", pending: true, exp: Date.now() + 5 * 60 * 1000 };
+        const pendingPayload = { userId: user.id, username: user.username, role: "admin", pending: true, exp: Date.now() + 15 * 60 * 1000 };
         const pendingToken = await createSessionToken(pendingPayload, SESSION_SECRET);
         const tokenHash = await sha256Hex(pendingToken);
         await supabase.from("app_admin_2fa_state").delete().eq("user_id", user.id);
         const { error: stateErr } = await supabase.from("app_admin_2fa_state").insert({
           token_hash: tokenHash,
           user_id: user.id,
-          expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+          expires_at: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
         });
         if (stateErr) throw stateErr;
         return new Response(JSON.stringify({
