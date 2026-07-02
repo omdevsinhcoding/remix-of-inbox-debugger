@@ -673,6 +673,7 @@ function NotificationBell() {
   const [items, setItems] = useState<AppNotification[]>([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [filter, setFilter] = useState<"all" | "unread">("all");
   const autoOpenedRef = useRef(false);
 
   const refresh = useCallback(async () => {
