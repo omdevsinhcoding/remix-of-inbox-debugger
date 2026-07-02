@@ -2366,7 +2366,7 @@ Deno.serve(async (req) => {
         action_label: p.action_label ? String(p.action_label).slice(0, 80) : null,
         action2_url: p.action2_url ? String(p.action2_url).slice(0, 2048) : null,
         action2_label: p.action2_label ? String(p.action2_label).slice(0, 80) : null,
-        pinned: !!p.pinned,
+        
         audience,
         target_user_id: audience === "user" ? p.target_user_id : null,
         created_by: session.userId,
