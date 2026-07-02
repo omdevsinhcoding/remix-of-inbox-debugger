@@ -245,11 +245,14 @@ export default function MaintenanceScreen({ title, message, endsAt, versionFrom,
               <span className="w-2 h-2 rounded-full bg-[#e50914] shadow-[0_0_10px_#e50914] animate-pulse" />
               <span className="text-[10.5px] tracking-[0.3em] uppercase text-white/70 font-semibold">System update in progress</span>
             </div>
-            <div className="hidden sm:flex items-center gap-1.5 text-[10.5px] tracking-[0.24em] uppercase text-white/40 font-mono">
-              <span>v2.4.1</span>
-              <span className="text-white/20">→</span>
-              <span className="text-white/70">v2.5.0</span>
-            </div>
+            {showVersionPill && (
+              <div className="hidden sm:flex items-center gap-1.5 text-[10.5px] tracking-[0.24em] uppercase text-white/40 font-mono">
+                {vFrom && <span>v{vFrom.replace(/^v/i, "")}</span>}
+                {vFrom && vTo && <span className="text-white/20">→</span>}
+                {vTo && <span className="text-white/80">v{vTo.replace(/^v/i, "")}</span>}
+              </div>
+            )}
+
           </div>
 
           <div className="px-6 sm:px-10 pt-8 sm:pt-10 pb-8 sm:pb-10">
