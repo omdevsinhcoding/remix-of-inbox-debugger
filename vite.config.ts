@@ -29,8 +29,13 @@ export default defineConfig(({ mode }) => {
       target: 'es2020',
       cssCodeSplit: !isProductionBuild,
       sourcemap: false,
+      // Production ships as ONE inline HTML file (viteSingleFile) so antivirus
+      // software like Kaspersky can't corrupt or block separate /assets/*.js
+      // module chunks. inlineDynamicImports guarantees no extra chunks even if
+      // lazy()/import() is added later. Do not re-introduce manualChunks in
+      // production — it will break the single-file guarantee.
       rollupOptions: isProductionBuild
-        ? undefined
+        ? { output: { inlineDynamicImports: true } }
         : {
             output: {
               manualChunks(id) {
