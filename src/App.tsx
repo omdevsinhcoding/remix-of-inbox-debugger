@@ -242,28 +242,10 @@ function isPublicIpv4Like(ip: string): boolean {
   return true;
 }
 
-async function fetchBrowserPublicIp(): Promise<Pick<LoginLocationPayload, "publicIp" | "publicIpSource">> {
-  const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 2500);
-  try {
-    const response = await fetch("https://ipwho.is/", {
-      method: "GET",
-      headers: { Accept: "application/json" },
-      signal: controller.signal,
-      cache: "no-store",
-    });
-    if (!response.ok) return {};
-    const data = await response.json();
-    const ip = typeof data?.ip === "string" ? data.ip.trim() : "";
-    if (!isPublicIpv4Like(ip)) return {};
-    return { publicIp: ip, publicIpSource: "ipwho.is" };
-  } catch (error) {
-    console.warn("[IP] Browser public IP lookup failed:", error);
-    return {};
-  } finally {
-    window.clearTimeout(timeout);
-  }
-}
+// Browser-side public IP lookup removed — antivirus (Kaspersky/etc.) flags
+// direct calls to ipwho.is from the page. The Cloudflare Worker + Supabase
+// edge function now resolve the real client IP from trusted headers
+// (CF-Connecting-IP, True-Client-IP, first public X-Forwarded-For).
 
 function buildLocationSignInMessage(location: LoginLocationPayload): string {
   const errorText = location.error || "";
