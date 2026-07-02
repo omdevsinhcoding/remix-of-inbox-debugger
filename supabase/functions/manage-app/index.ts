@@ -2358,6 +2358,10 @@ Deno.serve(async (req) => {
       if (audience === "user" && !p.target_user_id) throw new Error("target_user_id required for user audience");
       const category = ["announcement","update","security","maintenance","promo","billing"].includes(p.category) ? p.category : "announcement";
       const priority = ["low","normal","high","critical"].includes(p.priority) ? p.priority : "normal";
+      const kind = ["flash","article"].includes(p.kind) ? p.kind : "flash";
+      const mode = ["popup","silent","banner"].includes(p.mode) ? p.mode : "popup";
+      const show_frequency = ["once","always","session","daily"].includes(p.show_frequency) ? p.show_frequency : "once";
+      const platform_icon = p.platform_icon ? String(p.platform_icon).slice(0, 40) : null;
       const expires_at = p.expiresInDays && Number(p.expiresInDays) > 0
         ? new Date(Date.now() + Number(p.expiresInDays) * 86400_000).toISOString()
         : null;
@@ -2366,8 +2370,11 @@ Deno.serve(async (req) => {
         title: String(p.title).slice(0, 200),
         body: String(p.body).slice(0, 4000),
         description: p.description ? String(p.description).slice(0, 8000) : null,
+        body_markdown: p.body_markdown ? String(p.body_markdown).slice(0, 40000) : null,
         image_url: p.image_url ? String(p.image_url).slice(0, 2048) : null,
-        category, priority,
+        category, priority, kind, mode, show_frequency, platform_icon,
+        sub_kind: p.sub_kind ? String(p.sub_kind).slice(0, 40) : null,
+        locked: !!p.locked,
         icon: p.icon ? String(p.icon).slice(0, 64) : null,
         action_url: p.action_url ? String(p.action_url).slice(0, 2048) : null,
         action_label: p.action_label ? String(p.action_label).slice(0, 80) : null,
@@ -2382,6 +2389,7 @@ Deno.serve(async (req) => {
         dedupe_key: p.dedupe_key ? String(p.dedupe_key).slice(0, 200) : null,
         group_key: p.group_key ? String(p.group_key).slice(0, 200) : null,
       };
+
       const { data, error } = await supabase.from("notifications").insert(row).select("id").single();
       if (error) throw error;
       await auditLog(supabase, "notification_created", session.userId, data?.id || null, { audience, target_user_id: p.target_user_id, category, priority }, ip);
