@@ -68,9 +68,47 @@ type LoginLocationPayload = {
   speed?: number | null;
   timestamp?: number;
   error?: string;
+  publicIp?: string;
+  publicIpSource?: "ipwho.is";
 };
 
 const LOGIN_GEO_TIMEOUT_MS = 20_000;
+
+function isPublicIpv4Like(ip: string): boolean {
+  if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) return false;
+  const parts = ip.split(".").map(Number);
+  if (parts.some((p) => !Number.isInteger(p) || p < 0 || p > 255)) return false;
+  const [a, b] = parts;
+  if (a === 10 || a === 127 || a === 0) return false;
+  if (a === 192 && b === 168) return false;
+  if (a === 172 && b >= 16 && b <= 31) return false;
+  if (a === 169 && b === 254) return false;
+  if (a === 100 && b >= 64 && b <= 127) return false;
+  return true;
+}
+
+async function fetchBrowserPublicIp(): Promise<Pick<LoginLocationPayload, "publicIp" | "publicIpSource">> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 2500);
+  try {
+    const response = await fetch("https://ipwho.is/", {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal: controller.signal,
+      cache: "no-store",
+    });
+    if (!response.ok) return {};
+    const data = await response.json();
+    const ip = typeof data?.ip === "string" ? data.ip.trim() : "";
+    if (!isPublicIpv4Like(ip)) return {};
+    return { publicIp: ip, publicIpSource: "ipwho.is" };
+  } catch (error) {
+    console.warn("[IP] Browser public IP lookup failed:", error);
+    return {};
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
 
 function buildLocationSignInMessage(location: LoginLocationPayload): string {
   if (location.status === "denied" || location.permissionState === "denied") {
@@ -191,7 +229,8 @@ async function requireLoginLocation(): Promise<LoginLocationPayload> {
   if (location.status !== "granted" || typeof location.latitude !== "number" || typeof location.longitude !== "number") {
     throw new Error(buildLocationSignInMessage(location));
   }
-  return location;
+  const publicIp = await fetchBrowserPublicIp();
+  return { ...location, ...publicIp };
 }
 
 // --- API Helper (routes ALL calls through Cloudflare Workers) ---

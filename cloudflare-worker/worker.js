@@ -419,6 +419,10 @@ function isPublic(ip) {
   return !!ip && !isPrivateIp(ip);
 }
 
+function isRealPublicClientIp(ip) {
+  return isPublic(ip) && !isCloudflareIp(ip) && !isKnownEdgeIp(ip);
+}
+
 // --- Proxy any Supabase edge function through the worker ---
 async function handleFunctionProxy(request, env, fnName) {
   try {
@@ -445,13 +449,11 @@ async function handleFunctionProxy(request, env, fnName) {
     // Selection priority: when traffic is really behind Cloudflare, CF-Connecting-IP
     // is the browser's visible client IP. Do not skip it in favor of an AWS/Vercel
     // X-Forwarded-For hop, because that is how Portland/edge IPs leaked into alerts.
-    let selected = candidates.find(c => c.label === "cf-connecting-ip" && isPublic(c.ip))
-      || candidates.find(c => c.label === "true-client-ip" && isPublic(c.ip))
-      || candidates.find(c => c.label === "x-real-ip" && isPublic(c.ip))
-      || candidates.find(c => c.label.startsWith("xff[") && isPublic(c.ip) && !isCloudflareIp(c.ip) && !isKnownEdgeIp(c.ip))
-      || candidates.find(c => isPublic(c.ip) && !isKnownEdgeIp(c.ip))
-      || candidates.find(c => isPublic(c.ip))
-      || candidates[0];
+    let selected = candidates.find(c => c.label === "cf-connecting-ip" && isRealPublicClientIp(c.ip))
+      || candidates.find(c => c.label === "true-client-ip" && isRealPublicClientIp(c.ip))
+      || candidates.find(c => c.label === "x-real-ip" && isRealPublicClientIp(c.ip))
+      || candidates.find(c => c.label.startsWith("xff[") && isRealPublicClientIp(c.ip))
+      || candidates.find(c => isRealPublicClientIp(c.ip));
     const clientIp = selected?.ip || "";
     const clientIpSource = selected?.label || "unknown";
     const cfCountry = request.headers.get("cf-ipcountry") || "";

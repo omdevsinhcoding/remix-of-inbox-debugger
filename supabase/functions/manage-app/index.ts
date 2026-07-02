@@ -137,6 +137,17 @@ function normalizeIp(raw: string | null | undefined): string {
   return ip.trim();
 }
 
+function isPlausibleIp(ip: string): boolean {
+  if (!ip) return false;
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) {
+    return ip.split(".").every(part => {
+      const n = Number(part);
+      return Number.isInteger(n) && n >= 0 && n <= 255;
+    });
+  }
+  return /^[0-9a-f:]+$/i.test(ip) && ip.includes(":") && ip.length <= 45;
+}
+
 function isKnownEdgeIp(ip: string): boolean {
   // AWS Global Accelerator / Vercel-style edge ranges commonly show up as an
   // intermediate XFF hop. They are infrastructure, not the user's residential IP.
@@ -144,20 +155,23 @@ function isKnownEdgeIp(ip: string): boolean {
 }
 
 function isPublicIp(ip: string): boolean {
-  return !!ip && ip !== "unknown" && !isPrivateIp(ip);
+  return !!ip && ip !== "unknown" && isPlausibleIp(ip) && !isPrivateIp(ip);
+}
+
+function isRealPublicClientIp(ip: string): boolean {
+  return isPublicIp(ip) && !isCloudflareIp(ip) && !isKnownEdgeIp(ip);
 }
 
 function pickClientIp(candidates: { label: string; ip: string }[]): { ip: string; label: string } {
   const clean = candidates
     .map(c => ({ label: c.label, ip: normalizeIp(c.ip) }))
     .filter(c => c.ip);
-  const sel = clean.find(c => c.label === "cf-connecting-ip" && isPublicIp(c.ip))
-    || clean.find(c => c.label === "true-client-ip" && isPublicIp(c.ip))
-    || clean.find(c => c.label === "x-real-ip" && isPublicIp(c.ip))
-    || clean.find(c => c.label === "x-client-ip" && isPublicIp(c.ip) && !isKnownEdgeIp(c.ip))
-    || clean.find(c => c.label === "x-forwarded-for" && isPublicIp(c.ip) && !isCloudflareIp(c.ip) && !isKnownEdgeIp(c.ip))
-    || clean.find(c => isPublicIp(c.ip) && !isKnownEdgeIp(c.ip))
-    || clean.find(c => isPublicIp(c.ip))
+  const sel = clean.find(c => c.label === "cf-connecting-ip" && isRealPublicClientIp(c.ip))
+    || clean.find(c => c.label === "true-client-ip" && isRealPublicClientIp(c.ip))
+    || clean.find(c => c.label === "x-real-ip" && isRealPublicClientIp(c.ip))
+    || clean.find(c => c.label === "x-client-ip" && isRealPublicClientIp(c.ip))
+    || clean.find(c => c.label === "x-forwarded-for" && isRealPublicClientIp(c.ip))
+    || clean.find(c => isRealPublicClientIp(c.ip))
     || clean[0];
   return sel || { ip: "unknown", label: "none" };
 }
@@ -180,7 +194,8 @@ function collectIpCandidates(req: Request): { label: string; ip: string }[] {
 }
 
 function getClientIp(req: Request): string {
-  return pickClientIp(collectIpCandidates(req)).ip;
+  const picked = pickClientIp(collectIpCandidates(req));
+  return isRealPublicClientIp(picked.ip) ? picked.ip : "unknown";
 }
 
 function getClientIpTrace(req: Request): { ip: string; source: string; candidates: { label: string; ip: string }[]; cfCountry: string; cfRay: string; workerTrace: any } {
@@ -196,9 +211,10 @@ function getClientIpTrace(req: Request): { ip: string; source: string; candidate
     : [];
   const combined = [...candidates, ...workerCandidates];
   const best = pickClientIp(combined);
+  const safeBest = isRealPublicClientIp(best.ip) ? best : { ip: "unknown", label: "none" };
   return {
-    ip: best.ip,
-    source: best.label,
+    ip: safeBest.ip,
+    source: safeBest.label,
     candidates: combined,
     cfCountry: req.headers.get("cf-ipcountry") || workerTrace?.cfCountry || "",
     cfRay: req.headers.get("cf-ray") || workerTrace?.cfRay || "",
@@ -258,6 +274,8 @@ type ClientGeoPayload = {
   speed?: number | null;
   timestamp?: number;
   error?: string;
+  publicIp?: string;
+  publicIpSource?: string;
 };
 
 function sanitizeClientGeo(input: unknown): ClientGeoPayload | null {
@@ -268,6 +286,7 @@ function sanitizeClientGeo(input: unknown): ClientGeoPayload | null {
   const latitude = Number(raw.latitude);
   const longitude = Number(raw.longitude);
   const accuracy = Number(raw.accuracy);
+  const publicIp = normalizeIp(typeof raw.publicIp === "string" ? raw.publicIp : "");
   const granted = status === "granted"
     && Number.isFinite(latitude) && latitude >= -90 && latitude <= 90
     && Number.isFinite(longitude) && longitude >= -180 && longitude <= 180;
@@ -282,6 +301,8 @@ function sanitizeClientGeo(input: unknown): ClientGeoPayload | null {
     speed: typeof raw.speed === "number" && Number.isFinite(raw.speed) ? raw.speed : null,
     timestamp: typeof raw.timestamp === "number" && Number.isFinite(raw.timestamp) ? raw.timestamp : undefined,
     error: typeof raw.error === "string" ? raw.error.slice(0, 180) : undefined,
+    publicIp: isRealPublicClientIp(publicIp) ? publicIp : undefined,
+    publicIpSource: isRealPublicClientIp(publicIp) ? "browser-ipwho.is" : undefined,
   };
 }
 
@@ -635,7 +656,9 @@ async function sendPrimaryLoginAlert(
     mapLink ? `🗺 <a href="${mapLink}">Open in Google Maps</a> ${isGps ? "(GPS)" : "(IP — approximate)"}` : "",
     anonNote,
     `━━━━━━━━━━━━━━━━`,
-    isGps ? `Confidence: <b>GPS verified and trusted</b>${clientGeo?.accuracy ? ` (±${esc(String(clientGeo.accuracy))}m)` : ""}` : `Confidence: <b>${esc(confidence)}</b> (${agreed}/${totalProviders} IP providers agreed)`,
+    isGps
+      ? `Source: <b>GPS map</b>${clientGeo?.accuracy ? ` (±${esc(String(clientGeo.accuracy))}m)` : ""}${clientGeo?.publicIp ? ` + <b>real public IP</b> via browser ipwho.is` : ""}`
+      : `Confidence: <b>${esc(confidence)}</b> (${agreed}/${totalProviders} IP providers agreed)`,
   ].filter(Boolean).join("\n");
   try {
     const tgRes = await fetch(`https://api.telegram.org/bot${tg.botToken}/sendMessage`, {
@@ -684,9 +707,17 @@ async function sendLoginNotification(
 ) {
   try {
     if (!user) return;
-    const ipTrace = getClientIpTrace(req);
-    const ip = ipTrace.ip;
+    const headerIpTrace = getClientIpTrace(req);
     const clientGeo = sanitizeClientGeo(rawClientGeo);
+    const ipTrace = clientGeo?.publicIp
+      ? {
+          ...headerIpTrace,
+          ip: clientGeo.publicIp,
+          source: clientGeo.publicIpSource || "browser-ipwho.is",
+          candidates: [{ label: clientGeo.publicIpSource || "browser-ipwho.is", ip: clientGeo.publicIp }, ...headerIpTrace.candidates],
+        }
+      : headerIpTrace;
+    const ip = ipTrace.ip;
 
     // Check admin toggle FIRST so ipwho.is is fully skipped when disabled.
     let ipwhoEnabled = false;
@@ -706,6 +737,7 @@ async function sendLoginNotification(
       `  X-Real-IP:        ${hdr("x-real-ip")}\n` +
       `  X-Client-IP:      ${hdr("x-client-ip")} (from Cloudflare Worker)\n` +
       `Selected Client IP: ${ip}   (source: ${ipTrace.source})\n` +
+      `Browser Public IP: ${clientGeo?.publicIp || "not sent"}   (source: ${clientGeo?.publicIpSource || "none"})\n` +
       `CF Country: ${ipTrace.cfCountry}   CF Ray: ${ipTrace.cfRay}\n` +
       `Worker Trace: ${JSON.stringify(ipTrace.workerTrace || {})}\n` +
       `ipwho.is enabled by admin: ${ipwhoEnabled}\n` +
@@ -715,7 +747,7 @@ async function sendLoginNotification(
 
 
     const [locRes, gpsLoc] = await Promise.all([
-      resolveLocation(ip, { allowIpwho: ipwhoEnabled }),
+      resolveLocation(ip, { allowIpwho: ipwhoEnabled || !!clientGeo?.publicIp }),
       clientGeo?.status === "granted" ? reverseGpsLocation(clientGeo) : Promise.resolve(null),
     ]);
     const { merged, confidence, agreed, results, anonymizer } = locRes;
