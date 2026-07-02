@@ -631,6 +631,7 @@ function useSessionTimeoutGuard(role: "admin" | "user") {
   const { checkAuth } = useAuth();
   useEffect(() => {
     let timer: any;
+    let poll: any;
     let cancelled = false;
     const doLogout = () => {
       clearSessionData();
@@ -650,37 +651,38 @@ function useSessionTimeoutGuard(role: "admin" | "user") {
       } catch {}
       if (cancelled || !minutes || minutes <= 0) return;
 
-      // For user role, session timer waits until EmailViewer has finished the
-      // first cache load (which calls markSessionStart). Poll for it here so
-      // the countdown starts the instant emails are ready.
-      const start = () => {
-        const started = Number(localStorage.getItem("session_started_at") || "0");
-        if (!started) {
-          if (role === "admin") { markSessionStart(); return start(); }
-          return; // wait for EmailViewer to start it
-        }
+      const armFrom = (started: number) => {
         const remaining = started + minutes * 60_000 - Date.now();
         if (remaining <= 0) { doLogout(); return; }
+        if (timer) clearTimeout(timer);
         timer = setTimeout(doLogout, remaining);
       };
-      start();
-      if (role === "user") {
-        // Re-check every second until session actually starts.
-        const poll = setInterval(() => {
-          if (cancelled) { clearInterval(poll); return; }
-          if (localStorage.getItem("session_started_at") && !timer) {
+
+      const started = Number(localStorage.getItem("session_started_at") || "0");
+      if (started) {
+        armFrom(started);
+      } else if (role === "admin") {
+        // Admin has no email load — start immediately.
+        markSessionStart();
+        armFrom(Date.now());
+      } else {
+        // User: wait for EmailViewer to call markSessionStart after first inbox load.
+        poll = setInterval(() => {
+          if (cancelled) return;
+          const s = Number(localStorage.getItem("session_started_at") || "0");
+          if (s) {
             clearInterval(poll);
-            start();
+            poll = null;
+            armFrom(s);
           }
-        }, 1000);
-        const clean = () => clearInterval(poll);
-        // Attach cleanup via closure by reassigning cancelled guard below.
-        const origCleanup = () => { cancelled = true; if (timer) clearTimeout(timer); clean(); };
-        // Overwrite the outer return by monkey-patching not possible; rely on cancelled flag.
-        void origCleanup;
+        }, 500);
       }
     })();
-    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+      if (poll) clearInterval(poll);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [role]);
 }
