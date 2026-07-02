@@ -1811,13 +1811,13 @@ function ProfileSelectPage() {
 
   return (
     <div className="min-h-screen bg-[#141414] flex flex-col items-center px-4 pt-10 sm:pt-14 pb-12 relative overflow-hidden">
-      {/* Official Netflix wordmark + premium OTP tag */}
+      {/* Official Netflix wordmark + tilted "santa-cap" OTP tag */}
       <div className="w-full max-w-6xl mx-auto flex items-center justify-start px-2 sm:px-6 absolute top-4 sm:top-6 left-1/2 -translate-x-1/2 z-20">
-        <div className="flex items-end gap-2 sm:gap-2.5 select-none">
+        <div className="relative inline-block select-none">
           <svg
             viewBox="0 0 111 30"
             aria-label="Netflix"
-            className="h-7 sm:h-9 w-auto"
+            className="h-7 sm:h-9 w-auto block"
             style={{ filter: "drop-shadow(0 2px 10px rgba(229,9,20,0.45))" }}
           >
             <path
@@ -1826,14 +1826,16 @@ function ProfileSelectPage() {
             />
           </svg>
           <span
-            className="inline-flex items-center gap-1 rounded-md px-2 py-[3px] sm:px-2.5 sm:py-1 text-[9px] sm:text-[10px] font-bold tracking-[0.18em] uppercase text-white/95 relative -translate-y-[2px]"
+            aria-label="OTP"
+            className="absolute -top-2 -right-4 sm:-top-2.5 sm:-right-6 inline-flex items-center gap-1 rounded-md px-1.5 py-[2px] sm:px-2 sm:py-[3px] text-[8px] sm:text-[9px] font-extrabold tracking-[0.22em] uppercase text-white pointer-events-none whitespace-nowrap origin-bottom-left"
             style={{
-              background: "linear-gradient(135deg,#e50914 0%,#7a0006 100%)",
-              boxShadow: "0 4px 14px -4px rgba(229,9,20,0.55), inset 0 1px 0 rgba(255,255,255,0.18)",
-              border: "1px solid rgba(255,255,255,0.08)",
+              background: "linear-gradient(135deg,#ff1a25 0%,#e50914 45%,#7a0006 100%)",
+              boxShadow: "0 4px 12px -3px rgba(229,9,20,0.6), inset 0 1px 0 rgba(255,255,255,0.22)",
+              border: "1px solid rgba(255,255,255,0.14)",
+              transform: "rotate(18deg)",
             }}
           >
-            <span className="w-1 h-1 rounded-full bg-white/90 shadow-[0_0_6px_rgba(255,255,255,0.9)]" />
+            <span className="w-[3px] h-[3px] sm:w-1 sm:h-1 rounded-full bg-white shadow-[0_0_6px_rgba(255,255,255,0.95)]" />
             OTP
           </span>
         </div>
@@ -1892,19 +1894,15 @@ function ProfileSelectPage() {
                 <div
                   className="w-full overflow-y-scroll overscroll-contain pr-2 sm:pr-3 py-2 sm:py-3 max-h-[58vh] sm:max-h-[62vh] scroll-smooth [scrollbar-width:thin] [scrollbar-color:#e50914_rgba(255,255,255,0.04)] [&::-webkit-scrollbar]:w-[10px] [&::-webkit-scrollbar-track]:bg-white/[0.03] [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-thumb]:bg-gradient-to-b [&::-webkit-scrollbar-thumb]:from-[#e50914] [&::-webkit-scrollbar-thumb]:to-[#7a0006] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb:hover]:from-[#ff1a25] [&::-webkit-scrollbar-thumb:hover]:to-[#a30009]"
                 >
-                  <div className="grid grid-cols-3 sm:[grid-template-columns:repeat(auto-fill,minmax(128px,160px))] gap-x-4 gap-y-7 sm:gap-x-6 sm:gap-y-10 justify-center mx-auto pb-4">
+                  <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-x-4 gap-y-7 sm:gap-x-6 sm:gap-y-9 mx-auto pb-4">
                     {displayProfiles.map((profile, i) => (
-                      <motion.button
+                      <button
                         key={profile.id}
-                        initial={fromCache ? false : { opacity: 0, scale: 0.92 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        transition={fromCache ? { duration: 0 } : { delay: Math.min(0.04 + i * 0.015, 0.5), duration: 0.25 }}
-                        whileHover={{ scale: 1.06 }}
-                        whileTap={{ scale: 0.95 }}
+                        type="button"
                         onClick={() => setSelectedProfile(profile)}
                         className="flex flex-col items-center gap-2 sm:gap-3 group focus:outline-none min-w-0"
                       >
-                        <div className="relative rounded-md overflow-hidden ring-0 group-hover:ring-2 group-hover:ring-white transition-all duration-150 aspect-square w-full max-w-[140px]">
+                        <div className="relative rounded-md overflow-hidden ring-0 group-hover:ring-2 group-hover:ring-white aspect-square w-full max-w-[140px] transform-gpu transition-transform duration-150 ease-out group-hover:scale-105 group-active:scale-95 will-change-transform">
                           <ProfileAvatar
                             avatarId={profile.profileAvatar}
                             name={profile.name}
@@ -1916,7 +1914,7 @@ function ProfileSelectPage() {
                         <span className="text-neutral-400 group-hover:text-white text-[12px] sm:text-[14px] font-normal transition-colors duration-150 truncate max-w-full text-center">
                           {profile.name}
                         </span>
-                      </motion.button>
+                      </button>
                     ))}
                   </div>
                 </div>
