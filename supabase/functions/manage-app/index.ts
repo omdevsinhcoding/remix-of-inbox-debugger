@@ -803,44 +803,74 @@ async function sendPrimaryLoginAlert(
   const screenLine = clientGeo?.device?.screen ? `${clientGeo.device.screen.width}×${clientGeo.device.screen.height} @${clientGeo.device.screen.dpr}x` : "";
 
   const headline = status === "success"
-    ? `🟢 <b>SIGN-IN</b> · <b>SUCCESS</b>`
-    : `🔴 <b>SIGN-IN</b> · <b>BLOCKED</b>`;
-  const roleChip = role === "admin" ? "👑 <b>Admin</b>" : "👤 <b>Member</b>";
-  const trustChip = isGps
-    ? `🟢 <b>Trusted</b> <i>· GPS ±${esc(String(clientGeo?.accuracy || "?"))}m</i>`
-    : (isAnon ? `🔴 <b>Masked</b> <i>· ${anonBadge}</i>` : `🟡 <b>Network only</b>`);
-  const sourceChip = isGps ? "🎯 <b>GPS Lock</b>" : "📡 <b>IP Approx</b>";
-  const ispShort = esc((ipLoc.isp || ipLoc.org || loc.isp || loc.org || "Unknown ISP").slice(0, 60));
-  const asnShort = esc(((ipLoc.asn || loc.asn) || "").toString().split(" ")[0] || "");
+    ? `🟢  <b>SIGN-IN SUCCESS</b>`
+    : `🔴  <b>SIGN-IN BLOCKED</b>`;
+  const roleChip = role === "admin" ? "👑 Admin" : "👤 Member";
+  const trustLabel = isGps
+    ? `🟢 Trusted <i>· GPS ±${esc(String(clientGeo?.accuracy || "?"))}m</i>`
+    : (isAnon ? `🔴 Masked <i>· ${anonBadge}</i>` : `🟡 Network only`);
+  const sourceLabel = isGps ? "🎯 GPS Lock" : "📡 IP Approx";
+  const ispRaw = (ipLoc.isp || ipLoc.org || loc.isp || loc.org || "Unknown ISP").slice(0, 60);
+  const asnRaw = ((ipLoc.asn || loc.asn) || "").toString().split(" ")[0] || "";
+  const tzRaw = loc.timezone || clientGeo?.device?.timezone || "";
+  const coordsRaw = (typeof mapLat === "number" && typeof mapLng === "number")
+    ? `${mapLat.toFixed(6)}, ${mapLng.toFixed(6)}` : "";
+  const div = `<i>────────────────────</i>`;
+  const bar = "▎";
+
+  // Copy-friendly one-liner in a <pre> block (Telegram shows a copy icon on <pre>).
+  const summaryOneLiner =
+    `${displayName} @${user?.username || ""}\n` +
+    `IP  : ${ip || "n/a"}\n` +
+    `ISP : ${ispRaw}${asnRaw ? "  (" + asnRaw + ")" : ""}\n` +
+    `Geo : ${cityLine}${coordsRaw ? "  [" + coordsRaw + "]" : ""}\n` +
+    `Dev : ${deviceStr}\n` +
+    `UA  : ${browserStr} · ${osStr}\n` +
+    `Time: ${time}`;
+
+  // Optional expandable raw details (UA + trace) for power users.
+  const rawDetails =
+    `User-Agent:\n${forwardedUa || "n/a"}\n\n` +
+    `IP trace source: ${ipTrace?.source || "n/a"}\n` +
+    `Candidates checked: ${ipTrace?.candidates?.length || 0}\n` +
+    (ipTrace?.cfCountry ? `CF country: ${ipTrace.cfCountry}\n` : "") +
+    (ipTrace?.cfRay ? `CF ray: ${ipTrace.cfRay}\n` : "") +
+    `GPS status: ${clientGeo?.status || "not sent"}` +
+    (clientGeo?.permissionState ? ` (permission ${clientGeo.permissionState})` : "");
 
   const text = [
-    `${headline}`,
-    `<blockquote>${roleChip} · <b>${esc(displayName)}</b>  <i>@${esc(user?.username || "")}</i>`,
-    `🕐 <i>${esc(time)}</i></blockquote>`,
+    headline,
+    div,
+    `${roleChip}  <b>${esc(displayName)}</b>  <i>@${esc(user?.username || "")}</i>`,
+    `🕐 <i>${esc(time)}</i>`,
     ``,
-    `📍 <b>Location</b>  ${sourceChip}`,
-    `<blockquote>${flag} <b>${esc(cityLine)}</b>${loc.postal ? ` · ${esc(loc.postal)}` : ""}`,
-    `🧭 ${coordsLine}${loc.timezone ? `  ·  ⏱ <i>${esc(loc.timezone)}</i>` : ""}` +
-      (mapLink ? `\n🗺 <a href="${mapLink}"><b>Open in Google Maps →</b></a>` : "") + `</blockquote>`,
+    `${bar} 📍 <b>LOCATION</b>   <i>· ${sourceLabel}</i>`,
+    `${flag}  <b>${esc(cityLine)}</b>${loc.postal ? ` <i>· ${esc(loc.postal)}</i>` : ""}`,
+    coordsRaw ? `🧭  <code>${esc(coordsRaw)}</code>` : "",
+    mapLink ? `🗺  <a href="${mapLink}"><b>Open in Google Maps →</b></a>` : "",
     ``,
-    `🌐 <b>Network</b>  ${trustChip}`,
-    `<blockquote>` + (isInvalidEdgeIp
-      ? `⚠️ IP <code>unavailable</code> <i>(edge hop${ip && ip !== "unknown" ? `: ${esc(ip)}` : ""})</i>`
-      : `IP <code>${esc(ip)}</code>`) +
-      `\n🏢 ${ispShort}${asnShort ? ` <i>· ${asnShort}</i>` : ""}` +
-      `\n<i>via ${esc(ipTrace?.source || "n/a")}${ipTrace?.candidates?.length ? ` · ${ipTrace.candidates.length} checked` : ""}</i></blockquote>`,
+    `${bar} 🌐 <b>NETWORK</b>   <i>· ${trustLabel}</i>`,
+    isInvalidEdgeIp
+      ? `IP    <i>unavailable (edge hop${ip && ip !== "unknown" ? ": " + esc(ip) : ""})</i>`
+      : `IP    <code>${esc(ip)}</code>`,
+    `ISP   ${esc(ispRaw)}`,
+    asnRaw ? `ASN   <code>${esc(asnRaw)}</code>${tzRaw ? `   <i>· ${esc(tzRaw)}</i>` : ""}` : (tzRaw ? `TZ    <i>${esc(tzRaw)}</i>` : ""),
     ``,
-    `📱 <b>Device</b>`,
-    `<blockquote><b>${esc(deviceStr)}</b>` +
-      `\n🌐 ${esc(browserStr)}  ·  💻 ${esc(osStr)}` +
-      (screenLine ? `\n🖥 <i>${screenLine}${clientGeo?.device?.timezone ? ` · ${esc(clientGeo.device.timezone)}` : ""}</i>` : "") +
-      `</blockquote>`,
-    anonNote ? `\n⚠️ <b>Anonymizer detected</b>\n<blockquote>${anonBadge}${anonymizer?.provider ? ` · <i>${esc(anonymizer.provider)}</i>` : ""}\n<i>No device GPS available — IP may be a VPN/proxy exit-node.</i></blockquote>` : "",
+    `${bar} 📱 <b>DEVICE</b>`,
+    `<b>${esc(deviceStr)}</b>`,
+    `🌐 ${esc(browserStr)}   💻 ${esc(osStr)}`,
+    screenLine ? `🖥 <i>${screenLine}</i>` : "",
+    anonNote ? `\n⚠️ <b>Anonymizer detected</b> — ${anonBadge}${anonymizer?.provider ? ` <i>· ${esc(anonymizer.provider)}</i>` : ""}\n<i>No device GPS available — IP may be a VPN/proxy exit-node.</i>` : "",
     ``,
+    `${bar} 📋 <b>QUICK COPY</b>  <i>· tap the block to copy</i>`,
+    `<pre>${esc(summaryOneLiner)}</pre>`,
+    `<blockquote expandable><b>🔎 Raw technical details</b>\n${esc(rawDetails)}</blockquote>`,
+    div,
     isGps
       ? `<i>✨ Verified by <b>device GPS</b>${clientGeo?.publicIp ? ` + <b>browser IP</b>` : ""}</i>`
       : `<i>Confidence: <b>${esc(confidence)}</b> · ${agreed}/${totalProviders} providers agreed</i>`,
   ].filter(Boolean).join("\n");
+
 
   try {
     const tgRes = await fetch(`https://api.telegram.org/bot${tg.botToken}/sendMessage`, {
