@@ -1814,12 +1814,20 @@ function ProfileSelectPage() {
       {/* Netflix-style top wordmark */}
       <div className="w-full max-w-6xl mx-auto flex items-center justify-start px-2 sm:px-6 absolute top-4 sm:top-6 left-1/2 -translate-x-1/2 z-20">
         <span
-          className="text-[#e50914] font-black tracking-[-0.06em] text-[26px] sm:text-[34px] leading-none select-none"
-          style={{ fontFamily: '"Bebas Neue","Netflix Sans","Helvetica Neue",Impact,sans-serif' }}
+          className="text-[#e50914] leading-none select-none"
+          style={{
+            fontFamily: '"Bebas Neue", "Oswald", "Arial Narrow", "Helvetica Neue", Impact, sans-serif',
+            fontWeight: 700,
+            fontSize: "clamp(28px, 4.2vw, 40px)",
+            letterSpacing: "0.02em",
+            textShadow: "0 2px 12px rgba(229,9,20,0.35), 0 0 1px rgba(0,0,0,0.6)",
+            WebkitFontSmoothing: "antialiased",
+          }}
         >
           NETFLIX
         </span>
       </div>
+
 
       <AnimatePresence mode="wait">
         {!selectedProfile ? (
