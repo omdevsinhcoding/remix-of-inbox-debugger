@@ -486,6 +486,53 @@ export type Database = {
         }
         Relationships: []
       }
+      notification_impressions: {
+        Row: {
+          clicked_at: string | null
+          completed_at: string | null
+          dismissed_at: string | null
+          first_shown_at: string | null
+          id: string
+          meta: Json | null
+          notification_id: string
+          times_shown: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          clicked_at?: string | null
+          completed_at?: string | null
+          dismissed_at?: string | null
+          first_shown_at?: string | null
+          id?: string
+          meta?: Json | null
+          notification_id: string
+          times_shown?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          clicked_at?: string | null
+          completed_at?: string | null
+          dismissed_at?: string | null
+          first_shown_at?: string | null
+          id?: string
+          meta?: Json | null
+          notification_id?: string
+          times_shown?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notification_impressions_notification_id_fkey"
+            columns: ["notification_id"]
+            isOneToOne: false
+            referencedRelation: "notifications"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       notification_prefs: {
         Row: {
           category: string
@@ -535,6 +582,7 @@ export type Database = {
         Row: {
           archived_at: string | null
           clicked_at: string | null
+          deleted_at: string | null
           dismissed_at: string | null
           notification_id: string
           read_at: string
@@ -545,6 +593,7 @@ export type Database = {
         Insert: {
           archived_at?: string | null
           clicked_at?: string | null
+          deleted_at?: string | null
           dismissed_at?: string | null
           notification_id: string
           read_at?: string
@@ -555,6 +604,7 @@ export type Database = {
         Update: {
           archived_at?: string | null
           clicked_at?: string | null
+          deleted_at?: string | null
           dismissed_at?: string | null
           notification_id?: string
           read_at?: string
@@ -572,6 +622,41 @@ export type Database = {
           },
         ]
       }
+      notification_translations: {
+        Row: {
+          body: string | null
+          body_markdown: string | null
+          created_at: string
+          lang: string
+          notification_id: string
+          title: string | null
+        }
+        Insert: {
+          body?: string | null
+          body_markdown?: string | null
+          created_at?: string
+          lang: string
+          notification_id: string
+          title?: string | null
+        }
+        Update: {
+          body?: string | null
+          body_markdown?: string | null
+          created_at?: string
+          lang?: string
+          notification_id?: string
+          title?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notification_translations_notification_id_fkey"
+            columns: ["notification_id"]
+            isOneToOne: false
+            referencedRelation: "notifications"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       notifications: {
         Row: {
           action_label: string | null
@@ -580,20 +665,30 @@ export type Database = {
           action2_url: string | null
           audience: string
           body: string
+          body_markdown: string | null
           category: string
           created_at: string
           created_by: string | null
           dedupe_key: string | null
           description: string | null
           expires_at: string | null
+          genre_tags: string[] | null
           group_key: string | null
           icon: string | null
           id: string
           image_key: string | null
           image_url: string | null
+          kind: string
+          language: string | null
+          locked: boolean
+          mode: string | null
           pinned: boolean
+          platform_icon: string | null
           priority: string
           publish_at: string | null
+          rating: number | null
+          show_frequency: string | null
+          sub_kind: string | null
           target_user_id: string | null
           title: string
         }
@@ -604,20 +699,30 @@ export type Database = {
           action2_url?: string | null
           audience: string
           body: string
+          body_markdown?: string | null
           category?: string
           created_at?: string
           created_by?: string | null
           dedupe_key?: string | null
           description?: string | null
           expires_at?: string | null
+          genre_tags?: string[] | null
           group_key?: string | null
           icon?: string | null
           id?: string
           image_key?: string | null
           image_url?: string | null
+          kind?: string
+          language?: string | null
+          locked?: boolean
+          mode?: string | null
           pinned?: boolean
+          platform_icon?: string | null
           priority?: string
           publish_at?: string | null
+          rating?: number | null
+          show_frequency?: string | null
+          sub_kind?: string | null
           target_user_id?: string | null
           title: string
         }
@@ -628,20 +733,30 @@ export type Database = {
           action2_url?: string | null
           audience?: string
           body?: string
+          body_markdown?: string | null
           category?: string
           created_at?: string
           created_by?: string | null
           dedupe_key?: string | null
           description?: string | null
           expires_at?: string | null
+          genre_tags?: string[] | null
           group_key?: string | null
           icon?: string | null
           id?: string
           image_key?: string | null
           image_url?: string | null
+          kind?: string
+          language?: string | null
+          locked?: boolean
+          mode?: string | null
           pinned?: boolean
+          platform_icon?: string | null
           priority?: string
           publish_at?: string | null
+          rating?: number | null
+          show_frequency?: string | null
+          sub_kind?: string | null
           target_user_id?: string | null
           title?: string
         }
