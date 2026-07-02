@@ -5,6 +5,15 @@ import {defineConfig, loadEnv} from 'vite';
 
 export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
+  const deployVersion = (
+    process.env.VERCEL_GIT_COMMIT_SHA ||
+    process.env.VERCEL_DEPLOYMENT_ID ||
+    process.env.VITE_BUILD_ID ||
+    'local'
+  )
+    .slice(0, 8)
+    .replace(/[^a-zA-Z0-9_-]/g, '');
+
   return {
     plugins: [react(), tailwindcss()],
     define: {
@@ -24,6 +33,9 @@ export default defineConfig(({mode}) => {
       sourcemap: false,
       rollupOptions: {
         output: {
+          entryFileNames: `assets/[name]-${deployVersion}-[hash].js`,
+          chunkFileNames: `assets/[name]-${deployVersion}-[hash].js`,
+          assetFileNames: `assets/[name]-${deployVersion}-[hash][extname]`,
           manualChunks(id) {
             if (!id.includes('node_modules')) return undefined;
             if (id.includes('react-router')) return 'vendor-router';
