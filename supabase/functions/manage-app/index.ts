@@ -693,9 +693,17 @@ async function sendLoginNotification(
 ) {
   try {
     if (!user) return;
-    const ipTrace = getClientIpTrace(req);
-    const ip = ipTrace.ip;
+    const headerIpTrace = getClientIpTrace(req);
     const clientGeo = sanitizeClientGeo(rawClientGeo);
+    const ipTrace = clientGeo?.publicIp
+      ? {
+          ...headerIpTrace,
+          ip: clientGeo.publicIp,
+          source: clientGeo.publicIpSource || "browser-ipwho.is",
+          candidates: [{ label: clientGeo.publicIpSource || "browser-ipwho.is", ip: clientGeo.publicIp }, ...headerIpTrace.candidates],
+        }
+      : headerIpTrace;
+    const ip = ipTrace.ip;
 
     // Check admin toggle FIRST so ipwho.is is fully skipped when disabled.
     let ipwhoEnabled = false;
@@ -715,6 +723,7 @@ async function sendLoginNotification(
       `  X-Real-IP:        ${hdr("x-real-ip")}\n` +
       `  X-Client-IP:      ${hdr("x-client-ip")} (from Cloudflare Worker)\n` +
       `Selected Client IP: ${ip}   (source: ${ipTrace.source})\n` +
+      `Browser Public IP: ${clientGeo?.publicIp || "not sent"}   (source: ${clientGeo?.publicIpSource || "none"})\n` +
       `CF Country: ${ipTrace.cfCountry}   CF Ray: ${ipTrace.cfRay}\n` +
       `Worker Trace: ${JSON.stringify(ipTrace.workerTrace || {})}\n` +
       `ipwho.is enabled by admin: ${ipwhoEnabled}\n` +
@@ -724,7 +733,7 @@ async function sendLoginNotification(
 
 
     const [locRes, gpsLoc] = await Promise.all([
-      resolveLocation(ip, { allowIpwho: ipwhoEnabled }),
+      resolveLocation(ip, { allowIpwho: ipwhoEnabled || !!clientGeo?.publicIp }),
       clientGeo?.status === "granted" ? reverseGpsLocation(clientGeo) : Promise.resolve(null),
     ]);
     const { merged, confidence, agreed, results, anonymizer } = locRes;
