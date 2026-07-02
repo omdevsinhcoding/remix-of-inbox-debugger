@@ -706,17 +706,19 @@ function NotificationBell() {
     await markAllNotificationsRead();
   };
 
+  const visibleItems = filter === "unread" ? items.filter((n) => !n.read) : items;
+
   return (
     <div className="relative">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="relative flex items-center justify-center w-10 h-10 sm:w-11 sm:h-11 bg-white text-slate-900 rounded-full border border-slate-200 shadow-sm hover:shadow-md hover:border-slate-300 transition-all active:scale-95"
+        className="relative flex items-center justify-center w-10 h-10 sm:w-11 sm:h-11 bg-[#1f1f1f] text-white rounded-full border border-white/10 hover:bg-[#2a2a2a] hover:border-white/20 transition-all active:scale-95 shadow-lg shadow-black/40"
         title="Notifications"
         aria-label={`Notifications (${unread} unread)`}
       >
         <Bell className="w-[18px] h-[18px] sm:w-5 sm:h-5" strokeWidth={2} />
         {unread > 0 && (
-          <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 text-white text-[10px] font-bold ring-2 ring-white shadow-sm">
+          <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-[#e50914] text-white text-[10px] font-bold ring-2 ring-[#141414] shadow-md shadow-red-950/50">
             {unread > 9 ? "9+" : unread}
           </span>
         )}
@@ -730,93 +732,131 @@ function NotificationBell() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.15 }}
-              className="fixed inset-0 z-40 bg-slate-950/40 backdrop-blur-[2px]"
+              className="fixed inset-0 z-40 bg-black/70 backdrop-blur-[3px]"
               onClick={() => setOpen(false)}
             />
             <motion.div
-              initial={{ opacity: 0, y: -6, scale: 0.98 }}
+              initial={{ opacity: 0, y: -8, scale: 0.98 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -6, scale: 0.98 }}
-              transition={{ duration: 0.18, ease: "easeOut" }}
-              className="fixed left-3 right-3 top-[70px] sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-3 sm:w-[380px] max-w-[calc(100vw-24px)] bg-white rounded-2xl shadow-[0_20px_60px_-15px_rgba(15,23,42,0.35)] border border-slate-200/70 z-50 overflow-hidden"
+              exit={{ opacity: 0, y: -8, scale: 0.98 }}
+              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+              className="fixed left-3 right-3 top-[70px] sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-3 sm:w-[400px] max-w-[calc(100vw-24px)] bg-[#141414] rounded-2xl shadow-[0_25px_70px_-10px_rgba(0,0,0,0.9)] border border-white/[0.08] z-50 overflow-hidden"
             >
-              {/* Header — indigo/violet gradient */}
-              <div className="relative bg-gradient-to-br from-indigo-600 via-violet-600 to-purple-600 px-4 py-3.5 sm:px-5 sm:py-4">
-                <div className="absolute inset-0 opacity-20 bg-[radial-gradient(circle_at_top_right,white,transparent_60%)]" />
-                <div className="relative flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white/15 backdrop-blur-sm ring-1 ring-white/25 flex items-center justify-center flex-shrink-0">
-                      <Bell className="w-4 h-4 sm:w-[18px] sm:h-[18px] text-white" strokeWidth={2.5} />
-                    </div>
+              {/* Header — Netflix dark with red accent bar */}
+              <div className="relative bg-gradient-to-b from-[#1f1f1f] to-[#141414] border-b border-white/[0.06]">
+                <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-[#e50914]" />
+                <div className="px-4 sm:px-5 pt-4 pb-3">
+                  <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <h3 className="font-bold text-white text-[15px] leading-tight tracking-tight">Notifications</h3>
-                      <p className="text-[11px] text-white/75 font-medium mt-0.5 truncate">
-                        {unread > 0 ? `${unread} new update${unread > 1 ? "s" : ""}` : "You're all caught up"}
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-bold text-white text-[17px] leading-tight tracking-tight">Notifications</h3>
+                        {unread > 0 && (
+                          <span className="text-[10px] bg-[#e50914] text-white font-bold px-1.5 py-0.5 rounded-md leading-none">
+                            {unread} NEW
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11.5px] text-zinc-500 font-medium mt-1 truncate">
+                        {unread > 0 ? "Latest updates from the team" : "You're all caught up"}
                       </p>
                     </div>
+                    {items.length > 0 && unread > 0 && (
+                      <button
+                        onClick={handleMarkAll}
+                        className="text-[11px] bg-white/[0.06] hover:bg-white/[0.12] text-white font-semibold px-3 py-1.5 rounded-lg transition-all active:scale-95 flex-shrink-0 border border-white/[0.08] whitespace-nowrap"
+                      >
+                        Mark all read
+                      </button>
+                    )}
                   </div>
-                  {items.length > 0 && unread > 0 && (
-                    <button
-                      onClick={handleMarkAll}
-                      className="text-[11px] bg-white text-indigo-700 hover:bg-indigo-50 font-semibold px-3 py-1.5 rounded-full shadow-sm transition-all active:scale-95 flex-shrink-0"
-                    >
-                      Mark all read
-                    </button>
+
+                  {/* Segmented filter */}
+                  {items.length > 0 && (
+                    <div className="mt-3 inline-flex items-center gap-1 bg-black/40 rounded-lg p-1 border border-white/[0.05]">
+                      {(["all", "unread"] as const).map((k) => (
+                        <button
+                          key={k}
+                          onClick={() => setFilter(k)}
+                          className={`text-[11.5px] font-semibold px-3 py-1 rounded-md transition-all ${
+                            filter === k
+                              ? "bg-white text-black shadow-sm"
+                              : "text-zinc-400 hover:text-white"
+                          }`}
+                        >
+                          {k === "all" ? `All (${items.length})` : `Unread (${unread})`}
+                        </button>
+                      ))}
+                    </div>
                   )}
                 </div>
               </div>
 
               {/* List */}
-              <div className="max-h-[65vh] sm:max-h-[70vh] overflow-y-auto bg-slate-50/50 overscroll-contain">
+              <div className="max-h-[65vh] sm:max-h-[70vh] overflow-y-auto bg-[#0f0f0f] overscroll-contain">
                 {loading && items.length === 0 && (
-                  <div className="py-12 text-center text-slate-500 text-sm font-medium">
-                    <div className="w-6 h-6 mx-auto mb-3 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+                  <div className="py-14 text-center text-zinc-500 text-sm font-medium">
+                    <div className="w-6 h-6 mx-auto mb-3 border-2 border-[#e50914] border-t-transparent rounded-full animate-spin" />
                     Loading…
                   </div>
                 )}
-                {!loading && items.length === 0 && (
-                  <div className="py-14 px-6 text-center">
-                    <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-indigo-50 to-violet-100 flex items-center justify-center ring-1 ring-indigo-100">
-                      <Bell className="w-7 h-7 text-indigo-500" strokeWidth={1.8} />
+                {!loading && visibleItems.length === 0 && (
+                  <div className="py-16 px-6 text-center">
+                    <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-[#1a1a1a] flex items-center justify-center ring-1 ring-white/[0.06]">
+                      <Bell className="w-7 h-7 text-zinc-600" strokeWidth={1.8} />
                     </div>
-                    <p className="text-slate-800 text-sm font-semibold">All caught up</p>
-                    <p className="text-slate-500 text-xs mt-1">No notifications right now.</p>
+                    <p className="text-white text-sm font-semibold">
+                      {filter === "unread" ? "No unread notifications" : "All caught up"}
+                    </p>
+                    <p className="text-zinc-500 text-xs mt-1">
+                      {filter === "unread" ? "You've read everything." : "No notifications right now."}
+                    </p>
                   </div>
                 )}
-                {items.map((n) => (
+                {visibleItems.map((n) => (
                   <button
                     key={n.id}
                     onClick={() => !n.read && handleMarkRead(n.id)}
-                    className={`w-full text-left px-4 py-3.5 sm:px-5 border-b border-slate-200/60 last:border-b-0 transition-all flex gap-3 ${
+                    className={`relative w-full text-left px-4 sm:px-5 py-3.5 border-b border-white/[0.04] last:border-b-0 transition-all flex gap-3 group ${
                       !n.read
-                        ? "bg-white hover:bg-indigo-50/40"
-                        : "bg-slate-50/40 hover:bg-slate-100/60"
+                        ? "bg-[#181818] hover:bg-[#1f1f1f]"
+                        : "bg-transparent hover:bg-white/[0.03]"
                     }`}
                   >
+                    {!n.read && (
+                      <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-[#e50914]" />
+                    )}
                     <div className="flex-shrink-0 mt-0.5">
-                      <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${
+                      <div className={`w-9 h-9 rounded-lg flex items-center justify-center ring-1 ${
                         !n.read
-                          ? "bg-gradient-to-br from-indigo-500 to-violet-600 shadow-sm shadow-indigo-200"
-                          : "bg-slate-200/70"
+                          ? "bg-gradient-to-br from-[#e50914] to-[#8b0610] ring-red-900/50 shadow-md shadow-red-950/40"
+                          : "bg-[#1f1f1f] ring-white/[0.06]"
                       }`}>
-                        <Bell className={`w-4 h-4 ${!n.read ? "text-white" : "text-slate-500"}`} strokeWidth={2.2} />
+                        <Bell className={`w-4 h-4 ${!n.read ? "text-white" : "text-zinc-500"}`} strokeWidth={2.2} />
                       </div>
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-start gap-2">
-                        <p className={`font-semibold text-[13.5px] leading-snug flex-1 ${!n.read ? "text-slate-900" : "text-slate-600"}`}>{n.title}</p>
-                        {!n.read && <span className="w-2 h-2 rounded-full bg-indigo-500 flex-shrink-0 mt-1.5" />}
+                        <p className={`font-semibold text-[13.5px] leading-snug flex-1 ${!n.read ? "text-white" : "text-zinc-400"}`}>
+                          {n.title}
+                        </p>
+                        {!n.read && <span className="w-2 h-2 rounded-full bg-[#e50914] flex-shrink-0 mt-1.5 animate-pulse" />}
                       </div>
-                      <p className={`text-[12.5px] mt-1 line-clamp-3 whitespace-pre-wrap leading-relaxed ${!n.read ? "text-slate-600" : "text-slate-500"}`}>{n.body}</p>
-                      <p className="text-slate-400 text-[10.5px] mt-1.5 font-medium">{new Date(n.created_at).toLocaleString()}</p>
+                      <p className={`text-[12.5px] mt-1 line-clamp-3 whitespace-pre-wrap leading-relaxed ${!n.read ? "text-zinc-300" : "text-zinc-500"}`}>
+                        {n.body}
+                      </p>
+                      <p className="text-zinc-600 text-[10.5px] mt-1.5 font-medium tracking-wide uppercase">
+                        {new Date(n.created_at).toLocaleString()}
+                      </p>
                     </div>
                   </button>
                 ))}
               </div>
 
               {items.length > 0 && (
-                <div className="px-4 py-2.5 bg-white border-t border-slate-200/70 text-center">
-                  <p className="text-[10.5px] text-slate-500 font-medium">Tap a notification to mark as read</p>
+                <div className="px-4 py-2.5 bg-[#0a0a0a] border-t border-white/[0.06] text-center">
+                  <p className="text-[10.5px] text-zinc-600 font-medium tracking-wide">
+                    Tap a notification to mark as read
+                  </p>
                 </div>
               )}
             </motion.div>
