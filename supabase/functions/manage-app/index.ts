@@ -2372,6 +2372,125 @@ Deno.serve(async (req) => {
       });
     }
 
+    // ---------- R2 storage: admin-only ----------
+    if (action === "admin_get_r2_config") {
+      await requireAdmin(req);
+      const { data } = await supabase.from("app_settings").select("value").eq("key", "r2_storage").maybeSingle();
+      const v: any = data?.value || {};
+      // Never leak the secret access key. Send a marker if one exists.
+      const hasSecret = typeof v.secretAccessKey === "string" && v.secretAccessKey.length > 0;
+      return new Response(JSON.stringify({
+        success: true,
+        config: {
+          accountId: v.accountId || "",
+          accessKeyId: v.accessKeyId || "",
+          bucket: v.bucket || "",
+          publicBaseUrl: v.publicBaseUrl || "",
+          pathPrefix: v.pathPrefix || "notifications/",
+          enabled: v.enabled === true,
+          secretAccessKeySet: hasSecret,
+        },
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    if (action === "admin_save_r2_config") {
+      const session = await requireAdmin(req);
+      const p = (params || {}) as any;
+      const clean = (s: any) => (typeof s === "string" ? s.trim() : "");
+      const { data: existing } = await supabase.from("app_settings").select("value").eq("key", "r2_storage").maybeSingle();
+      const prev: any = existing?.value || {};
+      // If admin left secretAccessKey blank, keep the previous value.
+      const nextSecret = typeof p.secretAccessKey === "string" && p.secretAccessKey.length > 0
+        ? p.secretAccessKey
+        : (prev.secretAccessKey || "");
+      const publicBaseUrl = clean(p.publicBaseUrl).replace(/\/+$/, "");
+      const pathPrefix = (clean(p.pathPrefix) || "notifications/").replace(/^\/+/, "");
+      const value = {
+        accountId: clean(p.accountId),
+        accessKeyId: clean(p.accessKeyId),
+        secretAccessKey: nextSecret,
+        bucket: clean(p.bucket),
+        publicBaseUrl,
+        pathPrefix: pathPrefix.endsWith("/") ? pathPrefix : pathPrefix + "/",
+        enabled: p.enabled === true,
+      };
+      const { error } = await supabase.from("app_settings").upsert({ key: "r2_storage", value }, { onConflict: "key" });
+      if (error) throw error;
+      await auditLog(supabase, "r2_config_updated", session.userId, null, { bucket: value.bucket, enabled: value.enabled }, ip);
+      return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    if (action === "admin_r2_test") {
+      await requireAdmin(req);
+      const { data } = await supabase.from("app_settings").select("value").eq("key", "r2_storage").maybeSingle();
+      const v: any = data?.value || {};
+      if (!v.accountId || !v.accessKeyId || !v.secretAccessKey || !v.bucket) {
+        return new Response(JSON.stringify({ success: false, error: "R2 credentials incomplete" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      const { r2Put, r2Delete } = await import("../_shared/r2Sign.ts");
+      const creds = { accountId: v.accountId, accessKeyId: v.accessKeyId, secretAccessKey: v.secretAccessKey, bucket: v.bucket };
+      const key = `${v.pathPrefix || "notifications/"}_healthcheck-${Date.now()}.txt`;
+      const t0 = Date.now();
+      let putOk = false, putErr = "", publicUrlWorks = false, publicUrl = "";
+      try {
+        const res = await r2Put(creds, key, new TextEncoder().encode("ok"), "text/plain");
+        putOk = res.ok;
+        if (!res.ok) putErr = `PUT ${res.status}: ${(await res.text()).slice(0, 200)}`;
+      } catch (e) {
+        putErr = e instanceof Error ? e.message : String(e);
+      }
+      if (putOk && v.publicBaseUrl) {
+        publicUrl = `${v.publicBaseUrl.replace(/\/+$/, "")}/${key}`;
+        try {
+          const h = await fetch(publicUrl, { method: "GET" });
+          publicUrlWorks = h.ok;
+        } catch {}
+      }
+      // Clean up the test object.
+      try { await r2Delete(creds, key); } catch {}
+      return new Response(JSON.stringify({
+        success: putOk,
+        latencyMs: Date.now() - t0,
+        publicUrlWorks,
+        publicUrl,
+        message: putOk ? "R2 upload OK" : putErr || "R2 test failed",
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    if (action === "admin_upload_notification_image") {
+      await requireAdmin(req);
+      const p = (params || {}) as any;
+      if (!p?.dataBase64 || !p?.filename) throw new Error("dataBase64 and filename required");
+      const { data } = await supabase.from("app_settings").select("value").eq("key", "r2_storage").maybeSingle();
+      const v: any = data?.value || {};
+      if (!v.enabled) throw new Error("R2 is not enabled — configure it in Settings → Storage");
+      if (!v.accountId || !v.accessKeyId || !v.secretAccessKey || !v.bucket || !v.publicBaseUrl) {
+        throw new Error("R2 credentials incomplete");
+      }
+      const contentType = String(p.contentType || "").slice(0, 100) || "application/octet-stream";
+      if (!/^image\//.test(contentType)) throw new Error("Only image uploads are allowed");
+      // Decode base64
+      const b64 = String(p.dataBase64).replace(/^data:[^;]+;base64,/, "");
+      const bin = atob(b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      if (bytes.length > 8 * 1024 * 1024) throw new Error("Image too large (max 8 MB)");
+      const { r2Put, slugifyFilename } = await import("../_shared/r2Sign.ts");
+      const now = new Date();
+      const yyyy = now.getUTCFullYear();
+      const mm = String(now.getUTCMonth() + 1).padStart(2, "0");
+      const rand = crypto.randomUUID().slice(0, 8);
+      const key = `${v.pathPrefix || "notifications/"}${yyyy}/${mm}/${rand}-${slugifyFilename(p.filename)}`;
+      const creds = { accountId: v.accountId, accessKeyId: v.accessKeyId, secretAccessKey: v.secretAccessKey, bucket: v.bucket };
+      const res = await r2Put(creds, key, bytes, contentType);
+      if (!res.ok) {
+        const t = await res.text();
+        throw new Error(`R2 upload failed: ${res.status} ${t.slice(0, 200)}`);
+      }
+      const url = `${v.publicBaseUrl.replace(/\/+$/, "")}/${key}`;
+      return new Response(JSON.stringify({ success: true, url, key }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     throw new Error("Unknown action: " + action);
 
   } catch (err) {

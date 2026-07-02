@@ -1,6 +1,6 @@
 import React, { useState, useEffect, createContext, useContext, useCallback, useRef, useMemo, Suspense, lazy } from "react";
 import { createPortal } from "react-dom";
-import { Mail, RefreshCw, ShieldCheck, Shield, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, BarChart3, Globe, Edit, Database, Wifi, Info, UserCircle, Search, ChevronLeft, ChevronRight, Bell, Send, MessageSquare, Image as ImageIcon, Pin, ExternalLink, Archive, AlertTriangle, Sparkles, Megaphone, Wrench, CreditCard, Tag, ChevronDown } from "lucide-react";
+import { Mail, RefreshCw, ShieldCheck, Shield, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, BarChart3, Globe, Edit, Database, Wifi, Info, UserCircle, Search, ChevronLeft, ChevronRight, Bell, Send, MessageSquare, Image as ImageIcon, Pin, ExternalLink, Archive, AlertTriangle, Sparkles, Megaphone, Wrench, CreditCard, Tag, ChevronDown, HardDrive, Upload, Zap } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import NetflixHouseholdVerificationGuide from "./pages/NetflixHouseholdVerificationGuide";
@@ -2888,6 +2888,14 @@ function AdminPanel() {
   const [notifExpiresDays, setNotifExpiresDays] = useState<string>("");
   const [sendingNotif, setSendingNotif] = useState(false);
 
+  // R2 storage config
+  type R2Cfg = { accountId: string; accessKeyId: string; secretAccessKey: string; bucket: string; publicBaseUrl: string; pathPrefix: string; enabled: boolean; secretAccessKeySet: boolean };
+  const [r2Cfg, setR2Cfg] = useState<R2Cfg>({ accountId: "", accessKeyId: "", secretAccessKey: "", bucket: "", publicBaseUrl: "", pathPrefix: "notifications/", enabled: false, secretAccessKeySet: false });
+  const [r2Saving, setR2Saving] = useState(false);
+  const [r2Testing, setR2Testing] = useState(false);
+  const [r2TestResult, setR2TestResult] = useState<{ ok: boolean; message: string; latencyMs?: number; publicUrlWorks?: boolean } | null>(null);
+  const [r2ShowSecret, setR2ShowSecret] = useState(false);
+
   // Inbox tab
   const [inboxMode, setInboxMode] = useState<"all" | "label" | "days">("days");
   const [inboxLabel, setInboxLabel] = useState("");
@@ -3028,6 +3036,22 @@ function AdminPanel() {
         if (mnt.value.endsAt) setMaintenanceEndsAt(toLocalInput(mnt.value.endsAt));
       }
     } catch { }
+
+    try {
+      const r2 = await apiCall("manage-app", { action: "admin_get_r2_config" });
+      if (r2?.config) {
+        setR2Cfg({
+          accountId: r2.config.accountId || "",
+          accessKeyId: r2.config.accessKeyId || "",
+          secretAccessKey: "", // never sent from server
+          bucket: r2.config.bucket || "",
+          publicBaseUrl: r2.config.publicBaseUrl || "",
+          pathPrefix: r2.config.pathPrefix || "notifications/",
+          enabled: r2.config.enabled === true,
+          secretAccessKeySet: r2.config.secretAccessKeySet === true,
+        });
+      }
+    } catch { }
   }, []);
 
   useEffect(() => {
@@ -3160,8 +3184,51 @@ function AdminPanel() {
     }
   };
 
+  const saveR2Config = async () => {
+    setR2Saving(true);
+    setR2TestResult(null);
+    try {
+      await apiCall("manage-app", {
+        action: "admin_save_r2_config",
+        accountId: r2Cfg.accountId.trim(),
+        accessKeyId: r2Cfg.accessKeyId.trim(),
+        secretAccessKey: r2Cfg.secretAccessKey, // blank string = keep existing
+        bucket: r2Cfg.bucket.trim(),
+        publicBaseUrl: r2Cfg.publicBaseUrl.trim(),
+        pathPrefix: (r2Cfg.pathPrefix.trim() || "notifications/"),
+        enabled: r2Cfg.enabled,
+      });
+      const persisted = r2Cfg.secretAccessKey.length > 0 || r2Cfg.secretAccessKeySet;
+      setR2Cfg((c) => ({ ...c, secretAccessKey: "", secretAccessKeySet: persisted }));
+      toast.success(r2Cfg.enabled ? "R2 storage saved & enabled" : "R2 storage saved");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save R2 config");
+    } finally {
+      setR2Saving(false);
+    }
+  };
 
-
+  const testR2Connection = async () => {
+    setR2Testing(true);
+    setR2TestResult(null);
+    try {
+      const res: any = await apiCall("manage-app", { action: "admin_r2_test" });
+      setR2TestResult({
+        ok: res?.success === true,
+        message: res?.message || (res?.success ? "OK" : "Failed"),
+        latencyMs: res?.latencyMs,
+        publicUrlWorks: res?.publicUrlWorks,
+      });
+      if (res?.success) toast.success(`R2 test passed · ${res.latencyMs}ms`);
+      else toast.error(res?.message || "R2 test failed");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "R2 test failed";
+      setR2TestResult({ ok: false, message: msg });
+      toast.error(msg);
+    } finally {
+      setR2Testing(false);
+    }
+  };
 
 
   const toggleCaptcha = async () => {
@@ -3868,8 +3935,122 @@ function AdminPanel() {
                 </button>
               </div>
             </section>
+
+            {/* --- Cloudflare R2 Storage (for notification images) --- */}
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <div className="flex items-start justify-between gap-4 mb-4">
+                <h2 className="font-black text-base sm:text-lg flex items-center gap-2 text-slate-900">
+                  <div className="bg-orange-50 p-1.5 rounded-lg"><HardDrive className="w-4 h-4 text-orange-600" /></div>
+                  Cloudflare R2 Storage
+                </h2>
+                <label className="inline-flex items-center gap-2 cursor-pointer flex-shrink-0">
+                  <span className="text-[11px] font-semibold text-slate-600 uppercase tracking-wider">{r2Cfg.enabled ? "Enabled" : "Disabled"}</span>
+                  <button
+                    type="button"
+                    onClick={() => setR2Cfg((c) => ({ ...c, enabled: !c.enabled }))}
+                    className={`relative w-12 h-6 rounded-full transition-colors ${r2Cfg.enabled ? "bg-green-500" : "bg-slate-300"}`}
+                    aria-label="Toggle R2 enabled"
+                  >
+                    <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${r2Cfg.enabled ? "translate-x-6" : "translate-x-0.5"}`} />
+                  </button>
+                </label>
+              </div>
+              <p className="text-xs text-slate-500 mb-4">
+                Where notification hero images live. Credentials are stored in the database (encrypted at rest) and never sent to the browser after saving.
+                When disabled, admins can still paste an https image URL manually.
+              </p>
+
+              <div className="space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Account ID</label>
+                    <input value={r2Cfg.accountId} onChange={(e) => setR2Cfg((c) => ({ ...c, accountId: e.target.value }))}
+                      placeholder="abcdef1234567890"
+                      className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900 font-mono" />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Bucket</label>
+                    <input value={r2Cfg.bucket} onChange={(e) => setR2Cfg((c) => ({ ...c, bucket: e.target.value }))}
+                      placeholder="notification-media"
+                      className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900 font-mono" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Access Key ID</label>
+                  <input value={r2Cfg.accessKeyId} onChange={(e) => setR2Cfg((c) => ({ ...c, accessKeyId: e.target.value }))}
+                    placeholder="R2 API token — Access Key ID"
+                    className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900 font-mono" />
+                </div>
+                <div>
+                  <label className="flex items-center justify-between text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                    <span>Secret Access Key {r2Cfg.secretAccessKeySet && r2Cfg.secretAccessKey.length === 0 && (
+                      <span className="ml-2 text-emerald-600 normal-case tracking-normal">✓ configured (leave blank to keep)</span>
+                    )}</span>
+                    <button type="button" onClick={() => setR2ShowSecret((s) => !s)} className="text-slate-400 hover:text-slate-700 normal-case tracking-normal">
+                      {r2ShowSecret ? "Hide" : "Show"}
+                    </button>
+                  </label>
+                  <input type={r2ShowSecret ? "text" : "password"} value={r2Cfg.secretAccessKey}
+                    onChange={(e) => setR2Cfg((c) => ({ ...c, secretAccessKey: e.target.value }))}
+                    placeholder={r2Cfg.secretAccessKeySet ? "•••••••••••••••• (leave blank to keep current)" : "Paste secret access key"}
+                    className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900 font-mono" />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Public Base URL</label>
+                    <input value={r2Cfg.publicBaseUrl} onChange={(e) => setR2Cfg((c) => ({ ...c, publicBaseUrl: e.target.value }))}
+                      placeholder="https://cdn.example.com  (or  https://pub-xxx.r2.dev)"
+                      className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900" />
+                    <p className="text-[10.5px] text-slate-400 mt-1">Custom domain, or the r2.dev URL enabled on the bucket.</p>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Path Prefix</label>
+                    <input value={r2Cfg.pathPrefix} onChange={(e) => setR2Cfg((c) => ({ ...c, pathPrefix: e.target.value }))}
+                      placeholder="notifications/"
+                      className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900 font-mono" />
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2 pt-2">
+                  <button onClick={saveR2Config} disabled={r2Saving}
+                    className="bg-orange-600 hover:bg-orange-700 disabled:opacity-60 text-white font-bold py-2.5 px-5 rounded-lg text-sm inline-flex items-center gap-2">
+                    <HardDrive className="w-4 h-4" /> {r2Saving ? "Saving…" : "Save R2 Settings"}
+                  </button>
+                  <button onClick={testR2Connection} disabled={r2Testing || (!r2Cfg.accountId || !r2Cfg.accessKeyId || !r2Cfg.bucket)}
+                    className="bg-slate-900 hover:bg-slate-800 disabled:opacity-60 text-white font-bold py-2.5 px-5 rounded-lg text-sm inline-flex items-center gap-2">
+                    <Zap className="w-4 h-4" /> {r2Testing ? "Testing…" : "Test Connection"}
+                  </button>
+                </div>
+
+                {r2TestResult && (
+                  <div className={`mt-2 p-3 rounded-lg text-xs border ${r2TestResult.ok ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-rose-50 border-rose-200 text-rose-800"}`}>
+                    <div className="font-bold flex items-center gap-2">
+                      {r2TestResult.ok ? <CheckCircle2 className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+                      {r2TestResult.ok ? "R2 upload OK" : "R2 test failed"}
+                      {typeof r2TestResult.latencyMs === "number" && <span className="font-normal opacity-70">· {r2TestResult.latencyMs}ms</span>}
+                    </div>
+                    <div className="mt-1 opacity-90 break-words">{r2TestResult.message}</div>
+                    {r2TestResult.ok && r2TestResult.publicUrlWorks === false && (
+                      <div className="mt-1 text-amber-700">⚠️ Upload signed OK but the public URL was not reachable — check your public domain / r2.dev setup and CORS.</div>
+                    )}
+                  </div>
+                )}
+
+                <details className="mt-2 text-xs text-slate-600">
+                  <summary className="cursor-pointer font-semibold text-slate-700">Setup help — R2 API token permissions & CORS</summary>
+                  <div className="mt-2 space-y-2 pl-2">
+                    <p><span className="font-semibold">API token:</span> Cloudflare dashboard → R2 → Manage R2 API Tokens → Create with <span className="font-mono bg-slate-100 px-1 rounded">Object Read &amp; Write</span> scoped to this bucket.</p>
+                    <p><span className="font-semibold">Public access:</span> Either connect a custom domain to the bucket, or turn on the r2.dev subdomain (Settings → Public access). Paste that URL as "Public Base URL".</p>
+                    <p><span className="font-semibold">CORS (for image display in the browser):</span></p>
+                    <pre className="bg-slate-900 text-slate-100 p-3 rounded-lg overflow-x-auto text-[11px]">{`[{"AllowedOrigins":["*"],"AllowedMethods":["GET","HEAD"],"AllowedHeaders":["*"],"MaxAgeSeconds":3600}]`}</pre>
+                    <p className="text-slate-500">Uploads are signed server-side (via edge function) so browser CORS is only needed for GET/HEAD when displaying the images.</p>
+                  </div>
+                </details>
+              </div>
+            </section>
           </div>
         )}
+
 
         {activeTab === "logins" && (
           <LoginEventsPanel />
