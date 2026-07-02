@@ -137,6 +137,17 @@ function normalizeIp(raw: string | null | undefined): string {
   return ip.trim();
 }
 
+function isPlausibleIp(ip: string): boolean {
+  if (!ip) return false;
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) {
+    return ip.split(".").every(part => {
+      const n = Number(part);
+      return Number.isInteger(n) && n >= 0 && n <= 255;
+    });
+  }
+  return /^[0-9a-f:]+$/i.test(ip) && ip.includes(":") && ip.length <= 45;
+}
+
 function isKnownEdgeIp(ip: string): boolean {
   // AWS Global Accelerator / Vercel-style edge ranges commonly show up as an
   // intermediate XFF hop. They are infrastructure, not the user's residential IP.
@@ -144,7 +155,7 @@ function isKnownEdgeIp(ip: string): boolean {
 }
 
 function isPublicIp(ip: string): boolean {
-  return !!ip && ip !== "unknown" && !isPrivateIp(ip);
+  return !!ip && ip !== "unknown" && isPlausibleIp(ip) && !isPrivateIp(ip);
 }
 
 function isRealPublicClientIp(ip: string): boolean {
