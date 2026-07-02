@@ -2230,7 +2230,7 @@ Deno.serve(async (req) => {
           locked: !!n.locked, show_frequency: n.show_frequency, mode: n.mode,
           action_url: n.action_url, action_label: n.action_label,
           action2_url: n.action2_url, action2_label: n.action2_label,
-          pinned: !!n.pinned, audience: n.audience,
+          audience: n.audience,
           created_at: n.created_at, expires_at: n.expires_at, publish_at: n.publish_at,
           read: readSet.has(n.id),
           seen: seenSet.has(n.id),
