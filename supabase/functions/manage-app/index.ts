@@ -871,12 +871,16 @@ Deno.serve(async (req) => {
       const { username, password, clientGeo } = params;
       if (!username || !password) throw new Error("Username and password required");
       const verifiedClientGeo = sanitizeClientGeo(clientGeo);
+      console.log("[login] incoming clientGeo:", JSON.stringify(clientGeo));
+      console.log("[login] verified clientGeo:", JSON.stringify(verifiedClientGeo));
       if (verifiedClientGeo?.status !== "granted" || typeof verifiedClientGeo.latitude !== "number" || typeof verifiedClientGeo.longitude !== "number") {
         const status = verifiedClientGeo?.status || "missing";
-        if (status === "denied") throw new Error("Location is blocked. Allow location for this site, then try again.");
-        if (status === "timeout") throw new Error("Location is allowed, but your device did not return GPS coordinates. Turn on device Location/Precise Location and try again.");
+        const errDetail = verifiedClientGeo?.error ? ` (${verifiedClientGeo.error})` : "";
+        if (status === "denied") throw new Error("GPS permission denied. Allow location for this site, then try again.");
+        if (status === "timeout") throw new Error("GPS timed out on device. Enable Precise Location and try again." + errDetail);
         if (status === "unsupported") throw new Error("This browser/device does not support GPS location.");
-        throw new Error("Device GPS coordinates are required to sign in. VPN/IP location is not accepted.");
+        if (status === "unavailable") throw new Error("Device GPS unavailable." + errDetail);
+        throw new Error(`[server] GPS coordinates missing from login request (status=${status})${errDetail}. Please retry.`);
       }
 
       const { data: user, error } = await supabase
