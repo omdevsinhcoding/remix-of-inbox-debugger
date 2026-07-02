@@ -2759,6 +2759,8 @@ function AdminPanel() {
   const [clearingInbox, setClearingInbox] = useState(false);
 
   const [primaryCfInput, setPrimaryCfInput] = useState("");
+  const [signingSecretReveal, setSigningSecretReveal] = useState<{ value: string; length: number } | null>(null);
+  const [revealingSigningSecret, setRevealingSigningSecret] = useState(false);
   const [editingAccountUrls, setEditingAccountUrls] = useState<number | null>(null);
   const [editCfUrls, setEditCfUrls] = useState<string[]>([]);
   const [editCfInput, setEditCfInput] = useState("");
