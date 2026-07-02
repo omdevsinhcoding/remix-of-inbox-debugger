@@ -1109,7 +1109,7 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
       {!detail && (
         <>
           <div className="mt-4 flex items-center gap-1.5 overflow-x-auto no-scrollbar -mx-1 px-1">
-            {(["all", "unread", "pinned", "archived"] as Tab[]).map((t) => (
+            {(["all", "unread"] as Tab[]).map((t) => (
               <button
                 key={t}
                 onClick={() => setTab(t)}
