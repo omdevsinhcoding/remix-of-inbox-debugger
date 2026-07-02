@@ -631,6 +631,7 @@ function useSessionTimeoutGuard(role: "admin" | "user") {
   const { checkAuth } = useAuth();
   useEffect(() => {
     let timer: any;
+    let poll: any;
     let cancelled = false;
     const doLogout = () => {
       clearSessionData();
@@ -650,14 +651,38 @@ function useSessionTimeoutGuard(role: "admin" | "user") {
       } catch {}
       if (cancelled || !minutes || minutes <= 0) return;
 
-      let started = Number(localStorage.getItem("session_started_at") || "0");
-      if (!started) { markSessionStart(); started = Date.now(); }
-      const expiresAt = started + minutes * 60_000;
-      const remaining = expiresAt - Date.now();
-      if (remaining <= 0) { doLogout(); return; }
-      timer = setTimeout(doLogout, remaining);
+      const armFrom = (started: number) => {
+        const remaining = started + minutes * 60_000 - Date.now();
+        if (remaining <= 0) { doLogout(); return; }
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(doLogout, remaining);
+      };
+
+      const started = Number(localStorage.getItem("session_started_at") || "0");
+      if (started) {
+        armFrom(started);
+      } else if (role === "admin") {
+        // Admin has no email load — start immediately.
+        markSessionStart();
+        armFrom(Date.now());
+      } else {
+        // User: wait for EmailViewer to call markSessionStart after first inbox load.
+        poll = setInterval(() => {
+          if (cancelled) return;
+          const s = Number(localStorage.getItem("session_started_at") || "0");
+          if (s) {
+            clearInterval(poll);
+            poll = null;
+            armFrom(s);
+          }
+        }, 500);
+      }
     })();
-    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+      if (poll) clearInterval(poll);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [role]);
 }
@@ -1796,7 +1821,10 @@ function ProfileSelectPage() {
       }
 
       localStorage.setItem("user", JSON.stringify(data.user));
-      markSessionStart();
+      // Session timer intentionally NOT started here — EmailViewer starts it
+      // after the first cached-email load finishes so users always see their
+      // inbox before the countdown begins.
+      try { localStorage.removeItem("session_started_at"); } catch {}
       checkAuth();
 
       navigate("/viewer");
@@ -2363,9 +2391,9 @@ function LoginEventsPanel() {
       ) : events.length === 0 ? (
         <div className="py-12 text-center text-slate-500 text-sm">No login events yet.</div>
       ) : (
-        <div className="overflow-x-auto -mx-4 sm:mx-0">
+        <div className="overflow-auto -mx-4 sm:mx-0 border rounded-lg max-h-[65vh]">
           <table className="w-full text-xs sm:text-sm min-w-[900px]">
-            <thead className="bg-slate-50 text-left text-slate-600 uppercase text-[10px] tracking-wider">
+            <thead className="bg-slate-50 text-left text-slate-600 uppercase text-[10px] tracking-wider sticky top-0 z-10">
               <tr>
                 <th className="p-2">Time</th><th className="p-2">User</th><th className="p-2">Risk</th>
                 <th className="p-2">Device</th><th className="p-2">Browser · OS</th>
@@ -2375,8 +2403,8 @@ function LoginEventsPanel() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {events.map(e => (
-                <>
-                  <tr key={e.id} className="hover:bg-slate-50">
+                <React.Fragment key={e.id}>
+                  <tr className="hover:bg-slate-50">
                     <td className="p-2 whitespace-nowrap text-slate-600">{new Date(e.created_at).toLocaleString()}</td>
                     <td className="p-2 font-semibold">{e.username}<div className="text-[10px] text-slate-400">{e.role}</div></td>
                     <td className="p-2"><span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${riskColor(e.risk_score || "safe")}`}>{(e.risk_score || "safe").toUpperCase()}</span>{e.is_new_device && <div className="text-[10px] text-orange-600 mt-1">🆕 new device</div>}</td>
@@ -2403,7 +2431,7 @@ function LoginEventsPanel() {
                   {expanded === e.id && (
                     <tr><td colSpan={10} className="p-2 bg-slate-50"><pre className="text-[10px] overflow-x-auto max-h-96">{JSON.stringify(e, null, 2)}</pre></td></tr>
                   )}
-                </>
+                </React.Fragment>
               ))}
             </tbody>
           </table>
@@ -2413,8 +2441,170 @@ function LoginEventsPanel() {
   );
 }
 
+// ==================== ADMIN: ALL EMAILS (across every user/account) ====================
+function AllEmailsPanel() {
+  const [emails, setEmails] = useState<any[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [accountLabel, setAccountLabel] = useState("");
+  const [labels, setLabels] = useState<string[]>([]);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [viewing, setViewing] = useState<any | null>(null);
+  const [offset, setOffset] = useState(0);
+  const limit = 100;
+
+  const load = useCallback(async (nextOffset = 0) => {
+    setLoading(true);
+    try {
+      const res: any = await apiCall("manage-app", {
+        action: "admin_list_emails",
+        limit, offset: nextOffset,
+        search: search || undefined,
+        accountLabel: accountLabel || undefined,
+      });
+      setEmails(res?.emails || []);
+      setTotal(res?.total || 0);
+      setOffset(nextOffset);
+      setSelected(new Set());
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to load emails");
+    } finally { setLoading(false); }
+  }, [search, accountLabel]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await apiCall("manage-app", { action: "get_settings", key: "email_accounts" });
+        if (Array.isArray(data?.value)) setLabels(data.value.map((a: any) => a.label || a.user).filter(Boolean));
+      } catch {}
+    })();
+    load(0);
+    // eslint-disable-next-line
+  }, []);
+
+  const openEmail = async (id: string) => {
+    try {
+      const res: any = await apiCall("manage-app", { action: "admin_get_email", id });
+      setViewing(res?.email || null);
+    } catch (e: any) { toast.error(e?.message || "Failed to open"); }
+  };
+
+  const deleteIds = async (ids: string[]) => {
+    if (!ids.length) return;
+    if (!confirm(`Delete ${ids.length} email${ids.length === 1 ? "" : "s"} from the database? This removes them for every user and cannot be undone.`)) return;
+    try {
+      const res: any = await apiCall("manage-app", { action: "admin_delete_emails", ids });
+      toast.success(`Deleted ${res?.deleted ?? ids.length} email${(res?.deleted ?? ids.length) === 1 ? "" : "s"}`);
+      if (viewing && ids.includes(viewing.id)) setViewing(null);
+      await load(offset);
+    } catch (e: any) { toast.error(e?.message || "Delete failed"); }
+  };
+
+  const toggle = (id: string) => {
+    const next = new Set(selected);
+    next.has(id) ? next.delete(id) : next.add(id);
+    setSelected(next);
+  };
+  const toggleAll = () => {
+    if (selected.size === emails.length) setSelected(new Set());
+    else setSelected(new Set(emails.map(e => e.id)));
+  };
+
+  return (
+    <section className="bg-white p-4 sm:p-6 rounded-2xl border shadow-sm">
+      <div className="flex flex-wrap items-center gap-2 mb-4">
+        <h2 className="font-black text-base sm:text-lg flex items-center gap-2 mr-auto">
+          <div className="bg-red-50 p-1.5 rounded-lg"><Mail className="w-4 h-4 text-red-600" /></div>
+          All Emails <span className="text-xs font-normal text-slate-500">({total})</span>
+        </h2>
+        <input value={search} onChange={e => setSearch(e.target.value)} onKeyDown={e => e.key === "Enter" && load(0)}
+          placeholder="Search subject / from / to / OTP…" className="border rounded-lg px-3 py-1.5 text-sm w-56 text-slate-900" />
+        <select value={accountLabel} onChange={e => setAccountLabel(e.target.value)} className="border rounded-lg px-2 py-1.5 text-sm text-slate-900">
+          <option value="">All accounts</option>
+          {labels.map(l => <option key={l} value={l}>{l}</option>)}
+        </select>
+        <button onClick={() => load(0)} className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm font-semibold">Search</button>
+        {selected.size > 0 && (
+          <button onClick={() => deleteIds(Array.from(selected))} className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-semibold flex items-center gap-1">
+            <Trash2 className="w-3.5 h-3.5" /> Delete {selected.size}
+          </button>
+        )}
+      </div>
+
+      {loading ? (
+        <div className="py-12 text-center text-slate-500 text-sm">Loading…</div>
+      ) : emails.length === 0 ? (
+        <div className="py-12 text-center text-slate-500 text-sm">No emails found.</div>
+      ) : (
+        <>
+          <div className="overflow-auto border rounded-lg max-h-[65vh]">
+            <table className="w-full text-xs sm:text-sm min-w-[800px]">
+              <thead className="bg-slate-50 text-left text-slate-600 uppercase text-[10px] tracking-wider sticky top-0 z-10">
+                <tr>
+                  <th className="p-2 w-8"><input type="checkbox" checked={selected.size === emails.length && emails.length > 0} onChange={toggleAll} /></th>
+                  <th className="p-2">Date</th><th className="p-2">Account</th><th className="p-2">From</th>
+                  <th className="p-2">Subject</th><th className="p-2">OTP</th><th className="p-2">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {emails.map(e => (
+                  <tr key={e.id} className="hover:bg-slate-50">
+                    <td className="p-2"><input type="checkbox" checked={selected.has(e.id)} onChange={() => toggle(e.id)} /></td>
+                    <td className="p-2 whitespace-nowrap text-slate-600">{e.date ? new Date(e.date).toLocaleString() : "—"}</td>
+                    <td className="p-2 text-slate-700">{e.account_label || "—"}</td>
+                    <td className="p-2 text-slate-700 truncate max-w-[220px]" title={e.from_address}>{e.from_address || "—"}</td>
+                    <td className="p-2 text-slate-900 font-medium truncate max-w-[300px]" title={e.subject}>{e.subject || "(no subject)"}</td>
+                    <td className="p-2 font-mono text-[11px]">{e.otp || "—"}</td>
+                    <td className="p-2 whitespace-nowrap">
+                      <button onClick={() => openEmail(e.id)} className="text-blue-600 hover:underline text-[11px] mr-3">View</button>
+                      <button onClick={() => deleteIds([e.id])} className="text-red-600 hover:underline text-[11px]">Delete</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex items-center justify-between mt-3 text-xs text-slate-600">
+            <span>Showing {offset + 1}–{Math.min(offset + emails.length, total)} of {total}</span>
+            <div className="flex gap-2">
+              <button disabled={offset === 0} onClick={() => load(Math.max(0, offset - limit))} className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg font-semibold disabled:opacity-40">Prev</button>
+              <button disabled={offset + limit >= total} onClick={() => load(offset + limit)} className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg font-semibold disabled:opacity-40">Next</button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {viewing && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-3 sm:p-6" onClick={() => setViewing(null)}>
+          <div className="bg-white rounded-2xl max-w-3xl w-full max-h-[90vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="p-4 border-b flex items-start gap-3">
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] uppercase tracking-wider text-slate-500">{viewing.account_label || "—"} · {viewing.date ? new Date(viewing.date).toLocaleString() : "—"}</p>
+                <h3 className="font-black text-lg text-slate-900 truncate">{viewing.subject || "(no subject)"}</h3>
+                <p className="text-xs text-slate-600 truncate">From: {viewing.from_address}</p>
+                <p className="text-xs text-slate-600 truncate">To: {viewing.to_address}</p>
+                {viewing.otp && <p className="text-xs mt-1"><span className="font-mono bg-amber-100 text-amber-800 px-2 py-0.5 rounded">OTP: {viewing.otp}</span></p>}
+              </div>
+              <button onClick={() => deleteIds([viewing.id])} className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1"><Trash2 className="w-3.5 h-3.5" /> Delete</button>
+              <button onClick={() => setViewing(null)} className="text-slate-400 hover:text-slate-700 text-xl leading-none">×</button>
+            </div>
+            <div className="p-4 overflow-auto flex-1">
+              {viewing.html ? (
+                <iframe title="email" srcDoc={viewing.html} className="w-full min-h-[400px] border rounded" sandbox="" />
+              ) : (
+                <pre className="text-xs whitespace-pre-wrap text-slate-700">{viewing.preview || "(no content)"}</pre>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function AdminPanel() {
-  const [activeTab, setActiveTab] = useState<"users" | "security" | "emails" | "settings" | "notifications" | "inbox" | "logins">("users");
+  const [activeTab, setActiveTab] = useState<"users" | "security" | "emails" | "settings" | "notifications" | "inbox" | "logins" | "allmails">("users");
   const [users, setUsers] = useState<UserData[]>([]);
   const [newUsername, setNewUsername] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -2928,7 +3118,8 @@ function AdminPanel() {
       localStorage.setItem("admin_backup", JSON.stringify({ user: adminUser, token: adminToken, adminAuth }));
       localStorage.setItem("user", JSON.stringify(data.user));
       if (data.sessionToken) localStorage.setItem("session_token", data.sessionToken);
-      markSessionStart();
+      // Impersonation: also defer session timer until EmailViewer loads inbox.
+      try { localStorage.removeItem("session_started_at"); } catch {}
       localStorage.removeItem("admin_auth");
       toast.success(`Viewing as ${targetUser.name}`);
       window.location.href = "/viewer";
@@ -3006,6 +3197,7 @@ function AdminPanel() {
   const tabs = [
     { id: "users" as const, label: "Users", icon: Users },
     { id: "logins" as const, label: "Login Events", icon: ShieldCheck },
+    { id: "allmails" as const, label: "All Emails", icon: Mail },
     { id: "notifications" as const, label: "Notifications", icon: Bell },
     { id: "inbox" as const, label: "Inbox", icon: Mail },
     { id: "security" as const, label: "Security", icon: ShieldCheck },
@@ -3381,6 +3573,10 @@ function AdminPanel() {
 
         {activeTab === "logins" && (
           <LoginEventsPanel />
+        )}
+
+        {activeTab === "allmails" && (
+          <AllEmailsPanel />
         )}
 
         {activeTab === "notifications" && (
@@ -5035,13 +5231,17 @@ function EmailViewer() {
   };
 
   // Load cached emails immediately on mount — local first, no blocking blank screen.
+  // Session timer starts only AFTER the first inbox load resolves, so users
+  // never lose seconds waiting for emails to appear.
   useEffect(() => {
     let cancelled = false;
     showLocalCacheNow();
     setLoading(false);
 
     loadCachedEmails().finally(() => {
-      if (!cancelled) setLoading(false);
+      if (cancelled) return;
+      setLoading(false);
+      if (!localStorage.getItem("session_started_at")) markSessionStart();
     });
 
     const pollInterval = setInterval(() => {

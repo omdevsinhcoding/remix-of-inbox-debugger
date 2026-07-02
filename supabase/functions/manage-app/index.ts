@@ -2286,6 +2286,53 @@ Deno.serve(async (req) => {
       });
     }
 
+    if (action === "admin_list_emails") {
+      const session = await requireAdmin(req);
+      const { limit, offset, search, accountLabel } = (params || {}) as any;
+      let q = supabase
+        .from("cached_emails")
+        .select("id, subject, from_address, to_address, date, otp, preview, account_label, cached_at", { count: "exact" })
+        .order("date", { ascending: false });
+      if (accountLabel) q = q.eq("account_label", accountLabel);
+      if (search && typeof search === "string" && search.trim()) {
+        const s = search.trim().replace(/[%,]/g, "");
+        q = q.or(`subject.ilike.%${s}%,from_address.ilike.%${s}%,to_address.ilike.%${s}%,preview.ilike.%${s}%,otp.ilike.%${s}%`);
+      }
+      const lim = Math.min(Number(limit) || 100, 500);
+      const off = Math.max(Number(offset) || 0, 0);
+      q = q.range(off, off + lim - 1);
+      const { data, error, count } = await q;
+      if (error) throw error;
+      await auditLog(supabase, "admin_list_emails", session.userId, null, { count: data?.length || 0, search: search || null, accountLabel: accountLabel || null }, ip);
+      return new Response(JSON.stringify({ success: true, emails: data || [], total: count || 0 }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "admin_get_email") {
+      await requireAdmin(req);
+      const { id } = (params || {}) as any;
+      if (!id) throw new Error("id required");
+      const { data, error } = await supabase.from("cached_emails").select("*").eq("id", id).maybeSingle();
+      if (error) throw error;
+      return new Response(JSON.stringify({ success: true, email: data || null }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "admin_delete_emails") {
+      const session = await requireAdmin(req);
+      const { ids } = (params || {}) as any;
+      if (!Array.isArray(ids) || ids.length === 0) throw new Error("ids required");
+      const clean = ids.filter((x: any) => typeof x === "string").slice(0, 500);
+      const { error, count } = await supabase.from("cached_emails").delete({ count: "exact" }).in("id", clean);
+      if (error) throw error;
+      await auditLog(supabase, "admin_delete_emails", session.userId, null, { ids: clean, deleted: count || 0 }, ip);
+      return new Response(JSON.stringify({ success: true, deleted: count || 0 }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     throw new Error("Unknown action: " + action);
 
   } catch (err) {
