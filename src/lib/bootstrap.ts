@@ -1,4 +1,4 @@
-import { supabase } from "../integrations/supabase/client";
+import { supabase, SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "../integrations/supabase/client";
 
 const WORKER_URLS_KEY = "cloudflare_worker_urls";
 const BOOTSTRAP_CACHE_KEY = "bootstrap_cache_v1";
@@ -35,8 +35,8 @@ export function clearSessionData() {
   try {
     const token = localStorage.getItem("session_token");
     if (token) {
-      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/manage-app`;
-      const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+      const url = `${SUPABASE_URL}/functions/v1/manage-app`;
+      const key = SUPABASE_PUBLISHABLE_KEY;
       const body = JSON.stringify({ action: "logout" });
       // Use keepalive fetch so the request survives navigation/unload.
       fetch(url, {

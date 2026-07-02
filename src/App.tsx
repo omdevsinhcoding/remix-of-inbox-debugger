@@ -5,7 +5,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "r
 import { Toaster, toast } from "sonner";
 import ReCAPTCHA from "react-google-recaptcha";
 import { QRCodeSVG } from "qrcode.react";
-import { supabase } from "./integrations/supabase/client";
+import { supabase, SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "./integrations/supabase/client";
 import { AVATAR_CATEGORIES, resolveAvatar, buildAvatarId, prettyName, getAvatarCategoryUrls } from "./lib/avatars";
 import { bootstrapFromSupabase, clearSessionData, markSessionStart, readBootstrapCache, refreshBootstrap, patchBootstrapCacheUser, getEmailFilters, setEmailFilters as setEmailFiltersCache, listNotifications, markNotificationRead, markAllNotificationsRead, type EmailFilters, type AppNotification } from "./lib/bootstrap";
 
@@ -453,8 +453,8 @@ async function apiCall(functionName: string, body: any) {
   // Fallback: call Supabase edge function directly
   console.log(`[apiCall] All workers failed or none configured, falling back to direct Supabase for ${functionName}`);
   const { createClient } = await import("@supabase/supabase-js");
-  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-  const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+  const supabaseUrl = SUPABASE_URL;
+  const supabaseKey = SUPABASE_PUBLISHABLE_KEY;
   const headers: Record<string, string> = {};
   if (token) headers["X-Session-Token"] = token;
   if (pendingToken && functionName === "manage-app" && pendingActions.has(body?.action)) headers["X-Pending-Token"] = pendingToken;
@@ -3870,8 +3870,8 @@ function EmailViewer() {
       if (!emailData) {
         console.log("[loadCachedEmails] Workers unavailable, falling back to direct Supabase");
         const token = getSessionToken();
-        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-        const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+        const supabaseUrl = SUPABASE_URL;
+        const supabaseKey = SUPABASE_PUBLISHABLE_KEY;
         const headers: Record<string, string> = {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${supabaseKey}`,
@@ -3914,8 +3914,8 @@ function EmailViewer() {
     // Direct Supabase sync fallback
     const syncDirectSupabase = async (accountLabels?: string[]) => {
       const token = getSessionToken();
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+      const supabaseUrl = SUPABASE_URL;
+      const supabaseKey = SUPABASE_PUBLISHABLE_KEY;
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${supabaseKey}`,
