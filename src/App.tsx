@@ -6044,6 +6044,7 @@ export default function App() {
               <Route path="/admin-auth" element={<AdminAuthPage />} />
               <Route path="/admin/dashboard" element={<ProtectedRoute role="admin"><AdminPanel /></ProtectedRoute>} />
               <Route path="/viewer" element={<ProtectedRoute role="user"><EmailViewer /></ProtectedRoute>} />
+              <Route path="/guides/netflix-household-verification" element={<NetflixHouseholdVerificationGuide />} />
             </Routes>
           </MaintenanceGate>
         </ErrorBoundary>
