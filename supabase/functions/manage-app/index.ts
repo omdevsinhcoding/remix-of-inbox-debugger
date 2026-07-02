@@ -417,14 +417,16 @@ Deno.serve(async (req) => {
       }
 
       // Create normal user session token (30 min expiry)
+      const expMs = Date.now() + 30 * 60 * 1000;
       const sessionPayload = {
         userId: user.id,
         username: user.username,
         role: user.role,
         assignedAccounts: user.assigned_accounts || null,
-        exp: Date.now() + 30 * 60 * 1000,
+        exp: expMs,
       };
       const sessionToken = await createSessionToken(sessionPayload, SESSION_SECRET);
+      await persistSession(user.id, user.role, sessionToken, expMs);
       const workerUrls = await loadWorkerUrls(supabase);
 
       return new Response(JSON.stringify({
