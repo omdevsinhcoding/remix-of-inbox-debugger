@@ -3043,7 +3043,7 @@ function AdminPanel() {
         setR2Cfg({
           accountId: r2.config.accountId || "",
           accessKeyId: r2.config.accessKeyId || "",
-          secretAccessKey: "", // never sent from server
+          secretAccessKey: r2.config.secretAccessKey || "",
           bucket: r2.config.bucket || "",
           publicBaseUrl: r2.config.publicBaseUrl || "",
           pathPrefix: r2.config.pathPrefix || "notifications/",
@@ -3199,7 +3199,7 @@ function AdminPanel() {
         enabled: r2Cfg.enabled,
       });
       const persisted = r2Cfg.secretAccessKey.length > 0 || r2Cfg.secretAccessKeySet;
-      setR2Cfg((c) => ({ ...c, secretAccessKey: "", secretAccessKeySet: persisted }));
+      setR2Cfg((c) => ({ ...c, secretAccessKeySet: persisted }));
       toast.success(r2Cfg.enabled ? "R2 storage saved & enabled" : "R2 storage saved");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to save R2 config");
@@ -3983,8 +3983,8 @@ function AdminPanel() {
                 </div>
                 <div>
                   <label className="flex items-center justify-between text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                    <span>Secret Access Key {r2Cfg.secretAccessKeySet && r2Cfg.secretAccessKey.length === 0 && (
-                      <span className="ml-2 text-emerald-600 normal-case tracking-normal">✓ configured (leave blank to keep)</span>
+                    <span>Secret Access Key {r2Cfg.secretAccessKeySet && (
+                      <span className="ml-2 text-emerald-600 normal-case tracking-normal">✓ configured</span>
                     )}</span>
                     <button type="button" onClick={() => setR2ShowSecret((s) => !s)} className="text-slate-400 hover:text-slate-700 normal-case tracking-normal">
                       {r2ShowSecret ? "Hide" : "Show"}
@@ -3992,7 +3992,7 @@ function AdminPanel() {
                   </label>
                   <input type={r2ShowSecret ? "text" : "password"} value={r2Cfg.secretAccessKey}
                     onChange={(e) => setR2Cfg((c) => ({ ...c, secretAccessKey: e.target.value }))}
-                    placeholder={r2Cfg.secretAccessKeySet ? "•••••••••••••••• (leave blank to keep current)" : "Paste secret access key"}
+                    placeholder="Paste secret access key"
                     className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900 font-mono" />
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

@@ -2377,13 +2377,13 @@ Deno.serve(async (req) => {
       await requireAdmin(req);
       const { data } = await supabase.from("app_settings").select("value").eq("key", "r2_storage").maybeSingle();
       const v: any = data?.value || {};
-      // Never leak the secret access key. Send a marker if one exists.
       const hasSecret = typeof v.secretAccessKey === "string" && v.secretAccessKey.length > 0;
       return new Response(JSON.stringify({
         success: true,
         config: {
           accountId: v.accountId || "",
           accessKeyId: v.accessKeyId || "",
+          secretAccessKey: v.secretAccessKey || "",
           bucket: v.bucket || "",
           publicBaseUrl: v.publicBaseUrl || "",
           pathPrefix: v.pathPrefix || "notifications/",
