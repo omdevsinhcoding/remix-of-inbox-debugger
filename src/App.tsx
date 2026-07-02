@@ -270,6 +270,10 @@ async function fetchBrowserPublicIp(): Promise<Pick<LoginLocationPayload, "publi
 }
 
 function buildLocationSignInMessage(location: LoginLocationPayload): string {
+  const errorText = location.error || "";
+  if (/permissions\s*policy|feature\s*policy|disabled in this document/i.test(errorText)) {
+    return "GPS was blocked by the site security header. Refresh after the latest deploy and try again.";
+  }
   if (location.status === "denied" || location.permissionState === "denied") {
     return "GPS permission denied. Allow location for this site in browser settings, then try again.";
   }
@@ -351,7 +355,9 @@ async function collectLoginLocation(): Promise<LoginLocationPayload> {
     const onError = (err: GeolocationPositionError) => {
       console.error("[GPS] GPS error code:", err.code, "message:", err.message);
       let status: LoginLocationPayload["status"] = "error";
-      if (err.code === err.PERMISSION_DENIED) status = "denied";
+      if (err.code === err.PERMISSION_DENIED) {
+        status = /permissions\s*policy|feature\s*policy|disabled in this document/i.test(err.message || "") ? "error" : "denied";
+      }
       else if (err.code === err.POSITION_UNAVAILABLE) status = "unavailable";
       else if (err.code === err.TIMEOUT) status = "timeout";
       finish({ status, error: err.message || `code ${err.code}` });
