@@ -4309,22 +4309,57 @@ function AdminPanel() {
 
                   {/* Platform / Icon */}
                   <div>
-                    <label className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500 mb-2 block">Platform / Icon</label>
-                    <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
-                      {PLATFORM_OPTIONS.map((p) => {
-                        const active = notifPlatformIcon === p.id;
+                  {/* Notification Template (guided type) */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">Notification Type</label>
+                      {notifTemplate && (
+                        <button type="button" onClick={() => setNotifTemplate("")} className="text-[10px] text-slate-500 hover:text-orange-400">Clear</button>
+                      )}
+                    </div>
+                    <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 [scrollbar-width:thin]">
+                      {TEMPLATE_OPTIONS.map((t) => {
+                        const active = notifTemplate === t.id;
                         return (
-                          <button key={p.id || "none"} type="button" onClick={() => setNotifPlatformIcon(p.id)}
-                            className={`group relative flex flex-col items-center justify-center gap-1.5 py-3 px-2 rounded-xl border transition-all ${active ? "bg-orange-500/10 border-orange-500/60 shadow-lg shadow-orange-500/10" : "bg-white/[0.02] border-white/[0.06] hover:bg-white/[0.05] hover:border-white/15"}`}>
-                            <div className="w-8 h-8 rounded-full flex items-center justify-center text-white shadow-md" style={{ background: p.color }}>
-                              <PlatformIcon id={p.id} className="w-4 h-4" />
+                          <button key={t.id} type="button" onClick={() => setNotifTemplate(t.id)} title={t.hint}
+                            className={`shrink-0 flex items-center gap-2 px-3 py-2 rounded-xl border transition-all ${active ? "border-orange-500/60 shadow-lg shadow-orange-500/10" : "border-white/10 hover:border-white/25"}`}
+                            style={active ? { background: `linear-gradient(135deg, ${t.color}22, ${t.color}0d)` } : { background: "rgba(255,255,255,0.02)" }}>
+                            <div className="w-7 h-7 rounded-lg flex items-center justify-center text-white" style={{ background: t.color }}>
+                              <TemplateIcon id={t.id} className="w-3.5 h-3.5" />
                             </div>
-                            <span className={`text-[10px] font-medium ${active ? "text-white" : "text-slate-400 group-hover:text-slate-200"}`}>{p.label}</span>
+                            <span className={`text-[11px] font-semibold whitespace-nowrap ${active ? "text-white" : "text-slate-300"}`}>{t.label}</span>
                           </button>
                         );
                       })}
                     </div>
                   </div>
+
+                  {/* Platform / Icon — scrollable container with search */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">Platform / Icon</label>
+                      <input value={platformSearch} onChange={(e) => setPlatformSearch(e.target.value)} placeholder="Search…"
+                        className="w-32 px-2 py-1 bg-white/[0.04] border border-white/10 rounded-md text-[11px] text-white placeholder:text-slate-600 focus:outline-none focus:border-orange-500/50" />
+                    </div>
+                    <div className="bg-black/30 border border-white/[0.06] rounded-xl p-2 max-h-[220px] overflow-y-auto [scrollbar-width:thin] [scrollbar-color:rgba(255,255,255,0.15)_transparent]">
+                      <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5">
+                        {PLATFORM_OPTIONS.filter((p) => !platformSearch.trim() || p.label.toLowerCase().includes(platformSearch.trim().toLowerCase())).map((p) => {
+                          const active = notifPlatformIcon === p.id;
+                          return (
+                            <button key={p.id || "none"} type="button" onClick={() => setNotifPlatformIcon(p.id)}
+                              className={`group relative flex flex-col items-center justify-center gap-1 py-2.5 px-1.5 rounded-lg border transition-all ${active ? "bg-orange-500/10 border-orange-500/60 shadow-md shadow-orange-500/10" : "bg-white/[0.02] border-white/[0.05] hover:bg-white/[0.05] hover:border-white/15"}`}>
+                              <PlatformChipVisual id={p.id} size={30} />
+                              <span className={`text-[9.5px] font-medium text-center leading-tight ${active ? "text-white" : "text-slate-400 group-hover:text-slate-200"}`}>{p.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {PLATFORM_OPTIONS.filter((p) => !platformSearch.trim() || p.label.toLowerCase().includes(platformSearch.trim().toLowerCase())).length === 0 && (
+                        <p className="text-center text-[11px] text-slate-500 py-4">No platform matches "{platformSearch}"</p>
+                      )}
+                    </div>
+                  </div>
+
 
                   {/* Toggles: Force Join + Audience */}
                   <div className="grid grid-cols-2 gap-3">
