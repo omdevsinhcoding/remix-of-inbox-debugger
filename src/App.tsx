@@ -5308,54 +5308,68 @@ function EmailViewer() {
   const loadCachedEmails = useCallback(async (opts?: { bust?: boolean }) => {
     const bust = !!opts?.bust;
     try {
-      let emailData: any = null;
+      const token = getSessionToken();
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
-      // Try workers first
-      if (resolvedWorkerUrls.length > 0) {
-        const cacheUrls = workerUrlMap.primary.length > 0 ? workerUrlMap.primary : resolvedWorkerUrls;
-        const path = bust ? "/api/emails?bust=1" : "/api/emails";
-        const workerRes = await fetchFromWorkers(path, "GET", undefined, cacheUrls);
-        if (workerRes && workerRes.ok) {
-          emailData = await workerRes.json();
-          // If Worker KV has an old empty cache, immediately read the DB cache instead.
-          if (Array.isArray(emailData) && emailData.length === 0) emailData = null;
-        } else if (workerRes && !workerRes.ok) {
-          const errData = await workerRes.json().catch(() => ({}));
-          console.warn("[loadCachedEmails] Worker returned error:", errData?.error);
-        }
+      const cacheUrls = workerUrlMap.primary.length > 0 ? workerUrlMap.primary : resolvedWorkerUrls;
+      const path = bust ? "/api/emails?bust=1" : "/api/emails";
+
+      // Race: fire ALL workers + Supabase edge function in parallel,
+      // take the first successful response. Whichever backend is fastest wins.
+      const attempts: Promise<any[]>[] = [];
+
+      for (const cfUrl of cacheUrls) {
+        attempts.push((async () => {
+          const started = performance.now();
+          const endpoint = `${cfUrl}${path}`;
+          const headers: Record<string, string> = {};
+          if (token) headers["X-Session-Token"] = token;
+          const res = await fetch(endpoint, { method: "GET", headers });
+          const ms = Math.round(performance.now() - started);
+          const cacheStatus = res.headers.get("X-Cache-Status") || res.headers.get("X-Cache") || undefined;
+          pushDiag({ ts: Date.now(), kind: "worker", endpoint, status: res.status, ms, cacheStatus });
+          if (!res.ok) throw new Error(`worker ${res.status}`);
+          const data = await res.json();
+          if (!Array.isArray(data) || data.length === 0) throw new Error("empty");
+          return data as any[];
+        })());
       }
 
-      // Fallback: fetch directly from Supabase edge function
-      if (!emailData) {
-        console.log("[loadCachedEmails] Workers unavailable, falling back to direct Supabase");
-        const token = getSessionToken();
-        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-        const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+      // Always race Supabase edge function in parallel so a slow worker
+      // never blocks first paint.
+      attempts.push((async () => {
+        const started = performance.now();
+        const endpoint = `${supabaseUrl}/functions/v1/fetch-emails`;
         const headers: Record<string, string> = {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${supabaseKey}`,
           "apikey": supabaseKey,
         };
         if (token) headers["X-Session-Token"] = token;
-
-        const bodyPayload: any = { mode: "cache" };
-        const started = performance.now();
-        const endpoint = `${supabaseUrl}/functions/v1/fetch-emails`;
         const res = await fetch(endpoint, {
-          method: "POST", headers, body: JSON.stringify(bodyPayload),
+          method: "POST", headers, body: JSON.stringify({ mode: "cache" }),
         });
         const ms = Math.round(performance.now() - started);
-        pushDiag({ ts: Date.now(), kind: "supabase", endpoint, status: res.status, ms, note: bust ? "bust=1 fallback" : "fallback" });
-        if (res.ok) {
-          emailData = await res.json();
-        } else {
-          const errData = await res.json().catch(() => ({}));
-          setError(errData?.error || `Failed to load emails (${res.status})`);
-          return 0;
-        }
+        pushDiag({ ts: Date.now(), kind: "supabase", endpoint, status: res.status, ms, note: bust ? "bust=1 race" : "race" });
+        if (!res.ok) throw new Error(`supabase ${res.status}`);
+        const data = await res.json();
+        return Array.isArray(data) ? data : [];
+      })());
+
+      let emailData: any[] | null = null;
+      try {
+        emailData = await Promise.any(attempts);
+      } catch {
+        emailData = null;
       }
 
-      const emailList = (Array.isArray(emailData) ? emailData : []) as Email[];
+      if (!emailData) {
+        setError("Failed to load emails");
+        return 0;
+      }
+
+      const emailList = emailData as Email[];
       emailList.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
       setEmails(emailList);
       setError(null);
@@ -5367,7 +5381,8 @@ function EmailViewer() {
       setError(msg);
       return 0;
     }
-  }, [fetchFromWorkers, profilePrefs, resolvedWorkerUrls.length, workerUrlsLoading, workerUrlMap.primary, setEmails, pushDiag]);
+  }, [profilePrefs, resolvedWorkerUrls, workerUrlMap.primary, setEmails, pushDiag]);
+
 
   const syncViaWorker = useCallback(async () => {
     const { primary, byAccount } = workerUrlMap;
