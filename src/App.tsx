@@ -6,7 +6,7 @@ import { Toaster, toast } from "sonner";
 import ReCAPTCHA from "react-google-recaptcha";
 import { supabase } from "./integrations/supabase/client";
 import { QRCodeSVG } from "qrcode.react";
-import { AVATAR_CATEGORIES, resolveAvatar, buildAvatarId, prettyName } from "./lib/avatars";
+import { AVATAR_CATEGORIES, resolveAvatar, buildAvatarId, prettyName, getAvatarCategoryUrls } from "./lib/avatars";
 import { bootstrapFromSupabase, bootstrapPromise, clearSessionData, markSessionStart, readBootstrapCache } from "./lib/bootstrap";
 
 // --- Worker URL Types & Helpers ---
@@ -387,6 +387,26 @@ function ProfileAvatar({ avatarId, name, className = "w-16 h-16", fallbackColor 
       />
     </div>
   );
+}
+
+function warmAvatarUrls(urls: string[], priority: "high" | "low" = "low") {
+  if (typeof window === "undefined") return;
+  urls.forEach((url) => {
+    const link = document.createElement("link");
+    link.rel = priority === "high" ? "preload" : "prefetch";
+    link.as = "image";
+    link.href = url;
+    if (priority === "high") link.setAttribute("fetchpriority", "high");
+    document.head.appendChild(link);
+
+    const img = new Image();
+    img.decoding = priority === "high" ? "sync" : "async";
+    img.src = url;
+  });
+}
+
+function warmAvatarCategory(categoryKey: string, priority: "high" | "low" = "low") {
+  warmAvatarUrls(getAvatarCategoryUrls(categoryKey), priority);
 }
 
 
@@ -2215,10 +2235,26 @@ function AvatarPicker({
   onPick: (id: string) => void;
   saving: boolean;
 }) {
-  const scrollToRow = (key: string) => {
-    const el = document.getElementById(`avatar-row-${key}`);
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  const [activeCategoryKey, setActiveCategoryKey] = useState(() => AVATAR_CATEGORIES[0]?.key || "");
+  const activeCategory = AVATAR_CATEGORIES.find((c) => c.key === activeCategoryKey) || AVATAR_CATEGORIES[0];
+  const activeIndex = Math.max(0, AVATAR_CATEGORIES.findIndex((c) => c.key === activeCategory.key));
+
+  useEffect(() => {
+    if (!activeCategory) return;
+    warmAvatarCategory(activeCategory.key, "high");
+    const next = AVATAR_CATEGORIES[activeIndex + 1];
+    const prev = AVATAR_CATEGORIES[activeIndex - 1];
+    if (next) warmAvatarCategory(next.key, "low");
+    if (prev) warmAvatarCategory(prev.key, "low");
+  }, [activeCategory?.key, activeIndex]);
+
+  const selectCategory = (key: string) => {
+    setActiveCategoryKey(key);
+    warmAvatarCategory(key, "high");
   };
+
+  if (!activeCategory) return null;
+
   return (
     <div className="pb-4">
       <div className="sticky top-0 z-10 bg-white/95 backdrop-blur border-b border-slate-100 px-4 sm:px-5 py-3 space-y-2">
@@ -2230,25 +2266,24 @@ function AvatarPicker({
           {AVATAR_CATEGORIES.map((c) => (
             <button
               key={c.key}
-              onClick={() => scrollToRow(c.key)}
-              className="flex-shrink-0 px-3 py-1 text-[11px] font-bold rounded-full bg-slate-100 text-slate-700 hover:bg-red-100 hover:text-red-700 transition-colors"
+              onClick={() => selectCategory(c.key)}
+              onMouseEnter={() => warmAvatarCategory(c.key, "low")}
+              className={`flex-shrink-0 px-3 py-1 text-[11px] font-bold rounded-full transition-colors ${activeCategoryKey === c.key ? "bg-red-600 text-white" : "bg-slate-100 text-slate-700 hover:bg-red-100 hover:text-red-700"}`}
             >
               {c.label}
             </button>
           ))}
         </div>
       </div>
-      <div className="space-y-5 pt-4">
-        {AVATAR_CATEGORIES.map((c) => (
-          <AvatarRow
-            key={c.key}
-            category={c}
-            userName={userName}
-            selectedAvatar={selectedAvatar}
-            onPick={onPick}
-            saving={saving}
-          />
-        ))}
+      <div className="pt-4">
+        <AvatarRow
+          key={activeCategory.key}
+          category={activeCategory}
+          userName={userName}
+          selectedAvatar={selectedAvatar}
+          onPick={onPick}
+          saving={saving}
+        />
       </div>
     </div>
   );
@@ -2271,6 +2306,12 @@ function UserProfileModal({
 }) {
   const [savingAvatar, setSavingAvatar] = useState(false);
   const selectedAvatar = prefs.avatarId || getStableProfileAvatar(user);
+
+  useEffect(() => {
+    const selectedUri = getAvatarUri(selectedAvatar);
+    warmAvatarUrls(selectedUri ? [selectedUri] : [], "high");
+    if (AVATAR_CATEGORIES[0]) warmAvatarCategory(AVATAR_CATEGORIES[0].key, "high");
+  }, [selectedAvatar]);
 
   const saveAvatar = async (avatarId: string) => {
     if (savingAvatar) return;
