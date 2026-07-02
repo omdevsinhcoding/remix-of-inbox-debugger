@@ -4981,7 +4981,20 @@ function EmailViewer() {
   const [showChangePassword, setShowChangePassword] = useState(!!user.mustChangePassword);
   const [showProfile, setShowProfile] = useState(false);
   const [forcedPasswordChange] = useState(!!user.mustChangePassword);
-  const isImpersonating = !!localStorage.getItem("admin_backup");
+  // F4: read impersonation backup from sessionStorage (with TTL check).
+  const readImpersonationBackup = (): { user?: string | null; token?: string | null; adminAuth?: string | null } | null => {
+    try {
+      const raw = sessionStorage.getItem("admin_backup");
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || (parsed.exp && Date.now() > parsed.exp)) {
+        try { sessionStorage.removeItem("admin_backup"); } catch {}
+        return null;
+      }
+      return parsed;
+    } catch { return null; }
+  };
+  const isImpersonating = !!readImpersonationBackup();
 
   const [refreshing, setRefreshing] = useState(false);
   const [resolvedWorkerUrls, setResolvedWorkerUrls] = useState<string[]>(() => getStoredWorkerUrls());
@@ -4991,17 +5004,25 @@ function EmailViewer() {
 
   const backToAdmin = () => {
     try {
-      const backup = JSON.parse(localStorage.getItem("admin_backup") || "{}");
+      const backup = readImpersonationBackup();
+      if (!backup) {
+        toast.error("Impersonation session expired — please sign in again as admin.");
+        try { sessionStorage.removeItem("admin_backup"); } catch {}
+        navigate("/admin");
+        return;
+      }
       if (backup.user) localStorage.setItem("user", backup.user);
       if (backup.token) localStorage.setItem("session_token", backup.token);
       if (backup.adminAuth) localStorage.setItem("admin_auth", backup.adminAuth);
-      localStorage.removeItem("admin_backup");
+      try { sessionStorage.removeItem("admin_backup"); } catch {}
+      try { localStorage.removeItem("admin_backup"); } catch {}
       navigate("/admin/dashboard");
       window.location.reload();
     } catch {
       navigate("/admin");
     }
   };
+
 
   useEffect(() => {
     if (workerUrlLoaded.current) return;
