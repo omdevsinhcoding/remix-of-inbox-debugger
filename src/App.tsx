@@ -199,7 +199,7 @@ const PlatformChipVisual: React.FC<{ id?: string | null; size?: number; audit?: 
 
   return (
     <div
-      className="rounded-full flex items-center justify-center bg-white shadow-md leading-none shrink-0 overflow-hidden ring-1 ring-white/10"
+      className="rounded-full flex items-center justify-center bg-white shadow-md leading-none shrink-0 overflow-hidden ring-1 ring-black/5"
       style={{ width: size, height: size }}
     >
       <img
@@ -211,7 +211,7 @@ const PlatformChipVisual: React.FC<{ id?: string | null; size?: number; audit?: 
         decoding="async"
         referrerPolicy="no-referrer"
         onError={fallbackToDefaultLogo}
-        style={{ width: Math.round(size * 0.82), height: Math.round(size * 0.82), objectFit: "contain" }}
+        style={{ width: Math.round(size * 0.92), height: Math.round(size * 0.92), objectFit: "contain" }}
       />
     </div>
   );
