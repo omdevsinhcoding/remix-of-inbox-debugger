@@ -223,22 +223,45 @@ export default {
   },
 };
 
-async function handleGetEmails(env, session, rawToken) {
+function diagHeaders(extra = {}) {
+  const base = {
+    ...CORS_HEADERS,
+    "Content-Type": "application/json",
+    "Cache-Control": "no-store",
+    "X-Cache-Version": CACHE_SCHEMA_VERSION,
+    "Access-Control-Expose-Headers": "X-Cache-Status, X-Cache-Age, X-Cache-Version, X-Worker-Endpoint, X-Cache-Key",
+  };
+  return { ...base, ...extra };
+}
+
+async function handleGetEmails(env, session, rawToken, opts = {}) {
   const hasKV = !!getKV(env);
+  const bust = !!opts.bust;
 
   if (!hasKV) {
-    return fetchDirectFromSupabase(env, session, rawToken);
+    const r = await fetchDirectFromSupabase(env, session, rawToken);
+    // wrap so we keep diag headers
+    const body = await r.clone().text();
+    return new Response(body, { status: r.status, headers: diagHeaders({ "X-Cache-Status": "NO_KV" }) });
   }
 
   const userAccountsKey = session?.assignedAccounts ? JSON.stringify(session.assignedAccounts.sort()) : "all";
   const cacheKey = `${CACHE_KEY}:${userAccountsKey}`;
   const tsKey = `${CACHE_TIMESTAMP_KEY}:${userAccountsKey}`;
 
-  const [cached, timestamp] = await Promise.all([
-    kvGet(env, cacheKey),
-    kvGet(env, tsKey),
-  ]);
+  // F7: bust=1 → skip KV read, refetch fresh, write back, return with BYPASS status.
+  if (bust) {
+    const result = await fetchDirectFromSupabase(env, session, rawToken);
+    if (result.status === 200) {
+      const body = await result.clone().text();
+      await Promise.all([kvPut(env, cacheKey, body), kvPut(env, tsKey, Date.now().toString())]);
+      return new Response(body, { status: 200, headers: diagHeaders({ "X-Cache-Status": "BYPASS", "X-Cache-Key": cacheKey }) });
+    }
+    const body = await result.clone().text();
+    return new Response(body, { status: result.status, headers: diagHeaders({ "X-Cache-Status": "BYPASS_ERR", "X-Cache-Key": cacheKey }) });
+  }
 
+  const [cached, timestamp] = await Promise.all([kvGet(env, cacheKey), kvGet(env, tsKey)]);
   const now = Date.now();
   const age = timestamp ? (now - parseInt(timestamp)) / 1000 : Infinity;
 
@@ -246,22 +269,39 @@ async function handleGetEmails(env, session, rawToken) {
     const result = await fetchDirectFromSupabase(env, session, rawToken);
     if (result.status === 200) {
       const body = await result.clone().text();
-      await Promise.all([
-        kvPut(env, cacheKey, body),
-        kvPut(env, tsKey, now.toString()),
-      ]);
+      await Promise.all([kvPut(env, cacheKey, body), kvPut(env, tsKey, now.toString())]);
+      return new Response(body, { status: 200, headers: diagHeaders({ "X-Cache-Status": "MISS", "X-Cache-Key": cacheKey }) });
     }
     return result;
   }
 
+  let status = "HIT";
   if (age > STALE_SECONDS) {
+    status = "STALE";
     await kvPut(env, tsKey, now.toString());
     refreshFromSupabase(env, session, rawToken, cacheKey, tsKey).catch(err => console.error("BG refresh error:", err));
   }
 
   return new Response(cached, {
-    headers: { ...CORS_HEADERS, "Content-Type": "application/json", "X-Cache-Age": Math.round(age).toString() },
+    headers: diagHeaders({ "X-Cache-Status": status, "X-Cache-Age": Math.round(age).toString(), "X-Cache-Key": cacheKey }),
   });
+}
+
+async function handleCachePurge(env, session) {
+  if (!session) {
+    return new Response(JSON.stringify({ error: "auth required" }), { status: 401, headers: diagHeaders() });
+  }
+  const kv = getKV(env);
+  if (!kv) return new Response(JSON.stringify({ ok: true, purged: 0, reason: "no_kv" }), { headers: diagHeaders() });
+  const userAccountsKey = session?.assignedAccounts ? JSON.stringify(session.assignedAccounts.sort()) : "all";
+  const cacheKey = `${CACHE_KEY}:${userAccountsKey}`;
+  const tsKey = `${CACHE_TIMESTAMP_KEY}:${userAccountsKey}`;
+  try {
+    await Promise.all([kv.delete(cacheKey), kv.delete(tsKey)]);
+    return new Response(JSON.stringify({ ok: true, purged: 2, cacheKey }), { headers: diagHeaders({ "X-Cache-Status": "PURGED" }) });
+  } catch (err) {
+    return new Response(JSON.stringify({ ok: false, error: err.message }), { status: 500, headers: diagHeaders() });
+  }
 }
 
 async function handleSync(env, session, rawToken, requestBody) {
