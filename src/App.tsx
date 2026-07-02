@@ -1685,6 +1685,20 @@ function filterVisibleEmails(list: Email[], prefs?: UserProfilePrefs | null) {
 
 // ==================== CAPTCHA MODAL (shared) ====================
 function CaptchaModal({ siteKey, onVerify, onCancel }: { siteKey: string; onVerify: (token: string) => void; onCancel: () => void }) {
+  const [token, setToken] = useState<string | null>(null);
+  const submit = useCallback(() => {
+    if (token) onVerify(token);
+  }, [token, onVerify]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Enter" && token) { e.preventDefault(); onVerify(token); }
+      else if (e.key === "Escape") { e.preventDefault(); onCancel(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [token, onVerify, onCancel]);
+
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
       className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -1697,13 +1711,18 @@ function CaptchaModal({ siteKey, onVerify, onCancel }: { siteKey: string; onVeri
             </div>
             <div>
               <h3 className="font-black text-slate-900 text-lg">Security Check</h3>
-              <p className="text-slate-500 text-xs">Verify you're human</p>
+              <p className="text-slate-500 text-xs">Verify you're human, then press Login</p>
             </div>
           </div>
         </div>
         <div className="flex justify-center px-6 pb-4 min-h-[78px]">
           <Suspense fallback={<div className="h-[78px] w-[304px] rounded-lg bg-slate-100 animate-pulse" />}>
-            <ReCAPTCHA sitekey={siteKey} onChange={(token) => { if (token) onVerify(token); }} />
+            <ReCAPTCHA
+              sitekey={siteKey}
+              onChange={(t) => setToken(t)}
+              onExpired={() => setToken(null)}
+              onErrored={() => setToken(null)}
+            />
           </Suspense>
         </div>
 
@@ -1713,11 +1732,14 @@ function CaptchaModal({ siteKey, onVerify, onCancel }: { siteKey: string; onVeri
             Cancel
           </button>
           <div className="w-px bg-slate-100" />
-          <button onClick={onCancel}
-            className="flex-1 py-4 text-sm font-bold text-red-600 hover:bg-red-50 transition-colors">
+          <button
+            onClick={submit}
+            disabled={!token}
+            className="flex-1 py-4 text-sm font-bold text-red-600 hover:bg-red-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent">
             Login
           </button>
         </div>
+
       </motion.div>
     </motion.div>
   );
