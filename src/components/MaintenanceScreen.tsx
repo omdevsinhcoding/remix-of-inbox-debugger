@@ -18,7 +18,7 @@ type Props = {
  * Cinematic black stage, crimson brand palette, Three.js flowing shader,
  * drifting embers, editorial serif headline on a glass card.
  */
-export default function MaintenanceScreen({ title, message, eta, isAdmin, onAdminBypass }: Props) {
+export default function MaintenanceScreen({ title, message, endsAt, versionFrom, versionTo, isAdmin, onAdminBypass }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const particlesRef = useRef<HTMLCanvasElement | null>(null);
   const [now, setNow] = useState<Date>(new Date());
