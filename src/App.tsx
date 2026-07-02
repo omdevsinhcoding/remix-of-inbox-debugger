@@ -2716,7 +2716,7 @@ function AdminPanel() {
                       <p className="font-bold text-sm text-slate-900 truncate">{n.title}</p>
                       <p className="text-xs text-slate-600 line-clamp-2">{n.body}</p>
                       <p className="text-[11px] text-slate-400 mt-1">
-                        {n.audience === "all" ? "All users" : "Specific"} • Seen {n.readCount || 0}/{n.totalRecipients || 0}
+                        {n.audience === "all" ? "All users" : "Specific"} • Seen {n.read_count ?? n.readCount ?? 0}/{n.total_recipients ?? n.totalRecipients ?? 0}
                       </p>
                     </div>
                     <button onClick={() => deleteNotification(n.id)} className="text-red-600 hover:text-red-700 text-xs font-bold">Delete</button>
