@@ -3965,11 +3965,25 @@ function AdminPanel() {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-5">
-                <div>
+                <div className="md:col-span-2">
                   <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">Headline (optional)</label>
                   <input type="text" value={maintenanceTitle} onChange={(e) => setMaintenanceTitle(e.target.value)}
                     placeholder="We're upgrading the system"
                     className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm" />
+                </div>
+                <div>
+                  <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">Starts at (date + time)</label>
+                  <input
+                    type="datetime-local"
+                    value={maintenanceStartsAt}
+                    onChange={(e) => setMaintenanceStartsAt(e.target.value)}
+                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm"
+                  />
+                  <p className="text-[10.5px] text-slate-500 mt-1 ml-1">
+                    {maintenanceStartsAt
+                      ? `Site locks at ${new Date(maintenanceStartsAt).toLocaleString(undefined, { hour: "numeric", minute: "2-digit", hour12: true, day: "numeric", month: "short" })}`
+                      : "Leave empty to start immediately when enabled."}
+                  </p>
                 </div>
                 <div>
                   <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">Back online at (date + time)</label>
@@ -4006,11 +4020,47 @@ function AdminPanel() {
                 </div>
               </div>
 
+              {/* Live preview */}
+              <div className="mt-5 rounded-2xl overflow-hidden border border-slate-800 bg-black text-white p-5 sm:p-6 relative">
+                <div className="flex items-center gap-2 text-[10px] tracking-[0.28em] uppercase text-white/60 font-semibold mb-3">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#e50914] animate-pulse" />
+                  Live preview — this is what users see
+                </div>
+                <div className="text-[22px] sm:text-[28px] font-semibold leading-[1.2] tracking-[-0.02em] mb-2 min-h-[1.2em]">
+                  {maintenanceTitle.trim() || <span className="text-white/40 italic">(rotating headlines when empty)</span>}
+                </div>
+                <p className="text-white/70 text-sm leading-relaxed">
+                  {maintenanceMessage.trim() || <span className="text-white/40 italic">The site is offline for a short while so we can make it faster and safer for you. You don't need to do anything — just come back in a few minutes.</span>}
+                </p>
+                {(maintenanceStartsAt || maintenanceEndsAt) && (
+                  <div className="mt-4 flex flex-wrap gap-2 text-[11.5px]">
+                    {maintenanceStartsAt && (
+                      <span className="inline-flex items-center gap-1.5 bg-white/[0.06] border border-white/10 rounded-lg px-2.5 py-1">
+                        <span className="text-white/50">Starts:</span>
+                        <span className="text-white">{new Date(maintenanceStartsAt).toLocaleString(undefined, { hour: "numeric", minute: "2-digit", hour12: true, day: "numeric", month: "short" })}</span>
+                      </span>
+                    )}
+                    {maintenanceEndsAt && (
+                      <span className="inline-flex items-center gap-1.5 bg-white/[0.06] border border-white/10 rounded-lg px-2.5 py-1">
+                        <span className="text-white/50">Back at:</span>
+                        <span className="text-white">{new Date(maintenanceEndsAt).toLocaleString(undefined, { hour: "numeric", minute: "2-digit", hour12: true, day: "numeric", month: "short" })}</span>
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
 
-              <div className="flex items-center gap-2 mt-4">
+              <div className="flex items-center gap-2 mt-4 flex-wrap">
                 <button onClick={() => saveMaintenance()} disabled={savingMaintenance}
                   className="px-4 py-2 rounded-xl bg-slate-900 text-white text-sm font-bold hover:bg-slate-800 disabled:opacity-60">
-                  {savingMaintenance ? "Saving…" : "Save message"}
+                  {savingMaintenance ? "Saving…" : "Save changes"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setMaintenanceStartsAt(""); setMaintenanceEndsAt(""); }}
+                  className="px-4 py-2 rounded-xl bg-white border text-slate-700 text-sm font-semibold hover:bg-slate-50"
+                >
+                  Clear schedule
                 </button>
                 {maintenanceEnabled && (
                   <span className="text-[11px] px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200 inline-flex items-center gap-1.5">
