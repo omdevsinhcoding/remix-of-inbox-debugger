@@ -109,29 +109,32 @@ const PlatformChipVisual: React.FC<{ id: string; size?: number }> = ({ id, size 
   const iconSize = Math.round(size * 0.55);
   const svgIcon = PlatformIcon({ id, className: "" }) as React.ReactElement<any> | null;
   const [imgFailed, setImgFailed] = React.useState(false);
-  const showImg = !svgIcon && p?.slug && !imgFailed;
+  const showFavicon = !svgIcon && !!p?.domain && !imgFailed;
+  // For favicons, use a light chip so any-color logo reads cleanly.
+  const chipBg = showFavicon ? "#ffffff" : bg;
+  const faviconSize = Math.round(size * 0.72);
   return (
     <div
-      className="rounded-full flex items-center justify-center text-white shadow-md font-black leading-none shrink-0 overflow-hidden"
-      style={{ width: size, height: size, background: bg, fontSize: Math.round(size * 0.38) }}
+      className="rounded-full flex items-center justify-center text-white shadow-md font-black leading-none shrink-0 overflow-hidden ring-1 ring-white/10"
+      style={{ width: size, height: size, background: chipBg, fontSize: Math.round(size * 0.38) }}
     >
       {svgIcon ? (
         React.cloneElement(svgIcon, {
           style: { width: iconSize, height: iconSize },
           className: "",
         })
-      ) : showImg ? (
+      ) : showFavicon ? (
         <img
-          src={`https://cdn.simpleicons.org/${p!.slug}/ffffff`}
+          src={`https://www.google.com/s2/favicons?domain=${p!.domain}&sz=64`}
           alt=""
-          width={iconSize}
-          height={iconSize}
+          width={faviconSize}
+          height={faviconSize}
           loading="lazy"
           onError={() => setImgFailed(true)}
-          style={{ width: iconSize, height: iconSize, objectFit: "contain" }}
+          style={{ width: faviconSize, height: faviconSize, objectFit: "contain" }}
         />
       ) : (
-        p?.mono || (p?.label?.[0] ?? "?")
+        <span style={{ color: "#fff" }}>{p?.mono || (p?.label?.[0] ?? "?")}</span>
       )}
     </div>
   );
