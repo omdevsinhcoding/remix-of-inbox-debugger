@@ -390,6 +390,8 @@ function ProfileAvatar({ avatarId, name, className = "w-16 h-16", fallbackColor 
 }
 
 const warmedAvatarUrls = new Set<string>();
+const loadedAvatarUrls = new Set<string>();
+const avatarLoadPromises = new Map<string, Promise<void>>();
 
 function warmAvatarUrls(urls: string[], priority: "high" | "low" = "low") {
   if (typeof window === "undefined") return;
@@ -409,6 +411,36 @@ function warmAvatarUrls(urls: string[], priority: "high" | "low" = "low") {
   });
 }
 
+function loadAvatarUrl(url: string): Promise<void> {
+  if (loadedAvatarUrls.has(url)) return Promise.resolve();
+  const existing = avatarLoadPromises.get(url);
+  if (existing) return existing;
+
+  const promise = new Promise<void>((resolve) => {
+    const img = new Image();
+    img.decoding = "async";
+    const done = () => {
+      loadedAvatarUrls.add(url);
+      resolve();
+    };
+    img.onload = done;
+    img.onerror = done;
+    img.src = url;
+    if (img.complete) done();
+  });
+  avatarLoadPromises.set(url, promise);
+  return promise;
+}
+
+function preloadAvatarUrls(urls: string[], maxWaitMs = 6000): Promise<void> {
+  if (urls.length === 0) return Promise.resolve();
+  warmAvatarUrls(urls, "high");
+  return Promise.race([
+    Promise.allSettled(urls.map(loadAvatarUrl)).then(() => undefined),
+    new Promise<void>((resolve) => window.setTimeout(resolve, maxWaitMs)),
+  ]);
+}
+
 function getCategoryKeyFromAvatarId(avatarId?: string | null): string | null {
   if (!avatarId?.startsWith("netflix:")) return null;
   const [, key] = avatarId.split(":");
@@ -417,6 +449,10 @@ function getCategoryKeyFromAvatarId(avatarId?: string | null): string | null {
 
 function warmAvatarCategory(categoryKey: string, priority: "high" | "low" = "low") {
   warmAvatarUrls(getAvatarCategoryUrls(categoryKey), priority);
+}
+
+function preloadAvatarCategory(categoryKey: string, maxWaitMs?: number) {
+  return preloadAvatarUrls(getAvatarCategoryUrls(categoryKey), maxWaitMs);
 }
 
 
@@ -2246,21 +2282,48 @@ function AvatarPicker({
   saving: boolean;
 }) {
   const [activeCategoryKey, setActiveCategoryKey] = useState(() => getCategoryKeyFromAvatarId(selectedAvatar) || AVATAR_CATEGORIES[0]?.key || "");
+  const [pendingCategoryKey, setPendingCategoryKey] = useState<string | null>(null);
   const activeCategory = AVATAR_CATEGORIES.find((c) => c.key === activeCategoryKey) || AVATAR_CATEGORIES[0];
   const activeIndex = Math.max(0, AVATAR_CATEGORIES.findIndex((c) => c.key === activeCategory.key));
 
   useEffect(() => {
     if (!activeCategory) return;
-    warmAvatarCategory(activeCategory.key, "high");
+    void preloadAvatarCategory(activeCategory.key, 2500);
     const next = AVATAR_CATEGORIES[activeIndex + 1];
     const prev = AVATAR_CATEGORIES[activeIndex - 1];
     if (next) warmAvatarCategory(next.key, "low");
     if (prev) warmAvatarCategory(prev.key, "low");
   }, [activeCategory?.key, activeIndex]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const warmRest = async () => {
+      const ordered = AVATAR_CATEGORIES.filter((category) => category.key !== activeCategory?.key);
+      for (const category of ordered) {
+        if (cancelled) return;
+        warmAvatarCategory(category.key, "low");
+        await preloadAvatarCategory(category.key, 1200);
+        await new Promise((resolve) => window.setTimeout(resolve, 120));
+      }
+    };
+    const run = () => void warmRest();
+    const idle = "requestIdleCallback" in window
+      ? window.requestIdleCallback(run, { timeout: 1200 })
+      : window.setTimeout(run, 700);
+    return () => {
+      cancelled = true;
+      if (typeof idle === "number") window.clearTimeout(idle);
+      else if ("cancelIdleCallback" in window) window.cancelIdleCallback(idle as IdleCallbackHandle);
+    };
+  }, [activeCategory?.key]);
+
   const selectCategory = (key: string) => {
-    setActiveCategoryKey(key);
-    warmAvatarCategory(key, "high");
+    if (key === activeCategoryKey || pendingCategoryKey) return;
+    setPendingCategoryKey(key);
+    preloadAvatarCategory(key, 5000).finally(() => {
+      setActiveCategoryKey(key);
+      setPendingCategoryKey(null);
+    });
   };
 
   if (!activeCategory) return null;
@@ -2270,7 +2333,7 @@ function AvatarPicker({
       <div className="sticky top-0 z-10 bg-white/95 backdrop-blur border-b border-slate-100 px-4 sm:px-5 py-3 space-y-2">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-black text-slate-900">Choose your character</h3>
-          {saving && <span className="text-[10px] font-bold text-slate-400">Saving…</span>}
+          <span className="text-[10px] font-bold text-slate-400">{saving ? "Saving…" : pendingCategoryKey ? "Preparing…" : `${activeCategory.files.length} icons`}</span>
         </div>
         <div className="flex gap-1.5 overflow-x-auto scrollbar-thin -mx-1 px-1">
           {AVATAR_CATEGORIES.map((c) => (
@@ -2278,7 +2341,7 @@ function AvatarPicker({
               key={c.key}
               onClick={() => selectCategory(c.key)}
               onMouseEnter={() => warmAvatarCategory(c.key, "low")}
-              className={`flex-shrink-0 px-3 py-1 text-[11px] font-bold rounded-full transition-colors ${activeCategoryKey === c.key ? "bg-red-600 text-white" : "bg-slate-100 text-slate-700 hover:bg-red-100 hover:text-red-700"}`}
+              className={`flex-shrink-0 px-3 py-1 text-[11px] font-bold rounded-full transition-colors ${activeCategoryKey === c.key ? "bg-red-600 text-white" : pendingCategoryKey === c.key ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700 hover:bg-red-100 hover:text-red-700"}`}
             >
               {c.label}
             </button>
