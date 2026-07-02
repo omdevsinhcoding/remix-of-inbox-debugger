@@ -1811,13 +1811,13 @@ function ProfileSelectPage() {
 
   return (
     <div className="min-h-screen bg-[#141414] flex flex-col items-center px-4 pt-10 sm:pt-14 pb-12 relative overflow-hidden">
-      {/* Official Netflix wordmark + premium OTP tag */}
+      {/* Official Netflix wordmark + tilted "santa-cap" OTP tag */}
       <div className="w-full max-w-6xl mx-auto flex items-center justify-start px-2 sm:px-6 absolute top-4 sm:top-6 left-1/2 -translate-x-1/2 z-20">
-        <div className="flex items-end gap-2 sm:gap-2.5 select-none">
+        <div className="relative inline-block select-none">
           <svg
             viewBox="0 0 111 30"
             aria-label="Netflix"
-            className="h-7 sm:h-9 w-auto"
+            className="h-7 sm:h-9 w-auto block"
             style={{ filter: "drop-shadow(0 2px 10px rgba(229,9,20,0.45))" }}
           >
             <path
@@ -1826,14 +1826,16 @@ function ProfileSelectPage() {
             />
           </svg>
           <span
-            className="inline-flex items-center gap-1 rounded-md px-2 py-[3px] sm:px-2.5 sm:py-1 text-[9px] sm:text-[10px] font-bold tracking-[0.18em] uppercase text-white/95 relative -translate-y-[2px]"
+            aria-label="OTP"
+            className="absolute -top-2 -right-4 sm:-top-2.5 sm:-right-6 inline-flex items-center gap-1 rounded-md px-1.5 py-[2px] sm:px-2 sm:py-[3px] text-[8px] sm:text-[9px] font-extrabold tracking-[0.22em] uppercase text-white pointer-events-none whitespace-nowrap origin-bottom-left"
             style={{
-              background: "linear-gradient(135deg,#e50914 0%,#7a0006 100%)",
-              boxShadow: "0 4px 14px -4px rgba(229,9,20,0.55), inset 0 1px 0 rgba(255,255,255,0.18)",
-              border: "1px solid rgba(255,255,255,0.08)",
+              background: "linear-gradient(135deg,#ff1a25 0%,#e50914 45%,#7a0006 100%)",
+              boxShadow: "0 4px 12px -3px rgba(229,9,20,0.6), inset 0 1px 0 rgba(255,255,255,0.22)",
+              border: "1px solid rgba(255,255,255,0.14)",
+              transform: "rotate(18deg)",
             }}
           >
-            <span className="w-1 h-1 rounded-full bg-white/90 shadow-[0_0_6px_rgba(255,255,255,0.9)]" />
+            <span className="w-[3px] h-[3px] sm:w-1 sm:h-1 rounded-full bg-white shadow-[0_0_6px_rgba(255,255,255,0.95)]" />
             OTP
           </span>
         </div>
