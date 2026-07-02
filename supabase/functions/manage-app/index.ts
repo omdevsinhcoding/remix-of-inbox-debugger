@@ -215,9 +215,10 @@ function fetchWithTimeout(url: string, ms: number, init?: RequestInit): Promise<
 }
 
 function countryToFlag(cc?: string): string {
-  if (!cc || cc.length !== 2) return "🌐";
+  const code = (cc || "").trim().toUpperCase();
+  if (code.length !== 2) return "🌐";
   const A = 0x1f1e6;
-  return String.fromCodePoint(A + cc.charCodeAt(0) - 65, A + cc.charCodeAt(1) - 65);
+  return String.fromCodePoint(A + code.charCodeAt(0) - 65, A + code.charCodeAt(1) - 65);
 }
 
 async function providerIpapiCo(ip: string): Promise<LocResult | null> {
