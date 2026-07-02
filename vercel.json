@@ -28,7 +28,7 @@
         { "key": "Vercel-CDN-Cache-Control", "value": "no-store" },
         { "key": "X-Content-Type-Options", "value": "nosniff" },
         { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
-        { "key": "Permissions-Policy", "value": "geolocation=(), camera=(), microphone=()" }
+        { "key": "Permissions-Policy", "value": "geolocation=(self), camera=(), microphone=()" }
       ]
     },
     {
@@ -36,7 +36,8 @@
       "headers": [
         { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" },
         { "key": "CDN-Cache-Control", "value": "no-store" },
-        { "key": "Vercel-CDN-Cache-Control", "value": "no-store" }
+        { "key": "Vercel-CDN-Cache-Control", "value": "no-store" },
+        { "key": "Permissions-Policy", "value": "geolocation=(self), camera=(), microphone=()" }
       ]
     }
   ],
