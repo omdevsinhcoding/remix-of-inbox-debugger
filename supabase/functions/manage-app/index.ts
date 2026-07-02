@@ -371,6 +371,7 @@ async function providerIpinfoIo(ip: string): Promise<LocResult | null> {
 
 async function providerFreeIpApi(ip: string): Promise<LocResult | null> {
   try {
+    if (!ip || ip === "unknown" || isPrivateIp(ip) || isCloudflareIp(ip)) return null;
     const r = await fetchWithTimeout(`https://freeipapi.com/api/json/${encodeURIComponent(ip)}`, 2500);
     if (!r.ok) return null;
     const d = await r.json();
