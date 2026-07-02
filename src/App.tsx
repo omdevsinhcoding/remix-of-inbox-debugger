@@ -2691,7 +2691,28 @@ function AllEmailsPanel() {
   );
 }
 
+function usePageHead(title: string, description: string, path: string) {
+  useEffect(() => {
+    const prev = document.title;
+    document.title = title;
+    const url = `https://joyful-fetch.lovable.app${path}`;
+    const upsert = (sel: string, create: () => HTMLElement, attr: string, value: string) => {
+      let el = document.head.querySelector<HTMLElement>(sel);
+      if (!el) { el = create(); document.head.appendChild(el); }
+      el.setAttribute(attr, value);
+      return el;
+    };
+    const md = upsert('meta[name="description"]', () => { const m = document.createElement('meta'); m.setAttribute('name', 'description'); return m; }, 'content', description);
+    const ot = upsert('meta[property="og:title"]', () => { const m = document.createElement('meta'); m.setAttribute('property', 'og:title'); return m; }, 'content', title);
+    const od = upsert('meta[property="og:description"]', () => { const m = document.createElement('meta'); m.setAttribute('property', 'og:description'); return m; }, 'content', description);
+    const ou = upsert('meta[property="og:url"]', () => { const m = document.createElement('meta'); m.setAttribute('property', 'og:url'); return m; }, 'content', url);
+    const cn = upsert('link[rel="canonical"]', () => { const l = document.createElement('link'); l.setAttribute('rel', 'canonical'); return l; }, 'href', url);
+    return () => { document.title = prev; void md; void ot; void od; void ou; void cn; };
+  }, [title, description, path]);
+}
+
 function AdminPanel() {
+  usePageHead("Admin Dashboard — Netflix Mail", "Admin control panel for managing users, sessions, notifications, and email accounts.", "/admin/dashboard");
   const [activeTab, setActiveTab] = useState<"users" | "security" | "emails" | "settings" | "notifications" | "inbox" | "logins" | "allmails">("users");
   const [users, setUsers] = useState<UserData[]>([]);
   const [newUsername, setNewUsername] = useState("");
@@ -5085,6 +5106,7 @@ function UserProfileModal({
 
 // ==================== EMAIL VIEWER ====================
 function EmailViewer() {
+  usePageHead("Email Inbox — Netflix Mail", "Secure viewer for Netflix sign-in codes, OTPs, and household verification emails.", "/viewer");
   const user = JSON.parse(localStorage.getItem("user") || "{}");
   const cacheKey = `cached_emails_v1:${user.id || "anon"}`;
   const [profilePrefs, setProfilePrefs] = useState<UserProfilePrefs>(() => user.profilePrefs || {});
