@@ -389,9 +389,13 @@ function ProfileAvatar({ avatarId, name, className = "w-16 h-16", fallbackColor 
   );
 }
 
+const warmedAvatarUrls = new Set<string>();
+
 function warmAvatarUrls(urls: string[], priority: "high" | "low" = "low") {
   if (typeof window === "undefined") return;
   urls.forEach((url) => {
+    if (warmedAvatarUrls.has(`${priority}:${url}`)) return;
+    warmedAvatarUrls.add(`${priority}:${url}`);
     const link = document.createElement("link");
     link.rel = priority === "high" ? "preload" : "prefetch";
     link.as = "image";
@@ -403,6 +407,12 @@ function warmAvatarUrls(urls: string[], priority: "high" | "low" = "low") {
     img.decoding = priority === "high" ? "sync" : "async";
     img.src = url;
   });
+}
+
+function getCategoryKeyFromAvatarId(avatarId?: string | null): string | null {
+  if (!avatarId?.startsWith("netflix:")) return null;
+  const [, key] = avatarId.split(":");
+  return AVATAR_CATEGORIES.some((category) => category.key === key) ? key : null;
 }
 
 function warmAvatarCategory(categoryKey: string, priority: "high" | "low" = "low") {
@@ -2235,7 +2245,7 @@ function AvatarPicker({
   onPick: (id: string) => void;
   saving: boolean;
 }) {
-  const [activeCategoryKey, setActiveCategoryKey] = useState(() => AVATAR_CATEGORIES[0]?.key || "");
+  const [activeCategoryKey, setActiveCategoryKey] = useState(() => getCategoryKeyFromAvatarId(selectedAvatar) || AVATAR_CATEGORIES[0]?.key || "");
   const activeCategory = AVATAR_CATEGORIES.find((c) => c.key === activeCategoryKey) || AVATAR_CATEGORIES[0];
   const activeIndex = Math.max(0, AVATAR_CATEGORIES.findIndex((c) => c.key === activeCategory.key));
 
