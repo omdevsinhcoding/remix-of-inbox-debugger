@@ -127,16 +127,39 @@ function isCloudflareIp(ip: string): boolean {
   return false;
 }
 
+function normalizeIp(raw: string | null | undefined): string {
+  if (!raw) return "";
+  let ip = String(raw).trim().replace(/^"|"$/g, "");
+  if (ip.startsWith("::ffff:")) ip = ip.slice(7);
+  const bracket = ip.match(/^\[([^\]]+)\](?::\d+)?$/);
+  if (bracket) return bracket[1].trim();
+  if (/^\d{1,3}(\.\d{1,3}){3}:\d+$/.test(ip)) ip = ip.replace(/:\d+$/, "");
+  return ip.trim();
+}
+
+function isKnownEdgeIp(ip: string): boolean {
+  // AWS Global Accelerator / Vercel-style edge ranges commonly show up as an
+  // intermediate XFF hop. They are infrastructure, not the user's residential IP.
+  return /^(13\.248\.|76\.223\.|75\.2\.)/.test(ip || "");
+}
+
+function isPublicIp(ip: string): boolean {
+  return !!ip && ip !== "unknown" && !isPrivateIp(ip);
+}
+
 function pickClientIp(candidates: { label: string; ip: string }[]): { ip: string; label: string } {
-  const clean = candidates.filter(c => c.ip);
-  // 1) first public non-CF
-  let sel = clean.find(c => !isPrivateIp(c.ip) && !isCloudflareIp(c.ip));
-  if (sel) return sel;
-  // 2) first public (may be CF)
-  sel = clean.find(c => !isPrivateIp(c.ip));
-  if (sel) return sel;
-  // 3) anything
-  return clean[0] || { ip: "unknown", label: "none" };
+  const clean = candidates
+    .map(c => ({ label: c.label, ip: normalizeIp(c.ip) }))
+    .filter(c => c.ip);
+  const sel = clean.find(c => c.label === "cf-connecting-ip" && isPublicIp(c.ip))
+    || clean.find(c => c.label === "true-client-ip" && isPublicIp(c.ip))
+    || clean.find(c => c.label === "x-real-ip" && isPublicIp(c.ip))
+    || clean.find(c => c.label === "x-client-ip" && isPublicIp(c.ip) && !isKnownEdgeIp(c.ip))
+    || clean.find(c => c.label === "x-forwarded-for" && isPublicIp(c.ip) && !isCloudflareIp(c.ip) && !isKnownEdgeIp(c.ip))
+    || clean.find(c => isPublicIp(c.ip) && !isKnownEdgeIp(c.ip))
+    || clean.find(c => isPublicIp(c.ip))
+    || clean[0];
+  return sel || { ip: "unknown", label: "none" };
 }
 
 function collectIpCandidates(req: Request): { label: string; ip: string }[] {
@@ -144,7 +167,7 @@ function collectIpCandidates(req: Request): { label: string; ip: string }[] {
   const push = (label: string, val: string | null | undefined) => {
     if (!val) return;
     for (const raw of String(val).split(",")) {
-      const ip = raw.trim();
+      const ip = normalizeIp(raw);
       if (ip) out.push({ label, ip });
     }
   };
@@ -168,12 +191,17 @@ function getClientIpTrace(req: Request): { ip: string; source: string; candidate
     const raw = req.headers.get("x-ip-trace");
     if (raw) workerTrace = JSON.parse(raw);
   } catch {}
+  const workerCandidates = Array.isArray(workerTrace?.candidates)
+    ? workerTrace.candidates.map((c: any) => ({ label: String(c?.h || c?.label || "worker"), ip: normalizeIp(c?.ip) })).filter((c: any) => c.ip)
+    : [];
+  const combined = [...candidates, ...workerCandidates];
+  const best = pickClientIp(combined);
   return {
-    ip: picked.ip,
-    source: picked.label,
-    candidates,
-    cfCountry: req.headers.get("cf-ipcountry") || "",
-    cfRay: req.headers.get("cf-ray") || "",
+    ip: best.ip,
+    source: best.label,
+    candidates: combined,
+    cfCountry: req.headers.get("cf-ipcountry") || workerTrace?.cfCountry || "",
+    cfRay: req.headers.get("cf-ray") || workerTrace?.cfRay || "",
     workerTrace,
   };
 }
