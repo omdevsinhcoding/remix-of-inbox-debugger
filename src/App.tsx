@@ -1363,7 +1363,7 @@ function NotificationBell() {
     return () => window.removeEventListener("notif:openCenter", onOpenCenter);
   }, []);
 
-  const active = items.filter((n) => !n.archived);
+  const active = items;
   const unread = active.filter((n) => !n.read).length;
   const highestPriority = active.filter((n) => !n.read).reduce<string>((acc, n) => {
     const rank = (p?: string) => ({ low: 1, normal: 2, high: 3, critical: 4 } as any)[p || "normal"] || 2;
