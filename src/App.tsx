@@ -355,11 +355,11 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
     ? "bg-amber-500 text-white"
     : "bg-slate-900/90 text-white";
 
-  // Pill sits top-right on mobile (below status bar), bottom-right on desktop.
-  // pointer-events-none so it never blocks taps beneath it.
+  // Mobile: centered pill at the very top so it never covers the header
+  // buttons (refresh / profile / logout). Desktop: bottom-right.
   return (
     <div
-      className={`fixed z-40 top-[calc(env(safe-area-inset-top)+0.4rem)] right-2 sm:top-auto sm:bottom-4 sm:right-4 h-6 sm:h-7 px-2 sm:px-3 rounded-full text-[10px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1 sm:gap-1.5 pointer-events-none select-none`}
+      className={`fixed z-40 top-[calc(env(safe-area-inset-top)+0.35rem)] left-1/2 -translate-x-1/2 sm:left-auto sm:translate-x-0 sm:top-auto sm:bottom-4 sm:right-4 h-6 sm:h-7 px-2.5 sm:px-3 rounded-full text-[10px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1 sm:gap-1.5 pointer-events-none select-none`}
     >
       <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" />
       {role === "admin" ? "Admin" : "Session"}: {pad(mm)}:{pad(ss)}
