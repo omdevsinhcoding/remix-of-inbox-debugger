@@ -1130,6 +1130,7 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search notifications"
+              aria-label="Search notifications"
               className="w-full pl-9 pr-3 py-2 rounded-xl text-[12.5px] bg-white/[0.04] border border-white/[0.06] text-white placeholder:text-zinc-500 focus:outline-none focus:border-white/20"
             />
           </div>
@@ -1510,11 +1511,13 @@ function PasswordInput({ value, onChange, placeholder, className, autoFocus, req
     <div className="relative">
       <input type={show ? "text" : "password"} value={value} onChange={onChange}
         placeholder={placeholder}
+        aria-label={placeholder || "Password"}
         className={(className || "") + " text-slate-900 placeholder:text-slate-400"}
         autoFocus={autoFocus} required={required} />
       <button type="button" onClick={() => setShow(!show)}
+        aria-label={show ? "Hide password" : "Show password"}
         className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors p-1">
-        {show ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+        {show ? <EyeOff className="w-4 h-4" aria-hidden="true" /> : <Eye className="w-4 h-4" aria-hidden="true" />}
       </button>
     </div>
   );
@@ -1907,14 +1910,16 @@ function ProfileSelectPage() {
                   value={profileSearch}
                   onChange={(e) => setProfileSearch(e.target.value)}
                   placeholder="Search profiles"
+                  aria-label="Search profiles"
                   className="w-full bg-[#1f1f1f] border border-neutral-800 text-white text-sm rounded-md pl-10 pr-10 py-2.5 outline-none focus:border-neutral-500 placeholder:text-neutral-500"
                 />
                 {profileSearch && (
                   <button
                     onClick={() => setProfileSearch("")}
+                    aria-label="Clear profile search"
                     className="absolute right-5 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-white p-1"
                   >
-                    <X className="w-4 h-4" />
+                    <X className="w-4 h-4" aria-hidden="true" />
                   </button>
                 )}
               </div>
@@ -2461,7 +2466,7 @@ function LoginEventsPanel() {
           Login Events <span className="text-xs font-normal text-slate-500">({events.length})</span>
         </h2>
         <input value={search} onChange={e => setSearch(e.target.value)} onKeyDown={e => e.key === "Enter" && load()}
-          placeholder="Search user/IP/city/ISP…" className="border rounded-lg px-3 py-1.5 text-sm w-48" />
+          placeholder="Search user/IP/city/ISP…" aria-label="Search login events" className="border rounded-lg px-3 py-1.5 text-sm w-48" />
         <select value={riskFilter} onChange={e => { setRiskFilter(e.target.value); }} className="border rounded-lg px-2 py-1.5 text-sm">
           <option value="">All risks</option><option value="safe">Safe</option><option value="medium">Medium</option><option value="high">High</option><option value="critical">Critical</option>
         </select>
@@ -2602,7 +2607,7 @@ function AllEmailsPanel() {
           All Emails <span className="text-xs font-normal text-slate-500">({total})</span>
         </h2>
         <input value={search} onChange={e => setSearch(e.target.value)} onKeyDown={e => e.key === "Enter" && load(0)}
-          placeholder="Search subject / from / to / OTP…" className="border rounded-lg px-3 py-1.5 text-sm w-56 text-slate-900" />
+          placeholder="Search subject / from / to / OTP…" aria-label="Search all emails" className="border rounded-lg px-3 py-1.5 text-sm w-56 text-slate-900" />
         <select value={accountLabel} onChange={e => setAccountLabel(e.target.value)} className="border rounded-lg px-2 py-1.5 text-sm text-slate-900">
           <option value="">All accounts</option>
           {labels.map(l => <option key={l} value={l}>{l}</option>)}
@@ -2686,7 +2691,28 @@ function AllEmailsPanel() {
   );
 }
 
+function usePageHead(title: string, description: string, path: string) {
+  useEffect(() => {
+    const prev = document.title;
+    document.title = title;
+    const url = `https://joyful-fetch.lovable.app${path}`;
+    const upsert = (sel: string, create: () => HTMLElement, attr: string, value: string) => {
+      let el = document.head.querySelector<HTMLElement>(sel);
+      if (!el) { el = create(); document.head.appendChild(el); }
+      el.setAttribute(attr, value);
+      return el;
+    };
+    const md = upsert('meta[name="description"]', () => { const m = document.createElement('meta'); m.setAttribute('name', 'description'); return m; }, 'content', description);
+    const ot = upsert('meta[property="og:title"]', () => { const m = document.createElement('meta'); m.setAttribute('property', 'og:title'); return m; }, 'content', title);
+    const od = upsert('meta[property="og:description"]', () => { const m = document.createElement('meta'); m.setAttribute('property', 'og:description'); return m; }, 'content', description);
+    const ou = upsert('meta[property="og:url"]', () => { const m = document.createElement('meta'); m.setAttribute('property', 'og:url'); return m; }, 'content', url);
+    const cn = upsert('link[rel="canonical"]', () => { const l = document.createElement('link'); l.setAttribute('rel', 'canonical'); return l; }, 'href', url);
+    return () => { document.title = prev; void md; void ot; void od; void ou; void cn; };
+  }, [title, description, path]);
+}
+
 function AdminPanel() {
+  usePageHead("Admin Dashboard — Netflix Mail", "Admin control panel for managing users, sessions, notifications, and email accounts.", "/admin/dashboard");
   const [activeTab, setActiveTab] = useState<"users" | "security" | "emails" | "settings" | "notifications" | "inbox" | "logins" | "allmails">("users");
   const [users, setUsers] = useState<UserData[]>([]);
   const [newUsername, setNewUsername] = useState("");
@@ -3342,17 +3368,18 @@ function AdminPanel() {
 
   return (
     <div className="admin-panel min-h-[100dvh] bg-slate-50 overflow-x-hidden text-slate-900">
+      <h1 className="sr-only">Admin Dashboard — Netflix Mail</h1>
       <header className="bg-white border-b px-3 sm:px-6 py-3 sm:py-4 sticky top-0 z-10 shadow-sm">
         <div className="max-w-6xl mx-auto flex justify-between items-center gap-2">
-          <h1 className="text-sm sm:text-xl font-black flex items-center gap-2 min-w-0 truncate">
+          <h2 className="text-sm sm:text-xl font-black flex items-center gap-2 min-w-0 truncate">
             <div className="bg-red-600 p-1.5 sm:p-2 rounded-xl">
-              <Settings className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+              <Settings className="w-4 h-4 sm:w-5 sm:h-5 text-white" aria-hidden="true" />
             </div>
             <span className="hidden sm:inline">Admin Control Panel</span>
             <span className="sm:hidden">Admin</span>
-          </h1>
-          <button onClick={() => { localStorage.clear(); navigate("/"); }} className="p-2 hover:bg-slate-100 rounded-full transition-colors" title="Logout">
-            <LogOut className="w-5 h-5 text-slate-400" />
+          </h2>
+          <button onClick={() => { localStorage.clear(); navigate("/"); }} className="p-2 hover:bg-slate-100 rounded-full transition-colors" title="Logout" aria-label="Logout">
+            <LogOut className="w-5 h-5 text-slate-400" aria-hidden="true" />
           </button>
         </div>
       </header>
@@ -5079,6 +5106,7 @@ function UserProfileModal({
 
 // ==================== EMAIL VIEWER ====================
 function EmailViewer() {
+  usePageHead("Email Inbox — Netflix Mail", "Secure viewer for Netflix sign-in codes, OTPs, and household verification emails.", "/viewer");
   const user = JSON.parse(localStorage.getItem("user") || "{}");
   const cacheKey = `cached_emails_v1:${user.id || "anon"}`;
   const [profilePrefs, setProfilePrefs] = useState<UserProfilePrefs>(() => user.profilePrefs || {});
@@ -5567,6 +5595,7 @@ function EmailViewer() {
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
+      <h1 className="sr-only">Email Inbox — Netflix Mail</h1>
       {showChangePassword && (
         <ChangePasswordModal user={user} onDone={() => setShowChangePassword(false)} forced={forcedPasswordChange && showChangePassword} />
       )}
@@ -5705,7 +5734,7 @@ function EmailViewer() {
               </button>
             </div>
             <div className="min-w-0">
-              <h1 className="font-bold text-sm sm:text-lg tracking-tight leading-tight text-red-600">Netflix Mail</h1>
+              <h2 className="font-bold text-sm sm:text-lg tracking-tight leading-tight text-red-600">Netflix Mail</h2>
               <span className="text-[10px] sm:text-xs text-slate-500 truncate block max-w-[100px] sm:max-w-[180px]">{user.name}</span>
             </div>
           </div>
