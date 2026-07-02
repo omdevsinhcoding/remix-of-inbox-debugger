@@ -1050,8 +1050,8 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
     }
   };
 
-  const handleArchive = async (id: string) => {
-    await archiveNotification(id);
+  const handleDelete = async (id: string) => {
+    await deleteNotificationForMe(id);
     onChange();
     if (selected === id) setSelected(null);
   };
