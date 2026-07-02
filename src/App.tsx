@@ -1185,8 +1185,7 @@ function CaptchaModal({ siteKey, onVerify, onCancel }: { siteKey: string; onVeri
           </div>
         </div>
         <div className="flex justify-center px-6 pb-4 min-h-[78px]">
-          <Suspense fallback={<div className="h-[78px] w-[304px] rounded-lg bg-slate-100 animate-pulse" />}>
-            <ReCAPTCHA sitekey={siteKey} onChange={(token) => { if (token) onVerify(token); }} />
+          <ReCAPTCHA sitekey={siteKey} onChange={(token) => { if (token) onVerify(token); }} />
           </Suspense>
         </div>
 
