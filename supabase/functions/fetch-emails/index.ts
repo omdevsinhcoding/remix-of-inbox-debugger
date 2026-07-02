@@ -202,7 +202,7 @@ async function fetchFromAccount(
             from: parsed.from?.text || "Netflix",
             to: parsed.to ? (Array.isArray(parsed.to) ? parsed.to[0]?.text : parsed.to.text) : undefined,
             date: parsed.date || new Date(),
-            otp: otpMatch ? otpMatch[0] : null,
+            otp: otpCode,
             preview: bodyText.length > 100 ? `${bodyText.substring(0, 100)}...` : bodyText,
             html: parsed.html || parsed.textAsHtml || `<pre>${bodyText}</pre>`,
             account_label: accountLabel,
