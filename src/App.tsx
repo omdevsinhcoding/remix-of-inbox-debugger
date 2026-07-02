@@ -3184,8 +3184,51 @@ function AdminPanel() {
     }
   };
 
+  const saveR2Config = async () => {
+    setR2Saving(true);
+    setR2TestResult(null);
+    try {
+      await apiCall("manage-app", {
+        action: "admin_save_r2_config",
+        accountId: r2Cfg.accountId.trim(),
+        accessKeyId: r2Cfg.accessKeyId.trim(),
+        secretAccessKey: r2Cfg.secretAccessKey, // blank string = keep existing
+        bucket: r2Cfg.bucket.trim(),
+        publicBaseUrl: r2Cfg.publicBaseUrl.trim(),
+        pathPrefix: (r2Cfg.pathPrefix.trim() || "notifications/"),
+        enabled: r2Cfg.enabled,
+      });
+      const persisted = r2Cfg.secretAccessKey.length > 0 || r2Cfg.secretAccessKeySet;
+      setR2Cfg((c) => ({ ...c, secretAccessKey: "", secretAccessKeySet: persisted }));
+      toast.success(r2Cfg.enabled ? "R2 storage saved & enabled" : "R2 storage saved");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save R2 config");
+    } finally {
+      setR2Saving(false);
+    }
+  };
 
-
+  const testR2Connection = async () => {
+    setR2Testing(true);
+    setR2TestResult(null);
+    try {
+      const res: any = await apiCall("manage-app", { action: "admin_r2_test" });
+      setR2TestResult({
+        ok: res?.success === true,
+        message: res?.message || (res?.success ? "OK" : "Failed"),
+        latencyMs: res?.latencyMs,
+        publicUrlWorks: res?.publicUrlWorks,
+      });
+      if (res?.success) toast.success(`R2 test passed · ${res.latencyMs}ms`);
+      else toast.error(res?.message || "R2 test failed");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "R2 test failed";
+      setR2TestResult({ ok: false, message: msg });
+      toast.error(msg);
+    } finally {
+      setR2Testing(false);
+    }
+  };
 
 
   const toggleCaptcha = async () => {
