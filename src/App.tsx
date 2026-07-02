@@ -1627,7 +1627,7 @@ function AdminPanel() {
     } finally { setClearingInbox(false); }
   };
 
-
+  const changeAdminPassword = async () => {
     if (!currentPassword || !newAdminPassword) { toast.error("Fill both fields"); return; }
     setChangingPassword(true);
     try {
