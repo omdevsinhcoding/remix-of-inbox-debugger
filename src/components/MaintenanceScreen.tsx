@@ -5,10 +5,13 @@ import { ArrowRight, Clock } from "lucide-react";
 type Props = {
   title?: string;
   message?: string;
-  eta?: string;
+  endsAt?: string | null;
+  versionFrom?: string;
+  versionTo?: string;
   isAdmin?: boolean;
   onAdminBypass?: () => void;
 };
+
 
 /**
  * Netflix-inspired premium maintenance screen.
