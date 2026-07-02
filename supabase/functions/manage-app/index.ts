@@ -237,12 +237,41 @@ Deno.serve(async (req) => {
   const SESSION_SECRET = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const ip = getClientIp(req);
 
-  // Helper to verify session from header
+  // --- Persist a session row in DB (source of truth for logged-in status) ---
+  async function persistSession(userId: string, role: string, token: string, expiresAtMs: number) {
+    const tokenHash = await sha256Hex(token);
+    const ua = req.headers.get("user-agent") || null;
+    await supabase.from("app_sessions").insert({
+      user_id: userId,
+      role,
+      token_hash: tokenHash,
+      expires_at: new Date(expiresAtMs).toISOString(),
+      ip,
+      user_agent: ua,
+    });
+    // Best-effort cleanup of expired rows for this user
+    supabase.from("app_sessions").delete().lt("expires_at", new Date().toISOString()).eq("user_id", userId).then(() => {});
+  }
+
+  // Helper to verify session from header AND ensure a live DB row exists
   async function requireSession(req: Request): Promise<Record<string, any>> {
     const token = req.headers.get("x-session-token");
     if (!token) throw new Error("Authentication required");
     const session = await verifySessionToken(token, SESSION_SECRET);
     if (!session) throw new Error("Session expired or invalid");
+    const tokenHash = await sha256Hex(token);
+    const { data: row } = await supabase
+      .from("app_sessions")
+      .select("id, expires_at")
+      .eq("token_hash", tokenHash)
+      .maybeSingle();
+    if (!row) throw new Error("Session revoked. Please sign in again.");
+    if (new Date(row.expires_at).getTime() < Date.now()) {
+      await supabase.from("app_sessions").delete().eq("id", row.id);
+      throw new Error("Session expired. Please sign in again.");
+    }
+    // Fire-and-forget touch
+    supabase.from("app_sessions").update({ last_seen_at: new Date().toISOString() }).eq("id", row.id).then(() => {});
     return session;
   }
 
