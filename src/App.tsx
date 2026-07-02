@@ -4051,6 +4051,11 @@ function AdminPanel() {
                       {typeof r2TestResult.latencyMs === "number" && <span className="font-normal opacity-70">· {r2TestResult.latencyMs}ms</span>}
                     </div>
                     <div className="mt-1 opacity-90 break-words">{r2TestResult.message}</div>
+                    {Array.isArray(r2TestResult.warnings) && r2TestResult.warnings.length > 0 && (
+                      <ul className="mt-2 list-disc pl-4 space-y-1 text-amber-700">
+                        {r2TestResult.warnings.map((warning, idx) => <li key={idx}>{warning}</li>)}
+                      </ul>
+                    )}
                     {r2TestResult.ok && r2TestResult.publicUrlWorks === false && (
                       <div className="mt-1 text-amber-700">⚠️ Upload signed OK but the public URL was not reachable — check your public domain / r2.dev setup and CORS.</div>
                     )}
