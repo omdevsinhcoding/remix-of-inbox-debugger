@@ -7,7 +7,7 @@ import NetflixHouseholdVerificationGuide from "./pages/NetflixHouseholdVerificat
 import { Toaster, toast } from "sonner";
 import { supabase } from "./integrations/supabase/client";
 import { AVATAR_CATEGORIES, resolveAvatar, buildAvatarId, prettyName, getAvatarCategoryUrls } from "./lib/avatars";
-import { bootstrapFromSupabase, clearSessionData, markSessionStart, readBootstrapCache, refreshBootstrap, patchBootstrapCacheUser, getEmailFilters, setEmailFilters as setEmailFiltersCache, listNotifications, markNotificationRead, markAllNotificationsRead, markNotificationSeen, deleteNotificationForMe, snoozeNotification, logNotificationEvent, getPoppedIds, markPopped, type EmailFilters, type AppNotification, type MaintenanceInfo } from "./lib/bootstrap";
+import { bootstrapFromSupabase, clearSessionData, markSessionStart, readBootstrapCache, refreshBootstrap, patchBootstrapCacheUser, getEmailFilters, setEmailFilters as setEmailFiltersCache, listNotifications, markNotificationRead, markAllNotificationsRead, markNotificationSeen, deleteNotificationForMe, logNotificationEvent, getPoppedIds, markPopped, type EmailFilters, type AppNotification, type MaintenanceInfo } from "./lib/bootstrap";
 import MaintenanceScreen from "./components/MaintenanceScreen";
 import DateTimePicker from "./components/DateTimePicker";
 
@@ -1055,12 +1055,8 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
     if (selected === id) setSelected(null);
   };
 
-  const handleSnooze = async (id: string, hours: number) => {
-    const until = new Date(Date.now() + hours * 3600_000).toISOString();
-    await snoozeNotification(id, until);
-    onChange();
-    toast.success(`Snoozed for ${hours}h`);
-  };
+  // Snooze removed — no user-facing action.
+
 
   const handleMarkAllRead = async () => {
     await markAllNotificationsRead();

@@ -2296,18 +2296,8 @@ Deno.serve(async (req) => {
     }
 
 
-    if (action === "snooze_notification") {
-      const session = await requireSession(req);
-      const { notification_id, until } = params as { notification_id?: string; until?: string };
-      if (!notification_id || !until) throw new Error("notification_id and until required");
-      const { error } = await supabase.from("notification_reads").upsert(
-        { notification_id, user_id: session.userId, snoozed_until: until },
-        { onConflict: "notification_id,user_id" },
-      );
-      if (error) throw error;
-      await supabase.from("notification_events").insert({ notification_id, user_id: session.userId, event: "snoozed", meta: { until } });
-      return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
+    // snooze_notification removed — Snooze is no longer a supported user action.
+
 
     if (action === "user_delete_notification") {
       const session = await requireSession(req);
@@ -2328,7 +2318,7 @@ Deno.serve(async (req) => {
       const session = await requireSession(req);
       const { notification_id, event, meta } = params as { notification_id?: string; event?: string; meta?: any };
       if (!notification_id || !event) throw new Error("notification_id and event required");
-      const allowed = ["delivered", "seen", "read", "clicked", "dismissed", "snoozed"];
+      const allowed = ["delivered", "seen", "read", "clicked", "dismissed"];
       if (!allowed.includes(event)) throw new Error("invalid event");
       await supabase.from("notification_events").insert({ notification_id, user_id: session.userId, event, meta: meta || null });
       return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
