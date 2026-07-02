@@ -2222,16 +2222,16 @@ function AdminAuthPage() {
         </p>
 
         {step === 1 ? (
-          <div className="space-y-6">
-            <input type="text" value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+          <form onSubmit={(e) => { e.preventDefault(); if (!loading && otp.length >= 6) verifyTelegramOtp(); }} className="space-y-6">
+            <input type="text" inputMode="numeric" autoFocus value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
               className="w-full bg-slate-950 border border-slate-800 text-white text-center tracking-[0.75em] font-mono text-2xl rounded-2xl py-5 focus:ring-2 focus:ring-red-500 outline-none placeholder:tracking-normal placeholder:text-sm placeholder:text-slate-600"
               placeholder="••••••" maxLength={6} />
-            <button onClick={verifyTelegramOtp} disabled={loading || otp.length < 6}
+            <button type="submit" disabled={loading || otp.length < 6}
               className="w-full bg-gradient-to-r from-red-600 to-red-700 text-white font-bold py-4 rounded-2xl hover:from-red-500 hover:to-red-600 shadow-lg shadow-red-900/20 transition-all active:scale-[0.98] disabled:opacity-50">
               {loading ? "Verifying..." : "Verify Telegram OTP"}
             </button>
             {error && <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-xs p-4 rounded-xl text-center">{error}</div>}
-          </div>
+          </form>
         ) : (
           <div className="space-y-6">
             {qrCode && (
