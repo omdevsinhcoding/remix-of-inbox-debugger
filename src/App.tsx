@@ -3081,6 +3081,30 @@ function AdminPanel() {
     }
   };
 
+  const revealSigningSecret = async () => {
+    setRevealingSigningSecret(true);
+    try {
+      const res: any = await apiCall("manage-app", { action: "admin_reveal_session_signing_secret" });
+      if (!res?.value) throw new Error("Secret value was empty");
+      setSigningSecretReveal({ value: res.value, length: Number(res.length) || String(res.value).length });
+      toast.success("SESSION_SIGNING_SECRET revealed — copy it to Cloudflare as Secret type.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not reveal SESSION_SIGNING_SECRET");
+    } finally {
+      setRevealingSigningSecret(false);
+    }
+  };
+
+  const copySigningSecret = async () => {
+    if (!signingSecretReveal?.value) return;
+    try {
+      await navigator.clipboard.writeText(signingSecretReveal.value);
+      toast.success("SESSION_SIGNING_SECRET copied");
+    } catch {
+      toast.error("Copy failed — long press/select the value manually.");
+    }
+  };
+
   const toggleIpwhoAlert = async () => {
     const next = !ipwhoAlertEnabled;
     setIpwhoAlertEnabled(next);
