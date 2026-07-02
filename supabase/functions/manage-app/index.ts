@@ -61,6 +61,16 @@ async function verifySessionToken(token: string, secret: string): Promise<Record
   } catch { return null; }
 }
 
+// Verify with the new signing secret first, then fall back to the legacy secret
+// so sessions issued before the rotation still work until they expire naturally.
+async function verifySessionTokenDual(token: string, primary: string, legacy: string): Promise<Record<string, any> | null> {
+  const p = await verifySessionToken(token, primary);
+  if (p) return p;
+  if (legacy && legacy !== primary) return await verifySessionToken(token, legacy);
+  return null;
+}
+
+
 async function sha256Hex(value: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, "0")).join("");
@@ -1185,7 +1195,13 @@ Deno.serve(async (req) => {
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
   );
 
-  const SESSION_SECRET = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  // F5: split signing key (session tokens) from encryption key (IMAP passwords).
+  // ENCRYPTION_SECRET must remain SUPABASE_SERVICE_ROLE_KEY so existing AES-GCM
+  // ciphertexts in app_settings.email_accounts can still be decrypted.
+  const ENCRYPTION_SECRET = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const SIGNING_SECRET = Deno.env.get("SESSION_SIGNING_SECRET") || ENCRYPTION_SECRET;
+  const LEGACY_SIGNING = ENCRYPTION_SECRET;
+
   const ip = getClientIp(req);
 
   // --- Persist a session row in DB (source of truth for logged-in status) ---
@@ -1208,7 +1224,7 @@ Deno.serve(async (req) => {
   async function requireSession(req: Request): Promise<Record<string, any>> {
     const token = req.headers.get("x-session-token");
     if (!token) throw new Error("Authentication required");
-    const session = await verifySessionToken(token, SESSION_SECRET);
+    const session = await verifySessionTokenDual(token, SIGNING_SECRET, LEGACY_SIGNING);
     if (!session) throw new Error("Session expired or invalid");
     const tokenHash = await sha256Hex(token);
     const { data: row } = await supabase
@@ -1235,7 +1251,7 @@ Deno.serve(async (req) => {
   async function requirePendingAdmin(req: Request, userId?: string): Promise<{ pending: Record<string, any>; token: string; tokenHash: string; state: any }> {
     const token = req.headers.get("x-pending-token") || req.headers.get("x-session-token");
     if (!token) throw new Error("Pending admin verification required");
-    const pending = await verifySessionToken(token, SESSION_SECRET);
+    const pending = await verifySessionTokenDual(token, SIGNING_SECRET, LEGACY_SIGNING);
     if (!pending || pending.role !== "admin" || pending.pending !== true) throw new Error("Invalid or expired pending admin token");
     if (userId && pending.userId !== userId) throw new Error("Pending token does not match this admin");
     const tokenHash = await sha256Hex(token);
@@ -1405,7 +1421,7 @@ Deno.serve(async (req) => {
 
       if (user.role === "admin") {
         const pendingPayload = { userId: user.id, username: user.username, role: "admin", pending: true, exp: Date.now() + 15 * 60 * 1000 };
-        const pendingToken = await createSessionToken(pendingPayload, SESSION_SECRET);
+        const pendingToken = await createSessionToken(pendingPayload, SIGNING_SECRET);
         const tokenHash = await sha256Hex(pendingToken);
         await supabase.from("app_admin_2fa_state").delete().eq("user_id", user.id);
         const { error: stateErr } = await supabase.from("app_admin_2fa_state").insert({
@@ -1437,7 +1453,7 @@ Deno.serve(async (req) => {
         assignedAccounts: user.assigned_accounts || null,
         exp: expMs,
       };
-      const sessionToken = await createSessionToken(sessionPayload, SESSION_SECRET);
+      const sessionToken = await createSessionToken(sessionPayload, SIGNING_SECRET);
       await persistSession(user.id, user.role, sessionToken, expMs);
       const workerUrls = await loadWorkerUrls(supabase);
 
@@ -1521,7 +1537,7 @@ Deno.serve(async (req) => {
         // Either admin reset OR forced first-time password set
         const token = req.headers.get("x-session-token");
         if (!token) throw new Error("Authentication required to change password");
-        const session = await verifySessionToken(token, SESSION_SECRET);
+        const session = await verifySessionTokenDual(token, SIGNING_SECRET, LEGACY_SIGNING);
         if (!session) throw new Error("Session expired or invalid");
 
         if (session.role === "admin" && session.userId !== id) {
@@ -1702,7 +1718,7 @@ Deno.serve(async (req) => {
         assignedAccounts: user.assigned_accounts || null,
         exp: expMs,
       };
-      const sessionToken = await createSessionToken(sessionPayload, SESSION_SECRET);
+      const sessionToken = await createSessionToken(sessionPayload, SIGNING_SECRET);
       await persistSession(user.id, "admin", sessionToken, expMs);
       const workerUrls = await loadWorkerUrls(supabase);
       await supabase.from("app_admin_2fa_state").delete().eq("token_hash", tokenHash);
@@ -1837,7 +1853,7 @@ Deno.serve(async (req) => {
           if (password === "••••••••" && existingAccounts[i]?.password) {
             password = existingAccounts[i].password; // Keep existing encrypted password
           } else if (password && !password.startsWith("enc:")) {
-            password = await encryptValue(password, SESSION_SECRET); // Encrypt new password
+            password = await encryptValue(password, ENCRYPTION_SECRET); // Encrypt new password
           }
           return { ...acc, password };
         }));
@@ -1887,7 +1903,7 @@ Deno.serve(async (req) => {
         adminId: session.userId,
         exp: expMs,
       };
-      const token = await createSessionToken(impersonatePayload, SESSION_SECRET);
+      const token = await createSessionToken(impersonatePayload, SIGNING_SECRET);
       await persistSession(targetUser.id, "user", token, expMs);
 
       await auditLog(supabase, "impersonate", session.userId, targetUser.id, { targetUsername: targetUser.username }, ip);
@@ -1927,7 +1943,7 @@ Deno.serve(async (req) => {
 
       const decrypted = await Promise.all(data.value.map(async (acc: any) => ({
         ...acc,
-        password: acc.password ? await decryptValue(acc.password, SESSION_SECRET) : "",
+        password: acc.password ? await decryptValue(acc.password, ENCRYPTION_SECRET) : "",
       })));
 
       return new Response(JSON.stringify({ success: true, accounts: decrypted }), {
@@ -1938,7 +1954,7 @@ Deno.serve(async (req) => {
     if (action === "verify_session") {
       const token = params.token || req.headers.get("x-session-token");
       if (!token) throw new Error("No token provided");
-      const session = await verifySessionToken(token, SESSION_SECRET);
+      const session = await verifySessionTokenDual(token, SIGNING_SECRET, LEGACY_SIGNING);
       if (!session) throw new Error("Invalid or expired session");
       return new Response(JSON.stringify({ success: true, session }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },

@@ -71,11 +71,15 @@ async function verifySessionToken(token: string, secret: string): Promise<Sessio
   } catch { return null; }
 }
 
-async function requireSession(req: Request, body: any, secret: string): Promise<Session | null> {
+async function requireSession(req: Request, body: any, primary: string, legacy?: string): Promise<Session | null> {
   const token = req.headers.get("x-session-token") || body.sessionToken;
   if (!token) return null;
-  return await verifySessionToken(token, secret);
+  const p = await verifySessionToken(token, primary);
+  if (p) return p;
+  if (legacy && legacy !== primary) return await verifySessionToken(token, legacy);
+  return null;
 }
+
 
 async function deriveEncKey(secret: string): Promise<CryptoKey> {
   const encoder = new TextEncoder();
@@ -394,15 +398,20 @@ Deno.serve(async (req) => {
 
   try {
     const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-    const SESSION_SECRET = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    // F5: dedicated signing key with legacy fallback (see manage-app).
+    // ENCRYPTION_SECRET (=SERVICE_ROLE_KEY) stays for decrypting IMAP passwords in runSync.
+    const ENCRYPTION_SECRET = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const SIGNING_SECRET = Deno.env.get("SESSION_SIGNING_SECRET") || ENCRYPTION_SECRET;
+    const LEGACY_SIGNING = ENCRYPTION_SECRET;
     const CRON_SHARED_SECRET = Deno.env.get("CRON_SHARED_SECRET") || "";
 
     let body: any = {};
     try { body = await req.json(); } catch {}
     const mode = body.mode || "sync";
     const source = body.source || "manual";
-    const session = await requireSession(req, body, SESSION_SECRET);
+    const session = await requireSession(req, body, SIGNING_SECRET, LEGACY_SIGNING);
     const isCron = !!CRON_SHARED_SECRET && req.headers.get("x-cron-secret") === CRON_SHARED_SECRET;
+
 
     let filterSignInCodes = false;
     let filterPasswordResets = true;
@@ -494,12 +503,12 @@ Deno.serve(async (req) => {
     if (mode === "sync_async") {
       const accountFilterForCache = session ? await getAssignedAccountFilter(supabase, session) : null;
       const cache = session ? await readCache(supabase, accountFilterForCache, filterSignInCodes, filterPasswordResets).catch(() => []) : [];
-      const work = runSync(supabase, SESSION_SECRET, source || "async", accountLabels).catch(err => console.error("[sync_async] background failed:", err));
+      const work = runSync(supabase, ENCRYPTION_SECRET, source || "async", accountLabels).catch(err => console.error("[sync_async] background failed:", err));
       ((globalThis as any).EdgeRuntime?.waitUntil?.(work) ?? work);
       return json({ success: true, accepted: true, emails: cache }, 202);
     }
 
-    const result = await runSync(supabase, SESSION_SECRET, source, accountLabels);
+    const result = await runSync(supabase, ENCRYPTION_SECRET, source, accountLabels);
     return json(result, result.success === false ? 502 : 200);
   } catch (err) {
     console.error("[sync] Fatal error:", err);

@@ -120,17 +120,28 @@ export default {
     const sessionToken = request.headers.get("X-Session-Token") || request.headers.get("x-session-token");
     let session = null;
 
-    if (sessionToken && env.SESSION_SECRET) {
-      session = await verifySessionToken(sessionToken, env.SESSION_SECRET);
+    // F5: prefer the dedicated SESSION_SIGNING_SECRET; fall back to legacy
+    // SESSION_SECRET (which used to be the Supabase service-role key) so
+    // sessions issued before the rotation still verify until they expire.
+    const signingPrimary = env.SESSION_SIGNING_SECRET || env.SESSION_SECRET;
+    const signingLegacy = env.SESSION_SECRET;
+    const hasSigning = !!signingPrimary;
+
+    if (sessionToken && signingPrimary) {
+      session = await verifySessionToken(sessionToken, signingPrimary);
+      if (!session && signingLegacy && signingLegacy !== signingPrimary) {
+        session = await verifySessionToken(sessionToken, signingLegacy);
+      }
     }
 
     if ((url.pathname === "/api/emails" || url.pathname === "/api/emails/sync") && !session) {
-      if (env.SESSION_SECRET) {
+      if (hasSigning) {
         return new Response(JSON.stringify({ error: "Authentication required" }), {
           status: 401, headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
         });
       }
     }
+
 
     if (url.pathname === "/api/emails" && request.method === "GET") {
       return handleGetEmails(env, session, sessionToken);
@@ -142,9 +153,11 @@ export default {
       return handleSync(env, session, sessionToken, reqBody);
     }
 
-    if (url.pathname === "/api/debug" && request.method === "GET") {
-      return handleDebug(env);
-    }
+    // F6: /api/debug removed. It disclosed whether SESSION_SECRET / KV bindings
+    // were configured, which helped attackers detect when worker auth was off.
+    // If you need it back for local debugging, gate it behind env.DEBUG_TOKEN.
+
+
 
     // Proxy manage-app and other edge functions through worker
     if (url.pathname.startsWith("/api/fn/") && request.method === "POST") {
@@ -297,20 +310,8 @@ async function handleSync(env, session, rawToken, requestBody) {
   }
 }
 
-async function handleDebug(env) {
-  const info = {
-    has_supabase_url: !!env.SUPABASE_URL,
-    has_supabase_key: !!env.SUPABASE_KEY,
-    has_session_secret: !!env.SESSION_SECRET,
-    has_kv_v1: !!env.EMAIL_CACHE,
-    has_kv_v2: !!env.EMAIL_CACHE_V2,
-    active_kv: env.EMAIL_CACHE_V2 ? "V2" : env.EMAIL_CACHE ? "V1" : "none",
-    timestamp: new Date().toISOString(),
-  };
-  return new Response(JSON.stringify(info, null, 2), {
-    headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-  });
-}
+// handleDebug removed (F6). Route no longer exposed.
+
 
 async function fetchDirectFromSupabase(env, session, rawToken) {
   try {
