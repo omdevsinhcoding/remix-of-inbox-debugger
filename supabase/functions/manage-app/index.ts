@@ -1779,8 +1779,20 @@ Deno.serve(async (req) => {
         processedValue = { enabled: value?.enabled === true };
       }
 
-      // Maintenance: enforce upgrade-only version bumps.
+      // Maintenance: enforce upgrade-only version bumps + valid time window.
       if (key === "maintenance" && value && typeof value === "object") {
+        const v: any = value;
+        // Validate schedule window: startsAt must be strictly before endsAt.
+        const sAt = typeof v.startsAt === "string" && v.startsAt ? Date.parse(v.startsAt) : NaN;
+        const eAt = typeof v.endsAt === "string" && v.endsAt ? Date.parse(v.endsAt) : NaN;
+        if (Number.isFinite(sAt) && Number.isFinite(eAt)) {
+          if (sAt >= eAt) {
+            throw new Error("Maintenance window is invalid: end time must be after start time.");
+          }
+          if (eAt - sAt < 60 * 1000) {
+            throw new Error("Maintenance window is too short: keep at least 1 minute between start and end.");
+          }
+        }
         const cmpVer = (a: string, b: string): number => {
           const pa = String(a || "").replace(/^v/i, "").split(".").map((n) => parseInt(n, 10));
           const pb = String(b || "").replace(/^v/i, "").split(".").map((n) => parseInt(n, 10));
@@ -1795,14 +1807,15 @@ Deno.serve(async (req) => {
         try {
           const { data: prev } = await supabase.from("app_settings").select("value").eq("key", "maintenance").single();
           const prevTo = prev?.value?.versionTo || "";
-          const nextTo = (value as any).versionTo || "";
+          const nextTo = v.versionTo || "";
           if (prevTo && nextTo && cmpVer(nextTo, prevTo) < 0) {
             throw new Error(`Version downgrade blocked: current is ${prevTo}, cannot set to ${nextTo}.`);
           }
         } catch (e) {
-          if (e instanceof Error && e.message.startsWith("Version downgrade")) throw e;
+          if (e instanceof Error && (e.message.startsWith("Version downgrade") || e.message.startsWith("Maintenance window"))) throw e;
         }
       }
+
 
 
       // Encrypt IMAP passwords in email_accounts
