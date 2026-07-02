@@ -106,12 +106,19 @@ const PlatformIcon: React.FC<{ id: string; className?: string }> = ({ id, classN
 const PlatformChipVisual: React.FC<{ id: string; size?: number }> = ({ id, size = 32 }) => {
   const p = PLATFORM_OPTIONS.find((x) => x.id === id);
   const bg = p?.color || "#7c3aed";
-  const iconSize = Math.round(size * 0.5);
-  const iconClass = `w-[${iconSize}px] h-[${iconSize}px]`;
-  const icon = <PlatformIcon id={id} className={iconClass} />;
+  const iconSize = Math.round(size * 0.55);
+  const svgIcon = PlatformIcon({ id, className: "" }) as React.ReactElement<any> | null;
   return (
-    <div className="rounded-full flex items-center justify-center text-white shadow-md font-black leading-none" style={{ width: size, height: size, background: bg, fontSize: Math.round(size * 0.4) }}>
-      {icon ?? (p?.mono || (p?.label?.[0] ?? "?"))}
+    <div
+      className="rounded-full flex items-center justify-center text-white shadow-md font-black leading-none shrink-0"
+      style={{ width: size, height: size, background: bg, fontSize: Math.round(size * 0.38) }}
+    >
+      {svgIcon
+        ? React.cloneElement(svgIcon, {
+            style: { width: iconSize, height: iconSize },
+            className: "",
+          })
+        : (p?.mono || (p?.label?.[0] ?? "?"))}
     </div>
   );
 };
@@ -4309,46 +4316,47 @@ function AdminPanel() {
 
                   {/* Notification Template (guided type) */}
                   <div>
-
                     <div className="flex items-center justify-between mb-2">
                       <label className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">Notification Type</label>
                       {notifTemplate && (
                         <button type="button" onClick={() => setNotifTemplate("")} className="text-[10px] text-slate-500 hover:text-orange-400">Clear</button>
                       )}
                     </div>
-                    <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 [scrollbar-width:thin]">
-                      {TEMPLATE_OPTIONS.map((t) => {
-                        const active = notifTemplate === t.id;
-                        return (
-                          <button key={t.id} type="button" onClick={() => setNotifTemplate(t.id)} title={t.hint}
-                            className={`shrink-0 flex items-center gap-2 px-3 py-2 rounded-xl border transition-all ${active ? "border-orange-500/60 shadow-lg shadow-orange-500/10" : "border-white/10 hover:border-white/25"}`}
-                            style={active ? { background: `linear-gradient(135deg, ${t.color}22, ${t.color}0d)` } : { background: "rgba(255,255,255,0.02)" }}>
-                            <div className="w-7 h-7 rounded-lg flex items-center justify-center text-white" style={{ background: t.color }}>
-                              <TemplateIcon id={t.id} className="w-3.5 h-3.5" />
-                            </div>
-                            <span className={`text-[11px] font-semibold whitespace-nowrap ${active ? "text-white" : "text-slate-300"}`}>{t.label}</span>
-                          </button>
-                        );
-                      })}
+                    <div className="bg-black/30 border border-white/[0.06] rounded-xl p-2">
+                      <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5 max-h-[132px] overflow-y-auto pr-1 [scrollbar-width:thin] [scrollbar-color:rgba(255,255,255,0.15)_transparent]">
+                        {TEMPLATE_OPTIONS.map((t) => {
+                          const active = notifTemplate === t.id;
+                          return (
+                            <button key={t.id} type="button" onClick={() => setNotifTemplate(t.id)} title={t.hint}
+                              className={`flex items-center gap-2 px-2 py-2 rounded-lg border transition-all min-w-0 ${active ? "border-orange-500/60 shadow-md shadow-orange-500/10" : "border-white/[0.06] hover:border-white/20"}`}
+                              style={active ? { background: `linear-gradient(135deg, ${t.color}22, ${t.color}0d)` } : { background: "rgba(255,255,255,0.02)" }}>
+                              <div className="w-6 h-6 rounded-md flex items-center justify-center text-white shrink-0" style={{ background: t.color }}>
+                                <TemplateIcon id={t.id} className="w-3 h-3" />
+                              </div>
+                              <span className={`text-[10.5px] font-semibold truncate ${active ? "text-white" : "text-slate-300"}`}>{t.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
 
                   {/* Platform / Icon — scrollable container with search */}
                   <div>
-                    <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center justify-between mb-2 gap-2">
                       <label className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">Platform / Icon</label>
-                      <input value={platformSearch} onChange={(e) => setPlatformSearch(e.target.value)} placeholder="Search…"
-                        className="w-32 px-2 py-1 bg-white/[0.04] border border-white/10 rounded-md text-[11px] text-white placeholder:text-slate-600 focus:outline-none focus:border-orange-500/50" />
+                      <input value={platformSearch} onChange={(e) => setPlatformSearch(e.target.value)} placeholder="Search platform…"
+                        className="w-40 px-2 py-1 bg-white/[0.04] border border-white/10 rounded-md text-[11px] text-white placeholder:text-slate-600 focus:outline-none focus:border-orange-500/50" />
                     </div>
-                    <div className="bg-black/30 border border-white/[0.06] rounded-xl p-2 max-h-[220px] overflow-y-auto [scrollbar-width:thin] [scrollbar-color:rgba(255,255,255,0.15)_transparent]">
+                    <div className="bg-black/30 border border-white/[0.06] rounded-xl p-2 max-h-[240px] overflow-y-auto [scrollbar-width:thin] [scrollbar-color:rgba(255,255,255,0.15)_transparent]">
                       <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5">
                         {PLATFORM_OPTIONS.filter((p) => !platformSearch.trim() || p.label.toLowerCase().includes(platformSearch.trim().toLowerCase())).map((p) => {
                           const active = notifPlatformIcon === p.id;
                           return (
                             <button key={p.id || "none"} type="button" onClick={() => setNotifPlatformIcon(p.id)}
-                              className={`group relative flex flex-col items-center justify-center gap-1 py-2.5 px-1.5 rounded-lg border transition-all ${active ? "bg-orange-500/10 border-orange-500/60 shadow-md shadow-orange-500/10" : "bg-white/[0.02] border-white/[0.05] hover:bg-white/[0.05] hover:border-white/15"}`}>
+                              className={`group relative flex flex-col items-center justify-center gap-1.5 py-2.5 px-1.5 rounded-lg border transition-all min-h-[74px] ${active ? "bg-orange-500/10 border-orange-500/60 shadow-md shadow-orange-500/10" : "bg-white/[0.02] border-white/[0.05] hover:bg-white/[0.05] hover:border-white/15"}`}>
                               <PlatformChipVisual id={p.id} size={30} />
-                              <span className={`text-[9.5px] font-medium text-center leading-tight ${active ? "text-white" : "text-slate-400 group-hover:text-slate-200"}`}>{p.label}</span>
+                              <span className={`text-[9.5px] font-medium text-center leading-tight px-0.5 line-clamp-2 ${active ? "text-white" : "text-slate-400 group-hover:text-slate-200"}`}>{p.label}</span>
                             </button>
                           );
                         })}
@@ -4358,6 +4366,7 @@ function AdminPanel() {
                       )}
                     </div>
                   </div>
+
 
 
                   {/* Toggles: Force Join + Audience */}
