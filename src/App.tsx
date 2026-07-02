@@ -1192,12 +1192,11 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
                       <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.7)] mt-1.5 flex-shrink-0" />
                     )}
                   </button>
-                  <div className="absolute right-3 top-1/2 -translate-y-1/2 hidden group-hover:flex gap-1">
-                    <button onClick={(e) => { e.stopPropagation(); handleSnooze(n.id, 24); }} className="p-1.5 rounded-md bg-black/40 text-zinc-400 hover:text-white" title="Snooze 24h"><Clock className="w-3.5 h-3.5" /></button>
-                    {!n.locked && (
+                  {!n.locked && (
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2 hidden group-hover:flex gap-1">
                       <button onClick={(e) => { e.stopPropagation(); handleDelete(n.id); }} className="p-1.5 rounded-md bg-black/40 text-zinc-400 hover:text-rose-300" title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </li>
               );
             })}
@@ -1251,9 +1250,6 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
             )}
           </div>
           <div className="mt-6 pt-4 border-t border-white/[0.05] flex gap-2">
-            <button onClick={() => handleSnooze(detail.id, 24)} className="flex-1 py-2 rounded-lg text-[12px] text-zinc-300 bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 transition-colors inline-flex items-center justify-center gap-1.5">
-              <Clock className="w-3.5 h-3.5" /> Snooze 24h
-            </button>
             {detail.locked ? (
               <div className="flex-1 py-2 rounded-lg text-[12px] text-zinc-500 bg-white/[0.02] border border-white/5 inline-flex items-center justify-center gap-1.5">
                 <Lock className="w-3.5 h-3.5" /> Locked by admin
