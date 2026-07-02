@@ -107,21 +107,18 @@ const PlatformChipVisual: React.FC<{ id: string; size?: number }> = ({ id, size 
   const p = PLATFORM_OPTIONS.find((x) => x.id === id);
   const bg = p?.color || "#7c3aed";
   const iconSize = Math.round(size * 0.55);
-  const icon = <PlatformIcon id={id} className="" />;
-  const hasIcon = React.isValidElement(icon) && icon.type !== undefined && (PlatformIcon as any)({ id }) !== null;
-  const inner = hasIcon ? (
-    <span className="flex items-center justify-center" style={{ width: iconSize, height: iconSize }}>
-      {React.cloneElement(icon as any, { style: { width: iconSize, height: iconSize } })}
-    </span>
-  ) : (
-    <span>{p?.mono || (p?.label?.[0] ?? "?")}</span>
-  );
+  const svgIcon = PlatformIcon({ id, className: "" });
   return (
     <div
       className="rounded-full flex items-center justify-center text-white shadow-md font-black leading-none shrink-0"
       style={{ width: size, height: size, background: bg, fontSize: Math.round(size * 0.38) }}
     >
-      {inner}
+      {svgIcon
+        ? React.cloneElement(svgIcon as React.ReactElement, {
+            style: { width: iconSize, height: iconSize },
+            className: "",
+          })
+        : (p?.mono || (p?.label?.[0] ?? "?"))}
     </div>
   );
 };
