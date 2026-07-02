@@ -4692,9 +4692,9 @@ function AdminPanel() {
                       const active = resolvePlatformOption(editingNotif.platform_icon).id === p.id;
                       return (
                         <button key={p.id || "none"} type="button" onClick={() => setEditingNotif({ ...editingNotif, platform_icon: p.id })}
-                          className={`flex flex-col items-center gap-1 py-2 rounded-lg border transition-all ${active ? "border-orange-500 bg-orange-50" : "border-slate-200 hover:border-slate-300"}`}>
-                          <PlatformChipVisual id={p.id} size={24} audit={platformLogoResults[p.id || "__custom"]} />
-                          <span className="text-[9px] font-medium text-slate-600">{p.label}</span>
+                          className={`flex flex-col items-center gap-1.5 py-2.5 px-1 rounded-lg border transition-all ${active ? "border-orange-500 bg-orange-50" : "border-slate-200 hover:border-slate-300"}`}>
+                          <PlatformChipVisual id={p.id} size={40} audit={platformLogoResults[p.id || "__custom"]} />
+                          <span className="text-[9px] font-medium text-slate-600 text-center leading-tight">{p.label}</span>
                         </button>
                       );
                     })}
