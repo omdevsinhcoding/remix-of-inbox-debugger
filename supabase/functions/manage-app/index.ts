@@ -760,7 +760,7 @@ Deno.serve(async (req) => {
       }
 
       // Keys that any authenticated user can read (with masked sensitive data)
-      const authenticatedKeys = ["primary_cloudflare_urls", "email_accounts", "recaptcha", "email_filters", "session_config"];
+      const authenticatedKeys = ["primary_cloudflare_urls", "email_accounts", "recaptcha", "email_filters", "session_config", "admin_session_config"];
       if (!session && authenticatedKeys.includes(key)) {
         session = await requireSession(req);
       }
