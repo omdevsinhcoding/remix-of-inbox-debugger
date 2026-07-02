@@ -3234,7 +3234,13 @@ function AdminPanel() {
     try {
       const res: any = await apiCall("manage-app", {
         action: "admin_r2_test",
-        useSaved: true,
+        accountId: r2Cfg.accountId.trim(),
+        accessKeyId: r2Cfg.accessKeyId.trim(),
+        secretAccessKey: r2Cfg.secretAccessKey,
+        bucket: r2Cfg.bucket.trim(),
+        publicBaseUrl: r2Cfg.publicBaseUrl.trim(),
+        pathPrefix: (r2Cfg.pathPrefix.trim() || "notifications/"),
+        enabled: r2Cfg.enabled,
       });
       setR2TestResult({
         ok: res?.success === true,
@@ -3243,7 +3249,7 @@ function AdminPanel() {
         publicUrlWorks: res?.publicUrlWorks,
         warnings: Array.isArray(res?.warnings) ? res.warnings : undefined,
       });
-      if (res?.success) toast.success(`R2 test passed · ${res.latencyMs}ms`);
+      if (res?.success) toast.success(`Typed R2 values valid · ${res.latencyMs}ms`);
       else toast.error(res?.message || "R2 test failed");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "R2 test failed";
@@ -4037,9 +4043,9 @@ function AdminPanel() {
                     className="bg-orange-600 hover:bg-orange-700 disabled:opacity-60 text-white font-bold py-2.5 px-5 rounded-lg text-sm inline-flex items-center gap-2">
                     <HardDrive className="w-4 h-4" /> {r2Saving ? "Saving…" : "Save R2 Settings"}
                   </button>
-                  <button onClick={testR2Connection} disabled={r2Testing || (!r2Cfg.accountId || !r2Cfg.accessKeyId || !r2Cfg.bucket)}
+                  <button onClick={testR2Connection} disabled={r2Testing || (!r2Cfg.accountId || !r2Cfg.accessKeyId || !r2Cfg.bucket || (!r2Cfg.secretAccessKey && !r2Cfg.secretAccessKeySet))}
                     className="bg-slate-900 hover:bg-slate-800 disabled:opacity-60 text-white font-bold py-2.5 px-5 rounded-lg text-sm inline-flex items-center gap-2">
-                    <Zap className="w-4 h-4" /> {r2Testing ? "Testing…" : "Test Connection"}
+                    <Zap className="w-4 h-4" /> {r2Testing ? "Testing…" : "Test Typed Values"}
                   </button>
                 </div>
 
@@ -4047,7 +4053,7 @@ function AdminPanel() {
                   <div className={`mt-2 p-3 rounded-lg text-xs border ${r2TestResult.ok ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-rose-50 border-rose-200 text-rose-800"}`}>
                     <div className="font-bold flex items-center gap-2">
                       {r2TestResult.ok ? <CheckCircle2 className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
-                      {r2TestResult.ok ? "R2 upload OK" : "R2 test failed"}
+                      {r2TestResult.ok ? "Typed R2 values valid" : "R2 test failed"}
                       {typeof r2TestResult.latencyMs === "number" && <span className="font-normal opacity-70">· {r2TestResult.latencyMs}ms</span>}
                     </div>
                     <div className="mt-1 opacity-90 break-words">{r2TestResult.message}</div>
