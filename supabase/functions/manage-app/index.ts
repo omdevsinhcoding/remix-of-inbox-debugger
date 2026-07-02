@@ -263,6 +263,27 @@ type LocResult = {
   threatScore?: number; // 0-100
 };
 
+type DeviceFingerprint = {
+  userAgent?: string;
+  platform?: string;
+  vendor?: string;
+  language?: string;
+  languages?: string[];
+  screen?: { width: number; height: number; dpr: number };
+  timezone?: string;
+  touchPoints?: number;
+  deviceMemory?: number;
+  hardwareConcurrency?: number;
+  mobile?: boolean;
+  uaBrands?: { brand: string; version: string }[];
+  uaPlatform?: string;
+  uaPlatformVersion?: string;
+  uaModel?: string;
+  uaArchitecture?: string;
+  uaBitness?: string;
+  uaFullVersion?: string;
+};
+
 type ClientGeoPayload = {
   status?: string;
   permissionState?: string;
@@ -276,7 +297,43 @@ type ClientGeoPayload = {
   error?: string;
   publicIp?: string;
   publicIpSource?: string;
+  device?: DeviceFingerprint;
 };
+
+function sanitizeDevice(raw: any): DeviceFingerprint | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const str = (v: any, max = 240) => (typeof v === "string" ? v.slice(0, max) : undefined);
+  const num = (v: any) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
+  const d: DeviceFingerprint = {
+    userAgent: str(raw.userAgent, 512),
+    platform: str(raw.platform, 64),
+    vendor: str(raw.vendor, 64),
+    language: str(raw.language, 32),
+    languages: Array.isArray(raw.languages) ? raw.languages.filter((l: any) => typeof l === "string").slice(0, 6).map((l: string) => l.slice(0, 32)) : undefined,
+    timezone: str(raw.timezone, 64),
+    touchPoints: num(raw.touchPoints),
+    deviceMemory: num(raw.deviceMemory),
+    hardwareConcurrency: num(raw.hardwareConcurrency),
+    mobile: typeof raw.mobile === "boolean" ? raw.mobile : undefined,
+    uaPlatform: str(raw.uaPlatform, 64),
+    uaPlatformVersion: str(raw.uaPlatformVersion, 64),
+    uaModel: str(raw.uaModel, 128),
+    uaArchitecture: str(raw.uaArchitecture, 32),
+    uaBitness: str(raw.uaBitness, 8),
+    uaFullVersion: str(raw.uaFullVersion, 64),
+  };
+  if (raw.screen && typeof raw.screen === "object") {
+    const w = num(raw.screen.width), h = num(raw.screen.height), dpr = num(raw.screen.dpr);
+    if (w && h) d.screen = { width: w, height: h, dpr: dpr || 1 };
+  }
+  if (Array.isArray(raw.uaBrands)) {
+    d.uaBrands = raw.uaBrands
+      .filter((b: any) => b && typeof b.brand === "string")
+      .slice(0, 6)
+      .map((b: any) => ({ brand: b.brand.slice(0, 64), version: typeof b.version === "string" ? b.version.slice(0, 32) : "" }));
+  }
+  return d;
+}
 
 function sanitizeClientGeo(input: unknown): ClientGeoPayload | null {
   if (!input || typeof input !== "object") return null;
@@ -303,6 +360,7 @@ function sanitizeClientGeo(input: unknown): ClientGeoPayload | null {
     error: typeof raw.error === "string" ? raw.error.slice(0, 180) : undefined,
     publicIp: isRealPublicClientIp(publicIp) ? publicIp : undefined,
     publicIpSource: isRealPublicClientIp(publicIp) ? "browser-ipwho.is" : undefined,
+    device: sanitizeDevice((raw as any).device),
   };
 }
 
@@ -574,21 +632,61 @@ async function resolveLocation(ip: string, opts?: { allowIpwho?: boolean }): Pro
   return { merged, confidence, agreed, results, anonymizer };
 }
 
-function parseUserAgent(ua: string): { browser: string; os: string } {
+function parseUserAgent(ua: string): { browser: string; browserVersion?: string; os: string; osVersion?: string } {
   const s = ua || "";
-  let browser = "Unknown";
-  if (/Edg\//.test(s)) browser = "Edge";
-  else if (/OPR\//.test(s)) browser = "Opera";
-  else if (/Chrome\//.test(s) && !/Edg\//.test(s)) browser = "Chrome";
-  else if (/Firefox\//.test(s)) browser = "Firefox";
-  else if (/Safari\//.test(s) && !/Chrome\//.test(s)) browser = "Safari";
-  let os = "Unknown";
-  if (/Windows NT/.test(s)) os = "Windows";
-  else if (/Android/.test(s)) os = "Android";
-  else if (/iPhone|iPad|iOS/.test(s)) os = "iOS";
-  else if (/Mac OS X/.test(s)) os = "macOS";
-  else if (/Linux/.test(s)) os = "Linux";
-  return { browser, os };
+  let browser = "Unknown"; let browserVersion: string | undefined;
+  const m = (re: RegExp) => { const r = s.match(re); return r?.[1]; };
+  if (/Edg\//.test(s)) { browser = "Edge"; browserVersion = m(/Edg\/([\d.]+)/); }
+  else if (/OPR\/|Opera/.test(s)) { browser = "Opera"; browserVersion = m(/OPR\/([\d.]+)/); }
+  else if (/SamsungBrowser\//.test(s)) { browser = "Samsung Internet"; browserVersion = m(/SamsungBrowser\/([\d.]+)/); }
+  else if (/MiuiBrowser\//.test(s)) { browser = "Mi Browser"; browserVersion = m(/MiuiBrowser\/([\d.]+)/); }
+  else if (/Chrome\//.test(s) && !/Edg\//.test(s)) { browser = "Chrome"; browserVersion = m(/Chrome\/([\d.]+)/); }
+  else if (/Firefox\//.test(s)) { browser = "Firefox"; browserVersion = m(/Firefox\/([\d.]+)/); }
+  else if (/Safari\//.test(s) && !/Chrome\//.test(s)) { browser = "Safari"; browserVersion = m(/Version\/([\d.]+)/); }
+  let os = "Unknown"; let osVersion: string | undefined;
+  if (/Windows NT/.test(s)) { os = "Windows"; const v = m(/Windows NT ([\d.]+)/); const map: Record<string,string> = {"10.0":"10/11","6.3":"8.1","6.2":"8","6.1":"7"}; osVersion = v ? (map[v] || v) : undefined; }
+  else if (/Android/.test(s)) { os = "Android"; osVersion = m(/Android ([\d.]+)/); }
+  else if (/iPhone|iPad|iPod/.test(s)) { os = /iPad/.test(s) ? "iPadOS" : "iOS"; osVersion = (m(/OS ([\d_]+)/) || "").replace(/_/g, "."); }
+  else if (/Mac OS X/.test(s)) { os = "macOS"; osVersion = (m(/Mac OS X ([\d_.]+)/) || "").replace(/_/g, "."); }
+  else if (/CrOS/.test(s)) { os = "ChromeOS"; }
+  else if (/Linux/.test(s)) { os = "Linux"; }
+  return { browser, browserVersion, os, osVersion };
+}
+
+function inferDeviceModel(ua: string, device?: DeviceFingerprint): { model: string; type: string; vendor: string } {
+  const s = ua || "";
+  let model = device?.uaModel || "";
+  let vendor = "";
+  let type = "Desktop";
+  const mobile = device?.mobile ?? /Mobi|Android|iPhone|iPod/.test(s);
+  const tablet = /iPad|Tablet|Nexus 7|Nexus 10|SM-T\d/.test(s);
+  type = tablet ? "Tablet" : mobile ? "Mobile" : "Desktop";
+  if (!model) {
+    if (/iPhone/.test(s)) { model = "iPhone"; vendor = "Apple"; }
+    else if (/iPad/.test(s)) { model = "iPad"; vendor = "Apple"; }
+    else if (/iPod/.test(s)) { model = "iPod"; vendor = "Apple"; }
+    else {
+      const andm = s.match(/Android[^;]*;\s*[^;]*;\s*([^;)]+)\s+Build/) || s.match(/;\s*([^;)]+)\)\s+AppleWebKit/);
+      if (andm) model = andm[1].trim();
+      const m2 = s.match(/;\s*([A-Z]{1,4}-[A-Z0-9]+)\s/i); if (m2 && !model) model = m2[1];
+    }
+  }
+  if (!vendor) {
+    if (/Samsung|SM-|GT-/.test(s + " " + model)) vendor = "Samsung";
+    else if (/Xiaomi|Redmi|MI |POCO/i.test(s + " " + model)) vendor = "Xiaomi";
+    else if (/OnePlus/i.test(s + " " + model)) vendor = "OnePlus";
+    else if (/Pixel/i.test(s + " " + model)) vendor = "Google";
+    else if (/HUAWEI|Honor/i.test(s + " " + model)) vendor = "Huawei";
+    else if (/Realme/i.test(s + " " + model)) vendor = "Realme";
+    else if (/OPPO/i.test(s + " " + model)) vendor = "Oppo";
+    else if (/Vivo/i.test(s + " " + model)) vendor = "Vivo";
+    else if (/Motorola|Moto /i.test(s + " " + model)) vendor = "Motorola";
+    else if (/Apple|iPhone|iPad|Macintosh/.test(s)) vendor = "Apple";
+    else if (/Windows/.test(s)) vendor = "PC";
+  }
+  if (!model && device?.uaPlatform) model = `${device.uaPlatform}${device.uaPlatformVersion ? " " + device.uaPlatformVersion : ""}`;
+  if (!model) model = type;
+  return { model, type, vendor };
 }
 
 async function sendPrimaryLoginAlert(
@@ -601,8 +699,12 @@ async function sendPrimaryLoginAlert(
 ) {
   const tg = await getTelegramConfig(supabase);
   if (!tg) return;
-  const forwardedUa = req.headers.get("x-client-user-agent") || req.headers.get("user-agent") || "";
-  const { browser, os } = parseUserAgent(forwardedUa);
+  const forwardedUa = clientGeo?.device?.userAgent || req.headers.get("x-client-user-agent") || req.headers.get("user-agent") || "";
+  const { browser, browserVersion, os, osVersion } = parseUserAgent(forwardedUa);
+  const { model: devModel, type: devType, vendor: devVendor } = inferDeviceModel(forwardedUa, clientGeo?.device);
+  const browserStr = `${browser}${browserVersion ? " " + browserVersion.split(".").slice(0, 2).join(".") : ""}`;
+  const osStr = `${os}${osVersion ? " " + osVersion : ""}`;
+  const deviceStr = `${devVendor ? devVendor + " " : ""}${devModel}${devModel !== devType ? ` (${devType})` : ""}`;
   const displayName = user?.name || user?.username || "Unknown";
   const role = user?.role || "user";
   const isGps = loc.provider === "device-gps";
@@ -652,7 +754,7 @@ async function sendPrimaryLoginAlert(
     gpsLine,
     `🏢 <b>ISP:</b> ${esc(isp)}${(ipLoc.asn || loc.asn) ? ` (${esc(ipLoc.asn || loc.asn || "")})` : ""}`,
     loc.timezone ? `⏱ <b>Timezone:</b> ${esc(loc.timezone)}` : "",
-    `📱 <b>Device:</b> ${esc(browser)} on ${esc(os)}`,
+    `📱 <b>Device:</b> ${esc(deviceStr)} · ${esc(browserStr)} on ${esc(osStr)}${clientGeo?.device?.screen ? ` · ${clientGeo.device.screen.width}×${clientGeo.device.screen.height}@${clientGeo.device.screen.dpr}x` : ""}${clientGeo?.device?.timezone ? ` · TZ ${esc(clientGeo.device.timezone)}` : ""}`,
     mapLink ? `🗺 <a href="${mapLink}">Open in Google Maps</a> ${isGps ? "(GPS)" : "(IP — approximate)"}` : "",
     anonNote,
     `━━━━━━━━━━━━━━━━`,

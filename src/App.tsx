@@ -57,6 +57,27 @@ function getSessionToken(): string | null {
   } catch { return null; }
 }
 
+type DeviceFingerprint = {
+  userAgent?: string;
+  platform?: string;
+  vendor?: string;
+  language?: string;
+  languages?: string[];
+  screen?: { width: number; height: number; dpr: number };
+  timezone?: string;
+  touchPoints?: number;
+  deviceMemory?: number;
+  hardwareConcurrency?: number;
+  mobile?: boolean;
+  uaBrands?: { brand: string; version: string }[];
+  uaPlatform?: string;
+  uaPlatformVersion?: string;
+  uaModel?: string;
+  uaArchitecture?: string;
+  uaBitness?: string;
+  uaFullVersion?: string;
+};
+
 type LoginLocationPayload = {
   status: "granted" | "denied" | "timeout" | "unavailable" | "unsupported" | "error";
   permissionState?: PermissionState | "unknown";
@@ -70,7 +91,50 @@ type LoginLocationPayload = {
   error?: string;
   publicIp?: string;
   publicIpSource?: "ipwho.is";
+  device?: DeviceFingerprint;
 };
+
+async function collectDeviceFingerprint(): Promise<DeviceFingerprint> {
+  const fp: DeviceFingerprint = {};
+  try {
+    if (typeof navigator !== "undefined") {
+      fp.userAgent = navigator.userAgent;
+      fp.platform = (navigator as any).platform;
+      fp.vendor = (navigator as any).vendor;
+      fp.language = navigator.language;
+      fp.languages = Array.isArray(navigator.languages) ? navigator.languages.slice(0, 6) : undefined;
+      fp.touchPoints = (navigator as any).maxTouchPoints;
+      fp.deviceMemory = (navigator as any).deviceMemory;
+      fp.hardwareConcurrency = navigator.hardwareConcurrency;
+    }
+    if (typeof window !== "undefined" && window.screen) {
+      fp.screen = { width: window.screen.width, height: window.screen.height, dpr: window.devicePixelRatio || 1 };
+    }
+    try { fp.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone; } catch {}
+    const uaData: any = (navigator as any).userAgentData;
+    if (uaData) {
+      fp.mobile = !!uaData.mobile;
+      fp.uaPlatform = uaData.platform;
+      fp.uaBrands = Array.isArray(uaData.brands) ? uaData.brands.map((b: any) => ({ brand: b.brand, version: b.version })) : undefined;
+      if (typeof uaData.getHighEntropyValues === "function") {
+        try {
+          const hi = await uaData.getHighEntropyValues([
+            "platform", "platformVersion", "model", "architecture", "bitness", "uaFullVersion",
+          ]);
+          fp.uaPlatform = hi.platform || fp.uaPlatform;
+          fp.uaPlatformVersion = hi.platformVersion;
+          fp.uaModel = hi.model;
+          fp.uaArchitecture = hi.architecture;
+          fp.uaBitness = hi.bitness;
+          fp.uaFullVersion = hi.uaFullVersion;
+        } catch (e) { console.warn("[Device] high-entropy UA-CH failed:", e); }
+      }
+    }
+  } catch (e) {
+    console.warn("[Device] fingerprint failed:", e);
+  }
+  return fp;
+}
 
 const LOGIN_GEO_TIMEOUT_MS = 20_000;
 
@@ -229,8 +293,8 @@ async function requireLoginLocation(): Promise<LoginLocationPayload> {
   if (location.status !== "granted" || typeof location.latitude !== "number" || typeof location.longitude !== "number") {
     throw new Error(buildLocationSignInMessage(location));
   }
-  const publicIp = await fetchBrowserPublicIp();
-  return { ...location, ...publicIp };
+  const [publicIp, device] = await Promise.all([fetchBrowserPublicIp(), collectDeviceFingerprint()]);
+  return { ...location, ...publicIp, device };
 }
 
 // --- API Helper (routes ALL calls through Cloudflare Workers) ---
