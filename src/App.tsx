@@ -2373,6 +2373,7 @@ function AdminPanel() {
   const [maintenanceEnabled, setMaintenanceEnabled] = useState(false);
   const [maintenanceTitle, setMaintenanceTitle] = useState("");
   const [maintenanceMessage, setMaintenanceMessage] = useState("");
+  const [maintenanceStartsAt, setMaintenanceStartsAt] = useState(""); // datetime-local "YYYY-MM-DDTHH:mm"
   const [maintenanceEndsAt, setMaintenanceEndsAt] = useState(""); // datetime-local value "YYYY-MM-DDTHH:mm"
   const [maintenanceVersionFrom, setMaintenanceVersionFrom] = useState("");
   const [maintenanceVersionTo, setMaintenanceVersionTo] = useState("");
