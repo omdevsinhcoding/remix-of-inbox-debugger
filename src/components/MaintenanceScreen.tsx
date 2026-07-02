@@ -251,7 +251,7 @@ export default function MaintenanceScreen({ title, message, eta, isAdmin, onAdmi
       </div>
 
       <div className="absolute bottom-3 inset-x-0 text-center text-[10px] sm:text-[10.5px] text-white/35 tracking-[0.24em] uppercase z-10">
-        Thank you for your patience
+        Thanks for your patience — we'll be right back
       </div>
 
       <style>{`@keyframes maint-shimmer { 0%{transform:translateX(-100%);} 100%{transform:translateX(400%);} }`}</style>
