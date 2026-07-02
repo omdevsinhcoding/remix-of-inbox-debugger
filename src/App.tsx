@@ -5231,13 +5231,17 @@ function EmailViewer() {
   };
 
   // Load cached emails immediately on mount — local first, no blocking blank screen.
+  // Session timer starts only AFTER the first inbox load resolves, so users
+  // never lose seconds waiting for emails to appear.
   useEffect(() => {
     let cancelled = false;
     showLocalCacheNow();
     setLoading(false);
 
     loadCachedEmails().finally(() => {
-      if (!cancelled) setLoading(false);
+      if (cancelled) return;
+      setLoading(false);
+      if (!localStorage.getItem("session_started_at")) markSessionStart();
     });
 
     const pollInterval = setInterval(() => {
