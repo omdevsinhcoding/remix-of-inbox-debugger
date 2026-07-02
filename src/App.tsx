@@ -1130,6 +1130,7 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search notifications"
+              aria-label="Search notifications"
               className="w-full pl-9 pr-3 py-2 rounded-xl text-[12.5px] bg-white/[0.04] border border-white/[0.06] text-white placeholder:text-zinc-500 focus:outline-none focus:border-white/20"
             />
           </div>
@@ -1909,6 +1910,7 @@ function ProfileSelectPage() {
                   value={profileSearch}
                   onChange={(e) => setProfileSearch(e.target.value)}
                   placeholder="Search profiles"
+                  aria-label="Search profiles"
                   className="w-full bg-[#1f1f1f] border border-neutral-800 text-white text-sm rounded-md pl-10 pr-10 py-2.5 outline-none focus:border-neutral-500 placeholder:text-neutral-500"
                 />
                 {profileSearch && (
@@ -2463,7 +2465,7 @@ function LoginEventsPanel() {
           Login Events <span className="text-xs font-normal text-slate-500">({events.length})</span>
         </h2>
         <input value={search} onChange={e => setSearch(e.target.value)} onKeyDown={e => e.key === "Enter" && load()}
-          placeholder="Search user/IP/city/ISP…" className="border rounded-lg px-3 py-1.5 text-sm w-48" />
+          placeholder="Search user/IP/city/ISP…" aria-label="Search login events" className="border rounded-lg px-3 py-1.5 text-sm w-48" />
         <select value={riskFilter} onChange={e => { setRiskFilter(e.target.value); }} className="border rounded-lg px-2 py-1.5 text-sm">
           <option value="">All risks</option><option value="safe">Safe</option><option value="medium">Medium</option><option value="high">High</option><option value="critical">Critical</option>
         </select>
@@ -2604,7 +2606,7 @@ function AllEmailsPanel() {
           All Emails <span className="text-xs font-normal text-slate-500">({total})</span>
         </h2>
         <input value={search} onChange={e => setSearch(e.target.value)} onKeyDown={e => e.key === "Enter" && load(0)}
-          placeholder="Search subject / from / to / OTP…" className="border rounded-lg px-3 py-1.5 text-sm w-56 text-slate-900" />
+          placeholder="Search subject / from / to / OTP…" aria-label="Search all emails" className="border rounded-lg px-3 py-1.5 text-sm w-56 text-slate-900" />
         <select value={accountLabel} onChange={e => setAccountLabel(e.target.value)} className="border rounded-lg px-2 py-1.5 text-sm text-slate-900">
           <option value="">All accounts</option>
           {labels.map(l => <option key={l} value={l}>{l}</option>)}
