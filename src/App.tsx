@@ -2922,6 +2922,9 @@ function AdminPanel() {
   const [notifShowFrequency, setNotifShowFrequency] = useState<"once" | "always" | "session" | "daily">("once");
   const [notifMode, setNotifMode] = useState<"popup" | "silent" | "banner">("popup");
   const [sendingNotif, setSendingNotif] = useState(false);
+  const [editingNotif, setEditingNotif] = useState<any | null>(null);
+  const [savingEditNotif, setSavingEditNotif] = useState(false);
+
 
   // R2 storage config
   type R2Cfg = { accountId: string; accessKeyId: string; secretAccessKey: string; bucket: string; publicBaseUrl: string; pathPrefix: string; enabled: boolean; secretAccessKeySet: boolean };
@@ -3485,6 +3488,53 @@ function AdminPanel() {
       toast.success("Deleted");
     } catch (err) { toast.error(err instanceof Error ? err.message : "Failed"); }
   };
+
+  const saveEditNotif = async () => {
+    if (!editingNotif) return;
+    const e = editingNotif;
+    if (!e.title?.trim() || !e.body?.trim()) { toast.error("Title and message required"); return; }
+    setSavingEditNotif(true);
+    try {
+      await apiCall("manage-app", {
+        action: "admin_update_notification",
+        id: e.id,
+        title: e.title.trim(),
+        body: e.body.trim(),
+        action_url: e.action_url?.trim() || null,
+        platform_icon: e.platform_icon || null,
+        locked: !!e.locked,
+        priority: e.priority || "normal",
+        audience: e.audience || "all",
+        target_user_id: e.audience === "user" ? (e.target_user_id || null) : null,
+      });
+      toast.success("Updated");
+      setEditingNotif(null);
+      await reloadAdminNotifs();
+    } catch (err) { toast.error(err instanceof Error ? err.message : "Failed"); }
+    finally { setSavingEditNotif(false); }
+  };
+
+  const duplicateToComposer = (n: any) => {
+    setNotifTitle(n.title || "");
+    setNotifBody(n.body || "");
+    setNotifDescription(n.description || "");
+    setNotifImageUrl(n.image_url || "");
+    setNotifActionUrl(n.action_url || "");
+    setNotifActionLabel(n.action_label || "");
+    setNotifPlatformIcon(n.platform_icon || "");
+    setNotifLocked(!!n.locked);
+    setNotifCategory(n.category || "announcement");
+    setNotifPriority(n.priority || "normal");
+    setNotifAudience(n.audience || "all");
+    setNotifTargetUser(n.target_user_id || "");
+    setNotifShowFrequency(n.show_frequency || "once");
+    setNotifMode(n.mode || "popup");
+    toast.success("Copied to composer — edit and publish as new");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+
+
 
   const adminClearInbox = async () => {
     if (inboxMode === "all" && inboxConfirm !== "DELETE ALL") {
@@ -4336,27 +4386,53 @@ function AdminPanel() {
               </section>
 
               <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
-                <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
-                  <div className="bg-slate-100 p-1.5 rounded-lg"><MessageSquare className="w-4 h-4 text-slate-700" /></div>
-                  Past Notifications
-                </h2>
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="font-black text-base sm:text-lg flex items-center gap-2">
+                    <div className="bg-slate-100 p-1.5 rounded-lg"><MessageSquare className="w-4 h-4 text-slate-700" /></div>
+                    Past Notifications
+                    <span className="text-[11px] font-semibold text-slate-400">({adminNotifs.length})</span>
+                  </h2>
+                  <button onClick={reloadAdminNotifs} className="text-[11px] font-semibold text-slate-500 hover:text-slate-900 flex items-center gap-1">
+                    <RefreshCw className="w-3 h-3" /> Refresh
+                  </button>
+                </div>
                 <div className="space-y-2 max-h-[60vh] overflow-y-auto">
                   {adminNotifs.length === 0 && <p className="text-sm text-slate-500">No notifications yet.</p>}
                   {adminNotifs.map((n) => (
-                    <div key={n.id} className="border rounded-lg p-3 flex items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          {n.locked && <Lock className="w-3 h-3 text-slate-500" />}
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-700 capitalize">{n.category || "announcement"}</span>
-                          <span className={`w-1.5 h-1.5 rounded-full ${n.priority === "critical" ? "bg-rose-500" : n.priority === "high" ? "bg-amber-500" : n.priority === "normal" ? "bg-sky-500" : "bg-zinc-400"}`} />
+                    <div key={n.id} className="border rounded-xl p-3 hover:border-slate-300 transition-colors group">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 mb-1 flex-wrap">
+                            {n.platform_icon ? (
+                              <div className="w-5 h-5 rounded-full flex items-center justify-center text-white" style={{ background: PLATFORM_OPTIONS.find(p => p.id === n.platform_icon)?.color || "#7c3aed" }}>
+                                <PlatformIcon id={n.platform_icon} className="w-3 h-3" />
+                              </div>
+                            ) : null}
+                            {n.locked && <span className="inline-flex items-center gap-1 text-[9.5px] px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 font-semibold"><Lock className="w-2.5 h-2.5" />Locked</span>}
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-700 capitalize">{n.category || "announcement"}</span>
+                            <span className={`inline-flex items-center gap-1 text-[10px] font-semibold capitalize ${n.priority === "critical" ? "text-rose-600" : n.priority === "high" ? "text-amber-600" : n.priority === "normal" ? "text-sky-600" : "text-zinc-500"}`}>
+                              <span className={`w-1.5 h-1.5 rounded-full ${n.priority === "critical" ? "bg-rose-500" : n.priority === "high" ? "bg-amber-500" : n.priority === "normal" ? "bg-sky-500" : "bg-zinc-400"}`} />
+                              {n.priority || "low"}
+                            </span>
+                          </div>
+                          <p className="font-bold text-sm text-slate-900 truncate">{n.title}</p>
+                          <p className="text-xs text-slate-600 line-clamp-2">{n.body}</p>
+                          <p className="text-[11px] text-slate-400 mt-1">
+                            {n.audience === "all" ? "All users" : "Specific"} • Seen {n.seenCount || 0} · Read {n.readCount || 0} · Clicked {n.clickCount || 0} / {n.totalRecipients || 0}
+                          </p>
                         </div>
-                        <p className="font-bold text-sm text-slate-900 truncate">{n.title}</p>
-                        <p className="text-xs text-slate-600 line-clamp-2">{n.body}</p>
-                        <p className="text-[11px] text-slate-400 mt-1">
-                          {n.audience === "all" ? "All users" : "Specific"} • Delivered {n.seenCount || 0} · Read {n.readCount || 0} · Clicked {n.clickCount || 0} / {n.totalRecipients || 0}
-                        </p>
                       </div>
-                      <button onClick={() => deleteNotification(n.id)} className="text-red-600 hover:text-red-700 text-xs font-bold flex-shrink-0">Delete</button>
+                      <div className="flex items-center gap-1 mt-2 pt-2 border-t border-slate-100 opacity-60 group-hover:opacity-100 transition-opacity">
+                        <button onClick={() => setEditingNotif({ ...n })} className="flex-1 px-2 py-1.5 rounded-md text-[11px] font-semibold text-slate-700 hover:bg-slate-100 flex items-center justify-center gap-1">
+                          <Edit className="w-3 h-3" /> Edit
+                        </button>
+                        <button onClick={() => duplicateToComposer(n)} className="flex-1 px-2 py-1.5 rounded-md text-[11px] font-semibold text-slate-700 hover:bg-slate-100 flex items-center justify-center gap-1">
+                          <Copy className="w-3 h-3" /> Duplicate
+                        </button>
+                        <button onClick={() => deleteNotification(n.id)} className="flex-1 px-2 py-1.5 rounded-md text-[11px] font-semibold text-red-600 hover:bg-red-50 flex items-center justify-center gap-1">
+                          <Trash2 className="w-3 h-3" /> Delete
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -4364,6 +4440,88 @@ function AdminPanel() {
             </div>
           </div>
         )}
+
+        {editingNotif && createPortal(
+          <div className="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => !savingEditNotif && setEditingNotif(null)}>
+            <div className="bg-white rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-2xl" onClick={(e) => e.stopPropagation()}>
+              <div className="p-5 border-b flex items-center justify-between">
+                <h3 className="font-black text-base flex items-center gap-2 text-slate-900"><Edit className="w-4 h-4" /> Edit Notification</h3>
+                <button onClick={() => setEditingNotif(null)} className="text-slate-400 hover:text-slate-900" disabled={savingEditNotif}><X className="w-5 h-5" /></button>
+              </div>
+              <div className="p-5 space-y-3">
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1 block">Title</label>
+                  <input value={editingNotif.title || ""} onChange={(e) => setEditingNotif({ ...editingNotif, title: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900" />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1 block">Message</label>
+                  <textarea value={editingNotif.body || ""} onChange={(e) => setEditingNotif({ ...editingNotif, body: e.target.value })} rows={3}
+                    className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900" />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1 block">Link URL</label>
+                  <input value={editingNotif.action_url || ""} onChange={(e) => setEditingNotif({ ...editingNotif, action_url: e.target.value })} placeholder="https://…"
+                    className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900" />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1.5 block">Platform / Icon</label>
+                  <div className="grid grid-cols-5 gap-1.5">
+                    {PLATFORM_OPTIONS.map((p) => {
+                      const active = (editingNotif.platform_icon || "") === p.id;
+                      return (
+                        <button key={p.id || "none"} type="button" onClick={() => setEditingNotif({ ...editingNotif, platform_icon: p.id })}
+                          className={`flex flex-col items-center gap-1 py-2 rounded-lg border transition-all ${active ? "border-orange-500 bg-orange-50" : "border-slate-200 hover:border-slate-300"}`}>
+                          <div className="w-6 h-6 rounded-full flex items-center justify-center text-white" style={{ background: p.color }}>
+                            <PlatformIcon id={p.id} className="w-3 h-3" />
+                          </div>
+                          <span className="text-[9px] font-medium text-slate-600">{p.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1 block">Priority</label>
+                    <select value={editingNotif.priority || "normal"} onChange={(e) => setEditingNotif({ ...editingNotif, priority: e.target.value })}
+                      className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900 capitalize">
+                      {["low","normal","high","critical"].map(p => <option key={p} value={p} className="capitalize">{p}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1 block">Audience</label>
+                    <select value={editingNotif.audience || "all"} onChange={(e) => setEditingNotif({ ...editingNotif, audience: e.target.value })}
+                      className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900">
+                      <option value="all">All users</option>
+                      <option value="user">Specific user</option>
+                    </select>
+                  </div>
+                </div>
+                {editingNotif.audience === "user" && (
+                  <select value={editingNotif.target_user_id || ""} onChange={(e) => setEditingNotif({ ...editingNotif, target_user_id: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900">
+                    <option value="">— select user —</option>
+                    {users.map((u) => <option key={u.id} value={u.id}>{u.name || u.username}</option>)}
+                  </select>
+                )}
+                <label className="flex items-center gap-2 text-sm text-slate-800">
+                  <input type="checkbox" checked={!!editingNotif.locked} onChange={(e) => setEditingNotif({ ...editingNotif, locked: e.target.checked })} />
+                  <Lock className="w-3.5 h-3.5" /> Force Join (locked — user can't dismiss)
+                </label>
+              </div>
+              <div className="p-5 border-t flex items-center gap-2 bg-slate-50 rounded-b-2xl">
+                <button onClick={() => setEditingNotif(null)} disabled={savingEditNotif} className="flex-1 px-4 py-2.5 rounded-lg border border-slate-300 text-sm font-semibold text-slate-700 hover:bg-white">Cancel</button>
+                <button onClick={saveEditNotif} disabled={savingEditNotif} className="flex-1 px-4 py-2.5 rounded-lg bg-slate-900 text-white text-sm font-bold hover:bg-slate-800 disabled:opacity-60">
+                  {savingEditNotif ? "Saving…" : "Save changes"}
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
+
+
 
 
 
