@@ -4258,10 +4258,36 @@ function AdminPanel() {
                     className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900" />
                 </div>
 
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1 block">Show frequency</label>
+                    <select value={notifShowFrequency} onChange={(e) => setNotifShowFrequency(e.target.value as any)}
+                      className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900">
+                      <option value="once">Once (dismiss forever)</option>
+                      <option value="session">Every session</option>
+                      <option value="daily">Once per day</option>
+                      <option value="always">Always until read</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1 block">Delivery mode</label>
+                    <select value={notifMode} onChange={(e) => setNotifMode(e.target.value as any)}
+                      className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900">
+                      <option value="popup">Popup (auto-open)</option>
+                      <option value="banner">Banner (top strip)</option>
+                      <option value="silent">Silent (bell only)</option>
+                    </select>
+                  </div>
+                </div>
+
                 <div className="flex flex-wrap gap-4 items-center text-sm">
                   <label className="flex items-center gap-2 text-slate-800">
                     <input type="checkbox" checked={notifPinned} onChange={(e) => setNotifPinned(e.target.checked)} />
                     <Pin className="w-3.5 h-3.5" /> Pin to top
+                  </label>
+                  <label className="flex items-center gap-2 text-slate-800" title="Users cannot dismiss or delete a locked notification">
+                    <input type="checkbox" checked={notifLocked} onChange={(e) => setNotifLocked(e.target.checked)} />
+                    <Lock className="w-3.5 h-3.5" /> Locked
                   </label>
                   <label className="flex items-center gap-2 text-slate-800">
                     <input type="radio" checked={notifAudience === "all"} onChange={() => setNotifAudience("all")} /> All users
