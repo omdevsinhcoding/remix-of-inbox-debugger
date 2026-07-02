@@ -1082,9 +1082,9 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
           >
             {detail ? "Notification" : "Notifications"}
           </h3>
-          {!detail && items.filter((n) => !n.read && !n.archived).length > 0 && (
+          {!detail && items.filter((n) => !n.read).length > 0 && (
             <span className="text-[10.5px] font-medium text-rose-300/90 tracking-wider uppercase">
-              {items.filter((n) => !n.read && !n.archived).length} new
+              {items.filter((n) => !n.read).length} new
             </span>
           )}
         </div>
