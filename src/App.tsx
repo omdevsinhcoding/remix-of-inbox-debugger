@@ -2549,6 +2549,34 @@ function AdminPanel() {
     }
   };
 
+  const saveMaintenance = async (nextEnabled?: boolean) => {
+    const enabled = typeof nextEnabled === "boolean" ? nextEnabled : maintenanceEnabled;
+    setSavingMaintenance(true);
+    try {
+      await apiCall("manage-app", {
+        action: "set_settings",
+        key: "maintenance",
+        value: {
+          enabled,
+          title: maintenanceTitle.trim(),
+          message: maintenanceMessage.trim(),
+          eta: maintenanceEta.trim(),
+          updated_at: new Date().toISOString(),
+        },
+      });
+      setMaintenanceEnabled(enabled);
+      try { await refreshBootstrap(); } catch {}
+      window.dispatchEvent(new Event("maintenance:changed"));
+      toast.success(enabled ? "Maintenance mode is ON" : "Maintenance mode is OFF");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save maintenance settings");
+    } finally {
+      setSavingMaintenance(false);
+    }
+  };
+
+
+
 
   const toggleCaptcha = async () => {
     try {
