@@ -236,6 +236,100 @@ function esc(s: string): string {
   return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+function cleanR2Text(value: any): string {
+  return typeof value === "string"
+    ? value.replace(/[\u200B-\u200D\uFEFF]/g, "").trim()
+    : "";
+}
+
+function normalizeR2AccessKeyId(value: any): { value: string; warnings: string[]; error?: string } {
+  const warnings: string[] = [];
+  const original = cleanR2Text(value).replace(/\s+/g, "");
+  let normalized = original;
+  if (/[Oo]/.test(normalized)) {
+    normalized = normalized.replace(/[Oo]/g, "0");
+    warnings.push("Access Key ID contained letter O; Cloudflare R2 S3 keys use zero 0, so it was normalized.");
+  }
+  if (/[A-F]/.test(normalized)) {
+    normalized = normalized.toLowerCase();
+    warnings.push("Access Key ID was normalized to lowercase.");
+  }
+  if (normalized && !/^[a-f0-9]{32}$/.test(normalized)) {
+    return {
+      value: normalized,
+      warnings,
+      error: "Access Key ID looks invalid. Use the 32-character R2 S3 Access Key ID from Cloudflare R2 → Manage R2 API Tokens.",
+    };
+  }
+  return { value: normalized, warnings };
+}
+
+function normalizeR2Config(raw: any, previousSecret = "") {
+  const warnings: string[] = [];
+  const errors: string[] = [];
+  const accountId = cleanR2Text(raw?.accountId).replace(/\s+/g, "").toLowerCase();
+  if (accountId && !/^[a-f0-9]{32}$/.test(accountId)) {
+    errors.push("Account ID must be the 32-character Cloudflare Account ID, not a Zone ID.");
+  }
+
+  const access = normalizeR2AccessKeyId(raw?.accessKeyId);
+  warnings.push(...access.warnings);
+  if (access.error) errors.push(access.error);
+
+  const secretAccessKey = (cleanR2Text(raw?.secretAccessKey).replace(/\s+/g, "") || previousSecret || "");
+  if (secretAccessKey && !/^[a-f0-9]{64}$/i.test(secretAccessKey)) {
+    warnings.push("Secret Access Key does not look like Cloudflare's 64-character R2 S3 secret. If test fails, recreate the R2 API token.");
+  }
+
+  const bucket = cleanR2Text(raw?.bucket).replace(/^\/+|\/+$/g, "");
+  if (bucket && !/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(bucket)) {
+    errors.push("Bucket name looks invalid. Use the exact R2 bucket name, case-sensitive, without slashes.");
+  }
+
+  const publicBaseUrl = cleanR2Text(raw?.publicBaseUrl).replace(/\s+/g, "").replace(/\/+$/, "");
+  if (publicBaseUrl && !/^https:\/\//i.test(publicBaseUrl)) {
+    warnings.push("Public Base URL should start with https:// for browser image loading.");
+  }
+
+  let pathPrefix = cleanR2Text(raw?.pathPrefix) || "notifications/";
+  pathPrefix = pathPrefix.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+/g, "/");
+  if (pathPrefix && !pathPrefix.endsWith("/")) pathPrefix += "/";
+
+  return {
+    config: {
+      accountId,
+      accessKeyId: access.value,
+      secretAccessKey,
+      bucket,
+      publicBaseUrl,
+      pathPrefix: pathPrefix || "notifications/",
+      enabled: raw?.enabled === true,
+    },
+    warnings,
+    errors,
+  };
+}
+
+function r2FailureMessage(status: number, body: string, warnings: string[]): string {
+  const compactBody = body.replace(/\s+/g, " ").trim().slice(0, 220);
+  if (status === 401) {
+    return [
+      `PUT 401 Unauthorized from Cloudflare R2.`,
+      "This means R2 rejected the Access Key ID / Secret Access Key / Account ID combination before upload.",
+      warnings.length ? `Note: ${warnings.join(" ")}` : "",
+      compactBody ? `Cloudflare response: ${compactBody}` : "",
+    ].filter(Boolean).join(" ");
+  }
+  if (status === 403) {
+    return [
+      `PUT 403 Forbidden from Cloudflare R2.`,
+      "The token is valid but does not have Object Read & Write permission for this bucket.",
+      compactBody ? `Cloudflare response: ${compactBody}` : "",
+    ].filter(Boolean).join(" ");
+  }
+  return `PUT ${status}: ${compactBody}`;
+}
+
 async function getTelegramConfig(supabase: any): Promise<{ botToken: string; chatId: string } | null> {
   try {
     const { data } = await supabase.from("app_settings").select("value").eq("key", "config").single();
