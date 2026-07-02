@@ -748,86 +748,73 @@ function NotificationBell({ userLabel, userAvatarUrl }: { userLabel?: string; us
               onClick={() => setOpen(false)}
             />
             <motion.div
-              initial={{ opacity: 0, y: 24, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 24, scale: 0.98 }}
-              transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
-              className="fixed inset-0 z-50 flex flex-col bg-[#141414] text-zinc-50 shadow-2xl sm:absolute sm:inset-auto sm:right-0 sm:top-full sm:mt-3 sm:w-[420px] sm:max-h-[76vh] sm:rounded-2xl sm:border sm:border-zinc-700/60 sm:overflow-hidden"
+              initial={{ opacity: 0, y: "100%" }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: "100%" }}
+              transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
+              className="fixed inset-x-0 bottom-0 z-50 flex max-h-[88vh] flex-col overflow-hidden rounded-t-[26px] bg-[#141414] text-zinc-50 shadow-[0_-24px_60px_rgba(0,0,0,0.6)] ring-1 ring-white/5 sm:absolute sm:inset-auto sm:right-0 sm:top-full sm:mt-3 sm:w-[420px] sm:max-h-[76vh] sm:rounded-2xl sm:border sm:border-zinc-700/60 sm:ring-0 sm:shadow-2xl"
             >
-              <div className="shrink-0 px-4 pt-[calc(env(safe-area-inset-top)+14px)] pb-4 sm:pt-4 bg-[linear-gradient(180deg,#232323_0%,#171717_100%)] border-b border-zinc-800">
+              {/* Drag handle (mobile only) */}
+              <div className="sm:hidden pt-2 pb-1 flex justify-center bg-[#141414]">
+                <span className="h-1.5 w-10 rounded-full bg-zinc-700" />
+              </div>
+
+              {/* Header with profile strip */}
+              <div className="shrink-0 px-4 pt-3 pb-4 sm:pt-4 bg-[linear-gradient(180deg,#1f1f1f_0%,#141414_100%)] border-b border-zinc-800">
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-3 min-w-0">
-                    <div className="relative grid h-11 w-11 place-items-center rounded-2xl bg-red-600 shadow-[0_12px_30px_rgba(220,38,38,0.32)]">
-                      <Bell className="w-5 h-5 text-white" strokeWidth={2.4} />
-                      {unread > 0 && <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full bg-white ring-4 ring-red-600" />}
-                    </div>
+                    {userAvatarUrl ? (
+                      <img
+                        src={userAvatarUrl}
+                        alt=""
+                        className="h-11 w-11 rounded-xl object-cover ring-2 ring-red-600/70 shadow-[0_8px_24px_rgba(220,38,38,0.25)]"
+                      />
+                    ) : (
+                      <div className="relative grid h-11 w-11 place-items-center rounded-xl bg-red-600 shadow-[0_10px_28px_rgba(220,38,38,0.32)]">
+                        <Bell className="w-5 h-5 text-white" strokeWidth={2.4} />
+                      </div>
+                    )}
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
-                        <h3 className="font-black text-[20px] leading-none tracking-tight text-zinc-50">Updates</h3>
-                        {unread > 0 && <span className="rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-black text-white">{unread} NEW</span>}
+                        <h3 className="font-black text-[18px] leading-none tracking-tight text-zinc-50">Notifications</h3>
+                        {unread > 0 && <span className="rounded-md bg-red-600 px-1.5 py-0.5 text-[10px] font-black text-white leading-none">{unread}</span>}
                       </div>
-                      <p className="mt-1 text-xs font-medium text-zinc-400 truncate">
-                        {unread > 0 ? "New message delivered to this profile" : "No pending messages"}
+                      <p className="mt-1.5 text-[11.5px] font-semibold text-zinc-400 truncate">
+                        {userLabel ? userLabel : "Your profile"}{unread > 0 ? ` • ${unread} new` : " • all caught up"}
                       </p>
                     </div>
                   </div>
                   <button
                     onClick={() => setOpen(false)}
-                    className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-zinc-900 text-zinc-300 border border-zinc-700 active:scale-95 hover:text-white"
+                    className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-zinc-900 text-zinc-300 border border-zinc-700 active:scale-95 hover:text-white"
                     aria-label="Close notifications"
-                    title="Close"
                   >
-                    <X className="h-5 w-5" />
+                    <X className="h-4.5 w-4.5" />
                   </button>
-                </div>
-
-                <div className="mt-4 grid grid-cols-[1fr_auto] gap-2">
-                  <div className="flex rounded-full bg-zinc-950/70 p-1 ring-1 ring-zinc-700/70">
-                    {(["all", "unread"] as const).map((k) => (
-                      <button
-                        key={k}
-                        onClick={() => setFilter(k)}
-                        className={`flex-1 rounded-full px-3 py-2 text-xs font-black transition-all ${
-                          filter === k
-                            ? "bg-zinc-100 text-zinc-950 shadow-sm"
-                            : "text-zinc-400 hover:text-zinc-100"
-                        }`}
-                      >
-                        {k === "all" ? `All ${items.length}` : `Unread ${unread}`}
-                      </button>
-                    ))}
-                  </div>
-                  {items.length > 0 && unread > 0 && (
-                    <button
-                      onClick={handleMarkAll}
-                      className="rounded-full border border-red-500/40 bg-red-600/15 px-3 text-xs font-black text-red-200 active:scale-95"
-                    >
-                      Clear
-                    </button>
-                  )}
                 </div>
               </div>
 
-              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-[#111111] px-3 py-3 pb-[calc(env(safe-area-inset-bottom)+16px)] sm:pb-3">
+              {/* List */}
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-[#0f0f0f] px-3 py-3">
                 {loading && items.length === 0 && (
-                  <div className="py-20 text-center text-zinc-400 text-sm font-semibold">
+                  <div className="py-16 text-center text-zinc-400 text-sm font-semibold">
                     <div className="w-7 h-7 mx-auto mb-3 border-2 border-red-600 border-t-transparent rounded-full animate-spin" />
                     Checking updates…
                   </div>
                 )}
                 {!loading && visibleItems.length === 0 && (
-                  <div className="flex min-h-[58vh] flex-col items-center justify-center px-6 text-center sm:min-h-[300px]">
+                  <div className="flex min-h-[42vh] flex-col items-center justify-center px-6 text-center">
                     <div className="relative mb-5">
-                      <div className="absolute inset-0 rounded-full bg-red-600/20 blur-2xl" />
-                      <div className="relative grid h-20 w-20 place-items-center rounded-[28px] bg-[#202020] ring-1 ring-zinc-700 shadow-[0_20px_60px_rgba(0,0,0,0.45)]">
-                        <Bell className="w-9 h-9 text-zinc-500" strokeWidth={1.8} />
+                      <div className="absolute inset-0 rounded-full bg-red-600/15 blur-2xl" />
+                      <div className="relative grid h-18 w-18 h-[72px] w-[72px] place-items-center rounded-3xl bg-[#1c1c1c] ring-1 ring-zinc-700">
+                        <Bell className="w-8 h-8 text-zinc-500" strokeWidth={1.8} />
                       </div>
                     </div>
-                    <p className="text-zinc-50 text-lg font-black tracking-tight">
-                      {filter === "unread" ? "No unread notifications" : "All caught up"}
+                    <p className="text-zinc-50 text-base font-black tracking-tight">
+                      {filter === "unread" ? "No unread notifications" : "You're all caught up"}
                     </p>
-                    <p className="text-zinc-500 text-sm mt-1 max-w-[220px] leading-relaxed">
-                      {filter === "unread" ? "You've read everything." : "No notifications right now."}
+                    <p className="text-zinc-500 text-xs mt-1 max-w-[240px] leading-relaxed">
+                      {filter === "unread" ? "Everything has been read." : "New updates from admins appear here."}
                     </p>
                   </div>
                 )}
@@ -838,28 +825,26 @@ function NotificationBell({ userLabel, userAvatarUrl }: { userLabel?: string; us
                     onClick={() => !n.read && handleMarkRead(n.id)}
                     className={`relative w-full text-left rounded-2xl border p-4 transition-all flex gap-3 group active:scale-[0.99] ${
                       !n.read
-                        ? "border-red-500/35 bg-[#1b1b1b] shadow-[0_14px_40px_rgba(0,0,0,0.28)]"
-                        : "border-zinc-800 bg-[#181818] hover:bg-[#1d1d1d]"
+                        ? "border-red-500/30 bg-[#1a1a1a] shadow-[0_10px_30px_rgba(0,0,0,0.35)]"
+                        : "border-zinc-800 bg-[#171717] hover:bg-[#1c1c1c]"
                     }`}
                   >
                     {!n.read && (
                       <span className="absolute right-4 top-4 h-2.5 w-2.5 rounded-full bg-red-600 shadow-[0_0_0_4px_rgba(220,38,38,0.14)]" />
                     )}
                     <div className="flex-shrink-0 mt-0.5">
-                      <div className={`w-10 h-10 rounded-2xl flex items-center justify-center ring-1 ${
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center ring-1 ${
                         !n.read
-                          ? "bg-red-600 ring-red-400/30 shadow-md shadow-red-950/40"
+                          ? "bg-red-600 ring-red-400/30"
                           : "bg-zinc-900 ring-zinc-700/70"
                       }`}>
                         <MessageSquare className={`w-4.5 h-4.5 ${!n.read ? "text-white" : "text-zinc-500"}`} strokeWidth={2.2} />
                       </div>
                     </div>
                     <div className="min-w-0 flex-1 pr-3">
-                      <div className="flex items-start gap-2 min-w-0">
-                        <p className={`font-black text-[14.5px] leading-snug flex-1 break-words ${!n.read ? "text-zinc-50" : "text-zinc-300"}`}>
-                          {n.title}
-                        </p>
-                      </div>
+                      <p className={`font-black text-[14.5px] leading-snug break-words ${!n.read ? "text-zinc-50" : "text-zinc-300"}`}>
+                        {n.title}
+                      </p>
                       <p className={`text-[13px] mt-1.5 line-clamp-4 whitespace-pre-wrap leading-relaxed break-words ${!n.read ? "text-zinc-300" : "text-zinc-500"}`}>
                         {n.body}
                       </p>
@@ -872,13 +857,33 @@ function NotificationBell({ userLabel, userAvatarUrl }: { userLabel?: string; us
                 </div>
               </div>
 
-              {items.length > 0 && (
-                <div className="hidden sm:block px-4 py-2.5 bg-[#151515] border-t border-zinc-800 text-center">
-                  <p className="text-[10.5px] text-zinc-600 font-bold tracking-wide">
-                    Tap a notification to mark as read
-                  </p>
+              {/* Sticky action bar */}
+              <div className="shrink-0 border-t border-zinc-800 bg-[#141414] px-3 pt-3 pb-[calc(env(safe-area-inset-bottom)+12px)] sm:pb-3">
+                <div className="flex items-center gap-2">
+                  <div className="flex flex-1 rounded-full bg-[#0b0b0b] p-1 ring-1 ring-zinc-800">
+                    {(["all", "unread"] as const).map((k) => (
+                      <button
+                        key={k}
+                        onClick={() => setFilter(k)}
+                        className={`flex-1 rounded-full px-3 py-2 text-[11.5px] font-black transition-all ${
+                          filter === k
+                            ? "bg-zinc-100 text-zinc-950"
+                            : "text-zinc-400 hover:text-zinc-100"
+                        }`}
+                      >
+                        {k === "all" ? `All ${items.length}` : `Unread ${unread}`}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    onClick={handleMarkAll}
+                    disabled={unread === 0}
+                    className="rounded-full bg-red-600 px-4 py-2 text-[11.5px] font-black text-white shadow-[0_8px_20px_rgba(220,38,38,0.35)] active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    Mark all read
+                  </button>
                 </div>
-              )}
+              </div>
             </motion.div>
           </>
         )}
