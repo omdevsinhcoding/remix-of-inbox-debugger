@@ -65,28 +65,39 @@ type LoginLocationPayload = {
   error?: string;
 };
 
-const LOGIN_GEO_TIMEOUT_MS = 24_000;
-const LOGIN_GEO_TARGET_ACCURACY_M = 120;
+const LOGIN_GEO_TIMEOUT_MS = 20_000;
 
 function buildLocationSignInMessage(location: LoginLocationPayload): string {
   if (location.status === "denied" || location.permissionState === "denied") {
-    return "Location is blocked. Allow location for this site in browser settings, then try again.";
+    return "GPS permission denied. Allow location for this site in browser settings, then try again.";
   }
   if (location.status === "unsupported") {
-    return "This browser/device does not support GPS location. Use Chrome with location services enabled.";
+    return "This browser/device does not support GPS location. Use Chrome/Firefox with location services enabled.";
   }
   if (location.status === "timeout") {
-    return "Location permission is already allowed, but your phone did not return a GPS fix. Turn on device Location/Precise Location and try again.";
+    return "GPS request timed out. Enable device Location/Precise Location and try again.";
   }
   if (location.status === "unavailable") {
-    return "Location is allowed, but GPS is unavailable right now. Turn on device Location/Precise Location and move near an open signal.";
+    return `Device GPS is unavailable right now (${location.error || "position unavailable"}). Turn on device Location and try again.`;
   }
-  return "Could not read device GPS coordinates. VPN/IP location is not accepted.";
+  if (location.status === "error") {
+    return `GPS error: ${location.error || "unknown error"}.`;
+  }
+  return `Could not read device GPS coordinates (${location.error || "unknown"}).`;
 }
 
 async function collectLoginLocation(): Promise<LoginLocationPayload> {
+  console.log("[GPS] === collectLoginLocation called ===");
+  console.log("[GPS] Secure context (HTTPS):", typeof window !== "undefined" ? window.isSecureContext : "n/a");
+  console.log("[GPS] Origin:", typeof window !== "undefined" ? window.location.origin : "n/a");
+
   if (typeof window === "undefined" || typeof navigator === "undefined" || !navigator.geolocation) {
+    console.error("[GPS] navigator.geolocation NOT AVAILABLE");
     return { status: "unsupported", permissionState: "unknown", error: "Geolocation is not supported on this device." };
+  }
+  if (!window.isSecureContext) {
+    console.error("[GPS] Not a secure context — geolocation blocked.");
+    return { status: "error", permissionState: "unknown", error: "HTTPS is required for GPS." };
   }
 
   let permissionState: LoginLocationPayload["permissionState"] = "unknown";
@@ -94,64 +105,68 @@ async function collectLoginLocation(): Promise<LoginLocationPayload> {
     if (navigator.permissions?.query) {
       const permission = await navigator.permissions.query({ name: "geolocation" as PermissionName });
       permissionState = permission.state;
+      console.log("[GPS] Permission state:", permission.state);
       if (permission.state === "denied") {
         return { status: "denied", permissionState, error: "Location permission is blocked in the browser." };
       }
+    } else {
+      console.log("[GPS] navigator.permissions.query not available — proceeding anyway.");
     }
-  } catch {}
+  } catch (e) {
+    console.warn("[GPS] permissions.query threw:", e);
+  }
+
+  console.log("[GPS] GPS request started (enableHighAccuracy=true, timeout=20000, maximumAge=0)");
+  const startedAt = Date.now();
 
   return await new Promise<LoginLocationPayload>((resolve) => {
     let settled = false;
-    let watchId: number | null = null;
-    let bestPosition: GeolocationPosition | null = null;
     const finish = (payload: LoginLocationPayload) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      if (watchId !== null) {
-        try { navigator.geolocation.clearWatch(watchId); } catch {}
-      }
+      const elapsed = Date.now() - startedAt;
+      console.log(`[GPS] finish (${elapsed}ms):`, payload);
       resolve({ permissionState, ...payload });
     };
-    const finishWithPosition = (pos: GeolocationPosition) => finish({
-      status: "granted",
-      latitude: pos.coords.latitude,
-      longitude: pos.coords.longitude,
-      accuracy: pos.coords.accuracy,
-      altitude: pos.coords.altitude,
-      heading: pos.coords.heading,
-      speed: pos.coords.speed,
-      timestamp: pos.timestamp,
-    });
-    const rememberPosition = (pos: GeolocationPosition) => {
-      if (!bestPosition || pos.coords.accuracy < bestPosition.coords.accuracy) bestPosition = pos;
-      if (pos.coords.accuracy <= LOGIN_GEO_TARGET_ACCURACY_M) finishWithPosition(pos);
+    const onSuccess = (pos: GeolocationPosition) => {
+      console.log("[GPS] GPS success");
+      console.log("[GPS] Latitude:", pos.coords.latitude);
+      console.log("[GPS] Longitude:", pos.coords.longitude);
+      console.log("[GPS] Accuracy (m):", pos.coords.accuracy);
+      console.log("[GPS] Timestamp:", pos.timestamp, new Date(pos.timestamp).toISOString());
+      finish({
+        status: "granted",
+        latitude: pos.coords.latitude,
+        longitude: pos.coords.longitude,
+        accuracy: pos.coords.accuracy,
+        altitude: pos.coords.altitude,
+        heading: pos.coords.heading,
+        speed: pos.coords.speed,
+        timestamp: pos.timestamp,
+      });
+    };
+    const onError = (err: GeolocationPositionError) => {
+      console.error("[GPS] GPS error code:", err.code, "message:", err.message);
+      let status: LoginLocationPayload["status"] = "error";
+      if (err.code === err.PERMISSION_DENIED) status = "denied";
+      else if (err.code === err.POSITION_UNAVAILABLE) status = "unavailable";
+      else if (err.code === err.TIMEOUT) status = "timeout";
+      finish({ status, error: err.message || `code ${err.code}` });
     };
     const timer = window.setTimeout(() => {
-      if (bestPosition) finishWithPosition(bestPosition);
-      else finish({ status: "timeout", error: "GPS fix timed out after permission was allowed." });
+      console.warn("[GPS] Wall-clock timeout hit (20s)");
+      finish({ status: "timeout", error: "GPS fix timed out." });
     }, LOGIN_GEO_TIMEOUT_MS);
 
     try {
-      watchId = navigator.geolocation.watchPosition(
-        rememberPosition,
-        (err) => {
-          if (bestPosition && err.code !== err.PERMISSION_DENIED) return;
-          const status = err.code === err.PERMISSION_DENIED ? "denied" : err.code === err.TIMEOUT ? "timeout" : "unavailable";
-          finish({ status, error: err.message || "Could not get device location." });
-        },
-        { enableHighAccuracy: true, timeout: LOGIN_GEO_TIMEOUT_MS - 2_000, maximumAge: 0 },
-      );
-      navigator.geolocation.getCurrentPosition(
-        rememberPosition,
-        (err) => {
-          if (bestPosition || settled) return;
-          const status = err.code === err.PERMISSION_DENIED ? "denied" : err.code === err.TIMEOUT ? "timeout" : "unavailable";
-          finish({ status, error: err.message || "Could not get device location." });
-        },
-        { enableHighAccuracy: true, timeout: LOGIN_GEO_TIMEOUT_MS - 4_000, maximumAge: 0 },
-      );
+      navigator.geolocation.getCurrentPosition(onSuccess, onError, {
+        enableHighAccuracy: true,
+        timeout: LOGIN_GEO_TIMEOUT_MS,
+        maximumAge: 0,
+      });
     } catch (err: any) {
+      console.error("[GPS] getCurrentPosition threw:", err);
       finish({ status: "error", error: err?.message || "Could not start location request." });
     }
   });
@@ -159,6 +174,15 @@ async function collectLoginLocation(): Promise<LoginLocationPayload> {
 
 async function requireLoginLocation(): Promise<LoginLocationPayload> {
   const location = await collectLoginLocation();
+  console.log("[GPS] Outgoing clientGeo payload:", {
+    status: location.status,
+    latitude: location.latitude,
+    longitude: location.longitude,
+    accuracy: location.accuracy,
+    timestamp: location.timestamp,
+    permissionState: location.permissionState,
+    error: location.error,
+  });
   if (location.status !== "granted" || typeof location.latitude !== "number" || typeof location.longitude !== "number") {
     throw new Error(buildLocationSignInMessage(location));
   }
