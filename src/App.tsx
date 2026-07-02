@@ -1,6 +1,6 @@
 import React, { useState, useEffect, createContext, useContext, useCallback, useRef, useMemo, Suspense, lazy } from "react";
 import { createPortal } from "react-dom";
-import { Mail, RefreshCw, ShieldCheck, Shield, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, BarChart3, Globe, Edit, Database, Wifi, Info, UserCircle, Search, ChevronLeft, ChevronRight, Bell, Send, MessageSquare, Image as ImageIcon, ExternalLink, AlertTriangle, Sparkles, Megaphone, Wrench, CreditCard, Tag, ChevronDown, HardDrive, Upload, Zap } from "lucide-react";
+import { Mail, RefreshCw, ShieldCheck, Shield, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, BarChart3, Globe, Edit, Database, Wifi, Info, UserCircle, Search, ChevronLeft, ChevronRight, Bell, Send, MessageSquare, Image as ImageIcon, ExternalLink, AlertTriangle, Sparkles, Megaphone, Wrench, CreditCard, Tag, ChevronDown, HardDrive, Upload, Zap, BookOpen, GraduationCap, Film, PlayCircle } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import NetflixHouseholdVerificationGuide from "./pages/NetflixHouseholdVerificationGuide";
@@ -17,17 +17,63 @@ const ReCAPTCHA = lazy(() => import("react-google-recaptcha"));
 const QRCodeSVG = lazy(() => import("qrcode.react").then((m) => ({ default: m.QRCodeSVG })));
 
 // --- Admin composer: platform / icon options + brand SVG icons ---
-type PlatformOption = { id: string; label: string; color: string };
+type PlatformOption = { id: string; label: string; color: string; mono?: string };
 const PLATFORM_OPTIONS: PlatformOption[] = [
-  { id: "telegram",  label: "Telegram",     color: "#229ED9" },
-  { id: "whatsapp",  label: "WhatsApp",     color: "#25D366" },
-  { id: "youtube",   label: "YouTube",      color: "#FF0000" },
-  { id: "instagram", label: "Instagram",    color: "linear-gradient(135deg,#f58529,#dd2a7b,#8134af)" },
-  { id: "discord",   label: "Discord",      color: "#5865F2" },
-  { id: "twitter",   label: "Twitter / X",  color: "#000000" },
-  { id: "facebook",  label: "Facebook",     color: "#1877F2" },
-  { id: "linkedin",  label: "LinkedIn",     color: "#0A66C2" },
-  { id: "",          label: "Custom / Bell", color: "#7c3aed" },
+  // Social / messaging
+  { id: "telegram",     label: "Telegram",     color: "#229ED9" },
+  { id: "whatsapp",     label: "WhatsApp",     color: "#25D366" },
+  { id: "youtube",      label: "YouTube",      color: "#FF0000" },
+  { id: "instagram",    label: "Instagram",    color: "linear-gradient(135deg,#f58529,#dd2a7b,#8134af)" },
+  { id: "discord",      label: "Discord",      color: "#5865F2" },
+  { id: "twitter",      label: "Twitter / X",  color: "#000000" },
+  { id: "facebook",     label: "Facebook",     color: "#1877F2" },
+  { id: "linkedin",     label: "LinkedIn",     color: "#0A66C2" },
+  // OTT India
+  { id: "netflix",      label: "Netflix",         color: "#E50914", mono: "N" },
+  { id: "prime",        label: "Prime Video",     color: "#00A8E1", mono: "P" },
+  { id: "hotstar",      label: "Disney+ Hotstar", color: "#1F1F49", mono: "H" },
+  { id: "jiohotstar",   label: "JioHotstar",      color: "#0F1E7A", mono: "JH" },
+  { id: "sonyliv",      label: "Sony LIV",        color: "#000000", mono: "SL" },
+  { id: "zee5",         label: "ZEE5",            color: "#8226C0", mono: "Z5" },
+  { id: "jiocinema",    label: "JioCinema",       color: "#E60023", mono: "JC" },
+  { id: "mxplayer",     label: "MX Player",       color: "#F7B500", mono: "MX" },
+  { id: "minitv",       label: "Amazon miniTV",   color: "#FF9900", mono: "mT" },
+  { id: "appletv",      label: "Apple TV+",       color: "#000000" },
+  { id: "lionsgate",    label: "Lionsgate Play",  color: "#B48538", mono: "LP" },
+  { id: "discoveryplus",label: "Discovery+",      color: "#1976FF", mono: "D+" },
+  { id: "sunnxt",       label: "Sun NXT",         color: "#F25022", mono: "S" },
+  { id: "aha",          label: "Aha",             color: "#FF6A00", mono: "अ" },
+  { id: "chaupal",      label: "Chaupal",         color: "#F02728", mono: "C" },
+  { id: "hoichoi",      label: "Hoichoi",         color: "#E7263C", mono: "H" },
+  { id: "manoramamax",  label: "ManoramaMAX",     color: "#0057A8", mono: "M" },
+  { id: "erosnow",      label: "Eros Now",        color: "#ED1C24", mono: "E" },
+  { id: "mubi",         label: "MUBI",            color: "#000000", mono: "M" },
+  { id: "shemaroome",   label: "ShemarooMe",      color: "#E63A2F", mono: "Sh" },
+  { id: "docubay",      label: "DocuBay",         color: "#00B5AD", mono: "DB" },
+  { id: "epicon",       label: "EPIC ON",         color: "#FFB300", mono: "E" },
+  { id: "planetmarathi",label: "Planet Marathi",  color: "#F26522", mono: "PM" },
+  { id: "stage",        label: "Stage",           color: "#F2C230", mono: "St" },
+  { id: "nammaflix",    label: "NammaFlix",       color: "#B30000", mono: "NF" },
+  { id: "klikk",        label: "Klikk",           color: "#7B1FA2", mono: "K" },
+  { id: "simplysouth",  label: "Simply South",    color: "#00695C", mono: "SS" },
+  { id: "tentkotta",    label: "Tentkotta",       color: "#D32F2F", mono: "TK" },
+  { id: "ytpremium",    label: "YouTube Premium", color: "#0F0F0F", mono: "YT" },
+  // Fallback
+  { id: "",             label: "Custom / Bell",   color: "#7c3aed" },
+];
+
+// --- Notification templates (guided types) ---
+type TemplateOption = { id: string; label: string; color: string; hint: string };
+const TEMPLATE_OPTIONS: TemplateOption[] = [
+  { id: "tutorial",     label: "Tutorial",       color: "#3B82F6", hint: "Step-by-step teaching" },
+  { id: "howto",        label: "How to use",     color: "#8B5CF6", hint: "Quick usage guide" },
+  { id: "new_movie",    label: "New Movie",      color: "#E50914", hint: "New title on Netflix/Prime" },
+  { id: "new_episode",  label: "New Episode",    color: "#EC4899", hint: "Fresh episode drop" },
+  { id: "update",       label: "Update",         color: "#10B981", hint: "App/feature update" },
+  { id: "announcement", label: "Announcement",   color: "#F59E0B", hint: "General announcement" },
+  { id: "promo",        label: "Promo / Offer",  color: "#F97316", hint: "Discount or deal" },
+  { id: "alert",        label: "Alert",          color: "#EF4444", hint: "Important warning" },
+  { id: "event",        label: "Live Event",     color: "#06B6D4", hint: "Match/premiere/live" },
 ];
 
 const PlatformIcon: React.FC<{ id: string; className?: string }> = ({ id, className = "w-4 h-4" }) => {
@@ -38,6 +84,7 @@ const PlatformIcon: React.FC<{ id: string; className?: string }> = ({ id, classN
     case "whatsapp":
       return (<svg viewBox="0 0 24 24" fill={c} className={className}><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.611-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.095 3.2 5.076 4.487.709.306 1.263.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347zM12 22C6.477 22 2 17.523 2 12S6.477 2 12 2s10 4.477 10 10a9.96 9.96 0 01-1.588 5.393L22 22l-4.72-1.24A9.96 9.96 0 0112 22z"/></svg>);
     case "youtube":
+    case "ytpremium":
       return (<svg viewBox="0 0 24 24" fill={c} className={className}><path d="M23.498 6.186a3.016 3.016 0 00-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 00.502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 002.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 002.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>);
     case "instagram":
       return (<svg viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" className={className}><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1" fill={c}/></svg>);
@@ -49,8 +96,39 @@ const PlatformIcon: React.FC<{ id: string; className?: string }> = ({ id, classN
       return (<svg viewBox="0 0 24 24" fill={c} className={className}><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>);
     case "linkedin":
       return (<svg viewBox="0 0 24 24" fill={c} className={className}><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.063 2.063 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>);
+    case "appletv":
+      return (<svg viewBox="0 0 24 24" fill={c} className={className}><path d="M17.05 12.04c-.02-2.34 1.91-3.46 2-3.52-1.09-1.6-2.79-1.82-3.4-1.85-1.45-.15-2.83.85-3.56.85-.74 0-1.87-.83-3.08-.81-1.58.02-3.04.92-3.86 2.34-1.65 2.85-.42 7.07 1.18 9.39.78 1.13 1.71 2.4 2.92 2.36 1.17-.05 1.62-.76 3.03-.76 1.42 0 1.81.76 3.05.73 1.26-.02 2.06-1.15 2.83-2.29.89-1.31 1.26-2.59 1.28-2.66-.03-.01-2.45-.94-2.47-3.72zM14.72 5.25c.65-.79 1.09-1.88.97-2.97-.94.04-2.08.63-2.75 1.41-.6.69-1.13 1.8-.99 2.87 1.05.08 2.12-.53 2.77-1.31z"/></svg>);
     default:
-      return (<Bell className={className} />);
+      return null; // monogram rendered by chip wrapper
+  }
+};
+
+const PlatformChipVisual: React.FC<{ id: string; size?: number }> = ({ id, size = 32 }) => {
+  const p = PLATFORM_OPTIONS.find((x) => x.id === id);
+  const bg = p?.color || "#7c3aed";
+  const iconSize = Math.round(size * 0.5);
+  const iconClass = `w-[${iconSize}px] h-[${iconSize}px]`;
+  const icon = <PlatformIcon id={id} className={iconClass} />;
+  return (
+    <div className="rounded-full flex items-center justify-center text-white shadow-md font-black leading-none" style={{ width: size, height: size, background: bg, fontSize: Math.round(size * 0.4) }}>
+      {icon ?? (p?.mono || (p?.label?.[0] ?? "?"))}
+    </div>
+  );
+};
+
+// Template icon (lucide)
+const TemplateIcon: React.FC<{ id: string; className?: string }> = ({ id, className = "w-4 h-4" }) => {
+  switch (id) {
+    case "tutorial":     return <BookOpen className={className} />;
+    case "howto":        return <GraduationCap className={className} />;
+    case "new_movie":    return <Film className={className} />;
+    case "new_episode":  return <PlayCircle className={className} />;
+    case "update":       return <Sparkles className={className} />;
+    case "announcement": return <Megaphone className={className} />;
+    case "promo":        return <Tag className={className} />;
+    case "alert":        return <AlertTriangle className={className} />;
+    case "event":        return <Zap className={className} />;
+    default:             return <Bell className={className} />;
   }
 };
 
@@ -2918,6 +2996,8 @@ function AdminPanel() {
   const [notifTargetUser, setNotifTargetUser] = useState<string>("");
   const [notifExpiresDays, setNotifExpiresDays] = useState<string>("");
   const [notifPlatformIcon, setNotifPlatformIcon] = useState<string>("");
+  const [notifTemplate, setNotifTemplate] = useState<string>("");
+  const [platformSearch, setPlatformSearch] = useState("");
   const [notifLocked, setNotifLocked] = useState(false);
   const [notifShowFrequency, setNotifShowFrequency] = useState<"once" | "always" | "session" | "daily">("once");
   const [notifMode, setNotifMode] = useState<"popup" | "silent" | "banner">("popup");
@@ -3461,6 +3541,7 @@ function AdminPanel() {
         mode: notifMode,
         show_frequency: notifShowFrequency,
         platform_icon: notifPlatformIcon || null,
+        sub_kind: notifTemplate || null,
         locked: notifLocked,
         action_url: notifActionUrl.trim() || null,
         action_label: notifActionLabel.trim() || null,
@@ -3471,7 +3552,7 @@ function AdminPanel() {
       toast.success("🔔 Notification sent");
       setNotifTitle(""); setNotifBody(""); setNotifDescription(""); setNotifImageUrl("");
       setNotifActionUrl(""); setNotifActionLabel("");
-      setNotifExpiresDays(""); setNotifPlatformIcon("");
+      setNotifExpiresDays(""); setNotifPlatformIcon(""); setNotifTemplate("");
       setNotifLocked(false);
       await reloadAdminNotifs();
     } catch (err) {
@@ -4226,24 +4307,58 @@ function AdminPanel() {
                       className="w-full px-3.5 py-2.5 bg-white/[0.04] border border-white/10 rounded-xl text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-orange-500/50 focus:bg-white/[0.06] transition-all resize-none" />
                   </div>
 
-                  {/* Platform / Icon */}
+                  {/* Notification Template (guided type) */}
                   <div>
-                    <label className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500 mb-2 block">Platform / Icon</label>
-                    <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
-                      {PLATFORM_OPTIONS.map((p) => {
-                        const active = notifPlatformIcon === p.id;
+
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">Notification Type</label>
+                      {notifTemplate && (
+                        <button type="button" onClick={() => setNotifTemplate("")} className="text-[10px] text-slate-500 hover:text-orange-400">Clear</button>
+                      )}
+                    </div>
+                    <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 [scrollbar-width:thin]">
+                      {TEMPLATE_OPTIONS.map((t) => {
+                        const active = notifTemplate === t.id;
                         return (
-                          <button key={p.id || "none"} type="button" onClick={() => setNotifPlatformIcon(p.id)}
-                            className={`group relative flex flex-col items-center justify-center gap-1.5 py-3 px-2 rounded-xl border transition-all ${active ? "bg-orange-500/10 border-orange-500/60 shadow-lg shadow-orange-500/10" : "bg-white/[0.02] border-white/[0.06] hover:bg-white/[0.05] hover:border-white/15"}`}>
-                            <div className="w-8 h-8 rounded-full flex items-center justify-center text-white shadow-md" style={{ background: p.color }}>
-                              <PlatformIcon id={p.id} className="w-4 h-4" />
+                          <button key={t.id} type="button" onClick={() => setNotifTemplate(t.id)} title={t.hint}
+                            className={`shrink-0 flex items-center gap-2 px-3 py-2 rounded-xl border transition-all ${active ? "border-orange-500/60 shadow-lg shadow-orange-500/10" : "border-white/10 hover:border-white/25"}`}
+                            style={active ? { background: `linear-gradient(135deg, ${t.color}22, ${t.color}0d)` } : { background: "rgba(255,255,255,0.02)" }}>
+                            <div className="w-7 h-7 rounded-lg flex items-center justify-center text-white" style={{ background: t.color }}>
+                              <TemplateIcon id={t.id} className="w-3.5 h-3.5" />
                             </div>
-                            <span className={`text-[10px] font-medium ${active ? "text-white" : "text-slate-400 group-hover:text-slate-200"}`}>{p.label}</span>
+                            <span className={`text-[11px] font-semibold whitespace-nowrap ${active ? "text-white" : "text-slate-300"}`}>{t.label}</span>
                           </button>
                         );
                       })}
                     </div>
                   </div>
+
+                  {/* Platform / Icon — scrollable container with search */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">Platform / Icon</label>
+                      <input value={platformSearch} onChange={(e) => setPlatformSearch(e.target.value)} placeholder="Search…"
+                        className="w-32 px-2 py-1 bg-white/[0.04] border border-white/10 rounded-md text-[11px] text-white placeholder:text-slate-600 focus:outline-none focus:border-orange-500/50" />
+                    </div>
+                    <div className="bg-black/30 border border-white/[0.06] rounded-xl p-2 max-h-[220px] overflow-y-auto [scrollbar-width:thin] [scrollbar-color:rgba(255,255,255,0.15)_transparent]">
+                      <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5">
+                        {PLATFORM_OPTIONS.filter((p) => !platformSearch.trim() || p.label.toLowerCase().includes(platformSearch.trim().toLowerCase())).map((p) => {
+                          const active = notifPlatformIcon === p.id;
+                          return (
+                            <button key={p.id || "none"} type="button" onClick={() => setNotifPlatformIcon(p.id)}
+                              className={`group relative flex flex-col items-center justify-center gap-1 py-2.5 px-1.5 rounded-lg border transition-all ${active ? "bg-orange-500/10 border-orange-500/60 shadow-md shadow-orange-500/10" : "bg-white/[0.02] border-white/[0.05] hover:bg-white/[0.05] hover:border-white/15"}`}>
+                              <PlatformChipVisual id={p.id} size={30} />
+                              <span className={`text-[9.5px] font-medium text-center leading-tight ${active ? "text-white" : "text-slate-400 group-hover:text-slate-200"}`}>{p.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {PLATFORM_OPTIONS.filter((p) => !platformSearch.trim() || p.label.toLowerCase().includes(platformSearch.trim().toLowerCase())).length === 0 && (
+                        <p className="text-center text-[11px] text-slate-500 py-4">No platform matches "{platformSearch}"</p>
+                      )}
+                    </div>
+                  </div>
+
 
                   {/* Toggles: Force Join + Audience */}
                   <div className="grid grid-cols-2 gap-3">
