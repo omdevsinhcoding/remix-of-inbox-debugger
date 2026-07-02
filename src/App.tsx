@@ -922,8 +922,6 @@ function AutoPopupNotification() {
                 <span className="text-[10.5px] uppercase tracking-[0.14em] text-zinc-400 font-medium">
                   {cat.label}
                 </span>
-                  </span>
-                )}
               </div>
 
               <h2
