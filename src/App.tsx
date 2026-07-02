@@ -5061,6 +5061,75 @@ function EmailViewer() {
   );
 }
 
+// ==================== MAINTENANCE GATE ====================
+const MAINT_BYPASS_KEY = "maintenance_admin_bypass";
+
+function MaintenanceGate({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const cached = useMemo(() => readBootstrapCache(), []);
+  const [maint, setMaint] = useState<MaintenanceInfo>(
+    cached?.maintenance || { enabled: false }
+  );
+  const [bypass, setBypass] = useState<boolean>(() => {
+    try { return sessionStorage.getItem(MAINT_BYPASS_KEY) === "1"; } catch { return false; }
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const bs = await refreshBootstrap();
+        if (!cancelled) setMaint(bs.maintenance || { enabled: false });
+      } catch {}
+    };
+    load();
+    const interval = setInterval(load, 30000);
+    const onChange = () => load();
+    window.addEventListener("maintenance:changed", onChange);
+    window.addEventListener("focus", onChange);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      window.removeEventListener("maintenance:changed", onChange);
+      window.removeEventListener("focus", onChange);
+    };
+  }, []);
+
+  // If maintenance turns off, clear the bypass flag so admins re-arm on next outage.
+  useEffect(() => {
+    if (!maint.enabled && bypass) {
+      try { sessionStorage.removeItem(MAINT_BYPASS_KEY); } catch {}
+      setBypass(false);
+    }
+  }, [maint.enabled, bypass]);
+
+  const isAdmin = user?.role === "admin";
+
+  // Always let the admin login flow through, even during maintenance.
+  const path = typeof window !== "undefined" ? window.location.pathname : "/";
+  const isAdminRoute = path.startsWith("/admin");
+
+  if (maint.enabled && !isAdmin && !isAdminRoute) {
+    return <MaintenanceScreen title={maint.title} message={maint.message} eta={maint.eta} />;
+  }
+  if (maint.enabled && isAdmin && !bypass && !isAdminRoute) {
+    return (
+      <MaintenanceScreen
+        title={maint.title}
+        message={maint.message}
+        eta={maint.eta}
+        isAdmin
+        onAdminBypass={() => {
+          try { sessionStorage.setItem(MAINT_BYPASS_KEY, "1"); } catch {}
+          setBypass(true);
+        }}
+      />
+    );
+  }
+
+  return <>{children}</>;
+}
+
 // ==================== MAIN APP ====================
 export default function App() {
   return (
@@ -5068,18 +5137,21 @@ export default function App() {
       <AuthProvider>
         <ResponsiveToaster />
         <ErrorBoundary>
-          <Routes>
-            <Route path="/" element={<ProfileSelectPage />} />
-            <Route path="/admin" element={<AdminLoginPage />} />
-            <Route path="/admin-auth" element={<AdminAuthPage />} />
-            <Route path="/admin/dashboard" element={<ProtectedRoute role="admin"><AdminPanel /></ProtectedRoute>} />
-            <Route path="/viewer" element={<ProtectedRoute role="user"><EmailViewer /></ProtectedRoute>} />
-          </Routes>
+          <MaintenanceGate>
+            <Routes>
+              <Route path="/" element={<ProfileSelectPage />} />
+              <Route path="/admin" element={<AdminLoginPage />} />
+              <Route path="/admin-auth" element={<AdminAuthPage />} />
+              <Route path="/admin/dashboard" element={<ProtectedRoute role="admin"><AdminPanel /></ProtectedRoute>} />
+              <Route path="/viewer" element={<ProtectedRoute role="user"><EmailViewer /></ProtectedRoute>} />
+            </Routes>
+          </MaintenanceGate>
         </ErrorBoundary>
       </AuthProvider>
     </Router>
   );
 }
+
 
 const ProtectedRoute = ({ children, role }: { children: React.ReactNode; role: "admin" | "user" }) => {
   const { user, loading } = useAuth();
