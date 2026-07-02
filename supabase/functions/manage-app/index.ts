@@ -2424,8 +2424,13 @@ Deno.serve(async (req) => {
       await requireAdmin(req);
       const { data } = await supabase.from("app_settings").select("value").eq("key", "r2_storage").maybeSingle();
       const v: any = data?.value || {};
-      if (!v.accountId || !v.accessKeyId || !v.secretAccessKey || !v.bucket) {
-        return new Response(JSON.stringify({ success: false, error: "R2 credentials incomplete" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      const missing: string[] = [];
+      if (!v.accountId) missing.push("Account ID");
+      if (!v.accessKeyId) missing.push("Access Key ID");
+      if (!v.secretAccessKey) missing.push("Secret Access Key");
+      if (!v.bucket) missing.push("Bucket");
+      if (missing.length) {
+        return new Response(JSON.stringify({ success: false, message: `Save your R2 config first — missing: ${missing.join(", ")}` }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
       const { r2Put, r2Delete } = await import("../_shared/r2Sign.ts");
       const creds = { accountId: v.accountId, accessKeyId: v.accessKeyId, secretAccessKey: v.secretAccessKey, bucket: v.bucket };
