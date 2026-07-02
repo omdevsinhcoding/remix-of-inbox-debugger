@@ -223,9 +223,10 @@ export default function MaintenanceScreen({ title, message, endsAt, versionFrom,
         </div>
         <div className="flex items-center gap-2 text-white/55 text-[11px] font-mono tabular-nums">
           <span className="w-1.5 h-1.5 rounded-full bg-[#e50914] animate-pulse" />
-          <span>{now.toLocaleTimeString()}</span>
+          <span>{clockText}</span>
         </div>
       </div>
+
 
       <div className="relative z-10 h-full flex items-center justify-center px-4 sm:px-6 py-20 overflow-y-auto">
         <div
