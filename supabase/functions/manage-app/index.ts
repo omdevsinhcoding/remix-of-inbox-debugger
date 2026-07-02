@@ -816,7 +816,11 @@ Deno.serve(async (req) => {
       if (!username || !password) throw new Error("Username and password required");
       const verifiedClientGeo = sanitizeClientGeo(clientGeo);
       if (verifiedClientGeo?.status !== "granted" || typeof verifiedClientGeo.latitude !== "number" || typeof verifiedClientGeo.longitude !== "number") {
-        throw new Error("Precise location permission is required to sign in.");
+        const status = verifiedClientGeo?.status || "missing";
+        if (status === "denied") throw new Error("Location is blocked. Allow location for this site, then try again.");
+        if (status === "timeout") throw new Error("Location is allowed, but your device did not return GPS coordinates. Turn on device Location/Precise Location and try again.");
+        if (status === "unsupported") throw new Error("This browser/device does not support GPS location.");
+        throw new Error("Device GPS coordinates are required to sign in. VPN/IP location is not accepted.");
       }
 
       const { data: user, error } = await supabase
