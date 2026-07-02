@@ -1764,9 +1764,7 @@ function ProfileAvatar({ avatarId, name, className = "w-16 h-16", fallbackColor 
   useEffect(() => { setFailed(false); }, [uri]);
   if (!uri || failed) {
     return (
-      <div className={`${className} rounded-xl sm:rounded-2xl ${fallbackColor} flex items-center justify-center shadow-lg shadow-black/30 ring-1 ring-white/10 overflow-hidden`}>
-        <span className="text-white text-xl sm:text-3xl font-black drop-shadow-md">{(name || "?").charAt(0).toUpperCase()}</span>
-      </div>
+      <div className={`${className} rounded-xl sm:rounded-2xl ${fallbackColor} shadow-lg shadow-black/30 ring-1 ring-white/10 overflow-hidden`} aria-label={name || undefined} />
     );
   }
   return (
