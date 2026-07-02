@@ -2293,21 +2293,29 @@ Deno.serve(async (req) => {
     if (action === "admin_list_emails") {
       const session = await requireAdmin(req);
       const { limit, offset, search, accountLabel } = (params || {}) as any;
-      let q = supabase
-        .from("cached_emails")
-        .select("id, subject, from_address, to_address, date, otp, preview, account_label, cached_at", { count: "exact" })
-        .order("date", { ascending: false });
-      if (accountLabel) q = q.eq("account_label", accountLabel);
-      if (search && typeof search === "string" && search.trim()) {
-        const s = search.trim().replace(/[%,]/g, "");
-        q = q.or(`subject.ilike.%${s}%,from_address.ilike.%${s}%,to_address.ilike.%${s}%,preview.ilike.%${s}%,otp.ilike.%${s}%`);
-      }
+      const buildFilters = (q: any) => {
+        if (accountLabel) q = q.eq("account_label", accountLabel);
+        if (search && typeof search === "string" && search.trim()) {
+          const s = search.trim().replace(/[%,]/g, "");
+          q = q.or(`subject.ilike.%${s}%,from_address.ilike.%${s}%,to_address.ilike.%${s}%,preview.ilike.%${s}%,otp.ilike.%${s}%`);
+        }
+        return q;
+      };
       const lim = Math.min(Number(limit) || 100, 500);
       const off = Math.max(Number(offset) || 0, 0);
-      q = q.range(off, off + lim - 1);
-      const { data, error, count } = await q;
+      // Rows page
+      let dataQ = supabase
+        .from("cached_emails")
+        .select("id, subject, from_address, to_address, date, otp, preview, account_label, cached_at")
+        .order("date", { ascending: false });
+      dataQ = buildFilters(dataQ).range(off, off + lim - 1);
+      // Separate exact head count — reliable even when combined with or()/range().
+      let countQ = supabase.from("cached_emails").select("id", { count: "exact", head: true });
+      countQ = buildFilters(countQ);
+      const [{ data, error }, { count, error: countErr }] = await Promise.all([dataQ, countQ]);
       if (error) throw error;
-      await auditLog(supabase, "admin_list_emails", session.userId, null, { count: data?.length || 0, search: search || null, accountLabel: accountLabel || null }, ip);
+      if (countErr) throw countErr;
+      await auditLog(supabase, "admin_list_emails", session.userId, null, { count: data?.length || 0, total: count || 0, search: search || null, accountLabel: accountLabel || null }, ip);
       return new Response(JSON.stringify({ success: true, emails: data || [], total: count || 0 }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
