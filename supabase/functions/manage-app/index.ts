@@ -263,6 +263,27 @@ type LocResult = {
   threatScore?: number; // 0-100
 };
 
+type DeviceFingerprint = {
+  userAgent?: string;
+  platform?: string;
+  vendor?: string;
+  language?: string;
+  languages?: string[];
+  screen?: { width: number; height: number; dpr: number };
+  timezone?: string;
+  touchPoints?: number;
+  deviceMemory?: number;
+  hardwareConcurrency?: number;
+  mobile?: boolean;
+  uaBrands?: { brand: string; version: string }[];
+  uaPlatform?: string;
+  uaPlatformVersion?: string;
+  uaModel?: string;
+  uaArchitecture?: string;
+  uaBitness?: string;
+  uaFullVersion?: string;
+};
+
 type ClientGeoPayload = {
   status?: string;
   permissionState?: string;
@@ -276,7 +297,43 @@ type ClientGeoPayload = {
   error?: string;
   publicIp?: string;
   publicIpSource?: string;
+  device?: DeviceFingerprint;
 };
+
+function sanitizeDevice(raw: any): DeviceFingerprint | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const str = (v: any, max = 240) => (typeof v === "string" ? v.slice(0, max) : undefined);
+  const num = (v: any) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
+  const d: DeviceFingerprint = {
+    userAgent: str(raw.userAgent, 512),
+    platform: str(raw.platform, 64),
+    vendor: str(raw.vendor, 64),
+    language: str(raw.language, 32),
+    languages: Array.isArray(raw.languages) ? raw.languages.filter((l: any) => typeof l === "string").slice(0, 6).map((l: string) => l.slice(0, 32)) : undefined,
+    timezone: str(raw.timezone, 64),
+    touchPoints: num(raw.touchPoints),
+    deviceMemory: num(raw.deviceMemory),
+    hardwareConcurrency: num(raw.hardwareConcurrency),
+    mobile: typeof raw.mobile === "boolean" ? raw.mobile : undefined,
+    uaPlatform: str(raw.uaPlatform, 64),
+    uaPlatformVersion: str(raw.uaPlatformVersion, 64),
+    uaModel: str(raw.uaModel, 128),
+    uaArchitecture: str(raw.uaArchitecture, 32),
+    uaBitness: str(raw.uaBitness, 8),
+    uaFullVersion: str(raw.uaFullVersion, 64),
+  };
+  if (raw.screen && typeof raw.screen === "object") {
+    const w = num(raw.screen.width), h = num(raw.screen.height), dpr = num(raw.screen.dpr);
+    if (w && h) d.screen = { width: w, height: h, dpr: dpr || 1 };
+  }
+  if (Array.isArray(raw.uaBrands)) {
+    d.uaBrands = raw.uaBrands
+      .filter((b: any) => b && typeof b.brand === "string")
+      .slice(0, 6)
+      .map((b: any) => ({ brand: b.brand.slice(0, 64), version: typeof b.version === "string" ? b.version.slice(0, 32) : "" }));
+  }
+  return d;
+}
 
 function sanitizeClientGeo(input: unknown): ClientGeoPayload | null {
   if (!input || typeof input !== "object") return null;
@@ -303,6 +360,7 @@ function sanitizeClientGeo(input: unknown): ClientGeoPayload | null {
     error: typeof raw.error === "string" ? raw.error.slice(0, 180) : undefined,
     publicIp: isRealPublicClientIp(publicIp) ? publicIp : undefined,
     publicIpSource: isRealPublicClientIp(publicIp) ? "browser-ipwho.is" : undefined,
+    device: sanitizeDevice((raw as any).device),
   };
 }
 
