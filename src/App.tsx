@@ -452,7 +452,12 @@ async function apiCall(functionName: string, body: any) {
           throw new Error(data?.error || `Request failed with status ${res.status}`);
         }
 
-        if (data.sessionToken) {
+        // Do NOT auto-persist sessionToken for `impersonate` — the caller
+        // (loginAsUser) must back up the admin token first, otherwise the
+        // admin session is silently overwritten and returning from
+        // impersonation yields a `user`-role token that triggers
+        // "Admin access required".
+        if (data.sessionToken && body?.action !== "impersonate") {
           localStorage.setItem("session_token", data.sessionToken);
         }
         return data;
@@ -3506,10 +3511,16 @@ function AdminPanel() {
 
   const loginAsUser = async (targetUser: UserData) => {
     try {
-      const data = await apiCall("manage-app", { action: "impersonate", target_user_id: targetUser.id });
+      // Snapshot the admin identity BEFORE the network call. The impersonate
+      // response carries a user-role sessionToken; if we read localStorage
+      // after the call, we'd back up the user token as "admin" and later
+      // restoration would fail with "Admin access required".
       const adminUser = localStorage.getItem("user");
       const adminToken = localStorage.getItem("session_token");
       const adminAuth = localStorage.getItem("admin_auth");
+
+      const data = await apiCall("manage-app", { action: "impersonate", target_user_id: targetUser.id });
+
       // F4: Use sessionStorage (auto-cleared on tab close) with a 10-min TTL so a
       // shared-device user or same-origin script can't lift the admin session token.
       try {
