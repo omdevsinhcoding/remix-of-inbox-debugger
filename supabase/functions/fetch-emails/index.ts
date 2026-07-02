@@ -119,41 +119,22 @@ function applyEmailFilters(emails: any[], filterSignInCodes: boolean, filterPass
   return output;
 }
 
-function stripHtml(html: string): string {
-  if (!html) return "";
-  return html
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 async function readCache(supabase: any, accountFilter: string[] | null, filterSignInCodes: boolean, filterPasswordResets: boolean) {
   let query = supabase.from("cached_emails").select("*").order("date", { ascending: false }).limit(500);
   if (accountFilter && accountFilter.length > 0) query = query.in("account_label", accountFilter);
   const { data: cached, error } = await query;
   if (error) throw error;
-  const emails = (cached || []).map((e: any) => {
-    // Re-extract OTP on the fly so older rows populated by the buggy regex are corrected.
-    const plain = `${e.preview || ""}\n${stripHtml(e.html || "")}`;
-    const freshOtp = extractOtpCode(e.subject || "", plain);
-    return {
-      id: e.id,
-      subject: e.subject,
-      from: e.from_address,
-      to: e.to_address,
-      date: e.date,
-      otp: freshOtp,
-      preview: e.preview,
-      html: e.html,
-      account_label: e.account_label,
-    };
-  });
+  const emails = (cached || []).map((e: any) => ({
+    id: e.id,
+    subject: e.subject,
+    from: e.from_address,
+    to: e.to_address,
+    date: e.date,
+    otp: e.otp,
+    preview: e.preview,
+    html: e.html,
+    account_label: e.account_label,
+  }));
   return applyEmailFilters(emails, filterSignInCodes, filterPasswordResets);
 }
 
