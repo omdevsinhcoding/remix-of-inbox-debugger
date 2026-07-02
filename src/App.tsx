@@ -2759,6 +2759,8 @@ function AdminPanel() {
   const [clearingInbox, setClearingInbox] = useState(false);
 
   const [primaryCfInput, setPrimaryCfInput] = useState("");
+  const [signingSecretReveal, setSigningSecretReveal] = useState<{ value: string; length: number } | null>(null);
+  const [revealingSigningSecret, setRevealingSigningSecret] = useState(false);
   const [editingAccountUrls, setEditingAccountUrls] = useState<number | null>(null);
   const [editCfUrls, setEditCfUrls] = useState<string[]>([]);
   const [editCfInput, setEditCfInput] = useState("");
@@ -3076,6 +3078,46 @@ function AdminPanel() {
       toast.error("Failed to save: " + (err instanceof Error ? err.message : String(err)));
     } finally {
       setSavingConfig(false);
+    }
+  };
+
+  const revealSigningSecret = async () => {
+    setRevealingSigningSecret(true);
+    try {
+      // Direct Supabase call on purpose: this secret is needed to configure Cloudflare,
+      // so revealing it must not depend on an already-working Worker.
+      const token = getSessionToken();
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+      const response = await fetch(`${supabaseUrl}/functions/v1/manage-app`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${supabaseKey}`,
+          "apikey": supabaseKey,
+          ...(token ? { "X-Session-Token": token } : {}),
+        },
+        body: JSON.stringify({ action: "admin_reveal_session_signing_secret" }),
+      });
+      const res: any = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(res?.error || "Could not reveal SESSION_SIGNING_SECRET");
+      if (!res?.value) throw new Error("Secret value was empty");
+      setSigningSecretReveal({ value: res.value, length: Number(res.length) || String(res.value).length });
+      toast.success("SESSION_SIGNING_SECRET revealed — copy it to Cloudflare as Secret type.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not reveal SESSION_SIGNING_SECRET");
+    } finally {
+      setRevealingSigningSecret(false);
+    }
+  };
+
+  const copySigningSecret = async () => {
+    if (!signingSecretReveal?.value) return;
+    try {
+      await navigator.clipboard.writeText(signingSecretReveal.value);
+      toast.success("SESSION_SIGNING_SECRET copied");
+    } catch {
+      toast.error("Copy failed — long press/select the value manually.");
     }
   };
 
@@ -4222,6 +4264,34 @@ function AdminPanel() {
                   <div className="px-2.5 pb-3 space-y-2">
                     <p className="text-[11px] text-blue-800 bg-blue-100 rounded-lg p-2">✅ Sab kuch phone browser se hoga — koi terminal ya PC ki zaroorat nahi!</p>
 
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 space-y-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="text-xs font-black text-amber-900">🔐 SESSION_SIGNING_SECRET yahi se copy karo</p>
+                          <p className="text-[11px] text-amber-800 mt-0.5">Admin login ke bina value nahi dikhegi. Cloudflare me Type hamesha <b>Secret</b> select karna, Plaintext nahi.</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={revealSigningSecret}
+                          disabled={revealingSigningSecret}
+                          className="shrink-0 rounded-lg bg-slate-900 px-3 py-2 text-[11px] font-black text-white hover:bg-slate-800 disabled:opacity-60"
+                        >
+                          {revealingSigningSecret ? "Opening..." : signingSecretReveal ? "Reveal again" : "Reveal"}
+                        </button>
+                      </div>
+                      {signingSecretReveal && (
+                        <div className="rounded-lg border border-amber-300 bg-white p-2">
+                          <div className="flex items-center justify-between gap-2 mb-1">
+                            <span className="text-[10px] font-black uppercase text-amber-700">SESSION_SIGNING_SECRET · {signingSecretReveal.length} chars</span>
+                            <button type="button" onClick={copySigningSecret} className="inline-flex items-center gap-1 rounded-md bg-amber-100 px-2 py-1 text-[10px] font-black text-amber-900 hover:bg-amber-200">
+                              <Copy className="w-3 h-3" /> Copy
+                            </button>
+                          </div>
+                          <code className="block max-h-20 overflow-auto break-all rounded-md bg-slate-950 p-2 text-[11px] leading-relaxed text-amber-100">{signingSecretReveal.value}</code>
+                        </div>
+                      )}
+                    </div>
+
                     {[
                       {
                         step: "1",
@@ -4296,20 +4366,15 @@ function AdminPanel() {
                         points: [
                           "Ye value tera password jaisa hai — Cloudflare ko dena hai taki dono milke session verify kar sakein.",
                           "",
-                          "📱 SIMPLE TAREEKA (browser se, 30 second):",
-                          "1. Phone/PC ke browser me ye URL kholo (address bar me paste karo):",
+                          "📱 SIMPLE TAREEKA (admin panel se, 10 second):",
+                          "1. Isi blue guide ke upar yellow box me 'Reveal' button dabao",
+                          "2. Neeche black box me long value dikhegi",
+                          "3. 'Copy' dabao — wahi SESSION_SIGNING_SECRET value hai",
+                          "4. Cloudflare me SECRET #3 ke Value field me paste karo",
                           "",
-                          "https://jsqchutnfdeljajkxmly.supabase.co/functions/v1/reveal-signing-secret?pass=gohil-reveal-2026",
-                          "",
-                          "2. Page pe JSON dikhega, kuch aisa:",
-                          '   {"present":true,"length":48,"value":"aBcD123XyZ..."}',
-                          "",
-                          "3. 'value' ke aage jo lambi string hai (quotes ke andar) — WAHI copy karni hai",
-                          "4. Screenshot le lo ya notepad me paste karke rakh lo — Step 5-B me chahiye",
-                          "",
-                          "⚠️ Ye reveal function temporary hai — Cloudflare me paste karne ke baad admin (Lovable) se bolo delete kar dey.",
+                          "Agar copy fail ho jaye: black box pe long press/drag karke manually select karke copy karo.",
                         ],
-                        warning: "🔒 Ye value kisi ko bhi mat dena — Telegram/WhatsApp pe bhi nahi bhejna.",
+                        warning: "🔒 Ye admin-only reveal hai. Value kisi ko bhi mat dena — Telegram/WhatsApp pe bhi nahi bhejna.",
                       },
                       {
                         step: "5-B",
