@@ -162,10 +162,11 @@ export default function MaintenanceScreen({ title, message, eta, isAdmin, onAdmi
     return () => { cancelAnimationFrame(raf); window.removeEventListener("resize", resize); };
   }, []);
 
-  const displayTitle = title?.trim() || "The show will resume shortly";
+  const displayTitle = title?.trim() || "We'll be back soon";
   const displayMessage =
     message?.trim() ||
-    "Netflix ID Manager is offline for a brief upgrade. We're improving performance and rolling out new features — thanks for staying tuned.";
+    "Our site is temporarily down for scheduled maintenance. We're upgrading the system to make things faster and more reliable for you. Please check back in a little while — no action is needed on your side.";
+
 
   return (
     <div className="fixed inset-0 z-[9999] overflow-hidden bg-black text-white">
@@ -197,7 +198,7 @@ export default function MaintenanceScreen({ title, message, eta, isAdmin, onAdmi
               <span className="absolute inset-0 rounded-full bg-[#e50914]/70 animate-ping" />
               <span className="relative inline-flex rounded-full w-2 h-2 bg-[#e50914]" />
             </span>
-            <span className="text-[10px] sm:text-[10.5px] uppercase tracking-[0.24em] font-semibold text-red-100/90">Scheduled maintenance</span>
+            <span className="text-[10px] sm:text-[10.5px] uppercase tracking-[0.24em] font-semibold text-red-100/90">Site under maintenance</span>
           </div>
 
           <div className="mx-auto mb-6 sm:mb-8 relative w-16 h-16 sm:w-20 sm:h-20">
@@ -228,7 +229,7 @@ export default function MaintenanceScreen({ title, message, eta, isAdmin, onAdmi
           {eta && (
             <div className="mt-6 inline-flex items-center gap-2 text-white/75 text-[12px] bg-white/[0.04] border border-white/[0.1] rounded-full px-3.5 py-1.5">
               <Clock className="w-3.5 h-3.5 text-[#e50914]" />
-              <span className="tracking-wide">Back online <span className="text-white font-medium">{eta}</span></span>
+              <span className="tracking-wide">Expected back by <span className="text-white font-medium">{eta}</span></span>
             </div>
           )}
 
@@ -250,7 +251,7 @@ export default function MaintenanceScreen({ title, message, eta, isAdmin, onAdmi
       </div>
 
       <div className="absolute bottom-3 inset-x-0 text-center text-[10px] sm:text-[10.5px] text-white/35 tracking-[0.24em] uppercase z-10">
-        Thank you for your patience
+        Thanks for your patience — we'll be right back
       </div>
 
       <style>{`@keyframes maint-shimmer { 0%{transform:translateX(-100%);} 100%{transform:translateX(400%);} }`}</style>
