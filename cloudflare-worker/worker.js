@@ -20,8 +20,13 @@ const CORS_HEADERS = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Session-Token, X-Pending-Token, X-Cron-Secret",
 };
 
-const CACHE_KEY = "emails_list";
-const CACHE_TIMESTAMP_KEY = "emails_timestamp";
+// F7: Bump CACHE_SCHEMA_VERSION whenever the shape of cached email JSON
+// changes, or to force every worker/user to drop old snapshots on the next
+// read. Version is baked into every KV key so old entries become unreachable
+// (and expire naturally) without needing a manual purge.
+const CACHE_SCHEMA_VERSION = "v2";
+const CACHE_KEY = `emails_list:${CACHE_SCHEMA_VERSION}`;
+const CACHE_TIMESTAMP_KEY = `emails_timestamp:${CACHE_SCHEMA_VERSION}`;
 const STALE_SECONDS = 3;
 
 // --- KV helpers: use V2 if available, fallback to V1 ---
