@@ -1396,19 +1396,19 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
                         <p className={`text-[13px] leading-snug truncate ${!n.read ? "text-white font-medium" : "text-zinc-400 font-normal"}`}>
                           {n.title}
                         </p>
-                        <span className="text-[10.5px] text-zinc-500 font-light tabular-nums flex-shrink-0" title={new Date(n.created_at).toLocaleString()}>
+                        <span className="text-[10.5px] text-zinc-500 font-light tabular-nums flex-shrink-0 transition-opacity group-hover:opacity-0" title={new Date(n.created_at).toLocaleString()}>
                           {formatRelative(n.created_at)}
                         </span>
                       </div>
                       <p className="text-zinc-500 text-[12px] mt-1 leading-relaxed line-clamp-2 font-light">{n.body}</p>
                     </div>
                     {!n.read && (
-                      <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.7)] mt-1.5 flex-shrink-0" />
+                      <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.7)] mt-1.5 flex-shrink-0 transition-opacity group-hover:opacity-0" />
                     )}
                   </button>
                   {!n.locked && (
-                    <div className="absolute right-3 top-1/2 -translate-y-1/2 hidden group-hover:flex gap-1">
-                      <button onClick={(e) => { e.stopPropagation(); handleDelete(n.id); }} className="p-1.5 rounded-md bg-black/40 text-zinc-400 hover:text-rose-300" title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1 pointer-events-none group-hover:pointer-events-auto">
+                      <button onClick={(e) => { e.stopPropagation(); handleDelete(n.id); }} className="p-1.5 rounded-md bg-black/70 backdrop-blur border border-white/10 text-zinc-300 hover:text-rose-300 hover:bg-black/80 shadow-lg" title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
                     </div>
                   )}
                 </li>
