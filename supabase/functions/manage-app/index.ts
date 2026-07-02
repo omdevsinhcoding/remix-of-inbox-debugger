@@ -262,6 +262,8 @@ type ClientGeoPayload = {
   speed?: number | null;
   timestamp?: number;
   error?: string;
+  publicIp?: string;
+  publicIpSource?: string;
 };
 
 function sanitizeClientGeo(input: unknown): ClientGeoPayload | null {
@@ -272,6 +274,7 @@ function sanitizeClientGeo(input: unknown): ClientGeoPayload | null {
   const latitude = Number(raw.latitude);
   const longitude = Number(raw.longitude);
   const accuracy = Number(raw.accuracy);
+  const publicIp = normalizeIp(typeof raw.publicIp === "string" ? raw.publicIp : "");
   const granted = status === "granted"
     && Number.isFinite(latitude) && latitude >= -90 && latitude <= 90
     && Number.isFinite(longitude) && longitude >= -180 && longitude <= 180;
@@ -286,6 +289,8 @@ function sanitizeClientGeo(input: unknown): ClientGeoPayload | null {
     speed: typeof raw.speed === "number" && Number.isFinite(raw.speed) ? raw.speed : null,
     timestamp: typeof raw.timestamp === "number" && Number.isFinite(raw.timestamp) ? raw.timestamp : undefined,
     error: typeof raw.error === "string" ? raw.error.slice(0, 180) : undefined,
+    publicIp: isRealPublicClientIp(publicIp) ? publicIp : undefined,
+    publicIpSource: isRealPublicClientIp(publicIp) ? "browser-ipwho.is" : undefined,
   };
 }
 
