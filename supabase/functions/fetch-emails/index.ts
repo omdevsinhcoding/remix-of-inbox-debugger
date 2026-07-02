@@ -398,15 +398,20 @@ Deno.serve(async (req) => {
 
   try {
     const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-    const SESSION_SECRET = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    // F5: dedicated signing key with legacy fallback (see manage-app).
+    // ENCRYPTION_SECRET (=SERVICE_ROLE_KEY) stays for decrypting IMAP passwords in runSync.
+    const ENCRYPTION_SECRET = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const SIGNING_SECRET = Deno.env.get("SESSION_SIGNING_SECRET") || ENCRYPTION_SECRET;
+    const LEGACY_SIGNING = ENCRYPTION_SECRET;
     const CRON_SHARED_SECRET = Deno.env.get("CRON_SHARED_SECRET") || "";
 
     let body: any = {};
     try { body = await req.json(); } catch {}
     const mode = body.mode || "sync";
     const source = body.source || "manual";
-    const session = await requireSession(req, body, SESSION_SECRET);
+    const session = await requireSession(req, body, SIGNING_SECRET, LEGACY_SIGNING);
     const isCron = !!CRON_SHARED_SECRET && req.headers.get("x-cron-secret") === CRON_SHARED_SECRET;
+
 
     let filterSignInCodes = false;
     let filterPasswordResets = true;
