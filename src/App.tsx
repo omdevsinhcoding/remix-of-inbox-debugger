@@ -2878,6 +2878,7 @@ function AdminPanel() {
   const [notifBody, setNotifBody] = useState("");
   const [notifDescription, setNotifDescription] = useState("");
   const [notifImageUrl, setNotifImageUrl] = useState("");
+  const [notifImageUploading, setNotifImageUploading] = useState(false);
   const [notifCategory, setNotifCategory] = useState<"announcement" | "update" | "security" | "maintenance" | "promo" | "billing">("announcement");
   const [notifPriority, setNotifPriority] = useState<"low" | "normal" | "high" | "critical">("normal");
   const [notifActionUrl, setNotifActionUrl] = useState("");
@@ -4117,10 +4118,53 @@ function AdminPanel() {
                     className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900" />
                 </div>
                 <div>
-                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1 block">Hero image URL (https)</label>
-                  <input value={notifImageUrl} onChange={(e) => setNotifImageUrl(e.target.value)} placeholder="https://…/image.jpg"
-                    className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900" />
-                  <p className="text-[10.5px] text-slate-400 mt-1">Paste any https image URL. Cloudflare R2 uploader coming next once credentials are added.</p>
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1 block">Hero image</label>
+                  <div className="flex gap-2">
+                    <input value={notifImageUrl} onChange={(e) => setNotifImageUrl(e.target.value)} placeholder="https://…/image.jpg or upload →"
+                      className="flex-1 px-3 py-2 border rounded-lg text-sm text-slate-900" />
+                    <label className={`px-3 py-2 rounded-lg border text-sm font-semibold cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${notifImageUploading ? "bg-slate-100 text-slate-400 cursor-wait" : "bg-slate-900 text-white hover:bg-slate-800 border-slate-900"}`}>
+                      {notifImageUploading ? "Uploading…" : "Upload to R2"}
+                      <input type="file" accept="image/*" className="hidden" disabled={notifImageUploading}
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          e.currentTarget.value = "";
+                          if (!file) return;
+                          if (file.size > 8 * 1024 * 1024) { toast.error("Image too large (max 8 MB)"); return; }
+                          setNotifImageUploading(true);
+                          try {
+                            const dataBase64: string = await new Promise((resolve, reject) => {
+                              const r = new FileReader();
+                              r.onload = () => resolve(String(r.result || ""));
+                              r.onerror = () => reject(new Error("read failed"));
+                              r.readAsDataURL(file);
+                            });
+                            const res = await apiCall("manage-app", {
+                              action: "admin_upload_notification_image",
+                              filename: file.name,
+                              contentType: file.type || "image/jpeg",
+                              dataBase64,
+                            });
+                            if (res?.success && res.url) {
+                              setNotifImageUrl(res.url);
+                              toast.success("Image uploaded to R2");
+                            } else {
+                              throw new Error(res?.error || "upload failed");
+                            }
+                          } catch (err: any) {
+                            toast.error(err?.message || "Upload failed");
+                          } finally {
+                            setNotifImageUploading(false);
+                          }
+                        }} />
+                    </label>
+                  </div>
+                  {notifImageUrl && (
+                    <div className="mt-2 flex items-center gap-2 text-[11px] text-slate-500">
+                      <span className="truncate flex-1">{notifImageUrl}</span>
+                      <button type="button" onClick={() => setNotifImageUrl("")} className="text-red-600 hover:text-red-700 font-semibold">Clear</button>
+                    </div>
+                  )}
+                  <p className="text-[10.5px] text-slate-400 mt-1">Paste an https URL, or upload directly to Cloudflare R2 (max 8 MB).</p>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
