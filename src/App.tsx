@@ -670,156 +670,292 @@ function NetflixNLogo({ className = "w-7 h-7 sm:w-8 sm:h-8" }: { className?: str
 }
 
 // ==================== NOTIFICATION BELL ====================
+// Complete rewrite: mobile = bottom sheet portal; desktop = editorial glass panel.
+// Polling pauses while open; SessionCountdown hides via window events.
+
+function formatRelative(iso: string): string {
+  const t = new Date(iso).getTime();
+  if (!t) return "";
+  const s = Math.max(1, Math.floor((Date.now() - t) / 1000));
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  if (d < 7) return `${d}d ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
+function useIsMobile() {
+  const [is, setIs] = useState<boolean>(() =>
+    typeof window !== "undefined" ? window.matchMedia("(max-width: 639px)").matches : false,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 639px)");
+    const on = () => setIs(mq.matches);
+    mq.addEventListener?.("change", on);
+    return () => mq.removeEventListener?.("change", on);
+  }, []);
+  return is;
+}
+
 function NotificationBell() {
   const [items, setItems] = useState<AppNotification[]>([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
-  const autoOpenedRef = useRef(false);
+  const openRef = useRef(false);
+  const lastSigRef = useRef<string>("");
+  const mountedRef = useRef(false);
+  const isMobile = useIsMobile();
 
   const refresh = useCallback(async () => {
-    setLoading(true);
+    if (openRef.current && mountedRef.current) return; // pause polling while open
+    if (!lastSigRef.current) setLoading(true);
     try {
       const list = await listNotifications();
-      setItems(list);
-      const unread = list.filter((n) => !n.read).length;
-      if (!autoOpenedRef.current && unread > 0) {
-        autoOpenedRef.current = true;
-        toast(`🔔 You have ${unread} new update${unread > 1 ? "s" : ""}`);
+      const sig = JSON.stringify(list.map((n) => [n.id, n.read]));
+      if (sig !== lastSigRef.current) {
+        lastSigRef.current = sig;
+        setItems(list);
       }
     } finally { setLoading(false); }
   }, []);
 
   useEffect(() => {
     refresh();
+    mountedRef.current = true;
     const id = setInterval(refresh, 60_000);
     return () => clearInterval(id);
   }, [refresh]);
+
+  // Broadcast open/close so SessionCountdown hides itself.
+  useEffect(() => {
+    openRef.current = open;
+    window.dispatchEvent(new CustomEvent(open ? "notif:open" : "notif:close"));
+    if (open) {
+      // fresh fetch on open — but bypass the pause guard
+      openRef.current = false;
+      refresh().finally(() => { openRef.current = true; });
+      // lock body scroll on mobile sheet
+      if (isMobile) {
+        const prev = document.body.style.overflow;
+        document.body.style.overflow = "hidden";
+        return () => { document.body.style.overflow = prev; };
+      }
+    }
+  }, [open, isMobile, refresh]);
 
   const unread = items.filter((n) => !n.read).length;
 
   const handleMarkRead = async (id: string) => {
     setItems((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+    lastSigRef.current = "";
     await markNotificationRead(id);
   };
   const handleMarkAll = async () => {
     setItems((prev) => prev.map((n) => ({ ...n, read: true })));
+    lastSigRef.current = "";
     await markAllNotificationsRead();
   };
 
+  // ---------- Shared list body ----------
+  const ListBody = (
+    <div className="overflow-y-auto overscroll-contain">
+      {loading && items.length === 0 && (
+        <div className="py-16 text-center text-zinc-500 text-sm font-light tracking-wide">
+          <div className="w-5 h-5 mx-auto mb-3 border border-zinc-600 border-t-red-500 rounded-full animate-spin" />
+          Loading
+        </div>
+      )}
+      {!loading && items.length === 0 && (
+        <div className="py-20 px-6 text-center">
+          <Bell className="w-8 h-8 mx-auto mb-4 text-zinc-600 stroke-[1.25]" />
+          <p className="text-zinc-300 text-[13px] font-light tracking-wide">Nothing new to read.</p>
+        </div>
+      )}
+      <ul className="divide-y divide-white/[0.04]">
+        {items.map((n, i) => (
+          <motion.li
+            key={n.id}
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.18, delay: Math.min(i, 8) * 0.02, ease: "easeOut" }}
+          >
+            <button
+              onClick={() => !n.read && handleMarkRead(n.id)}
+              className={`w-full text-left px-5 py-4 flex gap-4 transition-colors ${
+                !n.read ? "bg-white/[0.02] hover:bg-white/[0.04]" : "hover:bg-white/[0.02]"
+              }`}
+            >
+              {/* thin rail + dot */}
+              <div className="flex-shrink-0 flex flex-col items-center pt-1.5">
+                <span
+                  className={`w-2 h-2 rounded-full ${
+                    !n.read
+                      ? "bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.7)]"
+                      : "border border-zinc-600 bg-transparent"
+                  }`}
+                />
+                <span className="mt-1 w-px flex-1 bg-white/[0.06]" />
+              </div>
+              <div className="min-w-0 flex-1 pb-1">
+                <div className="flex items-baseline justify-between gap-3">
+                  <p
+                    className={`text-[13.5px] leading-snug truncate ${
+                      !n.read ? "text-white font-medium" : "text-zinc-400 font-normal"
+                    }`}
+                    style={{ letterSpacing: "-0.005em" }}
+                  >
+                    {n.title}
+                  </p>
+                  <span
+                    className="text-[10.5px] text-zinc-500 font-light tabular-nums flex-shrink-0"
+                    title={new Date(n.created_at).toLocaleString()}
+                  >
+                    {formatRelative(n.created_at)}
+                  </span>
+                </div>
+                <p className="text-zinc-400 text-[12.5px] mt-1.5 leading-relaxed line-clamp-3 whitespace-pre-wrap font-light">
+                  {n.body}
+                </p>
+              </div>
+            </button>
+          </motion.li>
+        ))}
+      </ul>
+    </div>
+  );
+
+  // ---------- Header (shared) ----------
+  const Header = (
+    <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-white/[0.05]">
+      <div className="flex items-baseline gap-2.5">
+        <h3
+          className="text-white text-[19px] leading-none"
+          style={{ fontFamily: "'Instrument Serif', 'Cormorant Garamond', ui-serif, Georgia, serif", letterSpacing: "-0.01em" }}
+        >
+          Notifications
+        </h3>
+        {unread > 0 && (
+          <span className="text-[10.5px] font-medium text-red-400/90 tracking-wider uppercase">
+            {unread} new
+          </span>
+        )}
+      </div>
+      {items.length > 0 && unread > 0 && (
+        <button
+          onClick={handleMarkAll}
+          title="Mark all as read"
+          aria-label="Mark all as read"
+          className="p-1.5 rounded-md text-zinc-400 hover:text-white hover:bg-white/[0.06] transition-colors"
+        >
+          <CheckCircle2 className="w-4 h-4 stroke-[1.5]" />
+        </button>
+      )}
+    </div>
+  );
+
+  // ---------- Trigger button ----------
+  const Trigger = (
+    <button
+      onClick={() => setOpen((v) => !v)}
+      className="relative flex items-center justify-center p-2.5 bg-slate-900 text-white rounded-full hover:bg-slate-800 transition-all active:scale-95"
+      title="Notifications"
+      aria-label={`Notifications (${unread} unread)`}
+    >
+      <Bell className={`w-4 h-4 sm:w-5 sm:h-5 ${unread > 0 ? "animate-pulse" : ""}`} />
+      {unread > 0 && (
+        <>
+          <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-red-500 rounded-full animate-ping" />
+          <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-red-500 rounded-full ring-2 ring-white" />
+        </>
+      )}
+    </button>
+  );
+
+  // ---------- Mobile bottom sheet (portal) ----------
+  const MobileSheet = open && typeof document !== "undefined"
+    ? createPortal(
+        <AnimatePresence>
+          <motion.div
+            key="notif-sheet"
+            className="fixed inset-0 z-[100]"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+          >
+            <div
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+              onClick={() => setOpen(false)}
+            />
+            <motion.div
+              role="dialog"
+              aria-modal="true"
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{ type: "tween", duration: 0.28, ease: [0.32, 0.72, 0, 1] }}
+              className="absolute left-0 right-0 bottom-0 max-h-[85dvh] flex flex-col rounded-t-3xl border-t border-white/[0.08] shadow-[0_-20px_60px_rgba(0,0,0,0.6)]"
+              style={{
+                background: "rgba(12,12,14,0.92)",
+                backdropFilter: "blur(28px) saturate(140%)",
+                WebkitBackdropFilter: "blur(28px) saturate(140%)",
+                paddingBottom: "env(safe-area-inset-bottom)",
+              }}
+            >
+              <button
+                onClick={() => setOpen(false)}
+                aria-label="Close notifications"
+                className="mx-auto mt-2.5 mb-1 w-10 h-1 rounded-full bg-white/20 hover:bg-white/30 transition-colors"
+              />
+              {Header}
+              <div className="flex-1 overflow-y-auto overscroll-contain">{ListBody}</div>
+            </motion.div>
+          </motion.div>
+        </AnimatePresence>,
+        document.body,
+      )
+    : null;
+
+  // ---------- Desktop anchored panel ----------
+  const DesktopPanel = (
+    <AnimatePresence>
+      {open && !isMobile && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <motion.div
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.16, ease: "easeOut" }}
+            className="absolute right-0 mt-3 w-[380px] rounded-2xl overflow-hidden z-50"
+            style={{
+              background: "rgba(15,15,17,0.78)",
+              backdropFilter: "blur(28px) saturate(140%)",
+              WebkitBackdropFilter: "blur(28px) saturate(140%)",
+              border: "1px solid rgba(255,255,255,0.06)",
+              boxShadow: "0 30px 80px -20px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.04)",
+            }}
+          >
+            {Header}
+            <div className="max-h-[65vh] overflow-y-auto">{ListBody}</div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
+  );
+
   return (
     <div className="relative">
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="relative flex items-center justify-center p-2.5 bg-slate-900 text-white rounded-full hover:bg-slate-800 transition-all active:scale-95"
-        title="Notifications"
-        aria-label={`Notifications (${unread} unread)`}
-      >
-        <Bell className={`w-4 h-4 sm:w-5 sm:h-5 ${unread > 0 ? "animate-pulse" : ""}`} />
-        {unread > 0 && (
-          <>
-            <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-red-500 rounded-full animate-ping" />
-            <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-red-500 rounded-full ring-2 ring-white" />
-          </>
-        )}
-      </button>
-      <AnimatePresence>
-        {open && (
-          <>
-            <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-            <motion.div
-              initial={{ opacity: 0, y: -8, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -8, scale: 0.98 }}
-              transition={{ duration: 0.15 }}
-              className="absolute right-0 mt-3 w-[92vw] max-w-sm bg-white border border-slate-200/80 rounded-2xl shadow-[0_25px_60px_-15px_rgba(15,23,42,0.35)] z-50 overflow-hidden ring-1 ring-black/[0.03]"
-            >
-              {/* Premium gradient header */}
-              <div className="relative overflow-hidden">
-                <div className="absolute inset-0 bg-gradient-to-br from-red-600 via-rose-600 to-fuchsia-600" />
-                <div className="absolute -top-10 -right-10 w-40 h-40 bg-white/20 rounded-full blur-3xl" />
-                <div className="absolute -bottom-8 -left-6 w-32 h-32 bg-white/10 rounded-full blur-2xl" />
-                <div className="relative flex items-center justify-between px-4 py-3.5">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center ring-1 ring-white/30">
-                      <Bell className="w-4 h-4 text-white" />
-                    </div>
-                    <div>
-                      <h3 className="font-black text-white text-sm leading-tight tracking-tight">Notifications</h3>
-                      <p className="text-[10px] text-white/80 font-medium">
-                        {unread > 0 ? `${unread} unread update${unread > 1 ? "s" : ""}` : "You're all caught up"}
-                      </p>
-                    </div>
-                  </div>
-                  {items.length > 0 && unread > 0 && (
-                    <button
-                      onClick={handleMarkAll}
-                      className="text-[10.5px] bg-white text-rose-700 hover:bg-rose-50 font-black px-2.5 py-1.5 rounded-lg shadow-sm transition-all active:scale-95"
-                    >
-                      Mark all read
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              <div className="max-h-[60vh] overflow-y-auto bg-gradient-to-b from-slate-50/50 to-white">
-                {loading && items.length === 0 && (
-                  <div className="py-12 text-center text-slate-400 text-sm font-medium">
-                    <div className="w-6 h-6 mx-auto mb-3 border-2 border-rose-500 border-t-transparent rounded-full animate-spin" />
-                    Loading…
-                  </div>
-                )}
-                {!loading && items.length === 0 && (
-                  <div className="py-14 px-6 text-center">
-                    <div className="w-14 h-14 mx-auto mb-3 rounded-2xl bg-gradient-to-br from-rose-100 to-fuchsia-100 flex items-center justify-center ring-1 ring-rose-200/60">
-                      <MessageSquare className="w-6 h-6 text-rose-500" />
-                    </div>
-                    <p className="text-slate-800 text-sm font-bold">All clear</p>
-                    <p className="text-slate-500 text-xs mt-1">No notifications right now.</p>
-                  </div>
-                )}
-                {items.map((n) => (
-                  <button
-                    key={n.id}
-                    onClick={() => !n.read && handleMarkRead(n.id)}
-                    className={`w-full text-left px-4 py-3 border-b border-slate-100 last:border-b-0 transition-all flex gap-3 group ${
-                      !n.read
-                        ? "bg-gradient-to-r from-rose-50/80 via-white to-white hover:from-rose-50 border-l-[3px] border-l-rose-500"
-                        : "hover:bg-slate-50/70"
-                    }`}
-                  >
-                    <div className="flex-shrink-0 mt-0.5">
-                      <div className={`w-9 h-9 rounded-xl flex items-center justify-center ring-1 ${
-                        !n.read
-                          ? "bg-gradient-to-br from-rose-500 to-fuchsia-600 ring-rose-300/50 shadow-sm shadow-rose-500/30"
-                          : "bg-slate-100 ring-slate-200"
-                      }`}>
-                        <Bell className={`w-4 h-4 ${!n.read ? "text-white" : "text-slate-400"}`} />
-                      </div>
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <p className={`font-bold text-sm truncate ${!n.read ? "text-slate-900" : "text-slate-600"}`}>{n.title}</p>
-                        {!n.read && <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse flex-shrink-0" />}
-                      </div>
-                      <p className="text-slate-600 text-xs mt-1 line-clamp-3 whitespace-pre-wrap leading-relaxed">{n.body}</p>
-                      <p className="text-slate-400 text-[10px] mt-1.5 font-medium">{new Date(n.created_at).toLocaleString()}</p>
-                    </div>
-                  </button>
-                ))}
-              </div>
-
-              {items.length > 0 && (
-                <div className="px-4 py-2.5 bg-slate-50/80 border-t border-slate-100 text-center">
-                  <p className="text-[10px] text-slate-500 font-medium">Tap a notification to mark as read</p>
-                </div>
-              )}
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
+      {Trigger}
+      {isMobile ? MobileSheet : DesktopPanel}
     </div>
   );
 }
+
+
 
 
 function SessionCountdown({ role }: { role: "admin" | "user" }) {
