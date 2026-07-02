@@ -2373,8 +2373,11 @@ function AdminPanel() {
   const [maintenanceEnabled, setMaintenanceEnabled] = useState(false);
   const [maintenanceTitle, setMaintenanceTitle] = useState("");
   const [maintenanceMessage, setMaintenanceMessage] = useState("");
-  const [maintenanceEta, setMaintenanceEta] = useState("");
+  const [maintenanceEndsAt, setMaintenanceEndsAt] = useState(""); // datetime-local value "YYYY-MM-DDTHH:mm"
+  const [maintenanceVersionFrom, setMaintenanceVersionFrom] = useState("");
+  const [maintenanceVersionTo, setMaintenanceVersionTo] = useState("");
   const [savingMaintenance, setSavingMaintenance] = useState(false);
+
 
   // Notifications tab
   const [adminNotifs, setAdminNotifs] = useState<any[]>([]);
