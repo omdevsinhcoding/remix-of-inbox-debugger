@@ -380,6 +380,12 @@ export default function MaintenanceScreen({ title, message, endsAt, versionFrom,
           50%  { height: 85%; opacity: 1; }
           100% { height: 22%; opacity: 0.6; }
         }
+        @keyframes maint-title-in {
+          0%   { opacity: 0; transform: translateY(14px); filter: blur(6px); }
+          60%  { opacity: 1; filter: blur(0); }
+          100% { opacity: 1; transform: translateY(0);   filter: blur(0); }
+        }
+
       `}</style>
     </div>
   );
