@@ -1997,7 +1997,27 @@ Deno.serve(async (req) => {
       });
     }
 
+    if (action === "list_login_events") {
+      await requireAdmin(req);
+      const { limit, user_id, risk, since, search } = params || {};
+      let q = supabase.from("login_events").select("*").order("created_at", { ascending: false });
+      if (user_id) q = q.eq("user_id", user_id);
+      if (risk) q = q.eq("risk_score", risk);
+      if (since) q = q.gte("created_at", since);
+      if (search && typeof search === "string" && search.trim()) {
+        const s = search.trim();
+        q = q.or(`username.ilike.%${s}%,ip.ilike.%${s}%,city.ilike.%${s}%,country.ilike.%${s}%,isp.ilike.%${s}%`);
+      }
+      q = q.limit(Math.min(Number(limit) || 200, 1000));
+      const { data, error } = await q;
+      if (error) throw error;
+      return new Response(JSON.stringify({ success: true, events: data || [] }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     throw new Error("Unknown action: " + action);
+
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return new Response(JSON.stringify({ success: false, error: message }), {
