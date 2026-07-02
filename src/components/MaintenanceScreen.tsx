@@ -165,10 +165,34 @@ export default function MaintenanceScreen({ title, message, endsAt, versionFrom,
     return () => { cancelAnimationFrame(raf); window.removeEventListener("resize", resize); };
   }, []);
 
-  const displayTitle = title?.trim() || "We're upgrading the system";
+  // Rotating headlines — used when admin hasn't set a custom title.
+  const rotatingTitles = [
+    "We're upgrading the system",
+    "Tuning things up behind the scenes",
+    "Rolling out a fresh update",
+    "Making the app faster for you",
+    "Polishing a few pixels",
+    "Sharpening the experience",
+    "Deploying new improvements",
+    "Fine-tuning the engine",
+    "Refreshing the servers",
+    "Almost ready — final touches",
+    "Just a quick pit stop",
+    "Back in a few moments",
+  ];
+  const customTitle = title?.trim();
+  const [titleIdx, setTitleIdx] = useState(0);
+  useEffect(() => {
+    if (customTitle) return; // don't rotate when admin pinned a headline
+    const id = setInterval(() => setTitleIdx((i) => (i + 1) % rotatingTitles.length), 3200);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customTitle]);
+  const displayTitle = customTitle || rotatingTitles[titleIdx];
   const displayMessage =
     message?.trim() ||
     "The site is offline for a short while so we can make it faster and safer for you. You don't need to do anything — just come back in a few minutes.";
+
 
   // 12-hour formatted clock
   const clockText = now.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit", hour12: true });
