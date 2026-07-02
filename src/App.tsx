@@ -191,15 +191,56 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
-  const checkAuth = () => {
+  // Read cached user immediately for fast paint, then re-hydrate from the DB.
+  const readCached = () => {
     try {
       const stored = localStorage.getItem("user");
-      setUser(stored ? JSON.parse(stored) : null);
-    } catch { setUser(null); }
+      return stored ? JSON.parse(stored) : null;
+    } catch { return null; }
+  };
+
+  const hydrateFromServer = async () => {
+    const token = getSessionToken();
+    if (!token) {
+      try { localStorage.removeItem("user"); } catch {}
+      setUser(null);
+      setLoading(false);
+      return;
+    }
+    try {
+      const res = await apiCall("manage-app", { action: "me" });
+      if (res?.success && res.user) {
+        const merged = { ...(readCached() || {}), ...res.user };
+        try { localStorage.setItem("user", JSON.stringify(merged)); } catch {}
+        setUser(merged);
+      } else {
+        throw new Error(res?.error || "Session invalid");
+      }
+    } catch {
+      // Session revoked, expired, or account missing → force logout
+      try {
+        localStorage.removeItem("session_token");
+        localStorage.removeItem("user");
+        localStorage.removeItem("admin_auth");
+        localStorage.removeItem("pending_admin_token");
+      } catch {}
+      setUser(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const checkAuth = () => {
+    // Fast path: reflect localStorage synchronously (used after login/logout).
+    setUser(readCached());
     setLoading(false);
   };
 
-  useEffect(() => { checkAuth(); }, []);
+  useEffect(() => {
+    // Initial paint from cache so UI is not blocked, then verify against DB.
+    setUser(readCached());
+    void hydrateFromServer();
+  }, []);
 
   return <AuthContext.Provider value={{ user, loading, checkAuth }}>{children}</AuthContext.Provider>;
 };
@@ -887,7 +928,10 @@ function AdminAuthPage() {
   const { user } = useAuth();
 
   useEffect(() => {
-    if (!user || user.role !== "admin") { navigate("/admin"); return; }
+    const pending = (() => { try { return localStorage.getItem("pending_admin_token"); } catch { return null; } })();
+    if (!pending) { navigate("/admin", { replace: true }); return; }
+    if (!user || user.role !== "admin") { navigate("/admin", { replace: true }); return; }
+
 
     if (step === 1 && !otpRequested.current) {
       otpRequested.current = true;

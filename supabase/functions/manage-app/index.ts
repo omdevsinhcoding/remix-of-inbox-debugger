@@ -237,12 +237,41 @@ Deno.serve(async (req) => {
   const SESSION_SECRET = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const ip = getClientIp(req);
 
-  // Helper to verify session from header
+  // --- Persist a session row in DB (source of truth for logged-in status) ---
+  async function persistSession(userId: string, role: string, token: string, expiresAtMs: number) {
+    const tokenHash = await sha256Hex(token);
+    const ua = req.headers.get("user-agent") || null;
+    await supabase.from("app_sessions").insert({
+      user_id: userId,
+      role,
+      token_hash: tokenHash,
+      expires_at: new Date(expiresAtMs).toISOString(),
+      ip,
+      user_agent: ua,
+    });
+    // Best-effort cleanup of expired rows for this user
+    supabase.from("app_sessions").delete().lt("expires_at", new Date().toISOString()).eq("user_id", userId).then(() => {});
+  }
+
+  // Helper to verify session from header AND ensure a live DB row exists
   async function requireSession(req: Request): Promise<Record<string, any>> {
     const token = req.headers.get("x-session-token");
     if (!token) throw new Error("Authentication required");
     const session = await verifySessionToken(token, SESSION_SECRET);
     if (!session) throw new Error("Session expired or invalid");
+    const tokenHash = await sha256Hex(token);
+    const { data: row } = await supabase
+      .from("app_sessions")
+      .select("id, expires_at")
+      .eq("token_hash", tokenHash)
+      .maybeSingle();
+    if (!row) throw new Error("Session revoked. Please sign in again.");
+    if (new Date(row.expires_at).getTime() < Date.now()) {
+      await supabase.from("app_sessions").delete().eq("id", row.id);
+      throw new Error("Session expired. Please sign in again.");
+    }
+    // Fire-and-forget touch
+    supabase.from("app_sessions").update({ last_seen_at: new Date().toISOString() }).eq("id", row.id).then(() => {});
     return session;
   }
 
@@ -388,14 +417,16 @@ Deno.serve(async (req) => {
       }
 
       // Create normal user session token (30 min expiry)
+      const expMs = Date.now() + 30 * 60 * 1000;
       const sessionPayload = {
         userId: user.id,
         username: user.username,
         role: user.role,
         assignedAccounts: user.assigned_accounts || null,
-        exp: Date.now() + 30 * 60 * 1000,
+        exp: expMs,
       };
       const sessionToken = await createSessionToken(sessionPayload, SESSION_SECRET);
+      await persistSession(user.id, user.role, sessionToken, expMs);
       const workerUrls = await loadWorkerUrls(supabase);
 
       return new Response(JSON.stringify({
@@ -647,14 +678,16 @@ Deno.serve(async (req) => {
 
       const { data: user, error } = await supabase.from("app_users").select("*").eq("id", pending.userId).single();
       if (error || !user || user.role !== "admin") throw new Error("Admin not found");
+      const expMs = Date.now() + 30 * 60 * 1000;
       const sessionPayload = {
         userId: user.id,
         username: user.username,
         role: "admin",
         assignedAccounts: user.assigned_accounts || null,
-        exp: Date.now() + 30 * 60 * 1000,
+        exp: expMs,
       };
       const sessionToken = await createSessionToken(sessionPayload, SESSION_SECRET);
+      await persistSession(user.id, "admin", sessionToken, expMs);
       const workerUrls = await loadWorkerUrls(supabase);
       await supabase.from("app_admin_2fa_state").delete().eq("token_hash", tokenHash);
       await auditLog(supabase, "admin_2fa_finalized", user.id, user.id, {}, ip);
@@ -781,6 +814,7 @@ Deno.serve(async (req) => {
         .single();
       if (error || !targetUser) throw new Error("User not found");
 
+      const expMs = Date.now() + 30 * 60 * 1000;
       const impersonatePayload = {
         userId: targetUser.id,
         username: targetUser.username,
@@ -788,9 +822,10 @@ Deno.serve(async (req) => {
         assignedAccounts: targetUser.assigned_accounts || null,
         impersonated: true,
         adminId: session.userId,
-        exp: Date.now() + 30 * 60 * 1000,
+        exp: expMs,
       };
       const token = await createSessionToken(impersonatePayload, SESSION_SECRET);
+      await persistSession(targetUser.id, "user", token, expMs);
 
       await auditLog(supabase, "impersonate", session.userId, targetUser.id, { targetUsername: targetUser.username }, ip);
 
@@ -843,6 +878,43 @@ Deno.serve(async (req) => {
       const session = await verifySessionToken(token, SESSION_SECRET);
       if (!session) throw new Error("Invalid or expired session");
       return new Response(JSON.stringify({ success: true, session }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Hydrate the logged-in user from the DB. Used on page load / refresh so
+    // localStorage cannot be trusted for who the user is or their role.
+    if (action === "me") {
+      const session = await requireSession(req);
+      const { data: user, error } = await supabase
+        .from("app_users")
+        .select("id, username, name, role, must_change_password, assigned_accounts, profile_prefs")
+        .eq("id", session.userId)
+        .single();
+      if (error || !user) throw new Error("Account not found");
+      return new Response(JSON.stringify({
+        success: true,
+        user: {
+          id: user.id,
+          username: user.username,
+          name: user.name,
+          role: user.role,
+          mustChangePassword: user.must_change_password,
+          assignedAccounts: user.assigned_accounts,
+          profilePrefs: user.profile_prefs || {},
+          profileAvatar: user.profile_prefs?.avatarId || null,
+          impersonated: session.impersonated === true,
+        },
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    if (action === "logout") {
+      const token = req.headers.get("x-session-token");
+      if (token) {
+        const tokenHash = await sha256Hex(token);
+        await supabase.from("app_sessions").delete().eq("token_hash", tokenHash);
+      }
+      return new Response(JSON.stringify({ success: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }

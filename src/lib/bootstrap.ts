@@ -18,6 +18,27 @@ export function markSessionStart() {
 }
 
 export function clearSessionData() {
+  // Best-effort: revoke session server-side so the DB row is deleted.
+  try {
+    const token = localStorage.getItem("session_token");
+    if (token) {
+      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/manage-app`;
+      const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+      const body = JSON.stringify({ action: "logout" });
+      // Use keepalive fetch so the request survives navigation/unload.
+      fetch(url, {
+        method: "POST",
+        keepalive: true,
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${key}`,
+          "apikey": key,
+          "X-Session-Token": token,
+        },
+        body,
+      }).catch(() => {});
+    }
+  } catch {}
   try {
     localStorage.removeItem("user");
     localStorage.removeItem("session_token");
