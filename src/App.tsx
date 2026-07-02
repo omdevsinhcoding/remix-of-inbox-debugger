@@ -1907,40 +1907,40 @@ function ProfileSelectPage() {
 
           </motion.div>
         ) : (
-          <motion.div key="password" initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
-            transition={{ duration: 0.35 }}
-            className="relative z-10 w-full max-w-sm px-2">
+          <motion.div key="password" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.3 }}
+            className="relative z-10 w-full max-w-sm px-2 mt-16 sm:mt-24">
             <button onClick={() => { setSelectedProfile(null); setPassword(""); setError(""); }}
-              className="text-slate-500 hover:text-white text-sm font-bold mb-8 flex items-center gap-1.5 transition-colors group">
+              className="text-neutral-400 hover:text-white text-sm font-normal mb-8 flex items-center gap-1.5 transition-colors group">
               <ArrowLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" /> Back
             </button>
 
             <div className="flex flex-col items-center mb-8">
-              <motion.div initial={{ scale: 0.8 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 200 }}
-                className="mb-4">
-                <ProfileAvatar avatarId={getStableProfileAvatar(selectedProfile)} name={selectedProfile.name} className="w-20 h-20 sm:w-24 sm:h-24" fallbackColor={PROFILE_COLORS[Math.max(0, profiles.findIndex((p) => p.id === selectedProfile.id)) % PROFILE_COLORS.length]} eager />
+              <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 220 }}
+                className="mb-5 rounded-md overflow-hidden ring-1 ring-white/10">
+                <ProfileAvatar avatarId={getStableProfileAvatar(selectedProfile)} name={selectedProfile.name} className="w-24 h-24 sm:w-28 sm:h-28" fallbackColor={PROFILE_COLORS[Math.max(0, profiles.findIndex((p) => p.id === selectedProfile.id)) % PROFILE_COLORS.length]} eager />
               </motion.div>
-              <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">{selectedProfile.name}</h2>
-              <p className="text-slate-500 text-xs sm:text-sm mt-0.5">@{selectedProfile.username}</p>
+              <h2 className="text-2xl sm:text-3xl font-normal text-white tracking-tight" style={{ fontFamily: '"Netflix Sans","Helvetica Neue",Arial,sans-serif' }}>{selectedProfile.name}</h2>
+              <p className="text-neutral-500 text-xs sm:text-sm mt-1">@{selectedProfile.username}</p>
             </div>
 
             <form onSubmit={initiateLogin} className="space-y-4">
               <div className="relative">
-                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 w-5 h-5 z-10" />
+                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-500 w-4 h-4 z-10" />
                 <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)}
-                  className="w-full bg-slate-900/80 backdrop-blur-sm border border-slate-700/60 text-white rounded-2xl py-4 pl-12 pr-12 focus:ring-2 focus:ring-red-500/70 focus:border-red-500/30 transition-all outline-none placeholder:text-slate-600"
-                  placeholder="Enter password" autoFocus required />
+                  className="w-full bg-[#1f1f1f] border border-neutral-800 text-white rounded-md py-3.5 pl-11 pr-12 focus:border-neutral-500 transition-all outline-none placeholder:text-neutral-500 text-sm"
+                  placeholder="Password" autoFocus required />
               </div>
 
               {error && (
                 <motion.div initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }}
-                  className="bg-red-500/10 border border-red-500/20 text-red-400 text-xs p-3 rounded-xl flex items-center gap-2">
+                  className="bg-[#e50914]/10 border border-[#e50914]/30 text-[#f5c9cc] text-xs p-3 rounded-md flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 flex-shrink-0" />{error}
                 </motion.div>
               )}
 
               <button type="submit" disabled={loginLoading}
-                className="w-full bg-gradient-to-r from-red-600 to-red-700 text-white font-bold py-4 rounded-2xl hover:from-red-500 hover:to-red-600 transition-all active:scale-[0.97] disabled:opacity-50 shadow-lg shadow-red-900/30">
+                className="w-full bg-[#e50914] hover:bg-[#f6121d] text-white font-semibold py-3 rounded-md transition-all active:scale-[0.98] disabled:opacity-50 text-[15px]">
                 {loginLoading ? (
                   <span className="flex items-center justify-center gap-2">
                     <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
