@@ -4007,11 +4007,8 @@ function AdminPanel() {
                     <span>Secret Access Key {r2Cfg.secretAccessKeySet && (
                       <span className="ml-2 text-emerald-600 normal-case tracking-normal">✓ configured</span>
                     )}</span>
-                    <button type="button" onClick={() => setR2ShowSecret((s) => !s)} className="text-slate-400 hover:text-slate-700 normal-case tracking-normal">
-                      {r2ShowSecret ? "Hide" : "Show"}
-                    </button>
                   </label>
-                  <input type={r2ShowSecret ? "text" : "password"} value={r2Cfg.secretAccessKey}
+                  <input type="text" value={r2Cfg.secretAccessKey}
                     onChange={(e) => setR2Cfg((c) => ({ ...c, secretAccessKey: e.target.value }))}
                     placeholder="Paste secret access key"
                     className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900 font-mono" />
