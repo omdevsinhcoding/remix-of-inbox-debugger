@@ -1055,12 +1055,8 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
     if (selected === id) setSelected(null);
   };
 
-  const handleSnooze = async (id: string, hours: number) => {
-    const until = new Date(Date.now() + hours * 3600_000).toISOString();
-    await snoozeNotification(id, until);
-    onChange();
-    toast.success(`Snoozed for ${hours}h`);
-  };
+  // Snooze removed — no user-facing action.
+
 
   const handleMarkAllRead = async () => {
     await markAllNotificationsRead();
