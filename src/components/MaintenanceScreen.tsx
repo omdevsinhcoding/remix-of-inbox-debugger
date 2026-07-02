@@ -297,11 +297,18 @@ export default function MaintenanceScreen({ title, message, endsAt, versionFrom,
             </div>
 
             <h1
-              className="text-[28px] sm:text-[40px] font-semibold text-white leading-[1.08] tracking-[-0.02em] mb-3"
+              className="text-[28px] sm:text-[40px] font-semibold text-white leading-[1.08] tracking-[-0.02em] mb-3 min-h-[1.2em]"
               style={{ fontFamily: "'Inter', 'Helvetica Neue', system-ui, sans-serif" }}
             >
-              {displayTitle}
+              <span
+                key={customTitle ? "static" : titleIdx}
+                className="inline-block"
+                style={{ animation: "maint-title-in 620ms cubic-bezier(0.22,0.61,0.36,1) both" }}
+              >
+                {displayTitle}
+              </span>
             </h1>
+
 
             <p className="text-white/60 text-[14px] sm:text-[15.5px] leading-relaxed font-light max-w-[520px]">
               {displayMessage}
