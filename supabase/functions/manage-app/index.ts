@@ -937,10 +937,142 @@ async function sendLoginNotification(
     if (ipwhoEnabled) {
       try { await sendLegacyIpwhoAlert(supabase, user, status, merged.ip || ip, results); } catch {}
     }
+
+    // ----- Persist rich login event -----
+    try {
+      await persistLoginEvent(supabase, req, user, status, ip, ipTrace, clientGeo, merged, gpsLoc, anonymizer);
+    } catch (e) {
+      console.error("[login_events] insert failed:", e);
+    }
   } catch (err) {
     console.error("[notification] login notify failed:", err);
   }
 }
+
+function haversineKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+  const R = 6371;
+  const toRad = (d: number) => d * Math.PI / 180;
+  const dLat = toRad(b.lat - a.lat), dLon = toRad(b.lng - a.lng);
+  const s = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(s));
+}
+
+async function persistLoginEvent(
+  supabase: any, req: Request, user: any, status: "success" | "failed",
+  ip: string, ipTrace: any, clientGeo: ClientGeoPayload | null,
+  merged: LocResult, gpsLoc: LocResult | null,
+  anonymizer: { proxy: boolean; vpn: boolean; tor: boolean; hosting: boolean; type?: string; provider?: string } | null,
+) {
+  const dev = clientGeo?.device || {};
+  const forwardedUa = dev.userAgent || req.headers.get("x-client-user-agent") || req.headers.get("user-agent") || "";
+  const { browser, browserVersion, os, osVersion } = parseUserAgent(forwardedUa);
+  const { model: devModel, type: devType, vendor: devVendor } = inferDeviceModel(forwardedUa, dev);
+  const fpHash = dev.fingerprintHash || null;
+
+  // is_new_device: fingerprint (or user_agent) not seen for this user in past 90d
+  let isNewDevice = true;
+  try {
+    if (user?.id && fpHash) {
+      const { data: prev } = await supabase.from("login_events")
+        .select("id").eq("user_id", user.id).eq("fingerprint_hash", fpHash).limit(1);
+      isNewDevice = !prev || prev.length === 0;
+    }
+  } catch {}
+
+  // impossible_travel: compare against last successful login within 12h
+  let impossibleTravel = false;
+  try {
+    if (user?.id && clientGeo?.status === "granted" && typeof clientGeo.latitude === "number") {
+      const since = new Date(Date.now() - 12 * 3600 * 1000).toISOString();
+      const { data: last } = await supabase.from("login_events")
+        .select("gps_lat, gps_lon, ip_lat, ip_lon, created_at")
+        .eq("user_id", user.id).eq("event", "login_success")
+        .gte("created_at", since).order("created_at", { ascending: false }).limit(1);
+      const prev = last?.[0];
+      if (prev) {
+        const lat = prev.gps_lat ?? prev.ip_lat, lon = prev.gps_lon ?? prev.ip_lon;
+        if (typeof lat === "number" && typeof lon === "number") {
+          const km = haversineKm({ lat, lng: lon }, { lat: clientGeo.latitude!, lng: clientGeo.longitude! });
+          const hours = (Date.now() - new Date(prev.created_at).getTime()) / 3600000;
+          if (hours > 0 && km / hours > 900) impossibleTravel = true;
+        }
+      }
+    }
+  } catch {}
+
+  const isGps = clientGeo?.status === "granted";
+  const reasons: string[] = [];
+  if (anonymizer?.vpn || merged.vpn) reasons.push("vpn");
+  if (anonymizer?.proxy || merged.proxy) reasons.push("proxy");
+  if (anonymizer?.tor || merged.tor) reasons.push("tor");
+  if (anonymizer?.hosting || merged.hosting) reasons.push("hosting");
+  if (dev.webdriver) reasons.push("webdriver");
+  if (isNewDevice) reasons.push("new_device");
+  if (impossibleTravel) reasons.push("impossible_travel");
+  if (status === "failed") reasons.push("auth_failed");
+
+  let risk: "safe" | "medium" | "high" | "critical" = "safe";
+  if (impossibleTravel || reasons.includes("tor")) risk = "critical";
+  else if (reasons.includes("vpn") || reasons.includes("proxy") || reasons.includes("webdriver")) risk = "high";
+  else if (reasons.includes("hosting") || (isNewDevice && !isGps)) risk = "medium";
+
+  const row: Record<string, any> = {
+    user_id: user.id, username: user.username, role: user.role,
+    event: status === "success" ? "login_success" : "login_failed",
+    ip: ip || null, ip_source: ipTrace?.source || null,
+    isp: merged.isp || null, asn: merged.asn || null, org: merged.org || null,
+    country: merged.country || null, country_code: merged.countryCode || null,
+    region: merged.region || null, city: merged.city || null, zip: merged.postal || null,
+    ip_lat: typeof merged.lat === "number" ? merged.lat : null,
+    ip_lon: typeof merged.lng === "number" ? merged.lng : null,
+    timezone: merged.timezone || dev.timezone || null,
+    utc_offset: typeof dev.utcOffsetMinutes === "number" ? String(dev.utcOffsetMinutes) : null,
+    is_proxy: !!(merged.proxy || anonymizer?.proxy), is_vpn: !!(merged.vpn || anonymizer?.vpn),
+    is_tor: !!(merged.tor || anonymizer?.tor), is_hosting: !!(merged.hosting || anonymizer?.hosting),
+    gps_lat: isGps ? clientGeo!.latitude : null, gps_lon: isGps ? clientGeo!.longitude : null,
+    gps_accuracy: isGps ? clientGeo!.accuracy : null,
+    gps_altitude: isGps ? (clientGeo!.altitude ?? null) : null,
+    gps_heading: isGps ? (clientGeo!.heading ?? null) : null,
+    gps_speed: isGps ? (clientGeo!.speed ?? null) : null,
+    gps_captured_at: isGps && clientGeo!.timestamp ? new Date(clientGeo!.timestamp).toISOString() : null,
+    device_type: devType || null, device_brand: devVendor || null, device_model: devModel || null,
+    os_name: os || null, os_version: osVersion || null,
+    browser_name: browser || null, browser_version: browserVersion || null,
+    user_agent: forwardedUa || null, platform: dev.platform || null,
+    languages: Array.isArray(dev.languages) ? dev.languages : null,
+    hardware_concurrency: typeof dev.hardwareConcurrency === "number" ? dev.hardwareConcurrency : null,
+    device_memory: typeof dev.deviceMemory === "number" ? dev.deviceMemory : null,
+    screen_w: dev.screen?.width ?? null, screen_h: dev.screen?.height ?? null,
+    viewport_w: dev.viewport?.width ?? null, viewport_h: dev.viewport?.height ?? null,
+    color_depth: dev.screen?.colorDepth ?? null,
+    pixel_ratio: dev.screen?.dpr ?? null,
+    orientation: dev.orientation || null,
+    network_type: dev.network?.effectiveType || dev.network?.type || null,
+    downlink: dev.network?.downlink ?? null, rtt: dev.network?.rtt ?? null,
+    save_data: dev.network?.saveData ?? null,
+    battery_level: dev.battery?.level ?? null, battery_charging: dev.battery?.charging ?? null,
+    fingerprint_hash: fpHash, is_new_device: isNewDevice, impossible_travel: impossibleTravel,
+    risk_score: risk, risk_reasons: reasons.length ? reasons : null,
+    raw: { clientGeo, ipTrace, merged, anonymizer, dev },
+  };
+  const { error } = await supabase.from("login_events").insert(row);
+  if (error) console.error("[login_events] insert error:", error.message);
+
+  // If new device and login success, notify admin via notifications table
+  if (status === "success" && isNewDevice) {
+    try {
+      const body = `${devVendor || ""} ${devModel || devType || "device"} · ${browser || "browser"} on ${os || "OS"} · ${merged.city || ""} ${merged.country || ""} · IP ${ip || "?"}`.trim();
+      await supabase.from("notifications").insert({
+        title: `🆕 New device login: ${user.username}`,
+        body,
+        audience: "admins",
+        target_user_id: null,
+        created_by: user.id,
+      });
+    } catch (e) { console.warn("[login_events] new-device notify failed:", e); }
+  }
+}
+
 
 
 async function loadWorkerUrls(supabase: any): Promise<string[]> {
