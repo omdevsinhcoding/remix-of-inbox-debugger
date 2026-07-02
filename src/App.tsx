@@ -1916,9 +1916,10 @@ function ProfileSelectPage() {
                 {profileSearch && (
                   <button
                     onClick={() => setProfileSearch("")}
+                    aria-label="Clear profile search"
                     className="absolute right-5 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-white p-1"
                   >
-                    <X className="w-4 h-4" />
+                    <X className="w-4 h-4" aria-hidden="true" />
                   </button>
                 )}
               </div>
