@@ -172,10 +172,17 @@ export type AppNotification = {
   title: string;
   body: string;
   description?: string | null;
+  body_markdown?: string | null;
   image_url?: string | null;
   category?: NotificationCategory | string;
   priority?: NotificationPriority | string;
   icon?: string | null;
+  platform_icon?: string | null;
+  kind?: "flash" | "article" | string;
+  sub_kind?: string | null;
+  locked?: boolean;
+  show_frequency?: "once" | "always" | "session" | "daily" | string | null;
+  mode?: "popup" | "silent" | "banner" | string | null;
   action_url?: string | null;
   action_label?: string | null;
   action2_url?: string | null;
