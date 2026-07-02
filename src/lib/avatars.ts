@@ -85,8 +85,9 @@ export const AVATAR_CATEGORIES: AvatarCategory[] = [
 const byKey = new Map(AVATAR_CATEGORIES.map((c) => [c.key, c]));
 
 function encodePath(folder: string, file: string): string {
-  // R2 accepts most characters; encode each segment safely.
-  return `${R2_BASE}/${encodeURI(folder)}/${encodeURIComponent(file)}.png`;
+  // Encode every path segment fully. Some folders contain commas, ampersands, apostrophes,
+  // and spaces; partial encoding can make mobile browsers/CDNs miss the real R2 object.
+  return `${R2_BASE}/${encodeURIComponent(folder)}/${encodeURIComponent(file)}.png`;
 }
 
 /**
@@ -106,6 +107,12 @@ export function resolveAvatar(avatarId?: string | null): string | null {
 
 export function buildAvatarId(categoryKey: string, file: string): string {
   return `netflix:${categoryKey}:${file}`;
+}
+
+export function getAvatarCategoryUrls(categoryKey: string): string[] {
+  const category = byKey.get(categoryKey);
+  if (!category) return [];
+  return category.files.map((file) => encodePath(category.folder, file));
 }
 
 export const AVATAR_TOTAL = AVATAR_CATEGORIES.reduce((n, c) => n + c.files.length, 0);
