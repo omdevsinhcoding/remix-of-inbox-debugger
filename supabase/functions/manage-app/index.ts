@@ -2328,7 +2328,7 @@ Deno.serve(async (req) => {
       const session = await requireSession(req);
       const { notification_id, event, meta } = params as { notification_id?: string; event?: string; meta?: any };
       if (!notification_id || !event) throw new Error("notification_id and event required");
-      const allowed = ["delivered", "seen", "read", "clicked", "dismissed", "snoozed", "archived"];
+      const allowed = ["delivered", "seen", "read", "clicked", "dismissed", "snoozed"];
       if (!allowed.includes(event)) throw new Error("invalid event");
       await supabase.from("notification_events").insert({ notification_id, user_id: session.userId, event, meta: meta || null });
       return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
