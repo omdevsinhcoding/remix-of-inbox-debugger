@@ -300,14 +300,22 @@ export default function MaintenanceScreen({ title, message, endsAt, versionFrom,
               className="text-[28px] sm:text-[40px] font-semibold text-white leading-[1.08] tracking-[-0.02em] mb-3 min-h-[1.2em]"
               style={{ fontFamily: "'Inter', 'Helvetica Neue', system-ui, sans-serif" }}
             >
-              <span
-                key={customTitle ? "static" : titleIdx}
-                className="inline-block"
-                style={{ animation: "maint-title-in 620ms cubic-bezier(0.22,0.61,0.36,1) both" }}
-              >
-                {displayTitle}
+              <span key={customTitle ? "static" : titleIdx} className="inline-block whitespace-pre-wrap">
+                {Array.from(displayTitle).map((ch, i) => (
+                  <span
+                    key={i}
+                    className="inline-block"
+                    style={{
+                      animation: `maint-letter-in 520ms cubic-bezier(0.22,0.61,0.36,1) both`,
+                      animationDelay: `${i * 35}ms`,
+                    }}
+                  >
+                    {ch === " " ? "\u00A0" : ch}
+                  </span>
+                ))}
               </span>
             </h1>
+
 
 
             <p className="text-white/60 text-[14px] sm:text-[15.5px] leading-relaxed font-light max-w-[520px]">
