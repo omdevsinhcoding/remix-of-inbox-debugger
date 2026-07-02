@@ -117,15 +117,65 @@ function isPrivateIp(ip: string): boolean {
   return false;
 }
 
+// Cloudflare's own proxy/Warp ranges. Prefer non-CF candidates when available.
+function isCloudflareIp(ip: string): boolean {
+  if (!ip) return false;
+  if (ip.startsWith("2a06:98c") || ip.startsWith("2606:4700") || ip.startsWith("2803:f800")
+    || ip.startsWith("2405:b500") || ip.startsWith("2405:8100") || ip.startsWith("2c0f:f248")
+    || ip.startsWith("2a06:98d")) return true;
+  if (/^(104\.1[6-9]\.|172\.6[4-9]\.|172\.7[01]\.|173\.245\.[45]\d\.|103\.21\.244\.|103\.22\.200\.|103\.31\.4\.|141\.101\.(6[4-9]|7\d|12[0-7])\.|108\.162\.(19[2-9]|2\d\d)\.|190\.93\.(240|24[1-9]|25[0-5])\.|188\.114\.9[6-9]\.|197\.234\.240\.|198\.41\.(12[8-9]|1[3-9]\d|2\d\d)\.|162\.158\.)/.test(ip)) return true;
+  return false;
+}
+
+function pickClientIp(candidates: { label: string; ip: string }[]): { ip: string; label: string } {
+  const clean = candidates.filter(c => c.ip);
+  // 1) first public non-CF
+  let sel = clean.find(c => !isPrivateIp(c.ip) && !isCloudflareIp(c.ip));
+  if (sel) return sel;
+  // 2) first public (may be CF)
+  sel = clean.find(c => !isPrivateIp(c.ip));
+  if (sel) return sel;
+  // 3) anything
+  return clean[0] || { ip: "unknown", label: "none" };
+}
+
+function collectIpCandidates(req: Request): { label: string; ip: string }[] {
+  const out: { label: string; ip: string }[] = [];
+  const push = (label: string, val: string | null | undefined) => {
+    if (!val) return;
+    for (const raw of String(val).split(",")) {
+      const ip = raw.trim();
+      if (ip) out.push({ label, ip });
+    }
+  };
+  push("x-client-ip", req.headers.get("x-client-ip"));
+  push("cf-connecting-ip", req.headers.get("cf-connecting-ip"));
+  push("true-client-ip", req.headers.get("true-client-ip"));
+  push("x-real-ip", req.headers.get("x-real-ip"));
+  push("x-forwarded-for", req.headers.get("x-forwarded-for"));
+  return out;
+}
+
 function getClientIp(req: Request): string {
-  const candidates: string[] = [];
-  const cf = req.headers.get("cf-connecting-ip"); if (cf) candidates.push(cf.trim());
-  const real = req.headers.get("x-real-ip"); if (real) candidates.push(real.trim());
-  const fwd = req.headers.get("x-forwarded-for");
-  if (fwd) for (const p of fwd.split(",")) { const t = p.trim(); if (t) candidates.push(t); }
-  const xci = req.headers.get("x-client-ip"); if (xci) candidates.push(xci.trim());
-  for (const c of candidates) if (!isPrivateIp(c)) return c;
-  return candidates[0] || "unknown";
+  return pickClientIp(collectIpCandidates(req)).ip;
+}
+
+function getClientIpTrace(req: Request): { ip: string; source: string; candidates: { label: string; ip: string }[]; cfCountry: string; cfRay: string; workerTrace: any } {
+  const candidates = collectIpCandidates(req);
+  const picked = pickClientIp(candidates);
+  let workerTrace: any = null;
+  try {
+    const raw = req.headers.get("x-ip-trace");
+    if (raw) workerTrace = JSON.parse(raw);
+  } catch {}
+  return {
+    ip: picked.ip,
+    source: picked.label,
+    candidates,
+    cfCountry: req.headers.get("cf-ipcountry") || "",
+    cfRay: req.headers.get("cf-ray") || "",
+    workerTrace,
+  };
 }
 
 function esc(s: string): string {
