@@ -137,3 +137,50 @@ export function patchBootstrapCacheUser(userId: string, patch: Record<string, an
   } catch {}
 }
 
+// ---------- Notifications helpers ----------
+export type AppNotification = {
+  id: string;
+  title: string;
+  body: string;
+  audience: "all" | "user";
+  created_at: string;
+  expires_at: string | null;
+  read: boolean;
+};
+
+async function callManage<T = any>(action: string, payload: Record<string, any> = {}): Promise<T> {
+  const token = localStorage.getItem("session_token");
+  const headers: Record<string, string> = {};
+  if (token) headers["X-Session-Token"] = token;
+  const { data, error } = await supabase.functions.invoke("manage-app", {
+    body: { action, ...payload },
+    headers,
+  });
+  if (error) throw error;
+  if (!data?.success) throw new Error(data?.error || `${action} failed`);
+  return data as T;
+}
+
+export async function listNotifications(): Promise<AppNotification[]> {
+  try {
+    const data = await callManage<{ notifications: AppNotification[] }>("list_notifications");
+    return data.notifications || [];
+  } catch (err) {
+    console.warn("[notifications] list failed:", err);
+    return [];
+  }
+}
+
+export async function markNotificationRead(id: string): Promise<void> {
+  try { await callManage("mark_notification_read", { notification_id: id }); } catch {}
+}
+
+export async function markAllNotificationsRead(): Promise<void> {
+  try { await callManage("mark_all_notifications_read"); } catch {}
+}
+
+export async function clearMyInbox(visibleIds: string[]): Promise<any> {
+  return await callManage("clear_user_inbox", { visibleIds });
+}
+
+

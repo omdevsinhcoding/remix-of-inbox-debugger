@@ -1,11 +1,11 @@
 import React, { useState, useEffect, createContext, useContext, useCallback, useRef, useMemo, Suspense, lazy } from "react";
-import { Mail, RefreshCw, ShieldCheck, Shield, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, BarChart3, Globe, Edit, Database, Wifi, Info, UserCircle, Search, ChevronLeft, ChevronRight } from "lucide-react";
+import { Mail, RefreshCw, ShieldCheck, Shield, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, BarChart3, Globe, Edit, Database, Wifi, Info, UserCircle, Search, ChevronLeft, ChevronRight, Bell, Send, MessageSquare } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { Toaster, toast } from "sonner";
 import { supabase } from "./integrations/supabase/client";
 import { AVATAR_CATEGORIES, resolveAvatar, buildAvatarId, prettyName, getAvatarCategoryUrls } from "./lib/avatars";
-import { bootstrapFromSupabase, clearSessionData, markSessionStart, readBootstrapCache, refreshBootstrap, patchBootstrapCacheUser, getEmailFilters, setEmailFilters as setEmailFiltersCache, type EmailFilters } from "./lib/bootstrap";
+import { bootstrapFromSupabase, clearSessionData, markSessionStart, readBootstrapCache, refreshBootstrap, patchBootstrapCacheUser, getEmailFilters, setEmailFilters as setEmailFiltersCache, listNotifications, markNotificationRead, markAllNotificationsRead, type EmailFilters, type AppNotification } from "./lib/bootstrap";
 
 // Lazy-loaded heavy auth-only libs — kept out of the public first-load chunk.
 const ReCAPTCHA = lazy(() => import("react-google-recaptcha"));
@@ -303,7 +303,125 @@ function useSessionTimeoutGuard(role: "admin" | "user") {
   }, [role]);
 }
 
-// ==================== SESSION COUNTDOWN PILL ====================
+// ==================== NETFLIX N LOGO (inline SVG, no external asset) ====================
+function NetflixNLogo({ className = "w-7 h-7 sm:w-8 sm:h-8" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 111 30" xmlns="http://www.w3.org/2000/svg" className={className} aria-label="Netflix" role="img">
+      <path fill="#E50914" d="M105.06 14.28L110.6 30c-1.63-.23-3.26-.53-4.92-.75l-3.13-8.14-3.24 7.47c-1.57-.27-3.11-.36-4.68-.56L100.24 15 95.16 1.65h4.62l2.87 7.35 3.06-7.35H110l-4.94 12.63zM90.72 1.65h-4.19V27.9c1.37.08 2.8.15 4.19.31V1.65zm-7.75 25.72c-3.82-.26-7.66-.5-11.56-.6V1.65h4.24V22.7c2.45.05 4.9.24 7.32.36v4.31zM64.63 11.61v4.29h-5.79v9.61h-4.19V1.65h11.87v4.29h-7.68v5.67h5.79zm-15.36-5.67v20.11c-1.42 0-2.87 0-4.24.03V5.94H40.66V1.65c4.79 0 9.59 0 14.38 0v4.29h-5.77zm-14.5 15.83c1.88.04 3.79.19 5.66.28v4.24c-3.03-.19-6.06-.38-9.15-.45V1.65h4.24v19.35c.11.12-.75.12-.75.77zM26.83 27.4c-1.31-.03-2.65-.03-3.99-.03V1.65h3.99V27.4zM6.29 14.35v14.5c-1.5.16-2.83.36-4.23.58V1.65h3.95l5.4 15.1V1.65h4.24v27.62c-1.5.27-3.03.42-4.61.7L6.29 14.35z"/>
+    </svg>
+  );
+}
+
+// ==================== NOTIFICATION BELL ====================
+function NotificationBell() {
+  const [items, setItems] = useState<AppNotification[]>([]);
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const autoOpenedRef = useRef(false);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      const list = await listNotifications();
+      setItems(list);
+      const unread = list.filter((n) => !n.read).length;
+      if (!autoOpenedRef.current && unread > 0) {
+        autoOpenedRef.current = true;
+        toast(`🔔 You have ${unread} new update${unread > 1 ? "s" : ""}`);
+      }
+    } finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => {
+    refresh();
+    const id = setInterval(refresh, 60_000);
+    return () => clearInterval(id);
+  }, [refresh]);
+
+  const unread = items.filter((n) => !n.read).length;
+
+  const handleMarkRead = async (id: string) => {
+    setItems((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+    await markNotificationRead(id);
+  };
+  const handleMarkAll = async () => {
+    setItems((prev) => prev.map((n) => ({ ...n, read: true })));
+    await markAllNotificationsRead();
+  };
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="relative flex items-center justify-center p-2.5 bg-slate-900 text-white rounded-full hover:bg-slate-800 transition-all active:scale-95"
+        title="Notifications"
+        aria-label={`Notifications (${unread} unread)`}
+      >
+        <Bell className={`w-4 h-4 sm:w-5 sm:h-5 ${unread > 0 ? "animate-pulse" : ""}`} />
+        {unread > 0 && (
+          <>
+            <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-red-500 rounded-full animate-ping" />
+            <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-red-500 rounded-full ring-2 ring-white" />
+          </>
+        )}
+      </button>
+      <AnimatePresence>
+        {open && (
+          <>
+            <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+            <motion.div
+              initial={{ opacity: 0, y: -8, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -8, scale: 0.98 }}
+              transition={{ duration: 0.15 }}
+              className="absolute right-0 mt-2 w-[92vw] max-w-sm bg-slate-950 border border-slate-800 rounded-2xl shadow-2xl z-50 overflow-hidden"
+            >
+              <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800">
+                <div className="flex items-center gap-2">
+                  <Bell className="w-4 h-4 text-red-500" />
+                  <h3 className="font-bold text-white text-sm">Notifications</h3>
+                  {unread > 0 && <span className="text-[10px] bg-red-600 text-white px-1.5 py-0.5 rounded-full font-bold">{unread}</span>}
+                </div>
+                {items.length > 0 && unread > 0 && (
+                  <button onClick={handleMarkAll} className="text-[11px] text-red-400 hover:text-red-300 font-semibold">Mark all read</button>
+                )}
+              </div>
+              <div className="max-h-[60vh] overflow-y-auto">
+                {loading && items.length === 0 && (
+                  <div className="py-10 text-center text-slate-500 text-sm">Loading…</div>
+                )}
+                {!loading && items.length === 0 && (
+                  <div className="py-10 text-center text-slate-500 text-sm">
+                    <MessageSquare className="w-8 h-8 mx-auto mb-2 opacity-40" />
+                    No notifications yet
+                  </div>
+                )}
+                {items.map((n) => (
+                  <button
+                    key={n.id}
+                    onClick={() => !n.read && handleMarkRead(n.id)}
+                    className={`w-full text-left px-4 py-3 border-b border-slate-900 hover:bg-slate-900/60 transition-colors flex gap-3 ${
+                      !n.read ? "bg-red-950/20 border-l-2 border-l-red-500" : "opacity-70"
+                    }`}
+                  >
+                    <div className={`mt-1 w-2 h-2 rounded-full flex-shrink-0 ${!n.read ? "bg-red-500 animate-pulse" : "bg-slate-700"}`} />
+                    <div className="min-w-0 flex-1">
+                      <p className="font-bold text-white text-sm truncate">{n.title}</p>
+                      <p className="text-slate-400 text-xs mt-0.5 line-clamp-3 whitespace-pre-wrap">{n.body}</p>
+                      <p className="text-slate-600 text-[10px] mt-1">{new Date(n.created_at).toLocaleString()}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+
 function SessionCountdown({ role }: { role: "admin" | "user" }) {
   const [minutes, setMinutes] = useState<number>(0);
   const [remainingMs, setRemainingMs] = useState<number>(0);
@@ -653,10 +771,14 @@ function ProfileSelectPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const displayProfiles = useMemo(
-    () => profiles.map((profile) => ({ ...profile, profileAvatar: getStableProfileAvatar(profile) })),
-    [profiles]
-  );
+  const [profileSearch, setProfileSearch] = useState("");
+  const displayProfiles = useMemo(() => {
+    const list = profiles.map((profile) => ({ ...profile, profileAvatar: getStableProfileAvatar(profile) }));
+    const q = profileSearch.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter((p) => (p.name || "").toLowerCase().includes(q) || (p.username || "").toLowerCase().includes(q));
+  }, [profiles, profileSearch]);
+
 
   // Preload profile avatars into browser cache the instant profiles arrive.
   useEffect(() => {
@@ -753,28 +875,53 @@ function ProfileSelectPage() {
               Select your profile to continue
             </motion.p>
 
-            {displayProfiles.length === 0 ? (
-              <div className="text-center py-12">
-                <p className="text-slate-500 text-sm">{loading ? "Loading profiles…" : "No profiles yet. Ask admin to create users."}</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 sm:gap-5 justify-items-center px-2">
-                {displayProfiles.map((profile, i) => (
-                  <motion.button key={profile.id}
-                    initial={fromCache ? false : { opacity: 0, scale: 0.8 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    transition={fromCache ? { duration: 0 } : { delay: 0.1 + i * 0.04 }}
-                    whileHover={{ scale: 1.08, y: -4 }} whileTap={{ scale: 0.92 }}
-                    onClick={() => setSelectedProfile(profile)}
-                    className="flex flex-col items-center gap-2 sm:gap-3 group w-full max-w-[100px] sm:max-w-[120px]">
-                    <div className="group-hover:shadow-xl group-hover:ring-2 group-hover:ring-white/40 rounded-xl sm:rounded-2xl transition-all duration-200">
-                      <ProfileAvatar avatarId={profile.profileAvatar} name={profile.name} className="w-16 h-16 sm:w-24 sm:h-24" fallbackColor={PROFILE_COLORS[i % PROFILE_COLORS.length]} eager />
-                    </div>
-                    <span className="text-slate-400 font-semibold text-[11px] sm:text-sm group-hover:text-white transition-colors duration-200 truncate w-full text-center">{profile.name}</span>
-                  </motion.button>
-                ))}
+            {profiles.length > 6 && (
+              <div className="relative mb-4 sm:mb-6 max-w-md mx-auto px-2">
+                <Search className="absolute left-6 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
+                <input
+                  type="text"
+                  value={profileSearch}
+                  onChange={(e) => setProfileSearch(e.target.value)}
+                  placeholder={`Search ${profiles.length} profiles…`}
+                  className="w-full bg-slate-900/70 backdrop-blur-sm border border-slate-700/60 text-white text-sm rounded-full pl-10 pr-10 py-2.5 outline-none focus:ring-2 focus:ring-red-500/70 focus:border-red-500/30 placeholder:text-slate-500"
+                />
+                {profileSearch && (
+                  <button onClick={() => setProfileSearch("")}
+                    className="absolute right-5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white p-1">
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
               </div>
             )}
+            {displayProfiles.length === 0 ? (
+              <div className="text-center py-12">
+                <p className="text-slate-500 text-sm">
+                  {loading ? "Loading profiles…" : profileSearch ? `No profiles match "${profileSearch}"` : "No profiles yet. Ask admin to create users."}
+                </p>
+              </div>
+            ) : (
+              <div
+                className="overflow-y-auto overscroll-contain px-2 pb-2 max-h-[60vh] sm:max-h-[62vh] scroll-smooth [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-slate-700/60 [&::-webkit-scrollbar-thumb]:rounded-full"
+              >
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 sm:gap-5 justify-items-center">
+                  {displayProfiles.map((profile, i) => (
+                    <motion.button key={profile.id}
+                      initial={fromCache ? false : { opacity: 0, scale: 0.8 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={fromCache ? { duration: 0 } : { delay: Math.min(0.1 + i * 0.02, 0.6) }}
+                      whileHover={{ scale: 1.08, y: -4 }} whileTap={{ scale: 0.92 }}
+                      onClick={() => setSelectedProfile(profile)}
+                      className="flex flex-col items-center gap-2 sm:gap-3 group w-full max-w-[100px] sm:max-w-[120px]">
+                      <div className="group-hover:shadow-xl group-hover:ring-2 group-hover:ring-white/40 rounded-xl sm:rounded-2xl transition-all duration-200">
+                        <ProfileAvatar avatarId={profile.profileAvatar} name={profile.name} className="w-16 h-16 sm:w-24 sm:h-24" fallbackColor={PROFILE_COLORS[i % PROFILE_COLORS.length]} eager />
+                      </div>
+                      <span className="text-slate-400 font-semibold text-[11px] sm:text-sm group-hover:text-white transition-colors duration-200 truncate w-full text-center">{profile.name}</span>
+                    </motion.button>
+                  ))}
+                </div>
+              </div>
+            )}
+
           </motion.div>
         ) : (
           <motion.div key="password" initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
@@ -1129,7 +1276,7 @@ function AdminAuthPage() {
 
 // ==================== ADMIN PANEL ====================
 function AdminPanel() {
-  const [activeTab, setActiveTab] = useState<"users" | "security" | "emails" | "settings">("users");
+  const [activeTab, setActiveTab] = useState<"users" | "security" | "emails" | "settings" | "notifications" | "inbox">("users");
   const [users, setUsers] = useState<UserData[]>([]);
   const [newUsername, setNewUsername] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -1163,6 +1310,24 @@ function AdminPanel() {
   const [savingAccounts, setSavingAccounts] = useState(false);
   const [expandedAccount, setExpandedAccount] = useState<number | null>(null);
   const [primaryCfUrls, setPrimaryCfUrls] = useState<string[]>([]);
+  // Location alert toggle
+  const [ipwhoAlertEnabled, setIpwhoAlertEnabled] = useState(false);
+  const [savingIpwho, setSavingIpwho] = useState(false);
+  // Notifications tab
+  const [adminNotifs, setAdminNotifs] = useState<any[]>([]);
+  const [notifTitle, setNotifTitle] = useState("");
+  const [notifBody, setNotifBody] = useState("");
+  const [notifAudience, setNotifAudience] = useState<"all" | "user">("all");
+  const [notifTargetUser, setNotifTargetUser] = useState<string>("");
+  const [notifExpiresDays, setNotifExpiresDays] = useState<string>("");
+  const [sendingNotif, setSendingNotif] = useState(false);
+  // Inbox tab
+  const [inboxMode, setInboxMode] = useState<"all" | "label" | "days">("days");
+  const [inboxLabel, setInboxLabel] = useState("");
+  const [inboxDays, setInboxDays] = useState("30");
+  const [inboxConfirm, setInboxConfirm] = useState("");
+  const [clearingInbox, setClearingInbox] = useState(false);
+
   const [primaryCfInput, setPrimaryCfInput] = useState("");
   const [editingAccountUrls, setEditingAccountUrls] = useState<number | null>(null);
   const [editCfUrls, setEditCfUrls] = useState<string[]>([]);
@@ -1256,9 +1421,18 @@ function AdminPanel() {
         if (Number.isFinite(m) && m >= 0) setAdminSessionTimeoutMin(String(m));
       } catch { }
 
-      // Stats are now derived from worker-fetched emails, no direct Supabase REST call
+      try {
+        const ipw = await apiCall("manage-app", { action: "get_settings", key: "ipwho_alert" });
+        setIpwhoAlertEnabled(ipw?.value?.enabled === true);
+      } catch { }
+
+      try {
+        const nl = await apiCall("manage-app", { action: "admin_list_notifications" });
+        if (Array.isArray(nl?.notifications)) setAdminNotifs(nl.notifications);
+      } catch { }
     })();
   }, []);
+
 
   const saveSessionTimeout = async () => {
     const m = Math.max(0, Math.floor(Number(sessionTimeoutMin) || 0));
@@ -1379,6 +1553,80 @@ function AdminPanel() {
     }
   };
 
+  const toggleIpwhoAlert = async () => {
+    const next = !ipwhoAlertEnabled;
+    setIpwhoAlertEnabled(next);
+    setSavingIpwho(true);
+    try {
+      await apiCall("manage-app", { action: "set_settings", key: "ipwho_alert", value: { enabled: next } });
+      toast.success(next ? "Legacy ipwho.is alert enabled" : "Legacy ipwho.is alert disabled");
+    } catch (err) {
+      setIpwhoAlertEnabled(!next);
+      toast.error(err instanceof Error ? err.message : "Failed");
+    } finally { setSavingIpwho(false); }
+  };
+
+  const reloadAdminNotifs = async () => {
+    try {
+      const nl = await apiCall("manage-app", { action: "admin_list_notifications" });
+      if (Array.isArray(nl?.notifications)) setAdminNotifs(nl.notifications);
+    } catch (err) { console.warn(err); }
+  };
+
+  const sendNotification = async () => {
+    if (!notifTitle.trim() || !notifBody.trim()) { toast.error("Title and body required"); return; }
+    if (notifAudience === "user" && !notifTargetUser) { toast.error("Choose a target user"); return; }
+    setSendingNotif(true);
+    try {
+      await apiCall("manage-app", {
+        action: "admin_create_notification",
+        title: notifTitle.trim(),
+        body: notifBody.trim(),
+        audience: notifAudience,
+        target_user_id: notifAudience === "user" ? notifTargetUser : null,
+        expiresInDays: notifExpiresDays ? Number(notifExpiresDays) : null,
+      });
+      toast.success("🔔 Notification sent");
+      setNotifTitle(""); setNotifBody(""); setNotifExpiresDays("");
+      await reloadAdminNotifs();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to send");
+    } finally { setSendingNotif(false); }
+  };
+
+  const deleteNotification = async (id: string) => {
+    if (!confirm("Delete this notification for everyone?")) return;
+    try {
+      await apiCall("manage-app", { action: "admin_delete_notification", id });
+      setAdminNotifs((prev) => prev.filter((n) => n.id !== id));
+      toast.success("Deleted");
+    } catch (err) { toast.error(err instanceof Error ? err.message : "Failed"); }
+  };
+
+  const adminClearInbox = async () => {
+    if (inboxMode === "all" && inboxConfirm !== "DELETE ALL") {
+      toast.error('Type DELETE ALL to confirm');
+      return;
+    }
+    if (inboxMode === "label" && !inboxLabel) { toast.error("Choose an account label"); return; }
+    if (inboxMode === "days" && !inboxDays) { toast.error("Enter days"); return; }
+    if (!confirm("This permanently deletes emails from the database. Continue?")) return;
+    setClearingInbox(true);
+    try {
+      const res = await apiCall("manage-app", {
+        action: "admin_clear_inbox",
+        mode: inboxMode,
+        accountLabel: inboxMode === "label" ? inboxLabel : undefined,
+        days: inboxMode === "days" ? Number(inboxDays) : undefined,
+        confirm: inboxMode === "all" ? inboxConfirm : undefined,
+      });
+      toast.success(`Deleted ${res.deleted || 0} email(s)`);
+      setInboxConfirm("");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed");
+    } finally { setClearingInbox(false); }
+  };
+
   const changeAdminPassword = async () => {
     if (!currentPassword || !newAdminPassword) { toast.error("Fill both fields"); return; }
     setChangingPassword(true);
@@ -1492,10 +1740,13 @@ function AdminPanel() {
 
   const tabs = [
     { id: "users" as const, label: "Users", icon: Users },
+    { id: "notifications" as const, label: "Notifications", icon: Bell },
+    { id: "inbox" as const, label: "Inbox", icon: Mail },
     { id: "security" as const, label: "Security", icon: ShieldCheck },
-    { id: "emails" as const, label: "Email Accounts", icon: Mail },
+    { id: "emails" as const, label: "Email Accounts", icon: Server },
     { id: "settings" as const, label: "Settings", icon: Settings },
   ];
+
 
   return (
     <div className="admin-panel min-h-[100dvh] bg-slate-50 overflow-x-hidden text-slate-900">
@@ -1842,8 +2093,133 @@ function AdminPanel() {
                 Current: {Number(adminSessionTimeoutMin) > 0 ? `${adminSessionTimeoutMin} min auto-logout` : "Disabled — admin sessions never expire"}
               </p>
             </section>
+
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
+                <div className="bg-red-50 p-1.5 rounded-lg"><Send className="w-4 h-4 text-red-600" /></div>
+                Location Alert (legacy ipwho.is)
+              </h2>
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-sm font-semibold text-slate-800">Send legacy ipwho.is alert</p>
+                  <p className="text-xs text-slate-500 mt-1">The primary multi-provider consensus alert is always sent. This toggles the additional raw ipwho.is dump.</p>
+                </div>
+                <button onClick={toggleIpwhoAlert} disabled={savingIpwho}
+                  className={`relative w-12 h-6 rounded-full transition-colors flex-shrink-0 ${ipwhoAlertEnabled ? "bg-green-500" : "bg-slate-300"}`}>
+                  <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${ipwhoAlertEnabled ? "translate-x-6" : "translate-x-0.5"}`} />
+                </button>
+              </div>
+            </section>
           </div>
         )}
+
+        {activeTab === "notifications" && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
+                <div className="bg-red-50 p-1.5 rounded-lg"><Bell className="w-4 h-4 text-red-600" /></div>
+                Push Notification
+              </h2>
+              <div className="space-y-3">
+                <input value={notifTitle} onChange={(e) => setNotifTitle(e.target.value)} placeholder="Title"
+                  className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900" />
+                <textarea value={notifBody} onChange={(e) => setNotifBody(e.target.value)} placeholder="Message body" rows={4}
+                  className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900" />
+                <div className="flex gap-3 text-sm">
+                  <label className="flex items-center gap-2 text-slate-800">
+                    <input type="radio" checked={notifAudience === "all"} onChange={() => setNotifAudience("all")} />
+                    All users
+                  </label>
+                  <label className="flex items-center gap-2 text-slate-800">
+                    <input type="radio" checked={notifAudience === "user"} onChange={() => setNotifAudience("user")} />
+                    Specific user
+                  </label>
+                </div>
+                {notifAudience === "user" && (
+                  <select value={notifTargetUser} onChange={(e) => setNotifTargetUser(e.target.value)}
+                    className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900">
+                    <option value="">— select user —</option>
+                    {users.map((u) => <option key={u.id} value={u.id}>{u.name || u.username}</option>)}
+                  </select>
+                )}
+                <input value={notifExpiresDays} onChange={(e) => setNotifExpiresDays(e.target.value)} placeholder="Expires in (days, optional)" type="number" min="1"
+                  className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900" />
+                <button onClick={sendNotification} disabled={sendingNotif}
+                  className="w-full bg-red-600 hover:bg-red-700 disabled:opacity-60 text-white font-bold py-2.5 rounded-lg text-sm flex items-center justify-center gap-2">
+                  <Send className="w-4 h-4" /> {sendingNotif ? "Sending…" : "Send Notification"}
+                </button>
+              </div>
+            </section>
+
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
+                <div className="bg-slate-100 p-1.5 rounded-lg"><MessageSquare className="w-4 h-4 text-slate-700" /></div>
+                Past Notifications
+              </h2>
+              <div className="space-y-2 max-h-[60vh] overflow-y-auto">
+                {adminNotifs.length === 0 && <p className="text-sm text-slate-500">No notifications yet.</p>}
+                {adminNotifs.map((n) => (
+                  <div key={n.id} className="border rounded-lg p-3 flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-bold text-sm text-slate-900 truncate">{n.title}</p>
+                      <p className="text-xs text-slate-600 line-clamp-2">{n.body}</p>
+                      <p className="text-[11px] text-slate-400 mt-1">
+                        {n.audience === "all" ? "All users" : "Specific"} • Seen {n.readCount || 0}/{n.totalRecipients || 0}
+                      </p>
+                    </div>
+                    <button onClick={() => deleteNotification(n.id)} className="text-red-600 hover:text-red-700 text-xs font-bold">Delete</button>
+                  </div>
+                ))}
+              </div>
+            </section>
+          </div>
+        )}
+
+        {activeTab === "inbox" && (
+          <div className="max-w-2xl">
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
+                <div className="bg-red-50 p-1.5 rounded-lg"><Trash2 className="w-4 h-4 text-red-600" /></div>
+                Clear Cached Inbox
+              </h2>
+              <p className="text-xs text-slate-500 mb-4">Permanently deletes from <code>cached_emails</code>. This affects every user.</p>
+              <div className="space-y-3">
+                <div className="flex flex-wrap gap-3 text-sm">
+                  <label className="flex items-center gap-2 text-slate-800">
+                    <input type="radio" checked={inboxMode === "days"} onChange={() => setInboxMode("days")} /> Older than N days
+                  </label>
+                  <label className="flex items-center gap-2 text-slate-800">
+                    <input type="radio" checked={inboxMode === "label"} onChange={() => setInboxMode("label")} /> By account label
+                  </label>
+                  <label className="flex items-center gap-2 text-slate-800">
+                    <input type="radio" checked={inboxMode === "all"} onChange={() => setInboxMode("all")} /> ALL emails
+                  </label>
+                </div>
+                {inboxMode === "days" && (
+                  <input value={inboxDays} onChange={(e) => setInboxDays(e.target.value)} type="number" min="1" placeholder="Days"
+                    className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900" />
+                )}
+                {inboxMode === "label" && (
+                  <select value={inboxLabel} onChange={(e) => setInboxLabel(e.target.value)}
+                    className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900">
+                    <option value="">— select account —</option>
+                    {emailAccounts.map((a) => <option key={a.label} value={a.label}>{a.label}</option>)}
+                  </select>
+                )}
+                {inboxMode === "all" && (
+                  <input value={inboxConfirm} onChange={(e) => setInboxConfirm(e.target.value)} placeholder='Type DELETE ALL to confirm'
+                    className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900" />
+                )}
+                <button onClick={adminClearInbox} disabled={clearingInbox}
+                  className="w-full bg-red-600 hover:bg-red-700 disabled:opacity-60 text-white font-bold py-2.5 rounded-lg text-sm flex items-center justify-center gap-2">
+                  <Trash2 className="w-4 h-4" /> {clearingInbox ? "Deleting…" : "Delete now"}
+                </button>
+              </div>
+            </section>
+          </div>
+        )}
+
+
 
         {activeTab === "emails" && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
@@ -3171,12 +3547,14 @@ function EmailViewer() {
       <header className="bg-white border-b border-slate-200 sticky top-0 z-20 shadow-sm">
         <div className="max-w-6xl mx-auto px-3 sm:px-4 h-14 sm:h-16 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-            <div className="flex-shrink-0">
-              <ProfileAvatar avatarId={profilePrefs.avatarId || user.profileAvatar} name={user.name} className="w-8 h-8 sm:w-10 sm:h-10" fallbackColor="bg-red-600" eager />
+            <div className="flex-shrink-0 flex items-center gap-1.5">
+              <NetflixNLogo className="w-6 h-6 sm:w-8 sm:h-8" />
+              <div className="hidden sm:block h-8 w-px bg-slate-200 ml-1" />
+              <ProfileAvatar avatarId={profilePrefs.avatarId || user.profileAvatar} name={user.name} className="hidden sm:block w-9 h-9 ml-1" fallbackColor="bg-red-600" eager />
             </div>
             <div className="min-w-0">
-              <h1 className="font-bold text-base sm:text-xl tracking-tight leading-tight text-red-600">Netflix Mail</h1>
-              <span className="text-[10px] sm:text-xs text-slate-500 truncate block max-w-[80px] sm:max-w-[150px]">{user.name}</span>
+              <h1 className="font-bold text-sm sm:text-lg tracking-tight leading-tight text-red-600">Netflix Mail</h1>
+              <span className="text-[10px] sm:text-xs text-slate-500 truncate block max-w-[100px] sm:max-w-[180px]">{user.name}</span>
             </div>
           </div>
           <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
@@ -3188,12 +3566,14 @@ function EmailViewer() {
                 <span className="sm:hidden">Admin</span>
               </button>
             )}
+            <NotificationBell />
             <button onClick={() => fetchEmails()}
               disabled={refreshing}
               className="flex items-center p-2.5 sm:px-4 sm:py-2 bg-slate-900 text-white rounded-full text-sm font-bold hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-60">
               <RefreshCw className={`w-4 h-4 sm:w-5 sm:h-5 ${refreshing ? "animate-spin" : ""}`} />
               <span className="hidden sm:inline ml-1.5">Refresh</span>
             </button>
+
             {!isImpersonating && (
               <button onClick={() => setShowProfile(true)}
                 className="flex items-center p-2.5 sm:px-3 sm:py-2 bg-gradient-to-r from-violet-500 to-purple-600 text-white rounded-full text-sm font-bold hover:from-violet-600 hover:to-purple-700 transition-all active:scale-95 shadow-md shadow-purple-200"
