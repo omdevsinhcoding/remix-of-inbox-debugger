@@ -2510,15 +2510,14 @@ function AdminPanel() {
           setMaintenanceVersionFrom(mnt.value.versionFrom || "");
           setMaintenanceVersionTo(mnt.value.versionTo || "");
           // Convert stored ISO to local "YYYY-MM-DDTHH:mm" for the datetime-local input.
-          if (mnt.value.endsAt) {
-            const d = new Date(mnt.value.endsAt);
-            if (!isNaN(d.getTime())) {
-              const pad = (n: number) => String(n).padStart(2, "0");
-              setMaintenanceEndsAt(
-                `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-              );
-            }
-          }
+          const toLocalInput = (iso: string) => {
+            const d = new Date(iso);
+            if (isNaN(d.getTime())) return "";
+            const pad = (n: number) => String(n).padStart(2, "0");
+            return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+          };
+          if (mnt.value.startsAt) setMaintenanceStartsAt(toLocalInput(mnt.value.startsAt));
+          if (mnt.value.endsAt) setMaintenanceEndsAt(toLocalInput(mnt.value.endsAt));
         }
       } catch { }
 
