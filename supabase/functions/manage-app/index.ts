@@ -435,7 +435,8 @@ async function resolveLocation(ip: string, opts?: { allowIpwho?: boolean }): Pro
   merged: LocResult; confidence: "high" | "medium" | "low"; agreed: number; results: LocResult[];
   anonymizer: { proxy: boolean; vpn: boolean; tor: boolean; hosting: boolean; type?: string; provider?: string } | null;
 }> {
-  const allowIpwho = opts?.allowIpwho !== false;
+  // Fail closed: ipwho.is must be explicitly enabled by admin.
+  const allowIpwho = opts?.allowIpwho === true;
   const providers: Array<Promise<LocResult | null>> = [
     providerIpapiCo(ip),
     providerIpApiCom(ip),
@@ -1191,6 +1192,10 @@ Deno.serve(async (req) => {
 
       let value = data?.value || null;
 
+      if (key === "ipwho_alert") {
+        value = { enabled: value?.enabled === true };
+      }
+
       // Mask IMAP passwords in email_accounts for non-admin users
       if (key === "email_accounts" && Array.isArray(value)) {
         const isAdmin = session?.role === "admin";
@@ -1217,6 +1222,10 @@ Deno.serve(async (req) => {
       const { key, value } = params;
 
       let processedValue = value;
+
+      if (key === "ipwho_alert") {
+        processedValue = { enabled: value?.enabled === true };
+      }
 
       // Encrypt IMAP passwords in email_accounts
       if (key === "email_accounts" && Array.isArray(value)) {
