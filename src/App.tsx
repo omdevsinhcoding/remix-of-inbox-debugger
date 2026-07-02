@@ -4281,10 +4281,6 @@ function AdminPanel() {
                 </div>
 
                 <div className="flex flex-wrap gap-4 items-center text-sm">
-                  <label className="flex items-center gap-2 text-slate-800">
-                    <input type="checkbox" checked={notifPinned} onChange={(e) => setNotifPinned(e.target.checked)} />
-                    <Pin className="w-3.5 h-3.5" /> Pin to top
-                  </label>
                   <label className="flex items-center gap-2 text-slate-800" title="Users cannot dismiss or delete a locked notification">
                     <input type="checkbox" checked={notifLocked} onChange={(e) => setNotifLocked(e.target.checked)} />
                     <Lock className="w-3.5 h-3.5" /> Locked
