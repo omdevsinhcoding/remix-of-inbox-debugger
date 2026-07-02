@@ -3,10 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23dc2626'/%3E%3Ctext x='32' y='44' text-anchor='middle' font-family='Arial,sans-serif' font-weight='900' font-size='40' fill='white'%3EN%3C/text%3E%3C/svg%3E" />
     <link rel="preconnect" href="https://jsqchutnfdeljajkxmly.supabase.co" crossorigin />
     <link rel="dns-prefetch" href="https://jsqchutnfdeljajkxmly.supabase.co" />
-    <title>Netflix Mail By Omdevsinh Gohil</title>
-    <meta name="description" content="Fast, secure inbox for shared Netflix login codes with per-profile access." />
+    <title>Netflix Mail</title>
+    <meta name="description" content="Fast, private inbox viewer for shared login codes." />
+
     <style>
       html,
       body,
@@ -115,10 +117,30 @@
         <div style="max-width:480px;text-align:center;">
           <div style="width:56px;height:56px;margin:0 auto 20px;border-radius:18px;display:grid;place-items:center;background:linear-gradient(135deg,#ef4444,#b91c1c);color:#fff;font-weight:900;font-size:28px;">N</div>
           <h1 style="font-size:24px;margin:0 0 12px;font-weight:800;">JavaScript required</h1>
-          <p style="color:#94a3b8;line-height:1.6;margin:0;">Please enable JavaScript and refresh to load profiles and inbox.</p>
+          <p style="color:#94a3b8;line-height:1.6;margin:0;">Please enable JavaScript and refresh to continue.</p>
         </div>
       </div>
     </noscript>
     <script type="module" src="/src/main.tsx"></script>
+    <script>
+      // Safe recovery: if the app hasn't mounted after 14s (blocked module, stale hashed asset,
+      // antivirus interference, or offline), show a clear Refresh screen instead of an
+      // infinite spinner. No cache-busting redirects, no external calls.
+      (function () {
+        var mounted = false;
+        var mo = new MutationObserver(function () {
+          var root = document.getElementById('root');
+          if (root && !root.querySelector('.boot-shell')) { mounted = true; mo.disconnect(); }
+        });
+        mo.observe(document.getElementById('root'), { childList: true, subtree: false });
+        setTimeout(function () {
+          if (mounted) return;
+          var root = document.getElementById('root');
+          if (!root) return;
+          root.innerHTML = '<main style="min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:24px;background:#020617;color:#f8fafc;font-family:Inter,system-ui,sans-serif"><div style="max-width:420px;text-align:center"><div style="width:64px;height:64px;margin:0 auto 20px;border-radius:18px;display:grid;place-items:center;background:linear-gradient(135deg,#ef4444,#b91c1c);color:#fff;font-weight:900;font-size:32px">N</div><h1 style="font-size:22px;margin:0 0 10px;font-weight:800">Couldn\u2019t load the app</h1><p style="color:#94a3b8;line-height:1.6;margin:0 0 20px;font-size:14px">Your browser or antivirus may have blocked the page script. Please refresh once. If it happens again, allow this site in your antivirus.</p><button onclick="window.location.reload()" style="background:#dc2626;color:#fff;border:0;padding:12px 22px;border-radius:12px;font-weight:800;font-size:15px;cursor:pointer">Refresh page</button></div></main>';
+        }, 14000);
+      })();
+    </script>
   </body>
+
 </html>
