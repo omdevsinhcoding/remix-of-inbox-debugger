@@ -240,8 +240,6 @@ export async function deleteNotificationForMe(id: string): Promise<void> {
 export async function snoozeNotification(id: string, until: string): Promise<void> {
   try { await callManage("snooze_notification", { notification_id: id, until }); } catch {}
 }
-  try { await callManage("snooze_notification", { notification_id: id, until }); } catch {}
-}
 export async function logNotificationEvent(id: string, event: string, meta?: any): Promise<void> {
   try { await callManage("log_notification_event", { notification_id: id, event, meta }); } catch {}
 }
