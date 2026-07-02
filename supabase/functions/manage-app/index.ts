@@ -743,24 +743,50 @@ async function sendPrimaryLoginAlert(
     : `🌐 <b>Network IP:</b> <code>${esc(ip)}</code>`;
   const ipTraceLine = ipTrace ? `🧭 <b>IP source:</b> <code>${esc(ipTrace.source)}</code>${ipTrace.cfCountry ? ` · CF ${esc(ipTrace.cfCountry)}` : ""}${ipTrace.candidates?.length ? ` · checked ${ipTrace.candidates.length}` : ""}` : "";
 
+  const statusBanner = status === "success"
+    ? `✅ <b>LOGIN SUCCESS</b>`
+    : `❌ <b>LOGIN FAILED</b>`;
+  const roleBadge = role === "admin" ? "👑 ADMIN" : "👤 USER";
+  const gpsBadge = isGps ? "🎯 <b>GPS LOCKED</b>" : "📡 <b>IP APPROX</b>";
+  const trustBadge = isGps
+    ? `🟢 <b>TRUSTED</b> · GPS ±${esc(String(clientGeo?.accuracy || "?"))}m`
+    : (isAnon ? `🔴 <b>MASKED</b> · ${anonBadge}` : `🟡 <b>NETWORK ONLY</b>`);
+  const cityLine = [loc.city, loc.region, loc.country].filter(Boolean).join(", ") || "Unknown";
+  const coordsLine = (typeof mapLat === "number" && typeof mapLng === "number")
+    ? `<code>${mapLat.toFixed(6)}, ${mapLng.toFixed(6)}</code>` : "<code>—</code>";
+  const screenLine = clientGeo?.device?.screen ? `${clientGeo.device.screen.width}×${clientGeo.device.screen.height} @${clientGeo.device.screen.dpr}x` : "";
+
   const text = [
-    `🔔 <b>New Login</b> — ${esc(displayName)} ${statusEmoji}`,
-    `━━━━━━━━━━━━━━━━`,
-    `👤 <b>User:</b> ${esc(displayName)} (<code>${esc(user?.username || "")}</code>) · <b>${esc(role)}</b>`,
-    `🕐 <b>Time:</b> ${esc(time)} IST`,
-    networkIpLine,
-    ipTraceLine,
-    `📍 ${flag} <b>${esc(locationSource)}:</b> ${esc(locLine)}${loc.postal ? ` · ${esc(loc.postal)}` : ""}`,
-    gpsLine,
-    `🏢 <b>ISP:</b> ${esc(isp)}${(ipLoc.asn || loc.asn) ? ` (${esc(ipLoc.asn || loc.asn || "")})` : ""}`,
-    loc.timezone ? `⏱ <b>Timezone:</b> ${esc(loc.timezone)}` : "",
-    `📱 <b>Device:</b> ${esc(deviceStr)} · ${esc(browserStr)} on ${esc(osStr)}${clientGeo?.device?.screen ? ` · ${clientGeo.device.screen.width}×${clientGeo.device.screen.height}@${clientGeo.device.screen.dpr}x` : ""}${clientGeo?.device?.timezone ? ` · TZ ${esc(clientGeo.device.timezone)}` : ""}`,
-    mapLink ? `🗺 <a href="${mapLink}">Open in Google Maps</a> ${isGps ? "(GPS)" : "(IP — approximate)"}` : "",
-    anonNote,
-    `━━━━━━━━━━━━━━━━`,
+    `┏━━━━━━━━━━━━━━━━━━━━━┓`,
+    `┃  ${statusBanner}`,
+    `┗━━━━━━━━━━━━━━━━━━━━━┛`,
+    ``,
+    `${roleBadge}  <b>${esc(displayName)}</b>`,
+    `└ <code>@${esc(user?.username || "")}</code> · 🕐 ${esc(time)}`,
+    ``,
+    `┌─ 📍 <b>LOCATION</b>  ${gpsBadge}`,
+    `│  ${flag} <b>${esc(cityLine)}</b>${loc.postal ? ` · ${esc(loc.postal)}` : ""}`,
+    `│  🧭 ${coordsLine}`,
+    mapLink ? `│  🗺 <a href="${mapLink}"><b>Open in Google Maps →</b></a>` : "",
+    loc.timezone ? `└─ ⏱ ${esc(loc.timezone)}` : `└─`,
+    ``,
+    `┌─ 🌐 <b>NETWORK</b>  ${trustBadge}`,
+    isInvalidEdgeIp
+      ? `│  ⚠️ IP: <code>unavailable</code> <i>(edge hop${ip && ip !== "unknown" ? `: ${esc(ip)}` : ""})</i>`
+      : `│  IP: <code>${esc(ip)}</code>`,
+    `│  🏢 ${esc(isp)}${(ipLoc.asn || loc.asn) ? ` <i>(${esc(ipLoc.asn || loc.asn || "")})</i>` : ""}`,
+    `└─ 🧭 via <code>${esc(ipTrace?.source || "n/a")}</code>${ipTrace?.candidates?.length ? ` · ${ipTrace.candidates.length} checked` : ""}`,
+    ``,
+    `┌─ 📱 <b>DEVICE</b>`,
+    `│  <b>${esc(deviceStr)}</b>`,
+    `│  🌐 ${esc(browserStr)}  ·  💻 ${esc(osStr)}`,
+    screenLine ? `└─ 🖥 ${screenLine}${clientGeo?.device?.timezone ? ` · TZ ${esc(clientGeo.device.timezone)}` : ""}` : `└─`,
+    ``,
+    anonNote ? `${anonNote}\n` : "",
+    `━━━━━━━━━━━━━━━━━━━━━`,
     isGps
-      ? `Source: <b>GPS map</b>${clientGeo?.accuracy ? ` (±${esc(String(clientGeo.accuracy))}m)` : ""}${clientGeo?.publicIp ? ` + <b>real public IP</b> via browser ipwho.is` : ""}`
-      : `Confidence: <b>${esc(confidence)}</b> (${agreed}/${totalProviders} IP providers agreed)`,
+      ? `<i>✨ Verified by <b>device GPS</b>${clientGeo?.publicIp ? ` + <b>browser IP</b>` : ""}</i>`
+      : `<i>Confidence: <b>${esc(confidence)}</b> · ${agreed}/${totalProviders} providers agreed</i>`,
   ].filter(Boolean).join("\n");
   try {
     const tgRes = await fetch(`https://api.telegram.org/bot${tg.botToken}/sendMessage`, {
