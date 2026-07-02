@@ -2922,6 +2922,9 @@ function AdminPanel() {
   const [notifShowFrequency, setNotifShowFrequency] = useState<"once" | "always" | "session" | "daily">("once");
   const [notifMode, setNotifMode] = useState<"popup" | "silent" | "banner">("popup");
   const [sendingNotif, setSendingNotif] = useState(false);
+  const [editingNotif, setEditingNotif] = useState<any | null>(null);
+  const [savingEditNotif, setSavingEditNotif] = useState(false);
+
 
   // R2 storage config
   type R2Cfg = { accountId: string; accessKeyId: string; secretAccessKey: string; bucket: string; publicBaseUrl: string; pathPrefix: string; enabled: boolean; secretAccessKeySet: boolean };
@@ -3485,6 +3488,50 @@ function AdminPanel() {
       toast.success("Deleted");
     } catch (err) { toast.error(err instanceof Error ? err.message : "Failed"); }
   };
+
+  const saveEditNotif = async () => {
+    if (!editingNotif) return;
+    const e = editingNotif;
+    if (!e.title?.trim() || !e.body?.trim()) { toast.error("Title and message required"); return; }
+    setSavingEditNotif(true);
+    try {
+      await apiCall("manage-app", {
+        action: "admin_update_notification",
+        id: e.id,
+        title: e.title.trim(),
+        body: e.body.trim(),
+        action_url: e.action_url?.trim() || null,
+        platform_icon: e.platform_icon || null,
+        locked: !!e.locked,
+        priority: e.priority || "normal",
+        audience: e.audience || "all",
+        target_user_id: e.audience === "user" ? (e.target_user_id || null) : null,
+      });
+      toast.success("Updated");
+      setEditingNotif(null);
+      await reloadAdminNotifs();
+    } catch (err) { toast.error(err instanceof Error ? err.message : "Failed"); }
+    finally { setSavingEditNotif(false); }
+  };
+
+  const duplicateToComposer = (n: any) => {
+    setNotifTitle(n.title || "");
+    setNotifBody(n.body || "");
+    setNotifDescription(n.description || "");
+    setNotifImageUrl(n.image_url || "");
+    setNotifActionUrl(n.action_url || "");
+    setNotifActionLabel(n.action_label || "");
+    setNotifPlatformIcon(n.platform_icon || "");
+    setNotifLocked(!!n.locked);
+    setNotifCategory(n.category || "announcement");
+    setNotifPriority(n.priority || "normal");
+    setNotifAudience(n.audience || "all");
+    setNotifTargetUser(n.target_user_id || "");
+    setNotifShowFrequency(n.show_frequency || "once");
+    setNotifMode(n.mode || "popup");
+    toast.success("Copied to composer — edit and publish as new");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+
 
   const adminClearInbox = async () => {
     if (inboxMode === "all" && inboxConfirm !== "DELETE ALL") {
