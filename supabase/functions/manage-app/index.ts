@@ -431,25 +431,26 @@ async function detectAnonymizer(ip: string): Promise<{ proxy: boolean; vpn: bool
   } catch { return null; }
 }
 
-async function resolveLocation(ip: string): Promise<{
+async function resolveLocation(ip: string, opts?: { allowIpwho?: boolean }): Promise<{
   merged: LocResult; confidence: "high" | "medium" | "low"; agreed: number; results: LocResult[];
   anonymizer: { proxy: boolean; vpn: boolean; tor: boolean; hosting: boolean; type?: string; provider?: string } | null;
 }> {
+  const allowIpwho = opts?.allowIpwho !== false;
+  const providers: Array<Promise<LocResult | null>> = [
+    providerIpapiCo(ip),
+    providerIpApiCom(ip),
+    providerIpinfoIo(ip),
+    providerFreeIpApi(ip),
+  ];
+  if (allowIpwho) providers.push(providerIpwhoIs(ip));
   const [settled, anonymizer] = await Promise.all([
-    Promise.allSettled([
-      providerIpapiCo(ip),
-      providerIpApiCom(ip),
-      providerIpwhoIs(ip),
-      providerIpinfoIo(ip),
-      providerFreeIpApi(ip),
-    ]),
+    Promise.allSettled(providers),
     detectAnonymizer(ip),
   ]);
   const results = settled.map(s => s.status === "fulfilled" ? s.value : null).filter(Boolean) as LocResult[];
   if (results.length === 0) {
     return { merged: { provider: "none", ip }, confidence: "low", agreed: 0, results: [], anonymizer };
   }
-  // Consensus bucket by country|city
   const buckets = new Map<string, LocResult[]>();
   for (const r of results) {
     const k = `${(r.countryCode || r.country || "").toLowerCase()}|${(r.city || "").toLowerCase()}`;
