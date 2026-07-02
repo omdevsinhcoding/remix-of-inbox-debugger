@@ -162,10 +162,11 @@ export default function MaintenanceScreen({ title, message, eta, isAdmin, onAdmi
     return () => { cancelAnimationFrame(raf); window.removeEventListener("resize", resize); };
   }, []);
 
-  const displayTitle = title?.trim() || "The show will resume shortly";
+  const displayTitle = title?.trim() || "We'll be back soon";
   const displayMessage =
     message?.trim() ||
-    "Netflix ID Manager is offline for a brief upgrade. We're improving performance and rolling out new features — thanks for staying tuned.";
+    "Our site is temporarily down for scheduled maintenance. We're upgrading the system to make things faster and more reliable for you. Please check back in a little while — no action is needed on your side.";
+
 
   return (
     <div className="fixed inset-0 z-[9999] overflow-hidden bg-black text-white">
