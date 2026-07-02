@@ -133,9 +133,9 @@ export default function DateTimePicker({ value, onChange, min, disabled, id }: P
           {!mm && <option value="">--</option>}
           {minutes.map((m) => {
             const mi = parseInt(m, 10);
-            const disabledOpt = sameAsMinDay && parseInt(h12 || "0", 10) && mi < minMinute;
+            const disabledOpt = !!(sameAsMinDay && parseInt(h12 || "0", 10) && mi < minMinute);
             return (
-              <option key={m} value={m} disabled={!!disabledOpt}>{m}</option>
+              <option key={m} value={m} disabled={disabledOpt}>{m}</option>
             );
           })}
         </select>
