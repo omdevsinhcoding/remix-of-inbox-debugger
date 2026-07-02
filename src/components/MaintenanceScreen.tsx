@@ -393,8 +393,14 @@ export default function MaintenanceScreen({ title, message, endsAt, versionFrom,
           60%  { opacity: 1; filter: blur(0); }
           100% { opacity: 1; transform: translateY(0);   filter: blur(0); }
         }
+        @keyframes maint-letter-in {
+          0%   { opacity: 0; transform: translateY(0.6em) rotateX(-40deg); filter: blur(4px); }
+          60%  { opacity: 1; filter: blur(0); }
+          100% { opacity: 1; transform: translateY(0) rotateX(0);           filter: blur(0); }
+        }
 
       `}</style>
+
     </div>
   );
 }
