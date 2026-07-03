@@ -4231,7 +4231,7 @@ function AdminPanel() {
                             </div>
                           )}
                           {(!u.assignedAccounts || u.assignedAccounts.length === 0) && u.role !== "admin" && (
-                            <p className="text-[10px] text-slate-400 mt-0.5">All accounts</p>
+                            <p className="text-[10px] text-amber-600 mt-0.5 font-semibold">No accounts assigned</p>
                           )}
                         </div>
                       </div>
