@@ -3899,7 +3899,7 @@ function AdminPanel() {
         target_user_id: notifAudience === "user" ? notifTargetUser : null,
         expiresInDays: notifExpiresDays ? Number(notifExpiresDays) : null,
       });
-      toast.success("🔔 Notification sent");
+      premiumToast("Notification sent", { variant: "info", description: "Delivered to targeted users", duration: 2400 });
       setNotifTitle(""); setNotifBody(""); setNotifDescription(""); setNotifImageUrl("");
       setNotifActionUrl(""); setNotifActionLabel("");
       setNotifExpiresDays(""); setNotifPlatformIcon(""); setNotifTemplate("");
