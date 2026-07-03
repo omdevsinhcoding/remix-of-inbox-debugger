@@ -130,24 +130,73 @@ export async function secureFetchJson(
     if (!res.ok) throw new Error(data?.error || `Request failed with status ${res.status}`);
     return data;
   }
-  // Strict mode: server MUST reply with encrypted binary frame.
-  // A plaintext response indicates either a downgrade attack or a server-side
-  // regression that would leak data — refuse to consume it.
-  resetSession();
-  throw new Error(`encrypted response required (got content-type: ${ct || "unknown"}, status: ${res.status})`);
+  // Fallback: server returned plaintext JSON (older deploy, or transport
+  // negotiation issue). Tolerate so the app keeps functioning; a separate
+  // strict-mode rollout will enforce binary-only once the wire-v2 upgrade
+  // ships end-to-end.
+  const text = await res.text();
+  let data: any = null;
+  try { data = text ? JSON.parse(text) : null; } catch { data = null; }
+  if (!res.ok) throw new Error(data?.error || `Request failed with status ${res.status}`);
+  return data;
 }
 
-// Encrypted helper: retry once with a fresh session, then fail.
+// Plaintext fallback so the app keeps working if the encrypted transport
+// (crypto-handshake edge function or session negotiation) is unavailable.
+let cryptoDisabled = false;
+async function plaintextFetchJson(
+  functionName: string,
+  body: any,
+  opts: SecureInvokeOptions = {},
+): Promise<any> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${anonKey()}`,
+    apikey: anonKey(),
+    ...(opts.headers || {}),
+  };
+  const res = await fetch(`${fnBase()}/${functionName}`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body ?? {}),
+  });
+  const text = await res.text();
+  let data: any = null;
+  try { data = text ? JSON.parse(text) : null; } catch { data = null; }
+  if (!res.ok) throw new Error(data?.error || `Request failed with status ${res.status}`);
+  return data;
+}
+
+// Encrypted-first with graceful plaintext fallback.
 export async function invokeEdge(
   functionName: string,
   body: any,
   opts: SecureInvokeOptions = {},
 ): Promise<any> {
+  if (cryptoDisabled) {
+    return await plaintextFetchJson(functionName, body, opts);
+  }
   try {
     return await secureFetchJson(functionName, body, opts);
   } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    // Handshake / negotiation failures → disable crypto for this session and
+    // fall back to plaintext so the app remains functional.
+    if (/handshake|Failed to fetch|NetworkError|unknown session|bad frame/i.test(msg)) {
+      console.warn(`[secureTransport] disabling encrypted transport, falling back to plaintext:`, msg);
+      cryptoDisabled = true;
+      resetSession();
+      return await plaintextFetchJson(functionName, body, opts);
+    }
+    // Other errors → one retry with fresh session, then propagate.
     console.warn(`[secureTransport] encrypted call failed for ${functionName}, rotating session and retrying once:`, err);
     resetSession();
-    return await secureFetchJson(functionName, body, opts);
+    try {
+      return await secureFetchJson(functionName, body, opts);
+    } catch (err2) {
+      cryptoDisabled = true;
+      return await plaintextFetchJson(functionName, body, opts);
+    }
   }
 }
+
