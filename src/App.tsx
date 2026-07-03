@@ -3243,7 +3243,16 @@ function AdminPanel() {
   const [savingSessionTimeout, setSavingSessionTimeout] = useState(false);
   const [adminSessionTimeoutMin, setAdminSessionTimeoutMin] = useState<string>("0");
   const [savingAdminSessionTimeout, setSavingAdminSessionTimeout] = useState(false);
-  const [captchaEnabled, setCaptchaEnabled] = useState(false);
+  const [captchaEnabled, setCaptchaEnabled] = useState<boolean>(() => {
+    try { return localStorage.getItem("admin_captcha_enabled") === "1"; } catch { return false; }
+  });
+  const [emailVisibilityEnabled, setEmailVisibilityEnabled] = useState(false);
+  const [emailVisibilityDays, setEmailVisibilityDays] = useState<string>("20");
+  const [savingEmailVisibility, setSavingEmailVisibility] = useState(false);
+  const [emailAutoDeleteEnabled, setEmailAutoDeleteEnabled] = useState(false);
+  const [emailAutoDeleteDays, setEmailAutoDeleteDays] = useState<string>("30");
+  const [emailAutoDeleteHour, setEmailAutoDeleteHour] = useState<string>("3");
+  const [savingEmailAutoDelete, setSavingEmailAutoDelete] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newAdminPassword, setNewAdminPassword] = useState("");
   const [changingPassword, setChangingPassword] = useState(false);
