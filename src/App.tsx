@@ -6686,30 +6686,39 @@ function EmailViewer() {
     }
   };
 
-  // Load cached emails immediately on mount — local first, no blocking blank screen.
-  // Session timer starts only AFTER the first inbox load resolves, so users
-  // never lose seconds waiting for emails to appear.
+  // On mount: instant paint from localStorage, then ONE auto-refresh via the
+  // encrypted POST sync path (same as clicking Refresh once). No background
+  // polling, no GET /api/emails call (worker is encrypted-only and rejects it
+  // with "encrypted transport required").
+  const didAutoRefreshRef = useRef(false);
   useEffect(() => {
-    let cancelled = false;
     // 1) Instant paint from localStorage — user sees full cached inbox immediately.
     showLocalCacheNow();
     setLoading(false);
+    if (!sessionGet("session_started_at" as any)) markSessionStart();
 
-    // 2) Pull the latest full inbox from worker cache (fast — no IMAP) once worker URLs are known.
-    if (!workerUrlsLoading) {
-      loadCachedEmails({ limit: 200 }).finally(() => {
-        if (cancelled) return;
-        setLoading(false);
-        if (!sessionGet("session_started_at" as any)) markSessionStart();
-      });
-    } else if (!sessionGet("session_started_at" as any)) {
-      markSessionStart();
-    }
-    return () => {
-      cancelled = true;
-    };
+    // 2) Fire ONE silent auto-refresh once worker URLs are known — per login.
+    if (workerUrlsLoading) return;
+    if (didAutoRefreshRef.current) return;
+    const alreadyDone = sessionStorage.getItem("nf_login_auto_refreshed") === "1";
+    if (alreadyDone) return;
+    didAutoRefreshRef.current = true;
+    sessionStorage.setItem("nf_login_auto_refreshed", "1");
+
+    (async () => {
+      try {
+        const synced = await syncViaWorker();
+        if (synced && synced.length > 0) {
+          setEmails((prev) => mergeEmailsById([prev, synced]));
+          setError(null);
+          setLastUpdated(new Date());
+        }
+      } catch {
+        /* silent — cached emails stay visible, user can hit Refresh */
+      }
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadCachedEmails, workerUrlsLoading]);
+  }, [workerUrlsLoading]);
 
   // F7: listen for iframe self-report messages verifying that the link/button
   // click hijack is actually attached inside the sandboxed email preview.
