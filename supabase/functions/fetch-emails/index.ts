@@ -1,10 +1,11 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { ImapFlow } from "npm:imapflow@1.2.18";
 import { simpleParser } from "npm:mailparser@3.9.6";
+import { readRequest, maybeEncryptResponse, EncryptedRequestContext } from "../_shared/crypto.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-session-token, x-cron-secret",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-session-token, x-cron-secret, x-crypto-session",
 };
 
 const PASSWORD_RESET_SUBJECTS = [
@@ -410,9 +411,25 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
   return response;
 }
 
-Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+Deno.serve(async (originalReq) => {
+  if (originalReq.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
+  // ---- transport encryption boundary ----
+  let ctx: EncryptedRequestContext | null = null;
+  let parsedBody: any = null;
+  try {
+    const r = await readRequest(originalReq);
+    parsedBody = r.body ?? {};
+    ctx = r.encrypted ? r.ctx : null;
+  } catch (_e) {
+    return new Response(JSON.stringify({ success: false, error: "bad request" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
+  const req = new Request(originalReq.url, {
+    method: originalReq.method,
+    headers: originalReq.headers,
+    body: JSON.stringify(parsedBody ?? {}),
+  });
+  const __run = async () => {
   try {
     const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
     // F5: dedicated signing key with legacy fallback (see manage-app).
