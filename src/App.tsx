@@ -130,11 +130,15 @@ const verifyPlatformLogo = async (platform: PlatformOption): Promise<LogoAuditRe
   }
 };
 
-const usePlatformLogoAudit = () => {
-  const [ready, setReady] = React.useState(false);
+const usePlatformLogoAudit = (enabled = false) => {
+  const [ready, setReady] = React.useState(!enabled);
   const [results, setResults] = React.useState<Record<string, LogoAuditResult>>({});
 
   React.useEffect(() => {
+    if (!enabled) {
+      setReady(true);
+      return;
+    }
     let alive = true;
 
     (async () => {
@@ -159,7 +163,7 @@ const usePlatformLogoAudit = () => {
     })();
 
     return () => { alive = false; };
-  }, []);
+  }, [enabled]);
 
   return { ready, results };
 };
@@ -3294,7 +3298,7 @@ function AdminPanel() {
   const [notifPlatformIcon, setNotifPlatformIcon] = useState<string>("");
   const [notifTemplate, setNotifTemplate] = useState<string>("");
   const [platformSearch, setPlatformSearch] = useState("");
-  const { ready: platformLogosReady, results: platformLogoResults } = usePlatformLogoAudit();
+  const { ready: platformLogosReady, results: platformLogoResults } = usePlatformLogoAudit(activeTab === "notifications");
   const [notifLocked, setNotifLocked] = useState(false);
   const [notifShowFrequency, setNotifShowFrequency] = useState<"once" | "always" | "session" | "daily">("once");
   const [notifMode, setNotifMode] = useState<"popup" | "silent" | "banner">("popup");
@@ -3312,6 +3316,7 @@ function AdminPanel() {
   const [r2TestResult, setR2TestResult] = useState<{ ok: boolean; message: string; latencyMs?: number; publicUrlWorks?: boolean; warnings?: string[] } | null>(null);
   const [r2ShowSecret, setR2ShowSecret] = useState(false);
   const [r2Dirty, setR2Dirty] = useState(false);
+  const lastAdminRefreshRef = useRef(0);
   const updateR2Cfg = useCallback((patch: Partial<R2Cfg>) => {
     setR2Dirty(true);
     setR2Cfg((c) => ({ ...c, ...patch }));
@@ -3466,7 +3471,11 @@ function AdminPanel() {
     // Admin still gets fresh data whenever they come back to the tab, and
     // can pull the manual "Refresh" button for on-demand updates.
     const onVis = () => {
-      if (document.visibilityState === "visible") void loadAdminData({ silent: true });
+      if (document.visibilityState !== "visible") return;
+      const now = Date.now();
+      if (now - lastAdminRefreshRef.current < 5 * 60_000) return;
+      lastAdminRefreshRef.current = now;
+      void loadAdminData({ silent: true });
     };
     document.addEventListener("visibilitychange", onVis);
     window.addEventListener("focus", onVis);
