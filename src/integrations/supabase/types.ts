@@ -200,7 +200,9 @@ export type Database = {
           details: Json | null
           id: string
           ip: string | null
+          result: string | null
           target_id: string | null
+          user_agent: string | null
         }
         Insert: {
           action: string
@@ -209,7 +211,9 @@ export type Database = {
           details?: Json | null
           id?: string
           ip?: string | null
+          result?: string | null
           target_id?: string | null
+          user_agent?: string | null
         }
         Update: {
           action?: string
@@ -218,7 +222,9 @@ export type Database = {
           details?: Json | null
           id?: string
           ip?: string | null
+          result?: string | null
           target_id?: string | null
+          user_agent?: string | null
         }
         Relationships: []
       }
