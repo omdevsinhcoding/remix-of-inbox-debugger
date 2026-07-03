@@ -110,12 +110,29 @@ async function decryptValue(encrypted: string, secret: string): Promise<string> 
   return new TextDecoder().decode(plain);
 }
 
-// --- Audit logging ---
-async function auditLog(supabase: any, action: string, actorId: string | null, targetId: string | null, details: any, ip: string) {
+// --- Audit logging (D.3: enriched with user_agent + optional result) ---
+async function auditLog(
+  supabase: any,
+  action: string,
+  actorId: string | null,
+  targetId: string | null,
+  details: any,
+  ip: string,
+  extras?: { userAgent?: string | null; result?: string | null },
+) {
   try {
-    await supabase.from("audit_logs").insert({ action, actor_id: actorId, target_id: targetId, details, ip });
+    await supabase.from("audit_logs").insert({
+      action,
+      actor_id: actorId,
+      target_id: targetId,
+      details,
+      ip,
+      user_agent: extras?.userAgent ?? null,
+      result: extras?.result ?? null,
+    });
   } catch (e) { console.error("Audit log error:", e); }
 }
+
 
 function isPrivateIp(ip: string): boolean {
   if (!ip || ip === "unknown") return true;
@@ -2887,8 +2904,24 @@ Deno.serve(async (originalReq) => {
       return new Response(JSON.stringify({ success: true, status: data }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    // ---------- D.2: signed short-lived maintenance-bypass token ----------
+    // Replaces client-controlled sessionStorage flag with an HMAC-signed JWS.
+    // 10 min TTL, bound to admin userId. Client cannot extend or forge it.
+    if (action === "admin_issue_maint_bypass") {
+      const session = await requireAdmin(req);
+      const now = Date.now();
+      const exp = now + 10 * 60 * 1000;
+      const token = await createSessionToken(
+        { kind: "maint_bypass", uid: session.userId, iat: now, exp, jti: crypto.randomUUID() },
+        SIGNING_SECRET,
+      );
+      await auditLog(supabase, "maint_bypass_issued", session.userId, null, { exp }, ip);
+      return new Response(JSON.stringify({ success: true, token, exp }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     // ---------- Admin dashboard: ONE composite call (replaces 12 client calls) ----------
     // Bulk: full mount payload. `refresh` variant skips rarely-changing settings.
+
     if (action === "admin_dashboard_bootstrap" || action === "admin_dashboard_refresh") {
       const session = await requireAdmin(req);
       const includeSettings = action === "admin_dashboard_bootstrap";
