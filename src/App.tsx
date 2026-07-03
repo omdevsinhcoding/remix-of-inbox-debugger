@@ -4760,10 +4760,21 @@ function AdminPanel() {
                     {users.map((u) => <option key={u.id} value={u.id}>{u.name || u.username}</option>)}
                   </select>
                 )}
-                <label className="flex items-center gap-2 text-sm text-slate-800">
-                  <input type="checkbox" checked={!!editingNotif.locked} onChange={(e) => setEditingNotif({ ...editingNotif, locked: e.target.checked })} />
-                  <Lock className="w-3.5 h-3.5" /> Force Join (locked — user can't dismiss)
-                </label>
+                <div className={`rounded-xl p-3 border-2 ${!editingNotif.locked ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input type="checkbox" checked={!editingNotif.locked} onChange={(e) => setEditingNotif({ ...editingNotif, locked: !e.target.checked })} className="mt-1 w-4 h-4" />
+                    <div className="flex-1">
+                      <div className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
+                        {!editingNotif.locked ? "🔓 User is notification ko delete kar sakta hai" : "🔒 Locked — user delete nahi kar sakta"}
+                      </div>
+                      <div className="text-[11px] text-slate-600 mt-0.5">
+                        {!editingNotif.locked
+                          ? "User ke notification panel me delete/close button dikhega."
+                          : "User na dismiss kar sakta, na delete. Sirf admin hata sakta."}
+                      </div>
+                    </div>
+                  </label>
+                </div>
               </div>
               <div className="p-5 border-t flex items-center gap-2 bg-slate-50 rounded-b-2xl">
                 <button onClick={() => setEditingNotif(null)} disabled={savingEditNotif} className="flex-1 px-4 py-2.5 rounded-lg border border-slate-300 text-sm font-semibold text-slate-700 hover:bg-white">Cancel</button>
@@ -4774,6 +4785,11 @@ function AdminPanel() {
             </div>
           </div>,
           document.body
+        )}
+
+        {recipientsFor && createPortal(
+          <RecipientsDrawer notification={recipientsFor} onClose={() => setRecipientsFor(null)} onChanged={reloadAdminNotifs} />,
+          document.body,
         )}
 
 
