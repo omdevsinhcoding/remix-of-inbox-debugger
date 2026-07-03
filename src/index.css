@@ -115,3 +115,152 @@
     filter: none !important;
   }
 }
+
+/* =========================================================
+   Premium "Obsidian & Gold" universal toast
+   Applied to every sonner toast (success / error / info /
+   warning / loading / default). Replaces the old
+   green / violet / white variants across user + admin.
+   ========================================================= */
+@keyframes lux-toast-bar {
+  from { transform: scaleX(1); }
+  to   { transform: scaleX(0); }
+}
+@keyframes lux-toast-shimmer {
+  0%   { transform: translateX(-120%); }
+  100% { transform: translateX(220%); }
+}
+
+.lux-toast {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: min(92vw, 384px);
+  padding: 14px 40px 14px 14px;
+  border-radius: 16px;
+  overflow: hidden;
+  pointer-events: auto;
+  color: #f4ead2;
+  font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+  background:
+    linear-gradient(135deg,
+      rgba(11,13,20,0.96) 0%,
+      rgba(20,22,34,0.96) 55%,
+      rgba(11,13,20,0.96) 100%);
+  border: 1px solid rgba(212,175,110,0.30);
+  box-shadow:
+    0 24px 60px -22px rgba(0,0,0,0.75),
+    0 0 0 1px rgba(255,255,255,0.03) inset,
+    0 1px 0 rgba(255,255,255,0.06) inset;
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+}
+/* Top gold hairline */
+.lux-toast::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  background: linear-gradient(90deg,
+    transparent 0%, rgba(212,175,110,0.75) 50%, transparent 100%);
+  pointer-events: none;
+}
+/* Ambient glow */
+.lux-toast::after {
+  content: "";
+  position: absolute;
+  top: -60px; right: -40px;
+  width: 180px; height: 180px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(212,175,110,0.32), transparent 70%);
+  filter: blur(24px);
+  opacity: 0.55;
+  pointer-events: none;
+}
+/* Progress hairline (bottom) */
+.lux-toast > [data-content] { position: relative; z-index: 1; flex: 1; min-width: 0; }
+.lux-toast::marker { content: none; }
+
+.lux-toast-title {
+  font-family: "Cormorant Garamond", "Playfair Display", ui-serif, Georgia, serif;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.005em;
+  line-height: 1.25;
+  color: #f4ead2;
+}
+.lux-toast-desc {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: rgba(226,215,183,0.72);
+}
+.lux-toast-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  margin-top: 1px;
+  border-radius: 12px;
+  color: #e8d3a1;
+  background: linear-gradient(135deg, rgba(212,175,110,0.20), rgba(212,175,110,0.06));
+  border: 1px solid rgba(212,175,110,0.38);
+  box-shadow: 0 0 22px -6px rgba(212,175,110,0.55);
+}
+.lux-toast-icon svg { width: 18px; height: 18px; }
+
+.lux-toast-close {
+  position: absolute !important;
+  top: 8px; right: 8px;
+  width: 22px; height: 22px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 8px;
+  background: transparent;
+  border: 1px solid rgba(212,175,110,0.15);
+  color: rgba(232,211,161,0.55);
+  opacity: 0;
+  transition: opacity .2s ease, color .2s ease, border-color .2s ease;
+}
+.lux-toast:hover .lux-toast-close { opacity: 1; }
+.lux-toast-close:hover { color: #f4ead2; border-color: rgba(212,175,110,0.45); }
+
+/* Variant accents — icon color + tinted border only.
+   Keeps the obsidian card consistent; no green / violet / white. */
+.lux-variant-success .lux-toast-icon {
+  color: #e8d3a1;
+  background: linear-gradient(135deg, rgba(212,175,110,0.28), rgba(212,175,110,0.08));
+  border-color: rgba(212,175,110,0.55);
+  box-shadow: 0 0 24px -6px rgba(212,175,110,0.7);
+}
+.lux-variant-error {
+  border-color: rgba(220,90,90,0.38);
+}
+.lux-variant-error .lux-toast-icon {
+  color: #f4c8c8;
+  background: linear-gradient(135deg, rgba(220,90,90,0.25), rgba(120,30,30,0.10));
+  border-color: rgba(220,90,90,0.55);
+  box-shadow: 0 0 22px -6px rgba(220,90,90,0.6);
+}
+.lux-variant-error::after {
+  background: radial-gradient(circle, rgba(220,90,90,0.30), transparent 70%);
+}
+.lux-variant-info .lux-toast-icon {
+  color: #cfd6e4;
+  background: linear-gradient(135deg, rgba(180,190,210,0.22), rgba(180,190,210,0.06));
+  border-color: rgba(180,190,210,0.45);
+  box-shadow: 0 0 22px -6px rgba(180,190,210,0.5);
+}
+.lux-variant-warning .lux-toast-icon {
+  color: #f0d78c;
+  background: linear-gradient(135deg, rgba(240,215,140,0.25), rgba(240,215,140,0.06));
+  border-color: rgba(240,215,140,0.5);
+  box-shadow: 0 0 22px -6px rgba(240,215,140,0.55);
+}
+.lux-variant-loading .lux-toast-icon {
+  color: #e8d3a1;
+  background: linear-gradient(135deg, rgba(212,175,110,0.18), rgba(212,175,110,0.04));
+  border-color: rgba(212,175,110,0.35);
+}
