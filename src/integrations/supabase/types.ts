@@ -86,9 +86,15 @@ export type Database = {
           binding_hash: string | null
           created_at: string
           expires_at: string
+          family_id: string | null
           id: string
           ip: string | null
           last_seen_at: string
+          parent_session_id: string | null
+          refresh_expires_at: string | null
+          refresh_token_hash: string | null
+          revoked_at: string | null
+          revoked_reason: string | null
           role: string
           token_hash: string
           user_agent: string | null
@@ -98,9 +104,15 @@ export type Database = {
           binding_hash?: string | null
           created_at?: string
           expires_at: string
+          family_id?: string | null
           id?: string
           ip?: string | null
           last_seen_at?: string
+          parent_session_id?: string | null
+          refresh_expires_at?: string | null
+          refresh_token_hash?: string | null
+          revoked_at?: string | null
+          revoked_reason?: string | null
           role?: string
           token_hash: string
           user_agent?: string | null
@@ -110,9 +122,15 @@ export type Database = {
           binding_hash?: string | null
           created_at?: string
           expires_at?: string
+          family_id?: string | null
           id?: string
           ip?: string | null
           last_seen_at?: string
+          parent_session_id?: string | null
+          refresh_expires_at?: string | null
+          refresh_token_hash?: string | null
+          revoked_at?: string | null
+          revoked_reason?: string | null
           role?: string
           token_hash?: string
           user_agent?: string | null

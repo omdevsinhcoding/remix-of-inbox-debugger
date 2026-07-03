@@ -600,12 +600,45 @@ async function apiCall(functionName: string, body: any) {
   if (pendingToken && functionName === "manage-app" && pendingActions.has(body?.action)) extraHeaders["X-Pending-Token"] = pendingToken;
 
   const { invokeEdge } = await import("./lib/secureTransport");
-  const data: any = await invokeEdge(functionName, body, { headers: extraHeaders });
+  const { storeSessionPair, refreshNow, ensureFreshAccess } = await import("./lib/sessionRefresh");
+
+  // C.2: proactively refresh if access token is within 30s of expiry,
+  // but never for the refresh endpoint itself (would recurse).
+  if (functionName === "manage-app" && body?.action !== "refresh_session") {
+    await ensureFreshAccess(30_000).catch(() => {});
+    // Re-read possibly-rotated token
+    const t2 = getSessionToken();
+    if (t2) extraHeaders["X-Session-Token"] = t2;
+  }
+
+  let data: any;
+  try {
+    data = await invokeEdge(functionName, body, { headers: extraHeaders });
+  } catch (err: any) {
+    const msg = String(err?.message || err || "");
+    const looksExpired = /session expired|session revoked|authentication required|session invalid/i.test(msg);
+    // C.2: single retry after refresh on stale-session errors, except for the
+    // refresh endpoint itself and unauthenticated calls.
+    if (looksExpired && functionName === "manage-app" && body?.action !== "refresh_session" && getSessionToken()) {
+      const ok = await refreshNow();
+      if (!ok) throw err;
+      const t3 = getSessionToken();
+      if (t3) extraHeaders["X-Session-Token"] = t3;
+      data = await invokeEdge(functionName, body, { headers: extraHeaders });
+    } else {
+      throw err;
+    }
+  }
+
   if (data?.sessionToken) {
     sessionSet("session_token" as any, data.sessionToken);
   }
+  if (data?.refreshToken || data?.expiresAt) {
+    storeSessionPair(data);
+  }
   return data;
 }
+
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
   state = { error: null as Error | null };
@@ -702,7 +735,9 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         sessionRemove("admin_auth" as any);
         sessionRemove("pending_admin_token" as any);
       } catch {}
+      try { const { clearRefreshState } = await import("./lib/sessionRefresh"); clearRefreshState(); } catch {}
       setUser(null);
+
     } finally {
       setLoading(false);
     }
@@ -717,8 +752,11 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   useEffect(() => {
     // Initial paint from cache so UI is not blocked, then verify against DB.
     setUser(readCached());
+    // C.2: arm auto-refresh from any stored refresh token in this tab.
+    import("./lib/sessionRefresh").then(({ armAutoRefresh }) => armAutoRefresh()).catch(() => {});
     void hydrateFromServer();
   }, []);
+
 
   return <AuthContext.Provider value={{ user, loading, checkAuth }}>{children}</AuthContext.Provider>;
 };

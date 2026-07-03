@@ -1378,6 +1378,51 @@ Deno.serve(async (originalReq) => {
     supabase.from("app_sessions").delete().lt("expires_at", new Date().toISOString()).eq("user_id", userId).then(() => {});
   }
 
+  // C.2 refresh-token rotation: mint access+refresh pair inside one session
+  // family. Access TTL 15 min, refresh TTL 12 h. Refresh rotates on every use;
+  // reuse of a rotated refresh token revokes the whole family (see refresh_session action).
+  function b64url(bytes: Uint8Array): string {
+    let s = ""; for (const b of bytes) s += String.fromCharCode(b);
+    return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+  async function mintSessionPair(
+    userId: string,
+    role: string,
+    accessPayload: Record<string, any>,
+    opts?: { familyId?: string; parentSessionId?: string | null },
+  ): Promise<{ accessToken: string; accessExpMs: number; refreshToken: string; refreshExpMs: number; familyId: string; sessionRowId: string }> {
+    const ACCESS_TTL_MS = 15 * 60 * 1000;
+    const REFRESH_TTL_MS = 12 * 60 * 60 * 1000;
+    const now = Date.now();
+    const accessExpMs = now + ACCESS_TTL_MS;
+    const refreshExpMs = now + REFRESH_TTL_MS;
+    const familyId = opts?.familyId || crypto.randomUUID();
+    const refreshToken = b64url(crypto.getRandomValues(new Uint8Array(32)));
+    const accessToken = await createSessionToken({ ...accessPayload, exp: accessExpMs }, SIGNING_SECRET);
+    const [accessHash, refreshHash, bindingHash] = await Promise.all([
+      sha256Hex(accessToken),
+      sha256Hex(refreshToken),
+      computeBindingHash(req),
+    ]);
+    const { data: row, error } = await supabase.from("app_sessions").insert({
+      user_id: userId,
+      role,
+      token_hash: accessHash,
+      expires_at: new Date(accessExpMs).toISOString(),
+      refresh_token_hash: refreshHash,
+      refresh_expires_at: new Date(refreshExpMs).toISOString(),
+      family_id: familyId,
+      parent_session_id: opts?.parentSessionId ?? null,
+      ip,
+      user_agent: req.headers.get("user-agent") || null,
+      binding_hash: bindingHash,
+    }).select("id").single();
+    if (error || !row) throw new Error(`Failed to persist session: ${error?.message || "insert failed"}`);
+    // Best-effort cleanup of expired rows for this user
+    supabase.from("app_sessions").delete().lt("expires_at", new Date().toISOString()).eq("user_id", userId).then(() => {});
+    return { accessToken, accessExpMs, refreshToken, refreshExpMs, familyId, sessionRowId: row.id };
+  }
+
   // Helper to verify session from header AND ensure a live DB row exists
   async function requireSession(req: Request): Promise<Record<string, any>> {
     const token = req.headers.get("x-session-token");
@@ -1387,10 +1432,11 @@ Deno.serve(async (originalReq) => {
     const tokenHash = await sha256Hex(token);
     const { data: row } = await supabase
       .from("app_sessions")
-      .select("id, expires_at, binding_hash, user_id")
+      .select("id, expires_at, binding_hash, user_id, revoked_at")
       .eq("token_hash", tokenHash)
       .maybeSingle();
     if (!row) throw new Error("Session revoked. Please sign in again.");
+    if (row.revoked_at) throw new Error("Session revoked. Please sign in again.");
     if (new Date(row.expires_at).getTime() < Date.now()) {
       await supabase.from("app_sessions").delete().eq("id", row.id);
       throw new Error("Session expired. Please sign in again.");
@@ -1417,6 +1463,7 @@ Deno.serve(async (originalReq) => {
     supabase.from("app_sessions").update({ last_seen_at: new Date().toISOString() }).eq("id", row.id).then(() => {});
     return session;
   }
+
 
 
   async function requireAdmin(req: Request): Promise<Record<string, any>> {
@@ -1628,22 +1675,21 @@ Deno.serve(async (originalReq) => {
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      // Create normal user session token (30 min expiry)
-      const expMs = Date.now() + 30 * 60 * 1000;
-      const sessionPayload = {
+      // C.2: mint access (15 min) + refresh (12 h) rotating pair
+      const pair = await mintSessionPair(user.id, user.role, {
         userId: user.id,
         username: user.username,
         role: user.role,
         assignedAccounts: user.assigned_accounts || null,
-        exp: expMs,
-      };
-      const sessionToken = await createSessionToken(sessionPayload, SIGNING_SECRET);
-      await persistSession(user.id, user.role, sessionToken, expMs);
+      });
       const workerUrls = await loadWorkerUrls(supabase);
 
       return new Response(JSON.stringify({
         success: true,
-        sessionToken,
+        sessionToken: pair.accessToken,
+        expiresAt: pair.accessExpMs,
+        refreshToken: pair.refreshToken,
+        refreshExpiresAt: pair.refreshExpMs,
         workerUrls,
         user: {
           id: user.id, username: user.username, name: user.name, role: user.role,
@@ -1655,6 +1701,7 @@ Deno.serve(async (originalReq) => {
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+
     }
 
     if (action === "create") {
@@ -1894,22 +1941,21 @@ Deno.serve(async (originalReq) => {
 
       const { data: user, error } = await supabase.from("app_users").select("*").eq("id", pending.userId).single();
       if (error || !user || user.role !== "admin") throw new Error("Admin not found");
-      const expMs = Date.now() + 30 * 60 * 1000;
-      const sessionPayload = {
+      const pair = await mintSessionPair(user.id, "admin", {
         userId: user.id,
         username: user.username,
         role: "admin",
         assignedAccounts: user.assigned_accounts || null,
-        exp: expMs,
-      };
-      const sessionToken = await createSessionToken(sessionPayload, SIGNING_SECRET);
-      await persistSession(user.id, "admin", sessionToken, expMs);
+      });
       const workerUrls = await loadWorkerUrls(supabase);
       await supabase.from("app_admin_2fa_state").delete().eq("token_hash", tokenHash);
       await auditLog(supabase, "admin_2fa_finalized", user.id, user.id, {}, ip);
       return new Response(JSON.stringify({
         success: true,
-        sessionToken,
+        sessionToken: pair.accessToken,
+        expiresAt: pair.accessExpMs,
+        refreshToken: pair.refreshToken,
+        refreshExpiresAt: pair.refreshExpMs,
         workerUrls,
         user: {
           id: user.id,
@@ -1923,6 +1969,7 @@ Deno.serve(async (originalReq) => {
         },
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
+
 
     if (action === "get_settings") {
       const { key } = params;
@@ -2099,24 +2146,23 @@ Deno.serve(async (originalReq) => {
         .single();
       if (error || !targetUser) throw new Error("User not found");
 
-      const expMs = Date.now() + 30 * 60 * 1000;
-      const impersonatePayload = {
+      const pair = await mintSessionPair(targetUser.id, "user", {
         userId: targetUser.id,
         username: targetUser.username,
         role: "user",
         assignedAccounts: targetUser.assigned_accounts || null,
         impersonated: true,
         adminId: session.userId,
-        exp: expMs,
-      };
-      const token = await createSessionToken(impersonatePayload, SIGNING_SECRET);
-      await persistSession(targetUser.id, "user", token, expMs);
+      });
 
       await auditLog(supabase, "impersonate", session.userId, targetUser.id, { targetUsername: targetUser.username }, ip);
 
       return new Response(JSON.stringify({
         success: true,
-        sessionToken: token,
+        sessionToken: pair.accessToken,
+        expiresAt: pair.accessExpMs,
+        refreshToken: pair.refreshToken,
+        refreshExpiresAt: pair.refreshExpMs,
         user: {
           id: targetUser.id, username: targetUser.username, name: targetUser.name, role: "user",
           assignedAccounts: targetUser.assigned_accounts, mustChangePassword: false,
@@ -2127,6 +2173,115 @@ Deno.serve(async (originalReq) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    // C.2: refresh access token — rotates refresh token, detects reuse.
+    // Body: { refreshToken: string }
+    if (action === "refresh_session") {
+      const { refreshToken } = params;
+      if (!refreshToken || typeof refreshToken !== "string") throw new Error("refreshToken required");
+      const refreshHash = await sha256Hex(refreshToken);
+      const { data: row } = await supabase
+        .from("app_sessions")
+        .select("id, user_id, role, family_id, refresh_expires_at, revoked_at, revoked_reason, binding_hash")
+        .eq("refresh_token_hash", refreshHash)
+        .maybeSingle();
+      if (!row) throw new Error("Invalid refresh token");
+
+      // REUSE DETECTION: presenting an already-rotated refresh token means
+      // either the legitimate user's browser is racing (rare) or an attacker
+      // stole a refresh token and is trying to use it after we rotated it.
+      // Kill the entire session family and alert.
+      if (row.revoked_at) {
+        await supabase.from("app_sessions").update({
+          revoked_at: new Date().toISOString(),
+          revoked_reason: "refresh_reuse_family_kill",
+        }).eq("family_id", row.family_id).is("revoked_at", null);
+        await supabase.from("app_sessions").delete().eq("family_id", row.family_id);
+
+        supabase.from("security_events").insert({
+          type: "refresh_token_reuse",
+          severity: "critical",
+          uid: row.user_id,
+          ip,
+          ua: req.headers.get("user-agent") || null,
+          meta: { family_id: row.family_id, original_reason: row.revoked_reason },
+        }).then(() => {});
+
+        // Telegram alert (best-effort)
+        try {
+          const tg = await getTelegramConfig(supabase);
+          if (tg) {
+            const text = [
+              `🚨 <b>Refresh-token reuse detected</b>`,
+              `<b>User ID:</b> <code>${row.user_id}</code>`,
+              `<b>IP:</b> <code>${ip}</code>`,
+              `<b>Family:</b> <code>${row.family_id}</code>`,
+              `<i>All sessions in this family have been revoked.</i>`,
+            ].join("\n");
+            await fetch(`https://api.telegram.org/bot${tg.botToken}/sendMessage`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ chat_id: tg.chatId, text, parse_mode: "HTML", disable_web_page_preview: true }),
+            });
+          }
+        } catch {}
+
+        throw new Error("Session family revoked. Please sign in again.");
+      }
+
+      if (!row.refresh_expires_at || new Date(row.refresh_expires_at).getTime() < Date.now()) {
+        await supabase.from("app_sessions").delete().eq("id", row.id);
+        throw new Error("Refresh token expired. Please sign in again.");
+      }
+
+      // Device binding still enforced on refresh
+      if (row.binding_hash) {
+        const current = await computeBindingHash(req);
+        if (current !== row.binding_hash) {
+          await supabase.from("app_sessions").update({
+            revoked_at: new Date().toISOString(),
+            revoked_reason: "binding_mismatch_on_refresh",
+          }).eq("family_id", row.family_id).is("revoked_at", null);
+          supabase.from("security_events").insert({
+            type: "refresh_binding_mismatch",
+            severity: "high",
+            uid: row.user_id,
+            ip,
+            ua: req.headers.get("user-agent") || null,
+            meta: { family_id: row.family_id },
+          }).then(() => {});
+          throw new Error("Session bound to another device. Please sign in again.");
+        }
+      }
+
+      // Load current user data so JWT stays fresh (role changes propagate on refresh)
+      const { data: user, error: uerr } = await supabase.from("app_users").select("*").eq("id", row.user_id).single();
+      if (uerr || !user) throw new Error("User not found");
+
+      // Mint new pair inside the same family, linked to parent row
+      const pair = await mintSessionPair(user.id, row.role, {
+        userId: user.id,
+        username: user.username,
+        role: row.role,
+        assignedAccounts: user.assigned_accounts || null,
+      }, { familyId: row.family_id, parentSessionId: row.id });
+
+      // Mark old row revoked (kept in DB briefly for reuse detection; expires_at cleanup will remove it)
+      await supabase.from("app_sessions").update({
+        revoked_at: new Date().toISOString(),
+        revoked_reason: "rotated",
+      }).eq("id", row.id);
+
+      return new Response(JSON.stringify({
+        success: true,
+        sessionToken: pair.accessToken,
+        expiresAt: pair.accessExpMs,
+        refreshToken: pair.refreshToken,
+        refreshExpiresAt: pair.refreshExpMs,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+
 
     // Decrypt IMAP passwords (internal use for fetch-emails)
     if (action === "get_decrypted_accounts") {
