@@ -1,8 +1,8 @@
 import { toast } from "sonner";
-import { CheckCircle2, Mail, Sparkles, X } from "lucide-react";
+import { AlertCircle, CheckCircle2, Mail, Sparkles, X } from "lucide-react";
 import type { ReactNode } from "react";
 
-type Variant = "success" | "mail" | "info";
+type Variant = "success" | "mail" | "info" | "error";
 
 interface PremiumToastOpts {
   id?: string | number;
@@ -24,6 +24,8 @@ export function premiumToast(message: string, opts: PremiumToastOpts = {}) {
     icon ??
     (variant === "mail" ? (
       <Mail className="w-4 h-4" strokeWidth={2.25} />
+    ) : variant === "error" ? (
+      <AlertCircle className="w-4 h-4" strokeWidth={2.25} />
     ) : variant === "info" ? (
       <Sparkles className="w-4 h-4" strokeWidth={2.25} />
     ) : (
