@@ -6561,15 +6561,16 @@ function EmailViewer() {
   }, [profilePrefs, setEmails, pushDiag, resolvedWorkerUrls, workerUrlMap, refreshAccountLabels]);
 
 
-  const syncViaWorker = useCallback(async () => {
+  const syncViaWorker = useCallback(async (): Promise<Email[] | null> => {
     const token = getSessionToken();
     const headers: Record<string, string> = {};
     if (token) headers["X-Session-Token"] = token;
     const labels = refreshAccountLabels;
-    if (labels && labels.length === 0) return;
+    if (labels && labels.length === 0) return null;
     const groups = buildWorkerRequestGroups(labels, workerUrlMap, resolvedWorkerUrls);
     if (groups.length === 0) throw new Error("Cloudflare worker is not configured");
 
+    const collected: Email[][] = [];
     await Promise.all(groups.map(async (group) => {
       const endpoint = `${group.url}/api/emails/sync`;
       const started = performance.now();
@@ -6583,21 +6584,48 @@ function EmailViewer() {
       if (!res.ok) throw new Error(text.slice(0, 180) || "Worker sync failed");
       const data: any = text ? JSON.parse(text) : null;
       if (data && data.success === false) throw new Error(data?.error || "Sync failed");
+      if (data && Array.isArray(data.emails)) collected.push(data.emails as Email[]);
     }));
+
+    if (collected.length === 0) return [];
+    return mergeEmailsById(collected);
   }, [pushDiag, resolvedWorkerUrls, workerUrlMap, refreshAccountLabels]);
 
   const fetchEmails = async () => {
     if (refreshingRef.current) return;
     refreshingRef.current = true;
     setRefreshing(true);
-    const before = showLocalCacheNow() || emails.length;
-    const toastId = toast.loading("Checking Netflix mail…");
+    const beforeIds = new Set(emails.map((e) => e.id));
+    const toastId = "nf-refresh";
+    toast.loading("Checking Netflix mail…", { id: toastId });
     try {
-      const baseline = before;
-      await syncViaWorker();
-      const after = await loadCachedEmails({ bust: true, limit: 200 });
-      const newCount = Math.max(0, after - baseline);
-      toast.success(newCount > 0 ? `📬 ${newCount} new email${newCount === 1 ? "" : "s"} arrived` : (after > 0 ? "Inbox is up to date" : "No Netflix emails found yet"), { id: toastId, duration: 2200 });
+      // Fast path: worker sync returns fresh emails directly — no second round-trip.
+      const synced = await syncViaWorker();
+      let merged: Email[] = emails;
+      if (synced && synced.length > 0) {
+        merged = mergeEmailsById([emails, synced]);
+        setEmails(merged);
+        setError(null);
+        setLastUpdated(new Date());
+      }
+      // Background top-up in case worker returned only latest 3 — do not block UI.
+      loadCachedEmails({ bust: true, limit: 200 }).catch(() => {});
+
+      const visible = filterVisibleEmails(merged, profilePrefs);
+      const newCount = visible.filter((e) => !beforeIds.has(e.id)).length;
+      toast.dismiss(toastId);
+      if (newCount > 0) {
+        premiumToast(`${newCount} new email${newCount === 1 ? "" : "s"} arrived`, {
+          variant: "mail",
+          description: "Freshly delivered to your inbox",
+          duration: 2600,
+        });
+      } else {
+        premiumToast(visible.length > 0 ? "Inbox is up to date" : "No Netflix emails yet", {
+          variant: "success",
+          duration: 2000,
+        });
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to load";
       toast.error(msg, { id: toastId, duration: 4000 });
