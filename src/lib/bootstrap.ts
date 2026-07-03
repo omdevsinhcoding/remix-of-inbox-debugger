@@ -70,7 +70,10 @@ export function clearSessionData() {
         if (k && k.startsWith("cached_emails_v1:")) localStorage.removeItem(k);
       }
     } catch {}
+    // C.2: clear refresh-token state and cancel scheduler.
+    try { import("./sessionRefresh").then(({ clearRefreshState }) => clearRefreshState()).catch(() => {}); } catch {}
   } catch {}
+
 }
 
 
