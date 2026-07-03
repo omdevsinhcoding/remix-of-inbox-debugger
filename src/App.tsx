@@ -3298,7 +3298,7 @@ function AdminPanel() {
   const [notifPlatformIcon, setNotifPlatformIcon] = useState<string>("");
   const [notifTemplate, setNotifTemplate] = useState<string>("");
   const [platformSearch, setPlatformSearch] = useState("");
-  const { ready: platformLogosReady, results: platformLogoResults } = usePlatformLogoAudit(activeTab === "notifications");
+  const { ready: platformLogosReady, results: platformLogoResults } = usePlatformLogoAudit(false);
   const [notifLocked, setNotifLocked] = useState(false);
   const [notifShowFrequency, setNotifShowFrequency] = useState<"once" | "always" | "session" | "daily">("once");
   const [notifMode, setNotifMode] = useState<"popup" | "silent" | "banner">("popup");
