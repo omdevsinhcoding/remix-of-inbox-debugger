@@ -1,5 +1,6 @@
 import { supabase } from "../integrations/supabase/client";
 import { setAvatarBaseUrl } from "./avatars";
+import { sessionGet, sessionSet, sessionRemove, sessionClearAll } from "./session";
 
 const WORKER_URLS_KEY = "cloudflare_worker_urls";
 const BOOTSTRAP_CACHE_KEY = "bootstrap_cache_v1";
@@ -30,13 +31,13 @@ function storeWorkerUrls(urls: string[]) {
 }
 
 export function markSessionStart() {
-  try { localStorage.setItem("session_started_at", String(Date.now())); } catch {}
+  try { sessionSet("session_started_at" as any, String(Date.now())); } catch {}
 }
 
 export function clearSessionData() {
   // Best-effort: revoke session server-side so the DB row is deleted.
   try {
-    const token = localStorage.getItem("session_token");
+    const token = sessionGet("session_token" as any);
     if (token) {
       import("./secureTransport")
         .then(({ invokeEdge }) => invokeEdge("manage-app", { action: "logout" }, { headers: { "X-Session-Token": token } }))
@@ -47,18 +48,18 @@ export function clearSessionData() {
     // Capture the user id BEFORE clearing so we can purge that profile's OTP cache too.
     let uid: string | null = null;
     try {
-      const raw = localStorage.getItem("user");
+      const raw = sessionGet("user" as any);
       if (raw) uid = JSON.parse(raw)?.id || null;
     } catch {}
-    localStorage.removeItem("user");
-    localStorage.removeItem("session_token");
-    localStorage.removeItem("session_started_at");
-    localStorage.removeItem("admin_auth");
-    localStorage.removeItem("pending_admin_token");
+    sessionRemove("user" as any);
+    sessionRemove("session_token" as any);
+    sessionRemove("session_started_at" as any);
+    sessionRemove("admin_auth" as any);
+    sessionRemove("pending_admin_token" as any);
     localStorage.removeItem("pending_admin_user");
     // F4: impersonation backup is now in sessionStorage; sweep both stores for safety.
-    localStorage.removeItem("admin_backup");
-    try { sessionStorage.removeItem("admin_backup"); } catch {}
+    sessionRemove("admin_backup" as any);
+    try { sessionRemove("admin_backup" as any); } catch {}
     // F8: purge cached Netflix OTP emails so the next profile on this device
     // can't read the previous profile's inbox after a timeout/forced logout.
     if (uid) localStorage.removeItem(`cached_emails_v1:${uid}`);
@@ -204,7 +205,7 @@ export type AppNotification = {
 };
 
 async function callManage<T = any>(action: string, payload: Record<string, any> = {}): Promise<T> {
-  const token = localStorage.getItem("session_token");
+  const token = sessionGet("session_token" as any);
   const headers: Record<string, string> = {};
   if (token) headers["X-Session-Token"] = token;
   const { invokeEdge } = await import("./secureTransport");
