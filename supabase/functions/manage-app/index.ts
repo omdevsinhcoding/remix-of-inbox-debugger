@@ -391,17 +391,48 @@ function r2FailureMessage(status: number, body: string, warnings: string[]): str
   return `PUT ${status}: ${compactBody}`;
 }
 
+// Cache Telegram config in-memory (per-isolate) for 60s to avoid a DB
+// round-trip on every alert/OTP send.
+let __tgCfgCache: { at: number; cfg: { botToken: string; chatId: string } | null } | null = null;
 async function getTelegramConfig(supabase: any): Promise<{ botToken: string; chatId: string } | null> {
+  if (__tgCfgCache && Date.now() - __tgCfgCache.at < 60_000) return __tgCfgCache.cfg;
+  let cfg: { botToken: string; chatId: string } | null = null;
   try {
     const { data } = await supabase.from("app_settings").select("value").eq("key", "config").single();
-    const cfg = data?.value as any;
-    if (cfg?.TELEGRAM_BOT_TOKEN && cfg?.TELEGRAM_CHAT_ID) {
-      return { botToken: cfg.TELEGRAM_BOT_TOKEN, chatId: cfg.TELEGRAM_CHAT_ID };
+    const c = data?.value as any;
+    if (c?.TELEGRAM_BOT_TOKEN && c?.TELEGRAM_CHAT_ID) {
+      cfg = { botToken: c.TELEGRAM_BOT_TOKEN, chatId: c.TELEGRAM_CHAT_ID };
     }
   } catch {}
-  const botToken = Deno.env.get("TELEGRAM_BOT_TOKEN");
-  const chatId = Deno.env.get("TELEGRAM_CHAT_ID");
-  return botToken && chatId ? { botToken, chatId } : null;
+  if (!cfg) {
+    const botToken = Deno.env.get("TELEGRAM_BOT_TOKEN");
+    const chatId = Deno.env.get("TELEGRAM_CHAT_ID");
+    if (botToken && chatId) cfg = { botToken, chatId };
+  }
+  __tgCfgCache = { at: Date.now(), cfg };
+  return cfg;
+}
+
+// Timeout-guarded Telegram sendMessage. Prevents a stalled Telegram edge
+// (occasional 20-30s hangs) from blocking the whole edge-function response.
+async function postTelegram(
+  tg: { botToken: string; chatId: string },
+  payload: Record<string, unknown>,
+  timeoutMs = 6000,
+): Promise<Response> {
+  return await fetch(`https://api.telegram.org/bot${tg.botToken}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: tg.chatId, parse_mode: "HTML", disable_web_page_preview: true, ...payload }),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+}
+// Fire-and-forget wrapper for non-critical alerts. Uses EdgeRuntime.waitUntil
+// so the response can return immediately while the alert flushes in the bg.
+function postTelegramBg(tg: { botToken: string; chatId: string }, payload: Record<string, unknown>) {
+  const p = postTelegram(tg, payload, 6000).then(() => {}).catch((e) => console.error("[tg bg] failed:", e));
+  const wu = (globalThis as any).EdgeRuntime?.waitUntil;
+  if (typeof wu === "function") wu(p); else void p;
 }
 
 // --- Multi-provider IP geolocation (parallel, timeout-guarded) with VPN/proxy detection ---
