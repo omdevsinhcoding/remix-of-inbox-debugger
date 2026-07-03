@@ -150,7 +150,7 @@ export default {
 
     if (url.pathname === "/api/emails" && request.method === "GET") {
       const bust = url.searchParams.get("bust") === "1" || url.searchParams.get("bust") === "true";
-      const limit = clampLimit(url.searchParams.get("limit"), 3, 50);
+      const limit = clampLimit(url.searchParams.get("limit"), 3, 200);
       const accountLabels = url.searchParams.getAll("accountLabel").map(v => v.trim()).filter(Boolean);
       return handleGetEmails(env, session, sessionToken, { bust, limit, accountLabels });
     }
@@ -245,7 +245,7 @@ function clampLimit(value, fallback = 3, max = 50) {
 async function handleGetEmails(env, session, rawToken, opts = {}) {
   const hasKV = !!getKV(env);
   const bust = !!opts.bust;
-  const limit = clampLimit(opts.limit, 3, 50);
+  const limit = clampLimit(opts.limit, 3, 200);
   const accountLabels = Array.isArray(opts.accountLabels) ? opts.accountLabels : [];
 
   if (!hasKV) {
