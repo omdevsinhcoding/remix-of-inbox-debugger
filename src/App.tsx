@@ -4645,34 +4645,45 @@ function AdminPanel() {
                 <div className="space-y-2 max-h-[60vh] overflow-y-auto">
                   {adminNotifs.length === 0 && <p className="text-sm text-slate-500">No notifications yet.</p>}
                   {adminNotifs.map((n) => (
-                    <div key={n.id} className="border rounded-xl p-3 hover:border-slate-300 transition-colors group">
+                    <div key={n.id} className="border-2 rounded-2xl p-4 hover:border-slate-300 hover:shadow-md transition-all group bg-white">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
                             {n.platform_icon ? <PlatformChipVisual id={n.platform_icon} size={20} audit={platformLogoResults[resolvePlatformOption(n.platform_icon).id || "__custom"]} /> : null}
-                            {n.locked && <span className="inline-flex items-center gap-1 text-[9.5px] px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 font-semibold"><Lock className="w-2.5 h-2.5" />Locked</span>}
-                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-700 capitalize">{n.category || "announcement"}</span>
+                            <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-semibold ${n.locked ? "bg-amber-50 text-amber-700 border border-amber-200" : "bg-emerald-50 text-emerald-700 border border-emerald-200"}`}>
+                              {n.locked ? "🔒 Locked" : "🔓 User delete OK"}
+                            </span>
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 capitalize font-medium">{n.category || "announcement"}</span>
                             <span className={`inline-flex items-center gap-1 text-[10px] font-semibold capitalize ${n.priority === "critical" ? "text-rose-600" : n.priority === "high" ? "text-amber-600" : n.priority === "normal" ? "text-sky-600" : "text-zinc-500"}`}>
                               <span className={`w-1.5 h-1.5 rounded-full ${n.priority === "critical" ? "bg-rose-500" : n.priority === "high" ? "bg-amber-500" : n.priority === "normal" ? "bg-sky-500" : "bg-zinc-400"}`} />
                               {n.priority || "low"}
                             </span>
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-medium">
+                              {n.audience === "all" ? `👥 Sabko (${n.totalRecipients || 0})` : "👤 Ek user ko"}
+                            </span>
                           </div>
-                          <p className="font-bold text-sm text-slate-900 truncate">{n.title}</p>
-                          <p className="text-xs text-slate-600 line-clamp-2">{n.body}</p>
-                          <p className="text-[11px] text-slate-400 mt-1">
-                            {n.audience === "all" ? "All users" : "Specific"} • Seen {n.seenCount || 0} · Read {n.readCount || 0} · Clicked {n.clickCount || 0} / {n.totalRecipients || 0}
-                          </p>
+                          <p className="font-black text-[15px] text-slate-900 truncate">{n.title}</p>
+                          <p className="text-xs text-slate-600 line-clamp-2 mt-0.5">{n.body}</p>
+                          <div className="flex items-center gap-3 mt-2 flex-wrap text-[11px] font-semibold">
+                            <span className="inline-flex items-center gap-1 text-slate-600">👀 {n.seenCount || 0} <span className="text-slate-400 font-normal">seen</span></span>
+                            <span className="inline-flex items-center gap-1 text-emerald-700">✅ {n.readCount || 0} <span className="text-slate-400 font-normal">read</span></span>
+                            <span className="inline-flex items-center gap-1 text-sky-700">🖱 {n.clickCount || 0} <span className="text-slate-400 font-normal">clicked</span></span>
+                            <span className="inline-flex items-center gap-1 text-rose-600">🗑 {n.deletedCount || 0} <span className="text-slate-400 font-normal">deleted</span></span>
+                          </div>
                         </div>
                       </div>
-                      <div className="flex items-center gap-1 mt-2 pt-2 border-t border-slate-100 opacity-60 group-hover:opacity-100 transition-opacity">
-                        <button onClick={() => setEditingNotif({ ...n })} className="flex-1 px-2 py-1.5 rounded-md text-[11px] font-semibold text-slate-700 hover:bg-slate-100 flex items-center justify-center gap-1">
-                          <Edit className="w-3 h-3" /> Edit
+                      <div className="flex items-center gap-1.5 mt-3 pt-3 border-t border-slate-100">
+                        <button onClick={() => setRecipientsFor(n)} className="flex-1 min-h-[40px] px-3 py-2 rounded-lg text-[12px] font-bold text-white bg-slate-900 hover:bg-slate-800 flex items-center justify-center gap-1.5">
+                          <Users className="w-3.5 h-3.5" /> Recipients
                         </button>
-                        <button onClick={() => duplicateToComposer(n)} className="flex-1 px-2 py-1.5 rounded-md text-[11px] font-semibold text-slate-700 hover:bg-slate-100 flex items-center justify-center gap-1">
-                          <Copy className="w-3 h-3" /> Duplicate
+                        <button onClick={() => setEditingNotif({ ...n })} className="flex-1 min-h-[40px] px-3 py-2 rounded-lg text-[12px] font-semibold text-slate-700 hover:bg-slate-100 border border-slate-200 flex items-center justify-center gap-1.5">
+                          <Edit className="w-3.5 h-3.5" /> Edit
                         </button>
-                        <button onClick={() => deleteNotification(n.id)} className="flex-1 px-2 py-1.5 rounded-md text-[11px] font-semibold text-red-600 hover:bg-red-50 flex items-center justify-center gap-1">
-                          <Trash2 className="w-3 h-3" /> Delete
+                        <button onClick={() => duplicateToComposer(n)} className="min-h-[40px] px-3 py-2 rounded-lg text-[12px] font-semibold text-slate-700 hover:bg-slate-100 border border-slate-200 flex items-center justify-center gap-1.5" title="Duplicate">
+                          <Copy className="w-3.5 h-3.5" />
+                        </button>
+                        <button onClick={() => deleteNotification(n.id)} className="min-h-[40px] px-3 py-2 rounded-lg text-[12px] font-semibold text-red-600 hover:bg-red-50 border border-red-200 flex items-center justify-center gap-1.5" title="Delete for everyone">
+                          <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
                     </div>
