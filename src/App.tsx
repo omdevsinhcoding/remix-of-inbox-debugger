@@ -1663,7 +1663,13 @@ interface Email {
 }
 
 function escapeEmailHtml(value = "") {
-  return String(value).replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch] || ch));
+  return String(value).replace(/[&<>"]/g, (ch) => {
+    if (ch === "&") return "&amp;";
+    if (ch === "<") return "&lt;";
+    if (ch === ">") return "&gt;";
+    if (ch === '"') return "&quot;";
+    return ch;
+  });
 }
 
 function stripRawMimeNoise(value = "") {
