@@ -1110,11 +1110,7 @@ async function sendPrimaryLoginAlert(
 
 
   try {
-    const tgRes = await fetch(`https://api.telegram.org/bot${tg.botToken}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: tg.chatId, text, parse_mode: "HTML", disable_web_page_preview: true }),
-    });
+    const tgRes = await postTelegram(tg, { text });
     if (!tgRes.ok) console.error("[tg primary alert] failed:", await tgRes.text());
   } catch (e) { console.error("[tg primary alert] error:", e); }
 }
