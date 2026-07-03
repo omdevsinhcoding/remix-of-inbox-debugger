@@ -1,6 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { authenticator } from "npm:otplib@12.0.1";
-import { readRequest, maybeEncryptResponse, EncryptedRequestContext } from "../_shared/crypto.ts";
+import { readRequest, maybeEncryptResponse, EncryptedRequestContext, PlaintextRejectedError, plaintextRejectedResponse, TransportError, transportErrorResponse } from "../_shared/crypto.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -1319,7 +1319,9 @@ Deno.serve(async (originalReq) => {
     const __r = await readRequest(originalReq);
     __parsedBody = __r.body ?? {};
     __ctx = __r.encrypted ? __r.ctx : null;
-  } catch (_e) {
+  } catch (e) {
+    if (e instanceof PlaintextRejectedError) return plaintextRejectedResponse();
+    if (e instanceof TransportError) return transportErrorResponse(e);
     return new Response(JSON.stringify({ success: false, error: "bad request" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
   const req = new Request(originalReq.url, {

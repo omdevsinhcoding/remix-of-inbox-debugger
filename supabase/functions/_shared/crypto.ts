@@ -1,23 +1,32 @@
 // Shared AES-256-GCM binary transport used by edge functions.
-// Wire format:
+// Wire format (v1):
 //   Encrypted request  : [ver(1)][sessionId(16)][iv(12)][ciphertext+tag(N)]
 //   Encrypted response : [ver(1)][iv(12)][ciphertext+tag(N)]
-// The server auto-detects encrypted requests via
-//   Content-Type: application/octet-stream
-// and falls back to plain JSON for any other request.
+//
+// Phase A hardening (v2 envelope, still inside the same binary frame):
+//   plaintext JSON = { __v:2, n:<b64 16-byte nonce>, t:<unix_ms>, o:<hex sha256(origin)>, b:<original body> }
+//   Server validates:
+//     - timestamp within ±30s
+//     - nonce unique per session (crypto_nonces table)
+//     - origin_hash matches value bound at handshake
+//
+// Plaintext requests are REJECTED with 426 Upgrade Required unless the caller
+// opts-in via `allowPlaintext` (used only by cron/server-to-server callers
+// authenticating with x-cron-secret).
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const VERSION = 0x01;
 const SESSION_ID_BYTES = 16;
 const IV_BYTES = 12;
+const REPLAY_WINDOW_MS = 30_000;
 
 const CT_BINARY = "application/octet-stream";
 
 export const cryptoCorsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-session-token, x-pending-token, x-crypto-session",
+    "authorization, x-client-info, apikey, content-type, x-session-token, x-pending-token, x-crypto-session, x-cron-secret",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
@@ -41,8 +50,6 @@ function uuidStringToBytes(id: string): Uint8Array {
   return out;
 }
 
-// bytea returned from postgrest as "\\xDEADBEEF..." hex string, raw hex,
-// or (on newer PostgREST versions) a base64 string.
 function pgByteaToBytes(v: unknown): Uint8Array {
   if (v instanceof Uint8Array) return v;
   if (typeof v === "string") {
@@ -54,7 +61,6 @@ function pgByteaToBytes(v: unknown): Uint8Array {
       for (let i = 0; i < out.length; i++) out[i] = parseInt(s.substr(i * 2, 2), 16);
       return out;
     }
-    // Fallback: base64
     const bin = atob(s);
     const out = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
@@ -63,17 +69,28 @@ function pgByteaToBytes(v: unknown): Uint8Array {
   throw new Error("invalid bytea");
 }
 
-async function loadKey(sessionId: string): Promise<CryptoKey | null> {
+function bytesToHex(b: Uint8Array): string {
+  return Array.from(b).map((x) => x.toString(16).padStart(2, "0")).join("");
+}
+
+async function sha256Hex(s: string): Promise<string> {
+  const buf = new TextEncoder().encode(s);
+  const h = new Uint8Array(await crypto.subtle.digest("SHA-256", buf));
+  return bytesToHex(h);
+}
+
+async function loadSession(sessionId: string): Promise<{ key: CryptoKey; origin_hash: string | null } | null> {
   const sb = admin();
   const { data, error } = await sb
     .from("crypto_sessions")
-    .select("aes_key, expires_at")
+    .select("aes_key, expires_at, origin_hash")
     .eq("id", sessionId)
     .maybeSingle();
   if (error || !data) return null;
-  if (new Date(data.expires_at).getTime() < Date.now()) return null;
+  if (new Date((data as any).expires_at).getTime() < Date.now()) return null;
   const raw = pgByteaToBytes((data as any).aes_key);
-  return await crypto.subtle.importKey("raw", raw, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
+  const key = await crypto.subtle.importKey("raw", raw, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
+  return { key, origin_hash: (data as any).origin_hash ?? null };
 }
 
 export interface EncryptedRequestContext {
@@ -81,37 +98,123 @@ export interface EncryptedRequestContext {
   key: CryptoKey;
 }
 
-// Reads and decrypts an incoming request. Returns:
-//  - { encrypted: true, body, ctx } for encrypted binary requests
-//  - { encrypted: false, body } for plaintext JSON (backward compat)
-// `body` is always the parsed JSON object (or null on empty).
-export async function readRequest(req: Request): Promise<
+export class PlaintextRejectedError extends Error {
+  constructor() { super("plaintext rejected"); this.name = "PlaintextRejectedError"; }
+}
+export class TransportError extends Error {
+  status: number;
+  constructor(msg: string, status = 400) { super(msg); this.status = status; this.name = "TransportError"; }
+}
+
+function getClientIp(req: Request): string {
+  const xf = req.headers.get("x-forwarded-for") || "";
+  const ip = xf.split(",")[0].trim() || req.headers.get("cf-connecting-ip") || req.headers.get("x-real-ip") || "unknown";
+  return ip.slice(0, 64);
+}
+
+function checkSecFetchSite(req: Request) {
+  const sfs = req.headers.get("sec-fetch-site");
+  if (!sfs) return; // non-browser client (curl, cron) — skip
+  if (sfs === "same-origin" || sfs === "same-site" || sfs === "none") return;
+  throw new TransportError("cross-site request blocked", 403);
+}
+
+interface ReadOptions {
+  allowPlaintext?: boolean;
+}
+
+export async function readRequest(
+  req: Request,
+  opts: ReadOptions = {},
+): Promise<
   | { encrypted: false; body: any; ctx: null }
   | { encrypted: true; body: any; ctx: EncryptedRequestContext }
 > {
   const ct = (req.headers.get("content-type") || "").toLowerCase();
   if (ct.includes(CT_BINARY)) {
+    checkSecFetchSite(req);
     const buf = new Uint8Array(await req.arrayBuffer());
-    if (buf.length < 1 + SESSION_ID_BYTES + IV_BYTES + 16) throw new Error("crypto: short frame");
-    if (buf[0] !== VERSION) throw new Error("crypto: bad version");
+    if (buf.length < 1 + SESSION_ID_BYTES + IV_BYTES + 16) throw new TransportError("short frame");
+    if (buf[0] !== VERSION) throw new TransportError("bad version");
     const sidBytes = buf.slice(1, 1 + SESSION_ID_BYTES);
     const sessionId = uuidBytesToString(sidBytes);
     const iv = buf.slice(1 + SESSION_ID_BYTES, 1 + SESSION_ID_BYTES + IV_BYTES);
     const ct2 = buf.slice(1 + SESSION_ID_BYTES + IV_BYTES);
-    const key = await loadKey(sessionId);
-    if (!key) throw new Error("crypto: unknown session");
-    const plain = new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ct2));
+    const sess = await loadSession(sessionId);
+    if (!sess) throw new TransportError("unknown session", 401);
+    let plain: Uint8Array;
+    try {
+      plain = new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv }, sess.key, ct2));
+    } catch {
+      throw new TransportError("decrypt failed", 400);
+    }
     const text = new TextDecoder().decode(plain);
-    const body = text.length ? JSON.parse(text) : null;
-    return { encrypted: true, body, ctx: { sessionId, key } };
+    const parsed = text.length ? JSON.parse(text) : null;
+
+    // v2 envelope validation
+    let body: any = parsed;
+    if (parsed && typeof parsed === "object" && parsed.__v === 2) {
+      const now = Date.now();
+      const t = Number(parsed.t);
+      if (!Number.isFinite(t) || Math.abs(now - t) > REPLAY_WINDOW_MS) {
+        throw new TransportError("stale request", 400);
+      }
+      if (typeof parsed.n !== "string" || parsed.n.length < 16) {
+        throw new TransportError("bad nonce", 400);
+      }
+      if (sess.origin_hash) {
+        if (typeof parsed.o !== "string" || parsed.o !== sess.origin_hash) {
+          throw new TransportError("origin mismatch", 403);
+        }
+      }
+      // Insert nonce; unique-violation ⇒ replay
+      const sb = admin();
+      const nonceHex = "\\x" + Array.from(atob(parsed.n), (c) => c.charCodeAt(0).toString(16).padStart(2, "0")).join("");
+      const { error: nErr } = await sb
+        .from("crypto_nonces")
+        .insert({ session_id: sessionId, nonce: nonceHex });
+      if (nErr) {
+        // 23505 = unique_violation
+        if ((nErr as any).code === "23505") throw new TransportError("replay", 400);
+        // Non-fatal: log & continue (don't fail requests on transient DB errors)
+        console.warn("nonce insert error:", nErr.message);
+      }
+      body = parsed.b ?? null;
+    }
+
+    return { encrypted: true, body, ctx: { sessionId, key: sess.key } };
   }
-  // plaintext JSON path
+  // plaintext path
+  if (!opts.allowPlaintext) {
+    throw new PlaintextRejectedError();
+  }
   let body: any = null;
   try { body = await req.json(); } catch { body = null; }
   return { encrypted: false, body, ctx: null };
 }
 
-// Encrypts a JSON payload into the binary response frame using the session key.
+export function plaintextRejectedResponse(): Response {
+  return new Response(
+    JSON.stringify({ error: "encrypted transport required" }),
+    {
+      status: 426,
+      headers: {
+        ...cryptoCorsHeaders,
+        "Content-Type": "application/json",
+        "Upgrade": "lovable-transport/1",
+      },
+    },
+  );
+}
+
+export function transportErrorResponse(err: unknown): Response {
+  const te = err instanceof TransportError ? err : new TransportError("bad request", 400);
+  return new Response(JSON.stringify({ error: te.message }), {
+    status: te.status,
+    headers: { ...cryptoCorsHeaders, "Content-Type": "application/json" },
+  });
+}
+
 export async function encryptResponse(payload: any, ctx: EncryptedRequestContext, status = 200): Promise<Response> {
   const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES));
   const plain = new TextEncoder().encode(JSON.stringify(payload ?? null));
@@ -126,14 +229,11 @@ export async function encryptResponse(payload: any, ctx: EncryptedRequestContext
   });
 }
 
-// Convenience: wrap a Response (which contains JSON) back into an encrypted frame
-// when the request was encrypted. Otherwise, return it unchanged.
 export async function maybeEncryptResponse(
   res: Response,
   ctx: EncryptedRequestContext | null,
 ): Promise<Response> {
   if (!ctx) return res;
-  // Read the response body; only encrypt JSON payloads.
   const contentType = res.headers.get("content-type") || "";
   if (!contentType.includes("application/json")) return res;
   const text = await res.text();
@@ -144,9 +244,43 @@ export async function maybeEncryptResponse(
 
 // ---------- Handshake (P-256 ECDH -> HKDF-SHA256 -> AES-256) ----------
 // Request : [ver(1)][clientPubRaw(65)]
-// Response: [ver(1)][sessionId(16)][serverPubRaw(65)]
+// Response: [ver(1)][sessionId(16)][serverPubRaw(65)][expiresAtMs(8, big-endian)]
+
+async function rateLimitHandshake(ip: string): Promise<boolean> {
+  const sb = admin();
+  const now = new Date();
+  const bucket = new Date(Math.floor(now.getTime() / 60_000) * 60_000).toISOString();
+  // increment count for this minute
+  const { data: existing } = await sb
+    .from("handshake_rate")
+    .select("count")
+    .eq("ip", ip)
+    .eq("minute_bucket", bucket)
+    .maybeSingle();
+  const nextCount = ((existing as any)?.count ?? 0) + 1;
+  await sb.from("handshake_rate")
+    .upsert({ ip, minute_bucket: bucket, count: nextCount }, { onConflict: "ip,minute_bucket" });
+  if (nextCount > 10) return false;
+  // hourly total
+  const hourAgo = new Date(now.getTime() - 60 * 60_000).toISOString();
+  const { data: rows } = await sb
+    .from("handshake_rate")
+    .select("count")
+    .eq("ip", ip)
+    .gte("minute_bucket", hourAgo);
+  const total = (rows ?? []).reduce((s: number, r: any) => s + (r.count ?? 0), 0);
+  return total <= 100;
+}
 
 export async function handleHandshake(req: Request): Promise<Response> {
+  try { checkSecFetchSite(req); } catch (e) { return transportErrorResponse(e); }
+
+  const ip = getClientIp(req);
+  const ok = await rateLimitHandshake(ip);
+  if (!ok) {
+    return new Response("rate limited", { status: 429, headers: cryptoCorsHeaders });
+  }
+
   const buf = new Uint8Array(await req.arrayBuffer());
   if (buf.length !== 1 + 65 || buf[0] !== VERSION) {
     return new Response("bad handshake", { status: 400, headers: cryptoCorsHeaders });
@@ -161,7 +295,6 @@ export async function handleHandshake(req: Request): Promise<Response> {
   const shared = new Uint8Array(await crypto.subtle.deriveBits(
     { name: "ECDH", public: clientPub }, serverKp.privateKey, 256,
   ));
-  // HKDF-SHA256 to derive 32-byte AES key
   const hkdfKey = await crypto.subtle.importKey("raw", shared, "HKDF", false, ["deriveBits"]);
   const aesRaw = new Uint8Array(await crypto.subtle.deriveBits(
     { name: "HKDF", hash: "SHA-256", salt: new Uint8Array(), info: new TextEncoder().encode("lovable-transport-v1") },
@@ -170,21 +303,29 @@ export async function handleHandshake(req: Request): Promise<Response> {
   ));
   const serverPubRaw = new Uint8Array(await crypto.subtle.exportKey("raw", serverKp.publicKey));
 
+  const origin = req.headers.get("origin") || "";
+  const originHash = origin ? await sha256Hex(origin) : null;
+  const expiresAt = new Date(Date.now() + 15 * 60_000);
+
   const sb = admin();
   const hex = "\\x" + Array.from(aesRaw).map((b) => b.toString(16).padStart(2, "0")).join("");
   const { data, error } = await sb
     .from("crypto_sessions")
-    .insert({ aes_key: hex })
+    .insert({ aes_key: hex, origin_hash: originHash, ip, expires_at: expiresAt.toISOString() })
     .select("id")
     .single();
   if (error || !data) {
     return new Response("session store failed", { status: 500, headers: cryptoCorsHeaders });
   }
   const sidBytes = uuidStringToBytes(data.id);
-  const out = new Uint8Array(1 + 16 + 65);
+  const expMs = BigInt(expiresAt.getTime());
+  const out = new Uint8Array(1 + 16 + 65 + 8);
   out[0] = VERSION;
   out.set(sidBytes, 1);
   out.set(serverPubRaw, 1 + 16);
+  // 8-byte big-endian expiresAt ms
+  const dv = new DataView(out.buffer, out.byteOffset + 1 + 16 + 65, 8);
+  dv.setBigUint64(0, expMs, false);
   return new Response(out, {
     status: 200,
     headers: { ...cryptoCorsHeaders, "Content-Type": CT_BINARY },

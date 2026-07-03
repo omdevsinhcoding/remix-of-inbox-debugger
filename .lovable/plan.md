@@ -12,12 +12,12 @@ Feature flag: `app_settings.security_mode` — currently `"v2_strict"` (set, but
 - ✅ **A.1** `crypto-handshake` returns binary.
 - ✅ **A.2** Client plaintext tolerance removed from `src/lib/secureTransport.ts` (strict — non-binary response → resetSession + throw).
 - ✅ Fixed `supabase/config.toml` `project_id` (was pointing at wrong project → all handshakes 404). Redeployed all functions.
-- ⬜ **A.1** Server-side `v2_strict` enforcement: reject plaintext requests with `426 Upgrade Required`. Today server still accepts plaintext for backward compat.
-- ⬜ **A.3** Wire format v2 — per-request `{ n: nonce16, t: unix_ms, o: origin_hash, b: body }` inside encrypted envelope. Anti-replay (30s window + `crypto_nonces` table + origin binding).
-- ⬜ **A.3** ECDH ephemeral key rotation on 15-min TTL. Currently one session key per tab, no rotation.
-- ⬜ **A.4** `crypto-handshake` rate limit per IP (10/min, 100/hour) via `handshake_rate` table.
-- ⬜ **A.4** Origin binding at handshake (`SHA-256(Origin)` stored, checked per request).
-- ⬜ **A.4** `Sec-Fetch-Site: same-origin` enforcement.
+- ✅ **A.1** Server-side strict enforcement: plaintext requests to `manage-app` return `426 Upgrade Required` (`{"error":"encrypted transport required"}`). `fetch-emails` still allows plaintext ONLY when `x-cron-secret` header is present (cron path). Verified with curl.
+- ✅ **A.3** Wire format v2 — every encrypted request carries `{ __v:2, n:<b64 16-byte nonce>, t:<unix_ms>, o:<sha256(origin)>, b:<body> }`. Server validates ±30s window (`stale request`), unique nonce per session via `crypto_nonces` table (`replay`), and origin_hash match (`origin mismatch`). All 3 failure modes verified end-to-end.
+- ✅ **A.3** ECDH session TTL = 15 min (`crypto_sessions.expires_at`). Handshake response now includes 8-byte big-endian `expiresAt` suffix (90-byte total). Client rotates 60s before expiry via `getSession()`.
+- ✅ **A.4** `handshake_rate(ip, minute_bucket, count)` table + per-IP limits (10/min, 100/hour) enforced in `handleHandshake`; over-limit returns 429. Verified table increments correctly.
+- ✅ **A.4** Origin binding: `sha256(Origin)` stored in `crypto_sessions.origin_hash` at handshake, checked against envelope `o` on every request. Mismatch → 403.
+- ✅ **A.4** `Sec-Fetch-Site` enforcement: browser requests where the header is present must be `same-origin`/`same-site`/`none`; anything else → 403. Non-browser clients (no header) bypass, so cron still works.
 
 ---
 
