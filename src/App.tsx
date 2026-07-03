@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import NetflixHouseholdVerificationGuide from "./pages/NetflixHouseholdVerificationGuide";
 import { Toaster, toast } from "sonner";
+import { premiumToast } from "./components/premium-toast";
 import { supabase } from "./integrations/supabase/client";
 import { AVATAR_CATEGORIES, resolveAvatar, buildAvatarId, prettyName, getAvatarCategoryUrls } from "./lib/avatars";
 import { bootstrapFromSupabase, clearSessionData, markSessionStart, readBootstrapCache, refreshBootstrap, patchBootstrapCacheUser, getEmailFilters, setEmailFilters as setEmailFiltersCache, listNotifications, markNotificationRead, markAllNotificationsRead, markNotificationSeen, deleteNotificationForMe, logNotificationEvent, getPoppedIds, markPopped, adminListRecipients, adminDeleteNotificationForUser, type EmailFilters, type AppNotification, type MaintenanceInfo, type NotificationRecipient } from "./lib/bootstrap";
@@ -263,8 +264,6 @@ const SESSION_CONFIG_KEY_FOR = (role: "admin" | "user") =>
   role === "admin" ? "admin_session_config" : "session_config";
 
 // --- Worker URL Types & Helpers ---
-const WORKER_URLS_KEY = "cloudflare_worker_urls";
-
 type WorkerUrlMap = {
   primary: string[];
   byAccount: Record<string, string[]>;
@@ -280,22 +279,13 @@ function shuffleArray<T>(arr: T[]): T[] {
 }
 
 function getStoredWorkerUrls(): string[] {
-  try {
-    const stored = localStorage.getItem(WORKER_URLS_KEY);
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-    }
-    const cached = readBootstrapCache();
-    if (Array.isArray(cached?.workerUrls) && cached.workerUrls.length > 0) return cached.workerUrls;
-  } catch {}
+  // Refresh/inbox routing must not depend on browser-persistent storage.
+  // Worker URLs are loaded from server settings after login.
   return [];
 }
 
 function storeWorkerUrls(urls: string[]) {
-  try {
-    localStorage.setItem(WORKER_URLS_KEY, JSON.stringify(urls));
-  } catch {}
+  void urls;
 }
 
 function getSessionToken(): string | null {
@@ -689,25 +679,26 @@ function ResponsiveToaster() {
   }, []);
   return (
     <Toaster
-      position={isMobile ? "bottom-center" : "bottom-right"}
+      position={isMobile ? "top-center" : "bottom-right"}
       closeButton
       expand={false}
-      visibleToasts={2}
-      duration={2500}
-      offset={isMobile ? "calc(env(safe-area-inset-bottom) + 5.5rem)" : "5rem"}
+      visibleToasts={1}
+      duration={2800}
+      gap={0}
+      offset={isMobile ? "calc(env(safe-area-inset-top) + 0.75rem)" : "1.25rem"}
       toastOptions={{
-        className: "pointer-events-auto !rounded-xl !border !shadow-lg !backdrop-blur",
-        style: {
-          background: "linear-gradient(135deg, rgba(30,41,59,0.96), rgba(15,23,42,0.96))",
-          color: "#f1f5f9",
-          border: "1px solid rgba(99,102,241,0.35)",
-          boxShadow: "0 10px 30px -10px rgba(79,70,229,0.45)",
-        },
+        unstyled: true,
         classNames: {
-          success: "!bg-gradient-to-br !from-indigo-600 !to-violet-700 !text-white !border-indigo-400/50",
-          error: "!bg-gradient-to-br !from-rose-600 !to-red-700 !text-white !border-rose-400/50",
-          info: "!bg-gradient-to-br !from-sky-600 !to-blue-700 !text-white !border-sky-400/50",
-          warning: "!bg-gradient-to-br !from-amber-500 !to-orange-600 !text-white !border-amber-400/50",
+          toast: "cx-toast group",
+          title: "cx-toast-title",
+          description: "cx-toast-desc",
+          icon: "cx-toast-icon",
+          closeButton: "cx-toast-close",
+          success: "cx-v-success",
+          error: "cx-v-error",
+          info: "cx-v-info",
+          warning: "cx-v-warning",
+          loading: "cx-v-loading",
         },
       }}
     />
@@ -776,7 +767,7 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const checkAuth = () => {
-    // Fast path: reflect localStorage synchronously (used after login/logout).
+    // Fast path: reflect tab session synchronously (used after login/logout).
     setUser(readCached());
     setLoading(false);
   };
@@ -1666,6 +1657,68 @@ interface Email {
 }
 interface UserData {
   id: string; username: string; name: string; role: "admin" | "user"; totpSecret?: string; mustChangePassword?: boolean; assignedAccounts?: string[] | null; profileAvatar?: string | null; profilePrefs?: UserProfilePrefs;
+}
+
+function getUserRefreshAccountLabels(user: Partial<UserData>): string[] | null {
+  if (Array.isArray(user.assignedAccounts)) {
+    return Array.from(new Set(user.assignedAccounts.map(String).map((s) => s.trim()).filter(Boolean)));
+  }
+  return user.role === "admin" ? null : [];
+}
+
+function buildWorkerRequestGroups(labels: string[] | null, map: WorkerUrlMap, primaryUrls: string[]) {
+  const norm = (u: string) => u.trim().replace(/\/+$/, "");
+  const primary = Array.from(new Set([...(map.primary || []), ...primaryUrls].map(norm).filter(Boolean)));
+
+  // Admin / unrestricted: hit exactly one worker (any primary).
+  if (labels === null) {
+    const pool = primary.length > 0 ? primary : Array.from(new Set(Object.values(map.byAccount || {}).flat().map(norm).filter(Boolean)));
+    const url = pool.length > 0 ? pool[0] : "";
+    return url ? [{ url, labels: null as string[] | null }] : [];
+  }
+
+  if (labels.length === 0) return [];
+
+  // Build per-label URL pool (dedicated overrides primary).
+  const pools: { label: string; pool: string[] }[] = labels.map((label) => {
+    const dedicated = Array.from(new Set((map.byAccount?.[label] || []).map(norm).filter(Boolean)));
+    return { label, pool: dedicated.length > 0 ? dedicated : primary };
+  }).filter((x) => x.pool.length > 0);
+
+  if (pools.length === 0) return [];
+
+  // Fast path: if a single URL exists in EVERY label's pool, use one grouped request.
+  const shared = pools.reduce<string[]>((acc, { pool }, i) => {
+    if (i === 0) return [...pool];
+    return acc.filter((u) => pool.includes(u));
+  }, []);
+  if (shared.length > 0) {
+    return [{ url: shared[0], labels: pools.map((p) => p.label) }];
+  }
+
+  // Otherwise: deterministic grouping — each label goes to the first URL in its pool.
+  // Labels that resolve to the same URL are merged into one request; distinct URLs run in parallel.
+  const grouped = new Map<string, string[]>();
+  for (const { label, pool } of pools) {
+    const url = pool[0];
+    grouped.set(url, [...(grouped.get(url) || []), label]);
+  }
+  return Array.from(grouped.entries()).map(([url, groupLabels]) => ({ url, labels: groupLabels }));
+}
+
+function appendAccountLabelParams(params: URLSearchParams, labels: string[] | null) {
+  if (!labels) return;
+  for (const label of labels) params.append("accountLabel", label);
+}
+
+function mergeEmailsById(lists: Email[][]): Email[] {
+  const byId = new Map<string, Email>();
+  for (const list of lists) {
+    for (const email of list) {
+      if (email?.id) byId.set(email.id, email);
+    }
+  }
+  return Array.from(byId.values()).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 }
 
 type UserProfilePrefs = {
@@ -3765,7 +3818,7 @@ function AdminPanel() {
     try {
       await apiCall("manage-app", { action: "set_settings", key: "config", value: serverConfig });
       await apiCall("manage-app", { action: "set_settings", key: "primary_cloudflare_urls", value: primaryCfUrls });
-      // Persist worker URLs to localStorage for bootstrap
+      // No browser-persistent worker URL cache; viewer reloads server settings.
       storeWorkerUrls(primaryCfUrls);
       toast.success("Server configuration saved!");
     } catch (err) {
@@ -3858,7 +3911,7 @@ function AdminPanel() {
         target_user_id: notifAudience === "user" ? notifTargetUser : null,
         expiresInDays: notifExpiresDays ? Number(notifExpiresDays) : null,
       });
-      toast.success("🔔 Notification sent");
+      premiumToast("Notification sent", { variant: "info", description: "Delivered to targeted users", duration: 2400 });
       setNotifTitle(""); setNotifBody(""); setNotifDescription(""); setNotifImageUrl("");
       setNotifActionUrl(""); setNotifActionLabel("");
       setNotifExpiresDays(""); setNotifPlatformIcon(""); setNotifTemplate("");
@@ -3980,7 +4033,7 @@ function AdminPanel() {
   const loginAsUser = async (targetUser: UserData) => {
     try {
       // Snapshot the admin identity BEFORE the network call. The impersonate
-      // response carries a user-role sessionToken; if we read localStorage
+      // response carries a user-role sessionToken; if we read session state
       // after the call, we'd back up the user token as "admin" and later
       // restoration would fail with "Admin access required".
       const adminUser = sessionGet("user" as any);
@@ -6286,9 +6339,12 @@ function UserProfileModal({
 // ==================== EMAIL VIEWER ====================
 function EmailViewer() {
   usePageHead("Email Inbox — Netflix Mail", "Secure viewer for Netflix sign-in codes, OTPs, and household verification emails.", "/viewer");
-  const user = JSON.parse(sessionGet("user" as any) || "{}");
+  const user = useMemo<UserData>(() => {
+    try { return JSON.parse(sessionGet("user" as any) || "{}"); }
+    catch { return {} as UserData; }
+  }, []);
+  const refreshAccountLabels = useMemo(() => getUserRefreshAccountLabels(user), [user]);
   const { checkAuth } = useAuth();
-  const cacheKey = `cached_emails_v2:${user.id || "anon"}`;
   const [profilePrefs, setProfilePrefs] = useState<UserProfilePrefs>(() => user.profilePrefs || {});
   const saveProfilePrefsLocally = useCallback((nextPrefs: UserProfilePrefs) => {
     setProfilePrefs(nextPrefs);
@@ -6299,46 +6355,12 @@ function EmailViewer() {
       sessionSet("user" as any, JSON.stringify(stored));
     } catch {}
   }, []);
-  const readLocalCachedEmails = useCallback((): Email[] => {
-    try {
-      const raw = localStorage.getItem(cacheKey);
-      if (!raw) return [];
-      const parsed = JSON.parse(raw);
-      if (!Array.isArray(parsed)) return [];
-      return filterVisibleEmails(parsed as Email[], profilePrefs)
-        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    } catch {
-      return [];
-    }
-  }, [cacheKey, profilePrefs]);
-  const [emails, setEmailsRaw] = useState<Email[]>(() => {
-    try {
-      const raw = localStorage.getItem(cacheKey);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) return filterVisibleEmails(parsed as Email[], user.profilePrefs || {})
-          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-      }
-    } catch {}
-    return [];
-  });
+  const [emails, setEmailsRaw] = useState<Email[]>([]);
   const setEmails = useCallback((next: Email[]) => {
     const visible = filterVisibleEmails(next, profilePrefs)
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     setEmailsRaw(visible);
-    // Persist up to 200 in localStorage so next visit paints the full inbox instantly.
-    try { localStorage.setItem(cacheKey, JSON.stringify(visible.slice(0, 200))); } catch {}
-  }, [cacheKey, profilePrefs]);
-  const showLocalCacheNow = useCallback(() => {
-    const cached = readLocalCachedEmails();
-    if (cached.length > 0) {
-      cached.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-      setEmailsRaw(cached);
-      setError(null);
-      setLastUpdated(new Date());
-    }
-    return cached.length;
-  }, [readLocalCachedEmails]);
+  }, [profilePrefs]);
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -6468,31 +6490,45 @@ function EmailViewer() {
       const headers: Record<string, string> = {};
       if (token) headers["X-Session-Token"] = token;
 
-      let data: any = null;
-      const workerBase = resolvedWorkerUrls.length > 0 ? shuffleArray(resolvedWorkerUrls)[0] : "";
-      if (!workerBase) throw new Error("Cloudflare worker is not configured");
-      const workerEndpoint = `${workerBase}/api/emails?limit=${encodeURIComponent(String(limit))}${bust ? "&bust=1" : ""}`;
-      const started = performance.now();
-      const res = await fetch(workerEndpoint, { headers });
-      const text = await res.text();
-      pushDiag({
-        ts: Date.now(),
-        kind: "worker",
-        endpoint: workerEndpoint,
-        status: res.status,
-        ms: Math.round(performance.now() - started),
-        cacheStatus: res.headers.get("X-Cache-Status") || undefined,
-        cacheAge: res.headers.get("X-Cache-Age") || undefined,
-        cacheKey: res.headers.get("X-Cache-Key") || undefined,
-        note: bust ? "bust=1" : "kv",
-      });
-      if (!res.ok) throw new Error(text.slice(0, 180) || "Worker failed to load emails");
-      data = text ? JSON.parse(text) : [];
+      const labels = refreshAccountLabels;
+      if (labels && labels.length === 0) {
+        setEmails([]);
+        setError(null);
+        setLastUpdated(new Date());
+        return 0;
+      }
+      const groups = buildWorkerRequestGroups(labels, workerUrlMap, resolvedWorkerUrls);
+      if (groups.length === 0) {
+        throw new Error("Cloudflare worker URL is not configured for this inbox");
+      }
 
-      const emailData = Array.isArray(data) ? data : [];
+      const lists = await Promise.all(groups.map(async (group) => {
+        const params = new URLSearchParams({ limit: String(limit) });
+        if (bust) params.set("bust", "1");
+        appendAccountLabelParams(params, group.labels);
+        const workerEndpoint = `${group.url}/api/emails?${params.toString()}`;
+        const started = performance.now();
+        const res = await fetch(workerEndpoint, { headers });
+        const text = await res.text();
+        pushDiag({
+          ts: Date.now(),
+          kind: "worker",
+          endpoint: workerEndpoint,
+          status: res.status,
+          ms: Math.round(performance.now() - started),
+          cacheStatus: res.headers.get("X-Cache-Status") || undefined,
+          cacheAge: res.headers.get("X-Cache-Age") || undefined,
+          cacheKey: res.headers.get("X-Cache-Key") || undefined,
+          note: `${bust ? "bust=1" : "kv"}${group.labels ? ` · ${group.labels.join(", ")}` : ""}`,
+        });
+        if (!res.ok) {
+          throw new Error(text.slice(0, 180) || "Worker failed to load emails");
+        }
+        const data = text ? JSON.parse(text) : [];
+        return Array.isArray(data) ? data as Email[] : [];
+      }));
 
-      const emailList = emailData as Email[];
-      emailList.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      const emailList = mergeEmailsById(lists);
       setEmails(emailList);
       setError(null);
       setLastUpdated(new Date());
@@ -6503,44 +6539,82 @@ function EmailViewer() {
       setError(msg);
       return 0;
     }
-  }, [profilePrefs, setEmails, pushDiag, resolvedWorkerUrls]);
+  }, [profilePrefs, setEmails, pushDiag, resolvedWorkerUrls, workerUrlMap, refreshAccountLabels]);
 
 
-  const syncViaWorker = useCallback(async () => {
+  const syncViaWorker = useCallback(async (): Promise<Email[] | null> => {
     const token = getSessionToken();
     const headers: Record<string, string> = {};
     if (token) headers["X-Session-Token"] = token;
-    const workerBase = resolvedWorkerUrls.length > 0 ? shuffleArray(resolvedWorkerUrls)[0] : "";
-    if (!workerBase) throw new Error("Cloudflare worker is not configured");
-    const endpoint = `${workerBase}/api/emails/sync`;
-    const started = performance.now();
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: { ...headers, "Content-Type": "application/json" },
-      body: JSON.stringify({ mode: "user_sync", source: "user_refresh", limit: 3 }),
-    });
-    const text = await res.text();
-    pushDiag({ ts: Date.now(), kind: "worker", endpoint, status: res.status, ms: Math.round(performance.now() - started), note: "user_sync" });
-    if (!res.ok) throw new Error(text.slice(0, 180) || "Worker sync failed");
-    const data: any = text ? JSON.parse(text) : null;
-    if (data && data.success === false) throw new Error(data?.error || "Sync failed");
-  }, [pushDiag, resolvedWorkerUrls]);
+    const labels = refreshAccountLabels;
+    if (labels && labels.length === 0) return null;
+    const groups = buildWorkerRequestGroups(labels, workerUrlMap, resolvedWorkerUrls);
+
+    if (groups.length === 0) {
+      throw new Error("Cloudflare worker URL is not configured for this inbox");
+    }
+
+    const collected: Email[][] = [];
+    await Promise.all(groups.map(async (group) => {
+      const endpoint = `${group.url}/api/emails/sync`;
+      const started = performance.now();
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "user_sync", source: "user_refresh", limit: 3, accountLabels: group.labels || undefined }),
+      });
+      const text = await res.text();
+      pushDiag({ ts: Date.now(), kind: "worker", endpoint, status: res.status, ms: Math.round(performance.now() - started), note: `user_sync${group.labels ? ` · ${group.labels.join(", ")}` : ""}` });
+      if (!res.ok) {
+        throw new Error(text.slice(0, 180) || "Worker sync failed");
+      }
+      const data: any = text ? JSON.parse(text) : null;
+      if (data && data.success === false) {
+        throw new Error(data?.error || "Sync failed");
+      }
+      if (data && Array.isArray(data.emails)) collected.push(data.emails as Email[]);
+    }));
+
+    if (collected.length === 0) return [];
+    return mergeEmailsById(collected);
+  }, [pushDiag, resolvedWorkerUrls, workerUrlMap, refreshAccountLabels]);
 
   const fetchEmails = async () => {
     if (refreshingRef.current) return;
     refreshingRef.current = true;
     setRefreshing(true);
-    const before = showLocalCacheNow() || emails.length;
-    const toastId = toast.loading("Checking Netflix mail…");
+    const beforeIds = new Set(emails.map((e) => e.id));
+    const toastId = "nf-refresh";
+    toast.loading("Checking Netflix mail…", { id: toastId });
     try {
-      const baseline = before;
-      await syncViaWorker();
-      const after = await loadCachedEmails({ bust: true, limit: 200 });
-      const newCount = Math.max(0, after - baseline);
-      toast.success(newCount > 0 ? `📬 ${newCount} new email${newCount === 1 ? "" : "s"} arrived` : (after > 0 ? "Inbox is up to date" : "No Netflix emails found yet"), { id: toastId, duration: 2200 });
+      // Fast path: worker sync returns fresh emails directly — no second round-trip.
+      const synced = await syncViaWorker();
+      let merged: Email[] = emails;
+      if (synced && synced.length > 0) {
+        merged = mergeEmailsById([emails, synced]);
+        setEmails(merged);
+        setError(null);
+        setLastUpdated(new Date());
+      }
+      const visible = filterVisibleEmails(merged, profilePrefs);
+      const newCount = visible.filter((e) => !beforeIds.has(e.id)).length;
+      toast.dismiss(toastId);
+      if (newCount > 0) {
+        premiumToast(`${newCount} new email${newCount === 1 ? "" : "s"} arrived`, {
+          variant: "mail",
+          description: "Freshly delivered to your inbox",
+          duration: 2600,
+        });
+      } else {
+        premiumToast(visible.length > 0 ? "Inbox is up to date" : "No Netflix emails yet", {
+          variant: "success",
+          duration: 2000,
+        });
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to load";
-      toast.error(msg, { id: toastId, duration: 4000 });
+      toast.dismiss(toastId);
+      premiumToast("Refresh could not complete", { variant: "error", description: msg, duration: 3200 });
     } finally {
       if (refreshPollRef.current) {
         clearTimeout(refreshPollRef.current);
@@ -6566,7 +6640,6 @@ function EmailViewer() {
     saveProfilePrefsLocally(nextPrefs);
     setEmailsRaw([]);
     setSelectedEmail(null);
-    try { localStorage.setItem(cacheKey, JSON.stringify([])); } catch {}
 
     try {
       await apiCall("manage-app", { action: "update_profile_prefs", profile_prefs: nextPrefs });
@@ -6576,30 +6649,40 @@ function EmailViewer() {
     }
   };
 
-  // Load cached emails immediately on mount — local first, no blocking blank screen.
-  // Session timer starts only AFTER the first inbox load resolves, so users
-  // never lose seconds waiting for emails to appear.
+  // On mount/login: ONE silent auto-refresh via the worker POST sync path.
+  // No browser-persistent email cache, no background polling, no GET /api/emails.
+  const didAutoRefreshRef = useRef(false);
   useEffect(() => {
-    let cancelled = false;
-    // 1) Instant paint from localStorage — user sees full cached inbox immediately.
-    showLocalCacheNow();
     setLoading(false);
+    if (!sessionGet("session_started_at" as any)) markSessionStart();
 
-    // 2) Pull the latest full inbox from worker cache (fast — no IMAP) once worker URLs are known.
-    if (!workerUrlsLoading) {
-      loadCachedEmails({ limit: 200 }).finally(() => {
-        if (cancelled) return;
-        setLoading(false);
-        if (!sessionGet("session_started_at" as any)) markSessionStart();
-      });
-    } else if (!sessionGet("session_started_at" as any)) {
-      markSessionStart();
-    }
-    return () => {
-      cancelled = true;
-    };
+    // Fire ONE silent auto-refresh once worker URLs are known — per component mount/login.
+    if (workerUrlsLoading) return;
+    if (didAutoRefreshRef.current) return;
+    didAutoRefreshRef.current = true;
+
+    (async () => {
+      try {
+        await loadCachedEmails({ limit: 200 });
+        const synced = await syncViaWorker();
+        if (synced && synced.length > 0) {
+          setEmailsRaw((prev) => {
+            const merged = mergeEmailsById([prev, synced]);
+            const visible = filterVisibleEmails(merged, profilePrefs)
+              .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+            return visible;
+          });
+          setError(null);
+          setLastUpdated(new Date());
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err || "");
+        pushDiag({ ts: Date.now(), kind: "sync", endpoint: "login auto-refresh", error: msg });
+        await loadCachedEmails({ limit: 200 });
+      }
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadCachedEmails, workerUrlsLoading]);
+  }, [workerUrlsLoading]);
 
   // F7: listen for iframe self-report messages verifying that the link/button
   // click hijack is actually attached inside the sandboxed email preview.

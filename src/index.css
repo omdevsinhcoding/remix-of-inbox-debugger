@@ -115,3 +115,144 @@
     filter: none !important;
   }
 }
+
+/* =========================================================
+   Universal premium classic toast — one real Sonner card only.
+   No nested custom toast, no profile/avatar bubble, no green.
+   ========================================================= */
+.cx-toast {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: min(92vw, 390px);
+  min-height: 58px;
+  padding: 12px 38px 12px 13px;
+  border-radius: 12px;
+  pointer-events: auto;
+  overflow: hidden;
+  color: #f7ead2;
+  font-family: ui-serif, Georgia, Cambria, "Times New Roman", serif;
+  background: linear-gradient(135deg, #17161b 0%, #222127 52%, #151419 100%);
+  border: 1px solid rgba(214, 179, 112, 0.34);
+  box-shadow:
+    0 18px 44px -22px rgba(0, 0, 0, 0.72),
+    0 0 0 1px rgba(255, 255, 255, 0.04) inset,
+    0 1px 0 rgba(255, 255, 255, 0.06) inset;
+  backdrop-filter: blur(14px);
+}
+.cx-toast::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(232, 205, 152, 0.72), transparent);
+}
+.cx-toast::after {
+  content: "";
+  position: absolute;
+  right: -42px;
+  top: -70px;
+  width: 140px;
+  height: 140px;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(214, 179, 112, 0.22), transparent 64%);
+  pointer-events: none;
+}
+@media (min-width: 1600px) {
+  .cx-toast { width: min(92vw, 420px); }
+}
+
+.cx-toast > [data-content] {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  min-width: 0;
+}
+
+.cx-toast-title {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: 0;
+  color: #f7ead2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cx-toast-desc {
+  margin-top: 3px;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(247, 234, 210, 0.66);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cx-toast-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  z-index: 1;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  color: #e8cf95;
+  background: rgba(214, 179, 112, 0.10);
+  border: 1px solid rgba(214, 179, 112, 0.34);
+}
+.cx-toast-icon svg { width: 15px; height: 15px; }
+.cx-toast-icon [data-lucide="loader-2"],
+.cx-toast-icon [data-lucide="loader-circle"] { animation: cxSpin 900ms linear infinite; }
+@keyframes cxSpin { to { transform: rotate(360deg); } }
+
+.cx-toast-close {
+  position: absolute !important;
+  z-index: 2;
+  top: 8px; right: 8px;
+  width: 22px; height: 22px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 7px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: rgba(247, 234, 210, 0.42);
+  opacity: 0;
+  transition: opacity .15s ease, color .15s ease, background .15s ease;
+}
+.cx-toast:hover .cx-toast-close { opacity: 1; }
+.cx-toast-close:hover {
+  color: #f7ead2;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+/* Variant accents — icon only, no green success. */
+.cx-v-success .cx-toast-icon {
+  color: #e8cf95;
+  background: rgba(214, 179, 112, 0.12);
+  border-color: rgba(214, 179, 112, 0.36);
+}
+.cx-v-error .cx-toast-icon {
+  color: #f0a6a6;
+  background: rgba(185, 28, 28, 0.20);
+  border-color: rgba(248, 113, 113, 0.30);
+}
+.cx-v-warning .cx-toast-icon {
+  color: #f4c777;
+  background: rgba(180, 83, 9, 0.18);
+  border-color: rgba(245, 158, 11, 0.30);
+}
+.cx-v-info .cx-toast-icon {
+  color: #b9c7ff;
+  background: rgba(59, 130, 246, 0.16);
+  border-color: rgba(147, 197, 253, 0.26);
+}
+.cx-v-loading .cx-toast-icon {
+  color: #e8cf95;
+  background: rgba(214, 179, 112, 0.10);
+  border-color: rgba(214, 179, 112, 0.32);
+}
+
