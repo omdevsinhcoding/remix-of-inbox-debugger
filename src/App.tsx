@@ -4192,7 +4192,7 @@ function AdminPanel() {
                       </label>
                     ))}
                   </div>
-                  <p className="text-[10px] text-slate-400 mt-1">Leave empty = access all accounts</p>
+                  <p className="text-[10px] text-slate-400 mt-1">Leave empty = user sees no accounts</p>
                 </div>
 
                 <button onClick={createUser}
