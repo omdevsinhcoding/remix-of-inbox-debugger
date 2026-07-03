@@ -6577,7 +6577,10 @@ function EmailViewer() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to load emails";
       pushDiag({ ts: Date.now(), kind: "cache", endpoint: "loadCachedEmails", error: msg });
-      setError(msg);
+      // Do NOT surface worker-transport errors ("encrypted transport required" etc.)
+      // to the inbox UI — they would replace the cached list with a scary banner.
+      // Cached emails (local + previous sync) stay visible; user can hit Refresh.
+      if (!/encrypted transport|transport required/i.test(msg)) setError(msg);
       return 0;
     }
   }, [profilePrefs, setEmails, pushDiag, resolvedWorkerUrls, workerUrlMap, refreshAccountLabels]);
