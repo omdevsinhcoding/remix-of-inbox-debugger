@@ -561,6 +561,15 @@ function extractOtpCode(subject, body) {
   return line?.[1] || null;
 }
 
+function stripMimeNoiseHtml(html = "") {
+  return String(html)
+    // Remove any leaked boundary delimiter lines
+    .replace(/--[-=_A-Za-z0-9.'+\/]{6,}(?:--)?/g, "")
+    // Remove leaked MIME header lines
+    .replace(/(^|>|\n)\s*(Content-(Type|Transfer-Encoding|Disposition|ID|Description|Language|Location)|MIME-Version)\s*:[^\n<]*/gi, "$1")
+    .replace(/\bcharset=[a-zA-Z0-9-]+/gi, "");
+}
+
 function parseRawEmail(raw, accountLabel, uid) {
   const { headers, body } = parseHeaders(raw);
   const subject = decodeMimeWords(headers.subject || "");
@@ -571,7 +580,8 @@ function parseRawEmail(raw, accountLabel, uid) {
   const signal = `${subject} ${from} ${to} ${bodyText.slice(0, 2000)}`;
   if (!/netflix/i.test(signal)) return null;
   const date = headers.date ? new Date(headers.date) : new Date();
-  const html = content.html && /<\w+/i.test(content.html) ? content.html : `<pre>${escapeHtml(bodyText)}</pre>`;
+  const rawHtml = content.html && /<\w+/i.test(content.html) ? stripMimeNoiseHtml(content.html) : "";
+  const html = rawHtml || `<pre>${escapeHtml(bodyText)}</pre>`;
   return {
     id: `${accountLabel}:${uid}`,
     message_id: headers["message-id"] || null,
