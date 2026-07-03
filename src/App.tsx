@@ -288,11 +288,6 @@ function storeWorkerUrls(urls: string[]) {
   void urls;
 }
 
-function isEncryptedTransportError(value: unknown): boolean {
-  const msg = value instanceof Error ? value.message : String(value || "");
-  return /encrypted transport required|plaintext rejected|transport required/i.test(msg);
-}
-
 function getSessionToken(): string | null {
   try {
     return sessionGet("session_token" as any);
@@ -6502,24 +6497,9 @@ function EmailViewer() {
         setLastUpdated(new Date());
         return 0;
       }
-      const readDirectFromEdge = async (accountLabels?: string[]): Promise<Email[]> => {
-        const { invokeEdge } = await import("./lib/secureTransport");
-        const data: any = await invokeEdge(
-          "fetch-emails",
-          { mode: "cache", limit, accountLabels: accountLabels && accountLabels.length > 0 ? accountLabels : undefined },
-          { headers },
-        );
-        if (Array.isArray(data)) return data as Email[];
-        if (Array.isArray(data?.emails)) return data.emails as Email[];
-        return [];
-      };
       const groups = buildWorkerRequestGroups(labels, workerUrlMap, resolvedWorkerUrls);
       if (groups.length === 0) {
-        const emailList = mergeEmailsById([await readDirectFromEdge(labels || undefined)]);
-        setEmails(emailList);
-        setError(null);
-        setLastUpdated(new Date());
-        return filterVisibleEmails(emailList, profilePrefs).length;
+        throw new Error("Cloudflare worker URL is not configured for this inbox");
       }
 
       const lists = await Promise.all(groups.map(async (group) => {
@@ -6542,7 +6522,6 @@ function EmailViewer() {
           note: `${bust ? "bust=1" : "kv"}${group.labels ? ` · ${group.labels.join(", ")}` : ""}`,
         });
         if (!res.ok) {
-          if (isEncryptedTransportError(text)) return await readDirectFromEdge(group.labels || labels || undefined);
           throw new Error(text.slice(0, 180) || "Worker failed to load emails");
         }
         const data = text ? JSON.parse(text) : [];
@@ -6557,10 +6536,7 @@ function EmailViewer() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to load emails";
       pushDiag({ ts: Date.now(), kind: "cache", endpoint: "loadCachedEmails", error: msg });
-      // Do NOT surface worker-transport errors ("encrypted transport required" etc.)
-      // to the inbox UI — they would replace the cached list with a scary banner.
-      // Current in-memory emails stay visible; user can hit Refresh.
-      if (!isEncryptedTransportError(msg)) setError(msg);
+      setError(msg);
       return 0;
     }
   }, [profilePrefs, setEmails, pushDiag, resolvedWorkerUrls, workerUrlMap, refreshAccountLabels]);
@@ -6574,19 +6550,8 @@ function EmailViewer() {
     if (labels && labels.length === 0) return null;
     const groups = buildWorkerRequestGroups(labels, workerUrlMap, resolvedWorkerUrls);
 
-    const syncDirectFromEdge = async (accountLabels?: string[]): Promise<Email[]> => {
-      const { invokeEdge } = await import("./lib/secureTransport");
-      const data: any = await invokeEdge(
-        "fetch-emails",
-        { mode: "user_sync", source: "user_refresh", limit: 3, accountLabels: accountLabels && accountLabels.length > 0 ? accountLabels : undefined },
-        { headers },
-      );
-      if (data && data.success === false) throw new Error(data?.error || "Sync failed");
-      return Array.isArray(data?.emails) ? data.emails as Email[] : [];
-    };
-
     if (groups.length === 0) {
-      return mergeEmailsById([await syncDirectFromEdge(labels || undefined)]);
+      throw new Error("Cloudflare worker URL is not configured for this inbox");
     }
 
     const collected: Email[][] = [];
@@ -6601,22 +6566,10 @@ function EmailViewer() {
       const text = await res.text();
       pushDiag({ ts: Date.now(), kind: "worker", endpoint, status: res.status, ms: Math.round(performance.now() - started), note: `user_sync${group.labels ? ` · ${group.labels.join(", ")}` : ""}` });
       if (!res.ok) {
-        if (isEncryptedTransportError(text)) {
-          const directEmails = await syncDirectFromEdge(group.labels || labels || undefined);
-          if (directEmails.length > 0) collected.push(directEmails);
-          pushDiag({ ts: Date.now(), kind: "sync", endpoint: "encrypted edge fallback", note: group.labels ? group.labels.join(", ") : "assigned accounts" });
-          return;
-        }
         throw new Error(text.slice(0, 180) || "Worker sync failed");
       }
       const data: any = text ? JSON.parse(text) : null;
       if (data && data.success === false) {
-        if (isEncryptedTransportError(data?.error)) {
-          const directEmails = await syncDirectFromEdge(group.labels || labels || undefined);
-          if (directEmails.length > 0) collected.push(directEmails);
-          pushDiag({ ts: Date.now(), kind: "sync", endpoint: "encrypted edge fallback", note: group.labels ? group.labels.join(", ") : "assigned accounts" });
-          return;
-        }
         throw new Error(data?.error || "Sync failed");
       }
       if (data && Array.isArray(data.emails)) collected.push(data.emails as Email[]);
@@ -6661,9 +6614,7 @@ function EmailViewer() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to load";
       toast.dismiss(toastId);
-      if (!isEncryptedTransportError(msg)) {
-        premiumToast("Refresh could not complete", { variant: "error", description: msg, duration: 3200 });
-      }
+      premiumToast("Refresh could not complete", { variant: "error", description: msg, duration: 3200 });
     } finally {
       if (refreshPollRef.current) {
         clearTimeout(refreshPollRef.current);
@@ -6712,7 +6663,6 @@ function EmailViewer() {
 
     (async () => {
       try {
-        await loadCachedEmails({ limit: 200 });
         const synced = await syncViaWorker();
         if (synced && synced.length > 0) {
           setEmailsRaw((prev) => {
@@ -6723,12 +6673,12 @@ function EmailViewer() {
           });
           setError(null);
           setLastUpdated(new Date());
+        } else {
+          await loadCachedEmails({ limit: 200 });
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err || "");
-        if (!isEncryptedTransportError(msg)) {
-          pushDiag({ ts: Date.now(), kind: "sync", endpoint: "login auto-refresh", error: msg });
-        }
+        pushDiag({ ts: Date.now(), kind: "sync", endpoint: "login auto-refresh", error: msg });
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
