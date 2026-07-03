@@ -286,8 +286,6 @@ async function handleGetEmails(env, session, rawToken, opts = {}) {
   let status = "HIT";
   if (age > STALE_SECONDS) {
     status = "STALE";
-    await kvPut(env, tsKey, now.toString());
-    refreshFromSupabase(env, session, rawToken, cacheKey, tsKey, limit).catch(err => console.error("BG refresh error:", err));
   }
 
   return new Response(cached, {
@@ -324,7 +322,8 @@ async function handleSync(env, session, rawToken, requestBody) {
 
     // Pass through accountLabels from the request body for per-account routing
       const limit = clampLimit(requestBody?.limit, 3, 50);
-      const syncPayload = { mode: requestBody?.mode === "sync" ? "sync" : "sync_async", source: requestBody?.source || "worker", limit };
+      const requestedMode = requestBody?.mode === "sync" ? "sync" : requestBody?.mode === "user_sync" ? "user_sync" : "sync_async";
+      const syncPayload = { mode: requestedMode, source: requestBody?.source || "worker", limit };
     if (requestBody?.accountLabels && Array.isArray(requestBody.accountLabels)) {
       syncPayload.accountLabels = requestBody.accountLabels;
     }

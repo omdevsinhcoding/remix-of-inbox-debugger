@@ -46,7 +46,7 @@ function extractOtpCode(subject: string, body: string): string | null {
 
 const FULL_SYNC_MAX_UIDS = 10;
 const USER_REFRESH_MAX_UIDS = 3;
-const PER_ACCOUNT_TIMEOUT_MS = 8000;
+const PER_ACCOUNT_TIMEOUT_MS = 5000;
 const STALE_DAYS = 60;
 const USER_SYNC_WINDOW_MS = 5_000;
 const userSyncHits = new Map<string, number>();
@@ -203,35 +203,38 @@ async function fetchFromAccount(
     const lock = await client.getMailboxLock("INBOX");
 
     try {
-      const since = new Date();
-      since.setDate(since.getDate() - 7);
-
       let netflixUids: number[] = [];
-      for (const term of ["netflix.com", "netflix"]) {
-        if (netflixUids.length > 0 || !hasBudget()) break;
-        try {
-          const searchResults = await client.search({ from: term, since }, { uid: true });
-          if (searchResults?.length > 0) {
-            netflixUids = searchResults as number[];
-            console.log(`[${accountLabel}] Search "${term}" found ${netflixUids.length}`);
+      const totalMessages = (client.mailbox as any)?.exists || 0;
+
+      // Fast path: newly delivered OTP emails are almost always in the newest inbox rows.
+      // Fetching envelopes for the last few messages is much faster than a server-side IMAP search.
+      if (totalMessages > 0 && hasBudget()) {
+        const startSeq = Math.max(1, totalMessages - 11);
+        for await (const message of client.fetch(`${startSeq}:${totalMessages}`, { envelope: true, uid: true })) {
+          if (!hasBudget()) break;
+          const fromAddr = message.envelope?.from?.[0]?.address?.toLowerCase() || "";
+          const toAddr = message.envelope?.to?.[0]?.address?.toLowerCase() || "";
+          const subject = (message.envelope?.subject || "").toLowerCase();
+          if (fromAddr.includes("netflix") || toAddr.includes("netflix") || subject.includes("netflix")) {
+            netflixUids.push(message.uid);
           }
-        } catch (searchErr) {
-          console.log(`[${accountLabel}] Search "${term}" failed:`, searchErr);
         }
+        if (netflixUids.length > 0) console.log(`[${accountLabel}] Latest inbox scan found ${netflixUids.length}`);
       }
 
       if (netflixUids.length === 0 && hasBudget()) {
-        const totalMessages = (client.mailbox as any)?.exists || 0;
-        if (totalMessages > 0) {
-          const startSeq = Math.max(1, totalMessages - 29);
-          for await (const message of client.fetch(`${startSeq}:${totalMessages}`, { envelope: true, uid: true })) {
-            if (!hasBudget()) break;
-            const fromAddr = message.envelope?.from?.[0]?.address?.toLowerCase() || "";
-            const toAddr = message.envelope?.to?.[0]?.address?.toLowerCase() || "";
-            const subject = (message.envelope?.subject || "").toLowerCase();
-            if (fromAddr.includes("netflix") || toAddr.includes("netflix") || subject.includes("netflix")) {
-              netflixUids.push(message.uid);
+        const since = new Date();
+        since.setDate(since.getDate() - 7);
+        for (const term of ["netflix.com", "netflix"]) {
+          if (netflixUids.length > 0 || !hasBudget()) break;
+          try {
+            const searchResults = await client.search({ from: term, since }, { uid: true });
+            if (searchResults?.length > 0) {
+              netflixUids = searchResults as number[];
+              console.log(`[${accountLabel}] Search "${term}" found ${netflixUids.length}`);
             }
+          } catch (searchErr) {
+            console.log(`[${accountLabel}] Search "${term}" failed:`, searchErr);
           }
         }
       }
@@ -561,15 +564,17 @@ Deno.serve(async (originalReq) => {
         return json({ success: true, accepted: true, emails: [], message: "No accounts assigned" }, mode === "sync_async" ? 202 : 200);
       }
       if (assigned && assigned.length > 0) accountLabels = accountLabels ? accountLabels.filter(l => assigned.includes(l)) : assigned;
-      const last = userSyncHits.get(session.userId) || 0;
-      if (Date.now() - last < USER_SYNC_WINDOW_MS) {
-        const cache = await readCache(supabase, assigned, filterSignInCodes, filterPasswordResets, session, body.limit);
-        return json({ success: true, rateLimited: true, message: "Please wait before refreshing again", emails: cache }, mode === "sync_async" ? 202 : 429);
+      if (mode === "sync_async" && source !== "user_refresh") {
+        const last = userSyncHits.get(session.userId) || 0;
+        if (Date.now() - last < USER_SYNC_WINDOW_MS) {
+          const cache = await readCache(supabase, assigned, filterSignInCodes, filterPasswordResets, session, body.limit);
+          return json({ success: true, rateLimited: true, message: "Please wait before refreshing again", emails: cache }, 202);
+        }
+        userSyncHits.set(session.userId, Date.now());
       }
-      userSyncHits.set(session.userId, Date.now());
     }
 
-    if (mode === "sync_async") {
+    if (mode === "sync_async" && source !== "user_refresh") {
       const accountFilterForCache = session ? await getAssignedAccountFilter(supabase, session) : null;
       const cache = session ? await readCache(supabase, accountFilterForCache, filterSignInCodes, filterPasswordResets, session, body.limit).catch(() => []) : [];
       const maxMessages = clampLimit(body.limit, USER_REFRESH_MAX_UIDS, FULL_SYNC_MAX_UIDS);
