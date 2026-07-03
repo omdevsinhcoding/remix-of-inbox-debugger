@@ -1,9 +1,10 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { authenticator } from "npm:otplib@12.0.1";
+import { readRequest, maybeEncryptResponse, EncryptedRequestContext } from "../_shared/crypto.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-session-token, x-pending-token, x-client-ip",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-session-token, x-pending-token, x-client-ip, x-crypto-session",
 };
 
 // --- Crypto helpers ---
@@ -1306,10 +1307,28 @@ async function loadWorkerUrls(supabase: any): Promise<string[]> {
   return workerUrls;
 }
 
-Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") {
+Deno.serve(async (originalReq) => {
+  if (originalReq.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
+
+  // ---- transport encryption boundary ----
+  let __ctx: EncryptedRequestContext | null = null;
+  let __parsedBody: any = null;
+  try {
+    const __r = await readRequest(originalReq);
+    __parsedBody = __r.body ?? {};
+    __ctx = __r.encrypted ? __r.ctx : null;
+  } catch (_e) {
+    return new Response(JSON.stringify({ success: false, error: "bad request" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
+  const req = new Request(originalReq.url, {
+    method: originalReq.method,
+    headers: originalReq.headers,
+    body: JSON.stringify(__parsedBody ?? {}),
+  });
+
+
 
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
@@ -1387,6 +1406,7 @@ Deno.serve(async (req) => {
     return { pending, token, tokenHash, state };
   }
 
+  const __run = async (): Promise<Response> => {
   try {
     const { action, ...params } = await req.json();
 
@@ -2890,4 +2910,7 @@ Deno.serve(async (req) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
+  };
+  const __res = await __run();
+  return await maybeEncryptResponse(__res, __ctx);
 });

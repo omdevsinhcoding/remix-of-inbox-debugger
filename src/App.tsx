@@ -699,37 +699,17 @@ async function apiCall(functionName: string, body: any) {
     throw new Error("Secure login route is unavailable. Please refresh once and try again.");
   }
 
-  // Fallback: call Supabase edge function directly
+  // Fallback: call Supabase edge function directly via encrypted transport.
+  // Body and response are AES-256-GCM binary; on any crypto failure we fall
+  // back to plaintext JSON so the app keeps working.
   if (shouldUseWorker) console.log(`[apiCall] All workers failed or none configured, falling back to direct Supabase for ${functionName}`);
-  const { createClient } = await import("@supabase/supabase-js");
-  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-  const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-  const headers: Record<string, string> = {};
-  if (token) headers["X-Session-Token"] = token;
-  if (pendingToken && functionName === "manage-app" && pendingActions.has(body?.action)) headers["X-Pending-Token"] = pendingToken;
-  
-  const res = await fetch(`${supabaseUrl}/functions/v1/${functionName}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${supabaseKey}`,
-      "apikey": supabaseKey,
-      ...headers,
-    },
-    body: JSON.stringify(body),
-  });
-  
-  const text = await res.text();
-  let data: any;
-  try {
-    data = JSON.parse(text);
-  } catch {
-    throw new Error(`Direct Supabase call failed (${res.status})`);
-  }
-  if (!res.ok) {
-    throw new Error(data?.error || `Request failed with status ${res.status}`);
-  }
-  if (data.sessionToken) {
+  const extraHeaders: Record<string, string> = {};
+  if (token) extraHeaders["X-Session-Token"] = token;
+  if (pendingToken && functionName === "manage-app" && pendingActions.has(body?.action)) extraHeaders["X-Pending-Token"] = pendingToken;
+
+  const { invokeEdge } = await import("./lib/secureTransport");
+  const data: any = await invokeEdge(functionName, body, { headers: extraHeaders });
+  if (data?.sessionToken) {
     localStorage.setItem("session_token", data.sessionToken);
   }
   return data;
@@ -3804,20 +3784,13 @@ function AdminPanel() {
       // Direct Supabase call on purpose: this secret is needed to configure Cloudflare,
       // so revealing it must not depend on an already-working Worker.
       const token = getSessionToken();
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-      const response = await fetch(`${supabaseUrl}/functions/v1/manage-app`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${supabaseKey}`,
-          "apikey": supabaseKey,
-          ...(token ? { "X-Session-Token": token } : {}),
-        },
-        body: JSON.stringify({ action: "admin_reveal_session_signing_secret" }),
-      });
-      const res: any = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(res?.error || "Could not reveal SESSION_SIGNING_SECRET");
+      const { invokeEdge } = await import("./lib/secureTransport");
+      const res: any = await invokeEdge(
+        "manage-app",
+        { action: "admin_reveal_session_signing_secret" },
+        { headers: token ? { "X-Session-Token": token } : {} },
+      );
+      if (!res?.success) throw new Error(res?.error || "Could not reveal SESSION_SIGNING_SECRET");
       if (!res?.value) throw new Error("Secret value was empty");
       setSigningSecretReveal({ value: res.value, length: Number(res.length) || String(res.value).length });
       toast.success("SESSION_SIGNING_SECRET revealed — copy it to Cloudflare as Secret type.");
@@ -6533,19 +6506,18 @@ function EmailViewer() {
       attempts.push((async () => {
         const started = performance.now();
         const endpoint = `${supabaseUrl}/functions/v1/fetch-emails`;
-        const headers: Record<string, string> = {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${supabaseKey}`,
-          "apikey": supabaseKey,
-        };
+        const headers: Record<string, string> = {};
         if (token) headers["X-Session-Token"] = token;
-        const res = await fetch(endpoint, {
-          method: "POST", headers, body: JSON.stringify({ mode: "cache" }),
-        });
+        const { invokeEdge } = await import("./lib/secureTransport");
+        let data: any;
+        try {
+          data = await invokeEdge("fetch-emails", { mode: "cache" }, { headers });
+        } catch (e: any) {
+          pushDiag({ ts: Date.now(), kind: "supabase", endpoint, status: 0, ms: Math.round(performance.now() - started), note: `enc-fail: ${e?.message || e}` });
+          throw e;
+        }
         const ms = Math.round(performance.now() - started);
-        pushDiag({ ts: Date.now(), kind: "supabase", endpoint, status: res.status, ms, note: bust ? "bust=1 race" : "race" });
-        if (!res.ok) throw new Error(`supabase ${res.status}`);
-        const data = await res.json();
+        pushDiag({ ts: Date.now(), kind: "supabase", endpoint, status: 200, ms, note: bust ? "bust=1 race" : "race" });
         return Array.isArray(data) ? data : [];
       })());
 
@@ -6584,23 +6556,13 @@ function EmailViewer() {
     // Direct Supabase sync fallback
     const syncDirectSupabase = async (accountLabels?: string[]) => {
       const token = getSessionToken();
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${supabaseKey}`,
-        "apikey": supabaseKey,
-      };
+      const headers: Record<string, string> = {};
       if (token) headers["X-Session-Token"] = token;
-        const body: any = { mode: "sync_async", source: "user_refresh" };
+      const body: any = { mode: "sync_async", source: "user_refresh" };
       if (accountLabels) body.accountLabels = accountLabels;
-      const res = await fetch(`${supabaseUrl}/functions/v1/fetch-emails`, {
-        method: "POST", headers, body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data?.error || `Sync failed (${res.status})`);
-      }
+      const { invokeEdge } = await import("./lib/secureTransport");
+      const data: any = await invokeEdge("fetch-emails", body, { headers });
+      if (data && data.success === false) throw new Error(data?.error || "Sync failed");
     };
 
     if (!hasAnyWorker) {
