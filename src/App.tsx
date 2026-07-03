@@ -279,13 +279,18 @@ function shuffleArray<T>(arr: T[]): T[] {
 }
 
 function getStoredWorkerUrls(): string[] {
-  // Refresh/inbox routing must not depend on browser-persistent storage.
-  // Worker URLs are loaded from server settings after login.
-  return [];
+  try {
+    const raw = sessionGet("cloudflare_worker_urls" as any);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.map(String).map((u) => u.trim().replace(/\/+$/, "")).filter(Boolean) : [];
+  } catch { return []; }
 }
 
 function storeWorkerUrls(urls: string[]) {
-  void urls;
+  try {
+    const normalized = Array.from(new Set((urls || []).map(String).map((u) => u.trim().replace(/\/+$/, "")).filter(Boolean)));
+    if (normalized.length) sessionSet("cloudflare_worker_urls" as any, JSON.stringify(normalized));
+  } catch {}
 }
 
 function getSessionToken(): string | null {
@@ -1655,6 +1660,42 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
 // --- Types ---
 interface Email {
   id: string; subject: string; from: string; to?: string; date: string; otp: string | null; preview: string; html: string; account_label?: string | null; cached_at?: string | null;
+}
+
+function escapeEmailHtml(value = "") {
+  return String(value).replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch] || ch));
+}
+
+function stripRawMimeNoise(value = "") {
+  return String(value || "")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|tr|table|h[1-6])>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/^--[-=_A-Za-z0-9.'+\/]+--?\s*$/gm, "")
+    .replace(/^Content-(Type|Transfer-Encoding|Disposition|ID|Description):.*$/gim, "")
+    .replace(/^MIME-Version:.*$/gim, "")
+    .replace(/^charset=.*$/gim, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/\r/g, "")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n[ \t]+/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function emailHtmlForDisplay(email: Email | null) {
+  if (!email) return "";
+  const raw = String(email.html || "");
+  if (/^\s*Content-Type:/im.test(raw) || /^\s*--[-=_A-Za-z0-9.'+\/]+/m.test(raw)) {
+    const cleaned = stripRawMimeNoise(raw) || stripRawMimeNoise(email.preview || "");
+    return `<pre>${escapeEmailHtml(cleaned)}</pre>`;
+  }
+  return raw || `<pre>${escapeEmailHtml(stripRawMimeNoise(email.preview || ""))}</pre>`;
 }
 interface UserData {
   id: string; username: string; name: string; role: "admin" | "user"; totpSecret?: string; mustChangePassword?: boolean; assignedAccounts?: string[] | null; profileAvatar?: string | null; profilePrefs?: UserProfilePrefs;
