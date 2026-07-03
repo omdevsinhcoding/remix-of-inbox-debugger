@@ -2241,9 +2241,11 @@ function AdminLoginPage() {
   const { checkAuth } = useAuth();
 
   useEffect(() => {
+    let cancelled = false;
     (async () => {
       try {
         const bootstrap = await bootstrapFromSupabase({ force: true });
+        if (cancelled) return;
         if (bootstrap.recaptcha?.enabled === true && bootstrap.recaptcha?.siteKey) {
           setSiteKey(bootstrap.recaptcha.siteKey);
         } else {
