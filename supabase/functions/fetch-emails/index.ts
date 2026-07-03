@@ -1,11 +1,10 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { ImapFlow } from "npm:imapflow@1.2.18";
 import { simpleParser } from "npm:mailparser@3.9.6";
-import { readRequest, maybeEncryptResponse, EncryptedRequestContext, PlaintextRejectedError, plaintextRejectedResponse, TransportError, transportErrorResponse } from "../_shared/crypto.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-session-token, x-cron-secret, x-crypto-session",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-session-token, x-cron-secret",
 };
 
 const PASSWORD_RESET_SUBJECTS = [
@@ -45,12 +44,9 @@ function extractOtpCode(subject: string, body: string): string | null {
 }
 
 const FULL_SYNC_MAX_UIDS = 10;
-const USER_REFRESH_MAX_UIDS = 1;
-const PER_ACCOUNT_TIMEOUT_MS = 6500;
-const FAST_REFRESH_TIMEOUT_MS = 1800;
-const FAST_REFRESH_SCAN_COUNT = 4;
+const PER_ACCOUNT_TIMEOUT_MS = 8000;
 const STALE_DAYS = 60;
-const USER_SYNC_WINDOW_MS = 5_000;
+const USER_SYNC_WINDOW_MS = 30_000;
 const userSyncHits = new Map<string, number>();
 
 type Session = { userId: string; username: string; role: "admin" | "user"; assignedAccounts?: string[] | null; exp?: number };
@@ -107,9 +103,7 @@ async function decryptValue(encrypted: string, secret: string): Promise<string> 
 async function getAssignedAccountFilter(supabase: any, session: Session | null): Promise<string[] | null> {
   if (!session || session.role === "admin") return null;
   const { data: userData } = await supabase.from("app_users").select("assigned_accounts").eq("id", session.userId).single();
-  // For non-admin users: return the assigned list (possibly empty).
-  // An empty array means "no accounts ticked" -> show nothing.
-  return Array.isArray(userData?.assigned_accounts) ? userData.assigned_accounts : [];
+  return Array.isArray(userData?.assigned_accounts) && userData.assigned_accounts.length > 0 ? userData.assigned_accounts : null;
 }
 
 function applyEmailFilters(emails: any[], filterSignInCodes: boolean, filterPasswordResets: boolean) {
@@ -138,66 +132,8 @@ async function getEmailVisibility(supabase: any): Promise<{ enabled: boolean; da
   return null;
 }
 
-function clampLimit(value: any, fallback: number, max: number) {
-  const n = Number(value);
-  if (!Number.isFinite(n) || n <= 0) return fallback;
-  return Math.max(1, Math.min(max, Math.floor(n)));
-}
-
-function escapeHtml(input: string) {
-  return input.replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch] || ch));
-}
-
-function decodeQuotedPrintable(input: string) {
-  return input
-    .replace(/=\r?\n/g, "")
-    .replace(/=([0-9A-F]{2})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
-}
-
-function formatAddress(addr: any) {
-  if (!addr) return "";
-  const name = addr.name ? `${addr.name} ` : "";
-  const address = addr.address || "";
-  return `${name}${address}`.trim();
-}
-
-function parseFastEmail(rawSource: Uint8Array, envelope: any, accountLabel: string, uid: number) {
-  const raw = new TextDecoder().decode(rawSource);
-  const splitAt = raw.search(/\r?\n\r?\n/);
-  const rawBody = splitAt >= 0 ? raw.slice(splitAt) : raw;
-  const bodyText = decodeQuotedPrintable(rawBody)
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/[ \t]+/g, " ")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim()
-    .slice(0, 20_000);
-  const subject = (envelope?.subject || "").toString();
-  const from = (envelope?.from || []).map(formatAddress).filter(Boolean).join(", ") || "Netflix";
-  const to = (envelope?.to || []).map(formatAddress).filter(Boolean).join(", ") || undefined;
-  const netflixSignal = `${subject} ${from} ${to || ""} ${bodyText.slice(0, 2000)}`;
-  if (!/netflix/i.test(netflixSignal)) return null;
-  const preview = bodyText.length > 100 ? `${bodyText.substring(0, 100)}...` : bodyText;
-  return {
-    id: `${accountLabel}:${uid}`,
-    message_id: envelope?.messageId || null,
-    subject,
-    from,
-    to,
-    date: envelope?.date || new Date(),
-    otp: extractOtpCode(subject, bodyText),
-    preview,
-    html: `<pre>${escapeHtml(bodyText)}</pre>`,
-    account_label: accountLabel,
-  };
-}
-
-async function readCache(supabase: any, accountFilter: string[] | null, filterSignInCodes: boolean, filterPasswordResets: boolean, session: Session | null, limit = 500) {
-  const safeLimit = clampLimit(limit, 500, session?.role === "admin" ? 500 : 200);
-  // Non-admin with zero assigned accounts -> nothing visible.
-  if (accountFilter && accountFilter.length === 0 && session && session.role !== "admin") return [];
-  let query = supabase.from("cached_emails").select("*").order("date", { ascending: false }).limit(safeLimit);
+async function readCache(supabase: any, accountFilter: string[] | null, filterSignInCodes: boolean, filterPasswordResets: boolean, session: Session | null) {
+  let query = supabase.from("cached_emails").select("*").order("date", { ascending: false }).limit(500);
   if (accountFilter && accountFilter.length > 0) query = query.in("account_label", accountFilter);
   if (session && session.role !== "admin") {
     const vis = await getEmailVisibility(supabase);
@@ -219,7 +155,6 @@ async function readCache(supabase: any, accountFilter: string[] | null, filterSi
     preview: e.preview,
     html: e.html,
     account_label: e.account_label,
-    cached_at: e.cached_at,
   }));
   return applyEmailFilters(emails, filterSignInCodes, filterPasswordResets);
 }
@@ -230,15 +165,12 @@ async function fetchFromAccount(
   imapUser: string,
   imapPassword: string,
   accountLabel: string,
-  maxMessages = FULL_SYNC_MAX_UIDS,
-  quickRefresh = false,
 ): Promise<{ emails: any[]; fetched: number; skipped: number }> {
   const emails: any[] = [];
   let timedOut = false;
   const startedAt = Date.now();
-  const budgetMs = quickRefresh ? FAST_REFRESH_TIMEOUT_MS : PER_ACCOUNT_TIMEOUT_MS;
-  const timer = setTimeout(() => { timedOut = true; }, budgetMs);
-  const hasBudget = () => !timedOut && Date.now() - startedAt < budgetMs;
+  const timer = setTimeout(() => { timedOut = true; }, PER_ACCOUNT_TIMEOUT_MS);
+  const hasBudget = () => !timedOut && Date.now() - startedAt < PER_ACCOUNT_TIMEOUT_MS;
 
   const client = new ImapFlow({
     host: imapHost,
@@ -246,8 +178,8 @@ async function fetchFromAccount(
     secure: true,
     auth: { user: imapUser, pass: imapPassword },
     logger: false,
-    socketTimeout: quickRefresh ? 1800 : 7000,
-    greetingTimeout: quickRefresh ? 1200 : 3000,
+    socketTimeout: 7000,
+    greetingTimeout: 3000,
   });
 
   try {
@@ -256,49 +188,41 @@ async function fetchFromAccount(
     const lock = await client.getMailboxLock("INBOX");
 
     try {
+      const since = new Date();
+      since.setDate(since.getDate() - 7);
+
       let netflixUids: number[] = [];
-      let newestUids: number[] = [];
-      const totalMessages = (client.mailbox as any)?.exists || 0;
-
-      // Fast path: newly delivered OTP emails are almost always in the newest inbox rows.
-      // Fetching envelopes for the last few messages is much faster than a server-side IMAP search.
-      if (totalMessages > 0 && hasBudget()) {
-        const scanCount = quickRefresh ? FAST_REFRESH_SCAN_COUNT : 12;
-        const startSeq = Math.max(1, totalMessages - (scanCount - 1));
-        for await (const message of client.fetch(`${startSeq}:${totalMessages}`, { envelope: true, uid: true })) {
-          if (!hasBudget()) break;
-          newestUids.push(message.uid);
-          const fromAddr = message.envelope?.from?.[0]?.address?.toLowerCase() || "";
-          const toAddr = message.envelope?.to?.[0]?.address?.toLowerCase() || "";
-          const subject = (message.envelope?.subject || "").toLowerCase();
-          if (fromAddr.includes("netflix") || toAddr.includes("netflix") || subject.includes("netflix")) {
-            netflixUids.push(message.uid);
+      for (const term of ["netflix.com", "netflix"]) {
+        if (netflixUids.length > 0 || !hasBudget()) break;
+        try {
+          const searchResults = await client.search({ from: term, since }, { uid: true });
+          if (searchResults?.length > 0) {
+            netflixUids = searchResults as number[];
+            console.log(`[${accountLabel}] Search "${term}" found ${netflixUids.length}`);
           }
+        } catch (searchErr) {
+          console.log(`[${accountLabel}] Search "${term}" failed:`, searchErr);
         }
-        if (netflixUids.length > 0) console.log(`[${accountLabel}] Latest inbox scan found ${netflixUids.length}`);
       }
 
-      if (!quickRefresh && netflixUids.length === 0 && hasBudget()) {
-        const since = new Date();
-        since.setDate(since.getDate() - 7);
-        for (const term of ["netflix.com", "netflix"]) {
-          if (netflixUids.length > 0 || !hasBudget()) break;
-          try {
-            const searchResults = await client.search({ from: term, since }, { uid: true });
-            if (searchResults?.length > 0) {
-              netflixUids = searchResults as number[];
-              console.log(`[${accountLabel}] Search "${term}" found ${netflixUids.length}`);
+      if (netflixUids.length === 0 && hasBudget()) {
+        const totalMessages = (client.mailbox as any)?.exists || 0;
+        if (totalMessages > 0) {
+          const startSeq = Math.max(1, totalMessages - 29);
+          for await (const message of client.fetch(`${startSeq}:${totalMessages}`, { envelope: true, uid: true })) {
+            if (!hasBudget()) break;
+            const fromAddr = message.envelope?.from?.[0]?.address?.toLowerCase() || "";
+            const toAddr = message.envelope?.to?.[0]?.address?.toLowerCase() || "";
+            const subject = (message.envelope?.subject || "").toLowerCase();
+            if (fromAddr.includes("netflix") || toAddr.includes("netflix") || subject.includes("netflix")) {
+              netflixUids.push(message.uid);
             }
-          } catch (searchErr) {
-            console.log(`[${accountLabel}] Search "${term}" failed:`, searchErr);
           }
         }
       }
 
-      netflixUids = Array.from(new Set(netflixUids)).sort((a, b) => b - a);
-      newestUids = Array.from(new Set(newestUids)).sort((a, b) => b - a);
-      const candidates = netflixUids.length > 0 ? netflixUids : (quickRefresh ? newestUids.slice(0, 1) : []);
-      const uidsToFetch = candidates.slice(0, quickRefresh ? USER_REFRESH_MAX_UIDS : clampLimit(maxMessages, USER_REFRESH_MAX_UIDS, FULL_SYNC_MAX_UIDS));
+      netflixUids.sort((a, b) => b - a);
+      const uidsToFetch = netflixUids.slice(0, FULL_SYNC_MAX_UIDS);
       console.log(`[${accountLabel}] Fetching ${uidsToFetch.length} recent candidate UIDs`);
 
       for (const uid of uidsToFetch) {
@@ -310,12 +234,6 @@ async function fetchFromAccount(
         try {
           const fullMsg = await client.fetchOne(uid, { source: true, envelope: true }, { uid: true });
           if (!fullMsg?.source) continue;
-
-          if (quickRefresh) {
-            const fastEmail = parseFastEmail(fullMsg.source as Uint8Array, fullMsg.envelope, accountLabel, uid);
-            if (fastEmail) emails.push(fastEmail);
-            continue;
-          }
 
           const parsed = await simpleParser(fullMsg.source, { skipImageLinks: true, skipTextLinks: true });
           const bodyText = (parsed.text || "").trim();
@@ -346,12 +264,7 @@ async function fetchFromAccount(
     }
   } finally {
     clearTimeout(timer);
-    if (quickRefresh) {
-      try { (client as any).close?.(); } catch {}
-      try { client.logout().catch(() => {}); } catch {}
-    } else {
-      try { await client.logout(); } catch {}
-    }
+    try { await client.logout(); } catch {}
   }
 
   return { emails, fetched: emails.length, skipped: 0 };
@@ -359,58 +272,47 @@ async function fetchFromAccount(
 
 async function loadAccounts(supabase: any, secret: string, accountLabels: string[] | null): Promise<Account[]> {
   let accounts: Account[] = [];
-  const requested = accountLabels && accountLabels.length > 0
-    ? new Set(accountLabels.map((label) => String(label).trim()).filter(Boolean))
-    : null;
-  const onlyPrimaryRequested = !!requested && requested.size === 1 && requested.has("Primary");
 
-  if (!onlyPrimaryRequested) {
-    try {
-      const { data: accountsData } = await supabase.from("app_settings").select("value").eq("key", "email_accounts").single();
-      if (Array.isArray(accountsData?.value)) {
-        const accountRows = requested
-          ? accountsData.value.filter((acc: any) => requested.has(String(acc.label || acc.user || "").trim()))
-          : accountsData.value;
-        const decrypted = await Promise.all(accountRows.map(async (acc: any) => {
-          if (!acc.user || !acc.password) return null;
-          return {
-            label: acc.label || acc.user,
-            host: acc.host || "imap.gmail.com",
-            port: parseInt(acc.port) || 993,
-            user: acc.user,
-            password: await decryptValue(acc.password, secret),
-          } as Account;
-        }));
-        accounts.push(...decrypted.filter(Boolean) as Account[]);
-      }
-    } catch (err) {
-      console.error("[sync] Failed to load email_accounts:", err);
+  try {
+    const { data: accountsData } = await supabase.from("app_settings").select("value").eq("key", "email_accounts").single();
+    if (Array.isArray(accountsData?.value)) {
+      const decrypted = await Promise.all(accountsData.value.map(async (acc: any) => {
+        if (!acc.user || !acc.password) return null;
+        return {
+          label: acc.label || acc.user,
+          host: acc.host || "imap.gmail.com",
+          port: parseInt(acc.port) || 993,
+          user: acc.user,
+          password: await decryptValue(acc.password, secret),
+        } as Account;
+      }));
+      accounts.push(...decrypted.filter(Boolean) as Account[]);
     }
+  } catch (err) {
+    console.error("[sync] Failed to load email_accounts:", err);
   }
 
-  if (!requested || requested.has("Primary")) {
-    let primaryHost = "", primaryPort = 993, primaryUser = "", primaryPassword = "";
-    try {
-      const { data } = await supabase.from("app_settings").select("value").eq("key", "config").single();
-      const config = data?.value as any;
-      if (config) {
-        primaryHost = config.IMAP_HOST || "";
-        primaryPort = parseInt(config.IMAP_PORT) || 993;
-        primaryUser = config.IMAP_USER || "";
-        primaryPassword = config.IMAP_PASSWORD || "";
-        if (primaryPassword?.startsWith?.("enc:")) primaryPassword = await decryptValue(primaryPassword, secret);
-      }
-    } catch {}
-
-    if (!primaryHost) primaryHost = Deno.env.get("IMAP_HOST") || "imap.gmail.com";
-    if (!primaryUser) primaryUser = Deno.env.get("IMAP_USER") || "";
-    if (!primaryPassword) primaryPassword = Deno.env.get("IMAP_PASSWORD") || "";
-    const envPort = Deno.env.get("IMAP_PORT");
-    if (primaryPort === 993 && envPort) primaryPort = parseInt(envPort) || 993;
-
-    if (primaryUser && primaryPassword && !accounts.some(a => a.user === primaryUser)) {
-      accounts.unshift({ label: "Primary", host: primaryHost, port: primaryPort, user: primaryUser, password: primaryPassword });
+  let primaryHost = "", primaryPort = 993, primaryUser = "", primaryPassword = "";
+  try {
+    const { data } = await supabase.from("app_settings").select("value").eq("key", "config").single();
+    const config = data?.value as any;
+    if (config) {
+      primaryHost = config.IMAP_HOST || "";
+      primaryPort = parseInt(config.IMAP_PORT) || 993;
+      primaryUser = config.IMAP_USER || "";
+      primaryPassword = config.IMAP_PASSWORD || "";
+      if (primaryPassword?.startsWith?.("enc:")) primaryPassword = await decryptValue(primaryPassword, secret);
     }
+  } catch {}
+
+  if (!primaryHost) primaryHost = Deno.env.get("IMAP_HOST") || "imap.gmail.com";
+  if (!primaryUser) primaryUser = Deno.env.get("IMAP_USER") || "";
+  if (!primaryPassword) primaryPassword = Deno.env.get("IMAP_PASSWORD") || "";
+  const envPort = Deno.env.get("IMAP_PORT");
+  if (primaryPort === 993 && envPort) primaryPort = parseInt(envPort) || 993;
+
+  if (primaryUser && primaryPassword && !accounts.some(a => a.user === primaryUser)) {
+    accounts.unshift({ label: "Primary", host: primaryHost, port: primaryPort, user: primaryUser, password: primaryPassword });
   }
 
   if (accountLabels && accountLabels.length > 0) {
@@ -420,26 +322,23 @@ async function loadAccounts(supabase: any, secret: string, accountLabels: string
   return accounts;
 }
 
-async function runSync(supabase: any, secret: string, source: string, accountLabels: string[] | null, maxMessages = FULL_SYNC_MAX_UIDS) {
+async function runSync(supabase: any, secret: string, source: string, accountLabels: string[] | null) {
   console.log(`[sync] Starting parallel IMAP sync (source: ${source})`);
-  const quickRefresh = source === "user_refresh";
   const accounts = await loadAccounts(supabase, secret, accountLabels);
 
   if (accounts.length === 0) {
     return { success: false, error: "Inbox not configured. Add IMAP email in Admin Panel.", stats: {}, totalFetched: 0, inserted: 0 };
   }
 
-  if (!quickRefresh) {
-    try {
-      await supabase.from("cached_emails").update({ account_label: "Primary" }).is("account_label", null);
-    } catch (e) {
-      console.error("[sync] Legacy label backfill skipped:", e);
-    }
+  try {
+    await supabase.from("cached_emails").update({ account_label: "Primary" }).is("account_label", null);
+  } catch (e) {
+    console.error("[sync] Legacy label backfill skipped:", e);
   }
 
   const settled = await Promise.allSettled(accounts.map(async (acc) => {
     console.log(`[sync] Fetching ${acc.label} (${acc.user})`);
-    const result = await fetchFromAccount(acc.host, acc.port, acc.user, acc.password, acc.label, maxMessages, quickRefresh);
+    const result = await fetchFromAccount(acc.host, acc.port, acc.user, acc.password, acc.label);
     return { acc, result };
   }));
 
@@ -485,26 +384,18 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
       message_id: e.message_id || null,
     }));
 
-    const persistWork = supabase.from("cached_emails").upsert(rows, { onConflict: "id" })
-      .then(({ error: upsertErr }: any) => {
-        if (upsertErr) console.error("[sync] Cache upsert error:", upsertErr);
-      });
-    if (quickRefresh) {
-      inserted = rows.length;
-      ((globalThis as any).EdgeRuntime?.waitUntil?.(persistWork) ?? persistWork.catch((err: any) => console.error("[sync] Background upsert error:", err)));
-    } else {
-      await persistWork;
-      inserted = rows.length;
-    }
+    const { error: upsertErr } = await supabase.from("cached_emails").upsert(rows, { onConflict: "id" });
+    if (upsertErr) console.error("[sync] Cache upsert error:", upsertErr);
+    else inserted = rows.length;
   }
 
-  const cleanupWork = (async () => {
+  try {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - STALE_DAYS);
     await supabase.from("cached_emails").delete().lt("date", cutoff.toISOString());
-  })().catch((e) => console.error("[sync] Stale cleanup error:", e));
-  if (quickRefresh) ((globalThis as any).EdgeRuntime?.waitUntil?.(cleanupWork) ?? cleanupWork);
-  else await cleanupWork;
+  } catch (e) {
+    console.error("[sync] Stale cleanup error:", e);
+  }
 
   const response: any = {
     success: true,
@@ -519,39 +410,9 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
   return response;
 }
 
-Deno.serve(async (originalReq) => {
-  if (originalReq.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
-  // ---- transport encryption boundary ----
-  // Server-to-server callers may POST plaintext JSON. Browser callers include
-  // Sec-Fetch-Site and must still use encrypted transport.
-  const CRON_SHARED_SECRET_FOR_TRANSPORT = Deno.env.get("CRON_SHARED_SECRET") || "";
-  const SERVICE_ROLE_FOR_TRANSPORT = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
-  const cronHeaderForTransport = originalReq.headers.get("x-cron-secret") || "";
-  const authHeaderForTransport = originalReq.headers.get("authorization") || "";
-  const sessionTokenForTransport = originalReq.headers.get("x-session-token") || "";
-  const secFetchSiteForTransport = originalReq.headers.get("sec-fetch-site") || "";
-  const hasValidCronSecret = !!CRON_SHARED_SECRET_FOR_TRANSPORT && cronHeaderForTransport === CRON_SHARED_SECRET_FOR_TRANSPORT;
-  const hasServiceRoleBearer = !!SERVICE_ROLE_FOR_TRANSPORT && authHeaderForTransport === `Bearer ${SERVICE_ROLE_FOR_TRANSPORT}`;
-  const serverLikeSessionProxy = !!sessionTokenForTransport && !secFetchSiteForTransport;
-  const allowServerPlaintext = hasValidCronSecret || hasServiceRoleBearer || serverLikeSessionProxy;
-  let ctx: EncryptedRequestContext | null = null;
-  let parsedBody: any = null;
-  try {
-    const r = await readRequest(originalReq, { allowPlaintext: allowServerPlaintext });
-    parsedBody = r.body ?? {};
-    ctx = r.encrypted ? r.ctx : null;
-  } catch (e) {
-    if (e instanceof PlaintextRejectedError) return plaintextRejectedResponse();
-    if (e instanceof TransportError) return transportErrorResponse(e);
-    return new Response(JSON.stringify({ success: false, error: "bad request" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-  }
-  const req = new Request(originalReq.url, {
-    method: originalReq.method,
-    headers: originalReq.headers,
-    body: JSON.stringify(parsedBody ?? {}),
-  });
-  const __run = async () => {
   try {
     const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
     // F5: dedicated signing key with legacy fallback (see manage-app).
@@ -623,16 +484,13 @@ Deno.serve(async (originalReq) => {
     if (mode === "cache") {
       if (!session) return json({ success: false, error: "Authentication required" }, 401);
       const accountFilter = await getAssignedAccountFilter(supabase, session);
-      const emails = await readCache(supabase, accountFilter, filterSignInCodes, filterPasswordResets, session, body.limit);
+      const emails = await readCache(supabase, accountFilter, filterSignInCodes, filterPasswordResets, session);
       return json(emails);
     }
 
     if (mode === "unfiltered_count") {
       if (!session) return json({ success: false, error: "Authentication required" }, 401);
       const accountFilter = await getAssignedAccountFilter(supabase, session);
-      if (session.role !== "admin" && accountFilter && accountFilter.length === 0) {
-        return json({ total: 0, error: null });
-      }
       let query = supabase.from("cached_emails").select("id", { count: "exact", head: true });
       if (accountFilter && accountFilter.length > 0) query = query.in("account_label", accountFilter);
       if (session.role !== "admin") {
@@ -658,32 +516,24 @@ Deno.serve(async (originalReq) => {
 
     if (session && session.role !== "admin") {
       const assigned = await getAssignedAccountFilter(supabase, session);
-      // Non-admin user: restrict sync scope to their assigned accounts.
-      // Empty assignment -> nothing to sync/display.
-      if (assigned && assigned.length === 0) {
-        return json({ success: true, accepted: true, emails: [], message: "No accounts assigned" }, mode === "sync_async" ? 202 : 200);
-      }
       if (assigned && assigned.length > 0) accountLabels = accountLabels ? accountLabels.filter(l => assigned.includes(l)) : assigned;
-      if (mode === "sync_async" && source !== "user_refresh") {
-        const last = userSyncHits.get(session.userId) || 0;
-        if (Date.now() - last < USER_SYNC_WINDOW_MS) {
-          const cache = await readCache(supabase, assigned, filterSignInCodes, filterPasswordResets, session, body.limit);
-          return json({ success: true, rateLimited: true, message: "Please wait before refreshing again", emails: cache }, 202);
-        }
-        userSyncHits.set(session.userId, Date.now());
+      const last = userSyncHits.get(session.userId) || 0;
+      if (Date.now() - last < USER_SYNC_WINDOW_MS) {
+        const cache = await readCache(supabase, assigned, filterSignInCodes, filterPasswordResets, session);
+        return json({ success: true, rateLimited: true, message: "Please wait before refreshing again", emails: cache }, mode === "sync_async" ? 202 : 429);
       }
+      userSyncHits.set(session.userId, Date.now());
     }
 
-    if (mode === "sync_async" && source !== "user_refresh") {
+    if (mode === "sync_async") {
       const accountFilterForCache = session ? await getAssignedAccountFilter(supabase, session) : null;
-      const cache = session ? await readCache(supabase, accountFilterForCache, filterSignInCodes, filterPasswordResets, session, body.limit).catch(() => []) : [];
-      const maxMessages = clampLimit(body.limit, USER_REFRESH_MAX_UIDS, FULL_SYNC_MAX_UIDS);
-      const work = runSync(supabase, ENCRYPTION_SECRET, source || "async", accountLabels, maxMessages).catch(err => console.error("[sync_async] background failed:", err));
+      const cache = session ? await readCache(supabase, accountFilterForCache, filterSignInCodes, filterPasswordResets, session).catch(() => []) : [];
+      const work = runSync(supabase, ENCRYPTION_SECRET, source || "async", accountLabels).catch(err => console.error("[sync_async] background failed:", err));
       ((globalThis as any).EdgeRuntime?.waitUntil?.(work) ?? work);
       return json({ success: true, accepted: true, emails: cache }, 202);
     }
 
-    const result = await runSync(supabase, ENCRYPTION_SECRET, source, accountLabels, clampLimit(body.limit, FULL_SYNC_MAX_UIDS, FULL_SYNC_MAX_UIDS));
+    const result = await runSync(supabase, ENCRYPTION_SECRET, source, accountLabels);
     return json(result, result.success === false ? 502 : 200);
   } catch (err) {
     console.error("[sync] Fatal error:", err);
@@ -696,8 +546,4 @@ Deno.serve(async (originalReq) => {
         : `Failed to fetch emails: ${errorMessage}`,
     }, isImapAuthError ? 401 : 500);
   }
-  };
-  const res = await __run();
-  return await maybeEncryptResponse(res, ctx);
 });
-

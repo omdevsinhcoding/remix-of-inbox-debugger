@@ -1,12 +1,10 @@
-import { connect } from "cloudflare:sockets";
-
 /**
  * Cloudflare Worker — Email Cache Proxy
  * 
  * Features:
  * - Validates session tokens (HMAC-SHA256)
  * - Multi-KV namespace support (EMAIL_CACHE_V2 -> EMAIL_CACHE fallback)
-  * - Direct Cloudflare → Gmail IMAP sync support
+ * - Cron/scheduled sync support
  * - Proper error logging for KV failures
  * 
  * Environment Variables:
@@ -19,17 +17,16 @@ import { connect } from "cloudflare:sockets";
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Session-Token, X-Pending-Token, X-Cron-Secret, X-Worker-Config-Secret, Cache-Control",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Session-Token, X-Pending-Token, X-Cron-Secret",
 };
 
 // F7: Bump CACHE_SCHEMA_VERSION whenever the shape of cached email JSON
 // changes, or to force every worker/user to drop old snapshots on the next
 // read. Version is baked into every KV key so old entries become unreachable
 // (and expire naturally) without needing a manual purge.
-const CACHE_SCHEMA_VERSION = "v3";
+const CACHE_SCHEMA_VERSION = "v2";
 const CACHE_KEY = `emails_list:${CACHE_SCHEMA_VERSION}`;
 const CACHE_TIMESTAMP_KEY = `emails_timestamp:${CACHE_SCHEMA_VERSION}`;
-const WORKER_CONFIG_KEY = "inbox_worker_config:v1";
 const STALE_SECONDS = 3;
 
 // --- KV helpers: use V2 if available, fallback to V1 ---
@@ -119,7 +116,7 @@ function mergeEmailPayloads(existingRaw, incomingRaw) {
 
 // --- Main handler ---
 export default {
-  async fetch(request, env, ctx) {
+  async fetch(request, env) {
     if (request.method === "OPTIONS") {
       return new Response(null, { headers: CORS_HEADERS });
     }
@@ -134,31 +131,6 @@ export default {
     const signingPrimary = env.SESSION_SIGNING_SECRET || env.SESSION_SECRET;
     const signingLegacy = env.SESSION_SECRET;
     const hasSigning = !!signingPrimary;
-
-    if (url.pathname === "/api/config/update" && request.method === "POST") {
-      const provided = request.headers.get("X-Worker-Config-Secret") || request.headers.get("x-worker-config-secret") || "";
-      if (!signingPrimary || provided !== signingPrimary) {
-        return new Response(JSON.stringify({ success: false, error: "Forbidden" }), {
-          status: 403, headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-        });
-      }
-      if (!getKV(env)) {
-        return new Response(JSON.stringify({ success: false, error: "KV is not configured" }), {
-          status: 500, headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-        });
-      }
-      let body = null;
-      try { body = await request.json(); } catch {}
-      if (!body || typeof body !== "object") {
-        return new Response(JSON.stringify({ success: false, error: "Invalid config" }), {
-          status: 400, headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-        });
-      }
-      await kvPut(env, WORKER_CONFIG_KEY, JSON.stringify({ ...body, savedAt: Date.now() }));
-      return new Response(JSON.stringify({ success: true }), {
-        headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-      });
-    }
 
     if (sessionToken && signingPrimary) {
       session = await verifySessionToken(sessionToken, signingPrimary);
@@ -178,15 +150,13 @@ export default {
 
     if (url.pathname === "/api/emails" && request.method === "GET") {
       const bust = url.searchParams.get("bust") === "1" || url.searchParams.get("bust") === "true";
-      const limit = clampLimit(url.searchParams.get("limit"), 3, 200);
-      const accountLabels = url.searchParams.getAll("accountLabel").map(v => v.trim()).filter(Boolean);
-      return handleGetEmails(env, session, sessionToken, { bust, limit, accountLabels });
+      return handleGetEmails(env, session, sessionToken, { bust });
     }
 
     if (url.pathname === "/api/emails/sync" && request.method === "POST") {
       let reqBody = {};
       try { reqBody = await request.clone().json(); } catch {}
-      return handleSync(env, session, sessionToken, reqBody, ctx);
+      return handleSync(env, session, sessionToken, reqBody);
     }
 
     if (url.pathname === "/api/cache/purge" && request.method === "POST") {
@@ -220,9 +190,36 @@ export default {
 
   // Cron/scheduled handler — triggers an IMAP sync automatically
   async scheduled(event, env, ctx) {
-    // Background polling is intentionally disabled. User refreshes hit Gmail
-    // directly from Cloudflare and update KV only for that scoped inbox.
-    console.log("[cron] disabled — no background Supabase/Gmail fetch");
+    console.log("[cron] Scheduled sync triggered at", new Date().toISOString());
+    try {
+      const headers = {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${env.SUPABASE_KEY}`,
+        "apikey": env.SUPABASE_KEY,
+      };
+      if (env.CRON_SHARED_SECRET) headers["X-Cron-Secret"] = env.CRON_SHARED_SECRET;
+
+      const res = await fetch(`${env.SUPABASE_URL}/functions/v1/fetch-emails`, {
+        method: "POST", headers, body: JSON.stringify({ mode: "sync" }),
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        console.error("[cron] Sync failed:", res.status, text);
+        return;
+      }
+
+      const data = await res.text();
+      console.log("[cron] Sync completed, updating cache");
+
+      // Update cache for "all" users
+      const cacheKey = `${CACHE_KEY}:all`;
+      const tsKey = `${CACHE_TIMESTAMP_KEY}:all`;
+
+      // Cache reads are session-protected now; users refresh their own scoped cache on next open.
+    } catch (err) {
+      console.error("[cron] Error:", err);
+    }
   },
 };
 
@@ -237,33 +234,31 @@ function diagHeaders(extra = {}) {
   return { ...base, ...extra };
 }
 
-function clampLimit(value, fallback = 3, max = 50) {
-  const n = Number(value);
-  if (!Number.isFinite(n) || n <= 0) return fallback;
-  return Math.max(1, Math.min(max, Math.floor(n)));
-}
-
 async function handleGetEmails(env, session, rawToken, opts = {}) {
   const hasKV = !!getKV(env);
   const bust = !!opts.bust;
-  const limit = clampLimit(opts.limit, 3, 200);
-  const accountLabels = Array.isArray(opts.accountLabels) ? opts.accountLabels : [];
 
   if (!hasKV) {
-    return new Response(JSON.stringify([]), { headers: diagHeaders({ "X-Cache-Status": "NO_KV" }) });
+    const r = await fetchDirectFromSupabase(env, session, rawToken);
+    // wrap so we keep diag headers
+    const body = await r.clone().text();
+    return new Response(body, { status: r.status, headers: diagHeaders({ "X-Cache-Status": "NO_KV" }) });
   }
 
-  const scopedLabels = accountLabels.length > 0 ? accountLabels : (session?.assignedAccounts || []);
-  const userAccountsKey = scopedLabels.length > 0 ? JSON.stringify([...scopedLabels].sort()) : "all";
-  const cacheKey = `${CACHE_KEY}:${userAccountsKey}:limit:${limit}`;
+  const userAccountsKey = session?.assignedAccounts ? JSON.stringify(session.assignedAccounts.sort()) : "all";
+  const cacheKey = `${CACHE_KEY}:${userAccountsKey}`;
   const tsKey = `${CACHE_TIMESTAMP_KEY}:${userAccountsKey}`;
 
   // F7: bust=1 → skip KV read, refetch fresh, write back, return with BYPASS status.
   if (bust) {
-    const result = await syncDirectFromAccounts(env, session, { accountLabels, limit, source: "user_refresh" });
-    const body = JSON.stringify(result.emails || []);
-    await Promise.all([kvPut(env, cacheKey, body), kvPut(env, tsKey, Date.now().toString())]);
-    return new Response(body, { status: 200, headers: diagHeaders({ "X-Cache-Status": "BYPASS", "X-Cache-Key": cacheKey }) });
+    const result = await fetchDirectFromSupabase(env, session, rawToken);
+    if (result.status === 200) {
+      const body = await result.clone().text();
+      await Promise.all([kvPut(env, cacheKey, body), kvPut(env, tsKey, Date.now().toString())]);
+      return new Response(body, { status: 200, headers: diagHeaders({ "X-Cache-Status": "BYPASS", "X-Cache-Key": cacheKey }) });
+    }
+    const body = await result.clone().text();
+    return new Response(body, { status: result.status, headers: diagHeaders({ "X-Cache-Status": "BYPASS_ERR", "X-Cache-Key": cacheKey }) });
   }
 
   const [cached, timestamp] = await Promise.all([kvGet(env, cacheKey), kvGet(env, tsKey)]);
@@ -271,26 +266,20 @@ async function handleGetEmails(env, session, rawToken, opts = {}) {
   const age = timestamp ? (now - parseInt(timestamp)) / 1000 : Infinity;
 
   if (!cached) {
-    const fallbackKeys = [
-      `${CACHE_KEY}:${userAccountsKey}:limit:3`,
-      `${CACHE_KEY}:${userAccountsKey}`,
-      `${CACHE_KEY}:all:limit:${limit}`,
-      `${CACHE_KEY}:all:limit:200`,
-      `${CACHE_KEY}:all:limit:3`,
-      `${CACHE_KEY}:all`,
-    ].filter((key, index, arr) => key !== cacheKey && arr.indexOf(key) === index);
-    for (const fallbackKey of fallbackKeys) {
-      const fallback = await kvGet(env, fallbackKey);
-      if (fallback) {
-        return new Response(fallback, { headers: diagHeaders({ "X-Cache-Status": "FALLBACK_HIT", "X-Cache-Key": fallbackKey }) });
-      }
+    const result = await fetchDirectFromSupabase(env, session, rawToken);
+    if (result.status === 200) {
+      const body = await result.clone().text();
+      await Promise.all([kvPut(env, cacheKey, body), kvPut(env, tsKey, now.toString())]);
+      return new Response(body, { status: 200, headers: diagHeaders({ "X-Cache-Status": "MISS", "X-Cache-Key": cacheKey }) });
     }
-    return new Response(JSON.stringify([]), { headers: diagHeaders({ "X-Cache-Status": "MISS", "X-Cache-Key": cacheKey }) });
+    return result;
   }
 
   let status = "HIT";
   if (age > STALE_SECONDS) {
     status = "STALE";
+    await kvPut(env, tsKey, now.toString());
+    refreshFromSupabase(env, session, rawToken, cacheKey, tsKey).catch(err => console.error("BG refresh error:", err));
   }
 
   return new Response(cached, {
@@ -315,39 +304,60 @@ async function handleCachePurge(env, session) {
   }
 }
 
-async function handleSync(env, session, rawToken, requestBody, ctx) {
+async function handleSync(env, session, rawToken, requestBody) {
   try {
-    const limit = clampLimit(requestBody?.limit, 3, 50);
-    const requestedLabels = Array.isArray(requestBody?.accountLabels) ? requestBody.accountLabels : [];
-    const result = await syncDirectFromAccounts(env, session, {
-      accountLabels: requestedLabels,
-      limit,
-      source: requestBody?.source || "worker",
-    });
-    const responseText = JSON.stringify(result);
+    const headers = {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${env.SUPABASE_KEY}`,
+      "apikey": env.SUPABASE_KEY,
+    };
+    if (rawToken) headers["X-Session-Token"] = rawToken;
 
-    // Update KV cache after successful sync without blocking the user response.
+    // Pass through accountLabels from the request body for per-account routing
+    const syncPayload = { mode: requestBody?.mode === "sync" ? "sync" : "sync_async", source: requestBody?.source || "worker" };
+    if (requestBody?.accountLabels && Array.isArray(requestBody.accountLabels)) {
+      syncPayload.accountLabels = requestBody.accountLabels;
+    }
+
+    const res = await fetch(`${env.SUPABASE_URL}/functions/v1/fetch-emails`, {
+      method: "POST", headers, body: JSON.stringify(syncPayload),
+    });
+
+    const responseText = await res.text();
+
+    if (!res.ok) {
+      let errorMsg = "Sync failed";
+      try {
+        const parsed = JSON.parse(responseText);
+        errorMsg = parsed?.error || errorMsg;
+      } catch {}
+      return new Response(JSON.stringify({ success: false, error: errorMsg }), {
+        status: res.status, headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+      });
+    }
+
+    if (res.status === 202) {
+      if (getKV(env)) {
+        const userAccountsKey = session?.assignedAccounts ? JSON.stringify(session.assignedAccounts.sort()) : "all";
+        await Promise.all([
+          kvPut(env, `${CACHE_KEY}:${userAccountsKey}`, JSON.stringify(JSON.parse(responseText).emails || [])),
+          kvPut(env, `${CACHE_TIMESTAMP_KEY}:${userAccountsKey}`, Date.now().toString()),
+        ]).catch(() => {});
+      }
+      return new Response(responseText, {
+        status: 202,
+        headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+      });
+    }
+
+    // Update KV cache after successful sync
     if (getKV(env)) {
-      const scopedLabels = requestedLabels.length > 0 ? requestedLabels : (session?.assignedAccounts || []);
-      const userAccountsKey = scopedLabels.length > 0 ? JSON.stringify([...scopedLabels].sort()) : "all";
-      const cacheKey = `${CACHE_KEY}:${userAccountsKey}:limit:${limit}`;
+      const userAccountsKey = session?.assignedAccounts ? JSON.stringify(session.assignedAccounts.sort()) : "all";
+      const cacheKey = `${CACHE_KEY}:${userAccountsKey}`;
       const tsKey = `${CACHE_TIMESTAMP_KEY}:${userAccountsKey}`;
 
-      const cacheWork = (async () => {
-        let freshRaw = "[]";
-        try {
-          if (Array.isArray(result?.emails)) freshRaw = JSON.stringify(result.emails);
-        } catch {}
-        const fullCacheKey = `${CACHE_KEY}:${userAccountsKey}:limit:200`;
-        const existingFull = await kvGet(env, fullCacheKey);
-        const mergedFull = mergeEmailPayloads(existingFull, freshRaw) || freshRaw;
-        await Promise.all([
-          kvPut(env, cacheKey, freshRaw),
-          kvPut(env, fullCacheKey, mergedFull),
-          kvPut(env, tsKey, Date.now().toString()),
-        ]);
-      })().catch((err) => console.error("[sync] async KV update failed:", err.message || err));
-      if (ctx?.waitUntil) ctx.waitUntil(cacheWork);
+      // Fetch fresh cache data since sync response may contain extra metadata
+      await refreshFromSupabase(env, session, rawToken, cacheKey, tsKey);
     }
 
     return new Response(responseText, {
@@ -363,295 +373,68 @@ async function handleSync(env, session, rawToken, requestBody, ctx) {
 // handleDebug removed (F6). Route no longer exposed.
 
 
-function jsonResponse(body, status = 200, extraHeaders = {}) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...CORS_HEADERS, "Content-Type": "application/json", ...extraHeaders },
-  });
-}
-
-function imapQuote(value) {
-  return `"${String(value || "").replace(/\\/g, "\\\\").replace(/"/g, "\\\"")}"`;
-}
-
-function imapDate(date) {
-  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  return `${String(date.getUTCDate()).padStart(2, "0")}-${months[date.getUTCMonth()]}-${date.getUTCFullYear()}`;
-}
-
-function decodeMimeWords(value = "") {
-  return String(value).replace(/=\?([^?]+)\?([bqBQ])\?([^?]*)\?=/g, (_, charset, enc, text) => {
-    try {
-      if (enc.toUpperCase() === "B") {
-        const bin = atob(text);
-        const bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
-        return new TextDecoder(charset || "utf-8").decode(bytes);
-      }
-      const qp = text.replace(/_/g, " ").replace(/=([0-9A-F]{2})/gi, (_, h) => String.fromCharCode(parseInt(h, 16)));
-      return qp;
-    } catch { return text; }
-  });
-}
-
-function decodeQuotedPrintable(input = "") {
-  return String(input)
-    .replace(/=\r?\n/g, "")
-    .replace(/=([0-9A-F]{2})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
-}
-
-function parseHeaders(raw) {
-  const [headerBlock, ...bodyParts] = String(raw || "").split(/\r?\n\r?\n/);
-  const headers = {};
-  let current = "";
-  for (const line of headerBlock.split(/\r?\n/)) {
-    if (/^[ \t]/.test(line) && current) headers[current] += " " + line.trim();
-    else {
-      const idx = line.indexOf(":");
-      if (idx > 0) {
-        current = line.slice(0, idx).toLowerCase();
-        headers[current] = line.slice(idx + 1).trim();
-      }
-    }
-  }
-  const body = bodyParts.join("\n\n");
-  return { headers, body };
-}
-
-function extractOtpCode(subject, body) {
-  const hay = `${subject || ""}\n${body || ""}`;
-  if (!/(sign[\s-]?in code|verification code|one[\s-]?time|login code|enter this code|otp|your code is|use (?:the |this )?code)/i.test(hay)) return null;
-  const near = hay.match(/(?:code|otp|verification|sign[\s-]?in)[\s\S]{0,80}?\b(\d{4,8})\b/i);
-  if (near?.[1]) return near[1];
-  const line = hay.match(/^\s*(\d{4,8})\s*$/m);
-  return line?.[1] || null;
-}
-
-function parseRawEmail(raw, accountLabel, uid) {
-  const { headers, body } = parseHeaders(raw);
-  const subject = decodeMimeWords(headers.subject || "");
-  const from = decodeMimeWords(headers.from || "Netflix");
-  const to = decodeMimeWords(headers.to || "");
-  const bodyText = decodeQuotedPrintable(body)
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/[ \t]+/g, " ")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim()
-    .slice(0, 20000);
-  const signal = `${subject} ${from} ${to} ${bodyText.slice(0, 2000)}`;
-  if (!/netflix/i.test(signal)) return null;
-  const date = headers.date ? new Date(headers.date) : new Date();
-  return {
-    id: `${accountLabel}:${uid}`,
-    message_id: headers["message-id"] || null,
-    subject,
-    from: from || "Netflix",
-    to: to || undefined,
-    date: Number.isNaN(date.getTime()) ? new Date().toISOString() : date.toISOString(),
-    otp: extractOtpCode(subject, bodyText),
-    preview: bodyText.length > 100 ? `${bodyText.slice(0, 100)}...` : bodyText,
-    html: /<html|<body|<table|<div/i.test(body) ? body : `<pre>${bodyText.replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]))}</pre>`,
-    account_label: accountLabel,
-  };
-}
-
-async function createImapConnection(account, timeoutMs = 3500) {
-  const socket = connect({ hostname: account.host, port: account.port || 993 }, { secureTransport: "on" });
-  await Promise.race([socket.opened, new Promise((_, reject) => setTimeout(() => reject(new Error("IMAP connect timeout")), timeoutMs))]);
-  const reader = socket.readable.getReader();
-  const writer = socket.writable.getWriter();
-  const decoder = new TextDecoder();
-  const encoder = new TextEncoder();
-  let buffer = "";
-  const readChunk = async (deadline) => {
-    if (Date.now() > deadline) throw new Error("IMAP read timeout");
-    const { value, done } = await reader.read();
-    if (done) throw new Error("IMAP socket closed");
-    buffer += decoder.decode(value, { stream: true });
-  };
-  const readLine = async (deadline) => {
-    while (true) {
-      const idx = buffer.indexOf("\r\n");
-      if (idx >= 0) {
-        const line = buffer.slice(0, idx);
-        buffer = buffer.slice(idx + 2);
-        return line;
-      }
-      await readChunk(deadline);
-    }
-  };
-  const readBytes = async (n, deadline) => {
-    while (buffer.length < n) await readChunk(deadline);
-    const out = buffer.slice(0, n);
-    buffer = buffer.slice(n);
-    return out;
-  };
-  let tagNo = 1;
-  const command = async (cmd, timeoutMs = 2500) => {
-    const tag = `A${String(tagNo++).padStart(4, "0")}`;
-    const deadline = Date.now() + timeoutMs;
-    await writer.write(encoder.encode(`${tag} ${cmd}\r\n`));
-    const lines = [];
-    const literals = [];
-    while (true) {
-      const line = await readLine(deadline);
-      lines.push(line);
-      const lit = line.match(/\{(\d+)\}$/);
-      if (lit) {
-        const data = await readBytes(Number(lit[1]), deadline);
-        literals.push({ meta: line, data });
-      }
-      if (line.startsWith(`${tag} `)) {
-        if (!/^A\d+ OK/i.test(line)) throw new Error(line.replace(/^A\d+\s+/i, ""));
-        return { lines, literals };
-      }
-    }
-  };
-  const close = async () => {
-    try { await command("LOGOUT", 900); } catch {}
-    try { writer.releaseLock(); } catch {}
-    try { reader.releaseLock(); } catch {}
-    try { await socket.close(); } catch {}
-  };
-  await readLine(Date.now() + timeoutMs);
-  return { command, close };
-}
-
-async function decryptValue(encrypted, secret) {
-  if (!encrypted?.startsWith?.("enc:")) return encrypted;
-  const [, ivHex, ctHex] = encrypted.split(":");
-  const encoder = new TextEncoder();
-  const keyMaterial = await crypto.subtle.importKey("raw", encoder.encode(secret), "PBKDF2", false, ["deriveKey"]);
-  const key = await crypto.subtle.deriveKey(
-    { name: "PBKDF2", salt: encoder.encode("imap-enc-salt-v1"), iterations: 100000, hash: "SHA-256" },
-    keyMaterial,
-    { name: "AES-GCM", length: 256 },
-    false,
-    ["decrypt"],
-  );
-  const iv = new Uint8Array(ivHex.match(/.{2}/g).map(b => parseInt(b, 16)));
-  const ct = new Uint8Array(ctHex.match(/.{2}/g).map(b => parseInt(b, 16)));
-  const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ct);
-  return new TextDecoder().decode(plain);
-}
-
-async function loadWorkerConfig(env) {
-  const raw = await kvGet(env, WORKER_CONFIG_KEY);
-  if (!raw) throw new Error("Worker inbox config missing. Save inbox settings in Admin Panel once.");
+async function fetchDirectFromSupabase(env, session, rawToken) {
   try {
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") throw new Error("bad config");
-    return parsed;
-  } catch {
-    throw new Error("Worker inbox config is invalid. Save inbox settings in Admin Panel once.");
-  }
-}
-
-async function loadAccounts(env, session, requestedLabels = []) {
-  const settings = await loadWorkerConfig(env);
-  const allowed = session?.role === "admin" ? null : Array.isArray(session?.assignedAccounts) ? session.assignedAccounts : [];
-  const requested = requestedLabels.length > 0 ? requestedLabels.map(String).map(s => s.trim()).filter(Boolean) : null;
-  const finalLabels = allowed === null
-    ? requested
-    : requested ? requested.filter(label => allowed.includes(label)) : allowed;
-  if (Array.isArray(finalLabels) && finalLabels.length === 0) return [];
-
-  const accounts = [];
-  const emailAccounts = settings.email_accounts;
-  const decryptSecret = env.SESSION_SIGNING_SECRET || env.SESSION_SECRET || env.ENCRYPTION_SECRET || env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_KEY;
-  if (!decryptSecret) throw new Error("Worker IMAP decrypt secret is missing");
-  if (Array.isArray(emailAccounts)) {
-    for (const acc of emailAccounts) {
-      const label = String(acc.label || acc.user || "").trim();
-      if (!label || (finalLabels && !finalLabels.includes(label))) continue;
-      if (!acc.user || !acc.password) continue;
-      accounts.push({
-        label,
-        host: acc.host || "imap.gmail.com",
-        port: parseInt(acc.port) || 993,
-        user: acc.user,
-        password: await decryptValue(acc.password, decryptSecret),
-      });
+    const bodyPayload = { mode: "cache" };
+    if (session?.assignedAccounts) {
+      bodyPayload.accountLabels = session.assignedAccounts;
     }
-  }
-  const config = settings.config || {};
-  if ((!finalLabels || finalLabels.includes("Primary")) && config.IMAP_USER && config.IMAP_PASSWORD && !accounts.some(a => a.user === config.IMAP_USER)) {
-    accounts.unshift({
-      label: "Primary",
-      host: config.IMAP_HOST || "imap.gmail.com",
-      port: parseInt(config.IMAP_PORT) || 993,
-      user: config.IMAP_USER,
-      password: await decryptValue(config.IMAP_PASSWORD, decryptSecret),
+
+    const headers = {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${env.SUPABASE_KEY}`,
+      "apikey": env.SUPABASE_KEY,
+    };
+    if (rawToken) headers["X-Session-Token"] = rawToken;
+
+    const res = await fetch(`${env.SUPABASE_URL}/functions/v1/fetch-emails`, {
+      method: "POST", headers, body: JSON.stringify(bodyPayload),
+    });
+
+    const data = await res.text();
+
+    return new Response(data, {
+      status: res.status,
+      headers: { ...CORS_HEADERS, "Content-Type": "application/json", "X-Cache": "bypass" },
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: "Worker cannot reach backend: " + err.message }), {
+      status: 502, headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
     });
   }
-  return accounts;
 }
 
-async function fetchFromImapAccount(account, limit = 3) {
-  const imap = await createImapConnection(account);
+async function refreshFromSupabase(env, session, rawToken, cacheKey, tsKey) {
   try {
-    await imap.command(`LOGIN ${imapQuote(account.user)} ${imapQuote(account.password)}`, 2500);
-    const selected = await imap.command("SELECT INBOX", 2500);
-    const existsLine = selected.lines.find(line => /\*\s+\d+\s+EXISTS/i.test(line));
-    const total = Number(existsLine?.match(/\*\s+(\d+)\s+EXISTS/i)?.[1] || 0);
-    const since = imapDate(new Date(Date.now() - 2 * 24 * 60 * 60 * 1000));
-    let uids = [];
-    try {
-      const search = await imap.command(`UID SEARCH SINCE ${since} OR FROM ${imapQuote("netflix")} SUBJECT ${imapQuote("netflix")}`, 1800);
-      const searchLine = search.lines.find(line => /^\* SEARCH/i.test(line)) || "";
-      uids = searchLine.replace(/^\* SEARCH\s*/i, "").trim().split(/\s+/).filter(Boolean).map(Number).filter(Boolean);
-    } catch {}
-
-    let literals = [];
-    if (uids.length > 0) {
-      const newest = Array.from(new Set(uids)).sort((a, b) => b - a).slice(0, Math.max(1, limit));
-      const fetched = await imap.command(`UID FETCH ${newest.join(",")} (BODY.PEEK[]<0.24000>)`, 2800);
-      literals = fetched.literals;
-    } else if (total > 0) {
-      const start = Math.max(1, total - 3);
-      const fetched = await imap.command(`FETCH ${start}:* (UID BODY.PEEK[]<0.24000>)`, 2800);
-      literals = fetched.literals;
+    const bodyPayload = { mode: "cache" };
+    if (session?.assignedAccounts) {
+      bodyPayload.accountLabels = session.assignedAccounts;
     }
 
-    const emails = [];
-    for (const item of literals) {
-      const uid = Number(item.meta.match(/UID\s+(\d+)/i)?.[1] || 0) || Math.floor(Date.now() + Math.random() * 1000);
-      const parsed = parseRawEmail(item.data, account.label, uid);
-      if (parsed) emails.push(parsed);
+    const headers = {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${env.SUPABASE_KEY}`,
+      "apikey": env.SUPABASE_KEY,
+    };
+    if (rawToken) headers["X-Session-Token"] = rawToken;
+
+    const res = await fetch(`${env.SUPABASE_URL}/functions/v1/fetch-emails`, {
+      method: "POST", headers, body: JSON.stringify(bodyPayload),
+    });
+
+    if (!res.ok) {
+      console.error("Supabase cache fetch failed:", res.status);
+      return;
     }
-    emails.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    return { emails: emails.slice(0, limit), fetched: emails.length, skipped: Math.max(0, literals.length - emails.length) };
-  } finally {
-    await imap.close();
+
+    const data = await res.text();
+    await Promise.all([
+      kvPut(env, cacheKey, data),
+      kvPut(env, tsKey, Date.now().toString()),
+    ]);
+  } catch (err) {
+    console.error("Refresh from Supabase error:", err);
   }
-}
-
-async function syncDirectFromAccounts(env, session, opts = {}) {
-  if (!session) throw new Error("Authentication required");
-  const accountLabels = Array.isArray(opts.accountLabels) ? opts.accountLabels : [];
-  const limit = clampLimit(opts.limit, 3, 50);
-  const accounts = await loadAccounts(env, session, accountLabels);
-  if (accounts.length === 0) return { success: true, emails: [], stats: {}, totalFetched: 0, inserted: 0, source: "cloudflare-imap" };
-
-  const settled = await Promise.allSettled(accounts.map(async (account) => ({ account, result: await fetchFromImapAccount(account, limit) })));
-  const emails = [];
-  const stats = {};
-  const warnings = [];
-  settled.forEach((item, index) => {
-    const label = accounts[index]?.label || `Account ${index + 1}`;
-    if (item.status === "fulfilled") {
-      stats[label] = { fetched: item.value.result.fetched, skipped: item.value.result.skipped };
-      emails.push(...item.value.result.emails);
-    } else {
-      const msg = item.reason?.message || String(item.reason || "IMAP failed");
-      stats[label] = { fetched: 0, skipped: 0, error: msg };
-      warnings.push(`${label}: ${msg}`);
-    }
-  });
-  if (warnings.length === accounts.length) throw new Error(warnings.join(" | "));
-  emails.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  return { success: true, emails: emails.slice(0, Math.max(limit, 3)), stats, totalFetched: emails.length, inserted: emails.length, warnings, source: "cloudflare-imap" };
 }
 
 // --- IP helpers ---
