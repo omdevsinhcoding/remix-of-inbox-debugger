@@ -1869,7 +1869,7 @@ function CaptchaModal({ siteKey, onVerify, onCancel }: { siteKey: string; onVeri
         </div>
         {loadError && (
           <p className="px-6 pb-4 text-xs font-bold text-red-600 text-center">
-            CAPTCHA could not load. Disable ad-block/VPN for this site or refresh.
+            CAPTCHA domain/key is not allowed for this site. Add this domain in Google reCAPTCHA settings, then refresh.
           </p>
         )}
 
