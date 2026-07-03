@@ -2617,7 +2617,101 @@ Deno.serve(async (req) => {
       });
     }
 
+    // ---------- Admin dashboard: ONE composite call (replaces 12 client calls) ----------
+    // Bulk: full mount payload. `refresh` variant skips rarely-changing settings.
+    if (action === "admin_dashboard_bootstrap" || action === "admin_dashboard_refresh") {
+      const session = await requireAdmin(req);
+      const includeSettings = action === "admin_dashboard_bootstrap";
+
+      // Kick everything off in PARALLEL server-side. Edge → Postgres latency is
+      // ~1-5ms each, so 12 parallel queries return in ~50-150ms total.
+      const usersP = supabase.from("app_users")
+        .select("id, username, name, role, assigned_accounts, profile_prefs")
+        .order("created_at", { ascending: true });
+
+      const emailsCountP = supabase.from("cached_emails").select("id", { count: "exact", head: true });
+
+      const notesP = supabase.from("notifications").select("*").order("created_at", { ascending: false }).limit(200);
+      const totalUsersP = supabase.from("app_users").select("id", { count: "exact", head: true }).neq("role", "admin");
+
+      const settingsKeys = includeSettings
+        ? ["recaptcha", "config", "primary_cloudflare_urls", "email_filters", "email_accounts", "session_config", "admin_session_config", "ipwho_alert", "maintenance", "r2_storage"]
+        : [];
+      const settingsP = settingsKeys.length
+        ? supabase.from("app_settings").select("key,value").in("key", settingsKeys)
+        : Promise.resolve({ data: [] as any[] });
+
+      const [usersRes, emailsCountRes, notesRes, totalUsersRes, settingsRes] = await Promise.all([usersP, emailsCountP, notesP, totalUsersP, settingsP]);
+
+      // Users mapping
+      const users = (usersRes.data || []).map((u: any) => ({
+        ...u,
+        assignedAccounts: u.assigned_accounts || null,
+        profileAvatar: u.profile_prefs?.avatarId || null,
+      }));
+
+      // Notification stats — 2 more queries but only if there are notes
+      const noteIds = (notesRes.data || []).map((n: any) => n.id);
+      const readCounts = new Map<string, number>();
+      const seenCounts = new Map<string, number>();
+      const clickCounts = new Map<string, number>();
+      const deletedCounts = new Map<string, number>();
+      if (noteIds.length) {
+        const [readsRes, evsRes] = await Promise.all([
+          supabase.from("notification_reads").select("notification_id, read_at, seen_at, deleted_at").in("notification_id", noteIds),
+          supabase.from("notification_events").select("notification_id, event").in("notification_id", noteIds).eq("event", "clicked"),
+        ]);
+        for (const r of readsRes.data || []) {
+          if (r.seen_at) seenCounts.set(r.notification_id, (seenCounts.get(r.notification_id) || 0) + 1);
+          if (r.read_at) readCounts.set(r.notification_id, (readCounts.get(r.notification_id) || 0) + 1);
+          if (r.deleted_at) deletedCounts.set(r.notification_id, (deletedCounts.get(r.notification_id) || 0) + 1);
+        }
+        for (const e of evsRes.data || []) clickCounts.set(e.notification_id, (clickCounts.get(e.notification_id) || 0) + 1);
+      }
+      const totalUsers = totalUsersRes.count || 0;
+      const notifications = (notesRes.data || []).map((n: any) => ({
+        ...n,
+        readCount: readCounts.get(n.id) || 0,
+        seenCount: seenCounts.get(n.id) || 0,
+        clickCount: clickCounts.get(n.id) || 0,
+        deletedCount: deletedCounts.get(n.id) || 0,
+        totalRecipients: n.audience === "all" ? totalUsers : 1,
+      }));
+
+      // Settings map + R2 normalization
+      const settings: Record<string, any> = {};
+      let r2: any = null;
+      for (const row of (settingsRes as any).data || []) {
+        if (row.key === "r2_storage") {
+          const normalized = normalizeR2Config(row.value || {});
+          const hasSecret = typeof normalized.config.secretAccessKey === "string" && normalized.config.secretAccessKey.length > 0;
+          r2 = {
+            accountId: normalized.config.accountId,
+            accessKeyId: normalized.config.accessKeyId,
+            secretAccessKey: normalized.config.secretAccessKey,
+            bucket: normalized.config.bucket,
+            publicBaseUrl: normalized.config.publicBaseUrl,
+            pathPrefix: normalized.config.pathPrefix,
+            enabled: normalized.config.enabled,
+            secretAccessKeySet: hasSecret,
+          };
+        } else {
+          settings[row.key] = row.value;
+        }
+      }
+
+      return new Response(JSON.stringify({
+        success: true,
+        users,
+        emailsTotal: emailsCountRes.count || 0,
+        notifications,
+        settings: includeSettings ? settings : undefined,
+        r2: includeSettings ? r2 : undefined,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     // ---------- R2 storage: admin-only ----------
+
     if (action === "admin_get_r2_config") {
       await requireAdmin(req);
       const { data } = await supabase.from("app_settings").select("value").eq("key", "r2_storage").maybeSingle();
