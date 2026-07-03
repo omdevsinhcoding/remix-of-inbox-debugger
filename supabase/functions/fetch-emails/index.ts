@@ -346,7 +346,12 @@ async function fetchFromAccount(
     }
   } finally {
     clearTimeout(timer);
-    try { await client.logout(); } catch {}
+    if (quickRefresh) {
+      try { (client as any).close?.(); } catch {}
+      try { client.logout().catch(() => {}); } catch {}
+    } else {
+      try { await client.logout(); } catch {}
+    }
   }
 
   return { emails, fetched: emails.length, skipped: 0 };
@@ -357,27 +362,30 @@ async function loadAccounts(supabase: any, secret: string, accountLabels: string
   const requested = accountLabels && accountLabels.length > 0
     ? new Set(accountLabels.map((label) => String(label).trim()).filter(Boolean))
     : null;
+  const onlyPrimaryRequested = !!requested && requested.size === 1 && requested.has("Primary");
 
-  try {
-    const { data: accountsData } = await supabase.from("app_settings").select("value").eq("key", "email_accounts").single();
-    if (Array.isArray(accountsData?.value)) {
-      const accountRows = requested
-        ? accountsData.value.filter((acc: any) => requested.has(String(acc.label || acc.user || "").trim()))
-        : accountsData.value;
-      const decrypted = await Promise.all(accountRows.map(async (acc: any) => {
-        if (!acc.user || !acc.password) return null;
-        return {
-          label: acc.label || acc.user,
-          host: acc.host || "imap.gmail.com",
-          port: parseInt(acc.port) || 993,
-          user: acc.user,
-          password: await decryptValue(acc.password, secret),
-        } as Account;
-      }));
-      accounts.push(...decrypted.filter(Boolean) as Account[]);
+  if (!onlyPrimaryRequested) {
+    try {
+      const { data: accountsData } = await supabase.from("app_settings").select("value").eq("key", "email_accounts").single();
+      if (Array.isArray(accountsData?.value)) {
+        const accountRows = requested
+          ? accountsData.value.filter((acc: any) => requested.has(String(acc.label || acc.user || "").trim()))
+          : accountsData.value;
+        const decrypted = await Promise.all(accountRows.map(async (acc: any) => {
+          if (!acc.user || !acc.password) return null;
+          return {
+            label: acc.label || acc.user,
+            host: acc.host || "imap.gmail.com",
+            port: parseInt(acc.port) || 993,
+            user: acc.user,
+            password: await decryptValue(acc.password, secret),
+          } as Account;
+        }));
+        accounts.push(...decrypted.filter(Boolean) as Account[]);
+      }
+    } catch (err) {
+      console.error("[sync] Failed to load email_accounts:", err);
     }
-  } catch (err) {
-    console.error("[sync] Failed to load email_accounts:", err);
   }
 
   if (!requested || requested.has("Primary")) {
@@ -414,17 +422,19 @@ async function loadAccounts(supabase: any, secret: string, accountLabels: string
 
 async function runSync(supabase: any, secret: string, source: string, accountLabels: string[] | null, maxMessages = FULL_SYNC_MAX_UIDS) {
   console.log(`[sync] Starting parallel IMAP sync (source: ${source})`);
-  const accounts = await loadAccounts(supabase, secret, accountLabels);
   const quickRefresh = source === "user_refresh";
+  const accounts = await loadAccounts(supabase, secret, accountLabels);
 
   if (accounts.length === 0) {
     return { success: false, error: "Inbox not configured. Add IMAP email in Admin Panel.", stats: {}, totalFetched: 0, inserted: 0 };
   }
 
-  try {
-    await supabase.from("cached_emails").update({ account_label: "Primary" }).is("account_label", null);
-  } catch (e) {
-    console.error("[sync] Legacy label backfill skipped:", e);
+  if (!quickRefresh) {
+    try {
+      await supabase.from("cached_emails").update({ account_label: "Primary" }).is("account_label", null);
+    } catch (e) {
+      console.error("[sync] Legacy label backfill skipped:", e);
+    }
   }
 
   const settled = await Promise.allSettled(accounts.map(async (acc) => {
