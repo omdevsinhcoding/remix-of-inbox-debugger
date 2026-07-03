@@ -1675,22 +1675,21 @@ Deno.serve(async (originalReq) => {
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      // Create normal user session token (30 min expiry)
-      const expMs = Date.now() + 30 * 60 * 1000;
-      const sessionPayload = {
+      // C.2: mint access (15 min) + refresh (12 h) rotating pair
+      const pair = await mintSessionPair(user.id, user.role, {
         userId: user.id,
         username: user.username,
         role: user.role,
         assignedAccounts: user.assigned_accounts || null,
-        exp: expMs,
-      };
-      const sessionToken = await createSessionToken(sessionPayload, SIGNING_SECRET);
-      await persistSession(user.id, user.role, sessionToken, expMs);
+      });
       const workerUrls = await loadWorkerUrls(supabase);
 
       return new Response(JSON.stringify({
         success: true,
-        sessionToken,
+        sessionToken: pair.accessToken,
+        expiresAt: pair.accessExpMs,
+        refreshToken: pair.refreshToken,
+        refreshExpiresAt: pair.refreshExpMs,
         workerUrls,
         user: {
           id: user.id, username: user.username, name: user.name, role: user.role,
@@ -1702,6 +1701,7 @@ Deno.serve(async (originalReq) => {
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+
     }
 
     if (action === "create") {
