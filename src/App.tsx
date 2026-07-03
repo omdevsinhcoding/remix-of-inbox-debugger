@@ -6579,6 +6579,7 @@ function EmailViewer() {
       // Refresh must never blank or block: latest 3 DB rows first, then IMAP sync in background.
       const cachedCount = await loadCachedEmails({ bust: true, limit: 3 });
       const baseline = Math.max(before, cachedCount);
+      toast.success(cachedCount > 0 ? "Latest 3 Netflix emails loaded" : "No Netflix emails found yet", { id: toastId, duration: 1400 });
       window.setTimeout(() => {
         if (!refreshingRef.current) return;
         setRefreshing(false);
@@ -6607,7 +6608,6 @@ function EmailViewer() {
           const newCount = after - baseline;
           if (newCount > 0) {
             toast.success(`📬 ${newCount} new email${newCount === 1 ? "" : "s"} arrived`, {
-              id: toastId,
               duration: 3500,
               style: {
                 background: "linear-gradient(135deg, #7c1d6f 0%, #c026d3 50%, #e11d48 100%)",
@@ -6617,8 +6617,6 @@ function EmailViewer() {
                 fontWeight: 700,
               },
             });
-          } else {
-            toast.success("✓ Inbox already up to date", { id: toastId, duration: 2200 });
           }
         })
         .catch((err) => {
