@@ -3681,24 +3681,27 @@ function AdminPanel() {
         { action: "admin_reveal_session_signing_secret" },
         { headers: token ? { "X-Session-Token": token } : {} },
       );
-      if (!res?.success) throw new Error(res?.error || "Could not reveal SESSION_SIGNING_SECRET");
-      if (!res?.value) throw new Error("Secret value was empty");
-      setSigningSecretReveal({ value: res.value, length: Number(res.length) || String(res.value).length });
-      toast.success("SESSION_SIGNING_SECRET revealed — copy it to Cloudflare as Secret type.");
+      if (!res?.success) throw new Error(res?.error || "Could not inspect SESSION_SIGNING_SECRET");
+      setSigningSecretReveal({
+        fingerprint: String(res.fingerprint || ""),
+        length: Number(res.length) || 0,
+        source: String(res.source || ""),
+      });
+      toast.success("Signing secret verified. Copy the raw value from Supabase Dashboard → Edge Function Secrets.");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not reveal SESSION_SIGNING_SECRET");
+      toast.error(err instanceof Error ? err.message : "Could not inspect SESSION_SIGNING_SECRET");
     } finally {
       setRevealingSigningSecret(false);
     }
   };
 
   const copySigningSecret = async () => {
-    if (!signingSecretReveal?.value) return;
+    if (!signingSecretReveal?.fingerprint) return;
     try {
-      await navigator.clipboard.writeText(signingSecretReveal.value);
-      toast.success("SESSION_SIGNING_SECRET copied");
+      await navigator.clipboard.writeText(signingSecretReveal.fingerprint);
+      toast.success("Fingerprint copied (not the raw secret)");
     } catch {
-      toast.error("Copy failed — long press/select the value manually.");
+      toast.error("Copy failed — long press/select manually.");
     }
   };
 
