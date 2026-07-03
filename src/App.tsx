@@ -3978,14 +3978,23 @@ function AdminPanel() {
   const createUser = async () => {
     if (!newUsername || !newPassword || !newName) { toast.error("Please fill all fields"); return; }
     try {
-      await apiCall("manage-app", {
+      const res: any = await apiCall("manage-app", {
         action: "create", username: newUsername, password: newPassword, name: newName, role: "user",
         assigned_accounts: newUserAccounts.length > 0 ? newUserAccounts : null,
       });
       setNewUsername(""); setNewPassword(""); setNewName(""); setNewUserAccounts([]);
-      toast.success("User created!");
-      const data = await apiCall("manage-app", { action: "list" });
-      setUsers(data.users || []);
+      // Optimistic append — avoid a second `list` roundtrip which was doubling
+      // the wait time. If the server didn't echo the user for any reason, fall
+      // back to a fresh list.
+      if (res?.user) {
+        setUsers(prev => [...prev, res.user]);
+        setStats(prev => ({ ...prev, totalUsers: prev.totalUsers + 1 }));
+        toast.success("User created!");
+      } else {
+        toast.success("User created!");
+        const data = await apiCall("manage-app", { action: "list" });
+        setUsers(data.users || []);
+      }
     } catch (err) {
       toast.error("Failed: " + (err instanceof Error ? err.message : String(err)));
     }
