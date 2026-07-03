@@ -5,9 +5,7 @@
 //   Encrypted req : [ver(1)][sessionId(16)][iv(12)][ciphertext+tag]
 //   Encrypted res : [ver(1)][iv(12)][ciphertext+tag]
 //
-// If any step of the encrypted path fails, callers fall back to plaintext
-// (the edge functions accept both). This keeps existing flows working even
-// when the browser blocks SubtleCrypto or the handshake endpoint is down.
+// Encrypted-only transport. If crypto/session negotiation fails, calls fail.
 
 const VERSION = 0x01;
 const SESSION_ID_BYTES = 16;
@@ -140,7 +138,7 @@ export async function secureFetchJson(
   return data;
 }
 
-// Best-effort helper: try encrypted, fall back to plaintext fetch.
+// Encrypted helper: retry once with a fresh session, then fail.
 export async function invokeEdge(
   functionName: string,
   body: any,
@@ -149,22 +147,8 @@ export async function invokeEdge(
   try {
     return await secureFetchJson(functionName, body, opts);
   } catch (err) {
-    console.warn(`[secureTransport] falling back to plaintext for ${functionName}:`, err);
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${anonKey()}`,
-      apikey: anonKey(),
-      ...(opts.headers || {}),
-    };
-    const res = await fetch(`${fnBase()}/${functionName}`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-    });
-    const text = await res.text();
-    let data: any = null;
-    try { data = text ? JSON.parse(text) : null; } catch { data = null; }
-    if (!res.ok) throw new Error(data?.error || `Request failed with status ${res.status}`);
-    return data;
+    console.warn(`[secureTransport] encrypted call failed for ${functionName}, rotating session and retrying once:`, err);
+    resetSession();
+    return await secureFetchJson(functionName, body, opts);
   }
 }

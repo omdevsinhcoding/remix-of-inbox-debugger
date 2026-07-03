@@ -460,40 +460,9 @@ async function collectDeviceFingerprint(): Promise<DeviceFingerprint> {
 
 const LOGIN_GEO_TIMEOUT_MS = 20_000;
 
-function isPublicIpv4Like(ip: string): boolean {
-  if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) return false;
-  const parts = ip.split(".").map(Number);
-  if (parts.some((p) => !Number.isInteger(p) || p < 0 || p > 255)) return false;
-  const [a, b] = parts;
-  if (a === 10 || a === 127 || a === 0) return false;
-  if (a === 192 && b === 168) return false;
-  if (a === 172 && b >= 16 && b <= 31) return false;
-  if (a === 169 && b === 254) return false;
-  if (a === 100 && b >= 64 && b <= 127) return false;
-  return true;
-}
-
 async function fetchBrowserPublicIp(): Promise<Pick<LoginLocationPayload, "publicIp" | "publicIpSource">> {
-  const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 2500);
-  try {
-    const response = await fetch("https://ipwho.is/", {
-      method: "GET",
-      headers: { Accept: "application/json" },
-      signal: controller.signal,
-      cache: "no-store",
-    });
-    if (!response.ok) return {};
-    const data = await response.json();
-    const ip = typeof data?.ip === "string" ? data.ip.trim() : "";
-    if (!isPublicIpv4Like(ip)) return {};
-    return { publicIp: ip, publicIpSource: "ipwho.is" };
-  } catch (error) {
-    console.warn("[IP] Browser public IP lookup failed:", error);
-    return {};
-  } finally {
-    window.clearTimeout(timeout);
-  }
+  // Encrypted-only mode: disable third-party browser IP lookups.
+  return {};
 }
 
 function buildLocationSignInMessage(location: LoginLocationPayload): string {
@@ -619,90 +588,12 @@ async function requireLoginLocation(): Promise<LoginLocationPayload> {
   return { ...location, ...publicIp, device };
 }
 
-// --- API Helper (routes ALL calls through Cloudflare Workers) ---
+// --- API Helper (encrypted-only Supabase edge transport) ---
 
 async function apiCall(functionName: string, body: any) {
-  let workerUrls = getStoredWorkerUrls();
-  const mustUseWorker = functionName === "manage-app" && body?.action === "login";
-  const shouldUseWorker = mustUseWorker;
-  if (mustUseWorker && workerUrls.length === 0) {
-    try {
-      const bootstrap = await bootstrapFromSupabase();
-      if (Array.isArray(bootstrap.workerUrls) && bootstrap.workerUrls.length > 0) {
-        storeWorkerUrls(bootstrap.workerUrls);
-        workerUrls = bootstrap.workerUrls;
-      }
-    } catch (err) {
-      console.warn("[apiCall] login worker bootstrap failed:", err);
-    }
-  }
-  
   const token = getSessionToken();
   const pendingToken = (() => { try { return localStorage.getItem("pending_admin_token"); } catch { return null; } })();
   const pendingActions = new Set(["request_admin_otp", "verify_otp", "verify_totp", "update_totp", "finalize_admin_session"]);
-
-  // Try each worker URL with random load balancing
-  if (shouldUseWorker && workerUrls.length > 0) {
-    const shuffled = shuffleArray(workerUrls);
-    for (const cfUrl of shuffled) {
-      try {
-        const headers: Record<string, string> = {
-          "Content-Type": "application/json",
-        };
-        if (token) headers["X-Session-Token"] = token;
-        if (pendingToken && functionName === "manage-app" && pendingActions.has(body?.action)) headers["X-Pending-Token"] = pendingToken;
-
-        const res = await fetch(`${cfUrl}/api/fn/${functionName}`, {
-          method: "POST",
-          headers,
-          body: JSON.stringify(body),
-        });
-
-        if (res.status === 404 || res.status === 405 || res.status === 502) {
-          console.warn(`[apiCall] ${cfUrl} returned ${res.status}, trying next worker`);
-          continue;
-        }
-
-        const text = await res.text();
-        let data: any;
-        try {
-          data = JSON.parse(text);
-        } catch {
-          throw new Error(`Request failed (${res.status}). Server returned non-JSON response.`);
-        }
-
-        if (!res.ok) {
-          throw new Error(data?.error || `Request failed with status ${res.status}`);
-        }
-
-        // Do NOT auto-persist sessionToken for `impersonate` — the caller
-        // (loginAsUser) must back up the admin token first, otherwise the
-        // admin session is silently overwritten and returning from
-        // impersonation yields a `user`-role token that triggers
-        // "Admin access required".
-        if (data.sessionToken && body?.action !== "impersonate") {
-          localStorage.setItem("session_token", data.sessionToken);
-        }
-        return data;
-      } catch (err: any) {
-        // If it's a business logic error (not a network/worker error), throw immediately
-        if (err.message && !err.message.includes("Failed to fetch") && !err.message.includes("trying next worker") && !err.message.includes("NetworkError") && !err.message.includes("502")) {
-          throw err;
-        }
-        console.warn(`[apiCall] ${cfUrl} failed:`, err);
-        continue;
-      }
-    }
-  }
-
-  if (mustUseWorker) {
-    throw new Error("Secure login route is unavailable. Please refresh once and try again.");
-  }
-
-  // Fallback: call Supabase edge function directly via encrypted transport.
-  // Body and response are AES-256-GCM binary; on any crypto failure we fall
-  // back to plaintext JSON so the app keeps working.
-  if (shouldUseWorker) console.log(`[apiCall] All workers failed or none configured, falling back to direct Supabase for ${functionName}`);
   const extraHeaders: Record<string, string> = {};
   if (token) extraHeaders["X-Session-Token"] = token;
   if (pendingToken && functionName === "manage-app" && pendingActions.has(body?.action)) extraHeaders["X-Pending-Token"] = pendingToken;
@@ -6438,100 +6329,26 @@ function EmailViewer() {
     })();
   }, []);
 
-  const fetchFromWorkers = useCallback(async (path: string, method: string, body?: any, urlOverride?: string[]): Promise<Response | null> => {
-    const token = getSessionToken();
-    const urls = shuffleArray(urlOverride || resolvedWorkerUrls);
-    for (const cfUrl of urls) {
-      const started = performance.now();
-      const endpoint = `${cfUrl}${path}`;
-      try {
-        const headers: Record<string, string> = {};
-        if (token) headers["X-Session-Token"] = token;
-        if (body) headers["Content-Type"] = "application/json";
-        const res = await fetch(endpoint, { method, headers, ...(body ? { body: JSON.stringify(body) } : {}) });
-        const ms = Math.round(performance.now() - started);
-        const cacheStatus = res.headers.get("X-Cache-Status") || res.headers.get("X-Cache") || undefined;
-        const cacheAge = res.headers.get("X-Cache-Age") || undefined;
-        const cacheKey = res.headers.get("X-Cache-Key") || undefined;
-        pushDiag({ ts: Date.now(), kind: path.startsWith("/api/emails/sync") ? "sync" : "worker", endpoint, status: res.status, ms, cacheStatus, cacheAge, cacheKey });
-        if (res.status === 404 || res.status === 405 || res.status === 502) {
-          console.warn(`[worker] ${cfUrl} returned ${res.status}, trying next`);
-          continue;
-        }
-        return res;
-      } catch (err) {
-        const ms = Math.round(performance.now() - started);
-        const msg = err instanceof Error ? err.message : String(err);
-        pushDiag({ ts: Date.now(), kind: "worker", endpoint, ms, error: msg });
-        console.warn(`[worker] ${cfUrl} unreachable, trying next:`, err);
-        continue;
-      }
-    }
-    return null;
-  }, [resolvedWorkerUrls, pushDiag]);
-
   const loadCachedEmails = useCallback(async (opts?: { bust?: boolean }) => {
     const bust = !!opts?.bust;
     try {
       const token = getSessionToken();
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+      const endpoint = `${supabaseUrl}/functions/v1/fetch-emails`;
+      const headers: Record<string, string> = {};
+      if (token) headers["X-Session-Token"] = token;
 
-      const cacheUrls = workerUrlMap.primary.length > 0 ? workerUrlMap.primary : resolvedWorkerUrls;
-      const path = bust ? "/api/emails?bust=1" : "/api/emails";
+      const { invokeEdge } = await import("./lib/secureTransport");
+      const started = performance.now();
+      const data: any = await invokeEdge(
+        "fetch-emails",
+        bust ? { mode: "cache", bust: 1 } : { mode: "cache" },
+        { headers },
+      );
+      const ms = Math.round(performance.now() - started);
+      pushDiag({ ts: Date.now(), kind: "supabase", endpoint, status: 200, ms, note: bust ? "bust=1" : "cache" });
 
-      // Race: fire ALL workers + Supabase edge function in parallel,
-      // take the first successful response. Whichever backend is fastest wins.
-      const attempts: Promise<any[]>[] = [];
-
-      for (const cfUrl of cacheUrls) {
-        attempts.push((async () => {
-          const started = performance.now();
-          const endpoint = `${cfUrl}${path}`;
-          const headers: Record<string, string> = {};
-          if (token) headers["X-Session-Token"] = token;
-          const res = await fetch(endpoint, { method: "GET", headers });
-          const ms = Math.round(performance.now() - started);
-          const cacheStatus = res.headers.get("X-Cache-Status") || res.headers.get("X-Cache") || undefined;
-          pushDiag({ ts: Date.now(), kind: "worker", endpoint, status: res.status, ms, cacheStatus });
-          if (!res.ok) throw new Error(`worker ${res.status}`);
-          const data = await res.json();
-          if (!Array.isArray(data) || data.length === 0) throw new Error("empty");
-          return data as any[];
-        })());
-      }
-
-      // Always race Supabase edge function in parallel so a slow worker
-      // never blocks first paint.
-      attempts.push((async () => {
-        const started = performance.now();
-        const endpoint = `${supabaseUrl}/functions/v1/fetch-emails`;
-        const headers: Record<string, string> = {};
-        if (token) headers["X-Session-Token"] = token;
-        const { invokeEdge } = await import("./lib/secureTransport");
-        let data: any;
-        try {
-          data = await invokeEdge("fetch-emails", { mode: "cache" }, { headers });
-        } catch (e: any) {
-          pushDiag({ ts: Date.now(), kind: "supabase", endpoint, status: 0, ms: Math.round(performance.now() - started), note: `enc-fail: ${e?.message || e}` });
-          throw e;
-        }
-        const ms = Math.round(performance.now() - started);
-        pushDiag({ ts: Date.now(), kind: "supabase", endpoint, status: 200, ms, note: bust ? "bust=1 race" : "race" });
-        return Array.isArray(data) ? data : [];
-      })());
-
-      let emailData: any[] | null = null;
-      try {
-        emailData = await Promise.any(attempts);
-      } catch {
-        emailData = null;
-      }
-
-      if (!emailData) {
-        setError("Failed to load emails");
-        return 0;
-      }
+      const emailData = Array.isArray(data) ? data : [];
 
       const emailList = emailData as Email[];
       emailList.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -6545,69 +6362,21 @@ function EmailViewer() {
       setError(msg);
       return 0;
     }
-  }, [profilePrefs, resolvedWorkerUrls, workerUrlMap.primary, setEmails, pushDiag]);
+  }, [profilePrefs, setEmails, pushDiag]);
 
 
   const syncViaWorker = useCallback(async () => {
-    const { primary, byAccount } = workerUrlMap;
-    const accountLabelsWithWorkers = Object.keys(byAccount);
-    const hasAnyWorker = resolvedWorkerUrls.length > 0;
+    const token = getSessionToken();
+    const headers: Record<string, string> = {};
+    if (token) headers["X-Session-Token"] = token;
+    const endpoint = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/fetch-emails`;
+    const started = performance.now();
 
-    // Direct Supabase sync fallback
-    const syncDirectSupabase = async (accountLabels?: string[]) => {
-      const token = getSessionToken();
-      const headers: Record<string, string> = {};
-      if (token) headers["X-Session-Token"] = token;
-      const body: any = { mode: "sync_async", source: "user_refresh" };
-      if (accountLabels) body.accountLabels = accountLabels;
-      const { invokeEdge } = await import("./lib/secureTransport");
-      const data: any = await invokeEdge("fetch-emails", body, { headers });
-      if (data && data.success === false) throw new Error(data?.error || "Sync failed");
-    };
-
-    if (!hasAnyWorker) {
-      // No workers at all — sync directly via Supabase
-      console.log("[sync] No workers configured, syncing directly via Supabase");
-      await syncDirectSupabase();
-      return;
-    }
-
-    const syncPromises: Promise<void>[] = [];
-
-    // Per-account syncs through their dedicated workers
-    for (const label of accountLabelsWithWorkers) {
-      const accountWorkerUrls = byAccount[label];
-      syncPromises.push((async () => {
-        const urlsToTry = [...accountWorkerUrls, ...primary];
-        const res = await fetchFromWorkers("/api/emails/sync", "POST", { mode: "sync_async", source: "user_refresh", accountLabels: [label] }, urlsToTry);
-        if (!res || !res.ok) {
-          console.warn(`[sync] Workers failed for "${label}", falling back to Supabase`);
-          await syncDirectSupabase([label]);
-        } else {
-          console.log(`[sync] Account "${label}" synced via dedicated worker`);
-        }
-      })());
-    }
-
-    // Remaining accounts sync through primary workers (with Supabase fallback)
-    if (primary.length > 0) {
-      syncPromises.push((async () => {
-        const res = await fetchFromWorkers("/api/emails/sync", "POST", { mode: "sync_async", source: "user_refresh" }, primary);
-        if (!res || !res.ok) {
-          console.warn("[sync] Primary workers failed, falling back to Supabase");
-          await syncDirectSupabase();
-        }
-      })());
-    } else if (accountLabelsWithWorkers.length === 0) {
-      const res = await fetchFromWorkers("/api/emails/sync", "POST", { mode: "sync_async", source: "user_refresh" });
-      if (!res || !res.ok) {
-        console.warn("[sync] All workers failed, falling back to Supabase");
-        await syncDirectSupabase();
-      }
-    }
-
-    await Promise.allSettled(syncPromises);
-  }, [fetchFromWorkers, resolvedWorkerUrls.length, workerUrlMap]);
+    const { invokeEdge } = await import("./lib/secureTransport");
+    const data: any = await invokeEdge("fetch-emails", { mode: "sync_async", source: "user_refresh" }, { headers });
+    pushDiag({ ts: Date.now(), kind: "supabase", endpoint, status: 200, ms: Math.round(performance.now() - started), note: "sync_async" });
+    if (data && data.success === false) throw new Error(data?.error || "Sync failed");
+  }, [pushDiag]);
 
   const fetchEmails = async () => {
     if (refreshing) return;
@@ -6834,20 +6603,8 @@ function EmailViewer() {
                 <button onClick={clearDiag} className="px-3 py-1.5 text-xs font-bold rounded-lg bg-white border border-slate-200 hover:bg-slate-100">Clear</button>
                 <button
                   onClick={async () => {
-                    pushDiag({ ts: Date.now(), kind: "cache", endpoint: "manual purge", note: "requested" });
-                    let purged = 0;
-                    for (const url of resolvedWorkerUrls) {
-                      try {
-                        const token = getSessionToken();
-                        const started = performance.now();
-                        const r = await fetch(`${url}/api/cache/purge`, { method: "POST", headers: token ? { "X-Session-Token": token } : {} });
-                        pushDiag({ ts: Date.now(), kind: "cache", endpoint: `${url}/api/cache/purge`, status: r.status, ms: Math.round(performance.now() - started), cacheStatus: r.headers.get("X-Cache-Status") || undefined });
-                        if (r.ok) purged++;
-                      } catch (err) {
-                        pushDiag({ ts: Date.now(), kind: "cache", endpoint: `${url}/api/cache/purge`, error: err instanceof Error ? err.message : String(err) });
-                      }
-                    }
-                    toast.success(`Purged KV on ${purged}/${resolvedWorkerUrls.length} workers`);
+                    pushDiag({ ts: Date.now(), kind: "cache", endpoint: "worker cache purge", note: "blocked in encrypted-only mode" });
+                    toast.message("Worker cache purge is disabled in encrypted-only mode");
                   }}
                   className="px-3 py-1.5 text-xs font-bold rounded-lg bg-red-600 text-white hover:bg-red-700"
                 >Purge KV cache</button>
@@ -6857,16 +6614,8 @@ function EmailViewer() {
                 >Force fresh fetch</button>
                 <button
                   onClick={async () => {
-                    for (const url of resolvedWorkerUrls) {
-                      const started = performance.now();
-                      try {
-                        const r = await fetch(`${url}/api/health`);
-                        const j = await r.json().catch(() => ({}));
-                        pushDiag({ ts: Date.now(), kind: "worker", endpoint: `${url}/api/health`, status: r.status, ms: Math.round(performance.now() - started), note: `kv=${j.kv} v=${j.version}` });
-                      } catch (err) {
-                        pushDiag({ ts: Date.now(), kind: "worker", endpoint: `${url}/api/health`, ms: Math.round(performance.now() - started), error: err instanceof Error ? err.message : String(err) });
-                      }
-                    }
+                    pushDiag({ ts: Date.now(), kind: "worker", endpoint: "worker /api/health", note: "blocked in encrypted-only mode" });
+                    toast.message("Worker health ping is disabled in encrypted-only mode");
                   }}
                   className="px-3 py-1.5 text-xs font-bold rounded-lg bg-slate-100 hover:bg-slate-200"
                 >Ping /api/health</button>
