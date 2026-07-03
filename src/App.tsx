@@ -1926,11 +1926,13 @@ function ProfileSelectPage() {
   const [fromCache, setFromCache] = useState(cachedUsers.length > 0);
   const [loginLoading, setLoginLoading] = useState(false);
   const [error, setError] = useState("");
-  const [siteKey, setSiteKey] = useState<string | null>(
-    cachedBootstrap?.recaptcha?.enabled === true && cachedBootstrap?.recaptcha?.siteKey
+  const [siteKey, setSiteKey] = useState<string | null>(() => {
+    const k = cachedBootstrap?.recaptcha?.enabled === true && cachedBootstrap?.recaptcha?.siteKey
       ? cachedBootstrap.recaptcha.siteKey
-      : null
-  );
+      : null;
+    if (k) preloadRecaptchaScript();
+    return k;
+  });
   const [captchaReady, setCaptchaReady] = useState(false);
   const [captchaConfigError, setCaptchaConfigError] = useState(false);
   const [showCaptcha, setShowCaptcha] = useState(false);
