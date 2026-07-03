@@ -1030,11 +1030,27 @@ function AutoPopupNotification() {
         (!n.snoozed_until || new Date(n.snoozed_until) < new Date())
       );
       if (fresh.length) {
-        // critical first, then newest
+        // Priority order (kid-friendly rule):
+        // 1) Security / password-reset notifications first (force to top).
+        // 2) Then admin announcements in FIFO order (oldest unseen first) —
+        //    so a brand-new user's first login shows the first admin message first.
+        // 3) Everything else after, newest first.
+        const rank = (n: AppNotification): number => {
+          const cat = (n.category || "").toLowerCase();
+          const sub = (n.sub_kind || "").toLowerCase();
+          if (cat === "security" || sub.includes("password") || sub.includes("reset")) return 0;
+          if (cat === "announcement" || cat === "update" || cat === "maintenance") return 1;
+          return 2;
+        };
         fresh.sort((a, b) => {
+          const ra = rank(a), rb = rank(b);
+          if (ra !== rb) return ra - rb;
+          // critical priority beats non-critical within the same rank bucket
           const cra = a.priority === "critical" ? 1 : 0, crb = b.priority === "critical" ? 1 : 0;
           if (cra !== crb) return crb - cra;
-          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+          const ta = new Date(a.created_at).getTime(), tb = new Date(b.created_at).getTime();
+          // Rank 1 (admin announcements) = oldest first (FIFO). Others = newest first.
+          return ra === 1 ? ta - tb : tb - ta;
         });
         setQueue((prev) => (prev.length ? prev : fresh.slice(0, 3)));
       }
