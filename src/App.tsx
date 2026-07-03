@@ -6322,8 +6322,7 @@ function EmailViewer() {
       const parsed = JSON.parse(raw);
       if (!Array.isArray(parsed)) return [];
       return filterVisibleEmails(parsed as Email[], profilePrefs)
-        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-        .slice(0, 3);
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     } catch {
       return [];
     }
@@ -6334,18 +6333,17 @@ function EmailViewer() {
       if (raw) {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) return filterVisibleEmails(parsed as Email[], user.profilePrefs || {})
-          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-          .slice(0, 3);
+          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
       }
     } catch {}
     return [];
   });
   const setEmails = useCallback((next: Email[]) => {
     const visible = filterVisibleEmails(next, profilePrefs)
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-      .slice(0, 3);
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     setEmailsRaw(visible);
-    try { localStorage.setItem(cacheKey, JSON.stringify(visible)); } catch {}
+    // Persist up to 200 in localStorage so next visit paints the full inbox instantly.
+    try { localStorage.setItem(cacheKey, JSON.stringify(visible.slice(0, 200))); } catch {}
   }, [cacheKey, profilePrefs]);
   const showLocalCacheNow = useCallback(() => {
     const cached = readLocalCachedEmails();
@@ -6695,17 +6693,18 @@ function EmailViewer() {
   // never lose seconds waiting for emails to appear.
   useEffect(() => {
     let cancelled = false;
+    // 1) Instant paint from localStorage — user sees full cached inbox immediately.
     showLocalCacheNow();
     setLoading(false);
 
-    loadCachedEmails({ limit: 3 }).finally(() => {
+    // 2) Pull the latest full inbox from DB cache (fast — no IMAP).
+    loadCachedEmails({ limit: 200 }).finally(() => {
       if (cancelled) return;
       setLoading(false);
       if (!sessionGet("session_started_at" as any)) markSessionStart();
-      // Follow up with the full inbox so users can scroll past the latest 3.
-      window.setTimeout(() => { if (!cancelled) void loadCachedEmails({ limit: 200 }); }, 250);
     });
 
+    // 3) Gentle polling so new mails appear without user action.
     const pollInterval = window.setInterval(() => {
       void loadCachedEmails({ limit: 200 });
     }, 15000);
