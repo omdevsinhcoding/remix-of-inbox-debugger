@@ -6471,19 +6471,51 @@ function EmailViewer() {
     try {
       const token = getSessionToken();
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const endpoint = `${supabaseUrl}/functions/v1/fetch-emails`;
       const headers: Record<string, string> = {};
       if (token) headers["X-Session-Token"] = token;
 
-      const { invokeEdge } = await import("./lib/secureTransport");
-      const started = performance.now();
-      const data: any = await invokeEdge(
-        "fetch-emails",
-        bust ? { mode: "cache", bust: 1, limit } : { mode: "cache", limit },
-        { headers },
-      );
-      const ms = Math.round(performance.now() - started);
-      pushDiag({ ts: Date.now(), kind: "supabase", endpoint, status: 200, ms, note: bust ? "bust=1" : "cache" });
+      let data: any = null;
+      let endpoint = `${supabaseUrl}/functions/v1/fetch-emails`;
+      const workerBase = resolvedWorkerUrls.length > 0 ? shuffleArray(resolvedWorkerUrls)[0] : "";
+      if (workerBase) {
+        const workerEndpoint = `${workerBase}/api/emails?limit=${encodeURIComponent(String(limit))}${bust ? "&bust=1" : ""}`;
+        const started = performance.now();
+        try {
+          const res = await fetch(workerEndpoint, { headers: { ...headers, "Cache-Control": "no-store" } });
+          const text = await res.text();
+          pushDiag({
+            ts: Date.now(),
+            kind: "worker",
+            endpoint: workerEndpoint,
+            status: res.status,
+            ms: Math.round(performance.now() - started),
+            cacheStatus: res.headers.get("X-Cache-Status") || undefined,
+            cacheAge: res.headers.get("X-Cache-Age") || undefined,
+            cacheKey: res.headers.get("X-Cache-Key") || undefined,
+            note: bust ? "bust=1" : "kv",
+          });
+          if (res.ok) {
+            data = text ? JSON.parse(text) : [];
+            endpoint = workerEndpoint;
+          } else {
+            pushDiag({ ts: Date.now(), kind: "worker", endpoint: workerEndpoint, status: res.status, error: text.slice(0, 160) || "worker failed" });
+          }
+        } catch (err) {
+          pushDiag({ ts: Date.now(), kind: "worker", endpoint: workerEndpoint, error: err instanceof Error ? err.message : "worker failed" });
+        }
+      }
+
+      if (data === null) {
+        const { invokeEdge } = await import("./lib/secureTransport");
+        const started = performance.now();
+        data = await invokeEdge(
+          "fetch-emails",
+          bust ? { mode: "cache", bust: 1, limit } : { mode: "cache", limit },
+          { headers },
+        );
+        const ms = Math.round(performance.now() - started);
+        pushDiag({ ts: Date.now(), kind: "supabase", endpoint, status: 200, ms, note: bust ? "bust=1" : "cache" });
+      }
 
       const emailData = Array.isArray(data) ? data : [];
 
@@ -6499,21 +6531,43 @@ function EmailViewer() {
       setError(msg);
       return 0;
     }
-  }, [profilePrefs, setEmails, pushDiag]);
+  }, [profilePrefs, setEmails, pushDiag, resolvedWorkerUrls]);
 
 
   const syncViaWorker = useCallback(async () => {
     const token = getSessionToken();
     const headers: Record<string, string> = {};
     if (token) headers["X-Session-Token"] = token;
+    const workerBase = resolvedWorkerUrls.length > 0 ? shuffleArray(resolvedWorkerUrls)[0] : "";
+    if (workerBase) {
+      const endpoint = `${workerBase}/api/emails/sync`;
+      const started = performance.now();
+      try {
+        const res = await fetch(endpoint, {
+          method: "POST",
+          headers: { ...headers, "Content-Type": "application/json", "Cache-Control": "no-store" },
+          body: JSON.stringify({ mode: "sync_async", source: "user_refresh", limit: 3 }),
+        });
+        const text = await res.text();
+        pushDiag({ ts: Date.now(), kind: "worker", endpoint, status: res.status, ms: Math.round(performance.now() - started), note: "sync_async" });
+        if (res.ok) {
+          const data = text ? JSON.parse(text) : null;
+          if (data && data.success === false) throw new Error(data?.error || "Sync failed");
+          return;
+        }
+        pushDiag({ ts: Date.now(), kind: "worker", endpoint, status: res.status, error: text.slice(0, 160) || "worker sync failed" });
+      } catch (err) {
+        pushDiag({ ts: Date.now(), kind: "worker", endpoint, error: err instanceof Error ? err.message : "worker sync failed" });
+      }
+    }
+
     const endpoint = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/fetch-emails`;
     const started = performance.now();
-
     const { invokeEdge } = await import("./lib/secureTransport");
     const data: any = await invokeEdge("fetch-emails", { mode: "sync_async", source: "user_refresh", limit: 3 }, { headers });
     pushDiag({ ts: Date.now(), kind: "supabase", endpoint, status: 200, ms: Math.round(performance.now() - started), note: "sync_async" });
     if (data && data.success === false) throw new Error(data?.error || "Sync failed");
-  }, [pushDiag]);
+  }, [pushDiag, resolvedWorkerUrls]);
 
   const fetchEmails = async () => {
     if (refreshingRef.current) return;
