@@ -271,6 +271,20 @@ async function handleGetEmails(env, session, rawToken, opts = {}) {
   const age = timestamp ? (now - parseInt(timestamp)) / 1000 : Infinity;
 
   if (!cached) {
+    const fallbackKeys = [
+      `${CACHE_KEY}:${userAccountsKey}:limit:3`,
+      `${CACHE_KEY}:${userAccountsKey}`,
+      `${CACHE_KEY}:all:limit:${limit}`,
+      `${CACHE_KEY}:all:limit:200`,
+      `${CACHE_KEY}:all:limit:3`,
+      `${CACHE_KEY}:all`,
+    ].filter((key, index, arr) => key !== cacheKey && arr.indexOf(key) === index);
+    for (const fallbackKey of fallbackKeys) {
+      const fallback = await kvGet(env, fallbackKey);
+      if (fallback) {
+        return new Response(fallback, { headers: diagHeaders({ "X-Cache-Status": "FALLBACK_HIT", "X-Cache-Key": fallbackKey }) });
+      }
+    }
     return new Response(JSON.stringify([]), { headers: diagHeaders({ "X-Cache-Status": "MISS", "X-Cache-Key": cacheKey }) });
   }
 

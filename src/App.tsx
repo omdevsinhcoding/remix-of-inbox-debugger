@@ -6663,6 +6663,7 @@ function EmailViewer() {
 
     (async () => {
       try {
+        await loadCachedEmails({ limit: 200 });
         const synced = await syncViaWorker();
         if (synced && synced.length > 0) {
           setEmailsRaw((prev) => {
@@ -6673,12 +6674,11 @@ function EmailViewer() {
           });
           setError(null);
           setLastUpdated(new Date());
-        } else {
-          await loadCachedEmails({ limit: 200 });
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err || "");
         pushDiag({ ts: Date.now(), kind: "sync", endpoint: "login auto-refresh", error: msg });
+        await loadCachedEmails({ limit: 200 });
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
