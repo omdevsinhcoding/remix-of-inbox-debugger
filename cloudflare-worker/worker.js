@@ -764,7 +764,7 @@ async function fetchFromImapAccount(account, limit = 3) {
     const emails = [];
     for (const item of literals) {
       const uid = Number(item.meta.match(/UID\s+(\d+)/i)?.[1] || 0) || Math.floor(Date.now() + Math.random() * 1000);
-      const parsed = parseRawEmail(item.data, account.label, uid);
+      const parsed = await parseRawEmail(item.data, account.label, uid);
       if (parsed) emails.push(parsed);
     }
     emails.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
