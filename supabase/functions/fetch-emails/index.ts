@@ -484,7 +484,7 @@ Deno.serve(async (req) => {
     if (mode === "cache") {
       if (!session) return json({ success: false, error: "Authentication required" }, 401);
       const accountFilter = await getAssignedAccountFilter(supabase, session);
-      const emails = await readCache(supabase, accountFilter, filterSignInCodes, filterPasswordResets);
+      const emails = await readCache(supabase, accountFilter, filterSignInCodes, filterPasswordResets, session);
       return json(emails);
     }
 
@@ -493,6 +493,14 @@ Deno.serve(async (req) => {
       const accountFilter = await getAssignedAccountFilter(supabase, session);
       let query = supabase.from("cached_emails").select("id", { count: "exact", head: true });
       if (accountFilter && accountFilter.length > 0) query = query.in("account_label", accountFilter);
+      if (session.role !== "admin") {
+        const vis = await getEmailVisibility(supabase);
+        if (vis) {
+          const cutoff = new Date();
+          cutoff.setDate(cutoff.getDate() - vis.days);
+          query = query.gte("date", cutoff.toISOString());
+        }
+      }
       const { count, error } = await query;
       return json({ total: count || 0, error: error?.message || null });
     }
