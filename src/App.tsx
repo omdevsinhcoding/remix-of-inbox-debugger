@@ -735,7 +735,9 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         sessionRemove("admin_auth" as any);
         sessionRemove("pending_admin_token" as any);
       } catch {}
+      try { const { clearRefreshState } = await import("./lib/sessionRefresh"); clearRefreshState(); } catch {}
       setUser(null);
+
     } finally {
       setLoading(false);
     }
