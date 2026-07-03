@@ -110,12 +110,29 @@ async function decryptValue(encrypted: string, secret: string): Promise<string> 
   return new TextDecoder().decode(plain);
 }
 
-// --- Audit logging ---
-async function auditLog(supabase: any, action: string, actorId: string | null, targetId: string | null, details: any, ip: string) {
+// --- Audit logging (D.3: enriched with user_agent + optional result) ---
+async function auditLog(
+  supabase: any,
+  action: string,
+  actorId: string | null,
+  targetId: string | null,
+  details: any,
+  ip: string,
+  extras?: { userAgent?: string | null; result?: string | null },
+) {
   try {
-    await supabase.from("audit_logs").insert({ action, actor_id: actorId, target_id: targetId, details, ip });
+    await supabase.from("audit_logs").insert({
+      action,
+      actor_id: actorId,
+      target_id: targetId,
+      details,
+      ip,
+      user_agent: extras?.userAgent ?? null,
+      result: extras?.result ?? null,
+    });
   } catch (e) { console.error("Audit log error:", e); }
 }
+
 
 function isPrivateIp(ip: string): boolean {
   if (!ip || ip === "unknown") return true;
