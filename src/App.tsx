@@ -3716,7 +3716,40 @@ function AdminPanel() {
     }
   };
 
-  const persistEmailFilters = async (next: { showSignInCodes: boolean; showPasswordResets: boolean; showAccountUpdates: boolean }) => {
+  const saveEmailVisibility = async (nextEnabled?: boolean) => {
+    setSavingEmailVisibility(true);
+    try {
+      const enabled = typeof nextEnabled === "boolean" ? nextEnabled : emailVisibilityEnabled;
+      const days = Math.max(1, Math.min(365, parseInt(emailVisibilityDays) || 30));
+      await apiCall("manage-app", { action: "email_visibility_set", enabled, days });
+      setEmailVisibilityEnabled(enabled);
+      setEmailVisibilityDays(String(days));
+      toast.success(enabled ? `Users will see last ${days} days of emails` : "Users can see all emails");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save");
+    } finally {
+      setSavingEmailVisibility(false);
+    }
+  };
+
+  const saveEmailAutoDelete = async (nextEnabled?: boolean) => {
+    setSavingEmailAutoDelete(true);
+    try {
+      const enabled = typeof nextEnabled === "boolean" ? nextEnabled : emailAutoDeleteEnabled;
+      const days = Math.max(1, Math.min(365, parseInt(emailAutoDeleteDays) || 30));
+      const hour = Math.max(0, Math.min(23, parseInt(emailAutoDeleteHour) || 3));
+      await apiCall("manage-app", { action: "email_cleanup_apply", enabled, days, hour });
+      setEmailAutoDeleteEnabled(enabled);
+      setEmailAutoDeleteDays(String(days));
+      setEmailAutoDeleteHour(String(hour));
+      toast.success(enabled ? `Auto-delete: emails older than ${days} days will be removed daily at ${hour}:00` : "Auto-delete turned off");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save");
+    } finally {
+      setSavingEmailAutoDelete(false);
+    }
+  };
+
     await apiCall("manage-app", { action: "set_settings", key: "email_filters", value: next });
     setEmailFiltersCache(next);
   };
