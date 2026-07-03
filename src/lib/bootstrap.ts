@@ -5,7 +5,7 @@ import { sessionGet, sessionSet, sessionRemove, sessionClearAll } from "./sessio
 const WORKER_URLS_KEY = "cloudflare_worker_urls";
 const BOOTSTRAP_CACHE_KEY = "bootstrap_cache_v1";
 const BOOTSTRAP_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-const BOOTSTRAP_TIMEOUT_MS = 8000;
+const BOOTSTRAP_TIMEOUT_MS = 20000;
 
 export type EmailFilters = { showSignInCodes?: boolean; showPasswordResets?: boolean; showAccountUpdates?: boolean };
 export type MaintenanceInfo = { enabled: boolean; title?: string; message?: string; eta?: string; startsAt?: string | null; endsAt?: string | null; versionFrom?: string; versionTo?: string; updated_at?: string | null };

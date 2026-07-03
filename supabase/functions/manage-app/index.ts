@@ -77,6 +77,22 @@ async function sha256Hex(value: string): Promise<string> {
   return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
+async function verifyRecaptchaToken(secretKey: string, token: string, ip?: string): Promise<boolean> {
+  const body = new URLSearchParams();
+  body.set("secret", secretKey);
+  body.set("response", token);
+  if (ip && ip !== "unknown") body.set("remoteip", ip);
+
+  const res = await fetch("https://www.google.com/recaptcha/api/siteverify", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+  });
+  if (!res.ok) return false;
+  const data = await res.json().catch(() => null) as any;
+  return data?.success === true;
+}
+
 // --- AES-256-GCM encryption for IMAP credentials ---
 async function deriveEncKey(secret: string): Promise<CryptoKey> {
   const encoder = new TextEncoder();
@@ -1625,8 +1641,22 @@ Deno.serve(async (originalReq) => {
     }
 
     if (action === "login") {
-      const { username, password, clientGeo } = params;
+      const { username, password, clientGeo, captchaToken } = params;
       if (!username || !password) throw new Error("Username and password required");
+
+      const { data: recaptchaSetting } = await supabase
+        .from("app_settings")
+        .select("value")
+        .eq("key", "recaptcha")
+        .maybeSingle();
+      const recaptchaCfg: any = recaptchaSetting?.value || null;
+      if (recaptchaCfg?.enabled === true) {
+        if (!recaptchaCfg?.secretKey) throw new Error("CAPTCHA is misconfigured. Contact admin.");
+        if (!captchaToken || typeof captchaToken !== "string") throw new Error("CAPTCHA required. Refresh and try again.");
+        const captchaOk = await verifyRecaptchaToken(recaptchaCfg.secretKey, captchaToken, ip);
+        if (!captchaOk) throw new Error("CAPTCHA verification failed. Refresh and try again.");
+      }
+
       const verifiedClientGeo = sanitizeClientGeo(clientGeo);
       console.log("[login] incoming clientGeo:", JSON.stringify(clientGeo));
       console.log("[login] verified clientGeo:", JSON.stringify(verifiedClientGeo));
