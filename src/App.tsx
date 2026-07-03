@@ -690,13 +690,26 @@ function ResponsiveToaster() {
   return (
     <Toaster
       position={isMobile ? "bottom-center" : "bottom-right"}
-      richColors
       closeButton
       expand={false}
       visibleToasts={2}
       duration={2500}
       offset={isMobile ? "calc(env(safe-area-inset-bottom) + 5.5rem)" : "5rem"}
-      toastOptions={{ className: "pointer-events-auto" }}
+      toastOptions={{
+        className: "pointer-events-auto !rounded-xl !border !shadow-lg !backdrop-blur",
+        style: {
+          background: "linear-gradient(135deg, rgba(30,41,59,0.96), rgba(15,23,42,0.96))",
+          color: "#f1f5f9",
+          border: "1px solid rgba(99,102,241,0.35)",
+          boxShadow: "0 10px 30px -10px rgba(79,70,229,0.45)",
+        },
+        classNames: {
+          success: "!bg-gradient-to-br !from-indigo-600 !to-violet-700 !text-white !border-indigo-400/50",
+          error: "!bg-gradient-to-br !from-rose-600 !to-red-700 !text-white !border-rose-400/50",
+          info: "!bg-gradient-to-br !from-sky-600 !to-blue-700 !text-white !border-sky-400/50",
+          warning: "!bg-gradient-to-br !from-amber-500 !to-orange-600 !text-white !border-amber-400/50",
+        },
+      }}
     />
   );
 }
@@ -4192,7 +4205,7 @@ function AdminPanel() {
                       </label>
                     ))}
                   </div>
-                  <p className="text-[10px] text-slate-400 mt-1">Leave empty = access all accounts</p>
+                  <p className="text-[10px] text-slate-400 mt-1">Leave empty = user sees no accounts</p>
                 </div>
 
                 <button onClick={createUser}
@@ -4231,7 +4244,7 @@ function AdminPanel() {
                             </div>
                           )}
                           {(!u.assignedAccounts || u.assignedAccounts.length === 0) && u.role !== "admin" && (
-                            <p className="text-[10px] text-slate-400 mt-0.5">All accounts</p>
+                            <p className="text-[10px] text-amber-600 mt-0.5 font-semibold">No accounts assigned</p>
                           )}
                         </div>
                       </div>
@@ -6579,7 +6592,9 @@ function EmailViewer() {
       // Refresh must never blank or block: latest 3 DB rows first, then IMAP sync in background.
       const cachedCount = await loadCachedEmails({ bust: true, limit: 3 });
       const baseline = Math.max(before, cachedCount);
-      toast.success(cachedCount > 0 ? "Latest 3 Netflix emails loaded" : "No Netflix emails found yet", { id: toastId, duration: 1400 });
+      toast.success(cachedCount > 0 ? "Latest Netflix emails loaded" : "No Netflix emails found yet", { id: toastId, duration: 1400 });
+      // Quietly hydrate the rest of the inbox in the background.
+      window.setTimeout(() => { void loadCachedEmails({ bust: true, limit: 200 }); }, 200);
       window.setTimeout(() => {
         if (!refreshingRef.current) return;
         setRefreshing(false);
@@ -6590,7 +6605,7 @@ function EmailViewer() {
           const started = Date.now();
           return new Promise<number>((resolve) => {
             const poll = async () => {
-              const count = await loadCachedEmails({ bust: true, limit: 3 });
+              const count = await loadCachedEmails({ bust: true, limit: 200 });
               const newest = (() => {
                 try { return Math.max(...readLocalCachedEmails().map(e => new Date(e.cached_at || e.date || 0).getTime()).filter(Number.isFinite)); }
                 catch { return 0; }
@@ -6687,15 +6702,17 @@ function EmailViewer() {
       if (cancelled) return;
       setLoading(false);
       if (!sessionGet("session_started_at" as any)) markSessionStart();
+      // Follow up with the full inbox so users can scroll past the latest 3.
+      window.setTimeout(() => { if (!cancelled) void loadCachedEmails({ limit: 200 }); }, 250);
     });
 
     const pollInterval = window.setInterval(() => {
-      void loadCachedEmails({ limit: 3 });
+      void loadCachedEmails({ limit: 200 });
     }, 15000);
 
     const handleVisibility = () => {
       if (document.visibilityState === "visible") {
-        void loadCachedEmails({ limit: 3 });
+        void loadCachedEmails({ limit: 200 });
       }
     };
 
@@ -6716,7 +6733,7 @@ function EmailViewer() {
     initialSyncFired.current = true;
     syncViaWorker()
       .then(() => new Promise(resolve => setTimeout(resolve, 1200)))
-      .then(() => loadCachedEmails({ bust: true, limit: 3 }))
+      .then(() => loadCachedEmails({ bust: true, limit: 200 }))
       .catch(() => {});
   }, [workerUrlsLoading, syncViaWorker, loadCachedEmails]);
 

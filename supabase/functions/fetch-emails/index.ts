@@ -105,7 +105,9 @@ async function decryptValue(encrypted: string, secret: string): Promise<string> 
 async function getAssignedAccountFilter(supabase: any, session: Session | null): Promise<string[] | null> {
   if (!session || session.role === "admin") return null;
   const { data: userData } = await supabase.from("app_users").select("assigned_accounts").eq("id", session.userId).single();
-  return Array.isArray(userData?.assigned_accounts) && userData.assigned_accounts.length > 0 ? userData.assigned_accounts : null;
+  // For non-admin users: return the assigned list (possibly empty).
+  // An empty array means "no accounts ticked" -> show nothing.
+  return Array.isArray(userData?.assigned_accounts) ? userData.assigned_accounts : [];
 }
 
 function applyEmailFilters(emails: any[], filterSignInCodes: boolean, filterPasswordResets: boolean) {
@@ -142,6 +144,8 @@ function clampLimit(value: any, fallback: number, max: number) {
 
 async function readCache(supabase: any, accountFilter: string[] | null, filterSignInCodes: boolean, filterPasswordResets: boolean, session: Session | null, limit = 500) {
   const safeLimit = clampLimit(limit, 500, session?.role === "admin" ? 500 : 50);
+  // Non-admin with zero assigned accounts -> nothing visible.
+  if (accountFilter && accountFilter.length === 0 && session && session.role !== "admin") return [];
   let query = supabase.from("cached_emails").select("*").order("date", { ascending: false }).limit(safeLimit);
   if (accountFilter && accountFilter.length > 0) query = query.in("account_label", accountFilter);
   if (session && session.role !== "admin") {
@@ -523,6 +527,9 @@ Deno.serve(async (originalReq) => {
     if (mode === "unfiltered_count") {
       if (!session) return json({ success: false, error: "Authentication required" }, 401);
       const accountFilter = await getAssignedAccountFilter(supabase, session);
+      if (session.role !== "admin" && accountFilter && accountFilter.length === 0) {
+        return json({ total: 0, error: null });
+      }
       let query = supabase.from("cached_emails").select("id", { count: "exact", head: true });
       if (accountFilter && accountFilter.length > 0) query = query.in("account_label", accountFilter);
       if (session.role !== "admin") {
@@ -548,6 +555,11 @@ Deno.serve(async (originalReq) => {
 
     if (session && session.role !== "admin") {
       const assigned = await getAssignedAccountFilter(supabase, session);
+      // Non-admin user: restrict sync scope to their assigned accounts.
+      // Empty assignment -> nothing to sync/display.
+      if (assigned && assigned.length === 0) {
+        return json({ success: true, accepted: true, emails: [], message: "No accounts assigned" }, mode === "sync_async" ? 202 : 200);
+      }
       if (assigned && assigned.length > 0) accountLabels = accountLabels ? accountLabels.filter(l => assigned.includes(l)) : assigned;
       const last = userSyncHits.get(session.userId) || 0;
       if (Date.now() - last < USER_SYNC_WINDOW_MS) {
