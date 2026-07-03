@@ -6499,7 +6499,8 @@ function EmailViewer() {
       }
       const groups = buildWorkerRequestGroups(labels, workerUrlMap, resolvedWorkerUrls);
       if (groups.length === 0) {
-        throw new Error("Cloudflare worker URL is not configured for this inbox");
+        // No worker configured — keep whatever we already show, don't nuke inbox.
+        return filterVisibleEmails(emails, profilePrefs).length;
       }
 
       const lists = await Promise.all(groups.map(async (group) => {
@@ -6522,13 +6523,16 @@ function EmailViewer() {
           note: `${bust ? "bust=1" : "kv"}${group.labels ? ` · ${group.labels.join(", ")}` : ""}`,
         });
         if (!res.ok) {
-          throw new Error(text.slice(0, 180) || "Worker failed to load emails");
+          // Never surface raw transport JSON like `{"error":"encrypted transport required"}`.
+          // Treat as an empty response and keep existing emails visible.
+          return [] as Email[];
         }
-        const data = text ? JSON.parse(text) : [];
+        let data: any = [];
+        try { data = text ? JSON.parse(text) : []; } catch { data = []; }
         return Array.isArray(data) ? data as Email[] : [];
       }));
 
-      const emailList = mergeEmailsById(lists);
+      const emailList = mergeEmailsById([emails, ...lists]);
       setEmails(emailList);
       setError(null);
       setLastUpdated(new Date());
@@ -6536,10 +6540,10 @@ function EmailViewer() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to load emails";
       pushDiag({ ts: Date.now(), kind: "cache", endpoint: "loadCachedEmails", error: msg });
-      setError(msg);
-      return 0;
+      // Preserve currently-shown emails; do not blank the inbox on transient error.
+      return filterVisibleEmails(emails, profilePrefs).length;
     }
-  }, [profilePrefs, setEmails, pushDiag, resolvedWorkerUrls, workerUrlMap, refreshAccountLabels]);
+  }, [profilePrefs, setEmails, pushDiag, resolvedWorkerUrls, workerUrlMap, refreshAccountLabels, emails]);
 
 
   const syncViaWorker = useCallback(async (): Promise<Email[] | null> => {
