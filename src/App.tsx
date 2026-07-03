@@ -3324,7 +3324,26 @@ function AdminPanel() {
   const navigate = useNavigate();
   const { user: currentUser, checkAuth } = useAuth();
 
-  const [stats, setStats] = useState({ totalUsers: 0, totalEmails: 0 });
+  const STATS_CACHE_KEY = "admin_stats_cache_v1";
+  const [stats, setStats] = useState<{ totalUsers: number; totalEmails: number }>(() => {
+    // Hydrate instantly from cache so the dashboard never flashes 0.
+    try {
+      const cached = localStorage.getItem(STATS_CACHE_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed && typeof parsed.totalUsers === "number" && typeof parsed.totalEmails === "number") return parsed;
+      }
+    } catch {}
+    // Fallback: use bootstrap user count so we at least show a real number.
+    try {
+      const cached = readBootstrapCache();
+      if (cached?.users?.length) return { totalUsers: cached.users.length, totalEmails: 0 };
+    } catch {}
+    return { totalUsers: 0, totalEmails: 0 };
+  });
+  useEffect(() => {
+    try { localStorage.setItem(STATS_CACHE_KEY, JSON.stringify(stats)); } catch {}
+  }, [stats]);
 
   const getAvailableAccounts = (): string[] => {
     const labels = ["Primary"];
