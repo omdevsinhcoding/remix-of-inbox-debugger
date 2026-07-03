@@ -1,0 +1,10 @@
+Contact: mailto:security@nfotp.app
+Expires: 2027-01-01T00:00:00.000Z
+Preferred-Languages: en, hi
+Canonical: https://nfotp.netlify.app/.well-known/security.txt
+Policy: https://nfotp.netlify.app/
+Acknowledgments: https://nfotp.netlify.app/
+
+# This site is a private inbox viewer for OTP / verification emails.
+# It is NOT affiliated with Netflix, Inc. All trademarks belong to
+# their respective owners. Responsible disclosure welcome.
