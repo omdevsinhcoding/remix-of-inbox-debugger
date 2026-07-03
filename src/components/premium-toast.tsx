@@ -2,7 +2,7 @@ import { toast } from "sonner";
 import { AlertCircle, CheckCircle2, Mail, Sparkles, X } from "lucide-react";
 import type { ReactNode } from "react";
 
-type Variant = "success" | "mail" | "info" | "error";
+type Variant = "success" | "mail" | "info" | "error" | "warning";
 
 interface PremiumToastOpts {
   id?: string | number;
