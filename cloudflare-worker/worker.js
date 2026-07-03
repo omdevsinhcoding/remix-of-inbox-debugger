@@ -116,7 +116,7 @@ function mergeEmailPayloads(existingRaw, incomingRaw) {
 
 // --- Main handler ---
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     if (request.method === "OPTIONS") {
       return new Response(null, { headers: CORS_HEADERS });
     }
@@ -158,7 +158,7 @@ export default {
     if (url.pathname === "/api/emails/sync" && request.method === "POST") {
       let reqBody = {};
       try { reqBody = await request.clone().json(); } catch {}
-      return handleSync(env, session, sessionToken, reqBody);
+      return handleSync(env, session, sessionToken, reqBody, ctx);
     }
 
     if (url.pathname === "/api/cache/purge" && request.method === "POST") {
@@ -313,7 +313,7 @@ async function handleCachePurge(env, session) {
   }
 }
 
-async function handleSync(env, session, rawToken, requestBody) {
+async function handleSync(env, session, rawToken, requestBody, ctx) {
   try {
     const headers = {
       "Content-Type": "application/json",
@@ -363,15 +363,31 @@ async function handleSync(env, session, rawToken, requestBody) {
       });
     }
 
-    // Update KV cache after successful sync
+    // Update KV cache after successful sync without blocking the user response.
+    // The sync edge function already returns the fresh emails; doing a second
+    // backend cache fetch here was adding seconds to the refresh path.
     if (getKV(env)) {
       const scopedLabels = Array.isArray(requestBody?.accountLabels) && requestBody.accountLabels.length > 0 ? requestBody.accountLabels : (session?.assignedAccounts || []);
       const userAccountsKey = scopedLabels.length > 0 ? JSON.stringify([...scopedLabels].sort()) : "all";
       const cacheKey = `${CACHE_KEY}:${userAccountsKey}:limit:${limit}`;
       const tsKey = `${CACHE_TIMESTAMP_KEY}:${userAccountsKey}`;
 
-      // Fetch fresh cache data since sync response may contain extra metadata
-      await refreshFromSupabase(env, session, rawToken, cacheKey, tsKey, limit, Array.isArray(requestBody?.accountLabels) ? requestBody.accountLabels : []);
+      const cacheWork = (async () => {
+        let freshRaw = "[]";
+        try {
+          const parsed = JSON.parse(responseText);
+          if (Array.isArray(parsed?.emails)) freshRaw = JSON.stringify(parsed.emails);
+        } catch {}
+        const fullCacheKey = `${CACHE_KEY}:${userAccountsKey}:limit:200`;
+        const existingFull = await kvGet(env, fullCacheKey);
+        const mergedFull = mergeEmailPayloads(existingFull, freshRaw) || freshRaw;
+        await Promise.all([
+          kvPut(env, cacheKey, freshRaw),
+          kvPut(env, fullCacheKey, mergedFull),
+          kvPut(env, tsKey, Date.now().toString()),
+        ]);
+      })().catch((err) => console.error("[sync] async KV update failed:", err.message || err));
+      if (ctx?.waitUntil) ctx.waitUntil(cacheWork);
     }
 
     return new Response(responseText, {
