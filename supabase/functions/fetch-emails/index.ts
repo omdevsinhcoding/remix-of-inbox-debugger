@@ -46,7 +46,7 @@ function extractOtpCode(subject: string, body: string): string | null {
 
 const FULL_SYNC_MAX_UIDS = 10;
 const USER_REFRESH_MAX_UIDS = 3;
-const PER_ACCOUNT_TIMEOUT_MS = 5000;
+const PER_ACCOUNT_TIMEOUT_MS = 6500;
 const STALE_DAYS = 60;
 const USER_SYNC_WINDOW_MS = 5_000;
 const userSyncHits = new Map<string, number>();
@@ -239,7 +239,7 @@ async function fetchFromAccount(
         }
       }
 
-      netflixUids.sort((a, b) => b - a);
+      netflixUids = Array.from(new Set(netflixUids)).sort((a, b) => b - a);
       const uidsToFetch = netflixUids.slice(0, clampLimit(maxMessages, USER_REFRESH_MAX_UIDS, FULL_SYNC_MAX_UIDS));
       console.log(`[${accountLabel}] Fetching ${uidsToFetch.length} recent candidate UIDs`);
 
