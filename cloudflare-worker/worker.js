@@ -498,10 +498,11 @@ async function decryptValue(encrypted, secret) {
 
 async function loadSettings(env) {
   if (!env.SUPABASE_URL || !env.SUPABASE_KEY) throw new Error("Worker Supabase settings are missing");
+  const dbKey = env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_KEY;
   const res = await fetch(`${env.SUPABASE_URL}/rest/v1/app_settings?select=key,value&key=in.(email_accounts,config,email_filters,email_visibility)`, {
     headers: {
-      apikey: env.SUPABASE_KEY,
-      Authorization: `Bearer ${env.SUPABASE_KEY}`,
+      apikey: dbKey,
+      Authorization: `Bearer ${dbKey}`,
       Accept: "application/json",
     },
   });
@@ -533,7 +534,7 @@ async function loadAccounts(env, session, requestedLabels = []) {
         host: acc.host || "imap.gmail.com",
         port: parseInt(acc.port) || 993,
         user: acc.user,
-        password: await decryptValue(acc.password, env.SUPABASE_KEY),
+        password: await decryptValue(acc.password, env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_KEY),
       });
     }
   }
@@ -544,7 +545,7 @@ async function loadAccounts(env, session, requestedLabels = []) {
       host: config.IMAP_HOST || "imap.gmail.com",
       port: parseInt(config.IMAP_PORT) || 993,
       user: config.IMAP_USER,
-      password: await decryptValue(config.IMAP_PASSWORD, env.SUPABASE_KEY),
+      password: await decryptValue(config.IMAP_PASSWORD, env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_KEY),
     });
   }
   return accounts;
@@ -614,76 +615,6 @@ async function syncDirectFromAccounts(env, session, opts = {}) {
   if (warnings.length === accounts.length) throw new Error(warnings.join(" | "));
   emails.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   return { success: true, emails: emails.slice(0, Math.max(limit, 3)), stats, totalFetched: emails.length, inserted: emails.length, warnings, source: "cloudflare-imap" };
-}
-
-async function fetchDirectFromSupabase(env, session, rawToken, limit = 3, accountLabels = []) {
-  try {
-    const bodyPayload = { mode: "cache", limit: clampLimit(limit, 3, 200) };
-    if (Array.isArray(accountLabels) && accountLabels.length > 0) {
-      bodyPayload.accountLabels = accountLabels;
-    } else if (session?.assignedAccounts) {
-      bodyPayload.accountLabels = session.assignedAccounts;
-    }
-
-    const headers = {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${env.SUPABASE_KEY}`,
-      "apikey": env.SUPABASE_KEY,
-    };
-    if (env.CRON_SHARED_SECRET) headers["X-Cron-Secret"] = env.CRON_SHARED_SECRET;
-    if (rawToken) headers["X-Session-Token"] = rawToken;
-
-    const res = await fetch(`${env.SUPABASE_URL}/functions/v1/fetch-emails`, {
-      method: "POST", headers, body: JSON.stringify(bodyPayload),
-    });
-
-    const data = await res.text();
-
-    return new Response(data, {
-      status: res.status,
-      headers: { ...CORS_HEADERS, "Content-Type": "application/json", "X-Cache": "bypass" },
-    });
-  } catch (err) {
-    return new Response(JSON.stringify({ error: "Worker cannot reach backend: " + err.message }), {
-      status: 502, headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-    });
-  }
-}
-
-async function refreshFromSupabase(env, session, rawToken, cacheKey, tsKey, limit = 3, accountLabels = []) {
-  try {
-    const bodyPayload = { mode: "cache", limit: clampLimit(limit, 3, 200) };
-    if (Array.isArray(accountLabels) && accountLabels.length > 0) {
-      bodyPayload.accountLabels = accountLabels;
-    } else if (session?.assignedAccounts) {
-      bodyPayload.accountLabels = session.assignedAccounts;
-    }
-
-    const headers = {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${env.SUPABASE_KEY}`,
-      "apikey": env.SUPABASE_KEY,
-    };
-    if (env.CRON_SHARED_SECRET) headers["X-Cron-Secret"] = env.CRON_SHARED_SECRET;
-    if (rawToken) headers["X-Session-Token"] = rawToken;
-
-    const res = await fetch(`${env.SUPABASE_URL}/functions/v1/fetch-emails`, {
-      method: "POST", headers, body: JSON.stringify(bodyPayload),
-    });
-
-    if (!res.ok) {
-      console.error("Supabase cache fetch failed:", res.status);
-      return;
-    }
-
-    const data = await res.text();
-    await Promise.all([
-      kvPut(env, cacheKey, data),
-      kvPut(env, tsKey, Date.now().toString()),
-    ]);
-  } catch (err) {
-    console.error("Refresh from Supabase error:", err);
-  }
 }
 
 // --- IP helpers ---
