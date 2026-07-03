@@ -1668,6 +1668,46 @@ interface UserData {
   id: string; username: string; name: string; role: "admin" | "user"; totpSecret?: string; mustChangePassword?: boolean; assignedAccounts?: string[] | null; profileAvatar?: string | null; profilePrefs?: UserProfilePrefs;
 }
 
+function getUserRefreshAccountLabels(user: Partial<UserData>): string[] | null {
+  if (Array.isArray(user.assignedAccounts)) {
+    return Array.from(new Set(user.assignedAccounts.map(String).map((s) => s.trim()).filter(Boolean)));
+  }
+  return user.role === "admin" ? null : [];
+}
+
+function buildWorkerRequestGroups(labels: string[] | null, map: WorkerUrlMap, primaryUrls: string[]) {
+  const primary = Array.from(new Set([...(map.primary || []), ...primaryUrls].map((u) => u.trim().replace(/\/+$/, "")).filter(Boolean)));
+  if (labels === null) {
+    const pool = primary.length > 0 ? primary : Array.from(new Set(Object.values(map.byAccount || {}).flat().map((u) => u.trim().replace(/\/+$/, "")).filter(Boolean)));
+    const url = pool.length > 0 ? shuffleArray(pool)[0] : "";
+    return url ? [{ url, labels: null as string[] | null }] : [];
+  }
+  const grouped = new Map<string, string[]>();
+  for (const label of labels) {
+    const dedicated = Array.from(new Set((map.byAccount?.[label] || []).map((u) => u.trim().replace(/\/+$/, "")).filter(Boolean)));
+    const pool = dedicated.length > 0 ? dedicated : primary;
+    const url = pool.length > 0 ? shuffleArray(pool)[0] : "";
+    if (!url) continue;
+    grouped.set(url, [...(grouped.get(url) || []), label]);
+  }
+  return Array.from(grouped.entries()).map(([url, groupLabels]) => ({ url, labels: groupLabels }));
+}
+
+function appendAccountLabelParams(params: URLSearchParams, labels: string[] | null) {
+  if (!labels) return;
+  for (const label of labels) params.append("accountLabel", label);
+}
+
+function mergeEmailsById(lists: Email[][]): Email[] {
+  const byId = new Map<string, Email>();
+  for (const list of lists) {
+    for (const email of list) {
+      if (email?.id) byId.set(email.id, email);
+    }
+  }
+  return Array.from(byId.values()).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+}
+
 type UserProfilePrefs = {
   avatarId?: string | null;
   hiddenBefore?: string | null;
@@ -6286,7 +6326,11 @@ function UserProfileModal({
 // ==================== EMAIL VIEWER ====================
 function EmailViewer() {
   usePageHead("Email Inbox — Netflix Mail", "Secure viewer for Netflix sign-in codes, OTPs, and household verification emails.", "/viewer");
-  const user = JSON.parse(sessionGet("user" as any) || "{}");
+  const user = useMemo<UserData>(() => {
+    try { return JSON.parse(sessionGet("user" as any) || "{}"); }
+    catch { return {} as UserData; }
+  }, []);
+  const refreshAccountLabels = useMemo(() => getUserRefreshAccountLabels(user), [user]);
   const { checkAuth } = useAuth();
   const cacheKey = `cached_emails_v2:${user.id || "anon"}`;
   const [profilePrefs, setProfilePrefs] = useState<UserProfilePrefs>(() => user.profilePrefs || {});
@@ -6468,31 +6512,41 @@ function EmailViewer() {
       const headers: Record<string, string> = {};
       if (token) headers["X-Session-Token"] = token;
 
-      let data: any = null;
-      const workerBase = resolvedWorkerUrls.length > 0 ? shuffleArray(resolvedWorkerUrls)[0] : "";
-      if (!workerBase) throw new Error("Cloudflare worker is not configured");
-      const workerEndpoint = `${workerBase}/api/emails?limit=${encodeURIComponent(String(limit))}${bust ? "&bust=1" : ""}`;
-      const started = performance.now();
-      const res = await fetch(workerEndpoint, { headers });
-      const text = await res.text();
-      pushDiag({
-        ts: Date.now(),
-        kind: "worker",
-        endpoint: workerEndpoint,
-        status: res.status,
-        ms: Math.round(performance.now() - started),
-        cacheStatus: res.headers.get("X-Cache-Status") || undefined,
-        cacheAge: res.headers.get("X-Cache-Age") || undefined,
-        cacheKey: res.headers.get("X-Cache-Key") || undefined,
-        note: bust ? "bust=1" : "kv",
-      });
-      if (!res.ok) throw new Error(text.slice(0, 180) || "Worker failed to load emails");
-      data = text ? JSON.parse(text) : [];
+      const labels = refreshAccountLabels;
+      if (labels && labels.length === 0) {
+        setEmails([]);
+        setError(null);
+        setLastUpdated(new Date());
+        return 0;
+      }
+      const groups = buildWorkerRequestGroups(labels, workerUrlMap, resolvedWorkerUrls);
+      if (groups.length === 0) throw new Error("Cloudflare worker is not configured");
 
-      const emailData = Array.isArray(data) ? data : [];
+      const lists = await Promise.all(groups.map(async (group) => {
+        const params = new URLSearchParams({ limit: String(limit) });
+        if (bust) params.set("bust", "1");
+        appendAccountLabelParams(params, group.labels);
+        const workerEndpoint = `${group.url}/api/emails?${params.toString()}`;
+        const started = performance.now();
+        const res = await fetch(workerEndpoint, { headers });
+        const text = await res.text();
+        pushDiag({
+          ts: Date.now(),
+          kind: "worker",
+          endpoint: workerEndpoint,
+          status: res.status,
+          ms: Math.round(performance.now() - started),
+          cacheStatus: res.headers.get("X-Cache-Status") || undefined,
+          cacheAge: res.headers.get("X-Cache-Age") || undefined,
+          cacheKey: res.headers.get("X-Cache-Key") || undefined,
+          note: `${bust ? "bust=1" : "kv"}${group.labels ? ` · ${group.labels.join(", ")}` : ""}`,
+        });
+        if (!res.ok) throw new Error(text.slice(0, 180) || "Worker failed to load emails");
+        const data = text ? JSON.parse(text) : [];
+        return Array.isArray(data) ? data as Email[] : [];
+      }));
 
-      const emailList = emailData as Email[];
-      emailList.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      const emailList = mergeEmailsById(lists);
       setEmails(emailList);
       setError(null);
       setLastUpdated(new Date());
@@ -6503,28 +6557,33 @@ function EmailViewer() {
       setError(msg);
       return 0;
     }
-  }, [profilePrefs, setEmails, pushDiag, resolvedWorkerUrls]);
+  }, [profilePrefs, setEmails, pushDiag, resolvedWorkerUrls, workerUrlMap, refreshAccountLabels]);
 
 
   const syncViaWorker = useCallback(async () => {
     const token = getSessionToken();
     const headers: Record<string, string> = {};
     if (token) headers["X-Session-Token"] = token;
-    const workerBase = resolvedWorkerUrls.length > 0 ? shuffleArray(resolvedWorkerUrls)[0] : "";
-    if (!workerBase) throw new Error("Cloudflare worker is not configured");
-    const endpoint = `${workerBase}/api/emails/sync`;
-    const started = performance.now();
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: { ...headers, "Content-Type": "application/json" },
-      body: JSON.stringify({ mode: "user_sync", source: "user_refresh", limit: 3 }),
-    });
-    const text = await res.text();
-    pushDiag({ ts: Date.now(), kind: "worker", endpoint, status: res.status, ms: Math.round(performance.now() - started), note: "user_sync" });
-    if (!res.ok) throw new Error(text.slice(0, 180) || "Worker sync failed");
-    const data: any = text ? JSON.parse(text) : null;
-    if (data && data.success === false) throw new Error(data?.error || "Sync failed");
-  }, [pushDiag, resolvedWorkerUrls]);
+    const labels = refreshAccountLabels;
+    if (labels && labels.length === 0) return;
+    const groups = buildWorkerRequestGroups(labels, workerUrlMap, resolvedWorkerUrls);
+    if (groups.length === 0) throw new Error("Cloudflare worker is not configured");
+
+    await Promise.all(groups.map(async (group) => {
+      const endpoint = `${group.url}/api/emails/sync`;
+      const started = performance.now();
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "user_sync", source: "user_refresh", limit: 3, accountLabels: group.labels || undefined }),
+      });
+      const text = await res.text();
+      pushDiag({ ts: Date.now(), kind: "worker", endpoint, status: res.status, ms: Math.round(performance.now() - started), note: `user_sync${group.labels ? ` · ${group.labels.join(", ")}` : ""}` });
+      if (!res.ok) throw new Error(text.slice(0, 180) || "Worker sync failed");
+      const data: any = text ? JSON.parse(text) : null;
+      if (data && data.success === false) throw new Error(data?.error || "Sync failed");
+    }));
+  }, [pushDiag, resolvedWorkerUrls, workerUrlMap, refreshAccountLabels]);
 
   const fetchEmails = async () => {
     if (refreshingRef.current) return;
