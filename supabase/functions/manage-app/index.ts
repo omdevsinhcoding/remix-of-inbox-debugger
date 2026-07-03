@@ -1319,7 +1319,9 @@ Deno.serve(async (originalReq) => {
     const __r = await readRequest(originalReq);
     __parsedBody = __r.body ?? {};
     __ctx = __r.encrypted ? __r.ctx : null;
-  } catch (_e) {
+  } catch (e) {
+    if (e instanceof PlaintextRejectedError) return plaintextRejectedResponse();
+    if (e instanceof TransportError) return transportErrorResponse(e);
     return new Response(JSON.stringify({ success: false, error: "bad request" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
   const req = new Request(originalReq.url, {
