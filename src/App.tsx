@@ -1827,6 +1827,7 @@ function filterVisibleEmails(list: Email[], prefs?: UserProfilePrefs | null) {
 // ==================== CAPTCHA MODAL (shared) ====================
 function CaptchaModal({ siteKey, onVerify, onCancel }: { siteKey: string; onVerify: (token: string) => void; onCancel: () => void }) {
   const [token, setToken] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState(false);
   const submit = useCallback(() => {
     if (token) onVerify(token);
   }, [token, onVerify]);
@@ -1860,12 +1861,17 @@ function CaptchaModal({ siteKey, onVerify, onCancel }: { siteKey: string; onVeri
           <Suspense fallback={<div className="h-[78px] w-[304px] rounded-lg bg-slate-100 animate-pulse" />}>
             <ReCAPTCHA
               sitekey={siteKey}
-              onChange={(t) => setToken(t)}
+              onChange={(t) => { setLoadError(false); setToken(t); }}
               onExpired={() => setToken(null)}
-              onErrored={() => setToken(null)}
+              onErrored={() => { setToken(null); setLoadError(true); }}
             />
           </Suspense>
         </div>
+        {loadError && (
+          <p className="px-6 pb-4 text-xs font-bold text-red-600 text-center">
+            CAPTCHA could not load. Disable ad-block/VPN for this site or refresh.
+          </p>
+        )}
 
         <div className="flex border-t border-slate-100">
           <button onClick={onCancel}
@@ -1906,6 +1912,8 @@ function ProfileSelectPage() {
       ? cachedBootstrap.recaptcha.siteKey
       : null
   );
+  const [captchaReady, setCaptchaReady] = useState(false);
+  const [captchaConfigError, setCaptchaConfigError] = useState(false);
   const [showCaptcha, setShowCaptcha] = useState(false);
   const navigate = useNavigate();
   const { checkAuth } = useAuth();
@@ -1914,7 +1922,7 @@ function ProfileSelectPage() {
     let cancelled = false;
     // Always fetch fresh on mount so after logout / avatar change the profile
     // grid reflects the latest data instead of the stale module singleton.
-    refreshBootstrap()
+    bootstrapFromSupabase({ force: true })
       .then((bootstrap) => {
         if (cancelled) return;
         setProfiles((bootstrap.users || []).filter((u: UserData) => u.role === "user"));
@@ -1925,11 +1933,19 @@ function ProfileSelectPage() {
         }
         setError("");
         setFromCache(false);
+        setCaptchaReady(true);
+        setCaptchaConfigError(false);
       })
       .catch((err) => {
         console.error("Failed to load profiles:", err);
-        if (!cancelled && profiles.length === 0) {
-          setError("Failed to load profiles. Please try again.");
+        if (!cancelled) {
+          setCaptchaConfigError(true);
+          setCaptchaReady(false);
+          if (profiles.length === 0) {
+            setError("Failed to load profiles. Please try again.");
+          } else {
+            setError("Security check failed to load. Please refresh and try again.");
+          }
         }
       })
       .finally(() => { if (!cancelled) setLoading(false); });
@@ -1959,6 +1975,10 @@ function ProfileSelectPage() {
   const initiateLogin = (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    if (!captchaReady) {
+      setError(captchaConfigError ? "Security check failed to load. Please refresh and try again." : "Security check is loading. Please wait.");
+      return;
+    }
     if (siteKey) {
       setShowCaptcha(true);
     } else {
@@ -1966,7 +1986,7 @@ function ProfileSelectPage() {
     }
   };
 
-  const executeLogin = async () => {
+  const executeLogin = async (captchaToken?: string) => {
     if (!selectedProfile) return;
     setLoginLoading(true);
     setError("");
@@ -1982,6 +2002,7 @@ function ProfileSelectPage() {
         username: selectedProfile.username,
         password,
         clientGeo,
+        captchaToken,
       });
 
       if (data.workerUrls && Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
@@ -2194,7 +2215,7 @@ function ProfileSelectPage() {
 
       <AnimatePresence>
         {showCaptcha && siteKey && (
-          <CaptchaModal siteKey={siteKey} onVerify={() => { setShowCaptcha(false); executeLogin(); }} onCancel={() => setShowCaptcha(false)} />
+          <CaptchaModal siteKey={siteKey} onVerify={(token) => { setShowCaptcha(false); executeLogin(token); }} onCancel={() => setShowCaptcha(false)} />
         )}
       </AnimatePresence>
     </div>
@@ -2207,7 +2228,14 @@ function AdminLoginPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [siteKey, setSiteKey] = useState<string | null>(null);
+  const cachedBootstrap = useMemo(() => readBootstrapCache(), []);
+  const [siteKey, setSiteKey] = useState<string | null>(
+    cachedBootstrap?.recaptcha?.enabled === true && cachedBootstrap?.recaptcha?.siteKey
+      ? cachedBootstrap.recaptcha.siteKey
+      : null
+  );
+  const [captchaReady, setCaptchaReady] = useState(false);
+  const [captchaConfigError, setCaptchaConfigError] = useState(false);
   const [showCaptcha, setShowCaptcha] = useState(false);
   const navigate = useNavigate();
   const { checkAuth } = useAuth();
@@ -2215,17 +2243,32 @@ function AdminLoginPage() {
   useEffect(() => {
     (async () => {
       try {
-        const bootstrap = await bootstrapFromSupabase();
+        const bootstrap = await bootstrapFromSupabase({ force: true });
         if (bootstrap.recaptcha?.enabled === true && bootstrap.recaptcha?.siteKey) {
           setSiteKey(bootstrap.recaptcha.siteKey);
+        } else {
+          setSiteKey(null);
         }
-      } catch {}
+        setCaptchaReady(true);
+        setCaptchaConfigError(false);
+      } catch {
+        if (!cancelled) {
+          setCaptchaReady(false);
+          setCaptchaConfigError(true);
+          setError("Security check failed to load. Please refresh and try again.");
+        }
+      }
     })();
+    return () => { cancelled = true; };
   }, []);
 
   const initiateLogin = (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    if (!captchaReady) {
+      setError(captchaConfigError ? "Security check failed to load. Please refresh and try again." : "Security check is loading. Please wait.");
+      return;
+    }
     if (siteKey) {
       setShowCaptcha(true);
     } else {
@@ -2233,14 +2276,14 @@ function AdminLoginPage() {
     }
   };
 
-  const executeLogin = async () => {
+  const executeLogin = async (captchaToken?: string) => {
     setLoading(true);
     setError("");
     try {
       if (!checkRateLimit(`admin_${username}`)) throw new Error("Too many attempts. Wait 1 minute.");
 
       const clientGeo = await requireLoginLocation();
-      const data: any = await apiCall("manage-app", { action: "login", username, password, clientGeo });
+      const data: any = await apiCall("manage-app", { action: "login", username, password, clientGeo, captchaToken });
 
       if (data.user.role !== "admin") throw new Error("Access denied");
       if (data.pendingToken) {
@@ -2303,9 +2346,9 @@ function AdminLoginPage() {
               <AlertCircle className="w-4 h-4" />{error}
             </div>
           )}
-          <button type="submit" disabled={loading}
+          <button type="submit" disabled={loading || !captchaReady}
             className="w-full bg-red-600 text-white font-bold py-4 rounded-2xl hover:bg-red-700 transition-all active:scale-95 disabled:opacity-50">
-            {loading ? "Authenticating..." : "Admin Sign In"}
+            {loading ? "Authenticating..." : captchaReady ? "Admin Sign In" : "Loading Security..."}
           </button>
         </form>
 
@@ -2319,7 +2362,7 @@ function AdminLoginPage() {
 
       <AnimatePresence>
         {showCaptcha && siteKey && (
-          <CaptchaModal siteKey={siteKey} onVerify={() => { setShowCaptcha(false); executeLogin(); }} onCancel={() => setShowCaptcha(false)} />
+          <CaptchaModal siteKey={siteKey} onVerify={(token) => { setShowCaptcha(false); executeLogin(token); }} onCancel={() => setShowCaptcha(false)} />
         )}
       </AnimatePresence>
     </div>

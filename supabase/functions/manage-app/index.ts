@@ -77,6 +77,22 @@ async function sha256Hex(value: string): Promise<string> {
   return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
+async function verifyRecaptchaToken(secretKey: string, token: string, ip?: string): Promise<boolean> {
+  const body = new URLSearchParams();
+  body.set("secret", secretKey);
+  body.set("response", token);
+  if (ip && ip !== "unknown") body.set("remoteip", ip);
+
+  const res = await fetch("https://www.google.com/recaptcha/api/siteverify", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+  });
+  if (!res.ok) return false;
+  const data = await res.json().catch(() => null) as any;
+  return data?.success === true;
+}
+
 // --- AES-256-GCM encryption for IMAP credentials ---
 async function deriveEncKey(secret: string): Promise<CryptoKey> {
   const encoder = new TextEncoder();
