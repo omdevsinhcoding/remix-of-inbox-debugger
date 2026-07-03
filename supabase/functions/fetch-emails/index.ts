@@ -143,7 +143,7 @@ function clampLimit(value: any, fallback: number, max: number) {
 }
 
 async function readCache(supabase: any, accountFilter: string[] | null, filterSignInCodes: boolean, filterPasswordResets: boolean, session: Session | null, limit = 500) {
-  const safeLimit = clampLimit(limit, 500, session?.role === "admin" ? 500 : 50);
+  const safeLimit = clampLimit(limit, 500, session?.role === "admin" ? 500 : 200);
   // Non-admin with zero assigned accounts -> nothing visible.
   if (accountFilter && accountFilter.length === 0 && session && session.role !== "admin") return [];
   let query = supabase.from("cached_emails").select("*").order("date", { ascending: false }).limit(safeLimit);
