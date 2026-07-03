@@ -264,8 +264,6 @@ const SESSION_CONFIG_KEY_FOR = (role: "admin" | "user") =>
   role === "admin" ? "admin_session_config" : "session_config";
 
 // --- Worker URL Types & Helpers ---
-const WORKER_URLS_KEY = "cloudflare_worker_urls";
-
 type WorkerUrlMap = {
   primary: string[];
   byAccount: Record<string, string[]>;
@@ -281,22 +279,18 @@ function shuffleArray<T>(arr: T[]): T[] {
 }
 
 function getStoredWorkerUrls(): string[] {
-  try {
-    const stored = localStorage.getItem(WORKER_URLS_KEY);
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-    }
-    const cached = readBootstrapCache();
-    if (Array.isArray(cached?.workerUrls) && cached.workerUrls.length > 0) return cached.workerUrls;
-  } catch {}
+  // Refresh/inbox routing must not depend on browser-persistent storage.
+  // Worker URLs are loaded from server settings after login.
   return [];
 }
 
 function storeWorkerUrls(urls: string[]) {
-  try {
-    localStorage.setItem(WORKER_URLS_KEY, JSON.stringify(urls));
-  } catch {}
+  void urls;
+}
+
+function isEncryptedTransportError(value: unknown): boolean {
+  const msg = value instanceof Error ? value.message : String(value || "");
+  return /encrypted transport required|plaintext rejected|transport required/i.test(msg);
 }
 
 function getSessionToken(): string | null {
@@ -777,7 +771,7 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const checkAuth = () => {
-    // Fast path: reflect localStorage synchronously (used after login/logout).
+    // Fast path: reflect tab session synchronously (used after login/logout).
     setUser(readCached());
     setLoading(false);
   };
@@ -3828,7 +3822,7 @@ function AdminPanel() {
     try {
       await apiCall("manage-app", { action: "set_settings", key: "config", value: serverConfig });
       await apiCall("manage-app", { action: "set_settings", key: "primary_cloudflare_urls", value: primaryCfUrls });
-      // Persist worker URLs to localStorage for bootstrap
+      // No browser-persistent worker URL cache; viewer reloads server settings.
       storeWorkerUrls(primaryCfUrls);
       toast.success("Server configuration saved!");
     } catch (err) {
@@ -4043,7 +4037,7 @@ function AdminPanel() {
   const loginAsUser = async (targetUser: UserData) => {
     try {
       // Snapshot the admin identity BEFORE the network call. The impersonate
-      // response carries a user-role sessionToken; if we read localStorage
+      // response carries a user-role sessionToken; if we read session state
       // after the call, we'd back up the user token as "admin" and later
       // restoration would fail with "Admin access required".
       const adminUser = sessionGet("user" as any);
@@ -6355,7 +6349,6 @@ function EmailViewer() {
   }, []);
   const refreshAccountLabels = useMemo(() => getUserRefreshAccountLabels(user), [user]);
   const { checkAuth } = useAuth();
-  const cacheKey = `cached_emails_v2:${user.id || "anon"}`;
   const [profilePrefs, setProfilePrefs] = useState<UserProfilePrefs>(() => user.profilePrefs || {});
   const saveProfilePrefsLocally = useCallback((nextPrefs: UserProfilePrefs) => {
     setProfilePrefs(nextPrefs);
@@ -6366,46 +6359,12 @@ function EmailViewer() {
       sessionSet("user" as any, JSON.stringify(stored));
     } catch {}
   }, []);
-  const readLocalCachedEmails = useCallback((): Email[] => {
-    try {
-      const raw = localStorage.getItem(cacheKey);
-      if (!raw) return [];
-      const parsed = JSON.parse(raw);
-      if (!Array.isArray(parsed)) return [];
-      return filterVisibleEmails(parsed as Email[], profilePrefs)
-        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    } catch {
-      return [];
-    }
-  }, [cacheKey, profilePrefs]);
-  const [emails, setEmailsRaw] = useState<Email[]>(() => {
-    try {
-      const raw = localStorage.getItem(cacheKey);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) return filterVisibleEmails(parsed as Email[], user.profilePrefs || {})
-          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-      }
-    } catch {}
-    return [];
-  });
+  const [emails, setEmailsRaw] = useState<Email[]>([]);
   const setEmails = useCallback((next: Email[]) => {
     const visible = filterVisibleEmails(next, profilePrefs)
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     setEmailsRaw(visible);
-    // Persist up to 200 in localStorage so next visit paints the full inbox instantly.
-    try { localStorage.setItem(cacheKey, JSON.stringify(visible.slice(0, 200))); } catch {}
-  }, [cacheKey, profilePrefs]);
-  const showLocalCacheNow = useCallback(() => {
-    const cached = readLocalCachedEmails();
-    if (cached.length > 0) {
-      cached.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-      setEmailsRaw(cached);
-      setError(null);
-      setLastUpdated(new Date());
-    }
-    return cached.length;
-  }, [readLocalCachedEmails]);
+  }, [profilePrefs]);
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -6542,8 +6501,25 @@ function EmailViewer() {
         setLastUpdated(new Date());
         return 0;
       }
+      const readDirectFromEdge = async (accountLabels?: string[]): Promise<Email[]> => {
+        const { invokeEdge } = await import("./lib/secureTransport");
+        const data: any = await invokeEdge(
+          "fetch-emails",
+          { mode: "cache", limit, accountLabels: accountLabels && accountLabels.length > 0 ? accountLabels : undefined },
+          { headers },
+        );
+        if (Array.isArray(data)) return data as Email[];
+        if (Array.isArray(data?.emails)) return data.emails as Email[];
+        return [];
+      };
       const groups = buildWorkerRequestGroups(labels, workerUrlMap, resolvedWorkerUrls);
-      if (groups.length === 0) throw new Error("Cloudflare worker is not configured");
+      if (groups.length === 0) {
+        const emailList = mergeEmailsById([await readDirectFromEdge(labels || undefined)]);
+        setEmails(emailList);
+        setError(null);
+        setLastUpdated(new Date());
+        return filterVisibleEmails(emailList, profilePrefs).length;
+      }
 
       const lists = await Promise.all(groups.map(async (group) => {
         const params = new URLSearchParams({ limit: String(limit) });
@@ -6564,7 +6540,10 @@ function EmailViewer() {
           cacheKey: res.headers.get("X-Cache-Key") || undefined,
           note: `${bust ? "bust=1" : "kv"}${group.labels ? ` · ${group.labels.join(", ")}` : ""}`,
         });
-        if (!res.ok) throw new Error(text.slice(0, 180) || "Worker failed to load emails");
+        if (!res.ok) {
+          if (isEncryptedTransportError(text)) return await readDirectFromEdge(group.labels || labels || undefined);
+          throw new Error(text.slice(0, 180) || "Worker failed to load emails");
+        }
         const data = text ? JSON.parse(text) : [];
         return Array.isArray(data) ? data as Email[] : [];
       }));
@@ -6579,8 +6558,8 @@ function EmailViewer() {
       pushDiag({ ts: Date.now(), kind: "cache", endpoint: "loadCachedEmails", error: msg });
       // Do NOT surface worker-transport errors ("encrypted transport required" etc.)
       // to the inbox UI — they would replace the cached list with a scary banner.
-      // Cached emails (local + previous sync) stay visible; user can hit Refresh.
-      if (!/encrypted transport|transport required/i.test(msg)) setError(msg);
+      // Current in-memory emails stay visible; user can hit Refresh.
+      if (!isEncryptedTransportError(msg)) setError(msg);
       return 0;
     }
   }, [profilePrefs, setEmails, pushDiag, resolvedWorkerUrls, workerUrlMap, refreshAccountLabels]);
@@ -6593,7 +6572,21 @@ function EmailViewer() {
     const labels = refreshAccountLabels;
     if (labels && labels.length === 0) return null;
     const groups = buildWorkerRequestGroups(labels, workerUrlMap, resolvedWorkerUrls);
-    if (groups.length === 0) throw new Error("Cloudflare worker is not configured");
+
+    const syncDirectFromEdge = async (accountLabels?: string[]): Promise<Email[]> => {
+      const { invokeEdge } = await import("./lib/secureTransport");
+      const data: any = await invokeEdge(
+        "fetch-emails",
+        { mode: "user_sync", source: "user_refresh", limit: 3, accountLabels: accountLabels && accountLabels.length > 0 ? accountLabels : undefined },
+        { headers },
+      );
+      if (data && data.success === false) throw new Error(data?.error || "Sync failed");
+      return Array.isArray(data?.emails) ? data.emails as Email[] : [];
+    };
+
+    if (groups.length === 0) {
+      return mergeEmailsById([await syncDirectFromEdge(labels || undefined)]);
+    }
 
     const collected: Email[][] = [];
     await Promise.all(groups.map(async (group) => {
@@ -6606,9 +6599,25 @@ function EmailViewer() {
       });
       const text = await res.text();
       pushDiag({ ts: Date.now(), kind: "worker", endpoint, status: res.status, ms: Math.round(performance.now() - started), note: `user_sync${group.labels ? ` · ${group.labels.join(", ")}` : ""}` });
-      if (!res.ok) throw new Error(text.slice(0, 180) || "Worker sync failed");
+      if (!res.ok) {
+        if (isEncryptedTransportError(text)) {
+          const directEmails = await syncDirectFromEdge(group.labels || labels || undefined);
+          if (directEmails.length > 0) collected.push(directEmails);
+          pushDiag({ ts: Date.now(), kind: "sync", endpoint: "encrypted edge fallback", note: group.labels ? group.labels.join(", ") : "assigned accounts" });
+          return;
+        }
+        throw new Error(text.slice(0, 180) || "Worker sync failed");
+      }
       const data: any = text ? JSON.parse(text) : null;
-      if (data && data.success === false) throw new Error(data?.error || "Sync failed");
+      if (data && data.success === false) {
+        if (isEncryptedTransportError(data?.error)) {
+          const directEmails = await syncDirectFromEdge(group.labels || labels || undefined);
+          if (directEmails.length > 0) collected.push(directEmails);
+          pushDiag({ ts: Date.now(), kind: "sync", endpoint: "encrypted edge fallback", note: group.labels ? group.labels.join(", ") : "assigned accounts" });
+          return;
+        }
+        throw new Error(data?.error || "Sync failed");
+      }
       if (data && Array.isArray(data.emails)) collected.push(data.emails as Email[]);
     }));
 
@@ -6650,7 +6659,10 @@ function EmailViewer() {
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to load";
-      toast.error(msg, { id: toastId, duration: 4000 });
+      toast.dismiss(toastId);
+      if (!isEncryptedTransportError(msg)) {
+        premiumToast("Refresh could not complete", { variant: "error", description: msg, duration: 3200 });
+      }
     } finally {
       if (refreshPollRef.current) {
         clearTimeout(refreshPollRef.current);
@@ -6676,7 +6688,6 @@ function EmailViewer() {
     saveProfilePrefsLocally(nextPrefs);
     setEmailsRaw([]);
     setSelectedEmail(null);
-    try { localStorage.setItem(cacheKey, JSON.stringify([])); } catch {}
 
     try {
       await apiCall("manage-app", { action: "update_profile_prefs", profile_prefs: nextPrefs });
@@ -6686,41 +6697,37 @@ function EmailViewer() {
     }
   };
 
-  // On mount: instant paint from localStorage, then ONE auto-refresh via the
-  // encrypted POST sync path (same as clicking Refresh once). No background
-  // polling, no GET /api/emails call (worker is encrypted-only and rejects it
-  // with "encrypted transport required").
+  // On mount/login: ONE silent auto-refresh via the worker POST sync path.
+  // No browser-persistent email cache, no background polling, no GET /api/emails.
   const didAutoRefreshRef = useRef(false);
   useEffect(() => {
-    // 1) Instant paint from localStorage — user sees full cached inbox immediately.
-    showLocalCacheNow();
     setLoading(false);
     if (!sessionGet("session_started_at" as any)) markSessionStart();
 
-    // 2) Fire ONE silent auto-refresh once worker URLs are known — per login.
+    // Fire ONE silent auto-refresh once worker URLs are known — per component mount/login.
     if (workerUrlsLoading) return;
     if (didAutoRefreshRef.current) return;
-    const alreadyDone = sessionStorage.getItem("nf_login_auto_refreshed") === "1";
-    if (alreadyDone) return;
     didAutoRefreshRef.current = true;
-    sessionStorage.setItem("nf_login_auto_refreshed", "1");
 
     (async () => {
       try {
+        await loadCachedEmails({ limit: 200 });
         const synced = await syncViaWorker();
         if (synced && synced.length > 0) {
           setEmailsRaw((prev) => {
             const merged = mergeEmailsById([prev, synced]);
             const visible = filterVisibleEmails(merged, profilePrefs)
               .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-            try { localStorage.setItem(cacheKey, JSON.stringify(visible.slice(0, 200))); } catch {}
             return visible;
           });
           setError(null);
           setLastUpdated(new Date());
         }
-      } catch {
-        /* silent — cached emails stay visible, user can hit Refresh */
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err || "");
+        if (!isEncryptedTransportError(msg)) {
+          pushDiag({ ts: Date.now(), kind: "sync", endpoint: "login auto-refresh", error: msg });
+        }
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
