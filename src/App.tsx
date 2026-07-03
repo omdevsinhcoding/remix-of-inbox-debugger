@@ -3750,6 +3750,7 @@ function AdminPanel() {
     }
   };
 
+  const persistEmailFilters = async (next: { showSignInCodes: boolean; showPasswordResets: boolean; showAccountUpdates: boolean }) => {
     await apiCall("manage-app", { action: "set_settings", key: "email_filters", value: next });
     setEmailFiltersCache(next);
   };
