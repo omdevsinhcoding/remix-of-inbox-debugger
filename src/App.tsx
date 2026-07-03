@@ -10,6 +10,7 @@ import { AVATAR_CATEGORIES, resolveAvatar, buildAvatarId, prettyName, getAvatarC
 import { bootstrapFromSupabase, clearSessionData, markSessionStart, readBootstrapCache, refreshBootstrap, patchBootstrapCacheUser, getEmailFilters, setEmailFilters as setEmailFiltersCache, listNotifications, markNotificationRead, markAllNotificationsRead, markNotificationSeen, deleteNotificationForMe, logNotificationEvent, getPoppedIds, markPopped, adminListRecipients, adminDeleteNotificationForUser, type EmailFilters, type AppNotification, type MaintenanceInfo, type NotificationRecipient } from "./lib/bootstrap";
 import MaintenanceScreen from "./components/MaintenanceScreen";
 import DateTimePicker from "./components/DateTimePicker";
+import { sessionGet, sessionSet, sessionRemove, sessionClearAll } from "@/lib/session";
 
 
 // Lazy-loaded heavy auth-only libs — kept out of the public first-load chunk.
@@ -280,7 +281,7 @@ function storeWorkerUrls(urls: string[]) {
 
 function getSessionToken(): string | null {
   try {
-    return localStorage.getItem("session_token");
+    return sessionGet("session_token" as any);
   } catch { return null; }
 }
 
@@ -592,7 +593,7 @@ async function requireLoginLocation(): Promise<LoginLocationPayload> {
 
 async function apiCall(functionName: string, body: any) {
   const token = getSessionToken();
-  const pendingToken = (() => { try { return localStorage.getItem("pending_admin_token"); } catch { return null; } })();
+  const pendingToken = (() => { try { return sessionGet("pending_admin_token" as any); } catch { return null; } })();
   const pendingActions = new Set(["request_admin_otp", "verify_otp", "verify_totp", "update_totp", "finalize_admin_session"]);
   const extraHeaders: Record<string, string> = {};
   if (token) extraHeaders["X-Session-Token"] = token;
@@ -601,7 +602,7 @@ async function apiCall(functionName: string, body: any) {
   const { invokeEdge } = await import("./lib/secureTransport");
   const data: any = await invokeEdge(functionName, body, { headers: extraHeaders });
   if (data?.sessionToken) {
-    localStorage.setItem("session_token", data.sessionToken);
+    sessionSet("session_token" as any, data.sessionToken);
   }
   return data;
 }
@@ -671,7 +672,7 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   // Read cached user immediately for fast paint, then re-hydrate from the DB.
   const readCached = () => {
     try {
-      const stored = localStorage.getItem("user");
+      const stored = sessionGet("user" as any);
       return stored ? JSON.parse(stored) : null;
     } catch { return null; }
   };
@@ -679,7 +680,7 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const hydrateFromServer = async () => {
     const token = getSessionToken();
     if (!token) {
-      try { localStorage.removeItem("user"); } catch {}
+      try { sessionRemove("user" as any); } catch {}
       setUser(null);
       setLoading(false);
       return;
@@ -688,7 +689,7 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       const res = await apiCall("manage-app", { action: "me" });
       if (res?.success && res.user) {
         const merged = { ...(readCached() || {}), ...res.user };
-        try { localStorage.setItem("user", JSON.stringify(merged)); } catch {}
+        try { sessionSet("user" as any, JSON.stringify(merged)); } catch {}
         setUser(merged);
       } else {
         throw new Error(res?.error || "Session invalid");
@@ -696,10 +697,10 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     } catch {
       // Session revoked, expired, or account missing → force logout
       try {
-        localStorage.removeItem("session_token");
-        localStorage.removeItem("user");
-        localStorage.removeItem("admin_auth");
-        localStorage.removeItem("pending_admin_token");
+        sessionRemove("session_token" as any);
+        sessionRemove("user" as any);
+        sessionRemove("admin_auth" as any);
+        sessionRemove("pending_admin_token" as any);
       } catch {}
       setUser(null);
     } finally {
@@ -760,7 +761,7 @@ function useSessionTimeoutGuard(role: "admin" | "user", enabled = true) {
         timer = setTimeout(doLogout, remaining);
       };
 
-      const started = Number(localStorage.getItem("session_started_at") || "0");
+      const started = Number(sessionGet("session_started_at" as any) || "0");
       if (started) {
         armFrom(started);
       } else if (role === "admin") {
@@ -771,7 +772,7 @@ function useSessionTimeoutGuard(role: "admin" | "user", enabled = true) {
         // User: wait for EmailViewer to call markSessionStart after first inbox load.
         poll = setInterval(() => {
           if (cancelled) return;
-          const s = Number(localStorage.getItem("session_started_at") || "0");
+          const s = Number(sessionGet("session_started_at" as any) || "0");
           if (s) {
             clearInterval(poll);
             poll = null;
@@ -1534,7 +1535,7 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
     if (!minutes || minutes <= 0) return;
     warnedRef.current = false;
     const tick = () => {
-      const started = Number(localStorage.getItem("session_started_at") || "0");
+      const started = Number(sessionGet("session_started_at" as any) || "0");
       if (!started) { setRemainingMs(0); return; }
       const rem = started + minutes * 60_000 - Date.now();
       setRemainingMs(Math.max(0, rem));
@@ -1949,11 +1950,11 @@ function ProfileSelectPage() {
         storeWorkerUrls(data.workerUrls);
       }
 
-      localStorage.setItem("user", JSON.stringify(data.user));
+      sessionSet("user" as any, JSON.stringify(data.user));
       // Session timer intentionally NOT started here — EmailViewer starts it
       // after the first cached-email load finishes so users always see their
       // inbox before the countdown begins.
-      try { localStorage.removeItem("session_started_at"); } catch {}
+      try { sessionRemove("session_started_at" as any); } catch {}
       checkAuth();
 
       navigate("/viewer");
@@ -2205,15 +2206,15 @@ function AdminLoginPage() {
 
       if (data.user.role !== "admin") throw new Error("Access denied");
       if (data.pendingToken) {
-        localStorage.setItem("pending_admin_token", data.pendingToken);
-        localStorage.setItem("pending_admin_token_at", String(Date.now()));
+        sessionSet("pending_admin_token" as any, data.pendingToken);
+        sessionSet("pending_admin_token_at" as any, String(Date.now()));
       }
 
       if (data.workerUrls && Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
         storeWorkerUrls(data.workerUrls);
       }
 
-      localStorage.setItem("user", JSON.stringify({ ...data.user, pending: true }));
+      sessionSet("user" as any, JSON.stringify({ ...data.user, pending: true }));
       checkAuth();
 
       toast.success("Password verified. Complete 2FA to enter admin.");
@@ -2302,13 +2303,13 @@ function AdminAuthPage() {
   const { user } = useAuth();
   const PROOF_TTL_MS = 15 * 60 * 1000;
   const [remainingMs, setRemainingMs] = useState<number>(() => {
-    const at = Number(localStorage.getItem("pending_admin_token_at") || 0);
+    const at = Number(sessionGet("pending_admin_token_at" as any) || 0);
     if (!at) return PROOF_TTL_MS;
     return Math.max(0, PROOF_TTL_MS - (Date.now() - at));
   });
   useEffect(() => {
     const t = setInterval(() => {
-      const at = Number(localStorage.getItem("pending_admin_token_at") || 0);
+      const at = Number(sessionGet("pending_admin_token_at" as any) || 0);
       const left = at ? Math.max(0, PROOF_TTL_MS - (Date.now() - at)) : 0;
       setRemainingMs(left);
     }, 1000);
@@ -2319,15 +2320,15 @@ function AdminAuthPage() {
   const ss = String(Math.floor((remainingMs % 60000) / 1000)).padStart(2, "0");
   const restartLogin = () => {
     try {
-      localStorage.removeItem("pending_admin_token");
-      localStorage.removeItem("pending_admin_token_at");
-      localStorage.removeItem("user");
+      sessionRemove("pending_admin_token" as any);
+      sessionRemove("pending_admin_token_at" as any);
+      sessionRemove("user" as any);
     } catch {}
     navigate("/admin", { replace: true });
   };
 
   useEffect(() => {
-    const pending = (() => { try { return localStorage.getItem("pending_admin_token"); } catch { return null; } })();
+    const pending = (() => { try { return sessionGet("pending_admin_token" as any); } catch { return null; } })();
     if (!pending) { navigate("/admin", { replace: true }); return; }
     if (!user || user.role !== "admin") { navigate("/admin", { replace: true }); return; }
 
@@ -2408,10 +2409,10 @@ function AdminAuthPage() {
       if (finalData.workerUrls && Array.isArray(finalData.workerUrls) && finalData.workerUrls.length > 0) {
         storeWorkerUrls(finalData.workerUrls);
       }
-      if (finalData.sessionToken) localStorage.setItem("session_token", finalData.sessionToken);
-      localStorage.removeItem("pending_admin_token");
-      localStorage.setItem("admin_auth", "true");
-      localStorage.setItem("user", JSON.stringify(finalData.user));
+      if (finalData.sessionToken) sessionSet("session_token" as any, finalData.sessionToken);
+      sessionRemove("pending_admin_token" as any);
+      sessionSet("admin_auth" as any, "true");
+      sessionSet("user" as any, JSON.stringify(finalData.user));
       markSessionStart();
       toast.success("Admin session secured.");
       navigate("/admin/dashboard");
@@ -3877,9 +3878,9 @@ function AdminPanel() {
       // response carries a user-role sessionToken; if we read localStorage
       // after the call, we'd back up the user token as "admin" and later
       // restoration would fail with "Admin access required".
-      const adminUser = localStorage.getItem("user");
-      const adminToken = localStorage.getItem("session_token");
-      const adminAuth = localStorage.getItem("admin_auth");
+      const adminUser = sessionGet("user" as any);
+      const adminToken = sessionGet("session_token" as any);
+      const adminAuth = sessionGet("admin_auth" as any);
 
       toast.loading(`Opening ${targetUser.name}'s inbox…`, { id: "impersonate" });
       const data = await apiCall("manage-app", { action: "impersonate", target_user_id: targetUser.id });
@@ -3888,11 +3889,11 @@ function AdminPanel() {
       // F4: Use sessionStorage (auto-cleared on tab close) with a 10-min TTL so a
       // shared-device user or same-origin script can't lift the admin session token.
       try {
-        sessionStorage.setItem("admin_backup", JSON.stringify({
+        sessionSet("admin_backup" as any, JSON.stringify({
           user: adminUser, token: adminToken, adminAuth, exp: Date.now() + 10 * 60_000,
         }));
       } catch {}
-      try { localStorage.removeItem("admin_backup"); } catch {}
+      try { sessionRemove("admin_backup" as any); } catch {}
 
       // CRITICAL: navigate to /viewer BEFORE swapping the session in state.
       // Otherwise ProtectedRoute on /admin/dashboard sees role="user" and
@@ -3900,11 +3901,11 @@ function AdminPanel() {
       // kicking the admin out.
       navigate("/viewer", { replace: true });
 
-      localStorage.setItem("user", JSON.stringify(data.user));
-      if (data.sessionToken) localStorage.setItem("session_token", data.sessionToken);
+      sessionSet("user" as any, JSON.stringify(data.user));
+      if (data.sessionToken) sessionSet("session_token" as any, data.sessionToken);
       // Impersonation: also defer session timer until EmailViewer loads inbox.
-      try { localStorage.removeItem("session_started_at"); } catch {}
-      localStorage.removeItem("admin_auth");
+      try { sessionRemove("session_started_at" as any); } catch {}
+      sessionRemove("admin_auth" as any);
       checkAuth();
       toast.success(`Viewing as ${targetUser.name}`);
     } catch (err) {
@@ -4010,7 +4011,7 @@ function AdminPanel() {
             <span className="hidden sm:inline">Admin Control Panel</span>
             <span className="sm:hidden">Admin</span>
           </h2>
-          <button onClick={() => { localStorage.clear(); navigate("/"); }} className="p-2 hover:bg-slate-100 rounded-full transition-colors" title="Logout" aria-label="Logout">
+          <button onClick={() => { sessionClearAll(); navigate("/"); }} className="p-2 hover:bg-slate-100 rounded-full transition-colors" title="Logout" aria-label="Logout">
             <LogOut className="w-5 h-5 text-slate-400" aria-hidden="true" />
           </button>
         </div>
@@ -5758,9 +5759,9 @@ function ChangePasswordModal({ user, onDone, forced = false }: { user: UserData;
         ...(forced ? {} : { current_password: currentPass }),
         new_password: newPass,
       });
-      const stored = JSON.parse(localStorage.getItem("user") || "{}");
+      const stored = JSON.parse(sessionGet("user" as any) || "{}");
       stored.mustChangePassword = false;
-      localStorage.setItem("user", JSON.stringify(stored));
+      sessionSet("user" as any, JSON.stringify(stored));
       toast.success("Password changed successfully!");
       onDone();
     } catch (err) {
@@ -6180,17 +6181,17 @@ function UserProfileModal({
 // ==================== EMAIL VIEWER ====================
 function EmailViewer() {
   usePageHead("Email Inbox — Netflix Mail", "Secure viewer for Netflix sign-in codes, OTPs, and household verification emails.", "/viewer");
-  const user = JSON.parse(localStorage.getItem("user") || "{}");
+  const user = JSON.parse(sessionGet("user" as any) || "{}");
   const { checkAuth } = useAuth();
   const cacheKey = `cached_emails_v1:${user.id || "anon"}`;
   const [profilePrefs, setProfilePrefs] = useState<UserProfilePrefs>(() => user.profilePrefs || {});
   const saveProfilePrefsLocally = useCallback((nextPrefs: UserProfilePrefs) => {
     setProfilePrefs(nextPrefs);
     try {
-      const stored = JSON.parse(localStorage.getItem("user") || "{}");
+      const stored = JSON.parse(sessionGet("user" as any) || "{}");
       stored.profilePrefs = nextPrefs;
       stored.profileAvatar = nextPrefs.avatarId || null;
-      localStorage.setItem("user", JSON.stringify(stored));
+      sessionSet("user" as any, JSON.stringify(stored));
     } catch {}
   }, []);
   const readLocalCachedEmails = useCallback((): Email[] => {
@@ -6240,11 +6241,11 @@ function EmailViewer() {
   // F4: read impersonation backup from sessionStorage (with TTL check).
   const readImpersonationBackup = (): { user?: string | null; token?: string | null; adminAuth?: string | null } | null => {
     try {
-      const raw = sessionStorage.getItem("admin_backup");
+      const raw = sessionGet("admin_backup" as any);
       if (!raw) return null;
       const parsed = JSON.parse(raw);
       if (!parsed || (parsed.exp && Date.now() > parsed.exp)) {
-        try { sessionStorage.removeItem("admin_backup"); } catch {}
+        try { sessionRemove("admin_backup" as any); } catch {}
         return null;
       }
       return parsed;
@@ -6278,15 +6279,15 @@ function EmailViewer() {
       const backup = readImpersonationBackup();
       if (!backup) {
         toast.error("Impersonation session expired — please sign in again as admin.");
-        try { sessionStorage.removeItem("admin_backup"); } catch {}
+        try { sessionRemove("admin_backup" as any); } catch {}
         navigate("/admin");
         return;
       }
-      if (backup.user) localStorage.setItem("user", backup.user);
-      if (backup.token) localStorage.setItem("session_token", backup.token);
-      if (backup.adminAuth) localStorage.setItem("admin_auth", backup.adminAuth);
-      try { sessionStorage.removeItem("admin_backup"); } catch {}
-      try { localStorage.removeItem("admin_backup"); } catch {}
+      if (backup.user) sessionSet("user" as any, backup.user);
+      if (backup.token) sessionSet("session_token" as any, backup.token);
+      if (backup.adminAuth) sessionSet("admin_auth" as any, backup.adminAuth);
+      try { sessionRemove("admin_backup" as any); } catch {}
+      try { sessionRemove("admin_backup" as any); } catch {}
       checkAuth();
       navigate("/admin/dashboard");
     } catch {
@@ -6488,7 +6489,7 @@ function EmailViewer() {
     loadCachedEmails().finally(() => {
       if (cancelled) return;
       setLoading(false);
-      if (!localStorage.getItem("session_started_at")) markSessionStart();
+      if (!sessionGet("session_started_at" as any)) markSessionStart();
     });
 
     const pollInterval = window.setInterval(() => {
@@ -6705,7 +6706,7 @@ function EmailViewer() {
             )}
             <button onClick={() => {
               if (isImpersonating) { backToAdmin(); return; }
-              localStorage.clear(); navigate("/");
+              sessionClearAll(); navigate("/");
             }} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
               <LogOut className="w-5 h-5 text-slate-400" />
             </button>
@@ -6881,11 +6882,11 @@ const MAINT_BYPASS_KEY = "maintenance_admin_bypass";
 
 function hasActiveAdminImpersonationBackup(): boolean {
   try {
-    const raw = sessionStorage.getItem("admin_backup");
+    const raw = sessionGet("admin_backup" as any);
     if (!raw) return false;
     const parsed = JSON.parse(raw);
     if (!parsed || (parsed.exp && Date.now() > parsed.exp)) {
-      sessionStorage.removeItem("admin_backup");
+      sessionRemove("admin_backup" as any);
       return false;
     }
     return !!parsed.token && !!parsed.user;
