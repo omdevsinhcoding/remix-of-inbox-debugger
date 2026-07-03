@@ -3362,40 +3362,33 @@ function AdminPanel() {
 
   const loadAdminData = useCallback(async (opts?: { silent?: boolean }) => {
     const silent = !!opts?.silent;
+    // ONE composite server call replaces the 12 individual apiCalls.
+    // - Bootstrap: users + emails count + notifications (+counts) + all settings + r2  → 1 HTTP request
+    // - Refresh (silent): only the 3 live datasets, no settings → still 1 request
+    // This keeps Supabase egress + edge-function invocations minimal so
+    // free-tier limits don't get eaten by the admin panel.
+    try {
+      const res: any = await apiCall("manage-app", {
+        action: silent ? "admin_dashboard_refresh" : "admin_dashboard_bootstrap",
+      });
+      if (Array.isArray(res?.users)) {
+        setUsers(res.users);
+        setStats(prev => ({ ...prev, totalUsers: res.users.length }));
+      }
+      if (typeof res?.emailsTotal === "number") {
+        setStats(prev => ({ ...prev, totalEmails: res.emailsTotal }));
+      }
+      if (Array.isArray(res?.notifications)) setAdminNotifs(res.notifications);
 
-    // Live data: users, email count, notifications — always refresh.
-    // Fire in PARALLEL so a slow response doesn't block the others.
-    const liveTasks: Promise<any>[] = [
-      apiCall("manage-app", { action: "list" }).then((usersData: any) => {
-        const usersList = usersData?.users || [];
-        setUsers(usersList);
-        setStats(prev => ({ ...prev, totalUsers: usersList.length }));
-      }).catch(() => {}),
-      apiCall("manage-app", { action: "admin_list_emails", limit: 1, offset: 0 }).then((res: any) => {
-        setStats(prev => ({ ...prev, totalEmails: res?.total || 0 }));
-      }).catch(() => {}),
-      apiCall("manage-app", { action: "admin_list_notifications" }).then((nl: any) => {
-        if (Array.isArray(nl?.notifications)) setAdminNotifs(nl.notifications);
-      }).catch(() => {}),
-    ];
-
-    if (silent) {
-      await Promise.allSettled(liveTasks);
-      return;
-    }
-
-    // Settings: rarely-changing, only on mount. Also parallelized.
-    const settingsTasks: Promise<any>[] = [
-      apiCall("manage-app", { action: "get_settings", key: "recaptcha" }).then((recaptcha: any) => {
-        if (recaptcha?.value) {
-          setSiteKey(recaptcha.value.siteKey || "");
-          setSecretKeyVal(recaptcha.value.secretKey || "");
-          setCaptchaEnabled(recaptcha.value.enabled === true);
+      if (!silent && res?.settings) {
+        const s = res.settings;
+        if (s.recaptcha) {
+          setSiteKey(s.recaptcha.siteKey || "");
+          setSecretKeyVal(s.recaptcha.secretKey || "");
+          setCaptchaEnabled(s.recaptcha.enabled === true);
         }
-      }).catch(() => {}),
-      apiCall("manage-app", { action: "get_settings", key: "config" }).then((config: any) => {
-        if (config?.value) {
-          const c = config.value as any;
+        if (s.config) {
+          const c = s.config as any;
           setServerConfig({
             TELEGRAM_BOT_TOKEN: c.TELEGRAM_BOT_TOKEN || "",
             TELEGRAM_CHAT_ID: c.TELEGRAM_CHAT_ID || "",
@@ -3405,21 +3398,15 @@ function AdminPanel() {
             IMAP_PASSWORD: c.IMAP_PASSWORD || "",
           });
         }
-      }).catch(() => {}),
-      apiCall("manage-app", { action: "get_settings", key: "primary_cloudflare_urls" }).then((pcf: any) => {
-        if (pcf?.value && Array.isArray(pcf.value)) setPrimaryCfUrls(pcf.value);
-      }).catch(() => {}),
-      apiCall("manage-app", { action: "get_settings", key: "email_filters" }).then((filters: any) => {
-        if (filters?.value) {
-          setShowSignInCodes(filters.value.showSignInCodes !== false);
-          setShowPasswordResets(filters.value.showPasswordResets === true);
-          setShowAccountUpdates(filters.value.showAccountUpdates === true);
-          setEmailFiltersCache(filters.value);
+        if (Array.isArray(s.primary_cloudflare_urls)) setPrimaryCfUrls(s.primary_cloudflare_urls);
+        if (s.email_filters) {
+          setShowSignInCodes(s.email_filters.showSignInCodes !== false);
+          setShowPasswordResets(s.email_filters.showPasswordResets === true);
+          setShowAccountUpdates(s.email_filters.showAccountUpdates === true);
+          setEmailFiltersCache(s.email_filters);
         }
-      }).catch(() => {}),
-      apiCall("manage-app", { action: "get_settings", key: "email_accounts" }).then((accounts: any) => {
-        if (accounts?.value && Array.isArray(accounts.value)) {
-          const migrated = accounts.value.map((acc: any) => {
+        if (Array.isArray(s.email_accounts)) {
+          const migrated = s.email_accounts.map((acc: any) => {
             if (acc.cloudflareUrls && Array.isArray(acc.cloudflareUrls)) return acc;
             const urls: string[] = [];
             if (acc.cloudflareUrl && acc.cloudflareUrl.trim()) urls.push(acc.cloudflareUrl.trim());
@@ -3428,76 +3415,63 @@ function AdminPanel() {
           });
           setEmailAccounts(migrated);
         }
-      }).catch(() => {}),
-      apiCall("manage-app", { action: "get_settings", key: "session_config" }).then((sc: any) => {
-        const m = Number(sc?.value?.timeoutMinutes);
-        if (Number.isFinite(m) && m >= 0) setSessionTimeoutMin(String(m));
-      }).catch(() => {}),
-      apiCall("manage-app", { action: "get_settings", key: "admin_session_config" }).then((sc: any) => {
-        const m = Number(sc?.value?.timeoutMinutes);
-        if (Number.isFinite(m) && m >= 0) setAdminSessionTimeoutMin(String(m));
-      }).catch(() => {}),
-      apiCall("manage-app", { action: "get_settings", key: "ipwho_alert" }).then((ipw: any) => {
-        setIpwhoAlertEnabled(ipw?.value?.enabled === true);
-      }).catch(() => {}),
-      apiCall("manage-app", { action: "get_settings", key: "maintenance" }).then((mnt: any) => {
-        if (mnt?.value) {
-          setMaintenanceEnabled(mnt.value.enabled === true);
-          setMaintenanceTitle(mnt.value.title || "");
-          setMaintenanceMessage(mnt.value.message || "");
-          setMaintenanceVersionFrom(mnt.value.versionFrom || "");
-          setMaintenanceVersionTo(mnt.value.versionTo || "");
-          prevSavedVersionToRef.current = mnt.value.versionTo || "";
+        const m1 = Number(s.session_config?.timeoutMinutes);
+        if (Number.isFinite(m1) && m1 >= 0) setSessionTimeoutMin(String(m1));
+        const m2 = Number(s.admin_session_config?.timeoutMinutes);
+        if (Number.isFinite(m2) && m2 >= 0) setAdminSessionTimeoutMin(String(m2));
+        setIpwhoAlertEnabled(s.ipwho_alert?.enabled === true);
+        if (s.maintenance) {
+          const mnt = s.maintenance;
+          setMaintenanceEnabled(mnt.enabled === true);
+          setMaintenanceTitle(mnt.title || "");
+          setMaintenanceMessage(mnt.message || "");
+          setMaintenanceVersionFrom(mnt.versionFrom || "");
+          setMaintenanceVersionTo(mnt.versionTo || "");
+          prevSavedVersionToRef.current = mnt.versionTo || "";
           const toLocalInput = (iso: string) => {
             const d = new Date(iso);
             if (isNaN(d.getTime())) return "";
             const pad = (n: number) => String(n).padStart(2, "0");
             return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
           };
-          if (mnt.value.startsAt) setMaintenanceStartsAt(toLocalInput(mnt.value.startsAt));
-          if (mnt.value.endsAt) setMaintenanceEndsAt(toLocalInput(mnt.value.endsAt));
+          if (mnt.startsAt) setMaintenanceStartsAt(toLocalInput(mnt.startsAt));
+          if (mnt.endsAt) setMaintenanceEndsAt(toLocalInput(mnt.endsAt));
         }
-      }).catch(() => {}),
-      apiCall("manage-app", { action: "admin_get_r2_config" }).then((r2: any) => {
-        if (r2?.config) {
+        if (res.r2) {
           setR2Cfg((current) => r2Dirty ? current : ({
-            accountId: r2.config.accountId || "",
-            accessKeyId: r2.config.accessKeyId || "",
-            secretAccessKey: r2.config.secretAccessKey || "",
-            bucket: r2.config.bucket || "",
-            publicBaseUrl: r2.config.publicBaseUrl || "",
-            pathPrefix: r2.config.pathPrefix || "notifications/",
-            enabled: r2.config.enabled === true,
-            secretAccessKeySet: r2.config.secretAccessKeySet === true,
+            accountId: res.r2.accountId || "",
+            accessKeyId: res.r2.accessKeyId || "",
+            secretAccessKey: res.r2.secretAccessKey || "",
+            bucket: res.r2.bucket || "",
+            publicBaseUrl: res.r2.publicBaseUrl || "",
+            pathPrefix: res.r2.pathPrefix || "notifications/",
+            enabled: res.r2.enabled === true,
+            secretAccessKeySet: res.r2.secretAccessKeySet === true,
           }));
         }
-      }).catch(() => {}),
-    ];
-
-    await Promise.allSettled([...liveTasks, ...settingsTasks]);
+      }
+    } catch (err) {
+      if (!silent) console.warn("[admin] dashboard load failed:", err);
+    }
   }, [r2Dirty]);
 
   useEffect(() => {
     // Initial full load
     void loadAdminData();
 
-    // Auto-refresh live data (users, emails count, notifications) every 8s
-    // while tab is visible — so admin panel never lags behind actual state.
-    let interval: number | null = null;
-    const start = () => {
-      if (interval != null) return;
-      interval = window.setInterval(() => { void loadAdminData({ silent: true }); }, 8000);
-    };
-    const stop = () => {
-      if (interval != null) { clearInterval(interval); interval = null; }
-    };
+    // Refresh live data on tab focus only. NO polling — polling would burn
+    // through Supabase egress + edge-function invocations on the free tier.
+    // Admin still gets fresh data whenever they come back to the tab, and
+    // can pull the manual "Refresh" button for on-demand updates.
     const onVis = () => {
-      if (document.visibilityState === "visible") { void loadAdminData({ silent: true }); start(); }
-      else stop();
+      if (document.visibilityState === "visible") void loadAdminData({ silent: true });
     };
-    start();
     document.addEventListener("visibilitychange", onVis);
-    return () => { stop(); document.removeEventListener("visibilitychange", onVis); };
+    window.addEventListener("focus", onVis);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("focus", onVis);
+    };
   }, [loadAdminData]);
 
 
