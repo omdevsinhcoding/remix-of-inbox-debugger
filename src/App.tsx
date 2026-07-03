@@ -6520,7 +6520,6 @@ function EmailViewer() {
       const baseline = Math.max(before, cachedCount);
       window.setTimeout(() => {
         if (!refreshingRef.current) return;
-        refreshingRef.current = false;
         setRefreshing(false);
       }, 1500);
 
