@@ -45,9 +45,10 @@ function extractOtpCode(subject: string, body: string): string | null {
 }
 
 const FULL_SYNC_MAX_UIDS = 10;
+const USER_REFRESH_MAX_UIDS = 3;
 const PER_ACCOUNT_TIMEOUT_MS = 8000;
 const STALE_DAYS = 60;
-const USER_SYNC_WINDOW_MS = 30_000;
+const USER_SYNC_WINDOW_MS = 5_000;
 const userSyncHits = new Map<string, number>();
 
 type Session = { userId: string; username: string; role: "admin" | "user"; assignedAccounts?: string[] | null; exp?: number };
@@ -133,8 +134,15 @@ async function getEmailVisibility(supabase: any): Promise<{ enabled: boolean; da
   return null;
 }
 
-async function readCache(supabase: any, accountFilter: string[] | null, filterSignInCodes: boolean, filterPasswordResets: boolean, session: Session | null) {
-  let query = supabase.from("cached_emails").select("*").order("date", { ascending: false }).limit(500);
+function clampLimit(value: any, fallback: number, max: number) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.max(1, Math.min(max, Math.floor(n)));
+}
+
+async function readCache(supabase: any, accountFilter: string[] | null, filterSignInCodes: boolean, filterPasswordResets: boolean, session: Session | null, limit = 500) {
+  const safeLimit = clampLimit(limit, 500, session?.role === "admin" ? 500 : 50);
+  let query = supabase.from("cached_emails").select("*").order("date", { ascending: false }).limit(safeLimit);
   if (accountFilter && accountFilter.length > 0) query = query.in("account_label", accountFilter);
   if (session && session.role !== "admin") {
     const vis = await getEmailVisibility(supabase);
@@ -156,6 +164,7 @@ async function readCache(supabase: any, accountFilter: string[] | null, filterSi
     preview: e.preview,
     html: e.html,
     account_label: e.account_label,
+    cached_at: e.cached_at,
   }));
   return applyEmailFilters(emails, filterSignInCodes, filterPasswordResets);
 }
@@ -166,6 +175,7 @@ async function fetchFromAccount(
   imapUser: string,
   imapPassword: string,
   accountLabel: string,
+  maxMessages = FULL_SYNC_MAX_UIDS,
 ): Promise<{ emails: any[]; fetched: number; skipped: number }> {
   const emails: any[] = [];
   let timedOut = false;
@@ -223,7 +233,7 @@ async function fetchFromAccount(
       }
 
       netflixUids.sort((a, b) => b - a);
-      const uidsToFetch = netflixUids.slice(0, FULL_SYNC_MAX_UIDS);
+      const uidsToFetch = netflixUids.slice(0, clampLimit(maxMessages, USER_REFRESH_MAX_UIDS, FULL_SYNC_MAX_UIDS));
       console.log(`[${accountLabel}] Fetching ${uidsToFetch.length} recent candidate UIDs`);
 
       for (const uid of uidsToFetch) {
@@ -323,7 +333,7 @@ async function loadAccounts(supabase: any, secret: string, accountLabels: string
   return accounts;
 }
 
-async function runSync(supabase: any, secret: string, source: string, accountLabels: string[] | null) {
+async function runSync(supabase: any, secret: string, source: string, accountLabels: string[] | null, maxMessages = FULL_SYNC_MAX_UIDS) {
   console.log(`[sync] Starting parallel IMAP sync (source: ${source})`);
   const accounts = await loadAccounts(supabase, secret, accountLabels);
 
@@ -339,7 +349,7 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
 
   const settled = await Promise.allSettled(accounts.map(async (acc) => {
     console.log(`[sync] Fetching ${acc.label} (${acc.user})`);
-    const result = await fetchFromAccount(acc.host, acc.port, acc.user, acc.password, acc.label);
+    const result = await fetchFromAccount(acc.host, acc.port, acc.user, acc.password, acc.label, maxMessages);
     return { acc, result };
   }));
 
@@ -506,7 +516,7 @@ Deno.serve(async (originalReq) => {
     if (mode === "cache") {
       if (!session) return json({ success: false, error: "Authentication required" }, 401);
       const accountFilter = await getAssignedAccountFilter(supabase, session);
-      const emails = await readCache(supabase, accountFilter, filterSignInCodes, filterPasswordResets, session);
+      const emails = await readCache(supabase, accountFilter, filterSignInCodes, filterPasswordResets, session, body.limit);
       return json(emails);
     }
 
@@ -541,7 +551,7 @@ Deno.serve(async (originalReq) => {
       if (assigned && assigned.length > 0) accountLabels = accountLabels ? accountLabels.filter(l => assigned.includes(l)) : assigned;
       const last = userSyncHits.get(session.userId) || 0;
       if (Date.now() - last < USER_SYNC_WINDOW_MS) {
-        const cache = await readCache(supabase, assigned, filterSignInCodes, filterPasswordResets, session);
+        const cache = await readCache(supabase, assigned, filterSignInCodes, filterPasswordResets, session, body.limit);
         return json({ success: true, rateLimited: true, message: "Please wait before refreshing again", emails: cache }, mode === "sync_async" ? 202 : 429);
       }
       userSyncHits.set(session.userId, Date.now());
@@ -549,13 +559,14 @@ Deno.serve(async (originalReq) => {
 
     if (mode === "sync_async") {
       const accountFilterForCache = session ? await getAssignedAccountFilter(supabase, session) : null;
-      const cache = session ? await readCache(supabase, accountFilterForCache, filterSignInCodes, filterPasswordResets, session).catch(() => []) : [];
-      const work = runSync(supabase, ENCRYPTION_SECRET, source || "async", accountLabels).catch(err => console.error("[sync_async] background failed:", err));
+      const cache = session ? await readCache(supabase, accountFilterForCache, filterSignInCodes, filterPasswordResets, session, body.limit).catch(() => []) : [];
+      const maxMessages = clampLimit(body.limit, USER_REFRESH_MAX_UIDS, FULL_SYNC_MAX_UIDS);
+      const work = runSync(supabase, ENCRYPTION_SECRET, source || "async", accountLabels, maxMessages).catch(err => console.error("[sync_async] background failed:", err));
       ((globalThis as any).EdgeRuntime?.waitUntil?.(work) ?? work);
       return json({ success: true, accepted: true, emails: cache }, 202);
     }
 
-    const result = await runSync(supabase, ENCRYPTION_SECRET, source, accountLabels);
+    const result = await runSync(supabase, ENCRYPTION_SECRET, source, accountLabels, clampLimit(body.limit, FULL_SYNC_MAX_UIDS, FULL_SYNC_MAX_UIDS));
     return json(result, result.success === false ? 502 : 200);
   } catch (err) {
     console.error("[sync] Fatal error:", err);
