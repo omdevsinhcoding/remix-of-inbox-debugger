@@ -7,7 +7,7 @@ import NetflixHouseholdVerificationGuide from "./pages/NetflixHouseholdVerificat
 import { Toaster, toast } from "sonner";
 import { supabase } from "./integrations/supabase/client";
 import { AVATAR_CATEGORIES, resolveAvatar, buildAvatarId, prettyName, getAvatarCategoryUrls } from "./lib/avatars";
-import { bootstrapFromSupabase, clearSessionData, markSessionStart, readBootstrapCache, refreshBootstrap, patchBootstrapCacheUser, getEmailFilters, setEmailFilters as setEmailFiltersCache, listNotifications, markNotificationRead, markAllNotificationsRead, markNotificationSeen, deleteNotificationForMe, logNotificationEvent, getPoppedIds, markPopped, type EmailFilters, type AppNotification, type MaintenanceInfo } from "./lib/bootstrap";
+import { bootstrapFromSupabase, clearSessionData, markSessionStart, readBootstrapCache, refreshBootstrap, patchBootstrapCacheUser, getEmailFilters, setEmailFilters as setEmailFiltersCache, listNotifications, markNotificationRead, markAllNotificationsRead, markNotificationSeen, deleteNotificationForMe, logNotificationEvent, getPoppedIds, markPopped, adminListRecipients, adminDeleteNotificationForUser, type EmailFilters, type AppNotification, type MaintenanceInfo, type NotificationRecipient } from "./lib/bootstrap";
 import MaintenanceScreen from "./components/MaintenanceScreen";
 import DateTimePicker from "./components/DateTimePicker";
 
@@ -1030,11 +1030,27 @@ function AutoPopupNotification() {
         (!n.snoozed_until || new Date(n.snoozed_until) < new Date())
       );
       if (fresh.length) {
-        // critical first, then newest
+        // Priority order (kid-friendly rule):
+        // 1) Security / password-reset notifications first (force to top).
+        // 2) Then admin announcements in FIFO order (oldest unseen first) —
+        //    so a brand-new user's first login shows the first admin message first.
+        // 3) Everything else after, newest first.
+        const rank = (n: AppNotification): number => {
+          const cat = (n.category || "").toLowerCase();
+          const sub = (n.sub_kind || "").toLowerCase();
+          if (cat === "security" || sub.includes("password") || sub.includes("reset")) return 0;
+          if (cat === "announcement" || cat === "update" || cat === "maintenance") return 1;
+          return 2;
+        };
         fresh.sort((a, b) => {
+          const ra = rank(a), rb = rank(b);
+          if (ra !== rb) return ra - rb;
+          // critical priority beats non-critical within the same rank bucket
           const cra = a.priority === "critical" ? 1 : 0, crb = b.priority === "critical" ? 1 : 0;
           if (cra !== crb) return crb - cra;
-          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+          const ta = new Date(a.created_at).getTime(), tb = new Date(b.created_at).getTime();
+          // Rank 1 (admin announcements) = oldest first (FIFO). Others = newest first.
+          return ra === 1 ? ta - tb : tb - ta;
         });
         setQueue((prev) => (prev.length ? prev : fresh.slice(0, 3)));
       }
@@ -3030,6 +3046,176 @@ function usePageHead(title: string, description: string, path: string) {
   }, [title, description, path]);
 }
 
+function timeAgo(iso?: string | null): string {
+  if (!iso) return "—";
+  const d = Date.now() - new Date(iso).getTime();
+  if (d < 0) return "—";
+  const s = Math.floor(d / 1000);
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const days = Math.floor(h / 24);
+  return `${days}d ago`;
+}
+
+function RecipientsDrawer({ notification, onClose, onChanged }: { notification: any; onClose: () => void; onChanged?: () => void }) {
+  const [loading, setLoading] = useState(true);
+  const [rows, setRows] = useState<NotificationRecipient[]>([]);
+  const [removing, setRemoving] = useState<string | null>(null);
+  const [filter, setFilter] = useState<"all" | "seen" | "read" | "clicked" | "deleted" | "pending">("all");
+  const [search, setSearch] = useState("");
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const list = await adminListRecipients(notification.id);
+      setRows(list);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to load recipients");
+    } finally { setLoading(false); }
+  };
+
+  useEffect(() => { load(); }, [notification.id]);
+
+  const removeForUser = async (userId: string) => {
+    if (!confirm("Is user ke inbox se yeh notification hata dein?")) return;
+    setRemoving(userId);
+    try {
+      await adminDeleteNotificationForUser(notification.id, userId);
+      toast.success("Removed for this user");
+      await load();
+      onChanged?.();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed");
+    } finally { setRemoving(null); }
+  };
+
+  const q = search.trim().toLowerCase();
+  const filtered = rows.filter((r) => {
+    if (q && !((r.name || "").toLowerCase().includes(q) || (r.username || "").toLowerCase().includes(q))) return false;
+    switch (filter) {
+      case "seen": return !!r.seen_at;
+      case "read": return !!r.read_at;
+      case "clicked": return !!r.clicked_at;
+      case "deleted": return !!r.deleted_at;
+      case "pending": return !r.seen_at && !r.deleted_at;
+      default: return true;
+    }
+  });
+
+  const seenN = rows.filter((r) => !!r.seen_at).length;
+  const readN = rows.filter((r) => !!r.read_at).length;
+  const clickedN = rows.filter((r) => !!r.clicked_at).length;
+  const deletedN = rows.filter((r) => !!r.deleted_at).length;
+
+  return (
+    <div className="fixed inset-0 z-[110] bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={onClose}>
+      <div className="bg-white w-full sm:max-w-3xl sm:rounded-2xl rounded-t-2xl max-h-[92vh] flex flex-col shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="p-4 sm:p-5 border-b flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500">👥 Recipients</div>
+            <h3 className="font-black text-base sm:text-lg text-slate-900 truncate mt-0.5">{notification.title}</h3>
+            <div className="mt-2 flex items-center gap-3 text-[11px] font-bold flex-wrap">
+              <span className="text-slate-600">Total {rows.length}</span>
+              <span className="text-slate-600">👀 {seenN} seen</span>
+              <span className="text-emerald-700">✅ {readN} read</span>
+              <span className="text-sky-700">🖱 {clickedN} clicked</span>
+              <span className="text-rose-600">🗑 {deletedN} deleted</span>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-900 shrink-0 p-1"><X className="w-5 h-5" /></button>
+        </div>
+
+        <div className="p-3 sm:p-4 border-b bg-slate-50 flex items-center gap-2 flex-wrap">
+          <div className="relative flex-1 min-w-[180px]">
+            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text" value={search} onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by name or username…"
+              className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-200 text-sm text-slate-900 bg-white focus:outline-none focus:border-slate-400"
+            />
+          </div>
+          <div className="flex items-center gap-1 flex-wrap">
+            {([
+              { k: "all", label: "All" },
+              { k: "pending", label: "Pending" },
+              { k: "seen", label: "Seen" },
+              { k: "read", label: "Read" },
+              { k: "clicked", label: "Clicked" },
+              { k: "deleted", label: "Deleted" },
+            ] as const).map((f) => (
+              <button key={f.k} onClick={() => setFilter(f.k)}
+                className={`px-3 py-1.5 rounded-full text-[11px] font-bold transition-colors ${filter === f.k ? "bg-slate-900 text-white" : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"}`}>
+                {f.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
+          {loading ? (
+            <div className="p-8 text-center text-sm text-slate-500">Loading recipients…</div>
+          ) : filtered.length === 0 ? (
+            <div className="p-8 text-center text-sm text-slate-500">Koi recipient nahi mila.</div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 sticky top-0 z-10 text-[10px] uppercase tracking-wider text-slate-500 font-bold">
+                <tr>
+                  <th className="text-left px-4 py-2.5">User</th>
+                  <th className="text-left px-3 py-2.5">Seen</th>
+                  <th className="text-left px-3 py-2.5">Read</th>
+                  <th className="text-left px-3 py-2.5">Clicked</th>
+                  <th className="text-left px-3 py-2.5">Deleted</th>
+                  <th className="text-right px-4 py-2.5">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((r) => {
+                  const isDeleted = !!r.deleted_at;
+                  return (
+                    <tr key={r.user_id} className="border-t border-slate-100 hover:bg-slate-50">
+                      <td className="px-4 py-2.5">
+                        <div className="font-semibold text-slate-900 text-[13px]">{r.name || r.username}</div>
+                        <div className="text-[11px] text-slate-500">@{r.username}</div>
+                      </td>
+                      <td className="px-3 py-2.5 text-[12px] text-slate-700">{timeAgo(r.seen_at)}</td>
+                      <td className={`px-3 py-2.5 text-[12px] ${r.read_at ? "text-emerald-700 font-semibold" : "text-slate-400"}`}>{timeAgo(r.read_at)}</td>
+                      <td className={`px-3 py-2.5 text-[12px] ${r.clicked_at ? "text-sky-700 font-semibold" : "text-slate-400"}`}>{timeAgo(r.clicked_at)}</td>
+                      <td className={`px-3 py-2.5 text-[12px] ${isDeleted ? "text-rose-600 font-semibold" : "text-slate-400"}`}>{timeAgo(r.deleted_at)}</td>
+                      <td className="px-4 py-2.5 text-right">
+                        {isDeleted ? (
+                          <span className="text-[11px] text-slate-400 italic">already deleted</span>
+                        ) : (
+                          <button
+                            onClick={() => removeForUser(r.user_id)}
+                            disabled={removing === r.user_id}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold text-rose-600 hover:bg-rose-50 border border-rose-200 disabled:opacity-50">
+                            <Trash2 className="w-3 h-3" />
+                            {removing === r.user_id ? "…" : "Remove for user"}
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        <div className="p-3 border-t bg-slate-50 flex items-center justify-between rounded-b-2xl">
+          <button onClick={load} className="text-[12px] font-semibold text-slate-600 hover:text-slate-900 flex items-center gap-1.5">
+            <RefreshCw className="w-3.5 h-3.5" /> Refresh
+          </button>
+          <button onClick={onClose} className="px-4 py-2 rounded-lg bg-slate-900 text-white text-[12px] font-bold hover:bg-slate-800">Done</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AdminPanel() {
   usePageHead("Admin Dashboard — Netflix Mail", "Admin control panel for managing users, sessions, notifications, and email accounts.", "/admin/dashboard");
   const [activeTab, setActiveTab] = useState<"users" | "security" | "emails" | "settings" | "notifications" | "inbox" | "logins" | "allmails">("users");
@@ -3106,6 +3292,7 @@ function AdminPanel() {
   const [sendingNotif, setSendingNotif] = useState(false);
   const [editingNotif, setEditingNotif] = useState<any | null>(null);
   const [savingEditNotif, setSavingEditNotif] = useState(false);
+  const [recipientsFor, setRecipientsFor] = useState<any | null>(null);
 
 
   // R2 storage config
@@ -4470,15 +4657,20 @@ function AdminPanel() {
 
 
 
-                  {/* Toggles: Force Join + Audience */}
+                  {/* Toggles: User can delete + Audience */}
                   <div className="grid grid-cols-2 gap-3">
                     <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-3">
-                      <label className="text-[9.5px] font-bold uppercase tracking-[0.14em] text-slate-500 block mb-2">Force Join</label>
+                      <label className="text-[9.5px] font-bold uppercase tracking-[0.14em] text-slate-500 block mb-2">User Can Delete?</label>
                       <button type="button" onClick={() => setNotifLocked(!notifLocked)}
-                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${notifLocked ? "bg-orange-500" : "bg-slate-700"}`}>
-                        <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${notifLocked ? "translate-x-6" : "translate-x-1"}`} />
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${!notifLocked ? "bg-emerald-500" : "bg-slate-700"}`}
+                        aria-label="Allow user to delete this notification">
+                        <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${!notifLocked ? "translate-x-6" : "translate-x-1"}`} />
                       </button>
-                      <span className="ml-2 text-[11px] text-slate-400">{notifLocked ? "Locked (can't dismiss)" : "Dismissable"}</span>
+                      <span className="ml-2 text-[11px] text-slate-400">
+                        {notifLocked
+                          ? "🔒 Locked — user delete nahi kar sakta"
+                          : "🔓 Haan, user delete kar sakta hai"}
+                      </span>
                     </div>
                     <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-3">
                       <label className="text-[9.5px] font-bold uppercase tracking-[0.14em] text-slate-500 block mb-2">Audience</label>
@@ -4624,34 +4816,45 @@ function AdminPanel() {
                 <div className="space-y-2 max-h-[60vh] overflow-y-auto">
                   {adminNotifs.length === 0 && <p className="text-sm text-slate-500">No notifications yet.</p>}
                   {adminNotifs.map((n) => (
-                    <div key={n.id} className="border rounded-xl p-3 hover:border-slate-300 transition-colors group">
+                    <div key={n.id} className="border-2 rounded-2xl p-4 hover:border-slate-300 hover:shadow-md transition-all group bg-white">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
                             {n.platform_icon ? <PlatformChipVisual id={n.platform_icon} size={20} audit={platformLogoResults[resolvePlatformOption(n.platform_icon).id || "__custom"]} /> : null}
-                            {n.locked && <span className="inline-flex items-center gap-1 text-[9.5px] px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 font-semibold"><Lock className="w-2.5 h-2.5" />Locked</span>}
-                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-700 capitalize">{n.category || "announcement"}</span>
+                            <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-semibold ${n.locked ? "bg-amber-50 text-amber-700 border border-amber-200" : "bg-emerald-50 text-emerald-700 border border-emerald-200"}`}>
+                              {n.locked ? "🔒 Locked" : "🔓 User delete OK"}
+                            </span>
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 capitalize font-medium">{n.category || "announcement"}</span>
                             <span className={`inline-flex items-center gap-1 text-[10px] font-semibold capitalize ${n.priority === "critical" ? "text-rose-600" : n.priority === "high" ? "text-amber-600" : n.priority === "normal" ? "text-sky-600" : "text-zinc-500"}`}>
                               <span className={`w-1.5 h-1.5 rounded-full ${n.priority === "critical" ? "bg-rose-500" : n.priority === "high" ? "bg-amber-500" : n.priority === "normal" ? "bg-sky-500" : "bg-zinc-400"}`} />
                               {n.priority || "low"}
                             </span>
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-medium">
+                              {n.audience === "all" ? `👥 Sabko (${n.totalRecipients || 0})` : "👤 Ek user ko"}
+                            </span>
                           </div>
-                          <p className="font-bold text-sm text-slate-900 truncate">{n.title}</p>
-                          <p className="text-xs text-slate-600 line-clamp-2">{n.body}</p>
-                          <p className="text-[11px] text-slate-400 mt-1">
-                            {n.audience === "all" ? "All users" : "Specific"} • Seen {n.seenCount || 0} · Read {n.readCount || 0} · Clicked {n.clickCount || 0} / {n.totalRecipients || 0}
-                          </p>
+                          <p className="font-black text-[15px] text-slate-900 truncate">{n.title}</p>
+                          <p className="text-xs text-slate-600 line-clamp-2 mt-0.5">{n.body}</p>
+                          <div className="flex items-center gap-3 mt-2 flex-wrap text-[11px] font-semibold">
+                            <span className="inline-flex items-center gap-1 text-slate-600">👀 {n.seenCount || 0} <span className="text-slate-400 font-normal">seen</span></span>
+                            <span className="inline-flex items-center gap-1 text-emerald-700">✅ {n.readCount || 0} <span className="text-slate-400 font-normal">read</span></span>
+                            <span className="inline-flex items-center gap-1 text-sky-700">🖱 {n.clickCount || 0} <span className="text-slate-400 font-normal">clicked</span></span>
+                            <span className="inline-flex items-center gap-1 text-rose-600">🗑 {n.deletedCount || 0} <span className="text-slate-400 font-normal">deleted</span></span>
+                          </div>
                         </div>
                       </div>
-                      <div className="flex items-center gap-1 mt-2 pt-2 border-t border-slate-100 opacity-60 group-hover:opacity-100 transition-opacity">
-                        <button onClick={() => setEditingNotif({ ...n })} className="flex-1 px-2 py-1.5 rounded-md text-[11px] font-semibold text-slate-700 hover:bg-slate-100 flex items-center justify-center gap-1">
-                          <Edit className="w-3 h-3" /> Edit
+                      <div className="flex items-center gap-1.5 mt-3 pt-3 border-t border-slate-100">
+                        <button onClick={() => setRecipientsFor(n)} className="flex-1 min-h-[40px] px-3 py-2 rounded-lg text-[12px] font-bold text-white bg-slate-900 hover:bg-slate-800 flex items-center justify-center gap-1.5">
+                          <Users className="w-3.5 h-3.5" /> Recipients
                         </button>
-                        <button onClick={() => duplicateToComposer(n)} className="flex-1 px-2 py-1.5 rounded-md text-[11px] font-semibold text-slate-700 hover:bg-slate-100 flex items-center justify-center gap-1">
-                          <Copy className="w-3 h-3" /> Duplicate
+                        <button onClick={() => setEditingNotif({ ...n })} className="flex-1 min-h-[40px] px-3 py-2 rounded-lg text-[12px] font-semibold text-slate-700 hover:bg-slate-100 border border-slate-200 flex items-center justify-center gap-1.5">
+                          <Edit className="w-3.5 h-3.5" /> Edit
                         </button>
-                        <button onClick={() => deleteNotification(n.id)} className="flex-1 px-2 py-1.5 rounded-md text-[11px] font-semibold text-red-600 hover:bg-red-50 flex items-center justify-center gap-1">
-                          <Trash2 className="w-3 h-3" /> Delete
+                        <button onClick={() => duplicateToComposer(n)} className="min-h-[40px] px-3 py-2 rounded-lg text-[12px] font-semibold text-slate-700 hover:bg-slate-100 border border-slate-200 flex items-center justify-center gap-1.5" title="Duplicate">
+                          <Copy className="w-3.5 h-3.5" />
+                        </button>
+                        <button onClick={() => deleteNotification(n.id)} className="min-h-[40px] px-3 py-2 rounded-lg text-[12px] font-semibold text-red-600 hover:bg-red-50 border border-red-200 flex items-center justify-center gap-1.5" title="Delete for everyone">
+                          <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
                     </div>
@@ -4727,10 +4930,21 @@ function AdminPanel() {
                     {users.map((u) => <option key={u.id} value={u.id}>{u.name || u.username}</option>)}
                   </select>
                 )}
-                <label className="flex items-center gap-2 text-sm text-slate-800">
-                  <input type="checkbox" checked={!!editingNotif.locked} onChange={(e) => setEditingNotif({ ...editingNotif, locked: e.target.checked })} />
-                  <Lock className="w-3.5 h-3.5" /> Force Join (locked — user can't dismiss)
-                </label>
+                <div className={`rounded-xl p-3 border-2 ${!editingNotif.locked ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input type="checkbox" checked={!editingNotif.locked} onChange={(e) => setEditingNotif({ ...editingNotif, locked: !e.target.checked })} className="mt-1 w-4 h-4" />
+                    <div className="flex-1">
+                      <div className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
+                        {!editingNotif.locked ? "🔓 User is notification ko delete kar sakta hai" : "🔒 Locked — user delete nahi kar sakta"}
+                      </div>
+                      <div className="text-[11px] text-slate-600 mt-0.5">
+                        {!editingNotif.locked
+                          ? "User ke notification panel me delete/close button dikhega."
+                          : "User na dismiss kar sakta, na delete. Sirf admin hata sakta."}
+                      </div>
+                    </div>
+                  </label>
+                </div>
               </div>
               <div className="p-5 border-t flex items-center gap-2 bg-slate-50 rounded-b-2xl">
                 <button onClick={() => setEditingNotif(null)} disabled={savingEditNotif} className="flex-1 px-4 py-2.5 rounded-lg border border-slate-300 text-sm font-semibold text-slate-700 hover:bg-white">Cancel</button>
@@ -4741,6 +4955,11 @@ function AdminPanel() {
             </div>
           </div>,
           document.body
+        )}
+
+        {recipientsFor && createPortal(
+          <RecipientsDrawer notification={recipientsFor} onClose={() => setRecipientsFor(null)} onChanged={reloadAdminNotifs} />,
+          document.body,
         )}
 
 

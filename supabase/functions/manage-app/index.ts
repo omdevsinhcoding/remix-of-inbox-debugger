@@ -2386,14 +2386,16 @@ Deno.serve(async (req) => {
       const readCounts = new Map<string, number>();
       const seenCounts = new Map<string, number>();
       const clickCounts = new Map<string, number>();
+      const deletedCounts = new Map<string, number>();
       if (ids.length) {
         const { data: reads } = await supabase
           .from("notification_reads")
-          .select("notification_id, read_at, seen_at")
+          .select("notification_id, read_at, seen_at, deleted_at")
           .in("notification_id", ids);
         for (const r of reads || []) {
           if (r.seen_at) seenCounts.set(r.notification_id, (seenCounts.get(r.notification_id) || 0) + 1);
           if (r.read_at) readCounts.set(r.notification_id, (readCounts.get(r.notification_id) || 0) + 1);
+          if (r.deleted_at) deletedCounts.set(r.notification_id, (deletedCounts.get(r.notification_id) || 0) + 1);
         }
         const { data: evs } = await supabase
           .from("notification_events")
@@ -2408,9 +2410,89 @@ Deno.serve(async (req) => {
         readCount: readCounts.get(n.id) || 0,
         seenCount: seenCounts.get(n.id) || 0,
         clickCount: clickCounts.get(n.id) || 0,
+        deletedCount: deletedCounts.get(n.id) || 0,
         totalRecipients: n.audience === "all" ? (totalUsers || 0) : 1,
       }));
       return new Response(JSON.stringify({ success: true, notifications: payload }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "admin_notification_recipients") {
+      await requireAdmin(req);
+      const { notification_id } = params as { notification_id?: string };
+      if (!notification_id) throw new Error("notification_id required");
+      const { data: note, error: nErr } = await supabase
+        .from("notifications")
+        .select("id, audience, target_user_id")
+        .eq("id", notification_id)
+        .maybeSingle();
+      if (nErr) throw nErr;
+      if (!note) throw new Error("Notification not found");
+
+      let usersQ = supabase.from("app_users").select("id, username, name, role, profile_prefs").neq("role", "admin");
+      if (note.audience === "user" && note.target_user_id) {
+        usersQ = supabase.from("app_users").select("id, username, name, role, profile_prefs").eq("id", note.target_user_id);
+      }
+      const { data: recipients, error: uErr } = await usersQ;
+      if (uErr) throw uErr;
+
+      const userIds = (recipients || []).map((u: any) => u.id);
+      const readsMap = new Map<string, any>();
+      const clickedMap = new Map<string, string>();
+      if (userIds.length) {
+        const { data: reads } = await supabase
+          .from("notification_reads")
+          .select("user_id, read_at, seen_at, deleted_at")
+          .eq("notification_id", notification_id)
+          .in("user_id", userIds);
+        for (const r of reads || []) readsMap.set(r.user_id, r);
+        const { data: evs } = await supabase
+          .from("notification_events")
+          .select("user_id, event, created_at")
+          .eq("notification_id", notification_id)
+          .eq("event", "clicked")
+          .in("user_id", userIds)
+          .order("created_at", { ascending: false });
+        for (const e of evs || []) {
+          if (!clickedMap.has(e.user_id)) clickedMap.set(e.user_id, e.created_at);
+        }
+      }
+
+      const rows = (recipients || []).map((u: any) => {
+        const r = readsMap.get(u.id) || {};
+        const prefs = u.profile_prefs || {};
+        return {
+          user_id: u.id,
+          username: u.username,
+          name: u.name,
+          profileAvatar: prefs.avatarId || null,
+          seen_at: r.seen_at || null,
+          read_at: r.read_at || null,
+          deleted_at: r.deleted_at || null,
+          clicked_at: clickedMap.get(u.id) || null,
+        };
+      });
+      return new Response(JSON.stringify({ success: true, recipients: rows }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "admin_delete_notification_for_user") {
+      const session = await requireAdmin(req);
+      const { notification_id, user_id } = params as { notification_id?: string; user_id?: string };
+      if (!notification_id || !user_id) throw new Error("notification_id and user_id required");
+      const nowIso = new Date().toISOString();
+      const { error } = await supabase.from("notification_reads").upsert(
+        { notification_id, user_id, deleted_at: nowIso, seen_at: nowIso },
+        { onConflict: "notification_id,user_id" },
+      );
+      if (error) throw error;
+      await supabase.from("notification_events").insert({
+        notification_id, user_id, event: "dismissed", meta: { deleted: true, by_admin: session.userId },
+      });
+      await auditLog(supabase, "notification_deleted_for_user", session.userId, notification_id, { user_id }, ip);
+      return new Response(JSON.stringify({ success: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
