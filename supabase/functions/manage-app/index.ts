@@ -1395,40 +1395,41 @@ Deno.serve(async (req) => {
     // Bootstrap: returns profiles, recaptcha config, and worker URLs for fresh browsers
     if (action === "bootstrap_public") {
       // Public profile picker — only non-admin users, minimal fields.
-      const { data: users, error: usersErr } = await supabase
+      const usersP = supabase
         .from("app_users")
         .select("id, username, name, role, profile_prefs")
         .neq("role", "admin")
         .order("created_at", { ascending: true });
+
+      const settingsP = supabase
+        .from("app_settings")
+        .select("key,value")
+        .in("key", ["recaptcha", "primary_cloudflare_urls", "email_filters", "maintenance", "r2_storage"]);
+
+      const [{ data: users, error: usersErr }, { data: settingRows }] = await Promise.all([usersP, settingsP]);
       if (usersErr) throw usersErr;
 
+      const settings = new Map((settingRows || []).map((row: any) => [row.key, row.value]));
+
       let recaptcha = null;
-      try {
-        const { data: rcData } = await supabase.from("app_settings").select("value").eq("key", "recaptcha").single();
-        if (rcData?.value?.enabled === true && rcData?.value?.siteKey) {
-          recaptcha = { enabled: true, siteKey: rcData.value.siteKey };
-        }
-      } catch {}
+      const rcData: any = settings.get("recaptcha");
+      if (rcData?.enabled === true && rcData?.siteKey) {
+        recaptcha = { enabled: true, siteKey: rcData.siteKey };
+      }
 
-      let workerUrls: string[] = [];
-      try {
-        const { data: pcf } = await supabase.from("app_settings").select("value").eq("key", "primary_cloudflare_urls").single();
-        if (pcf?.value && Array.isArray(pcf.value)) {
-          workerUrls = pcf.value.filter((u: any) => typeof u === "string" && u.length > 0);
-        }
-      } catch {}
+      const pcf: any = settings.get("primary_cloudflare_urls");
+      const workerUrls: string[] = Array.isArray(pcf)
+        ? pcf.filter((u: any) => typeof u === "string" && u.length > 0)
+        : [];
 
-      let emailFilters: any = {};
-      try {
-        const { data: efData } = await supabase.from("app_settings").select("value").eq("key", "email_filters").single();
-        if (efData?.value && typeof efData.value === "object") emailFilters = efData.value;
-      } catch {}
+      const efData: any = settings.get("email_filters");
+      const emailFilters: any = efData && typeof efData === "object" ? efData : {};
 
       let maintenance: any = { enabled: false };
       try {
-        const { data: mData } = await supabase.from("app_settings").select("value").eq("key", "maintenance").single();
-        if (mData?.value && typeof mData.value === "object") {
-          const v: any = mData.value;
+        const mData: any = settings.get("maintenance");
+        if (mData && typeof mData === "object") {
+          const v: any = mData;
           const startsAt = typeof v.startsAt === "string" ? v.startsAt : null;
           const endsAt = typeof v.endsAt === "string" ? v.endsAt : null;
           // Auto-expire: if endsAt is in the past, treat as disabled.
@@ -1467,8 +1468,7 @@ Deno.serve(async (req) => {
 
       let avatarBaseUrl = "";
       try {
-        const { data: r2Data } = await supabase.from("app_settings").select("value").eq("key", "r2_storage").single();
-        const r2 = normalizeR2Config(r2Data?.value || {}).config;
+        const r2 = normalizeR2Config(settings.get("r2_storage") || {}).config;
         avatarBaseUrl = r2.publicBaseUrl || "";
       } catch {}
 
