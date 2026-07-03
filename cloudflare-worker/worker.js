@@ -389,7 +389,7 @@ async function handleSync(env, session, rawToken, requestBody) {
 
 async function fetchDirectFromSupabase(env, session, rawToken, limit = 3, accountLabels = []) {
   try {
-    const bodyPayload = { mode: "cache", limit: clampLimit(limit, 3, 50) };
+    const bodyPayload = { mode: "cache", limit: clampLimit(limit, 3, 200) };
     if (Array.isArray(accountLabels) && accountLabels.length > 0) {
       bodyPayload.accountLabels = accountLabels;
     } else if (session?.assignedAccounts) {
@@ -423,7 +423,7 @@ async function fetchDirectFromSupabase(env, session, rawToken, limit = 3, accoun
 
 async function refreshFromSupabase(env, session, rawToken, cacheKey, tsKey, limit = 3, accountLabels = []) {
   try {
-    const bodyPayload = { mode: "cache", limit: clampLimit(limit, 3, 50) };
+    const bodyPayload = { mode: "cache", limit: clampLimit(limit, 3, 200) };
     if (Array.isArray(accountLabels) && accountLabels.length > 0) {
       bodyPayload.accountLabels = accountLabels;
     } else if (session?.assignedAccounts) {
