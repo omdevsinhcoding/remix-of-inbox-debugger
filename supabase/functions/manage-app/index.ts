@@ -2262,7 +2262,8 @@ Deno.serve(async (originalReq) => {
           meta: { family_id: row.family_id, original_reason: row.revoked_reason },
         }).then(() => {});
 
-        // Telegram alert (best-effort)
+        // Telegram alert — fire-and-forget so we don't block the response
+        // that's about to throw "Session family revoked".
         try {
           const tg = await getTelegramConfig(supabase);
           if (tg) {
@@ -2273,11 +2274,7 @@ Deno.serve(async (originalReq) => {
               `<b>Family:</b> <code>${row.family_id}</code>`,
               `<i>All sessions in this family have been revoked.</i>`,
             ].join("\n");
-            await fetch(`https://api.telegram.org/bot${tg.botToken}/sendMessage`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ chat_id: tg.chatId, text, parse_mode: "HTML", disable_web_page_preview: true }),
-            });
+            postTelegramBg(tg, { text });
           }
         } catch {}
 
