@@ -41,15 +41,23 @@ function uuidStringToBytes(id: string): Uint8Array {
   return out;
 }
 
-// bytea returned from postgrest as "\\xDEADBEEF..." hex string
+// bytea returned from postgrest as "\\xDEADBEEF..." hex string, raw hex,
+// or (on newer PostgREST versions) a base64 string.
 function pgByteaToBytes(v: unknown): Uint8Array {
   if (v instanceof Uint8Array) return v;
   if (typeof v === "string") {
-    let hex = v;
-    if (hex.startsWith("\\x") || hex.startsWith("\\X")) hex = hex.slice(2);
-    if (hex.startsWith("0x") || hex.startsWith("0X")) hex = hex.slice(2);
-    const out = new Uint8Array(hex.length / 2);
-    for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.substr(i * 2, 2), 16);
+    let s = v;
+    if (s.startsWith("\\x") || s.startsWith("\\X")) s = s.slice(2);
+    else if (s.startsWith("0x") || s.startsWith("0X")) s = s.slice(2);
+    if (/^[0-9a-fA-F]+$/.test(s) && s.length % 2 === 0) {
+      const out = new Uint8Array(s.length / 2);
+      for (let i = 0; i < out.length; i++) out[i] = parseInt(s.substr(i * 2, 2), 16);
+      return out;
+    }
+    // Fallback: base64
+    const bin = atob(s);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
     return out;
   }
   throw new Error("invalid bytea");
