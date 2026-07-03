@@ -17,6 +17,25 @@ import { sessionGet, sessionSet, sessionRemove, sessionClearAll } from "./lib/se
 const ReCAPTCHA = lazy(() => import("react-google-recaptcha"));
 const QRCodeSVG = lazy(() => import("qrcode.react").then((m) => ({ default: m.QRCodeSVG })));
 
+// Preload Google reCAPTCHA API script as soon as siteKey is known so the
+// widget mounts instantly when the modal opens (avoids 5–10s cold load).
+let __recaptchaPreloaded = false;
+function preloadRecaptchaScript() {
+  if (__recaptchaPreloaded || typeof document === "undefined") return;
+  __recaptchaPreloaded = true;
+  try {
+    // Warm up react-google-recaptcha JS chunk (no-op if already bundled).
+    import("react-google-recaptcha").catch(() => {});
+    if (document.querySelector('script[data-recaptcha-preload]')) return;
+    const s = document.createElement("script");
+    s.src = "https://www.google.com/recaptcha/api.js?render=explicit";
+    s.async = true;
+    s.defer = true;
+    s.setAttribute("data-recaptcha-preload", "1");
+    document.head.appendChild(s);
+  } catch {}
+}
+
 // --- Admin composer: platform logo options ---
 type PlatformOption = { id: string; label: string; logoFile: string; aliases?: string[] };
 const PLATFORM_LOGO_BASE = "/platform-logos/";
