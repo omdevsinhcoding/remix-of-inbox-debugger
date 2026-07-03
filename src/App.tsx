@@ -6512,7 +6512,7 @@ function EmailViewer() {
       const headers: Record<string, string> = {};
       if (token) headers["X-Session-Token"] = token;
 
-      const labels = getUserRefreshAccountLabels(user);
+      const labels = refreshAccountLabels;
       if (labels && labels.length === 0) {
         setEmails([]);
         setError(null);
@@ -6557,14 +6557,14 @@ function EmailViewer() {
       setError(msg);
       return 0;
     }
-  }, [profilePrefs, setEmails, pushDiag, resolvedWorkerUrls, workerUrlMap, user]);
+  }, [profilePrefs, setEmails, pushDiag, resolvedWorkerUrls, workerUrlMap, refreshAccountLabels]);
 
 
   const syncViaWorker = useCallback(async () => {
     const token = getSessionToken();
     const headers: Record<string, string> = {};
     if (token) headers["X-Session-Token"] = token;
-    const labels = getUserRefreshAccountLabels(user);
+    const labels = refreshAccountLabels;
     if (labels && labels.length === 0) return;
     const groups = buildWorkerRequestGroups(labels, workerUrlMap, resolvedWorkerUrls);
     if (groups.length === 0) throw new Error("Cloudflare worker is not configured");
@@ -6583,7 +6583,7 @@ function EmailViewer() {
       const data: any = text ? JSON.parse(text) : null;
       if (data && data.success === false) throw new Error(data?.error || "Sync failed");
     }));
-  }, [pushDiag, resolvedWorkerUrls, workerUrlMap, user]);
+  }, [pushDiag, resolvedWorkerUrls, workerUrlMap, refreshAccountLabels]);
 
   const fetchEmails = async () => {
     if (refreshingRef.current) return;
