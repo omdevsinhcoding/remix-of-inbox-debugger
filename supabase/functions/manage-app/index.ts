@@ -1378,6 +1378,51 @@ Deno.serve(async (originalReq) => {
     supabase.from("app_sessions").delete().lt("expires_at", new Date().toISOString()).eq("user_id", userId).then(() => {});
   }
 
+  // C.2 refresh-token rotation: mint access+refresh pair inside one session
+  // family. Access TTL 15 min, refresh TTL 12 h. Refresh rotates on every use;
+  // reuse of a rotated refresh token revokes the whole family (see refresh_session action).
+  function b64url(bytes: Uint8Array): string {
+    let s = ""; for (const b of bytes) s += String.fromCharCode(b);
+    return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+  async function mintSessionPair(
+    userId: string,
+    role: string,
+    accessPayload: Record<string, any>,
+    opts?: { familyId?: string; parentSessionId?: string | null },
+  ): Promise<{ accessToken: string; accessExpMs: number; refreshToken: string; refreshExpMs: number; familyId: string; sessionRowId: string }> {
+    const ACCESS_TTL_MS = 15 * 60 * 1000;
+    const REFRESH_TTL_MS = 12 * 60 * 60 * 1000;
+    const now = Date.now();
+    const accessExpMs = now + ACCESS_TTL_MS;
+    const refreshExpMs = now + REFRESH_TTL_MS;
+    const familyId = opts?.familyId || crypto.randomUUID();
+    const refreshToken = b64url(crypto.getRandomValues(new Uint8Array(32)));
+    const accessToken = await createSessionToken({ ...accessPayload, exp: accessExpMs }, SIGNING_SECRET);
+    const [accessHash, refreshHash, bindingHash] = await Promise.all([
+      sha256Hex(accessToken),
+      sha256Hex(refreshToken),
+      computeBindingHash(req),
+    ]);
+    const { data: row, error } = await supabase.from("app_sessions").insert({
+      user_id: userId,
+      role,
+      token_hash: accessHash,
+      expires_at: new Date(accessExpMs).toISOString(),
+      refresh_token_hash: refreshHash,
+      refresh_expires_at: new Date(refreshExpMs).toISOString(),
+      family_id: familyId,
+      parent_session_id: opts?.parentSessionId ?? null,
+      ip,
+      user_agent: req.headers.get("user-agent") || null,
+      binding_hash: bindingHash,
+    }).select("id").single();
+    if (error || !row) throw new Error(`Failed to persist session: ${error?.message || "insert failed"}`);
+    // Best-effort cleanup of expired rows for this user
+    supabase.from("app_sessions").delete().lt("expires_at", new Date().toISOString()).eq("user_id", userId).then(() => {});
+    return { accessToken, accessExpMs, refreshToken, refreshExpMs, familyId, sessionRowId: row.id };
+  }
+
   // Helper to verify session from header AND ensure a live DB row exists
   async function requireSession(req: Request): Promise<Record<string, any>> {
     const token = req.headers.get("x-session-token");
@@ -1387,10 +1432,11 @@ Deno.serve(async (originalReq) => {
     const tokenHash = await sha256Hex(token);
     const { data: row } = await supabase
       .from("app_sessions")
-      .select("id, expires_at, binding_hash, user_id")
+      .select("id, expires_at, binding_hash, user_id, revoked_at")
       .eq("token_hash", tokenHash)
       .maybeSingle();
     if (!row) throw new Error("Session revoked. Please sign in again.");
+    if (row.revoked_at) throw new Error("Session revoked. Please sign in again.");
     if (new Date(row.expires_at).getTime() < Date.now()) {
       await supabase.from("app_sessions").delete().eq("id", row.id);
       throw new Error("Session expired. Please sign in again.");
@@ -1417,6 +1463,7 @@ Deno.serve(async (originalReq) => {
     supabase.from("app_sessions").update({ last_seen_at: new Date().toISOString() }).eq("id", row.id).then(() => {});
     return session;
   }
+
 
 
   async function requireAdmin(req: Request): Promise<Record<string, any>> {
