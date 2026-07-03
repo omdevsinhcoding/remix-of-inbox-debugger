@@ -1677,40 +1677,18 @@ function getUserRefreshAccountLabels(user: Partial<UserData>): string[] | null {
 }
 
 function buildWorkerRequestGroups(labels: string[] | null, map: WorkerUrlMap, primaryUrls: string[]) {
-  const norm = (u: string) => u.trim().replace(/\/+$/, "");
-  const primary = Array.from(new Set([...(map.primary || []), ...primaryUrls].map(norm).filter(Boolean)));
-
-  // Admin / unrestricted: hit exactly one worker (any primary).
+  const primary = Array.from(new Set([...(map.primary || []), ...primaryUrls].map((u) => u.trim().replace(/\/+$/, "")).filter(Boolean)));
   if (labels === null) {
-    const pool = primary.length > 0 ? primary : Array.from(new Set(Object.values(map.byAccount || {}).flat().map(norm).filter(Boolean)));
-    const url = pool.length > 0 ? pool[0] : "";
+    const pool = primary.length > 0 ? primary : Array.from(new Set(Object.values(map.byAccount || {}).flat().map((u) => u.trim().replace(/\/+$/, "")).filter(Boolean)));
+    const url = pool.length > 0 ? shuffleArray(pool)[0] : "";
     return url ? [{ url, labels: null as string[] | null }] : [];
   }
-
-  if (labels.length === 0) return [];
-
-  // Build per-label URL pool (dedicated overrides primary).
-  const pools: { label: string; pool: string[] }[] = labels.map((label) => {
-    const dedicated = Array.from(new Set((map.byAccount?.[label] || []).map(norm).filter(Boolean)));
-    return { label, pool: dedicated.length > 0 ? dedicated : primary };
-  }).filter((x) => x.pool.length > 0);
-
-  if (pools.length === 0) return [];
-
-  // Fast path: if a single URL exists in EVERY label's pool, use one grouped request.
-  const shared = pools.reduce<string[]>((acc, { pool }, i) => {
-    if (i === 0) return [...pool];
-    return acc.filter((u) => pool.includes(u));
-  }, []);
-  if (shared.length > 0) {
-    return [{ url: shared[0], labels: pools.map((p) => p.label) }];
-  }
-
-  // Otherwise: deterministic grouping — each label goes to the first URL in its pool.
-  // Labels that resolve to the same URL are merged into one request; distinct URLs run in parallel.
   const grouped = new Map<string, string[]>();
-  for (const { label, pool } of pools) {
-    const url = pool[0];
+  for (const label of labels) {
+    const dedicated = Array.from(new Set((map.byAccount?.[label] || []).map((u) => u.trim().replace(/\/+$/, "")).filter(Boolean)));
+    const pool = dedicated.length > 0 ? dedicated : primary;
+    const url = pool.length > 0 ? shuffleArray(pool)[0] : "";
+    if (!url) continue;
     grouped.set(url, [...(grouped.get(url) || []), label]);
   }
   return Array.from(grouped.entries()).map(([url, groupLabels]) => ({ url, labels: groupLabels }));
