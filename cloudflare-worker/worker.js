@@ -1,4 +1,5 @@
 import { connect } from "cloudflare:sockets";
+import PostalMime from "https://esm.sh/postal-mime@2.4.3?target=es2022";
 
 /**
  * Cloudflare Worker — Email Cache Proxy
