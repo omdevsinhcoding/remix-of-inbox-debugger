@@ -519,7 +519,7 @@ Deno.serve(async (req) => {
       if (assigned && assigned.length > 0) accountLabels = accountLabels ? accountLabels.filter(l => assigned.includes(l)) : assigned;
       const last = userSyncHits.get(session.userId) || 0;
       if (Date.now() - last < USER_SYNC_WINDOW_MS) {
-        const cache = await readCache(supabase, assigned, filterSignInCodes, filterPasswordResets);
+        const cache = await readCache(supabase, assigned, filterSignInCodes, filterPasswordResets, session);
         return json({ success: true, rateLimited: true, message: "Please wait before refreshing again", emails: cache }, mode === "sync_async" ? 202 : 429);
       }
       userSyncHits.set(session.userId, Date.now());
