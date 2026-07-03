@@ -6508,31 +6508,41 @@ function EmailViewer() {
       const headers: Record<string, string> = {};
       if (token) headers["X-Session-Token"] = token;
 
-      let data: any = null;
-      const workerBase = resolvedWorkerUrls.length > 0 ? shuffleArray(resolvedWorkerUrls)[0] : "";
-      if (!workerBase) throw new Error("Cloudflare worker is not configured");
-      const workerEndpoint = `${workerBase}/api/emails?limit=${encodeURIComponent(String(limit))}${bust ? "&bust=1" : ""}`;
-      const started = performance.now();
-      const res = await fetch(workerEndpoint, { headers });
-      const text = await res.text();
-      pushDiag({
-        ts: Date.now(),
-        kind: "worker",
-        endpoint: workerEndpoint,
-        status: res.status,
-        ms: Math.round(performance.now() - started),
-        cacheStatus: res.headers.get("X-Cache-Status") || undefined,
-        cacheAge: res.headers.get("X-Cache-Age") || undefined,
-        cacheKey: res.headers.get("X-Cache-Key") || undefined,
-        note: bust ? "bust=1" : "kv",
-      });
-      if (!res.ok) throw new Error(text.slice(0, 180) || "Worker failed to load emails");
-      data = text ? JSON.parse(text) : [];
+      const labels = getUserRefreshAccountLabels(user);
+      if (labels && labels.length === 0) {
+        setEmails([]);
+        setError(null);
+        setLastUpdated(new Date());
+        return 0;
+      }
+      const groups = buildWorkerRequestGroups(labels, workerUrlMap, resolvedWorkerUrls);
+      if (groups.length === 0) throw new Error("Cloudflare worker is not configured");
 
-      const emailData = Array.isArray(data) ? data : [];
+      const lists = await Promise.all(groups.map(async (group) => {
+        const params = new URLSearchParams({ limit: String(limit) });
+        if (bust) params.set("bust", "1");
+        appendAccountLabelParams(params, group.labels);
+        const workerEndpoint = `${group.url}/api/emails?${params.toString()}`;
+        const started = performance.now();
+        const res = await fetch(workerEndpoint, { headers });
+        const text = await res.text();
+        pushDiag({
+          ts: Date.now(),
+          kind: "worker",
+          endpoint: workerEndpoint,
+          status: res.status,
+          ms: Math.round(performance.now() - started),
+          cacheStatus: res.headers.get("X-Cache-Status") || undefined,
+          cacheAge: res.headers.get("X-Cache-Age") || undefined,
+          cacheKey: res.headers.get("X-Cache-Key") || undefined,
+          note: `${bust ? "bust=1" : "kv"}${group.labels ? ` · ${group.labels.join(", ")}` : ""}`,
+        });
+        if (!res.ok) throw new Error(text.slice(0, 180) || "Worker failed to load emails");
+        const data = text ? JSON.parse(text) : [];
+        return Array.isArray(data) ? data as Email[] : [];
+      }));
 
-      const emailList = emailData as Email[];
-      emailList.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      const emailList = mergeEmailsById(lists);
       setEmails(emailList);
       setError(null);
       setLastUpdated(new Date());
@@ -6543,28 +6553,33 @@ function EmailViewer() {
       setError(msg);
       return 0;
     }
-  }, [profilePrefs, setEmails, pushDiag, resolvedWorkerUrls]);
+  }, [profilePrefs, setEmails, pushDiag, resolvedWorkerUrls, workerUrlMap, user]);
 
 
   const syncViaWorker = useCallback(async () => {
     const token = getSessionToken();
     const headers: Record<string, string> = {};
     if (token) headers["X-Session-Token"] = token;
-    const workerBase = resolvedWorkerUrls.length > 0 ? shuffleArray(resolvedWorkerUrls)[0] : "";
-    if (!workerBase) throw new Error("Cloudflare worker is not configured");
-    const endpoint = `${workerBase}/api/emails/sync`;
-    const started = performance.now();
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: { ...headers, "Content-Type": "application/json" },
-      body: JSON.stringify({ mode: "user_sync", source: "user_refresh", limit: 3 }),
-    });
-    const text = await res.text();
-    pushDiag({ ts: Date.now(), kind: "worker", endpoint, status: res.status, ms: Math.round(performance.now() - started), note: "user_sync" });
-    if (!res.ok) throw new Error(text.slice(0, 180) || "Worker sync failed");
-    const data: any = text ? JSON.parse(text) : null;
-    if (data && data.success === false) throw new Error(data?.error || "Sync failed");
-  }, [pushDiag, resolvedWorkerUrls]);
+    const labels = getUserRefreshAccountLabels(user);
+    if (labels && labels.length === 0) return;
+    const groups = buildWorkerRequestGroups(labels, workerUrlMap, resolvedWorkerUrls);
+    if (groups.length === 0) throw new Error("Cloudflare worker is not configured");
+
+    await Promise.all(groups.map(async (group) => {
+      const endpoint = `${group.url}/api/emails/sync`;
+      const started = performance.now();
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "user_sync", source: "user_refresh", limit: 3, accountLabels: group.labels || undefined }),
+      });
+      const text = await res.text();
+      pushDiag({ ts: Date.now(), kind: "worker", endpoint, status: res.status, ms: Math.round(performance.now() - started), note: `user_sync${group.labels ? ` · ${group.labels.join(", ")}` : ""}` });
+      if (!res.ok) throw new Error(text.slice(0, 180) || "Worker sync failed");
+      const data: any = text ? JSON.parse(text) : null;
+      if (data && data.success === false) throw new Error(data?.error || "Sync failed");
+    }));
+  }, [pushDiag, resolvedWorkerUrls, workerUrlMap, user]);
 
   const fetchEmails = async () => {
     if (refreshingRef.current) return;
