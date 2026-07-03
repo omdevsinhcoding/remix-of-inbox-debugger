@@ -243,24 +243,66 @@ export type Database = {
         }
         Relationships: []
       }
+      crypto_nonces: {
+        Row: {
+          nonce: string
+          seen_at: string
+          session_id: string
+        }
+        Insert: {
+          nonce: string
+          seen_at?: string
+          session_id: string
+        }
+        Update: {
+          nonce?: string
+          seen_at?: string
+          session_id?: string
+        }
+        Relationships: []
+      }
       crypto_sessions: {
         Row: {
           aes_key: string
           created_at: string
           expires_at: string
           id: string
+          ip: string | null
+          origin_hash: string | null
         }
         Insert: {
           aes_key: string
           created_at?: string
           expires_at?: string
           id?: string
+          ip?: string | null
+          origin_hash?: string | null
         }
         Update: {
           aes_key?: string
           created_at?: string
           expires_at?: string
           id?: string
+          ip?: string | null
+          origin_hash?: string | null
+        }
+        Relationships: []
+      }
+      handshake_rate: {
+        Row: {
+          count: number
+          ip: string
+          minute_bucket: string
+        }
+        Insert: {
+          count?: number
+          ip: string
+          minute_bucket: string
+        }
+        Update: {
+          count?: number
+          ip?: string
+          minute_bucket?: string
         }
         Relationships: []
       }
@@ -854,6 +896,7 @@ export type Database = {
       get_cron_status: { Args: never; Returns: Json }
       get_email_cleanup_status: { Args: never; Returns: Json }
       purge_expired_crypto_sessions: { Args: never; Returns: undefined }
+      purge_expired_nonces: { Args: never; Returns: undefined }
       schedule_email_cleanup: {
         Args: { days: number; hour: number }
         Returns: undefined
