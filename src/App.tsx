@@ -6291,7 +6291,7 @@ function EmailViewer() {
   usePageHead("Email Inbox — Netflix Mail", "Secure viewer for Netflix sign-in codes, OTPs, and household verification emails.", "/viewer");
   const user = JSON.parse(sessionGet("user" as any) || "{}");
   const { checkAuth } = useAuth();
-  const cacheKey = `cached_emails_v1:${user.id || "anon"}`;
+  const cacheKey = `cached_emails_v2:${user.id || "anon"}`;
   const [profilePrefs, setProfilePrefs] = useState<UserProfilePrefs>(() => user.profilePrefs || {});
   const saveProfilePrefsLocally = useCallback((nextPrefs: UserProfilePrefs) => {
     setProfilePrefs(nextPrefs);
@@ -6307,7 +6307,10 @@ function EmailViewer() {
       const raw = localStorage.getItem(cacheKey);
       if (!raw) return [];
       const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? filterVisibleEmails(parsed as Email[], profilePrefs) : [];
+      if (!Array.isArray(parsed)) return [];
+      return filterVisibleEmails(parsed as Email[], profilePrefs)
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+        .slice(0, 3);
     } catch {
       return [];
     }
@@ -6317,15 +6320,19 @@ function EmailViewer() {
       const raw = localStorage.getItem(cacheKey);
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) return filterVisibleEmails(parsed as Email[], user.profilePrefs || {});
+        if (Array.isArray(parsed)) return filterVisibleEmails(parsed as Email[], user.profilePrefs || {})
+          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+          .slice(0, 3);
       }
     } catch {}
     return [];
   });
   const setEmails = useCallback((next: Email[]) => {
-    const visible = filterVisibleEmails(next, profilePrefs);
+    const visible = filterVisibleEmails(next, profilePrefs)
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      .slice(0, 3);
     setEmailsRaw(visible);
-    try { localStorage.setItem(cacheKey, JSON.stringify(visible.slice(0, 200))); } catch {}
+    try { localStorage.setItem(cacheKey, JSON.stringify(visible)); } catch {}
   }, [cacheKey, profilePrefs]);
   const showLocalCacheNow = useCallback(() => {
     const cached = readLocalCachedEmails();
