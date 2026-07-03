@@ -6602,17 +6602,21 @@ function EmailViewer() {
     showLocalCacheNow();
     setLoading(false);
 
-    // 2) Pull the latest full inbox from worker cache (fast — no IMAP).
-    loadCachedEmails({ limit: 200 }).finally(() => {
-      if (cancelled) return;
-      setLoading(false);
-      if (!sessionGet("session_started_at" as any)) markSessionStart();
-    });
+    // 2) Pull the latest full inbox from worker cache (fast — no IMAP) once worker URLs are known.
+    if (!workerUrlsLoading) {
+      loadCachedEmails({ limit: 200 }).finally(() => {
+        if (cancelled) return;
+        setLoading(false);
+        if (!sessionGet("session_started_at" as any)) markSessionStart();
+      });
+    } else if (!sessionGet("session_started_at" as any)) {
+      markSessionStart();
+    }
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadCachedEmails]);
+  }, [loadCachedEmails, workerUrlsLoading]);
 
   // F7: listen for iframe self-report messages verifying that the link/button
   // click hijack is actually attached inside the sandboxed email preview.
