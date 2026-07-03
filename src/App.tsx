@@ -6700,15 +6700,17 @@ function EmailViewer() {
       if (cancelled) return;
       setLoading(false);
       if (!sessionGet("session_started_at" as any)) markSessionStart();
+      // Follow up with the full inbox so users can scroll past the latest 3.
+      window.setTimeout(() => { if (!cancelled) void loadCachedEmails({ limit: 200 }); }, 250);
     });
 
     const pollInterval = window.setInterval(() => {
-      void loadCachedEmails({ limit: 3 });
+      void loadCachedEmails({ limit: 200 });
     }, 15000);
 
     const handleVisibility = () => {
       if (document.visibilityState === "visible") {
-        void loadCachedEmails({ limit: 3 });
+        void loadCachedEmails({ limit: 200 });
       }
     };
 
