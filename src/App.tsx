@@ -6630,9 +6630,6 @@ function EmailViewer() {
         setError(null);
         setLastUpdated(new Date());
       }
-      // Background top-up in case worker returned only latest 3 — do not block UI.
-      loadCachedEmails({ bust: true, limit: 200 }).catch(() => {});
-
       const visible = filterVisibleEmails(merged, profilePrefs);
       const newCount = visible.filter((e) => !beforeIds.has(e.id)).length;
       toast.dismiss(toastId);
