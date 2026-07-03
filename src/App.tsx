@@ -6592,7 +6592,9 @@ function EmailViewer() {
       // Refresh must never blank or block: latest 3 DB rows first, then IMAP sync in background.
       const cachedCount = await loadCachedEmails({ bust: true, limit: 3 });
       const baseline = Math.max(before, cachedCount);
-      toast.success(cachedCount > 0 ? "Latest 3 Netflix emails loaded" : "No Netflix emails found yet", { id: toastId, duration: 1400 });
+      toast.success(cachedCount > 0 ? "Latest Netflix emails loaded" : "No Netflix emails found yet", { id: toastId, duration: 1400 });
+      // Quietly hydrate the rest of the inbox in the background.
+      window.setTimeout(() => { void loadCachedEmails({ bust: true, limit: 200 }); }, 200);
       window.setTimeout(() => {
         if (!refreshingRef.current) return;
         setRefreshing(false);
