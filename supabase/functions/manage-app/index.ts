@@ -1346,10 +1346,25 @@ Deno.serve(async (originalReq) => {
 
   const ip = getClientIp(req);
 
+  // C.3 device binding: sha256(ua + accept-language + ip/24). /24 (not /32) so
+  // mobile carrier NAT doesn't invalidate legitimate sessions.
+  async function computeBindingHash(r: Request): Promise<string> {
+    const ua = (r.headers.get("user-agent") || "").trim();
+    const al = (r.headers.get("accept-language") || "").split(",")[0]?.trim() || "";
+    const rawIp = getClientIp(r) || "";
+    let ipPrefix = rawIp;
+    const v4 = rawIp.match(/^(\d+)\.(\d+)\.(\d+)\.\d+$/);
+    if (v4) ipPrefix = `${v4[1]}.${v4[2]}.${v4[3]}.0/24`;
+    // IPv6: keep first 4 groups (/64) as coarse binding
+    else if (rawIp.includes(":")) ipPrefix = rawIp.split(":").slice(0, 4).join(":") + "::/64";
+    return await sha256Hex(`${ua}|${al}|${ipPrefix}`);
+  }
+
   // --- Persist a session row in DB (source of truth for logged-in status) ---
   async function persistSession(userId: string, role: string, token: string, expiresAtMs: number) {
     const tokenHash = await sha256Hex(token);
     const ua = req.headers.get("user-agent") || null;
+    const bindingHash = await computeBindingHash(req);
     await supabase.from("app_sessions").insert({
       user_id: userId,
       role,
@@ -1357,6 +1372,7 @@ Deno.serve(async (originalReq) => {
       expires_at: new Date(expiresAtMs).toISOString(),
       ip,
       user_agent: ua,
+      binding_hash: bindingHash,
     });
     // Best-effort cleanup of expired rows for this user
     supabase.from("app_sessions").delete().lt("expires_at", new Date().toISOString()).eq("user_id", userId).then(() => {});
@@ -1371,7 +1387,7 @@ Deno.serve(async (originalReq) => {
     const tokenHash = await sha256Hex(token);
     const { data: row } = await supabase
       .from("app_sessions")
-      .select("id, expires_at")
+      .select("id, expires_at, binding_hash, user_id")
       .eq("token_hash", tokenHash)
       .maybeSingle();
     if (!row) throw new Error("Session revoked. Please sign in again.");
@@ -1379,10 +1395,28 @@ Deno.serve(async (originalReq) => {
       await supabase.from("app_sessions").delete().eq("id", row.id);
       throw new Error("Session expired. Please sign in again.");
     }
+    // C.3 device-binding check. Only enforce when a binding is stored (soft
+    // rollout: legacy sessions with null binding_hash pass through).
+    if (row.binding_hash) {
+      const current = await computeBindingHash(req);
+      if (current !== row.binding_hash) {
+        await supabase.from("app_sessions").delete().eq("id", row.id);
+        supabase.from("security_events").insert({
+          event_type: "session_binding_mismatch",
+          severity: "high",
+          user_id: row.user_id,
+          ip,
+          user_agent: req.headers.get("user-agent") || null,
+          details: { session_id: row.id },
+        }).then(() => {});
+        throw new Error("Session bound to another device. Please sign in again.");
+      }
+    }
     // Fire-and-forget touch
     supabase.from("app_sessions").update({ last_seen_at: new Date().toISOString() }).eq("id", row.id).then(() => {});
     return session;
   }
+
 
   async function requireAdmin(req: Request): Promise<Record<string, any>> {
     const session = await requireSession(req);

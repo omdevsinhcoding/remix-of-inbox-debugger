@@ -83,6 +83,7 @@ export type Database = {
       }
       app_sessions: {
         Row: {
+          binding_hash: string | null
           created_at: string
           expires_at: string
           id: string
@@ -94,6 +95,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          binding_hash?: string | null
           created_at?: string
           expires_at: string
           id?: string
@@ -105,6 +107,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          binding_hash?: string | null
           created_at?: string
           expires_at?: string
           id?: string
