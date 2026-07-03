@@ -620,6 +620,7 @@ async function requireLoginLocation(): Promise<LoginLocationPayload> {
 async function apiCall(functionName: string, body: any) {
   let workerUrls = getStoredWorkerUrls();
   const mustUseWorker = functionName === "manage-app" && body?.action === "login";
+  const shouldUseWorker = mustUseWorker;
   if (mustUseWorker && workerUrls.length === 0) {
     try {
       const bootstrap = await bootstrapFromSupabase();
@@ -637,7 +638,7 @@ async function apiCall(functionName: string, body: any) {
   const pendingActions = new Set(["request_admin_otp", "verify_otp", "verify_totp", "update_totp", "finalize_admin_session"]);
 
   // Try each worker URL with random load balancing
-  if (workerUrls.length > 0) {
+  if (shouldUseWorker && workerUrls.length > 0) {
     const shuffled = shuffleArray(workerUrls);
     for (const cfUrl of shuffled) {
       try {
@@ -695,7 +696,7 @@ async function apiCall(functionName: string, body: any) {
   }
 
   // Fallback: call Supabase edge function directly
-  console.log(`[apiCall] All workers failed or none configured, falling back to direct Supabase for ${functionName}`);
+  if (shouldUseWorker) console.log(`[apiCall] All workers failed or none configured, falling back to direct Supabase for ${functionName}`);
   const { createClient } = await import("@supabase/supabase-js");
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
   const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -3271,6 +3272,7 @@ function AdminPanel() {
   const [maintenanceVersionFrom, setMaintenanceVersionFrom] = useState("");
   const [maintenanceVersionTo, setMaintenanceVersionTo] = useState("");
   const [savingMaintenance, setSavingMaintenance] = useState(false);
+  const [creatingUser, setCreatingUser] = useState(false);
   const prevSavedVersionToRef = useRef<string>("");
 
 
@@ -3967,8 +3969,9 @@ function AdminPanel() {
       // Impersonation: also defer session timer until EmailViewer loads inbox.
       try { localStorage.removeItem("session_started_at"); } catch {}
       localStorage.removeItem("admin_auth");
+      checkAuth();
       toast.success(`Viewing as ${targetUser.name}`);
-      window.location.href = "/viewer";
+      navigate("/viewer");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to impersonate user");
     }
@@ -3977,6 +3980,8 @@ function AdminPanel() {
 
   const createUser = async () => {
     if (!newUsername || !newPassword || !newName) { toast.error("Please fill all fields"); return; }
+    if (creatingUser) return;
+    setCreatingUser(true);
     try {
       const res: any = await apiCall("manage-app", {
         action: "create", username: newUsername, password: newPassword, name: newName, role: "user",
@@ -3997,6 +4002,8 @@ function AdminPanel() {
       }
     } catch (err) {
       toast.error("Failed: " + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setCreatingUser(false);
     }
   };
 
@@ -4041,9 +4048,9 @@ function AdminPanel() {
   const updateUserAccounts = async (userId: string) => {
     try {
       await apiCall("manage-app", { action: "update_user", id: userId, assigned_accounts: editAccountsList.length > 0 ? editAccountsList : null });
+      const nextAccounts = editAccountsList.length > 0 ? editAccountsList : null;
       setEditingUserAccounts(null);
-      const data = await apiCall("manage-app", { action: "list" });
-      setUsers(data.users || []);
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, assignedAccounts: nextAccounts } : u));
       toast.success("User accounts updated!");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to update");
@@ -4151,8 +4158,9 @@ function AdminPanel() {
                 </div>
 
                 <button onClick={createUser}
+                  disabled={creatingUser}
                   className="w-full bg-slate-900 text-white font-bold py-3 rounded-xl hover:bg-slate-800 transition-all text-sm">
-                  Create User
+                  {creatingUser ? "Creating…" : "Create User"}
                 </button>
               </div>
             </section>
@@ -6166,6 +6174,7 @@ function UserProfileModal({
 function EmailViewer() {
   usePageHead("Email Inbox — Netflix Mail", "Secure viewer for Netflix sign-in codes, OTPs, and household verification emails.", "/viewer");
   const user = JSON.parse(localStorage.getItem("user") || "{}");
+  const { checkAuth } = useAuth();
   const cacheKey = `cached_emails_v1:${user.id || "anon"}`;
   const [profilePrefs, setProfilePrefs] = useState<UserProfilePrefs>(() => user.profilePrefs || {});
   const saveProfilePrefsLocally = useCallback((nextPrefs: UserProfilePrefs) => {
@@ -6271,8 +6280,8 @@ function EmailViewer() {
       if (backup.adminAuth) localStorage.setItem("admin_auth", backup.adminAuth);
       try { sessionStorage.removeItem("admin_backup"); } catch {}
       try { localStorage.removeItem("admin_backup"); } catch {}
+      checkAuth();
       navigate("/admin/dashboard");
-      window.location.reload();
     } catch {
       navigate("/admin");
     }
@@ -6608,9 +6617,9 @@ function EmailViewer() {
       if (!localStorage.getItem("session_started_at")) markSessionStart();
     });
 
-    const pollInterval = setInterval(() => {
+    const pollInterval = window.setInterval(() => {
       void loadCachedEmails();
-    }, 15000);
+    }, 60000);
 
     const handleVisibility = () => {
       if (document.visibilityState === "visible") {
@@ -7071,18 +7080,22 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
         if (!cancelled) setMaint(bs.maintenance || { enabled: false });
       } catch {}
     };
-    load();
-    const interval = setInterval(load, 30000);
+    const isAdminPath = window.location.pathname.startsWith("/admin");
+    const adminLike = user?.role === "admin" || user?.impersonated === true || hasActiveAdminImpersonationBackup();
+    if (!isAdminPath && !adminLike) load();
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === "visible" && !window.location.pathname.startsWith("/admin")) load();
+    }, 120000);
     const onChange = () => load();
     window.addEventListener("maintenance:changed", onChange);
-    window.addEventListener("focus", onChange);
+    if (!isAdminPath) window.addEventListener("focus", onChange);
     return () => {
       cancelled = true;
       clearInterval(interval);
       window.removeEventListener("maintenance:changed", onChange);
       window.removeEventListener("focus", onChange);
     };
-  }, []);
+  }, [user?.role, user?.impersonated]);
 
   // Local auto-expiry: when endsAt passes on the client, flip off immediately
   // without waiting for the next server poll.

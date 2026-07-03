@@ -111,7 +111,12 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   });
 }
 
-export async function bootstrapFromSupabase(): Promise<BootstrapResult> {
+export async function bootstrapFromSupabase(opts?: { force?: boolean }): Promise<BootstrapResult> {
+  if (!opts?.force) {
+    const cached = readBootstrapCache();
+    if (cached) return cached;
+  }
+
   const { data, error } = await withTimeout(
     supabase.functions.invoke("manage-app", { body: { action: "bootstrap_public" } }),
     BOOTSTRAP_TIMEOUT_MS,
@@ -141,7 +146,7 @@ export const bootstrapPromise: Promise<BootstrapResult> = bootstrapFromSupabase(
 // Force-refresh: always hits the network, updates cache, returns fresh result.
 export async function refreshBootstrap(): Promise<BootstrapResult> {
   try {
-    return await bootstrapFromSupabase();
+    return await bootstrapFromSupabase({ force: true });
   } catch (err) {
     console.warn("[bootstrap] refresh failed:", err);
     const cached = readBootstrapCache();
