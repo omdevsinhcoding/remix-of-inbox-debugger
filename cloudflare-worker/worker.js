@@ -559,27 +559,25 @@ function extractOtpCode(subject, body) {
   return line?.[1] || null;
 }
 
-function stripMimeNoiseHtml(html = "") {
-  return String(html)
-    // Remove any leaked boundary delimiter lines
-    .replace(/--[-=_A-Za-z0-9.'+\/]{6,}(?:--)?/g, "")
-    // Remove leaked MIME header lines
-    .replace(/(^|>|\n)\s*(Content-(Type|Transfer-Encoding|Disposition|ID|Description|Language|Location)|MIME-Version)\s*:[^\n<]*/gi, "$1")
-    .replace(/\bcharset=[a-zA-Z0-9-]+/gi, "");
-}
-
 function parseRawEmail(raw, accountLabel, uid) {
   const { headers, body } = parseHeaders(raw);
   const subject = decodeMimeWords(headers.subject || "");
   const from = decodeMimeWords(headers.from || "Netflix");
   const to = decodeMimeWords(headers.to || "");
   const content = extractMimeContent(body, headers);
-  const bodyText = cleanDisplayText(content.text || htmlToText(content.html || body));
+
+  // Prefer the original HTML as sent — do NOT sanitize or reflow it.
+  const rawHtml = content.html && /<\w+/i.test(content.html) ? content.html : "";
+  // Text is only used for OTP detection + list preview. Keep it minimal.
+  const bodyText = (content.text || htmlToText(content.html || "")).replace(/\r/g, "").trim();
+
   const signal = `${subject} ${from} ${to} ${bodyText.slice(0, 2000)}`;
   if (!/netflix/i.test(signal)) return null;
+
   const date = headers.date ? new Date(headers.date) : new Date();
-  const rawHtml = content.html && /<\w+/i.test(content.html) ? stripMimeNoiseHtml(content.html) : "";
-  const html = rawHtml || `<pre>${escapeHtml(bodyText)}</pre>`;
+  const html = rawHtml || `<pre style="white-space:pre-wrap;font-family:ui-sans-serif,system-ui,sans-serif">${escapeHtml(bodyText)}</pre>`;
+  const previewSource = bodyText.replace(/\s+/g, " ").trim();
+
   return {
     id: `${accountLabel}:${uid}`,
     message_id: headers["message-id"] || null,
@@ -588,7 +586,7 @@ function parseRawEmail(raw, accountLabel, uid) {
     to: to || undefined,
     date: Number.isNaN(date.getTime()) ? new Date().toISOString() : date.toISOString(),
     otp: extractOtpCode(subject, bodyText),
-    preview: bodyText.length > 140 ? `${bodyText.slice(0, 140)}...` : bodyText,
+    preview: previewSource.length > 140 ? `${previewSource.slice(0, 140)}...` : previewSource,
     html,
     account_label: accountLabel,
   };
