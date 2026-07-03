@@ -3402,7 +3402,18 @@ function AdminPanel() {
         if (s.recaptcha) {
           setSiteKey(s.recaptcha.siteKey || "");
           setSecretKeyVal(s.recaptcha.secretKey || "");
-          setCaptchaEnabled(s.recaptcha.enabled === true);
+          const on = s.recaptcha.enabled === true;
+          setCaptchaEnabled(on);
+          try { localStorage.setItem("admin_captcha_enabled", on ? "1" : "0"); } catch {}
+        }
+        if (s.email_visibility) {
+          setEmailVisibilityEnabled(s.email_visibility.enabled === true);
+          if (Number(s.email_visibility.days) > 0) setEmailVisibilityDays(String(s.email_visibility.days));
+        }
+        if (s.email_auto_delete) {
+          setEmailAutoDeleteEnabled(s.email_auto_delete.enabled === true);
+          if (Number(s.email_auto_delete.days) > 0) setEmailAutoDeleteDays(String(s.email_auto_delete.days));
+          if (Number.isFinite(Number(s.email_auto_delete.hour))) setEmailAutoDeleteHour(String(s.email_auto_delete.hour));
         }
         if (s.config) {
           const c = s.config as any;
