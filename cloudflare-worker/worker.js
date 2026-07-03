@@ -505,8 +505,7 @@ function cleanDisplayText(text = "") {
     .replace(/(^|\n)[ \t]*--[-=_A-Za-z0-9.'+\/]{6,}--?[ \t]*(?=\n|$)/g, "\n")
     // Strip MIME header lines at start of line
     .replace(/(^|\n)[ \t]*(Content-(Type|Transfer-Encoding|Disposition|ID|Description|Language|Location)|MIME-Version)[ \t]*:[^\n]*/gi, "\n")
-    // If the whole text is one long flattened MIME dump (no line breaks), extract just the readable prose
-    .replace(/^[\s\S]*?(?:Content-Transfer-Encoding:\s*\S+|charset=\S+)\s+/i, (m, ...r) => (m.length > 200 ? "" : m))
+    // Strip standalone charset= tokens
     .replace(/\bcharset=[^\s;]+/gi, "")
     .replace(/\r/g, "")
     .replace(/[ \t]+/g, " ")
