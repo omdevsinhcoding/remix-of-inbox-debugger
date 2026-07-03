@@ -6957,9 +6957,24 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
   const [maint, setMaint] = useState<MaintenanceInfo>(
     cached?.maintenance || { enabled: false }
   );
-  const [bypass, setBypass] = useState<boolean>(() => {
-    try { return sessionStorage.getItem(MAINT_BYPASS_KEY) === "1"; } catch { return false; }
-  });
+  const [bypass, setBypass] = useState<boolean>(() => readMaintBypassExp() !== null);
+
+  // Auto-expire bypass locally when the signed token's exp passes (no round-trip).
+  useEffect(() => {
+    if (!bypass) return;
+    const exp = readMaintBypassExp();
+    if (exp === null) {
+      try { sessionStorage.removeItem(MAINT_BYPASS_KEY); } catch {}
+      setBypass(false);
+      return;
+    }
+    const t = setTimeout(() => {
+      try { sessionStorage.removeItem(MAINT_BYPASS_KEY); } catch {}
+      setBypass(false);
+    }, Math.max(0, exp - Date.now()) + 250);
+    return () => clearTimeout(t);
+  }, [bypass]);
+
 
   // 🚨 Force-kick non-admin users the moment maintenance turns ON.
   // Admins are never kicked — they can bypass to continue working.
