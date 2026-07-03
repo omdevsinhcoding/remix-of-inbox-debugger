@@ -404,10 +404,28 @@ function decodeMimeWords(value = "") {
   });
 }
 
-function decodeQuotedPrintable(input = "") {
-  return String(input)
-    .replace(/=\r?\n/g, "")
-    .replace(/=([0-9A-F]{2})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+function decodeBytes(bytes, charset = "utf-8") {
+  try { return new TextDecoder(String(charset || "utf-8").toLowerCase()).decode(bytes); }
+  catch { return new TextDecoder("utf-8").decode(bytes); }
+}
+
+function decodeBase64Body(input = "", charset = "utf-8") {
+  const bin = atob(String(input).replace(/\s+/g, ""));
+  return decodeBytes(Uint8Array.from(bin, c => c.charCodeAt(0)), charset);
+}
+
+function decodeQuotedPrintable(input = "", charset = "utf-8") {
+  const normalized = String(input).replace(/=\r?\n/g, "");
+  const bytes = [];
+  for (let i = 0; i < normalized.length; i++) {
+    if (normalized[i] === "=" && /^[0-9A-Fa-f]{2}$/.test(normalized.slice(i + 1, i + 3))) {
+      bytes.push(parseInt(normalized.slice(i + 1, i + 3), 16));
+      i += 2;
+    } else {
+      bytes.push(normalized.charCodeAt(i));
+    }
+  }
+  return decodeBytes(new Uint8Array(bytes), charset);
 }
 
 function parseHeaders(raw) {
@@ -428,6 +446,88 @@ function parseHeaders(raw) {
   return { headers, body };
 }
 
+function headerParam(value = "", name) {
+  const re = new RegExp(`${name}\\*?=(?:\"([^\"]*)\"|([^;\\s]+))`, "i");
+  const m = String(value || "").match(re);
+  return decodeMimeWords((m?.[1] || m?.[2] || "").trim());
+}
+
+function contentMime(headers) {
+  return String(headers?.["content-type"] || "text/plain").split(";")[0].trim().toLowerCase() || "text/plain";
+}
+
+function decodeTransferBody(body, headers) {
+  const enc = String(headers?.["content-transfer-encoding"] || "").trim().toLowerCase();
+  const charset = headerParam(headers?.["content-type"] || "", "charset") || "utf-8";
+  try {
+    if (enc === "base64") return decodeBase64Body(body, charset);
+    if (enc === "quoted-printable") return decodeQuotedPrintable(body, charset);
+  } catch {}
+  return String(body || "");
+}
+
+function splitMultipart(body, boundary) {
+  if (!boundary) return [];
+  return String(body || "")
+    .split(`--${boundary}`)
+    .map((part) => part.replace(/^\r?\n/, "").replace(/\r?\n$/, ""))
+    .filter((part) => part.trim() && part.trim() !== "--" && !part.trim().startsWith("--"));
+}
+
+function htmlToText(html = "") {
+  return String(html)
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|tr|table|h[1-6])>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCharCode(parseInt(n, 16)));
+}
+
+function cleanDisplayText(text = "") {
+  return String(text || "")
+    .replace(/^--[-=_A-Za-z0-9.'+\/]+--?\s*$/gm, "")
+    .replace(/^Content-(Type|Transfer-Encoding|Disposition|ID|Description):.*$/gim, "")
+    .replace(/^MIME-Version:.*$/gim, "")
+    .replace(/^charset=.*$/gim, "")
+    .replace(/\r/g, "")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n[ \t]+/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
+    .slice(0, 20000);
+}
+
+function extractMimeContent(raw, inheritedHeaders = {}) {
+  const hasHeaders = inheritedHeaders && Object.keys(inheritedHeaders).length > 0;
+  const parsed = hasHeaders ? { headers: inheritedHeaders, body: String(raw || "") } : parseHeaders(raw);
+  const type = contentMime(parsed.headers);
+  const boundary = headerParam(parsed.headers["content-type"] || "", "boundary");
+
+  if (type.startsWith("multipart/") && boundary) {
+    const children = splitMultipart(parsed.body, boundary).map((part) => {
+      const child = parseHeaders(part);
+      return extractMimeContent(child.body, child.headers);
+    });
+    const text = children.find((p) => p.type === "text/plain" && p.text)?.text || children.find((p) => p.text)?.text || "";
+    const html = children.find((p) => p.type === "text/html" && p.html)?.html || children.find((p) => p.html)?.html || "";
+    return { type, text: text || htmlToText(html), html };
+  }
+
+  const decoded = decodeTransferBody(parsed.body, parsed.headers);
+  if (type === "text/html") return { type, text: htmlToText(decoded), html: decoded };
+  return { type, text: decoded, html: "" };
+}
+
+function escapeHtml(value = "") {
+  return String(value).replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
+}
+
 function extractOtpCode(subject, body) {
   const hay = `${subject || ""}\n${body || ""}`;
   if (!/(sign[\s-]?in code|verification code|one[\s-]?time|login code|enter this code|otp|your code is|use (?:the |this )?code)/i.test(hay)) return null;
@@ -442,17 +542,12 @@ function parseRawEmail(raw, accountLabel, uid) {
   const subject = decodeMimeWords(headers.subject || "");
   const from = decodeMimeWords(headers.from || "Netflix");
   const to = decodeMimeWords(headers.to || "");
-  const bodyText = decodeQuotedPrintable(body)
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/[ \t]+/g, " ")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim()
-    .slice(0, 20000);
+  const content = extractMimeContent(body, headers);
+  const bodyText = cleanDisplayText(content.text || htmlToText(content.html || body));
   const signal = `${subject} ${from} ${to} ${bodyText.slice(0, 2000)}`;
   if (!/netflix/i.test(signal)) return null;
   const date = headers.date ? new Date(headers.date) : new Date();
+  const html = content.html && /<\w+/i.test(content.html) ? content.html : `<pre>${escapeHtml(bodyText)}</pre>`;
   return {
     id: `${accountLabel}:${uid}`,
     message_id: headers["message-id"] || null,
@@ -461,8 +556,8 @@ function parseRawEmail(raw, accountLabel, uid) {
     to: to || undefined,
     date: Number.isNaN(date.getTime()) ? new Date().toISOString() : date.toISOString(),
     otp: extractOtpCode(subject, bodyText),
-    preview: bodyText.length > 100 ? `${bodyText.slice(0, 100)}...` : bodyText,
-    html: /<html|<body|<table|<div/i.test(body) ? body : `<pre>${bodyText.replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]))}</pre>`,
+    preview: bodyText.length > 140 ? `${bodyText.slice(0, 140)}...` : bodyText,
+    html,
     account_label: accountLabel,
   };
 }
