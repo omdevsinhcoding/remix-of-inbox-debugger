@@ -19,7 +19,7 @@ import { connect } from "cloudflare:sockets";
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Session-Token, X-Pending-Token, X-Cron-Secret, Cache-Control",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Session-Token, X-Pending-Token, X-Cron-Secret, X-Worker-Config-Secret, Cache-Control",
 };
 
 // F7: Bump CACHE_SCHEMA_VERSION whenever the shape of cached email JSON
@@ -29,6 +29,7 @@ const CORS_HEADERS = {
 const CACHE_SCHEMA_VERSION = "v3";
 const CACHE_KEY = `emails_list:${CACHE_SCHEMA_VERSION}`;
 const CACHE_TIMESTAMP_KEY = `emails_timestamp:${CACHE_SCHEMA_VERSION}`;
+const WORKER_CONFIG_KEY = "inbox_worker_config:v1";
 const STALE_SECONDS = 3;
 
 // --- KV helpers: use V2 if available, fallback to V1 ---
@@ -133,6 +134,31 @@ export default {
     const signingPrimary = env.SESSION_SIGNING_SECRET || env.SESSION_SECRET;
     const signingLegacy = env.SESSION_SECRET;
     const hasSigning = !!signingPrimary;
+
+    if (url.pathname === "/api/config/update" && request.method === "POST") {
+      const provided = request.headers.get("X-Worker-Config-Secret") || request.headers.get("x-worker-config-secret") || "";
+      if (!signingPrimary || provided !== signingPrimary) {
+        return new Response(JSON.stringify({ success: false, error: "Forbidden" }), {
+          status: 403, headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+        });
+      }
+      if (!getKV(env)) {
+        return new Response(JSON.stringify({ success: false, error: "KV is not configured" }), {
+          status: 500, headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+        });
+      }
+      let body = null;
+      try { body = await request.json(); } catch {}
+      if (!body || typeof body !== "object") {
+        return new Response(JSON.stringify({ success: false, error: "Invalid config" }), {
+          status: 400, headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+        });
+      }
+      await kvPut(env, WORKER_CONFIG_KEY, JSON.stringify({ ...body, savedAt: Date.now() }));
+      return new Response(JSON.stringify({ success: true }), {
+        headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+      });
+    }
 
     if (sessionToken && signingPrimary) {
       session = await verifySessionToken(sessionToken, signingPrimary);
@@ -496,25 +522,20 @@ async function decryptValue(encrypted, secret) {
   return new TextDecoder().decode(plain);
 }
 
-async function loadSettings(env) {
-  if (!env.SUPABASE_URL || !env.SUPABASE_KEY) throw new Error("Worker Supabase settings are missing");
-  const dbKey = env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_KEY;
-  const res = await fetch(`${env.SUPABASE_URL}/rest/v1/app_settings?select=key,value&key=in.(email_accounts,config,email_filters,email_visibility)`, {
-    headers: {
-      apikey: dbKey,
-      Authorization: `Bearer ${dbKey}`,
-      Accept: "application/json",
-    },
-  });
-  if (!res.ok) throw new Error(`Worker cannot read inbox settings (${res.status})`);
-  const rows = await res.json();
-  const map = new Map();
-  for (const row of rows || []) map.set(row.key, row.value);
-  return map;
+async function loadWorkerConfig(env) {
+  const raw = await kvGet(env, WORKER_CONFIG_KEY);
+  if (!raw) throw new Error("Worker inbox config missing. Save inbox settings in Admin Panel once.");
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") throw new Error("bad config");
+    return parsed;
+  } catch {
+    throw new Error("Worker inbox config is invalid. Save inbox settings in Admin Panel once.");
+  }
 }
 
 async function loadAccounts(env, session, requestedLabels = []) {
-  const settings = await loadSettings(env);
+  const settings = await loadWorkerConfig(env);
   const allowed = session?.role === "admin" ? null : Array.isArray(session?.assignedAccounts) ? session.assignedAccounts : [];
   const requested = requestedLabels.length > 0 ? requestedLabels.map(String).map(s => s.trim()).filter(Boolean) : null;
   const finalLabels = allowed === null
@@ -523,7 +544,9 @@ async function loadAccounts(env, session, requestedLabels = []) {
   if (Array.isArray(finalLabels) && finalLabels.length === 0) return [];
 
   const accounts = [];
-  const emailAccounts = settings.get("email_accounts");
+  const emailAccounts = settings.email_accounts;
+  const decryptSecret = env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_KEY || env.ENCRYPTION_SECRET;
+  if (!decryptSecret) throw new Error("Worker IMAP decrypt secret is missing");
   if (Array.isArray(emailAccounts)) {
     for (const acc of emailAccounts) {
       const label = String(acc.label || acc.user || "").trim();
@@ -534,18 +557,18 @@ async function loadAccounts(env, session, requestedLabels = []) {
         host: acc.host || "imap.gmail.com",
         port: parseInt(acc.port) || 993,
         user: acc.user,
-        password: await decryptValue(acc.password, env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_KEY),
+        password: await decryptValue(acc.password, decryptSecret),
       });
     }
   }
-  const config = settings.get("config") || {};
+  const config = settings.config || {};
   if ((!finalLabels || finalLabels.includes("Primary")) && config.IMAP_USER && config.IMAP_PASSWORD && !accounts.some(a => a.user === config.IMAP_USER)) {
     accounts.unshift({
       label: "Primary",
       host: config.IMAP_HOST || "imap.gmail.com",
       port: parseInt(config.IMAP_PORT) || 993,
       user: config.IMAP_USER,
-      password: await decryptValue(config.IMAP_PASSWORD, env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_KEY),
+      password: await decryptValue(config.IMAP_PASSWORD, decryptSecret),
     });
   }
   return accounts;
