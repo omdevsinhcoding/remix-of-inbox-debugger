@@ -415,13 +415,18 @@ Deno.serve(async (originalReq) => {
   if (originalReq.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   // ---- transport encryption boundary ----
+  // Cron/server-to-server callers authenticate with x-cron-secret and are
+  // allowed to POST plaintext JSON. All other callers MUST use encrypted transport.
+  const hasCronSecret = !!originalReq.headers.get("x-cron-secret");
   let ctx: EncryptedRequestContext | null = null;
   let parsedBody: any = null;
   try {
-    const r = await readRequest(originalReq);
+    const r = await readRequest(originalReq, { allowPlaintext: hasCronSecret });
     parsedBody = r.body ?? {};
     ctx = r.encrypted ? r.ctx : null;
-  } catch (_e) {
+  } catch (e) {
+    if (e instanceof PlaintextRejectedError) return plaintextRejectedResponse();
+    if (e instanceof TransportError) return transportErrorResponse(e);
     return new Response(JSON.stringify({ success: false, error: "bad request" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
   const req = new Request(originalReq.url, {
