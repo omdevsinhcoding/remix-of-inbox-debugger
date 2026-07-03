@@ -130,11 +130,15 @@ const verifyPlatformLogo = async (platform: PlatformOption): Promise<LogoAuditRe
   }
 };
 
-const usePlatformLogoAudit = () => {
-  const [ready, setReady] = React.useState(false);
+const usePlatformLogoAudit = (enabled = false) => {
+  const [ready, setReady] = React.useState(!enabled);
   const [results, setResults] = React.useState<Record<string, LogoAuditResult>>({});
 
   React.useEffect(() => {
+    if (!enabled) {
+      setReady(true);
+      return;
+    }
     let alive = true;
 
     (async () => {
@@ -159,7 +163,7 @@ const usePlatformLogoAudit = () => {
     })();
 
     return () => { alive = false; };
-  }, []);
+  }, [enabled]);
 
   return { ready, results };
 };
@@ -852,10 +856,11 @@ const useAuth = () => useContext(AuthContext)!;
 // --- Session Timeout Guard ---
 // Reads admin-configured absolute session timeout (minutes) from app_settings.
 // When elapsed, forces full logout: user must click their profile and re-enter password.
-function useSessionTimeoutGuard(role: "admin" | "user") {
+function useSessionTimeoutGuard(role: "admin" | "user", enabled = true) {
   const navigate = useNavigate();
   const { checkAuth } = useAuth();
   useEffect(() => {
+    if (!enabled) return;
     let timer: any;
     let poll: any;
     let cancelled = false;
@@ -910,7 +915,7 @@ function useSessionTimeoutGuard(role: "admin" | "user") {
       if (poll) clearInterval(poll);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [role]);
+  }, [role, enabled]);
 }
 
 // ==================== NETFLIX N LOGO (inline SVG, no external asset) ====================
@@ -3294,7 +3299,7 @@ function AdminPanel() {
   const [notifPlatformIcon, setNotifPlatformIcon] = useState<string>("");
   const [notifTemplate, setNotifTemplate] = useState<string>("");
   const [platformSearch, setPlatformSearch] = useState("");
-  const { ready: platformLogosReady, results: platformLogoResults } = usePlatformLogoAudit();
+  const { ready: platformLogosReady, results: platformLogoResults } = usePlatformLogoAudit(false);
   const [notifLocked, setNotifLocked] = useState(false);
   const [notifShowFrequency, setNotifShowFrequency] = useState<"once" | "always" | "session" | "daily">("once");
   const [notifMode, setNotifMode] = useState<"popup" | "silent" | "banner">("popup");
@@ -3312,6 +3317,7 @@ function AdminPanel() {
   const [r2TestResult, setR2TestResult] = useState<{ ok: boolean; message: string; latencyMs?: number; publicUrlWorks?: boolean; warnings?: string[] } | null>(null);
   const [r2ShowSecret, setR2ShowSecret] = useState(false);
   const [r2Dirty, setR2Dirty] = useState(false);
+  const lastAdminRefreshRef = useRef(0);
   const updateR2Cfg = useCallback((patch: Partial<R2Cfg>) => {
     setR2Dirty(true);
     setR2Cfg((c) => ({ ...c, ...patch }));
@@ -3466,7 +3472,11 @@ function AdminPanel() {
     // Admin still gets fresh data whenever they come back to the tab, and
     // can pull the manual "Refresh" button for on-demand updates.
     const onVis = () => {
-      if (document.visibilityState === "visible") void loadAdminData({ silent: true });
+      if (document.visibilityState !== "visible") return;
+      const now = Date.now();
+      if (now - lastAdminRefreshRef.current < 5 * 60_000) return;
+      lastAdminRefreshRef.current = now;
+      void loadAdminData({ silent: true });
     };
     document.addEventListener("visibilitychange", onVis);
     window.addEventListener("focus", onVis);
@@ -3988,18 +3998,10 @@ function AdminPanel() {
         assigned_accounts: newUserAccounts.length > 0 ? newUserAccounts : null,
       });
       setNewUsername(""); setNewPassword(""); setNewName(""); setNewUserAccounts([]);
-      // Optimistic append — avoid a second `list` roundtrip which was doubling
-      // the wait time. If the server didn't echo the user for any reason, fall
-      // back to a fresh list.
-      if (res?.user) {
-        setUsers(prev => [...prev, res.user]);
-        setStats(prev => ({ ...prev, totalUsers: prev.totalUsers + 1 }));
-        toast.success("User created!");
-      } else {
-        toast.success("User created!");
-        const data = await apiCall("manage-app", { action: "list" });
-        setUsers(data.users || []);
-      }
+      if (!res?.user) throw new Error("Server did not return the created user");
+      setUsers(prev => [...prev, res.user]);
+      setStats(prev => ({ ...prev, totalUsers: prev.totalUsers + 1 }));
+      toast.success("User created!");
     } catch (err) {
       toast.error("Failed: " + (err instanceof Error ? err.message : String(err)));
     } finally {
@@ -7182,7 +7184,8 @@ export default function App() {
 
 const ProtectedRoute = ({ children, role }: { children: React.ReactNode; role: "admin" | "user" }) => {
   const { user, loading } = useAuth();
-  useSessionTimeoutGuard(role);
+  const roleAllowed = !!user && (role !== "admin" || user.role === "admin");
+  useSessionTimeoutGuard(role, roleAllowed);
   if (loading) return <div className="min-h-screen bg-slate-950 flex items-center justify-center"><div className="w-8 h-8 border-2 border-red-500 border-t-transparent rounded-full animate-spin" /></div>;
   if (!user) return <Navigate to={role === "admin" ? "/admin" : "/"} />;
   if (role === "admin" && user.role !== "admin") return <Navigate to="/" />;
