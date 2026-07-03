@@ -354,11 +354,17 @@ async function fetchFromAccount(
 
 async function loadAccounts(supabase: any, secret: string, accountLabels: string[] | null): Promise<Account[]> {
   let accounts: Account[] = [];
+  const requested = accountLabels && accountLabels.length > 0
+    ? new Set(accountLabels.map((label) => String(label).trim()).filter(Boolean))
+    : null;
 
   try {
     const { data: accountsData } = await supabase.from("app_settings").select("value").eq("key", "email_accounts").single();
     if (Array.isArray(accountsData?.value)) {
-      const decrypted = await Promise.all(accountsData.value.map(async (acc: any) => {
+      const accountRows = requested
+        ? accountsData.value.filter((acc: any) => requested.has(String(acc.label || acc.user || "").trim()))
+        : accountsData.value;
+      const decrypted = await Promise.all(accountRows.map(async (acc: any) => {
         if (!acc.user || !acc.password) return null;
         return {
           label: acc.label || acc.user,
@@ -374,27 +380,29 @@ async function loadAccounts(supabase: any, secret: string, accountLabels: string
     console.error("[sync] Failed to load email_accounts:", err);
   }
 
-  let primaryHost = "", primaryPort = 993, primaryUser = "", primaryPassword = "";
-  try {
-    const { data } = await supabase.from("app_settings").select("value").eq("key", "config").single();
-    const config = data?.value as any;
-    if (config) {
-      primaryHost = config.IMAP_HOST || "";
-      primaryPort = parseInt(config.IMAP_PORT) || 993;
-      primaryUser = config.IMAP_USER || "";
-      primaryPassword = config.IMAP_PASSWORD || "";
-      if (primaryPassword?.startsWith?.("enc:")) primaryPassword = await decryptValue(primaryPassword, secret);
+  if (!requested || requested.has("Primary")) {
+    let primaryHost = "", primaryPort = 993, primaryUser = "", primaryPassword = "";
+    try {
+      const { data } = await supabase.from("app_settings").select("value").eq("key", "config").single();
+      const config = data?.value as any;
+      if (config) {
+        primaryHost = config.IMAP_HOST || "";
+        primaryPort = parseInt(config.IMAP_PORT) || 993;
+        primaryUser = config.IMAP_USER || "";
+        primaryPassword = config.IMAP_PASSWORD || "";
+        if (primaryPassword?.startsWith?.("enc:")) primaryPassword = await decryptValue(primaryPassword, secret);
+      }
+    } catch {}
+
+    if (!primaryHost) primaryHost = Deno.env.get("IMAP_HOST") || "imap.gmail.com";
+    if (!primaryUser) primaryUser = Deno.env.get("IMAP_USER") || "";
+    if (!primaryPassword) primaryPassword = Deno.env.get("IMAP_PASSWORD") || "";
+    const envPort = Deno.env.get("IMAP_PORT");
+    if (primaryPort === 993 && envPort) primaryPort = parseInt(envPort) || 993;
+
+    if (primaryUser && primaryPassword && !accounts.some(a => a.user === primaryUser)) {
+      accounts.unshift({ label: "Primary", host: primaryHost, port: primaryPort, user: primaryUser, password: primaryPassword });
     }
-  } catch {}
-
-  if (!primaryHost) primaryHost = Deno.env.get("IMAP_HOST") || "imap.gmail.com";
-  if (!primaryUser) primaryUser = Deno.env.get("IMAP_USER") || "";
-  if (!primaryPassword) primaryPassword = Deno.env.get("IMAP_PASSWORD") || "";
-  const envPort = Deno.env.get("IMAP_PORT");
-  if (primaryPort === 993 && envPort) primaryPort = parseInt(envPort) || 993;
-
-  if (primaryUser && primaryPassword && !accounts.some(a => a.user === primaryUser)) {
-    accounts.unshift({ label: "Primary", host: primaryHost, port: primaryPort, user: primaryUser, password: primaryPassword });
   }
 
   if (accountLabels && accountLabels.length > 0) {
@@ -467,18 +475,26 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
       message_id: e.message_id || null,
     }));
 
-    const { error: upsertErr } = await supabase.from("cached_emails").upsert(rows, { onConflict: "id" });
-    if (upsertErr) console.error("[sync] Cache upsert error:", upsertErr);
-    else inserted = rows.length;
+    const persistWork = supabase.from("cached_emails").upsert(rows, { onConflict: "id" })
+      .then(({ error: upsertErr }: any) => {
+        if (upsertErr) console.error("[sync] Cache upsert error:", upsertErr);
+      });
+    if (quickRefresh) {
+      inserted = rows.length;
+      ((globalThis as any).EdgeRuntime?.waitUntil?.(persistWork) ?? persistWork.catch((err: any) => console.error("[sync] Background upsert error:", err)));
+    } else {
+      await persistWork;
+      inserted = rows.length;
+    }
   }
 
-  try {
+  const cleanupWork = (async () => {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - STALE_DAYS);
     await supabase.from("cached_emails").delete().lt("date", cutoff.toISOString());
-  } catch (e) {
-    console.error("[sync] Stale cleanup error:", e);
-  }
+  })().catch((e) => console.error("[sync] Stale cleanup error:", e));
+  if (quickRefresh) ((globalThis as any).EdgeRuntime?.waitUntil?.(cleanupWork) ?? cleanupWork);
+  else await cleanupWork;
 
   const response: any = {
     success: true,
