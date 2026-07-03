@@ -319,6 +319,7 @@ async function handleSync(env, session, rawToken, requestBody) {
       "Authorization": `Bearer ${env.SUPABASE_KEY}`,
       "apikey": env.SUPABASE_KEY,
     };
+    if (env.CRON_SHARED_SECRET) headers["X-Cron-Secret"] = env.CRON_SHARED_SECRET;
     if (rawToken) headers["X-Session-Token"] = rawToken;
 
     // Pass through accountLabels from the request body for per-account routing
@@ -394,6 +395,7 @@ async function fetchDirectFromSupabase(env, session, rawToken, limit = 3) {
       "Authorization": `Bearer ${env.SUPABASE_KEY}`,
       "apikey": env.SUPABASE_KEY,
     };
+    if (env.CRON_SHARED_SECRET) headers["X-Cron-Secret"] = env.CRON_SHARED_SECRET;
     if (rawToken) headers["X-Session-Token"] = rawToken;
 
     const res = await fetch(`${env.SUPABASE_URL}/functions/v1/fetch-emails`, {
@@ -425,6 +427,7 @@ async function refreshFromSupabase(env, session, rawToken, cacheKey, tsKey, limi
       "Authorization": `Bearer ${env.SUPABASE_KEY}`,
       "apikey": env.SUPABASE_KEY,
     };
+    if (env.CRON_SHARED_SECRET) headers["X-Cron-Secret"] = env.CRON_SHARED_SECRET;
     if (rawToken) headers["X-Session-Token"] = rawToken;
 
     const res = await fetch(`${env.SUPABASE_URL}/functions/v1/fetch-emails`, {
