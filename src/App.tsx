@@ -6362,6 +6362,8 @@ function EmailViewer() {
   const isImpersonating = !!readImpersonationBackup();
 
   const [refreshing, setRefreshing] = useState(false);
+  const refreshingRef = useRef(false);
+  const refreshPollRef = useRef<number | null>(null);
   const [resolvedWorkerUrls, setResolvedWorkerUrls] = useState<string[]>(() => getStoredWorkerUrls());
   const [workerUrlMap, setWorkerUrlMap] = useState<WorkerUrlMap>({ primary: [], byAccount: {} });
   const [workerUrlsLoading, setWorkerUrlsLoading] = useState(true);
@@ -6456,8 +6458,9 @@ function EmailViewer() {
     })();
   }, []);
 
-  const loadCachedEmails = useCallback(async (opts?: { bust?: boolean }) => {
+  const loadCachedEmails = useCallback(async (opts?: { bust?: boolean; limit?: number }) => {
     const bust = !!opts?.bust;
+    const limit = opts?.limit || 3;
     try {
       const token = getSessionToken();
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -6469,7 +6472,7 @@ function EmailViewer() {
       const started = performance.now();
       const data: any = await invokeEdge(
         "fetch-emails",
-        bust ? { mode: "cache", bust: 1 } : { mode: "cache" },
+        bust ? { mode: "cache", bust: 1, limit } : { mode: "cache", limit },
         { headers },
       );
       const ms = Math.round(performance.now() - started);
@@ -6500,26 +6503,46 @@ function EmailViewer() {
     const started = performance.now();
 
     const { invokeEdge } = await import("./lib/secureTransport");
-    const data: any = await invokeEdge("fetch-emails", { mode: "sync_async", source: "user_refresh" }, { headers });
+    const data: any = await invokeEdge("fetch-emails", { mode: "sync_async", source: "user_refresh", limit: 3 }, { headers });
     pushDiag({ ts: Date.now(), kind: "supabase", endpoint, status: 200, ms: Math.round(performance.now() - started), note: "sync_async" });
     if (data && data.success === false) throw new Error(data?.error || "Sync failed");
   }, [pushDiag]);
 
   const fetchEmails = async () => {
-    if (refreshing) return;
+    if (refreshingRef.current) return;
+    refreshingRef.current = true;
     setRefreshing(true);
     const before = showLocalCacheNow() || emails.length;
     const toastId = toast.loading("Checking Netflix mail…");
     try {
-      // Refresh must never blank or block: DB cache first, then slow IMAP sync in background.
-      // F7: manual refresh always passes bust=1 so KV can't return a stale snapshot.
-      const cachedCount = await loadCachedEmails({ bust: true });
-      setRefreshing(false);
+      // Refresh must never blank or block: latest 3 DB rows first, then IMAP sync in background.
+      const cachedCount = await loadCachedEmails({ bust: true, limit: 3 });
       const baseline = Math.max(before, cachedCount);
+      window.setTimeout(() => {
+        if (!refreshingRef.current) return;
+        refreshingRef.current = false;
+        setRefreshing(false);
+      }, 1500);
 
       syncViaWorker()
-        .then(() => new Promise(resolve => setTimeout(resolve, 4000)))
-        .then(() => loadCachedEmails({ bust: true }))
+        .then(() => {
+          const started = Date.now();
+          return new Promise<number>((resolve) => {
+            const poll = async () => {
+              const count = await loadCachedEmails({ bust: true, limit: 3 });
+              const newest = (() => {
+                try { return Math.max(...readLocalCachedEmails().map(e => new Date(e.cached_at || e.date || 0).getTime()).filter(Number.isFinite)); }
+                catch { return 0; }
+              })();
+              if (count > baseline || Date.now() - started >= 6500 || newest >= started - 1500) {
+                resolve(count);
+                return;
+              }
+              refreshPollRef.current = window.setTimeout(poll, 900);
+            };
+            refreshPollRef.current = window.setTimeout(poll, 900);
+          });
+        })
         .then((after) => {
           const newCount = after - baseline;
           if (newCount > 0) {
@@ -6553,10 +6576,18 @@ function EmailViewer() {
             },
           });
         })
-        .finally(() => setRefreshing(false));
+        .finally(() => {
+          if (refreshPollRef.current) {
+            clearTimeout(refreshPollRef.current);
+            refreshPollRef.current = null;
+          }
+          refreshingRef.current = false;
+          setRefreshing(false);
+        });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to load";
       toast.error(msg);
+      refreshingRef.current = false;
       setRefreshing(false);
     }
   };
@@ -6594,19 +6625,19 @@ function EmailViewer() {
     showLocalCacheNow();
     setLoading(false);
 
-    loadCachedEmails().finally(() => {
+    loadCachedEmails({ limit: 3 }).finally(() => {
       if (cancelled) return;
       setLoading(false);
       if (!sessionGet("session_started_at" as any)) markSessionStart();
     });
 
     const pollInterval = window.setInterval(() => {
-      void loadCachedEmails();
-    }, 60000);
+      void loadCachedEmails({ limit: 3 });
+    }, 15000);
 
     const handleVisibility = () => {
       if (document.visibilityState === "visible") {
-        void loadCachedEmails();
+        void loadCachedEmails({ limit: 3 });
       }
     };
 
@@ -6626,8 +6657,8 @@ function EmailViewer() {
     if (workerUrlsLoading || initialSyncFired.current) return;
     initialSyncFired.current = true;
     syncViaWorker()
-      .then(() => new Promise(resolve => setTimeout(resolve, 4000)))
-      .then(() => loadCachedEmails())
+      .then(() => new Promise(resolve => setTimeout(resolve, 1200)))
+      .then(() => loadCachedEmails({ bust: true, limit: 3 }))
       .catch(() => {});
   }, [workerUrlsLoading, syncViaWorker, loadCachedEmails]);
 
