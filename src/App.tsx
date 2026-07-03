@@ -2855,8 +2855,6 @@ function AllEmailsPanel() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [viewing, setViewing] = useState<any | null>(null);
   const [offset, setOffset] = useState(0);
-  const offsetRef = useRef(0);
-  useEffect(() => { offsetRef.current = offset; }, [offset]);
   const limit = 100;
 
 
