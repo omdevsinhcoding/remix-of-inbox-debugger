@@ -3687,9 +3687,7 @@ function AdminPanel() {
       if (newEnabled && (!siteKey || !secretKeyVal)) { toast.error("Enter both Site Key and Secret Key first"); return; }
       await apiCall("manage-app", { action: "set_settings", key: "recaptcha", value: { siteKey, secretKey: secretKeyVal, enabled: newEnabled } });
       const fresh = await apiCall("manage-app", { action: "get_settings", key: "recaptcha" });
-      const on = fresh.value?.enabled === true;
-      setCaptchaEnabled(on);
-      try { localStorage.setItem("admin_captcha_enabled", on ? "1" : "0"); } catch {}
+      setCaptchaEnabled(fresh.value?.enabled === true);
       setSiteKey(fresh.value?.siteKey || "");
       setSecretKeyVal(fresh.value?.secretKey || "");
       toast.success(newEnabled ? "CAPTCHA enabled!" : "CAPTCHA disabled!");
