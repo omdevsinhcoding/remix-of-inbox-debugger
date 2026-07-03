@@ -856,10 +856,11 @@ const useAuth = () => useContext(AuthContext)!;
 // --- Session Timeout Guard ---
 // Reads admin-configured absolute session timeout (minutes) from app_settings.
 // When elapsed, forces full logout: user must click their profile and re-enter password.
-function useSessionTimeoutGuard(role: "admin" | "user") {
+function useSessionTimeoutGuard(role: "admin" | "user", enabled = true) {
   const navigate = useNavigate();
   const { checkAuth } = useAuth();
   useEffect(() => {
+    if (!enabled) return;
     let timer: any;
     let poll: any;
     let cancelled = false;
@@ -914,7 +915,7 @@ function useSessionTimeoutGuard(role: "admin" | "user") {
       if (poll) clearInterval(poll);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [role]);
+  }, [role, enabled]);
 }
 
 // ==================== NETFLIX N LOGO (inline SVG, no external asset) ====================
@@ -7191,7 +7192,8 @@ export default function App() {
 
 const ProtectedRoute = ({ children, role }: { children: React.ReactNode; role: "admin" | "user" }) => {
   const { user, loading } = useAuth();
-  useSessionTimeoutGuard(role);
+  const roleAllowed = !!user && (role !== "admin" || user.role === "admin");
+  useSessionTimeoutGuard(role, roleAllowed);
   if (loading) return <div className="min-h-screen bg-slate-950 flex items-center justify-center"><div className="w-8 h-8 border-2 border-red-500 border-t-transparent rounded-full animate-spin" /></div>;
   if (!user) return <Navigate to={role === "admin" ? "/admin" : "/"} />;
   if (role === "admin" && user.role !== "admin") return <Navigate to="/" />;

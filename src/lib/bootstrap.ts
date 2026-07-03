@@ -111,28 +111,40 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   });
 }
 
+let bootstrapInFlight: Promise<BootstrapResult> | null = null;
+
 export async function bootstrapFromSupabase(opts?: { force?: boolean }): Promise<BootstrapResult> {
   if (!opts?.force) {
     const cached = readBootstrapCache();
     if (cached) return cached;
+    if (bootstrapInFlight) return bootstrapInFlight;
   }
 
-  const { data, error } = await withTimeout(
-    supabase.functions.invoke("manage-app", { body: { action: "bootstrap_public" } }),
-    BOOTSTRAP_TIMEOUT_MS,
-  );
-  if (error) throw error;
-  if (!data?.success) throw new Error(data?.error || "Bootstrap failed");
+  const request = (async () => {
+    const { data, error } = await withTimeout(
+      supabase.functions.invoke("manage-app", { body: { action: "bootstrap_public" } }),
+      BOOTSTRAP_TIMEOUT_MS,
+    );
+    if (error) throw error;
+    if (!data?.success) throw new Error(data?.error || "Bootstrap failed");
 
-  if (Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
-    storeWorkerUrls(data.workerUrls);
+    if (Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
+      storeWorkerUrls(data.workerUrls);
+    }
+
+    const result: BootstrapResult = { users: data.users || [], recaptcha: data.recaptcha, workerUrls: data.workerUrls || [], emailFilters: data.emailFilters || {}, maintenance: data.maintenance || { enabled: false }, avatarBaseUrl: data.avatarBaseUrl || "" };
+    setAvatarBaseUrl(result.avatarBaseUrl);
+    if (data.emailFilters && typeof data.emailFilters === "object") setEmailFilters(data.emailFilters);
+    writeBootstrapCache(result);
+    return result;
+  })();
+
+  if (!opts?.force) bootstrapInFlight = request;
+  try {
+    return await request;
+  } finally {
+    if (bootstrapInFlight === request) bootstrapInFlight = null;
   }
-
-  const result: BootstrapResult = { users: data.users || [], recaptcha: data.recaptcha, workerUrls: data.workerUrls || [], emailFilters: data.emailFilters || {}, maintenance: data.maintenance || { enabled: false }, avatarBaseUrl: data.avatarBaseUrl || "" };
-  setAvatarBaseUrl(result.avatarBaseUrl);
-  if (data.emailFilters && typeof data.emailFilters === "object") setEmailFilters(data.emailFilters);
-  writeBootstrapCache(result);
-  return result;
 }
 
 
