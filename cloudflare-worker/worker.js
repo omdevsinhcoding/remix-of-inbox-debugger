@@ -746,11 +746,11 @@ async function fetchFromImapAccount(account, limit = 3) {
     let literals = [];
     if (uids.length > 0) {
       const newest = Array.from(new Set(uids)).sort((a, b) => b - a).slice(0, Math.max(1, limit));
-      const fetched = await imap.command(`UID FETCH ${newest.join(",")} (BODY.PEEK[]<0.24000>)`, 2800);
+      const fetched = await imap.command(`UID FETCH ${newest.join(",")} (BODY.PEEK[]<0.200000>)`, 2800);
       literals = fetched.literals;
     } else if (total > 0) {
       const start = Math.max(1, total - 3);
-      const fetched = await imap.command(`FETCH ${start}:* (UID BODY.PEEK[]<0.24000>)`, 2800);
+      const fetched = await imap.command(`FETCH ${start}:* (UID BODY.PEEK[]<0.200000>)`, 2800);
       literals = fetched.literals;
     }
 
