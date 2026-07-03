@@ -6605,7 +6605,7 @@ function EmailViewer() {
           const started = Date.now();
           return new Promise<number>((resolve) => {
             const poll = async () => {
-              const count = await loadCachedEmails({ bust: true, limit: 3 });
+              const count = await loadCachedEmails({ bust: true, limit: 200 });
               const newest = (() => {
                 try { return Math.max(...readLocalCachedEmails().map(e => new Date(e.cached_at || e.date || 0).getTime()).filter(Number.isFinite)); }
                 catch { return 0; }
