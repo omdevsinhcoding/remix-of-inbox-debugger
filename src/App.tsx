@@ -3998,18 +3998,10 @@ function AdminPanel() {
         assigned_accounts: newUserAccounts.length > 0 ? newUserAccounts : null,
       });
       setNewUsername(""); setNewPassword(""); setNewName(""); setNewUserAccounts([]);
-      // Optimistic append — avoid a second `list` roundtrip which was doubling
-      // the wait time. If the server didn't echo the user for any reason, fall
-      // back to a fresh list.
-      if (res?.user) {
-        setUsers(prev => [...prev, res.user]);
-        setStats(prev => ({ ...prev, totalUsers: prev.totalUsers + 1 }));
-        toast.success("User created!");
-      } else {
-        toast.success("User created!");
-        const data = await apiCall("manage-app", { action: "list" });
-        setUsers(data.users || []);
-      }
+      if (!res?.user) throw new Error("Server did not return the created user");
+      setUsers(prev => [...prev, res.user]);
+      setStats(prev => ({ ...prev, totalUsers: prev.totalUsers + 1 }));
+      toast.success("User created!");
     } catch (err) {
       toast.error("Failed: " + (err instanceof Error ? err.message : String(err)));
     } finally {
