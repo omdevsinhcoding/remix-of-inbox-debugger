@@ -6322,8 +6322,7 @@ function EmailViewer() {
       const parsed = JSON.parse(raw);
       if (!Array.isArray(parsed)) return [];
       return filterVisibleEmails(parsed as Email[], profilePrefs)
-        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-        .slice(0, 3);
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     } catch {
       return [];
     }
@@ -6334,18 +6333,17 @@ function EmailViewer() {
       if (raw) {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) return filterVisibleEmails(parsed as Email[], user.profilePrefs || {})
-          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-          .slice(0, 3);
+          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
       }
     } catch {}
     return [];
   });
   const setEmails = useCallback((next: Email[]) => {
     const visible = filterVisibleEmails(next, profilePrefs)
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-      .slice(0, 3);
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     setEmailsRaw(visible);
-    try { localStorage.setItem(cacheKey, JSON.stringify(visible)); } catch {}
+    // Persist up to 200 in localStorage so next visit paints the full inbox instantly.
+    try { localStorage.setItem(cacheKey, JSON.stringify(visible.slice(0, 200))); } catch {}
   }, [cacheKey, profilePrefs]);
   const showLocalCacheNow = useCallback(() => {
     const cached = readLocalCachedEmails();
