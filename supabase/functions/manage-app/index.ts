@@ -2635,7 +2635,7 @@ Deno.serve(async (req) => {
       const totalUsersP = supabase.from("app_users").select("id", { count: "exact", head: true }).neq("role", "admin");
 
       const settingsKeys = includeSettings
-        ? ["recaptcha", "config", "primary_cloudflare_urls", "email_filters", "email_accounts", "session_config", "admin_session_config", "ipwho_alert", "maintenance", "r2_storage"]
+        ? ["recaptcha", "config", "primary_cloudflare_urls", "email_filters", "email_accounts", "session_config", "admin_session_config", "ipwho_alert", "maintenance", "r2_storage", "email_visibility", "email_auto_delete", "cron_config"]
         : [];
       const settingsP = settingsKeys.length
         ? supabase.from("app_settings").select("key,value").in("key", settingsKeys)
