@@ -545,7 +545,7 @@ async function loadAccounts(env, session, requestedLabels = []) {
 
   const accounts = [];
   const emailAccounts = settings.email_accounts;
-  const decryptSecret = env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_KEY || env.ENCRYPTION_SECRET;
+  const decryptSecret = env.SESSION_SIGNING_SECRET || env.SESSION_SECRET || env.ENCRYPTION_SECRET || env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_KEY;
   if (!decryptSecret) throw new Error("Worker IMAP decrypt secret is missing");
   if (Array.isArray(emailAccounts)) {
     for (const acc of emailAccounts) {
