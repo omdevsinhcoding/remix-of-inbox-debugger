@@ -1402,16 +1402,17 @@ Deno.serve(async (originalReq) => {
       if (current !== row.binding_hash) {
         await supabase.from("app_sessions").delete().eq("id", row.id);
         supabase.from("security_events").insert({
-          event_type: "session_binding_mismatch",
+          type: "session_binding_mismatch",
           severity: "high",
-          user_id: row.user_id,
+          uid: row.user_id,
           ip,
-          user_agent: req.headers.get("user-agent") || null,
-          details: { session_id: row.id },
+          ua: req.headers.get("user-agent") || null,
+          meta: { session_id: row.id },
         }).then(() => {});
         throw new Error("Session bound to another device. Please sign in again.");
       }
     }
+
     // Fire-and-forget touch
     supabase.from("app_sessions").update({ last_seen_at: new Date().toISOString() }).eq("id", row.id).then(() => {});
     return session;
