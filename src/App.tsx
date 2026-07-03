@@ -3243,9 +3243,7 @@ function AdminPanel() {
   const [savingSessionTimeout, setSavingSessionTimeout] = useState(false);
   const [adminSessionTimeoutMin, setAdminSessionTimeoutMin] = useState<string>("0");
   const [savingAdminSessionTimeout, setSavingAdminSessionTimeout] = useState(false);
-  const [captchaEnabled, setCaptchaEnabled] = useState<boolean>(() => {
-    try { return localStorage.getItem("admin_captcha_enabled") === "1"; } catch { return false; }
-  });
+  const [captchaEnabled, setCaptchaEnabled] = useState<boolean>(false);
   const [emailVisibilityEnabled, setEmailVisibilityEnabled] = useState(false);
   const [emailVisibilityDays, setEmailVisibilityDays] = useState<string>("20");
   const [savingEmailVisibility, setSavingEmailVisibility] = useState(false);
@@ -3402,9 +3400,7 @@ function AdminPanel() {
         if (s.recaptcha) {
           setSiteKey(s.recaptcha.siteKey || "");
           setSecretKeyVal(s.recaptcha.secretKey || "");
-          const on = s.recaptcha.enabled === true;
-          setCaptchaEnabled(on);
-          try { localStorage.setItem("admin_captcha_enabled", on ? "1" : "0"); } catch {}
+          setCaptchaEnabled(s.recaptcha.enabled === true);
         }
         if (s.email_visibility) {
           setEmailVisibilityEnabled(s.email_visibility.enabled === true);
@@ -3691,9 +3687,7 @@ function AdminPanel() {
       if (newEnabled && (!siteKey || !secretKeyVal)) { toast.error("Enter both Site Key and Secret Key first"); return; }
       await apiCall("manage-app", { action: "set_settings", key: "recaptcha", value: { siteKey, secretKey: secretKeyVal, enabled: newEnabled } });
       const fresh = await apiCall("manage-app", { action: "get_settings", key: "recaptcha" });
-      const on = fresh.value?.enabled === true;
-      setCaptchaEnabled(on);
-      try { localStorage.setItem("admin_captcha_enabled", on ? "1" : "0"); } catch {}
+      setCaptchaEnabled(fresh.value?.enabled === true);
       setSiteKey(fresh.value?.siteKey || "");
       setSecretKeyVal(fresh.value?.secretKey || "");
       toast.success(newEnabled ? "CAPTCHA enabled!" : "CAPTCHA disabled!");
@@ -3707,9 +3701,7 @@ function AdminPanel() {
       const newEnabled = !!(siteKey && secretKeyVal);
       await apiCall("manage-app", { action: "set_settings", key: "recaptcha", value: { siteKey, secretKey: secretKeyVal, enabled: newEnabled } });
       const fresh = await apiCall("manage-app", { action: "get_settings", key: "recaptcha" });
-      const on = fresh.value?.enabled === true;
-      setCaptchaEnabled(on);
-      try { localStorage.setItem("admin_captcha_enabled", on ? "1" : "0"); } catch {}
+      setCaptchaEnabled(fresh.value?.enabled === true);
       toast.success("ReCAPTCHA settings saved!");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to save settings");
