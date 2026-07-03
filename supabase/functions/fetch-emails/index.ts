@@ -1,10 +1,11 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { ImapFlow } from "npm:imapflow@1.2.18";
 import { simpleParser } from "npm:mailparser@3.9.6";
+import { readRequest, maybeEncryptResponse, EncryptedRequestContext, PlaintextRejectedError, plaintextRejectedResponse, TransportError, transportErrorResponse } from "../_shared/crypto.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-session-token, x-cron-secret",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-session-token, x-cron-secret, x-crypto-session",
 };
 
 const PASSWORD_RESET_SUBJECTS = [
@@ -44,9 +45,10 @@ function extractOtpCode(subject: string, body: string): string | null {
 }
 
 const FULL_SYNC_MAX_UIDS = 10;
-const PER_ACCOUNT_TIMEOUT_MS = 8000;
+const USER_REFRESH_MAX_UIDS = 3;
+const PER_ACCOUNT_TIMEOUT_MS = 5000;
 const STALE_DAYS = 60;
-const USER_SYNC_WINDOW_MS = 30_000;
+const USER_SYNC_WINDOW_MS = 5_000;
 const userSyncHits = new Map<string, number>();
 
 type Session = { userId: string; username: string; role: "admin" | "user"; assignedAccounts?: string[] | null; exp?: number };
@@ -103,7 +105,9 @@ async function decryptValue(encrypted: string, secret: string): Promise<string> 
 async function getAssignedAccountFilter(supabase: any, session: Session | null): Promise<string[] | null> {
   if (!session || session.role === "admin") return null;
   const { data: userData } = await supabase.from("app_users").select("assigned_accounts").eq("id", session.userId).single();
-  return Array.isArray(userData?.assigned_accounts) && userData.assigned_accounts.length > 0 ? userData.assigned_accounts : null;
+  // For non-admin users: return the assigned list (possibly empty).
+  // An empty array means "no accounts ticked" -> show nothing.
+  return Array.isArray(userData?.assigned_accounts) ? userData.assigned_accounts : [];
 }
 
 function applyEmailFilters(emails: any[], filterSignInCodes: boolean, filterPasswordResets: boolean) {
@@ -132,8 +136,17 @@ async function getEmailVisibility(supabase: any): Promise<{ enabled: boolean; da
   return null;
 }
 
-async function readCache(supabase: any, accountFilter: string[] | null, filterSignInCodes: boolean, filterPasswordResets: boolean, session: Session | null) {
-  let query = supabase.from("cached_emails").select("*").order("date", { ascending: false }).limit(500);
+function clampLimit(value: any, fallback: number, max: number) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.max(1, Math.min(max, Math.floor(n)));
+}
+
+async function readCache(supabase: any, accountFilter: string[] | null, filterSignInCodes: boolean, filterPasswordResets: boolean, session: Session | null, limit = 500) {
+  const safeLimit = clampLimit(limit, 500, session?.role === "admin" ? 500 : 50);
+  // Non-admin with zero assigned accounts -> nothing visible.
+  if (accountFilter && accountFilter.length === 0 && session && session.role !== "admin") return [];
+  let query = supabase.from("cached_emails").select("*").order("date", { ascending: false }).limit(safeLimit);
   if (accountFilter && accountFilter.length > 0) query = query.in("account_label", accountFilter);
   if (session && session.role !== "admin") {
     const vis = await getEmailVisibility(supabase);
@@ -155,6 +168,7 @@ async function readCache(supabase: any, accountFilter: string[] | null, filterSi
     preview: e.preview,
     html: e.html,
     account_label: e.account_label,
+    cached_at: e.cached_at,
   }));
   return applyEmailFilters(emails, filterSignInCodes, filterPasswordResets);
 }
@@ -165,6 +179,7 @@ async function fetchFromAccount(
   imapUser: string,
   imapPassword: string,
   accountLabel: string,
+  maxMessages = FULL_SYNC_MAX_UIDS,
 ): Promise<{ emails: any[]; fetched: number; skipped: number }> {
   const emails: any[] = [];
   let timedOut = false;
@@ -188,41 +203,44 @@ async function fetchFromAccount(
     const lock = await client.getMailboxLock("INBOX");
 
     try {
-      const since = new Date();
-      since.setDate(since.getDate() - 7);
-
       let netflixUids: number[] = [];
-      for (const term of ["netflix.com", "netflix"]) {
-        if (netflixUids.length > 0 || !hasBudget()) break;
-        try {
-          const searchResults = await client.search({ from: term, since }, { uid: true });
-          if (searchResults?.length > 0) {
-            netflixUids = searchResults as number[];
-            console.log(`[${accountLabel}] Search "${term}" found ${netflixUids.length}`);
+      const totalMessages = (client.mailbox as any)?.exists || 0;
+
+      // Fast path: newly delivered OTP emails are almost always in the newest inbox rows.
+      // Fetching envelopes for the last few messages is much faster than a server-side IMAP search.
+      if (totalMessages > 0 && hasBudget()) {
+        const startSeq = Math.max(1, totalMessages - 11);
+        for await (const message of client.fetch(`${startSeq}:${totalMessages}`, { envelope: true, uid: true })) {
+          if (!hasBudget()) break;
+          const fromAddr = message.envelope?.from?.[0]?.address?.toLowerCase() || "";
+          const toAddr = message.envelope?.to?.[0]?.address?.toLowerCase() || "";
+          const subject = (message.envelope?.subject || "").toLowerCase();
+          if (fromAddr.includes("netflix") || toAddr.includes("netflix") || subject.includes("netflix")) {
+            netflixUids.push(message.uid);
           }
-        } catch (searchErr) {
-          console.log(`[${accountLabel}] Search "${term}" failed:`, searchErr);
         }
+        if (netflixUids.length > 0) console.log(`[${accountLabel}] Latest inbox scan found ${netflixUids.length}`);
       }
 
       if (netflixUids.length === 0 && hasBudget()) {
-        const totalMessages = (client.mailbox as any)?.exists || 0;
-        if (totalMessages > 0) {
-          const startSeq = Math.max(1, totalMessages - 29);
-          for await (const message of client.fetch(`${startSeq}:${totalMessages}`, { envelope: true, uid: true })) {
-            if (!hasBudget()) break;
-            const fromAddr = message.envelope?.from?.[0]?.address?.toLowerCase() || "";
-            const toAddr = message.envelope?.to?.[0]?.address?.toLowerCase() || "";
-            const subject = (message.envelope?.subject || "").toLowerCase();
-            if (fromAddr.includes("netflix") || toAddr.includes("netflix") || subject.includes("netflix")) {
-              netflixUids.push(message.uid);
+        const since = new Date();
+        since.setDate(since.getDate() - 7);
+        for (const term of ["netflix.com", "netflix"]) {
+          if (netflixUids.length > 0 || !hasBudget()) break;
+          try {
+            const searchResults = await client.search({ from: term, since }, { uid: true });
+            if (searchResults?.length > 0) {
+              netflixUids = searchResults as number[];
+              console.log(`[${accountLabel}] Search "${term}" found ${netflixUids.length}`);
             }
+          } catch (searchErr) {
+            console.log(`[${accountLabel}] Search "${term}" failed:`, searchErr);
           }
         }
       }
 
       netflixUids.sort((a, b) => b - a);
-      const uidsToFetch = netflixUids.slice(0, FULL_SYNC_MAX_UIDS);
+      const uidsToFetch = netflixUids.slice(0, clampLimit(maxMessages, USER_REFRESH_MAX_UIDS, FULL_SYNC_MAX_UIDS));
       console.log(`[${accountLabel}] Fetching ${uidsToFetch.length} recent candidate UIDs`);
 
       for (const uid of uidsToFetch) {
@@ -322,7 +340,7 @@ async function loadAccounts(supabase: any, secret: string, accountLabels: string
   return accounts;
 }
 
-async function runSync(supabase: any, secret: string, source: string, accountLabels: string[] | null) {
+async function runSync(supabase: any, secret: string, source: string, accountLabels: string[] | null, maxMessages = FULL_SYNC_MAX_UIDS) {
   console.log(`[sync] Starting parallel IMAP sync (source: ${source})`);
   const accounts = await loadAccounts(supabase, secret, accountLabels);
 
@@ -338,7 +356,7 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
 
   const settled = await Promise.allSettled(accounts.map(async (acc) => {
     console.log(`[sync] Fetching ${acc.label} (${acc.user})`);
-    const result = await fetchFromAccount(acc.host, acc.port, acc.user, acc.password, acc.label);
+    const result = await fetchFromAccount(acc.host, acc.port, acc.user, acc.password, acc.label, maxMessages);
     return { acc, result };
   }));
 
@@ -410,9 +428,30 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
   return response;
 }
 
-Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+Deno.serve(async (originalReq) => {
+  if (originalReq.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
+  // ---- transport encryption boundary ----
+  // Cron/server-to-server callers authenticate with x-cron-secret and are
+  // allowed to POST plaintext JSON. All other callers MUST use encrypted transport.
+  const hasCronSecret = !!originalReq.headers.get("x-cron-secret");
+  let ctx: EncryptedRequestContext | null = null;
+  let parsedBody: any = null;
+  try {
+    const r = await readRequest(originalReq, { allowPlaintext: hasCronSecret });
+    parsedBody = r.body ?? {};
+    ctx = r.encrypted ? r.ctx : null;
+  } catch (e) {
+    if (e instanceof PlaintextRejectedError) return plaintextRejectedResponse();
+    if (e instanceof TransportError) return transportErrorResponse(e);
+    return new Response(JSON.stringify({ success: false, error: "bad request" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
+  const req = new Request(originalReq.url, {
+    method: originalReq.method,
+    headers: originalReq.headers,
+    body: JSON.stringify(parsedBody ?? {}),
+  });
+  const __run = async () => {
   try {
     const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
     // F5: dedicated signing key with legacy fallback (see manage-app).
@@ -484,13 +523,16 @@ Deno.serve(async (req) => {
     if (mode === "cache") {
       if (!session) return json({ success: false, error: "Authentication required" }, 401);
       const accountFilter = await getAssignedAccountFilter(supabase, session);
-      const emails = await readCache(supabase, accountFilter, filterSignInCodes, filterPasswordResets, session);
+      const emails = await readCache(supabase, accountFilter, filterSignInCodes, filterPasswordResets, session, body.limit);
       return json(emails);
     }
 
     if (mode === "unfiltered_count") {
       if (!session) return json({ success: false, error: "Authentication required" }, 401);
       const accountFilter = await getAssignedAccountFilter(supabase, session);
+      if (session.role !== "admin" && accountFilter && accountFilter.length === 0) {
+        return json({ total: 0, error: null });
+      }
       let query = supabase.from("cached_emails").select("id", { count: "exact", head: true });
       if (accountFilter && accountFilter.length > 0) query = query.in("account_label", accountFilter);
       if (session.role !== "admin") {
@@ -516,24 +558,32 @@ Deno.serve(async (req) => {
 
     if (session && session.role !== "admin") {
       const assigned = await getAssignedAccountFilter(supabase, session);
-      if (assigned && assigned.length > 0) accountLabels = accountLabels ? accountLabels.filter(l => assigned.includes(l)) : assigned;
-      const last = userSyncHits.get(session.userId) || 0;
-      if (Date.now() - last < USER_SYNC_WINDOW_MS) {
-        const cache = await readCache(supabase, assigned, filterSignInCodes, filterPasswordResets, session);
-        return json({ success: true, rateLimited: true, message: "Please wait before refreshing again", emails: cache }, mode === "sync_async" ? 202 : 429);
+      // Non-admin user: restrict sync scope to their assigned accounts.
+      // Empty assignment -> nothing to sync/display.
+      if (assigned && assigned.length === 0) {
+        return json({ success: true, accepted: true, emails: [], message: "No accounts assigned" }, mode === "sync_async" ? 202 : 200);
       }
-      userSyncHits.set(session.userId, Date.now());
+      if (assigned && assigned.length > 0) accountLabels = accountLabels ? accountLabels.filter(l => assigned.includes(l)) : assigned;
+      if (mode === "sync_async" && source !== "user_refresh") {
+        const last = userSyncHits.get(session.userId) || 0;
+        if (Date.now() - last < USER_SYNC_WINDOW_MS) {
+          const cache = await readCache(supabase, assigned, filterSignInCodes, filterPasswordResets, session, body.limit);
+          return json({ success: true, rateLimited: true, message: "Please wait before refreshing again", emails: cache }, 202);
+        }
+        userSyncHits.set(session.userId, Date.now());
+      }
     }
 
-    if (mode === "sync_async") {
+    if (mode === "sync_async" && source !== "user_refresh") {
       const accountFilterForCache = session ? await getAssignedAccountFilter(supabase, session) : null;
-      const cache = session ? await readCache(supabase, accountFilterForCache, filterSignInCodes, filterPasswordResets, session).catch(() => []) : [];
-      const work = runSync(supabase, ENCRYPTION_SECRET, source || "async", accountLabels).catch(err => console.error("[sync_async] background failed:", err));
+      const cache = session ? await readCache(supabase, accountFilterForCache, filterSignInCodes, filterPasswordResets, session, body.limit).catch(() => []) : [];
+      const maxMessages = clampLimit(body.limit, USER_REFRESH_MAX_UIDS, FULL_SYNC_MAX_UIDS);
+      const work = runSync(supabase, ENCRYPTION_SECRET, source || "async", accountLabels, maxMessages).catch(err => console.error("[sync_async] background failed:", err));
       ((globalThis as any).EdgeRuntime?.waitUntil?.(work) ?? work);
       return json({ success: true, accepted: true, emails: cache }, 202);
     }
 
-    const result = await runSync(supabase, ENCRYPTION_SECRET, source, accountLabels);
+    const result = await runSync(supabase, ENCRYPTION_SECRET, source, accountLabels, clampLimit(body.limit, FULL_SYNC_MAX_UIDS, FULL_SYNC_MAX_UIDS));
     return json(result, result.success === false ? 502 : 200);
   } catch (err) {
     console.error("[sync] Fatal error:", err);
@@ -546,4 +596,8 @@ Deno.serve(async (req) => {
         : `Failed to fetch emails: ${errorMessage}`,
     }, isImapAuthError ? 401 : 500);
   }
+  };
+  const res = await __run();
+  return await maybeEncryptResponse(res, ctx);
 });
+

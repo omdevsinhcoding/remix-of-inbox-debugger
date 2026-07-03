@@ -1,9 +1,10 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { authenticator } from "npm:otplib@12.0.1";
+import { readRequest, maybeEncryptResponse, EncryptedRequestContext, PlaintextRejectedError, plaintextRejectedResponse, TransportError, transportErrorResponse } from "../_shared/crypto.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-session-token, x-pending-token, x-client-ip",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-session-token, x-pending-token, x-client-ip, x-crypto-session",
 };
 
 // --- Crypto helpers ---
@@ -76,6 +77,22 @@ async function sha256Hex(value: string): Promise<string> {
   return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
+async function verifyRecaptchaToken(secretKey: string, token: string, ip?: string): Promise<boolean> {
+  const body = new URLSearchParams();
+  body.set("secret", secretKey);
+  body.set("response", token);
+  if (ip && ip !== "unknown") body.set("remoteip", ip);
+
+  const res = await fetch("https://www.google.com/recaptcha/api/siteverify", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+  });
+  if (!res.ok) return false;
+  const data = await res.json().catch(() => null) as any;
+  return data?.success === true;
+}
+
 // --- AES-256-GCM encryption for IMAP credentials ---
 async function deriveEncKey(secret: string): Promise<CryptoKey> {
   const encoder = new TextEncoder();
@@ -109,12 +126,29 @@ async function decryptValue(encrypted: string, secret: string): Promise<string> 
   return new TextDecoder().decode(plain);
 }
 
-// --- Audit logging ---
-async function auditLog(supabase: any, action: string, actorId: string | null, targetId: string | null, details: any, ip: string) {
+// --- Audit logging (D.3: enriched with user_agent + optional result) ---
+async function auditLog(
+  supabase: any,
+  action: string,
+  actorId: string | null,
+  targetId: string | null,
+  details: any,
+  ip: string,
+  extras?: { userAgent?: string | null; result?: string | null },
+) {
   try {
-    await supabase.from("audit_logs").insert({ action, actor_id: actorId, target_id: targetId, details, ip });
+    await supabase.from("audit_logs").insert({
+      action,
+      actor_id: actorId,
+      target_id: targetId,
+      details,
+      ip,
+      user_agent: extras?.userAgent ?? null,
+      result: extras?.result ?? null,
+    });
   } catch (e) { console.error("Audit log error:", e); }
 }
+
 
 function isPrivateIp(ip: string): boolean {
   if (!ip || ip === "unknown") return true;
@@ -357,17 +391,48 @@ function r2FailureMessage(status: number, body: string, warnings: string[]): str
   return `PUT ${status}: ${compactBody}`;
 }
 
+// Cache Telegram config in-memory (per-isolate) for 60s to avoid a DB
+// round-trip on every alert/OTP send.
+let __tgCfgCache: { at: number; cfg: { botToken: string; chatId: string } | null } | null = null;
 async function getTelegramConfig(supabase: any): Promise<{ botToken: string; chatId: string } | null> {
+  if (__tgCfgCache && Date.now() - __tgCfgCache.at < 60_000) return __tgCfgCache.cfg;
+  let cfg: { botToken: string; chatId: string } | null = null;
   try {
     const { data } = await supabase.from("app_settings").select("value").eq("key", "config").single();
-    const cfg = data?.value as any;
-    if (cfg?.TELEGRAM_BOT_TOKEN && cfg?.TELEGRAM_CHAT_ID) {
-      return { botToken: cfg.TELEGRAM_BOT_TOKEN, chatId: cfg.TELEGRAM_CHAT_ID };
+    const c = data?.value as any;
+    if (c?.TELEGRAM_BOT_TOKEN && c?.TELEGRAM_CHAT_ID) {
+      cfg = { botToken: c.TELEGRAM_BOT_TOKEN, chatId: c.TELEGRAM_CHAT_ID };
     }
   } catch {}
-  const botToken = Deno.env.get("TELEGRAM_BOT_TOKEN");
-  const chatId = Deno.env.get("TELEGRAM_CHAT_ID");
-  return botToken && chatId ? { botToken, chatId } : null;
+  if (!cfg) {
+    const botToken = Deno.env.get("TELEGRAM_BOT_TOKEN");
+    const chatId = Deno.env.get("TELEGRAM_CHAT_ID");
+    if (botToken && chatId) cfg = { botToken, chatId };
+  }
+  __tgCfgCache = { at: Date.now(), cfg };
+  return cfg;
+}
+
+// Timeout-guarded Telegram sendMessage. Prevents a stalled Telegram edge
+// (occasional 20-30s hangs) from blocking the whole edge-function response.
+async function postTelegram(
+  tg: { botToken: string; chatId: string },
+  payload: Record<string, unknown>,
+  timeoutMs = 6000,
+): Promise<Response> {
+  return await fetch(`https://api.telegram.org/bot${tg.botToken}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: tg.chatId, parse_mode: "HTML", disable_web_page_preview: true, ...payload }),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+}
+// Fire-and-forget wrapper for non-critical alerts. Uses EdgeRuntime.waitUntil
+// so the response can return immediately while the alert flushes in the bg.
+function postTelegramBg(tg: { botToken: string; chatId: string }, payload: Record<string, unknown>) {
+  const p = postTelegram(tg, payload, 6000).then(() => {}).catch((e) => console.error("[tg bg] failed:", e));
+  const wu = (globalThis as any).EdgeRuntime?.waitUntil;
+  if (typeof wu === "function") wu(p); else void p;
 }
 
 // --- Multi-provider IP geolocation (parallel, timeout-guarded) with VPN/proxy detection ---
@@ -1045,11 +1110,7 @@ async function sendPrimaryLoginAlert(
 
 
   try {
-    const tgRes = await fetch(`https://api.telegram.org/bot${tg.botToken}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: tg.chatId, text, parse_mode: "HTML", disable_web_page_preview: true }),
-    });
+    const tgRes = await postTelegram(tg, { text });
     if (!tgRes.ok) console.error("[tg primary alert] failed:", await tgRes.text());
   } catch (e) { console.error("[tg primary alert] error:", e); }
 }
@@ -1073,11 +1134,7 @@ async function sendLegacyIpwhoAlert(
     map ? `<b>Map:</b> <a href="${map}">Open</a>` : "",
   ].filter(Boolean).join("\n");
   try {
-    await fetch(`https://api.telegram.org/bot${tg.botToken}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: tg.chatId, text, parse_mode: "HTML", disable_web_page_preview: true }),
-    });
+    await postTelegram(tg, { text });
   } catch {}
 }
 
@@ -1306,10 +1363,30 @@ async function loadWorkerUrls(supabase: any): Promise<string[]> {
   return workerUrls;
 }
 
-Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") {
+Deno.serve(async (originalReq) => {
+  if (originalReq.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
+
+  // ---- transport encryption boundary ----
+  let __ctx: EncryptedRequestContext | null = null;
+  let __parsedBody: any = null;
+  try {
+    const __r = await readRequest(originalReq);
+    __parsedBody = __r.body ?? {};
+    __ctx = __r.encrypted ? __r.ctx : null;
+  } catch (e) {
+    if (e instanceof PlaintextRejectedError) return plaintextRejectedResponse();
+    if (e instanceof TransportError) return transportErrorResponse(e);
+    return new Response(JSON.stringify({ success: false, error: "bad request" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
+  const req = new Request(originalReq.url, {
+    method: originalReq.method,
+    headers: originalReq.headers,
+    body: JSON.stringify(__parsedBody ?? {}),
+  });
+
+
 
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
@@ -1325,10 +1402,25 @@ Deno.serve(async (req) => {
 
   const ip = getClientIp(req);
 
+  // C.3 device binding: sha256(ua + accept-language + ip/24). /24 (not /32) so
+  // mobile carrier NAT doesn't invalidate legitimate sessions.
+  async function computeBindingHash(r: Request): Promise<string> {
+    const ua = (r.headers.get("user-agent") || "").trim();
+    const al = (r.headers.get("accept-language") || "").split(",")[0]?.trim() || "";
+    const rawIp = getClientIp(r) || "";
+    let ipPrefix = rawIp;
+    const v4 = rawIp.match(/^(\d+)\.(\d+)\.(\d+)\.\d+$/);
+    if (v4) ipPrefix = `${v4[1]}.${v4[2]}.${v4[3]}.0/24`;
+    // IPv6: keep first 4 groups (/64) as coarse binding
+    else if (rawIp.includes(":")) ipPrefix = rawIp.split(":").slice(0, 4).join(":") + "::/64";
+    return await sha256Hex(`${ua}|${al}|${ipPrefix}`);
+  }
+
   // --- Persist a session row in DB (source of truth for logged-in status) ---
   async function persistSession(userId: string, role: string, token: string, expiresAtMs: number) {
     const tokenHash = await sha256Hex(token);
     const ua = req.headers.get("user-agent") || null;
+    const bindingHash = await computeBindingHash(req);
     await supabase.from("app_sessions").insert({
       user_id: userId,
       role,
@@ -1336,9 +1428,55 @@ Deno.serve(async (req) => {
       expires_at: new Date(expiresAtMs).toISOString(),
       ip,
       user_agent: ua,
+      binding_hash: bindingHash,
     });
     // Best-effort cleanup of expired rows for this user
     supabase.from("app_sessions").delete().lt("expires_at", new Date().toISOString()).eq("user_id", userId).then(() => {});
+  }
+
+  // C.2 refresh-token rotation: mint access+refresh pair inside one session
+  // family. Access TTL 15 min, refresh TTL 12 h. Refresh rotates on every use;
+  // reuse of a rotated refresh token revokes the whole family (see refresh_session action).
+  function b64url(bytes: Uint8Array): string {
+    let s = ""; for (const b of bytes) s += String.fromCharCode(b);
+    return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+  async function mintSessionPair(
+    userId: string,
+    role: string,
+    accessPayload: Record<string, any>,
+    opts?: { familyId?: string; parentSessionId?: string | null },
+  ): Promise<{ accessToken: string; accessExpMs: number; refreshToken: string; refreshExpMs: number; familyId: string; sessionRowId: string }> {
+    const ACCESS_TTL_MS = 15 * 60 * 1000;
+    const REFRESH_TTL_MS = 12 * 60 * 60 * 1000;
+    const now = Date.now();
+    const accessExpMs = now + ACCESS_TTL_MS;
+    const refreshExpMs = now + REFRESH_TTL_MS;
+    const familyId = opts?.familyId || crypto.randomUUID();
+    const refreshToken = b64url(crypto.getRandomValues(new Uint8Array(32)));
+    const accessToken = await createSessionToken({ ...accessPayload, exp: accessExpMs }, SIGNING_SECRET);
+    const [accessHash, refreshHash, bindingHash] = await Promise.all([
+      sha256Hex(accessToken),
+      sha256Hex(refreshToken),
+      computeBindingHash(req),
+    ]);
+    const { data: row, error } = await supabase.from("app_sessions").insert({
+      user_id: userId,
+      role,
+      token_hash: accessHash,
+      expires_at: new Date(accessExpMs).toISOString(),
+      refresh_token_hash: refreshHash,
+      refresh_expires_at: new Date(refreshExpMs).toISOString(),
+      family_id: familyId,
+      parent_session_id: opts?.parentSessionId ?? null,
+      ip,
+      user_agent: req.headers.get("user-agent") || null,
+      binding_hash: bindingHash,
+    }).select("id").single();
+    if (error || !row) throw new Error(`Failed to persist session: ${error?.message || "insert failed"}`);
+    // Best-effort cleanup of expired rows for this user
+    supabase.from("app_sessions").delete().lt("expires_at", new Date().toISOString()).eq("user_id", userId).then(() => {});
+    return { accessToken, accessExpMs, refreshToken, refreshExpMs, familyId, sessionRowId: row.id };
   }
 
   // Helper to verify session from header AND ensure a live DB row exists
@@ -1350,18 +1488,39 @@ Deno.serve(async (req) => {
     const tokenHash = await sha256Hex(token);
     const { data: row } = await supabase
       .from("app_sessions")
-      .select("id, expires_at")
+      .select("id, expires_at, binding_hash, user_id, revoked_at")
       .eq("token_hash", tokenHash)
       .maybeSingle();
     if (!row) throw new Error("Session revoked. Please sign in again.");
+    if (row.revoked_at) throw new Error("Session revoked. Please sign in again.");
     if (new Date(row.expires_at).getTime() < Date.now()) {
       await supabase.from("app_sessions").delete().eq("id", row.id);
       throw new Error("Session expired. Please sign in again.");
     }
+    // C.3 device-binding check. Only enforce when a binding is stored (soft
+    // rollout: legacy sessions with null binding_hash pass through).
+    if (row.binding_hash) {
+      const current = await computeBindingHash(req);
+      if (current !== row.binding_hash) {
+        await supabase.from("app_sessions").delete().eq("id", row.id);
+        supabase.from("security_events").insert({
+          type: "session_binding_mismatch",
+          severity: "high",
+          uid: row.user_id,
+          ip,
+          ua: req.headers.get("user-agent") || null,
+          meta: { session_id: row.id },
+        }).then(() => {});
+        throw new Error("Session bound to another device. Please sign in again.");
+      }
+    }
+
     // Fire-and-forget touch
     supabase.from("app_sessions").update({ last_seen_at: new Date().toISOString() }).eq("id", row.id).then(() => {});
     return session;
   }
+
+
 
   async function requireAdmin(req: Request): Promise<Record<string, any>> {
     const session = await requireSession(req);
@@ -1387,6 +1546,7 @@ Deno.serve(async (req) => {
     return { pending, token, tokenHash, state };
   }
 
+  const __run = async (): Promise<Response> => {
   try {
     const { action, ...params } = await req.json();
 
@@ -1504,8 +1664,22 @@ Deno.serve(async (req) => {
     }
 
     if (action === "login") {
-      const { username, password, clientGeo } = params;
+      const { username, password, clientGeo, captchaToken } = params;
       if (!username || !password) throw new Error("Username and password required");
+
+      const { data: recaptchaSetting } = await supabase
+        .from("app_settings")
+        .select("value")
+        .eq("key", "recaptcha")
+        .maybeSingle();
+      const recaptchaCfg: any = recaptchaSetting?.value || null;
+      if (recaptchaCfg?.enabled === true) {
+        if (!recaptchaCfg?.secretKey) throw new Error("CAPTCHA is misconfigured. Contact admin.");
+        if (!captchaToken || typeof captchaToken !== "string") throw new Error("CAPTCHA required. Refresh and try again.");
+        const captchaOk = await verifyRecaptchaToken(recaptchaCfg.secretKey, captchaToken, ip);
+        if (!captchaOk) throw new Error("CAPTCHA verification failed. Refresh and try again.");
+      }
+
       const verifiedClientGeo = sanitizeClientGeo(clientGeo);
       console.log("[login] incoming clientGeo:", JSON.stringify(clientGeo));
       console.log("[login] verified clientGeo:", JSON.stringify(verifiedClientGeo));
@@ -1571,22 +1745,21 @@ Deno.serve(async (req) => {
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      // Create normal user session token (30 min expiry)
-      const expMs = Date.now() + 30 * 60 * 1000;
-      const sessionPayload = {
+      // C.2: mint access (15 min) + refresh (12 h) rotating pair
+      const pair = await mintSessionPair(user.id, user.role, {
         userId: user.id,
         username: user.username,
         role: user.role,
         assignedAccounts: user.assigned_accounts || null,
-        exp: expMs,
-      };
-      const sessionToken = await createSessionToken(sessionPayload, SIGNING_SECRET);
-      await persistSession(user.id, user.role, sessionToken, expMs);
+      });
       const workerUrls = await loadWorkerUrls(supabase);
 
       return new Response(JSON.stringify({
         success: true,
-        sessionToken,
+        sessionToken: pair.accessToken,
+        expiresAt: pair.accessExpMs,
+        refreshToken: pair.refreshToken,
+        refreshExpiresAt: pair.refreshExpMs,
         workerUrls,
         user: {
           id: user.id, username: user.username, name: user.name, role: user.role,
@@ -1598,6 +1771,7 @@ Deno.serve(async (req) => {
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+
     }
 
     if (action === "create") {
@@ -1743,46 +1917,31 @@ Deno.serve(async (req) => {
       // Generate OTP
       const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
 
-      // Save OTP to DB
-      await supabase.from("app_otps").delete().eq("user_id", user_id);
-      const { error: otpErr } = await supabase.from("app_otps").insert({ user_id, otp: otpCode });
-      if (otpErr) throw otpErr;
+      // Kick off DB write (delete+insert) and Telegram-config lookup in parallel
+      // so we spend one round-trip on both, not two sequentially.
+      const dbWrite = (async () => {
+        await supabase.from("app_otps").delete().eq("user_id", user_id);
+        const { error } = await supabase.from("app_otps").insert({ user_id, otp: otpCode });
+        if (error) throw error;
+      })();
+      const cfgLookup = getTelegramConfig(supabase);
 
-      // Get Telegram config
-      let tgConfig: { botToken: string; chatId: string } | null = null;
-      try {
-        const { data: settingsData } = await supabase
-          .from("app_settings")
-          .select("value")
-          .eq("key", "config")
-          .single();
-        if (settingsData?.value) {
-          const cfg = settingsData.value as any;
-          if (cfg.TELEGRAM_BOT_TOKEN && cfg.TELEGRAM_CHAT_ID) {
-            tgConfig = { botToken: cfg.TELEGRAM_BOT_TOKEN, chatId: cfg.TELEGRAM_CHAT_ID };
-          }
-        }
-      } catch {}
-      if (!tgConfig) {
-        const bt = Deno.env.get("TELEGRAM_BOT_TOKEN");
-        const ci = Deno.env.get("TELEGRAM_CHAT_ID");
-        if (bt && ci) tgConfig = { botToken: bt, chatId: ci };
-      }
-
+      const [tgConfig] = await Promise.all([cfgLookup, dbWrite]);
       if (!tgConfig) {
         throw new Error("Telegram not configured. Set bot token and chat ID in admin settings.");
       }
 
-      // Send OTP via Telegram
-      const telegramRes = await fetch(`https://api.telegram.org/bot${tgConfig.botToken}/sendMessage`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: tgConfig.chatId,
+      // Send OTP via Telegram with a hard 6s timeout so a slow Telegram edge
+      // can't stall the whole response for 20-30s.
+      let telegramRes: Response;
+      try {
+        telegramRes = await postTelegram(tgConfig, {
           text: `🛡 Admin 3FA OTP: <code>${otpCode}</code>\nValid for 5 minutes.`,
-          parse_mode: "HTML",
-        }),
-      });
+        }, 6000);
+      } catch (e) {
+        console.error("Telegram send timeout/error:", e);
+        throw new Error("Telegram is slow to respond. Try again in a moment.");
+      }
 
       if (!telegramRes.ok) {
         const errText = await telegramRes.text();
@@ -1837,22 +1996,21 @@ Deno.serve(async (req) => {
 
       const { data: user, error } = await supabase.from("app_users").select("*").eq("id", pending.userId).single();
       if (error || !user || user.role !== "admin") throw new Error("Admin not found");
-      const expMs = Date.now() + 30 * 60 * 1000;
-      const sessionPayload = {
+      const pair = await mintSessionPair(user.id, "admin", {
         userId: user.id,
         username: user.username,
         role: "admin",
         assignedAccounts: user.assigned_accounts || null,
-        exp: expMs,
-      };
-      const sessionToken = await createSessionToken(sessionPayload, SIGNING_SECRET);
-      await persistSession(user.id, "admin", sessionToken, expMs);
+      });
       const workerUrls = await loadWorkerUrls(supabase);
       await supabase.from("app_admin_2fa_state").delete().eq("token_hash", tokenHash);
       await auditLog(supabase, "admin_2fa_finalized", user.id, user.id, {}, ip);
       return new Response(JSON.stringify({
         success: true,
-        sessionToken,
+        sessionToken: pair.accessToken,
+        expiresAt: pair.accessExpMs,
+        refreshToken: pair.refreshToken,
+        refreshExpiresAt: pair.refreshExpMs,
         workerUrls,
         user: {
           id: user.id,
@@ -1866,6 +2024,7 @@ Deno.serve(async (req) => {
         },
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
+
 
     if (action === "get_settings") {
       const { key } = params;
@@ -1920,9 +2079,20 @@ Deno.serve(async (req) => {
       const session = await requireAdmin(req);
       const explicitValue = Deno.env.get("SESSION_SIGNING_SECRET") || "";
       const value = explicitValue || SIGNING_SECRET;
-      if (!value) throw new Error("No signing secret is available in Supabase Edge Function environment.");
-      await auditLog(supabase, "session_signing_secret_revealed", session.userId, null, { length: value.length, source: explicitValue ? "SESSION_SIGNING_SECRET" : "legacy_fallback" }, ip);
-      return new Response(JSON.stringify({ success: true, name: "SESSION_SIGNING_SECRET", present: true, length: value.length, source: explicitValue ? "SESSION_SIGNING_SECRET" : "legacy_fallback", value }), {
+      const source = explicitValue ? "SESSION_SIGNING_SECRET" : "legacy_fallback";
+      await auditLog(supabase, "session_signing_secret_inspected", session.userId, null, { length: value.length, source }, ip);
+      // SECURITY: never return the raw signing key. Return metadata only.
+      // A leaked signing key allows permanent session-token forgery.
+      return new Response(JSON.stringify({
+        success: true,
+        name: "SESSION_SIGNING_SECRET",
+        present: !!value,
+        length: value.length,
+        source,
+        // Non-reversible fingerprint so admins can confirm rotation without
+        // ever exposing the secret itself.
+        fingerprint: value ? (await sha256Hex(value)).slice(0, 12) : "",
+      }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -2031,24 +2201,23 @@ Deno.serve(async (req) => {
         .single();
       if (error || !targetUser) throw new Error("User not found");
 
-      const expMs = Date.now() + 30 * 60 * 1000;
-      const impersonatePayload = {
+      const pair = await mintSessionPair(targetUser.id, "user", {
         userId: targetUser.id,
         username: targetUser.username,
         role: "user",
         assignedAccounts: targetUser.assigned_accounts || null,
         impersonated: true,
         adminId: session.userId,
-        exp: expMs,
-      };
-      const token = await createSessionToken(impersonatePayload, SIGNING_SECRET);
-      await persistSession(targetUser.id, "user", token, expMs);
+      });
 
       await auditLog(supabase, "impersonate", session.userId, targetUser.id, { targetUsername: targetUser.username }, ip);
 
       return new Response(JSON.stringify({
         success: true,
-        sessionToken: token,
+        sessionToken: pair.accessToken,
+        expiresAt: pair.accessExpMs,
+        refreshToken: pair.refreshToken,
+        refreshExpiresAt: pair.refreshExpMs,
         user: {
           id: targetUser.id, username: targetUser.username, name: targetUser.name, role: "user",
           assignedAccounts: targetUser.assigned_accounts, mustChangePassword: false,
@@ -2059,6 +2228,112 @@ Deno.serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    // C.2: refresh access token — rotates refresh token, detects reuse.
+    // Body: { refreshToken: string }
+    if (action === "refresh_session") {
+      const { refreshToken } = params;
+      if (!refreshToken || typeof refreshToken !== "string") throw new Error("refreshToken required");
+      const refreshHash = await sha256Hex(refreshToken);
+      const { data: row } = await supabase
+        .from("app_sessions")
+        .select("id, user_id, role, family_id, refresh_expires_at, revoked_at, revoked_reason, binding_hash")
+        .eq("refresh_token_hash", refreshHash)
+        .maybeSingle();
+      if (!row) throw new Error("Invalid refresh token");
+
+      // REUSE DETECTION: presenting an already-rotated refresh token means
+      // either the legitimate user's browser is racing (rare) or an attacker
+      // stole a refresh token and is trying to use it after we rotated it.
+      // Kill the entire session family and alert.
+      if (row.revoked_at) {
+        await supabase.from("app_sessions").update({
+          revoked_at: new Date().toISOString(),
+          revoked_reason: "refresh_reuse_family_kill",
+        }).eq("family_id", row.family_id).is("revoked_at", null);
+        await supabase.from("app_sessions").delete().eq("family_id", row.family_id);
+
+        supabase.from("security_events").insert({
+          type: "refresh_token_reuse",
+          severity: "critical",
+          uid: row.user_id,
+          ip,
+          ua: req.headers.get("user-agent") || null,
+          meta: { family_id: row.family_id, original_reason: row.revoked_reason },
+        }).then(() => {});
+
+        // Telegram alert — fire-and-forget so we don't block the response
+        // that's about to throw "Session family revoked".
+        try {
+          const tg = await getTelegramConfig(supabase);
+          if (tg) {
+            const text = [
+              `🚨 <b>Refresh-token reuse detected</b>`,
+              `<b>User ID:</b> <code>${row.user_id}</code>`,
+              `<b>IP:</b> <code>${ip}</code>`,
+              `<b>Family:</b> <code>${row.family_id}</code>`,
+              `<i>All sessions in this family have been revoked.</i>`,
+            ].join("\n");
+            postTelegramBg(tg, { text });
+          }
+        } catch {}
+
+        throw new Error("Session family revoked. Please sign in again.");
+      }
+
+      if (!row.refresh_expires_at || new Date(row.refresh_expires_at).getTime() < Date.now()) {
+        await supabase.from("app_sessions").delete().eq("id", row.id);
+        throw new Error("Refresh token expired. Please sign in again.");
+      }
+
+      // Device binding still enforced on refresh
+      if (row.binding_hash) {
+        const current = await computeBindingHash(req);
+        if (current !== row.binding_hash) {
+          await supabase.from("app_sessions").update({
+            revoked_at: new Date().toISOString(),
+            revoked_reason: "binding_mismatch_on_refresh",
+          }).eq("family_id", row.family_id).is("revoked_at", null);
+          supabase.from("security_events").insert({
+            type: "refresh_binding_mismatch",
+            severity: "high",
+            uid: row.user_id,
+            ip,
+            ua: req.headers.get("user-agent") || null,
+            meta: { family_id: row.family_id },
+          }).then(() => {});
+          throw new Error("Session bound to another device. Please sign in again.");
+        }
+      }
+
+      // Load current user data so JWT stays fresh (role changes propagate on refresh)
+      const { data: user, error: uerr } = await supabase.from("app_users").select("*").eq("id", row.user_id).single();
+      if (uerr || !user) throw new Error("User not found");
+
+      // Mint new pair inside the same family, linked to parent row
+      const pair = await mintSessionPair(user.id, row.role, {
+        userId: user.id,
+        username: user.username,
+        role: row.role,
+        assignedAccounts: user.assigned_accounts || null,
+      }, { familyId: row.family_id, parentSessionId: row.id });
+
+      // Mark old row revoked (kept in DB briefly for reuse detection; expires_at cleanup will remove it)
+      await supabase.from("app_sessions").update({
+        revoked_at: new Date().toISOString(),
+        revoked_reason: "rotated",
+      }).eq("id", row.id);
+
+      return new Response(JSON.stringify({
+        success: true,
+        sessionToken: pair.accessToken,
+        expiresAt: pair.accessExpMs,
+        refreshToken: pair.refreshToken,
+        refreshExpiresAt: pair.refreshExpMs,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+
 
     // Decrypt IMAP passwords (internal use for fetch-emails)
     if (action === "get_decrypted_accounts") {
@@ -2664,8 +2939,24 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ success: true, status: data }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    // ---------- D.2: signed short-lived maintenance-bypass token ----------
+    // Replaces client-controlled sessionStorage flag with an HMAC-signed JWS.
+    // 10 min TTL, bound to admin userId. Client cannot extend or forge it.
+    if (action === "admin_issue_maint_bypass") {
+      const session = await requireAdmin(req);
+      const now = Date.now();
+      const exp = now + 10 * 60 * 1000;
+      const token = await createSessionToken(
+        { kind: "maint_bypass", uid: session.userId, iat: now, exp, jti: crypto.randomUUID() },
+        SIGNING_SECRET,
+      );
+      await auditLog(supabase, "maint_bypass_issued", session.userId, null, { exp }, ip);
+      return new Response(JSON.stringify({ success: true, token, exp }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     // ---------- Admin dashboard: ONE composite call (replaces 12 client calls) ----------
     // Bulk: full mount payload. `refresh` variant skips rarely-changing settings.
+
     if (action === "admin_dashboard_bootstrap" || action === "admin_dashboard_refresh") {
       const session = await requireAdmin(req);
       const includeSettings = action === "admin_dashboard_bootstrap";
@@ -2890,4 +3181,7 @@ Deno.serve(async (req) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
+  };
+  const __res = await __run();
+  return await maybeEncryptResponse(__res, __ctx);
 });
