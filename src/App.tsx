@@ -6570,12 +6570,12 @@ function EmailViewer() {
       const text = await res.text();
       pushDiag({ ts: Date.now(), kind: "worker", endpoint, status: res.status, ms: Math.round(performance.now() - started), note: `user_sync${group.labels ? ` · ${group.labels.join(", ")}` : ""}` });
       if (!res.ok) {
-        throw new Error(text.slice(0, 180) || "Worker sync failed");
+        // Swallow transport-shaped errors — keep KV cache visible instead.
+        return;
       }
-      const data: any = text ? JSON.parse(text) : null;
-      if (data && data.success === false) {
-        throw new Error(data?.error || "Sync failed");
-      }
+      let data: any = null;
+      try { data = text ? JSON.parse(text) : null; } catch { data = null; }
+      if (data && data.success === false) return;
       if (data && Array.isArray(data.emails)) collected.push(data.emails as Email[]);
     }));
 
