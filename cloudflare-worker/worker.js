@@ -150,8 +150,9 @@ export default {
 
     if (url.pathname === "/api/emails" && request.method === "GET") {
       const bust = url.searchParams.get("bust") === "1" || url.searchParams.get("bust") === "true";
-      const limit = clampLimit(url.searchParams.get("limit"), 3, 50);
-      return handleGetEmails(env, session, sessionToken, { bust, limit });
+      const limit = clampLimit(url.searchParams.get("limit"), 3, 200);
+      const accountLabels = url.searchParams.getAll("accountLabel").map(v => v.trim()).filter(Boolean);
+      return handleGetEmails(env, session, sessionToken, { bust, limit, accountLabels });
     }
 
     if (url.pathname === "/api/emails/sync" && request.method === "POST") {
@@ -244,22 +245,24 @@ function clampLimit(value, fallback = 3, max = 50) {
 async function handleGetEmails(env, session, rawToken, opts = {}) {
   const hasKV = !!getKV(env);
   const bust = !!opts.bust;
-  const limit = clampLimit(opts.limit, 3, 50);
+  const limit = clampLimit(opts.limit, 3, 200);
+  const accountLabels = Array.isArray(opts.accountLabels) ? opts.accountLabels : [];
 
   if (!hasKV) {
-    const r = await fetchDirectFromSupabase(env, session, rawToken, limit);
+    const r = await fetchDirectFromSupabase(env, session, rawToken, limit, accountLabels);
     // wrap so we keep diag headers
     const body = await r.clone().text();
     return new Response(body, { status: r.status, headers: diagHeaders({ "X-Cache-Status": "NO_KV" }) });
   }
 
-  const userAccountsKey = session?.assignedAccounts ? JSON.stringify(session.assignedAccounts.sort()) : "all";
+  const scopedLabels = accountLabels.length > 0 ? accountLabels : (session?.assignedAccounts || []);
+  const userAccountsKey = scopedLabels.length > 0 ? JSON.stringify([...scopedLabels].sort()) : "all";
   const cacheKey = `${CACHE_KEY}:${userAccountsKey}:limit:${limit}`;
   const tsKey = `${CACHE_TIMESTAMP_KEY}:${userAccountsKey}`;
 
   // F7: bust=1 → skip KV read, refetch fresh, write back, return with BYPASS status.
   if (bust) {
-    const result = await fetchDirectFromSupabase(env, session, rawToken, limit);
+    const result = await fetchDirectFromSupabase(env, session, rawToken, limit, accountLabels);
     if (result.status === 200) {
       const body = await result.clone().text();
       await Promise.all([kvPut(env, cacheKey, body), kvPut(env, tsKey, Date.now().toString())]);
@@ -274,7 +277,7 @@ async function handleGetEmails(env, session, rawToken, opts = {}) {
   const age = timestamp ? (now - parseInt(timestamp)) / 1000 : Infinity;
 
   if (!cached) {
-    const result = await fetchDirectFromSupabase(env, session, rawToken, limit);
+    const result = await fetchDirectFromSupabase(env, session, rawToken, limit, accountLabels);
     if (result.status === 200) {
       const body = await result.clone().text();
       await Promise.all([kvPut(env, cacheKey, body), kvPut(env, tsKey, now.toString())]);
@@ -347,7 +350,8 @@ async function handleSync(env, session, rawToken, requestBody) {
 
     if (res.status === 202) {
       if (getKV(env)) {
-        const userAccountsKey = session?.assignedAccounts ? JSON.stringify(session.assignedAccounts.sort()) : "all";
+        const scopedLabels = Array.isArray(requestBody?.accountLabels) && requestBody.accountLabels.length > 0 ? requestBody.accountLabels : (session?.assignedAccounts || []);
+        const userAccountsKey = scopedLabels.length > 0 ? JSON.stringify([...scopedLabels].sort()) : "all";
         await Promise.all([
           kvPut(env, `${CACHE_KEY}:${userAccountsKey}:limit:${limit}`, JSON.stringify(JSON.parse(responseText).emails || [])),
           kvPut(env, `${CACHE_TIMESTAMP_KEY}:${userAccountsKey}`, Date.now().toString()),
@@ -361,12 +365,13 @@ async function handleSync(env, session, rawToken, requestBody) {
 
     // Update KV cache after successful sync
     if (getKV(env)) {
-      const userAccountsKey = session?.assignedAccounts ? JSON.stringify(session.assignedAccounts.sort()) : "all";
+      const scopedLabels = Array.isArray(requestBody?.accountLabels) && requestBody.accountLabels.length > 0 ? requestBody.accountLabels : (session?.assignedAccounts || []);
+      const userAccountsKey = scopedLabels.length > 0 ? JSON.stringify([...scopedLabels].sort()) : "all";
       const cacheKey = `${CACHE_KEY}:${userAccountsKey}:limit:${limit}`;
       const tsKey = `${CACHE_TIMESTAMP_KEY}:${userAccountsKey}`;
 
       // Fetch fresh cache data since sync response may contain extra metadata
-      await refreshFromSupabase(env, session, rawToken, cacheKey, tsKey, limit);
+      await refreshFromSupabase(env, session, rawToken, cacheKey, tsKey, limit, Array.isArray(requestBody?.accountLabels) ? requestBody.accountLabels : []);
     }
 
     return new Response(responseText, {
@@ -382,10 +387,12 @@ async function handleSync(env, session, rawToken, requestBody) {
 // handleDebug removed (F6). Route no longer exposed.
 
 
-async function fetchDirectFromSupabase(env, session, rawToken, limit = 3) {
+async function fetchDirectFromSupabase(env, session, rawToken, limit = 3, accountLabels = []) {
   try {
-    const bodyPayload = { mode: "cache", limit: clampLimit(limit, 3, 50) };
-    if (session?.assignedAccounts) {
+    const bodyPayload = { mode: "cache", limit: clampLimit(limit, 3, 200) };
+    if (Array.isArray(accountLabels) && accountLabels.length > 0) {
+      bodyPayload.accountLabels = accountLabels;
+    } else if (session?.assignedAccounts) {
       bodyPayload.accountLabels = session.assignedAccounts;
     }
 
@@ -414,10 +421,12 @@ async function fetchDirectFromSupabase(env, session, rawToken, limit = 3) {
   }
 }
 
-async function refreshFromSupabase(env, session, rawToken, cacheKey, tsKey, limit = 3) {
+async function refreshFromSupabase(env, session, rawToken, cacheKey, tsKey, limit = 3, accountLabels = []) {
   try {
-    const bodyPayload = { mode: "cache", limit: clampLimit(limit, 3, 50) };
-    if (session?.assignedAccounts) {
+    const bodyPayload = { mode: "cache", limit: clampLimit(limit, 3, 200) };
+    if (Array.isArray(accountLabels) && accountLabels.length > 0) {
+      bodyPayload.accountLabels = accountLabels;
+    } else if (session?.assignedAccounts) {
       bodyPayload.accountLabels = session.assignedAccounts;
     }
 
