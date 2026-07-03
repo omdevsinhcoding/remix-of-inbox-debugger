@@ -1406,6 +1406,7 @@ Deno.serve(async (originalReq) => {
     return { pending, token, tokenHash, state };
   }
 
+  const __run = async (): Promise<Response> => {
   try {
     const { action, ...params } = await req.json();
 
@@ -2909,4 +2910,7 @@ Deno.serve(async (originalReq) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
+  };
+  const __res = await __run();
+  return await maybeEncryptResponse(__res, __ctx);
 });
