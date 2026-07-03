@@ -115,8 +115,14 @@ function getClientIp(req: Request): string {
 function checkSecFetchSite(req: Request) {
   const sfs = req.headers.get("sec-fetch-site");
   if (!sfs) return; // non-browser client (curl, cron) — skip
-  if (sfs === "same-origin" || sfs === "same-site" || sfs === "none") return;
-  throw new TransportError("cross-site request blocked", 403);
+  // The edge function is hosted on supabase.co while the app is on a different
+  // origin (lovableproject.com / customer domain). "cross-site" is therefore
+  // the normal case. Origin binding (sha256(Origin) captured at handshake and
+  // echoed in every v2 envelope) is what actually prevents CSRF. Only reject
+  // explicitly malformed values.
+  if (sfs !== "same-origin" && sfs !== "same-site" && sfs !== "cross-site" && sfs !== "none") {
+    throw new TransportError("bad sec-fetch-site", 403);
+  }
 }
 
 interface ReadOptions {
