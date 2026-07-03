@@ -4486,15 +4486,20 @@ function AdminPanel() {
 
 
 
-                  {/* Toggles: Force Join + Audience */}
+                  {/* Toggles: User can delete + Audience */}
                   <div className="grid grid-cols-2 gap-3">
                     <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-3">
-                      <label className="text-[9.5px] font-bold uppercase tracking-[0.14em] text-slate-500 block mb-2">Force Join</label>
+                      <label className="text-[9.5px] font-bold uppercase tracking-[0.14em] text-slate-500 block mb-2">User Can Delete?</label>
                       <button type="button" onClick={() => setNotifLocked(!notifLocked)}
-                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${notifLocked ? "bg-orange-500" : "bg-slate-700"}`}>
-                        <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${notifLocked ? "translate-x-6" : "translate-x-1"}`} />
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${!notifLocked ? "bg-emerald-500" : "bg-slate-700"}`}
+                        aria-label="Allow user to delete this notification">
+                        <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${!notifLocked ? "translate-x-6" : "translate-x-1"}`} />
                       </button>
-                      <span className="ml-2 text-[11px] text-slate-400">{notifLocked ? "Locked (can't dismiss)" : "Dismissable"}</span>
+                      <span className="ml-2 text-[11px] text-slate-400">
+                        {notifLocked
+                          ? "🔒 Locked — user delete nahi kar sakta"
+                          : "🔓 Haan, user delete kar sakta hai"}
+                      </span>
                     </div>
                     <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-3">
                       <label className="text-[9.5px] font-bold uppercase tracking-[0.14em] text-slate-500 block mb-2">Audience</label>
