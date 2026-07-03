@@ -3336,134 +3336,119 @@ function AdminPanel() {
 
   const loadAdminData = useCallback(async (opts?: { silent?: boolean }) => {
     const silent = !!opts?.silent;
-    // Users
-    try {
-      const usersData = await apiCall("manage-app", { action: "list" });
-      const usersList = usersData.users || [];
-      setUsers(usersList);
-      setStats(prev => ({ ...prev, totalUsers: usersList.length }));
-    } catch { }
 
-    // Total emails count (light: limit=1, we only care about total)
-    try {
-      const res: any = await apiCall("manage-app", { action: "admin_list_emails", limit: 1, offset: 0 });
-      setStats(prev => ({ ...prev, totalEmails: res?.total || 0 }));
-    } catch { }
+    // Live data: users, email count, notifications — always refresh.
+    // Fire in PARALLEL so a slow response doesn't block the others.
+    const liveTasks: Promise<any>[] = [
+      apiCall("manage-app", { action: "list" }).then((usersData: any) => {
+        const usersList = usersData?.users || [];
+        setUsers(usersList);
+        setStats(prev => ({ ...prev, totalUsers: usersList.length }));
+      }).catch(() => {}),
+      apiCall("manage-app", { action: "admin_list_emails", limit: 1, offset: 0 }).then((res: any) => {
+        setStats(prev => ({ ...prev, totalEmails: res?.total || 0 }));
+      }).catch(() => {}),
+      apiCall("manage-app", { action: "admin_list_notifications" }).then((nl: any) => {
+        if (Array.isArray(nl?.notifications)) setAdminNotifs(nl.notifications);
+      }).catch(() => {}),
+    ];
 
-    // Admin notifications
-    try {
-      const nl = await apiCall("manage-app", { action: "admin_list_notifications" });
-      if (Array.isArray(nl?.notifications)) setAdminNotifs(nl.notifications);
-    } catch { }
+    if (silent) {
+      await Promise.allSettled(liveTasks);
+      return;
+    }
 
-    if (silent) return; // settings below are rarely-changing — only load them on mount
-    try {
-      const recaptcha = await apiCall("manage-app", { action: "get_settings", key: "recaptcha" });
-      if (recaptcha.value) {
-        setSiteKey(recaptcha.value.siteKey || "");
-        setSecretKeyVal(recaptcha.value.secretKey || "");
-        setCaptchaEnabled(recaptcha.value.enabled === true);
-      }
-    } catch { }
+    // Settings: rarely-changing, only on mount. Also parallelized.
+    const settingsTasks: Promise<any>[] = [
+      apiCall("manage-app", { action: "get_settings", key: "recaptcha" }).then((recaptcha: any) => {
+        if (recaptcha?.value) {
+          setSiteKey(recaptcha.value.siteKey || "");
+          setSecretKeyVal(recaptcha.value.secretKey || "");
+          setCaptchaEnabled(recaptcha.value.enabled === true);
+        }
+      }).catch(() => {}),
+      apiCall("manage-app", { action: "get_settings", key: "config" }).then((config: any) => {
+        if (config?.value) {
+          const c = config.value as any;
+          setServerConfig({
+            TELEGRAM_BOT_TOKEN: c.TELEGRAM_BOT_TOKEN || "",
+            TELEGRAM_CHAT_ID: c.TELEGRAM_CHAT_ID || "",
+            IMAP_HOST: c.IMAP_HOST || "",
+            IMAP_PORT: c.IMAP_PORT || "",
+            IMAP_USER: c.IMAP_USER || "",
+            IMAP_PASSWORD: c.IMAP_PASSWORD || "",
+          });
+        }
+      }).catch(() => {}),
+      apiCall("manage-app", { action: "get_settings", key: "primary_cloudflare_urls" }).then((pcf: any) => {
+        if (pcf?.value && Array.isArray(pcf.value)) setPrimaryCfUrls(pcf.value);
+      }).catch(() => {}),
+      apiCall("manage-app", { action: "get_settings", key: "email_filters" }).then((filters: any) => {
+        if (filters?.value) {
+          setShowSignInCodes(filters.value.showSignInCodes !== false);
+          setShowPasswordResets(filters.value.showPasswordResets === true);
+          setShowAccountUpdates(filters.value.showAccountUpdates === true);
+          setEmailFiltersCache(filters.value);
+        }
+      }).catch(() => {}),
+      apiCall("manage-app", { action: "get_settings", key: "email_accounts" }).then((accounts: any) => {
+        if (accounts?.value && Array.isArray(accounts.value)) {
+          const migrated = accounts.value.map((acc: any) => {
+            if (acc.cloudflareUrls && Array.isArray(acc.cloudflareUrls)) return acc;
+            const urls: string[] = [];
+            if (acc.cloudflareUrl && acc.cloudflareUrl.trim()) urls.push(acc.cloudflareUrl.trim());
+            const { cloudflareUrl, ...rest } = acc;
+            return { ...rest, cloudflareUrls: urls };
+          });
+          setEmailAccounts(migrated);
+        }
+      }).catch(() => {}),
+      apiCall("manage-app", { action: "get_settings", key: "session_config" }).then((sc: any) => {
+        const m = Number(sc?.value?.timeoutMinutes);
+        if (Number.isFinite(m) && m >= 0) setSessionTimeoutMin(String(m));
+      }).catch(() => {}),
+      apiCall("manage-app", { action: "get_settings", key: "admin_session_config" }).then((sc: any) => {
+        const m = Number(sc?.value?.timeoutMinutes);
+        if (Number.isFinite(m) && m >= 0) setAdminSessionTimeoutMin(String(m));
+      }).catch(() => {}),
+      apiCall("manage-app", { action: "get_settings", key: "ipwho_alert" }).then((ipw: any) => {
+        setIpwhoAlertEnabled(ipw?.value?.enabled === true);
+      }).catch(() => {}),
+      apiCall("manage-app", { action: "get_settings", key: "maintenance" }).then((mnt: any) => {
+        if (mnt?.value) {
+          setMaintenanceEnabled(mnt.value.enabled === true);
+          setMaintenanceTitle(mnt.value.title || "");
+          setMaintenanceMessage(mnt.value.message || "");
+          setMaintenanceVersionFrom(mnt.value.versionFrom || "");
+          setMaintenanceVersionTo(mnt.value.versionTo || "");
+          prevSavedVersionToRef.current = mnt.value.versionTo || "";
+          const toLocalInput = (iso: string) => {
+            const d = new Date(iso);
+            if (isNaN(d.getTime())) return "";
+            const pad = (n: number) => String(n).padStart(2, "0");
+            return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+          };
+          if (mnt.value.startsAt) setMaintenanceStartsAt(toLocalInput(mnt.value.startsAt));
+          if (mnt.value.endsAt) setMaintenanceEndsAt(toLocalInput(mnt.value.endsAt));
+        }
+      }).catch(() => {}),
+      apiCall("manage-app", { action: "admin_get_r2_config" }).then((r2: any) => {
+        if (r2?.config) {
+          setR2Cfg((current) => r2Dirty ? current : ({
+            accountId: r2.config.accountId || "",
+            accessKeyId: r2.config.accessKeyId || "",
+            secretAccessKey: r2.config.secretAccessKey || "",
+            bucket: r2.config.bucket || "",
+            publicBaseUrl: r2.config.publicBaseUrl || "",
+            pathPrefix: r2.config.pathPrefix || "notifications/",
+            enabled: r2.config.enabled === true,
+            secretAccessKeySet: r2.config.secretAccessKeySet === true,
+          }));
+        }
+      }).catch(() => {}),
+    ];
 
-    try {
-      const config = await apiCall("manage-app", { action: "get_settings", key: "config" });
-      if (config.value) {
-        const c = config.value as any;
-        setServerConfig({
-          TELEGRAM_BOT_TOKEN: c.TELEGRAM_BOT_TOKEN || "",
-          TELEGRAM_CHAT_ID: c.TELEGRAM_CHAT_ID || "",
-          IMAP_HOST: c.IMAP_HOST || "",
-          IMAP_PORT: c.IMAP_PORT || "",
-          IMAP_USER: c.IMAP_USER || "",
-          IMAP_PASSWORD: c.IMAP_PASSWORD || "",
-        });
-      }
-    } catch { }
-
-    try {
-      const pcf = await apiCall("manage-app", { action: "get_settings", key: "primary_cloudflare_urls" });
-      if (pcf.value && Array.isArray(pcf.value)) {
-        setPrimaryCfUrls(pcf.value);
-      }
-    } catch { }
-
-    try {
-      const filters = await apiCall("manage-app", { action: "get_settings", key: "email_filters" });
-      if (filters.value) {
-        setShowSignInCodes(filters.value.showSignInCodes !== false);
-        setShowPasswordResets(filters.value.showPasswordResets === true);
-        setShowAccountUpdates(filters.value.showAccountUpdates === true);
-        setEmailFiltersCache(filters.value);
-      }
-    } catch { }
-
-    try {
-      const accounts = await apiCall("manage-app", { action: "get_settings", key: "email_accounts" });
-      if (accounts.value && Array.isArray(accounts.value)) {
-        const migrated = accounts.value.map((acc: any) => {
-          if (acc.cloudflareUrls && Array.isArray(acc.cloudflareUrls)) return acc;
-          const urls: string[] = [];
-          if (acc.cloudflareUrl && acc.cloudflareUrl.trim()) urls.push(acc.cloudflareUrl.trim());
-          const { cloudflareUrl, ...rest } = acc;
-          return { ...rest, cloudflareUrls: urls };
-        });
-        setEmailAccounts(migrated);
-      }
-    } catch { }
-
-    try {
-      const sc = await apiCall("manage-app", { action: "get_settings", key: "session_config" });
-      const m = Number(sc?.value?.timeoutMinutes);
-      if (Number.isFinite(m) && m >= 0) setSessionTimeoutMin(String(m));
-    } catch { }
-
-    try {
-      const sc = await apiCall("manage-app", { action: "get_settings", key: "admin_session_config" });
-      const m = Number(sc?.value?.timeoutMinutes);
-      if (Number.isFinite(m) && m >= 0) setAdminSessionTimeoutMin(String(m));
-    } catch { }
-
-    try {
-      const ipw = await apiCall("manage-app", { action: "get_settings", key: "ipwho_alert" });
-      setIpwhoAlertEnabled(ipw?.value?.enabled === true);
-    } catch { }
-
-    try {
-      const mnt = await apiCall("manage-app", { action: "get_settings", key: "maintenance" });
-      if (mnt?.value) {
-        setMaintenanceEnabled(mnt.value.enabled === true);
-        setMaintenanceTitle(mnt.value.title || "");
-        setMaintenanceMessage(mnt.value.message || "");
-        setMaintenanceVersionFrom(mnt.value.versionFrom || "");
-        setMaintenanceVersionTo(mnt.value.versionTo || "");
-        prevSavedVersionToRef.current = mnt.value.versionTo || "";
-        const toLocalInput = (iso: string) => {
-          const d = new Date(iso);
-          if (isNaN(d.getTime())) return "";
-          const pad = (n: number) => String(n).padStart(2, "0");
-          return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-        };
-        if (mnt.value.startsAt) setMaintenanceStartsAt(toLocalInput(mnt.value.startsAt));
-        if (mnt.value.endsAt) setMaintenanceEndsAt(toLocalInput(mnt.value.endsAt));
-      }
-    } catch { }
-
-    try {
-      const r2 = await apiCall("manage-app", { action: "admin_get_r2_config" });
-      if (r2?.config) {
-        setR2Cfg((current) => r2Dirty ? current : ({
-          accountId: r2.config.accountId || "",
-          accessKeyId: r2.config.accessKeyId || "",
-          secretAccessKey: r2.config.secretAccessKey || "",
-          bucket: r2.config.bucket || "",
-          publicBaseUrl: r2.config.publicBaseUrl || "",
-          pathPrefix: r2.config.pathPrefix || "notifications/",
-          enabled: r2.config.enabled === true,
-          secretAccessKeySet: r2.config.secretAccessKeySet === true,
-        }));
-      }
-    } catch { }
+    await Promise.allSettled([...liveTasks, ...settingsTasks]);
   }, [r2Dirty]);
 
   useEffect(() => {
