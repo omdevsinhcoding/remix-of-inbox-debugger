@@ -3707,7 +3707,9 @@ function AdminPanel() {
       const newEnabled = !!(siteKey && secretKeyVal);
       await apiCall("manage-app", { action: "set_settings", key: "recaptcha", value: { siteKey, secretKey: secretKeyVal, enabled: newEnabled } });
       const fresh = await apiCall("manage-app", { action: "get_settings", key: "recaptcha" });
-      setCaptchaEnabled(fresh.value?.enabled === true);
+      const on = fresh.value?.enabled === true;
+      setCaptchaEnabled(on);
+      try { localStorage.setItem("admin_captcha_enabled", on ? "1" : "0"); } catch {}
       toast.success("ReCAPTCHA settings saved!");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to save settings");
