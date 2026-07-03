@@ -121,11 +121,11 @@ export async function bootstrapFromSupabase(opts?: { force?: boolean }): Promise
   }
 
   const request = (async () => {
-    const { data, error } = await withTimeout(
-      supabase.functions.invoke("manage-app", { body: { action: "bootstrap_public" } }),
+    const { invokeEdge } = await import("./secureTransport");
+    const data: any = await withTimeout(
+      invokeEdge("manage-app", { action: "bootstrap_public" }),
       BOOTSTRAP_TIMEOUT_MS,
     );
-    if (error) throw error;
     if (!data?.success) throw new Error(data?.error || "Bootstrap failed");
 
     if (Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
@@ -219,11 +219,8 @@ async function callManage<T = any>(action: string, payload: Record<string, any> 
   const token = localStorage.getItem("session_token");
   const headers: Record<string, string> = {};
   if (token) headers["X-Session-Token"] = token;
-  const { data, error } = await supabase.functions.invoke("manage-app", {
-    body: { action, ...payload },
-    headers,
-  });
-  if (error) throw error;
+  const { invokeEdge } = await import("./secureTransport");
+  const data: any = await invokeEdge("manage-app", { action, ...payload }, { headers });
   if (!data?.success) throw new Error(data?.error || `${action} failed`);
   return data as T;
 }
