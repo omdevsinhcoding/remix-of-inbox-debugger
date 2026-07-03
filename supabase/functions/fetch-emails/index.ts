@@ -123,9 +123,26 @@ function applyEmailFilters(emails: any[], filterSignInCodes: boolean, filterPass
   return output;
 }
 
-async function readCache(supabase: any, accountFilter: string[] | null, filterSignInCodes: boolean, filterPasswordResets: boolean) {
+async function getEmailVisibility(supabase: any): Promise<{ enabled: boolean; days: number } | null> {
+  try {
+    const { data } = await supabase.from("app_settings").select("value").eq("key", "email_visibility").maybeSingle();
+    const v = data?.value;
+    if (v && v.enabled === true && Number(v.days) > 0) return { enabled: true, days: Number(v.days) };
+  } catch {}
+  return null;
+}
+
+async function readCache(supabase: any, accountFilter: string[] | null, filterSignInCodes: boolean, filterPasswordResets: boolean, session: Session | null) {
   let query = supabase.from("cached_emails").select("*").order("date", { ascending: false }).limit(500);
   if (accountFilter && accountFilter.length > 0) query = query.in("account_label", accountFilter);
+  if (session && session.role !== "admin") {
+    const vis = await getEmailVisibility(supabase);
+    if (vis) {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - vis.days);
+      query = query.gte("date", cutoff.toISOString());
+    }
+  }
   const { data: cached, error } = await query;
   if (error) throw error;
   const emails = (cached || []).map((e: any) => ({
@@ -467,7 +484,7 @@ Deno.serve(async (req) => {
     if (mode === "cache") {
       if (!session) return json({ success: false, error: "Authentication required" }, 401);
       const accountFilter = await getAssignedAccountFilter(supabase, session);
-      const emails = await readCache(supabase, accountFilter, filterSignInCodes, filterPasswordResets);
+      const emails = await readCache(supabase, accountFilter, filterSignInCodes, filterPasswordResets, session);
       return json(emails);
     }
 
@@ -476,6 +493,14 @@ Deno.serve(async (req) => {
       const accountFilter = await getAssignedAccountFilter(supabase, session);
       let query = supabase.from("cached_emails").select("id", { count: "exact", head: true });
       if (accountFilter && accountFilter.length > 0) query = query.in("account_label", accountFilter);
+      if (session.role !== "admin") {
+        const vis = await getEmailVisibility(supabase);
+        if (vis) {
+          const cutoff = new Date();
+          cutoff.setDate(cutoff.getDate() - vis.days);
+          query = query.gte("date", cutoff.toISOString());
+        }
+      }
       const { count, error } = await query;
       return json({ total: count || 0, error: error?.message || null });
     }
@@ -494,7 +519,7 @@ Deno.serve(async (req) => {
       if (assigned && assigned.length > 0) accountLabels = accountLabels ? accountLabels.filter(l => assigned.includes(l)) : assigned;
       const last = userSyncHits.get(session.userId) || 0;
       if (Date.now() - last < USER_SYNC_WINDOW_MS) {
-        const cache = await readCache(supabase, assigned, filterSignInCodes, filterPasswordResets);
+        const cache = await readCache(supabase, assigned, filterSignInCodes, filterPasswordResets, session);
         return json({ success: true, rateLimited: true, message: "Please wait before refreshing again", emails: cache }, mode === "sync_async" ? 202 : 429);
       }
       userSyncHits.set(session.userId, Date.now());
@@ -502,7 +527,7 @@ Deno.serve(async (req) => {
 
     if (mode === "sync_async") {
       const accountFilterForCache = session ? await getAssignedAccountFilter(supabase, session) : null;
-      const cache = session ? await readCache(supabase, accountFilterForCache, filterSignInCodes, filterPasswordResets).catch(() => []) : [];
+      const cache = session ? await readCache(supabase, accountFilterForCache, filterSignInCodes, filterPasswordResets, session).catch(() => []) : [];
       const work = runSync(supabase, ENCRYPTION_SECRET, source || "async", accountLabels).catch(err => console.error("[sync_async] background failed:", err));
       ((globalThis as any).EdgeRuntime?.waitUntil?.(work) ?? work);
       return json({ success: true, accepted: true, emails: cache }, 202);

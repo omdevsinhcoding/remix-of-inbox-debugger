@@ -3243,7 +3243,16 @@ function AdminPanel() {
   const [savingSessionTimeout, setSavingSessionTimeout] = useState(false);
   const [adminSessionTimeoutMin, setAdminSessionTimeoutMin] = useState<string>("0");
   const [savingAdminSessionTimeout, setSavingAdminSessionTimeout] = useState(false);
-  const [captchaEnabled, setCaptchaEnabled] = useState(false);
+  const [captchaEnabled, setCaptchaEnabled] = useState<boolean>(() => {
+    try { return localStorage.getItem("admin_captcha_enabled") === "1"; } catch { return false; }
+  });
+  const [emailVisibilityEnabled, setEmailVisibilityEnabled] = useState(false);
+  const [emailVisibilityDays, setEmailVisibilityDays] = useState<string>("20");
+  const [savingEmailVisibility, setSavingEmailVisibility] = useState(false);
+  const [emailAutoDeleteEnabled, setEmailAutoDeleteEnabled] = useState(false);
+  const [emailAutoDeleteDays, setEmailAutoDeleteDays] = useState<string>("30");
+  const [emailAutoDeleteHour, setEmailAutoDeleteHour] = useState<string>("3");
+  const [savingEmailAutoDelete, setSavingEmailAutoDelete] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newAdminPassword, setNewAdminPassword] = useState("");
   const [changingPassword, setChangingPassword] = useState(false);
@@ -3393,7 +3402,18 @@ function AdminPanel() {
         if (s.recaptcha) {
           setSiteKey(s.recaptcha.siteKey || "");
           setSecretKeyVal(s.recaptcha.secretKey || "");
-          setCaptchaEnabled(s.recaptcha.enabled === true);
+          const on = s.recaptcha.enabled === true;
+          setCaptchaEnabled(on);
+          try { localStorage.setItem("admin_captcha_enabled", on ? "1" : "0"); } catch {}
+        }
+        if (s.email_visibility) {
+          setEmailVisibilityEnabled(s.email_visibility.enabled === true);
+          if (Number(s.email_visibility.days) > 0) setEmailVisibilityDays(String(s.email_visibility.days));
+        }
+        if (s.email_auto_delete) {
+          setEmailAutoDeleteEnabled(s.email_auto_delete.enabled === true);
+          if (Number(s.email_auto_delete.days) > 0) setEmailAutoDeleteDays(String(s.email_auto_delete.days));
+          if (Number.isFinite(Number(s.email_auto_delete.hour))) setEmailAutoDeleteHour(String(s.email_auto_delete.hour));
         }
         if (s.config) {
           const c = s.config as any;
@@ -3671,7 +3691,9 @@ function AdminPanel() {
       if (newEnabled && (!siteKey || !secretKeyVal)) { toast.error("Enter both Site Key and Secret Key first"); return; }
       await apiCall("manage-app", { action: "set_settings", key: "recaptcha", value: { siteKey, secretKey: secretKeyVal, enabled: newEnabled } });
       const fresh = await apiCall("manage-app", { action: "get_settings", key: "recaptcha" });
-      setCaptchaEnabled(fresh.value?.enabled === true);
+      const on = fresh.value?.enabled === true;
+      setCaptchaEnabled(on);
+      try { localStorage.setItem("admin_captcha_enabled", on ? "1" : "0"); } catch {}
       setSiteKey(fresh.value?.siteKey || "");
       setSecretKeyVal(fresh.value?.secretKey || "");
       toast.success(newEnabled ? "CAPTCHA enabled!" : "CAPTCHA disabled!");
@@ -3685,10 +3707,46 @@ function AdminPanel() {
       const newEnabled = !!(siteKey && secretKeyVal);
       await apiCall("manage-app", { action: "set_settings", key: "recaptcha", value: { siteKey, secretKey: secretKeyVal, enabled: newEnabled } });
       const fresh = await apiCall("manage-app", { action: "get_settings", key: "recaptcha" });
-      setCaptchaEnabled(fresh.value?.enabled === true);
+      const on = fresh.value?.enabled === true;
+      setCaptchaEnabled(on);
+      try { localStorage.setItem("admin_captcha_enabled", on ? "1" : "0"); } catch {}
       toast.success("ReCAPTCHA settings saved!");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to save settings");
+    }
+  };
+
+  const saveEmailVisibility = async (nextEnabled?: boolean) => {
+    setSavingEmailVisibility(true);
+    try {
+      const enabled = typeof nextEnabled === "boolean" ? nextEnabled : emailVisibilityEnabled;
+      const days = Math.max(1, Math.min(365, parseInt(emailVisibilityDays) || 30));
+      await apiCall("manage-app", { action: "email_visibility_set", enabled, days });
+      setEmailVisibilityEnabled(enabled);
+      setEmailVisibilityDays(String(days));
+      toast.success(enabled ? `Users will see last ${days} days of emails` : "Users can see all emails");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save");
+    } finally {
+      setSavingEmailVisibility(false);
+    }
+  };
+
+  const saveEmailAutoDelete = async (nextEnabled?: boolean) => {
+    setSavingEmailAutoDelete(true);
+    try {
+      const enabled = typeof nextEnabled === "boolean" ? nextEnabled : emailAutoDeleteEnabled;
+      const days = Math.max(1, Math.min(365, parseInt(emailAutoDeleteDays) || 30));
+      const hour = Math.max(0, Math.min(23, parseInt(emailAutoDeleteHour) || 3));
+      await apiCall("manage-app", { action: "email_cleanup_apply", enabled, days, hour });
+      setEmailAutoDeleteEnabled(enabled);
+      setEmailAutoDeleteDays(String(days));
+      setEmailAutoDeleteHour(String(hour));
+      toast.success(enabled ? `Auto-delete: emails older than ${days} days will be removed daily at ${hour}:00` : "Auto-delete turned off");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save");
+    } finally {
+      setSavingEmailAutoDelete(false);
     }
   };
 
@@ -4334,6 +4392,79 @@ function AdminPanel() {
                 </div>
               </div>
             </section>
+
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
+                <div className="bg-emerald-50 p-1.5 rounded-lg"><Mail className="w-4 h-4 text-emerald-600" /></div>
+                User Email Visibility
+              </h2>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border">
+                  <div className="pr-3">
+                    <p className="font-bold text-sm text-slate-900">Limit how far back users can see emails</p>
+                    <p className="text-xs text-slate-500 mt-1">When OFF, every user sees all cached Netflix emails. When ON, only emails from the last N days are visible to users (admins always see everything).</p>
+                  </div>
+                  <button onClick={() => saveEmailVisibility(!emailVisibilityEnabled)} disabled={savingEmailVisibility}
+                    className={`relative w-12 h-6 rounded-full transition-colors flex-shrink-0 ml-3 ${emailVisibilityEnabled ? "bg-green-500" : "bg-slate-300"}`}>
+                    <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${emailVisibilityEnabled ? "translate-x-6" : "translate-x-0.5"}`} />
+                  </button>
+                </div>
+                <div className="flex flex-col sm:flex-row sm:items-end gap-3">
+                  <div className="flex-1">
+                    <label className="text-xs font-bold text-slate-700 mb-1 block">Days visible to users</label>
+                    <input type="number" min={1} max={365} value={emailVisibilityDays}
+                      onChange={(e) => setEmailVisibilityDays(e.target.value)}
+                      disabled={!emailVisibilityEnabled}
+                      className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-emerald-500 text-sm disabled:opacity-50" />
+                  </div>
+                  <button onClick={() => saveEmailVisibility()} disabled={savingEmailVisibility || !emailVisibilityEnabled}
+                    className="bg-emerald-600 text-white font-bold py-3 px-5 rounded-xl hover:bg-emerald-700 transition-all text-sm disabled:opacity-50">
+                    {savingEmailVisibility ? "Saving..." : "Save"}
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
+                <div className="bg-rose-50 p-1.5 rounded-lg"><Trash2 className="w-4 h-4 text-rose-600" /></div>
+                Auto-Delete Old Emails
+              </h2>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border">
+                  <div className="pr-3">
+                    <p className="font-bold text-sm text-slate-900">Automatic daily cleanup</p>
+                    <p className="text-xs text-slate-500 mt-1">Runs once per day at the chosen hour and permanently deletes cached emails older than N days from the database.</p>
+                  </div>
+                  <button onClick={() => saveEmailAutoDelete(!emailAutoDeleteEnabled)} disabled={savingEmailAutoDelete}
+                    className={`relative w-12 h-6 rounded-full transition-colors flex-shrink-0 ml-3 ${emailAutoDeleteEnabled ? "bg-green-500" : "bg-slate-300"}`}>
+                    <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${emailAutoDeleteEnabled ? "translate-x-6" : "translate-x-0.5"}`} />
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 mb-1 block">Delete older than (days)</label>
+                    <input type="number" min={1} max={365} value={emailAutoDeleteDays}
+                      onChange={(e) => setEmailAutoDeleteDays(e.target.value)}
+                      className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-rose-500 text-sm" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 mb-1 block">Run at hour (UTC, 0-23)</label>
+                    <input type="number" min={0} max={23} value={emailAutoDeleteHour}
+                      onChange={(e) => setEmailAutoDeleteHour(e.target.value)}
+                      className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-rose-500 text-sm" />
+                  </div>
+                  <div className="flex items-end">
+                    <button onClick={() => saveEmailAutoDelete()} disabled={savingEmailAutoDelete}
+                      className="w-full bg-rose-600 text-white font-bold py-3 rounded-xl hover:bg-rose-700 transition-all text-sm disabled:opacity-50">
+                      {savingEmailAutoDelete ? "Saving..." : (emailAutoDeleteEnabled ? "Update Schedule" : "Save")}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+
 
             <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
               <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">

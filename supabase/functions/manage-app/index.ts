@@ -2617,6 +2617,53 @@ Deno.serve(async (req) => {
       });
     }
 
+    // ---------- Email visibility window (users) ----------
+    if (action === "email_visibility_set") {
+      const session = await requireAdmin(req);
+      const { enabled, days } = (params || {}) as any;
+      const clean = {
+        enabled: enabled === true,
+        days: Math.max(1, Math.min(365, Number(days) || 30)),
+      };
+      const { error } = await supabase.from("app_settings").upsert({ key: "email_visibility", value: clean }, { onConflict: "key" });
+      if (error) throw error;
+      await auditLog(supabase, "email_visibility_set", session.userId, null, clean, ip);
+      return new Response(JSON.stringify({ success: true, value: clean }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ---------- Email auto-delete cron ----------
+    if (action === "email_cleanup_apply") {
+      const session = await requireAdmin(req);
+      const { enabled, days, hour } = (params || {}) as any;
+      const clean = {
+        enabled: enabled === true,
+        days: Math.max(1, Math.min(365, Number(days) || 30)),
+        hour: Math.max(0, Math.min(23, Number(hour) || 3)),
+      };
+      try {
+        if (clean.enabled) {
+          const { error } = await supabase.rpc("schedule_email_cleanup", { days: clean.days, hour: clean.hour });
+          if (error) throw error;
+        } else {
+          const { error } = await supabase.rpc("unschedule_email_cleanup");
+          if (error) throw error;
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        return new Response(JSON.stringify({ success: false, error: msg }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      await supabase.from("app_settings").upsert({ key: "email_auto_delete", value: clean }, { onConflict: "key" });
+      await auditLog(supabase, "email_cleanup_apply", session.userId, null, clean, ip);
+      return new Response(JSON.stringify({ success: true, value: clean }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    if (action === "email_cleanup_status") {
+      await requireAdmin(req);
+      const { data, error } = await supabase.rpc("get_email_cleanup_status");
+      if (error) throw error;
+      return new Response(JSON.stringify({ success: true, status: data }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     // ---------- Admin dashboard: ONE composite call (replaces 12 client calls) ----------
     // Bulk: full mount payload. `refresh` variant skips rarely-changing settings.
     if (action === "admin_dashboard_bootstrap" || action === "admin_dashboard_refresh") {
@@ -2635,7 +2682,7 @@ Deno.serve(async (req) => {
       const totalUsersP = supabase.from("app_users").select("id", { count: "exact", head: true }).neq("role", "admin");
 
       const settingsKeys = includeSettings
-        ? ["recaptcha", "config", "primary_cloudflare_urls", "email_filters", "email_accounts", "session_config", "admin_session_config", "ipwho_alert", "maintenance", "r2_storage"]
+        ? ["recaptcha", "config", "primary_cloudflare_urls", "email_filters", "email_accounts", "session_config", "admin_session_config", "ipwho_alert", "maintenance", "r2_storage", "email_visibility", "email_auto_delete", "cron_config"]
         : [];
       const settingsP = settingsKeys.length
         ? supabase.from("app_settings").select("key,value").in("key", settingsKeys)
