@@ -1949,6 +1949,7 @@ function ProfileSelectPage() {
         setProfiles((bootstrap.users || []).filter((u: UserData) => u.role === "user"));
         if (bootstrap.recaptcha?.enabled === true && bootstrap.recaptcha?.siteKey) {
           setSiteKey(bootstrap.recaptcha.siteKey);
+          preloadRecaptchaScript();
         } else {
           setSiteKey(null);
         }
