@@ -2461,11 +2461,12 @@ Deno.serve(async (req) => {
 
       const rows = (recipients || []).map((u: any) => {
         const r = readsMap.get(u.id) || {};
+        const prefs = u.profile_prefs || {};
         return {
           user_id: u.id,
           username: u.username,
           name: u.name,
-          profileAvatar: u.profileAvatar || null,
+          profileAvatar: prefs.avatarId || null,
           seen_at: r.seen_at || null,
           read_at: r.read_at || null,
           deleted_at: r.deleted_at || null,
