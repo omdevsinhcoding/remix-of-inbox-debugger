@@ -699,37 +699,17 @@ async function apiCall(functionName: string, body: any) {
     throw new Error("Secure login route is unavailable. Please refresh once and try again.");
   }
 
-  // Fallback: call Supabase edge function directly
+  // Fallback: call Supabase edge function directly via encrypted transport.
+  // Body and response are AES-256-GCM binary; on any crypto failure we fall
+  // back to plaintext JSON so the app keeps working.
   if (shouldUseWorker) console.log(`[apiCall] All workers failed or none configured, falling back to direct Supabase for ${functionName}`);
-  const { createClient } = await import("@supabase/supabase-js");
-  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-  const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-  const headers: Record<string, string> = {};
-  if (token) headers["X-Session-Token"] = token;
-  if (pendingToken && functionName === "manage-app" && pendingActions.has(body?.action)) headers["X-Pending-Token"] = pendingToken;
-  
-  const res = await fetch(`${supabaseUrl}/functions/v1/${functionName}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${supabaseKey}`,
-      "apikey": supabaseKey,
-      ...headers,
-    },
-    body: JSON.stringify(body),
-  });
-  
-  const text = await res.text();
-  let data: any;
-  try {
-    data = JSON.parse(text);
-  } catch {
-    throw new Error(`Direct Supabase call failed (${res.status})`);
-  }
-  if (!res.ok) {
-    throw new Error(data?.error || `Request failed with status ${res.status}`);
-  }
-  if (data.sessionToken) {
+  const extraHeaders: Record<string, string> = {};
+  if (token) extraHeaders["X-Session-Token"] = token;
+  if (pendingToken && functionName === "manage-app" && pendingActions.has(body?.action)) extraHeaders["X-Pending-Token"] = pendingToken;
+
+  const { invokeEdge } = await import("./lib/secureTransport");
+  const data: any = await invokeEdge(functionName, body, { headers: extraHeaders });
+  if (data?.sessionToken) {
     localStorage.setItem("session_token", data.sessionToken);
   }
   return data;
