@@ -2121,8 +2121,7 @@ Deno.serve(async (originalReq) => {
       }
 
       if (["primary_cloudflare_urls", "email_accounts"].includes(key)) {
-        const work = pushInboxConfigToWorkers(supabase, SIGNING_SECRET, ENCRYPTION_SECRET).catch((e) => console.warn("[worker-config] push skipped:", e?.message || e));
-        ((globalThis as any).EdgeRuntime?.waitUntil?.(work) ?? work);
+        await pushInboxConfigToWorkers(supabase, SIGNING_SECRET, ENCRYPTION_SECRET).catch((e) => console.warn("[worker-config] push skipped:", e?.message || e));
       }
 
       return new Response(JSON.stringify({ success: true, value }), {
