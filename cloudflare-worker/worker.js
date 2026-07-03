@@ -502,13 +502,12 @@ function htmlToText(html = "") {
 function cleanDisplayText(text = "") {
   return String(text || "")
     // Strip standalone MIME boundary delimiter lines
-    .replace(/(^|\n)\s*--[-=_A-Za-z0-9.'+\/]{6,}--?\s*(?=\n|$)/g, "\n")
-    // Strip MIME header lines (start of line)
-    .replace(/(^|\n)\s*(Content-(Type|Transfer-Encoding|Disposition|ID|Description|Language|Location)|MIME-Version)\s*:[^\n]*/gi, "\n")
-    // Inline residue when boundary + headers got flattened onto one line
-    .replace(/--[-=_A-Za-z0-9.'+\/]{6,}(?:--)?\s*(?=Content-|MIME-|charset=|$)/gi, " ")
-    .replace(/\bContent-(Type|Transfer-Encoding|Disposition|ID|Description|Language|Location)\s*:[^\n]{0,200}?(?=(?:Content-|MIME-|charset=|\n|$))/gi, " ")
-    .replace(/\bcharset=[^\s;]+/gi, " ")
+    .replace(/(^|\n)[ \t]*--[-=_A-Za-z0-9.'+\/]{6,}--?[ \t]*(?=\n|$)/g, "\n")
+    // Strip MIME header lines at start of line
+    .replace(/(^|\n)[ \t]*(Content-(Type|Transfer-Encoding|Disposition|ID|Description|Language|Location)|MIME-Version)[ \t]*:[^\n]*/gi, "\n")
+    // If the whole text is one long flattened MIME dump (no line breaks), extract just the readable prose
+    .replace(/^[\s\S]*?(?:Content-Transfer-Encoding:\s*\S+|charset=\S+)\s+/i, (m, ...r) => (m.length > 200 ? "" : m))
+    .replace(/\bcharset=[^\s;]+/gi, "")
     .replace(/\r/g, "")
     .replace(/[ \t]+/g, " ")
     .replace(/\n[ \t]+/g, "\n")
