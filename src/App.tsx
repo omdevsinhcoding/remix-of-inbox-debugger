@@ -3243,9 +3243,7 @@ function AdminPanel() {
   const [savingSessionTimeout, setSavingSessionTimeout] = useState(false);
   const [adminSessionTimeoutMin, setAdminSessionTimeoutMin] = useState<string>("0");
   const [savingAdminSessionTimeout, setSavingAdminSessionTimeout] = useState(false);
-  const [captchaEnabled, setCaptchaEnabled] = useState<boolean>(() => {
-    try { return localStorage.getItem("admin_captcha_enabled") === "1"; } catch { return false; }
-  });
+  const [captchaEnabled, setCaptchaEnabled] = useState<boolean>(false);
   const [emailVisibilityEnabled, setEmailVisibilityEnabled] = useState(false);
   const [emailVisibilityDays, setEmailVisibilityDays] = useState<string>("20");
   const [savingEmailVisibility, setSavingEmailVisibility] = useState(false);
