@@ -6731,7 +6731,7 @@ function EmailViewer() {
     initialSyncFired.current = true;
     syncViaWorker()
       .then(() => new Promise(resolve => setTimeout(resolve, 1200)))
-      .then(() => loadCachedEmails({ bust: true, limit: 3 }))
+      .then(() => loadCachedEmails({ bust: true, limit: 200 }))
       .catch(() => {});
   }, [workerUrlsLoading, syncViaWorker, loadCachedEmails]);
 
