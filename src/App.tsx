@@ -3400,9 +3400,7 @@ function AdminPanel() {
         if (s.recaptcha) {
           setSiteKey(s.recaptcha.siteKey || "");
           setSecretKeyVal(s.recaptcha.secretKey || "");
-          const on = s.recaptcha.enabled === true;
-          setCaptchaEnabled(on);
-          try { localStorage.setItem("admin_captcha_enabled", on ? "1" : "0"); } catch {}
+          setCaptchaEnabled(s.recaptcha.enabled === true);
         }
         if (s.email_visibility) {
           setEmailVisibilityEnabled(s.email_visibility.enabled === true);
