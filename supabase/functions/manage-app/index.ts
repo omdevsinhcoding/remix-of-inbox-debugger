@@ -1940,9 +1940,20 @@ Deno.serve(async (originalReq) => {
       const session = await requireAdmin(req);
       const explicitValue = Deno.env.get("SESSION_SIGNING_SECRET") || "";
       const value = explicitValue || SIGNING_SECRET;
-      if (!value) throw new Error("No signing secret is available in Supabase Edge Function environment.");
-      await auditLog(supabase, "session_signing_secret_revealed", session.userId, null, { length: value.length, source: explicitValue ? "SESSION_SIGNING_SECRET" : "legacy_fallback" }, ip);
-      return new Response(JSON.stringify({ success: true, name: "SESSION_SIGNING_SECRET", present: true, length: value.length, source: explicitValue ? "SESSION_SIGNING_SECRET" : "legacy_fallback", value }), {
+      const source = explicitValue ? "SESSION_SIGNING_SECRET" : "legacy_fallback";
+      await auditLog(supabase, "session_signing_secret_inspected", session.userId, null, { length: value.length, source }, ip);
+      // SECURITY: never return the raw signing key. Return metadata only.
+      // A leaked signing key allows permanent session-token forgery.
+      return new Response(JSON.stringify({
+        success: true,
+        name: "SESSION_SIGNING_SECRET",
+        present: !!value,
+        length: value.length,
+        source,
+        // Non-reversible fingerprint so admins can confirm rotation without
+        // ever exposing the secret itself.
+        fingerprint: value ? (await sha256Hex(value)).slice(0, 12) : "",
+      }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }

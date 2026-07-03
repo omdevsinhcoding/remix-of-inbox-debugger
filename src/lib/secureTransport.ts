@@ -130,12 +130,11 @@ export async function secureFetchJson(
     if (!res.ok) throw new Error(data?.error || `Request failed with status ${res.status}`);
     return data;
   }
-  // Fallback: server returned plaintext JSON (unexpected but tolerate).
-  const text = await res.text();
-  let data: any = null;
-  try { data = text ? JSON.parse(text) : null; } catch { data = null; }
-  if (!res.ok) throw new Error(data?.error || `Request failed with status ${res.status}`);
-  return data;
+  // Strict mode: server MUST reply with encrypted binary frame.
+  // A plaintext response indicates either a downgrade attack or a server-side
+  // regression that would leak data — refuse to consume it.
+  resetSession();
+  throw new Error(`encrypted response required (got content-type: ${ct || "unknown"}, status: ${res.status})`);
 }
 
 // Encrypted helper: retry once with a fresh session, then fail.

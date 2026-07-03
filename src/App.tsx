@@ -3209,7 +3209,7 @@ function AdminPanel() {
   const [clearingInbox, setClearingInbox] = useState(false);
 
   const [primaryCfInput, setPrimaryCfInput] = useState("");
-  const [signingSecretReveal, setSigningSecretReveal] = useState<{ value: string; length: number } | null>(null);
+  const [signingSecretReveal, setSigningSecretReveal] = useState<{ fingerprint: string; length: number; source: string } | null>(null);
   const [revealingSigningSecret, setRevealingSigningSecret] = useState(false);
   const [editingAccountUrls, setEditingAccountUrls] = useState<number | null>(null);
   const [editCfUrls, setEditCfUrls] = useState<string[]>([]);
@@ -3681,24 +3681,27 @@ function AdminPanel() {
         { action: "admin_reveal_session_signing_secret" },
         { headers: token ? { "X-Session-Token": token } : {} },
       );
-      if (!res?.success) throw new Error(res?.error || "Could not reveal SESSION_SIGNING_SECRET");
-      if (!res?.value) throw new Error("Secret value was empty");
-      setSigningSecretReveal({ value: res.value, length: Number(res.length) || String(res.value).length });
-      toast.success("SESSION_SIGNING_SECRET revealed — copy it to Cloudflare as Secret type.");
+      if (!res?.success) throw new Error(res?.error || "Could not inspect SESSION_SIGNING_SECRET");
+      setSigningSecretReveal({
+        fingerprint: String(res.fingerprint || ""),
+        length: Number(res.length) || 0,
+        source: String(res.source || ""),
+      });
+      toast.success("Signing secret verified. Copy the raw value from Supabase Dashboard → Edge Function Secrets.");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not reveal SESSION_SIGNING_SECRET");
+      toast.error(err instanceof Error ? err.message : "Could not inspect SESSION_SIGNING_SECRET");
     } finally {
       setRevealingSigningSecret(false);
     }
   };
 
   const copySigningSecret = async () => {
-    if (!signingSecretReveal?.value) return;
+    if (!signingSecretReveal?.fingerprint) return;
     try {
-      await navigator.clipboard.writeText(signingSecretReveal.value);
-      toast.success("SESSION_SIGNING_SECRET copied");
+      await navigator.clipboard.writeText(signingSecretReveal.fingerprint);
+      toast.success("Fingerprint copied (not the raw secret)");
     } catch {
-      toast.error("Copy failed — long press/select the value manually.");
+      toast.error("Copy failed — long press/select manually.");
     }
   };
 
@@ -5365,12 +5368,17 @@ function AdminPanel() {
                       {signingSecretReveal && (
                         <div className="rounded-lg border border-amber-300 bg-white p-2">
                           <div className="flex items-center justify-between gap-2 mb-1">
-                            <span className="text-[10px] font-black uppercase text-amber-700">SESSION_SIGNING_SECRET · {signingSecretReveal.length} chars</span>
+                            <span className="text-[10px] font-black uppercase text-amber-700">Verified · {signingSecretReveal.length} chars · {signingSecretReveal.source}</span>
                             <button type="button" onClick={copySigningSecret} className="inline-flex items-center gap-1 rounded-md bg-amber-100 px-2 py-1 text-[10px] font-black text-amber-900 hover:bg-amber-200">
-                              <Copy className="w-3 h-3" /> Copy
+                              <Copy className="w-3 h-3" /> Copy fingerprint
                             </button>
                           </div>
-                          <code className="block max-h-20 overflow-auto break-all rounded-md bg-slate-950 p-2 text-[11px] leading-relaxed text-amber-100">{signingSecretReveal.value}</code>
+                          <code className="block break-all rounded-md bg-slate-950 p-2 text-[11px] leading-relaxed text-amber-100">fp: {signingSecretReveal.fingerprint}</code>
+                          <p className="mt-2 text-[10px] leading-snug text-amber-800">
+                            🔒 For security, the raw signing secret is never returned by the API. Copy it from
+                            <strong> Supabase Dashboard → Edge Functions → Secrets → SESSION_SIGNING_SECRET</strong>.
+                            The fingerprint above lets you confirm both sides match after rotation.
+                          </p>
                         </div>
                       )}
                     </div>

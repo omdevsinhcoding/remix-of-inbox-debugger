@@ -813,6 +813,39 @@ export type Database = {
         }
         Relationships: []
       }
+      security_events: {
+        Row: {
+          id: number
+          ip: unknown
+          meta: Json
+          severity: string
+          ts: string
+          type: string
+          ua: string | null
+          uid: string | null
+        }
+        Insert: {
+          id?: number
+          ip?: unknown
+          meta?: Json
+          severity?: string
+          ts?: string
+          type: string
+          ua?: string | null
+          uid?: string | null
+        }
+        Update: {
+          id?: number
+          ip?: unknown
+          meta?: Json
+          severity?: string
+          ts?: string
+          type?: string
+          ua?: string | null
+          uid?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
