@@ -561,12 +561,14 @@ Deno.serve(async (originalReq) => {
         return json({ success: true, accepted: true, emails: [], message: "No accounts assigned" }, mode === "sync_async" ? 202 : 200);
       }
       if (assigned && assigned.length > 0) accountLabels = accountLabels ? accountLabels.filter(l => assigned.includes(l)) : assigned;
-      const last = userSyncHits.get(session.userId) || 0;
-      if (Date.now() - last < USER_SYNC_WINDOW_MS) {
-        const cache = await readCache(supabase, assigned, filterSignInCodes, filterPasswordResets, session, body.limit);
-        return json({ success: true, rateLimited: true, message: "Please wait before refreshing again", emails: cache }, mode === "sync_async" ? 202 : 429);
+      if (mode === "sync_async") {
+        const last = userSyncHits.get(session.userId) || 0;
+        if (Date.now() - last < USER_SYNC_WINDOW_MS) {
+          const cache = await readCache(supabase, assigned, filterSignInCodes, filterPasswordResets, session, body.limit);
+          return json({ success: true, rateLimited: true, message: "Please wait before refreshing again", emails: cache }, 202);
+        }
+        userSyncHits.set(session.userId, Date.now());
       }
-      userSyncHits.set(session.userId, Date.now());
     }
 
     if (mode === "sync_async") {
