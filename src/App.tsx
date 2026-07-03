@@ -6918,6 +6918,23 @@ function EmailViewer() {
 // ==================== MAINTENANCE GATE ====================
 const MAINT_BYPASS_KEY = "maintenance_admin_bypass";
 
+// D.2: bypass is a server-signed JWS `{kind:'maint_bypass', uid, exp, jti}` with
+// 10 min TTL. Client parses `exp` locally to auto-expire; signature is HMAC so
+// clients cannot forge or extend it. Old "1" values are treated as invalid.
+function readMaintBypassExp(): number | null {
+  try {
+    const raw = sessionStorage.getItem(MAINT_BYPASS_KEY);
+    if (!raw || raw === "1") return null;
+    const dataB64 = raw.split(".")[0];
+    if (!dataB64) return null;
+    const payload = JSON.parse(atob(dataB64));
+    if (payload?.kind !== "maint_bypass") return null;
+    if (typeof payload.exp !== "number" || Date.now() > payload.exp) return null;
+    return payload.exp;
+  } catch { return null; }
+}
+
+
 function hasActiveAdminImpersonationBackup(): boolean {
   try {
     const raw = sessionGet("admin_backup" as any);
