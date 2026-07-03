@@ -6709,7 +6709,7 @@ function EmailViewer() {
       try {
         const synced = await syncViaWorker();
         if (synced && synced.length > 0) {
-          setEmails((prev) => mergeEmailsById([prev, synced]));
+          setEmailsRaw((prev) => mergeEmailsById([prev, synced]));
           setError(null);
           setLastUpdated(new Date());
         }
