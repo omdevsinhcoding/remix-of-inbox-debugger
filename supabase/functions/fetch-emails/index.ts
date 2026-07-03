@@ -563,4 +563,8 @@ Deno.serve(async (originalReq) => {
         : `Failed to fetch emails: ${errorMessage}`,
     }, isImapAuthError ? 401 : 500);
   }
+  };
+  const res = await __run();
+  return await maybeEncryptResponse(res, ctx);
 });
+
