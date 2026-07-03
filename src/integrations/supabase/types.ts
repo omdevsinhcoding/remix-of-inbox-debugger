@@ -243,6 +243,27 @@ export type Database = {
         }
         Relationships: []
       }
+      crypto_sessions: {
+        Row: {
+          aes_key: string
+          created_at: string
+          expires_at: string
+          id: string
+        }
+        Insert: {
+          aes_key: string
+          created_at?: string
+          expires_at?: string
+          id?: string
+        }
+        Update: {
+          aes_key?: string
+          created_at?: string
+          expires_at?: string
+          id?: string
+        }
+        Relationships: []
+      }
       login_events: {
         Row: {
           asn: string | null
@@ -799,6 +820,7 @@ export type Database = {
     Functions: {
       get_cron_status: { Args: never; Returns: Json }
       get_email_cleanup_status: { Args: never; Returns: Json }
+      purge_expired_crypto_sessions: { Args: never; Returns: undefined }
       schedule_email_cleanup: {
         Args: { days: number; hour: number }
         Returns: undefined
