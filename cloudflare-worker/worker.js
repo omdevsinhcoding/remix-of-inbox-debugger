@@ -501,10 +501,14 @@ function htmlToText(html = "") {
 
 function cleanDisplayText(text = "") {
   return String(text || "")
-    .replace(/^--[-=_A-Za-z0-9.'+\/]+--?\s*$/gm, "")
-    .replace(/^Content-(Type|Transfer-Encoding|Disposition|ID|Description):.*$/gim, "")
-    .replace(/^MIME-Version:.*$/gim, "")
-    .replace(/^charset=.*$/gim, "")
+    // Strip standalone MIME boundary delimiter lines
+    .replace(/(^|\n)\s*--[-=_A-Za-z0-9.'+\/]{6,}--?\s*(?=\n|$)/g, "\n")
+    // Strip MIME header lines (start of line)
+    .replace(/(^|\n)\s*(Content-(Type|Transfer-Encoding|Disposition|ID|Description|Language|Location)|MIME-Version)\s*:[^\n]*/gi, "\n")
+    // Inline residue when boundary + headers got flattened onto one line
+    .replace(/--[-=_A-Za-z0-9.'+\/]{6,}(?:--)?\s*(?=Content-|MIME-|charset=|$)/gi, " ")
+    .replace(/\bContent-(Type|Transfer-Encoding|Disposition|ID|Description|Language|Location)\s*:[^\n]{0,200}?(?=(?:Content-|MIME-|charset=|\n|$))/gi, " ")
+    .replace(/\bcharset=[^\s;]+/gi, " ")
     .replace(/\r/g, "")
     .replace(/[ \t]+/g, " ")
     .replace(/\n[ \t]+/g, "\n")
@@ -513,25 +517,35 @@ function cleanDisplayText(text = "") {
     .slice(0, 20000);
 }
 
+function detectBoundaryFromBody(body = "") {
+  const m = String(body).match(/(?:^|\n)--([-=_A-Za-z0-9.'+\/]{6,})(?:\r?\n)/);
+  if (!m) return "";
+  const candidate = m[1];
+  const occurrences = String(body).split(`--${candidate}`).length - 1;
+  return occurrences >= 2 ? candidate : "";
+}
+
 function extractMimeContent(raw, inheritedHeaders = {}) {
   const hasHeaders = inheritedHeaders && Object.keys(inheritedHeaders).length > 0;
   const parsed = hasHeaders ? { headers: inheritedHeaders, body: String(raw || "") } : parseHeaders(raw);
   const type = contentMime(parsed.headers);
-  const boundary = headerParam(parsed.headers["content-type"] || "", "boundary");
+  let boundary = headerParam(parsed.headers["content-type"] || "", "boundary");
+  const looksMultipart = type.startsWith("multipart/") || (!boundary && /(?:^|\n)--[-=_A-Za-z0-9.'+\/]{6,}\r?\n/.test(parsed.body));
+  if (looksMultipart && !boundary) boundary = detectBoundaryFromBody(parsed.body);
 
-  if (type.startsWith("multipart/") && boundary) {
+  if (boundary) {
     const children = splitMultipart(parsed.body, boundary).map((part) => {
       const child = parseHeaders(part);
       return extractMimeContent(child.body, child.headers);
     });
     const text = children.find((p) => p.type === "text/plain" && p.text)?.text || children.find((p) => p.text)?.text || "";
     const html = children.find((p) => p.type === "text/html" && p.html)?.html || children.find((p) => p.html)?.html || "";
-    return { type, text: text || htmlToText(html), html };
+    if (text || html) return { type: type || "multipart/alternative", text: text || htmlToText(html), html };
   }
 
   const decoded = decodeTransferBody(parsed.body, parsed.headers);
-  if (type === "text/html") return { type, text: htmlToText(decoded), html: decoded };
-  return { type, text: decoded, html: "" };
+  if (type === "text/html" || /<html[\s>]/i.test(decoded)) return { type: "text/html", text: htmlToText(decoded), html: decoded };
+  return { type: type || "text/plain", text: decoded, html: "" };
 }
 
 function escapeHtml(value = "") {
