@@ -21,6 +21,8 @@ export function premiumToast(message: string, opts: PremiumToastOpts = {}) {
       <Mail className="w-4 h-4" strokeWidth={2.25} />
     ) : variant === "error" ? (
       <AlertCircle className="w-4 h-4" strokeWidth={2.25} />
+    ) : variant === "warning" ? (
+      <AlertCircle className="w-4 h-4" strokeWidth={2.25} />
     ) : variant === "info" ? (
       <Sparkles className="w-4 h-4" strokeWidth={2.25} />
     ) : (
