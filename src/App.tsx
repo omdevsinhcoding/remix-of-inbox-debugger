@@ -5368,12 +5368,17 @@ function AdminPanel() {
                       {signingSecretReveal && (
                         <div className="rounded-lg border border-amber-300 bg-white p-2">
                           <div className="flex items-center justify-between gap-2 mb-1">
-                            <span className="text-[10px] font-black uppercase text-amber-700">SESSION_SIGNING_SECRET · {signingSecretReveal.length} chars</span>
+                            <span className="text-[10px] font-black uppercase text-amber-700">Verified · {signingSecretReveal.length} chars · {signingSecretReveal.source}</span>
                             <button type="button" onClick={copySigningSecret} className="inline-flex items-center gap-1 rounded-md bg-amber-100 px-2 py-1 text-[10px] font-black text-amber-900 hover:bg-amber-200">
-                              <Copy className="w-3 h-3" /> Copy
+                              <Copy className="w-3 h-3" /> Copy fingerprint
                             </button>
                           </div>
-                          <code className="block max-h-20 overflow-auto break-all rounded-md bg-slate-950 p-2 text-[11px] leading-relaxed text-amber-100">{signingSecretReveal.value}</code>
+                          <code className="block break-all rounded-md bg-slate-950 p-2 text-[11px] leading-relaxed text-amber-100">fp: {signingSecretReveal.fingerprint}</code>
+                          <p className="mt-2 text-[10px] leading-snug text-amber-800">
+                            🔒 For security, the raw signing secret is never returned by the API. Copy it from
+                            <strong> Supabase Dashboard → Edge Functions → Secrets → SESSION_SIGNING_SECRET</strong>.
+                            The fingerprint above lets you confirm both sides match after rotation.
+                          </p>
                         </div>
                       )}
                     </div>
