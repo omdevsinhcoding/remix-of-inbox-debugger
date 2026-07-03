@@ -2251,11 +2251,13 @@ function AdminLoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const cachedBootstrap = useMemo(() => readBootstrapCache(), []);
-  const [siteKey, setSiteKey] = useState<string | null>(
-    cachedBootstrap?.recaptcha?.enabled === true && cachedBootstrap?.recaptcha?.siteKey
+  const [siteKey, setSiteKey] = useState<string | null>(() => {
+    const k = cachedBootstrap?.recaptcha?.enabled === true && cachedBootstrap?.recaptcha?.siteKey
       ? cachedBootstrap.recaptcha.siteKey
-      : null
-  );
+      : null;
+    if (k) preloadRecaptchaScript();
+    return k;
+  });
   const [captchaReady, setCaptchaReady] = useState(false);
   const [captchaConfigError, setCaptchaConfigError] = useState(false);
   const [showCaptcha, setShowCaptcha] = useState(false);
@@ -2270,6 +2272,7 @@ function AdminLoginPage() {
         if (cancelled) return;
         if (bootstrap.recaptcha?.enabled === true && bootstrap.recaptcha?.siteKey) {
           setSiteKey(bootstrap.recaptcha.siteKey);
+          preloadRecaptchaScript();
         } else {
           setSiteKey(null);
         }
