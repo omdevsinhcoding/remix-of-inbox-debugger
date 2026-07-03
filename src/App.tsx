@@ -3122,6 +3122,7 @@ function AdminPanel() {
   const [sendingNotif, setSendingNotif] = useState(false);
   const [editingNotif, setEditingNotif] = useState<any | null>(null);
   const [savingEditNotif, setSavingEditNotif] = useState(false);
+  const [recipientsFor, setRecipientsFor] = useState<any | null>(null);
 
 
   // R2 storage config
