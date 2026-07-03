@@ -244,6 +244,27 @@ export async function clearMyInbox(visibleIds: string[]): Promise<any> {
   return await callManage("clear_user_inbox", { visibleIds });
 }
 
+// ---------- Admin: per-notification recipients ----------
+export type NotificationRecipient = {
+  user_id: string;
+  username: string;
+  name: string;
+  profileAvatar?: string | null;
+  seen_at: string | null;
+  read_at: string | null;
+  clicked_at: string | null;
+  deleted_at: string | null;
+};
+
+export async function adminListRecipients(notificationId: string): Promise<NotificationRecipient[]> {
+  const data = await callManage<{ recipients: NotificationRecipient[] }>("admin_notification_recipients", { notification_id: notificationId });
+  return data.recipients || [];
+}
+
+export async function adminDeleteNotificationForUser(notificationId: string, userId: string): Promise<void> {
+  await callManage("admin_delete_notification_for_user", { notification_id: notificationId, user_id: userId });
+}
+
 // Auto-popup dedupe: track which notification IDs the user has already been popped for.
 const POPUP_SEEN_KEY = "notif_popup_seen_v1";
 export function getPoppedIds(): Set<string> {
