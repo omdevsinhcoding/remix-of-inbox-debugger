@@ -27,6 +27,7 @@ const CORS_HEADERS = {
 // read. Version is baked into every KV key so old entries become unreachable
 // (and expire naturally) without needing a manual purge.
 const CACHE_SCHEMA_VERSION = "v3";
+const LEGACY_CACHE_SCHEMA_VERSIONS = ["v2", "v1"];
 const CACHE_KEY = `emails_list:${CACHE_SCHEMA_VERSION}`;
 const CACHE_TIMESTAMP_KEY = `emails_timestamp:${CACHE_SCHEMA_VERSION}`;
 const WORKER_CONFIG_KEY = "inbox_worker_config:v1";
@@ -96,6 +97,11 @@ function parseEmailList(raw) {
   } catch {
     return null;
   }
+}
+
+function cachePrefixes() {
+  return [CACHE_SCHEMA_VERSION, ...LEGACY_CACHE_SCHEMA_VERSIONS]
+    .map((version) => ({ list: `emails_list:${version}`, ts: `emails_timestamp:${version}` }));
 }
 
 function mergeEmailPayloads(existingRaw, incomingRaw) {
@@ -271,17 +277,22 @@ async function handleGetEmails(env, session, rawToken, opts = {}) {
   const age = timestamp ? (now - parseInt(timestamp)) / 1000 : Infinity;
 
   if (!cached) {
-    const fallbackKeys = [
-      `${CACHE_KEY}:${userAccountsKey}:limit:3`,
-      `${CACHE_KEY}:${userAccountsKey}`,
-      `${CACHE_KEY}:all:limit:${limit}`,
-      `${CACHE_KEY}:all:limit:200`,
-      `${CACHE_KEY}:all:limit:3`,
-      `${CACHE_KEY}:all`,
-    ].filter((key, index, arr) => key !== cacheKey && arr.indexOf(key) === index);
+    const fallbackKeys = cachePrefixes().flatMap(({ list }) => [
+      `${list}:${userAccountsKey}:limit:${limit}`,
+      `${list}:${userAccountsKey}:limit:200`,
+      `${list}:${userAccountsKey}:limit:50`,
+      `${list}:${userAccountsKey}:limit:3`,
+      `${list}:${userAccountsKey}`,
+      `${list}:all:limit:${limit}`,
+      `${list}:all:limit:200`,
+      `${list}:all:limit:50`,
+      `${list}:all:limit:3`,
+      `${list}:all`,
+    ]).filter((key, index, arr) => key !== cacheKey && arr.indexOf(key) === index);
     for (const fallbackKey of fallbackKeys) {
       const fallback = await kvGet(env, fallbackKey);
       if (fallback) {
+        await Promise.all([kvPut(env, cacheKey, fallback), kvPut(env, tsKey, Date.now().toString())]);
         return new Response(fallback, { headers: diagHeaders({ "X-Cache-Status": "FALLBACK_HIT", "X-Cache-Key": fallbackKey }) });
       }
     }
