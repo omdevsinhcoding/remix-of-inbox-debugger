@@ -17,14 +17,14 @@
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Session-Token, X-Pending-Token, X-Cron-Secret",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Session-Token, X-Pending-Token, X-Cron-Secret, Cache-Control",
 };
 
 // F7: Bump CACHE_SCHEMA_VERSION whenever the shape of cached email JSON
 // changes, or to force every worker/user to drop old snapshots on the next
 // read. Version is baked into every KV key so old entries become unreachable
 // (and expire naturally) without needing a manual purge.
-const CACHE_SCHEMA_VERSION = "v2";
+const CACHE_SCHEMA_VERSION = "v3";
 const CACHE_KEY = `emails_list:${CACHE_SCHEMA_VERSION}`;
 const CACHE_TIMESTAMP_KEY = `emails_timestamp:${CACHE_SCHEMA_VERSION}`;
 const STALE_SECONDS = 3;
@@ -150,7 +150,8 @@ export default {
 
     if (url.pathname === "/api/emails" && request.method === "GET") {
       const bust = url.searchParams.get("bust") === "1" || url.searchParams.get("bust") === "true";
-      return handleGetEmails(env, session, sessionToken, { bust });
+      const limit = clampLimit(url.searchParams.get("limit"), 3, 50);
+      return handleGetEmails(env, session, sessionToken, { bust, limit });
     }
 
     if (url.pathname === "/api/emails/sync" && request.method === "POST") {
@@ -234,24 +235,31 @@ function diagHeaders(extra = {}) {
   return { ...base, ...extra };
 }
 
+function clampLimit(value, fallback = 3, max = 50) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.max(1, Math.min(max, Math.floor(n)));
+}
+
 async function handleGetEmails(env, session, rawToken, opts = {}) {
   const hasKV = !!getKV(env);
   const bust = !!opts.bust;
+  const limit = clampLimit(opts.limit, 3, 50);
 
   if (!hasKV) {
-    const r = await fetchDirectFromSupabase(env, session, rawToken);
+    const r = await fetchDirectFromSupabase(env, session, rawToken, limit);
     // wrap so we keep diag headers
     const body = await r.clone().text();
     return new Response(body, { status: r.status, headers: diagHeaders({ "X-Cache-Status": "NO_KV" }) });
   }
 
   const userAccountsKey = session?.assignedAccounts ? JSON.stringify(session.assignedAccounts.sort()) : "all";
-  const cacheKey = `${CACHE_KEY}:${userAccountsKey}`;
+  const cacheKey = `${CACHE_KEY}:${userAccountsKey}:limit:${limit}`;
   const tsKey = `${CACHE_TIMESTAMP_KEY}:${userAccountsKey}`;
 
   // F7: bust=1 → skip KV read, refetch fresh, write back, return with BYPASS status.
   if (bust) {
-    const result = await fetchDirectFromSupabase(env, session, rawToken);
+    const result = await fetchDirectFromSupabase(env, session, rawToken, limit);
     if (result.status === 200) {
       const body = await result.clone().text();
       await Promise.all([kvPut(env, cacheKey, body), kvPut(env, tsKey, Date.now().toString())]);
@@ -266,7 +274,7 @@ async function handleGetEmails(env, session, rawToken, opts = {}) {
   const age = timestamp ? (now - parseInt(timestamp)) / 1000 : Infinity;
 
   if (!cached) {
-    const result = await fetchDirectFromSupabase(env, session, rawToken);
+    const result = await fetchDirectFromSupabase(env, session, rawToken, limit);
     if (result.status === 200) {
       const body = await result.clone().text();
       await Promise.all([kvPut(env, cacheKey, body), kvPut(env, tsKey, now.toString())]);
@@ -279,7 +287,7 @@ async function handleGetEmails(env, session, rawToken, opts = {}) {
   if (age > STALE_SECONDS) {
     status = "STALE";
     await kvPut(env, tsKey, now.toString());
-    refreshFromSupabase(env, session, rawToken, cacheKey, tsKey).catch(err => console.error("BG refresh error:", err));
+    refreshFromSupabase(env, session, rawToken, cacheKey, tsKey, limit).catch(err => console.error("BG refresh error:", err));
   }
 
   return new Response(cached, {
@@ -311,10 +319,12 @@ async function handleSync(env, session, rawToken, requestBody) {
       "Authorization": `Bearer ${env.SUPABASE_KEY}`,
       "apikey": env.SUPABASE_KEY,
     };
+    if (env.CRON_SHARED_SECRET) headers["X-Cron-Secret"] = env.CRON_SHARED_SECRET;
     if (rawToken) headers["X-Session-Token"] = rawToken;
 
     // Pass through accountLabels from the request body for per-account routing
-    const syncPayload = { mode: requestBody?.mode === "sync" ? "sync" : "sync_async", source: requestBody?.source || "worker" };
+      const limit = clampLimit(requestBody?.limit, 3, 50);
+      const syncPayload = { mode: requestBody?.mode === "sync" ? "sync" : "sync_async", source: requestBody?.source || "worker", limit };
     if (requestBody?.accountLabels && Array.isArray(requestBody.accountLabels)) {
       syncPayload.accountLabels = requestBody.accountLabels;
     }
@@ -340,7 +350,7 @@ async function handleSync(env, session, rawToken, requestBody) {
       if (getKV(env)) {
         const userAccountsKey = session?.assignedAccounts ? JSON.stringify(session.assignedAccounts.sort()) : "all";
         await Promise.all([
-          kvPut(env, `${CACHE_KEY}:${userAccountsKey}`, JSON.stringify(JSON.parse(responseText).emails || [])),
+          kvPut(env, `${CACHE_KEY}:${userAccountsKey}:limit:${limit}`, JSON.stringify(JSON.parse(responseText).emails || [])),
           kvPut(env, `${CACHE_TIMESTAMP_KEY}:${userAccountsKey}`, Date.now().toString()),
         ]).catch(() => {});
       }
@@ -353,11 +363,11 @@ async function handleSync(env, session, rawToken, requestBody) {
     // Update KV cache after successful sync
     if (getKV(env)) {
       const userAccountsKey = session?.assignedAccounts ? JSON.stringify(session.assignedAccounts.sort()) : "all";
-      const cacheKey = `${CACHE_KEY}:${userAccountsKey}`;
+      const cacheKey = `${CACHE_KEY}:${userAccountsKey}:limit:${limit}`;
       const tsKey = `${CACHE_TIMESTAMP_KEY}:${userAccountsKey}`;
 
       // Fetch fresh cache data since sync response may contain extra metadata
-      await refreshFromSupabase(env, session, rawToken, cacheKey, tsKey);
+      await refreshFromSupabase(env, session, rawToken, cacheKey, tsKey, limit);
     }
 
     return new Response(responseText, {
@@ -373,9 +383,9 @@ async function handleSync(env, session, rawToken, requestBody) {
 // handleDebug removed (F6). Route no longer exposed.
 
 
-async function fetchDirectFromSupabase(env, session, rawToken) {
+async function fetchDirectFromSupabase(env, session, rawToken, limit = 3) {
   try {
-    const bodyPayload = { mode: "cache" };
+    const bodyPayload = { mode: "cache", limit: clampLimit(limit, 3, 50) };
     if (session?.assignedAccounts) {
       bodyPayload.accountLabels = session.assignedAccounts;
     }
@@ -385,6 +395,7 @@ async function fetchDirectFromSupabase(env, session, rawToken) {
       "Authorization": `Bearer ${env.SUPABASE_KEY}`,
       "apikey": env.SUPABASE_KEY,
     };
+    if (env.CRON_SHARED_SECRET) headers["X-Cron-Secret"] = env.CRON_SHARED_SECRET;
     if (rawToken) headers["X-Session-Token"] = rawToken;
 
     const res = await fetch(`${env.SUPABASE_URL}/functions/v1/fetch-emails`, {
@@ -404,9 +415,9 @@ async function fetchDirectFromSupabase(env, session, rawToken) {
   }
 }
 
-async function refreshFromSupabase(env, session, rawToken, cacheKey, tsKey) {
+async function refreshFromSupabase(env, session, rawToken, cacheKey, tsKey, limit = 3) {
   try {
-    const bodyPayload = { mode: "cache" };
+    const bodyPayload = { mode: "cache", limit: clampLimit(limit, 3, 50) };
     if (session?.assignedAccounts) {
       bodyPayload.accountLabels = session.assignedAccounts;
     }
@@ -416,6 +427,7 @@ async function refreshFromSupabase(env, session, rawToken, cacheKey, tsKey) {
       "Authorization": `Bearer ${env.SUPABASE_KEY}`,
       "apikey": env.SUPABASE_KEY,
     };
+    if (env.CRON_SHARED_SECRET) headers["X-Cron-Secret"] = env.CRON_SHARED_SECRET;
     if (rawToken) headers["X-Session-Token"] = rawToken;
 
     const res = await fetch(`${env.SUPABASE_URL}/functions/v1/fetch-emails`, {
