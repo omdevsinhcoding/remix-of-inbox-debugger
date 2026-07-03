@@ -1668,46 +1668,6 @@ interface UserData {
   id: string; username: string; name: string; role: "admin" | "user"; totpSecret?: string; mustChangePassword?: boolean; assignedAccounts?: string[] | null; profileAvatar?: string | null; profilePrefs?: UserProfilePrefs;
 }
 
-function getUserRefreshAccountLabels(user: Partial<UserData>): string[] | null {
-  if (Array.isArray(user.assignedAccounts)) {
-    return Array.from(new Set(user.assignedAccounts.map(String).map((s) => s.trim()).filter(Boolean)));
-  }
-  return user.role === "admin" ? null : [];
-}
-
-function buildWorkerRequestGroups(labels: string[] | null, map: WorkerUrlMap, primaryUrls: string[]) {
-  const primary = Array.from(new Set([...(map.primary || []), ...primaryUrls].map((u) => u.trim().replace(/\/+$/, "")).filter(Boolean)));
-  if (labels === null) {
-    const pool = primary.length > 0 ? primary : Array.from(new Set(Object.values(map.byAccount || {}).flat().map((u) => u.trim().replace(/\/+$/, "")).filter(Boolean)));
-    const url = pool.length > 0 ? shuffleArray(pool)[0] : "";
-    return url ? [{ url, labels: null as string[] | null }] : [];
-  }
-  const grouped = new Map<string, string[]>();
-  for (const label of labels) {
-    const dedicated = Array.from(new Set((map.byAccount?.[label] || []).map((u) => u.trim().replace(/\/+$/, "")).filter(Boolean)));
-    const pool = dedicated.length > 0 ? dedicated : primary;
-    const url = pool.length > 0 ? shuffleArray(pool)[0] : "";
-    if (!url) continue;
-    grouped.set(url, [...(grouped.get(url) || []), label]);
-  }
-  return Array.from(grouped.entries()).map(([url, groupLabels]) => ({ url, labels: groupLabels }));
-}
-
-function appendAccountLabelParams(params: URLSearchParams, labels: string[] | null) {
-  if (!labels) return;
-  for (const label of labels) params.append("accountLabel", label);
-}
-
-function mergeEmailsById(lists: Email[][]): Email[] {
-  const byId = new Map<string, Email>();
-  for (const list of lists) {
-    for (const email of list) {
-      if (email?.id) byId.set(email.id, email);
-    }
-  }
-  return Array.from(byId.values()).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-}
-
 type UserProfilePrefs = {
   avatarId?: string | null;
   hiddenBefore?: string | null;
@@ -2895,6 +2855,8 @@ function AllEmailsPanel() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [viewing, setViewing] = useState<any | null>(null);
   const [offset, setOffset] = useState(0);
+  const offsetRef = useRef(0);
+  useEffect(() => { offsetRef.current = offset; }, [offset]);
   const limit = 100;
 
 
@@ -2925,6 +2887,20 @@ function AllEmailsPanel() {
     })();
     load(0);
 
+    // Auto-refresh the emails table every 8s while tab is visible.
+    let interval: number | null = null;
+    const start = () => {
+      if (interval != null) return;
+      interval = window.setInterval(() => { void load(offsetRef.current); }, 8000);
+    };
+    const stop = () => { if (interval != null) { clearInterval(interval); interval = null; } };
+    const onVis = () => {
+      if (document.visibilityState === "visible") { void load(offsetRef.current); start(); }
+      else stop();
+    };
+    start();
+    document.addEventListener("visibilitychange", onVis);
+    return () => { stop(); document.removeEventListener("visibilitychange", onVis); };
     // eslint-disable-next-line
   }, [load]);
 
@@ -6326,11 +6302,7 @@ function UserProfileModal({
 // ==================== EMAIL VIEWER ====================
 function EmailViewer() {
   usePageHead("Email Inbox — Netflix Mail", "Secure viewer for Netflix sign-in codes, OTPs, and household verification emails.", "/viewer");
-  const user = useMemo<UserData>(() => {
-    try { return JSON.parse(sessionGet("user" as any) || "{}"); }
-    catch { return {} as UserData; }
-  }, []);
-  const refreshAccountLabels = useMemo(() => getUserRefreshAccountLabels(user), [user]);
+  const user = JSON.parse(sessionGet("user" as any) || "{}");
   const { checkAuth } = useAuth();
   const cacheKey = `cached_emails_v2:${user.id || "anon"}`;
   const [profilePrefs, setProfilePrefs] = useState<UserProfilePrefs>(() => user.profilePrefs || {});
@@ -6415,10 +6387,10 @@ function EmailViewer() {
   const [workerUrlsLoading, setWorkerUrlsLoading] = useState(true);
   const workerUrlLoaded = React.useRef(false);
 
-  // F7: refresh diagnostics — records each worker hit while the
+  // F7: refresh diagnostics — records each worker/Supabase hit while the
   // spinner is running so we can tell WHY it never stops.
   type DiagEntry = {
-    ts: number; kind: "worker" | "sync" | "iframe" | "cache";
+    ts: number; kind: "worker" | "supabase" | "sync" | "iframe" | "cache";
     endpoint: string; status?: number; ms?: number;
     cacheStatus?: string; cacheAge?: string; cacheKey?: string;
     error?: string; note?: string;
@@ -6509,44 +6481,57 @@ function EmailViewer() {
     const limit = opts?.limit || 3;
     try {
       const token = getSessionToken();
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       const headers: Record<string, string> = {};
       if (token) headers["X-Session-Token"] = token;
 
-      const labels = refreshAccountLabels;
-      if (labels && labels.length === 0) {
-        setEmails([]);
-        setError(null);
-        setLastUpdated(new Date());
-        return 0;
-      }
-      const groups = buildWorkerRequestGroups(labels, workerUrlMap, resolvedWorkerUrls);
-      if (groups.length === 0) throw new Error("Cloudflare worker is not configured");
-
-      const lists = await Promise.all(groups.map(async (group) => {
-        const params = new URLSearchParams({ limit: String(limit) });
-        if (bust) params.set("bust", "1");
-        appendAccountLabelParams(params, group.labels);
-        const workerEndpoint = `${group.url}/api/emails?${params.toString()}`;
+      let data: any = null;
+      let endpoint = `${supabaseUrl}/functions/v1/fetch-emails`;
+      const workerBase = resolvedWorkerUrls.length > 0 ? shuffleArray(resolvedWorkerUrls)[0] : "";
+      if (workerBase) {
+        const workerEndpoint = `${workerBase}/api/emails?limit=${encodeURIComponent(String(limit))}${bust ? "&bust=1" : ""}`;
         const started = performance.now();
-        const res = await fetch(workerEndpoint, { headers });
-        const text = await res.text();
-        pushDiag({
-          ts: Date.now(),
-          kind: "worker",
-          endpoint: workerEndpoint,
-          status: res.status,
-          ms: Math.round(performance.now() - started),
-          cacheStatus: res.headers.get("X-Cache-Status") || undefined,
-          cacheAge: res.headers.get("X-Cache-Age") || undefined,
-          cacheKey: res.headers.get("X-Cache-Key") || undefined,
-          note: `${bust ? "bust=1" : "kv"}${group.labels ? ` · ${group.labels.join(", ")}` : ""}`,
-        });
-        if (!res.ok) throw new Error(text.slice(0, 180) || "Worker failed to load emails");
-        const data = text ? JSON.parse(text) : [];
-        return Array.isArray(data) ? data as Email[] : [];
-      }));
+        try {
+          const res = await fetch(workerEndpoint, { headers });
+          const text = await res.text();
+          pushDiag({
+            ts: Date.now(),
+            kind: "worker",
+            endpoint: workerEndpoint,
+            status: res.status,
+            ms: Math.round(performance.now() - started),
+            cacheStatus: res.headers.get("X-Cache-Status") || undefined,
+            cacheAge: res.headers.get("X-Cache-Age") || undefined,
+            cacheKey: res.headers.get("X-Cache-Key") || undefined,
+            note: bust ? "bust=1" : "kv",
+          });
+          if (res.ok) {
+            data = text ? JSON.parse(text) : [];
+            endpoint = workerEndpoint;
+          } else {
+            pushDiag({ ts: Date.now(), kind: "worker", endpoint: workerEndpoint, status: res.status, error: text.slice(0, 160) || "worker failed" });
+          }
+        } catch (err) {
+          pushDiag({ ts: Date.now(), kind: "worker", endpoint: workerEndpoint, error: err instanceof Error ? err.message : "worker failed" });
+        }
+      }
 
-      const emailList = mergeEmailsById(lists);
+      if (data === null) {
+        const { invokeEdge } = await import("./lib/secureTransport");
+        const started = performance.now();
+        data = await invokeEdge(
+          "fetch-emails",
+          bust ? { mode: "cache", bust: 1, limit } : { mode: "cache", limit },
+          { headers },
+        );
+        const ms = Math.round(performance.now() - started);
+        pushDiag({ ts: Date.now(), kind: "supabase", endpoint, status: 200, ms, note: bust ? "bust=1" : "cache" });
+      }
+
+      const emailData = Array.isArray(data) ? data : [];
+
+      const emailList = emailData as Email[];
+      emailList.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
       setEmails(emailList);
       setError(null);
       setLastUpdated(new Date());
@@ -6557,33 +6542,43 @@ function EmailViewer() {
       setError(msg);
       return 0;
     }
-  }, [profilePrefs, setEmails, pushDiag, resolvedWorkerUrls, workerUrlMap, refreshAccountLabels]);
+  }, [profilePrefs, setEmails, pushDiag, resolvedWorkerUrls]);
 
 
   const syncViaWorker = useCallback(async () => {
     const token = getSessionToken();
     const headers: Record<string, string> = {};
     if (token) headers["X-Session-Token"] = token;
-    const labels = refreshAccountLabels;
-    if (labels && labels.length === 0) return;
-    const groups = buildWorkerRequestGroups(labels, workerUrlMap, resolvedWorkerUrls);
-    if (groups.length === 0) throw new Error("Cloudflare worker is not configured");
-
-    await Promise.all(groups.map(async (group) => {
-      const endpoint = `${group.url}/api/emails/sync`;
+    const workerBase = resolvedWorkerUrls.length > 0 ? shuffleArray(resolvedWorkerUrls)[0] : "";
+    if (workerBase) {
+      const endpoint = `${workerBase}/api/emails/sync`;
       const started = performance.now();
-      const res = await fetch(endpoint, {
-        method: "POST",
-        headers: { ...headers, "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "user_sync", source: "user_refresh", limit: 3, accountLabels: group.labels || undefined }),
-      });
-      const text = await res.text();
-      pushDiag({ ts: Date.now(), kind: "worker", endpoint, status: res.status, ms: Math.round(performance.now() - started), note: `user_sync${group.labels ? ` · ${group.labels.join(", ")}` : ""}` });
-      if (!res.ok) throw new Error(text.slice(0, 180) || "Worker sync failed");
-      const data: any = text ? JSON.parse(text) : null;
-      if (data && data.success === false) throw new Error(data?.error || "Sync failed");
-    }));
-  }, [pushDiag, resolvedWorkerUrls, workerUrlMap, refreshAccountLabels]);
+      try {
+        const res = await fetch(endpoint, {
+          method: "POST",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify({ mode: "sync_async", source: "user_refresh", limit: 3 }),
+        });
+        const text = await res.text();
+        pushDiag({ ts: Date.now(), kind: "worker", endpoint, status: res.status, ms: Math.round(performance.now() - started), note: "sync_async" });
+        if (res.ok) {
+          const data = text ? JSON.parse(text) : null;
+          if (data && data.success === false) throw new Error(data?.error || "Sync failed");
+          return;
+        }
+        pushDiag({ ts: Date.now(), kind: "worker", endpoint, status: res.status, error: text.slice(0, 160) || "worker sync failed" });
+      } catch (err) {
+        pushDiag({ ts: Date.now(), kind: "worker", endpoint, error: err instanceof Error ? err.message : "worker sync failed" });
+      }
+    }
+
+    const endpoint = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/fetch-emails`;
+    const started = performance.now();
+    const { invokeEdge } = await import("./lib/secureTransport");
+    const data: any = await invokeEdge("fetch-emails", { mode: "sync_async", source: "user_refresh", limit: 3 }, { headers });
+    pushDiag({ ts: Date.now(), kind: "supabase", endpoint, status: 200, ms: Math.round(performance.now() - started), note: "sync_async" });
+    if (data && data.success === false) throw new Error(data?.error || "Sync failed");
+  }, [pushDiag, resolvedWorkerUrls]);
 
   const fetchEmails = async () => {
     if (refreshingRef.current) return;
@@ -6592,19 +6587,77 @@ function EmailViewer() {
     const before = showLocalCacheNow() || emails.length;
     const toastId = toast.loading("Checking Netflix mail…");
     try {
-      const baseline = before;
-      await syncViaWorker();
-      const after = await loadCachedEmails({ bust: true, limit: 200 });
-      const newCount = Math.max(0, after - baseline);
-      toast.success(newCount > 0 ? `📬 ${newCount} new email${newCount === 1 ? "" : "s"} arrived` : (after > 0 ? "Inbox is up to date" : "No Netflix emails found yet"), { id: toastId, duration: 2200 });
+      // Refresh must never blank or block: latest 3 DB rows first, then IMAP sync in background.
+      const cachedCount = await loadCachedEmails({ bust: true, limit: 3 });
+      const baseline = Math.max(before, cachedCount);
+      toast.success(cachedCount > 0 ? "Latest Netflix emails loaded" : "No Netflix emails found yet", { id: toastId, duration: 1400 });
+      // Quietly hydrate the rest of the inbox in the background.
+      window.setTimeout(() => { void loadCachedEmails({ bust: true, limit: 200 }); }, 200);
+      window.setTimeout(() => {
+        if (!refreshingRef.current) return;
+        setRefreshing(false);
+      }, 1500);
+
+      syncViaWorker()
+        .then(() => {
+          const started = Date.now();
+          return new Promise<number>((resolve) => {
+            const poll = async () => {
+              const count = await loadCachedEmails({ bust: true, limit: 200 });
+              const newest = (() => {
+                try { return Math.max(...readLocalCachedEmails().map(e => new Date(e.cached_at || e.date || 0).getTime()).filter(Number.isFinite)); }
+                catch { return 0; }
+              })();
+              if (count > baseline || Date.now() - started >= 6500 || newest >= started - 1500) {
+                resolve(count);
+                return;
+              }
+              refreshPollRef.current = window.setTimeout(poll, 900);
+            };
+            refreshPollRef.current = window.setTimeout(poll, 900);
+          });
+        })
+        .then((after) => {
+          const newCount = after - baseline;
+          if (newCount > 0) {
+            toast.success(`📬 ${newCount} new email${newCount === 1 ? "" : "s"} arrived`, {
+              duration: 3500,
+              style: {
+                background: "linear-gradient(135deg, #7c1d6f 0%, #c026d3 50%, #e11d48 100%)",
+                color: "#fff",
+                border: "1px solid rgba(255,255,255,0.15)",
+                boxShadow: "0 10px 30px -10px rgba(225,29,72,0.55)",
+                fontWeight: 700,
+              },
+            });
+          }
+        })
+        .catch((err) => {
+          const msg = err instanceof Error ? err.message : "Sync failed";
+          toast.error(msg, {
+            id: toastId,
+            duration: 4000,
+            icon: "⚠️",
+            style: {
+              background: "#1f0a12",
+              color: "#fff",
+              border: "1px solid #e11d48",
+              boxShadow: "0 10px 30px -10px rgba(225,29,72,0.55)",
+              fontWeight: 700,
+            },
+          });
+        })
+        .finally(() => {
+          if (refreshPollRef.current) {
+            clearTimeout(refreshPollRef.current);
+            refreshPollRef.current = null;
+          }
+          refreshingRef.current = false;
+          setRefreshing(false);
+        });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to load";
-      toast.error(msg, { id: toastId, duration: 4000 });
-    } finally {
-      if (refreshPollRef.current) {
-        clearTimeout(refreshPollRef.current);
-        refreshPollRef.current = null;
-      }
+      toast.error(msg);
       refreshingRef.current = false;
       setRefreshing(false);
     }
@@ -6644,21 +6697,44 @@ function EmailViewer() {
     showLocalCacheNow();
     setLoading(false);
 
-    // 2) Pull the latest full inbox from worker cache (fast — no IMAP) once worker URLs are known.
-    if (!workerUrlsLoading) {
-      loadCachedEmails({ limit: 200 }).finally(() => {
-        if (cancelled) return;
-        setLoading(false);
-        if (!sessionGet("session_started_at" as any)) markSessionStart();
-      });
-    } else if (!sessionGet("session_started_at" as any)) {
-      markSessionStart();
-    }
+    // 2) Pull the latest full inbox from DB cache (fast — no IMAP).
+    loadCachedEmails({ limit: 200 }).finally(() => {
+      if (cancelled) return;
+      setLoading(false);
+      if (!sessionGet("session_started_at" as any)) markSessionStart();
+    });
+
+    // 3) Gentle polling so new mails appear without user action.
+    const pollInterval = window.setInterval(() => {
+      void loadCachedEmails({ limit: 200 });
+    }, 15000);
+
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        void loadCachedEmails({ limit: 200 });
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibility);
     return () => {
       cancelled = true;
+      clearInterval(pollInterval);
+      document.removeEventListener("visibilitychange", handleVisibility);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadCachedEmails, workerUrlsLoading]);
+  }, [loadCachedEmails]);
+
+  // Background sync on first mount (after worker discovery) — so newly arrived
+  // emails show up without user clicking Refresh
+  const initialSyncFired = useRef(false);
+  useEffect(() => {
+    if (workerUrlsLoading || initialSyncFired.current) return;
+    initialSyncFired.current = true;
+    syncViaWorker()
+      .then(() => new Promise(resolve => setTimeout(resolve, 1200)))
+      .then(() => loadCachedEmails({ bust: true, limit: 200 }))
+      .catch(() => {});
+  }, [workerUrlsLoading, syncViaWorker, loadCachedEmails]);
 
   // F7: listen for iframe self-report messages verifying that the link/button
   // click hijack is actually attached inside the sandboxed email preview.

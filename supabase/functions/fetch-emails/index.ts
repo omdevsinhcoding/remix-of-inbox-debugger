@@ -46,7 +46,7 @@ function extractOtpCode(subject: string, body: string): string | null {
 
 const FULL_SYNC_MAX_UIDS = 10;
 const USER_REFRESH_MAX_UIDS = 3;
-const PER_ACCOUNT_TIMEOUT_MS = 6500;
+const PER_ACCOUNT_TIMEOUT_MS = 8000;
 const STALE_DAYS = 60;
 const USER_SYNC_WINDOW_MS = 5_000;
 const userSyncHits = new Map<string, number>();
@@ -143,7 +143,7 @@ function clampLimit(value: any, fallback: number, max: number) {
 }
 
 async function readCache(supabase: any, accountFilter: string[] | null, filterSignInCodes: boolean, filterPasswordResets: boolean, session: Session | null, limit = 500) {
-  const safeLimit = clampLimit(limit, 500, session?.role === "admin" ? 500 : 200);
+  const safeLimit = clampLimit(limit, 500, session?.role === "admin" ? 500 : 50);
   // Non-admin with zero assigned accounts -> nothing visible.
   if (accountFilter && accountFilter.length === 0 && session && session.role !== "admin") return [];
   let query = supabase.from("cached_emails").select("*").order("date", { ascending: false }).limit(safeLimit);
@@ -203,43 +203,40 @@ async function fetchFromAccount(
     const lock = await client.getMailboxLock("INBOX");
 
     try {
-      let netflixUids: number[] = [];
-      const totalMessages = (client.mailbox as any)?.exists || 0;
+      const since = new Date();
+      since.setDate(since.getDate() - 7);
 
-      // Fast path: newly delivered OTP emails are almost always in the newest inbox rows.
-      // Fetching envelopes for the last few messages is much faster than a server-side IMAP search.
-      if (totalMessages > 0 && hasBudget()) {
-        const startSeq = Math.max(1, totalMessages - 11);
-        for await (const message of client.fetch(`${startSeq}:${totalMessages}`, { envelope: true, uid: true })) {
-          if (!hasBudget()) break;
-          const fromAddr = message.envelope?.from?.[0]?.address?.toLowerCase() || "";
-          const toAddr = message.envelope?.to?.[0]?.address?.toLowerCase() || "";
-          const subject = (message.envelope?.subject || "").toLowerCase();
-          if (fromAddr.includes("netflix") || toAddr.includes("netflix") || subject.includes("netflix")) {
-            netflixUids.push(message.uid);
+      let netflixUids: number[] = [];
+      for (const term of ["netflix.com", "netflix"]) {
+        if (netflixUids.length > 0 || !hasBudget()) break;
+        try {
+          const searchResults = await client.search({ from: term, since }, { uid: true });
+          if (searchResults?.length > 0) {
+            netflixUids = searchResults as number[];
+            console.log(`[${accountLabel}] Search "${term}" found ${netflixUids.length}`);
           }
+        } catch (searchErr) {
+          console.log(`[${accountLabel}] Search "${term}" failed:`, searchErr);
         }
-        if (netflixUids.length > 0) console.log(`[${accountLabel}] Latest inbox scan found ${netflixUids.length}`);
       }
 
       if (netflixUids.length === 0 && hasBudget()) {
-        const since = new Date();
-        since.setDate(since.getDate() - 7);
-        for (const term of ["netflix.com", "netflix"]) {
-          if (netflixUids.length > 0 || !hasBudget()) break;
-          try {
-            const searchResults = await client.search({ from: term, since }, { uid: true });
-            if (searchResults?.length > 0) {
-              netflixUids = searchResults as number[];
-              console.log(`[${accountLabel}] Search "${term}" found ${netflixUids.length}`);
+        const totalMessages = (client.mailbox as any)?.exists || 0;
+        if (totalMessages > 0) {
+          const startSeq = Math.max(1, totalMessages - 29);
+          for await (const message of client.fetch(`${startSeq}:${totalMessages}`, { envelope: true, uid: true })) {
+            if (!hasBudget()) break;
+            const fromAddr = message.envelope?.from?.[0]?.address?.toLowerCase() || "";
+            const toAddr = message.envelope?.to?.[0]?.address?.toLowerCase() || "";
+            const subject = (message.envelope?.subject || "").toLowerCase();
+            if (fromAddr.includes("netflix") || toAddr.includes("netflix") || subject.includes("netflix")) {
+              netflixUids.push(message.uid);
             }
-          } catch (searchErr) {
-            console.log(`[${accountLabel}] Search "${term}" failed:`, searchErr);
           }
         }
       }
 
-      netflixUids = Array.from(new Set(netflixUids)).sort((a, b) => b - a);
+      netflixUids.sort((a, b) => b - a);
       const uidsToFetch = netflixUids.slice(0, clampLimit(maxMessages, USER_REFRESH_MAX_UIDS, FULL_SYNC_MAX_UIDS));
       console.log(`[${accountLabel}] Fetching ${uidsToFetch.length} recent candidate UIDs`);
 
@@ -564,17 +561,15 @@ Deno.serve(async (originalReq) => {
         return json({ success: true, accepted: true, emails: [], message: "No accounts assigned" }, mode === "sync_async" ? 202 : 200);
       }
       if (assigned && assigned.length > 0) accountLabels = accountLabels ? accountLabels.filter(l => assigned.includes(l)) : assigned;
-      if (mode === "sync_async" && source !== "user_refresh") {
-        const last = userSyncHits.get(session.userId) || 0;
-        if (Date.now() - last < USER_SYNC_WINDOW_MS) {
-          const cache = await readCache(supabase, assigned, filterSignInCodes, filterPasswordResets, session, body.limit);
-          return json({ success: true, rateLimited: true, message: "Please wait before refreshing again", emails: cache }, 202);
-        }
-        userSyncHits.set(session.userId, Date.now());
+      const last = userSyncHits.get(session.userId) || 0;
+      if (Date.now() - last < USER_SYNC_WINDOW_MS) {
+        const cache = await readCache(supabase, assigned, filterSignInCodes, filterPasswordResets, session, body.limit);
+        return json({ success: true, rateLimited: true, message: "Please wait before refreshing again", emails: cache }, mode === "sync_async" ? 202 : 429);
       }
+      userSyncHits.set(session.userId, Date.now());
     }
 
-    if (mode === "sync_async" && source !== "user_refresh") {
+    if (mode === "sync_async") {
       const accountFilterForCache = session ? await getAssignedAccountFilter(supabase, session) : null;
       const cache = session ? await readCache(supabase, accountFilterForCache, filterSignInCodes, filterPasswordResets, session, body.limit).catch(() => []) : [];
       const maxMessages = clampLimit(body.limit, USER_REFRESH_MAX_UIDS, FULL_SYNC_MAX_UIDS);
