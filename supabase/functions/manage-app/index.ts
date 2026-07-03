@@ -2430,9 +2430,9 @@ Deno.serve(async (req) => {
       if (nErr) throw nErr;
       if (!note) throw new Error("Notification not found");
 
-      let usersQ = supabase.from("app_users").select("id, username, name, role, profileAvatar:profile_avatar").neq("role", "admin");
+      let usersQ = supabase.from("app_users").select("id, username, name, role, profile_prefs").neq("role", "admin");
       if (note.audience === "user" && note.target_user_id) {
-        usersQ = supabase.from("app_users").select("id, username, name, role, profileAvatar:profile_avatar").eq("id", note.target_user_id);
+        usersQ = supabase.from("app_users").select("id, username, name, role, profile_prefs").eq("id", note.target_user_id);
       }
       const { data: recipients, error: uErr } = await usersQ;
       if (uErr) throw uErr;
