@@ -279,13 +279,18 @@ function shuffleArray<T>(arr: T[]): T[] {
 }
 
 function getStoredWorkerUrls(): string[] {
-  // Refresh/inbox routing must not depend on browser-persistent storage.
-  // Worker URLs are loaded from server settings after login.
-  return [];
+  try {
+    const raw = sessionGet("cloudflare_worker_urls" as any);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.map(String).map((u) => u.trim().replace(/\/+$/, "")).filter(Boolean) : [];
+  } catch { return []; }
 }
 
 function storeWorkerUrls(urls: string[]) {
-  void urls;
+  try {
+    const normalized = Array.from(new Set((urls || []).map(String).map((u) => u.trim().replace(/\/+$/, "")).filter(Boolean)));
+    if (normalized.length) sessionSet("cloudflare_worker_urls" as any, JSON.stringify(normalized));
+  } catch {}
 }
 
 function getSessionToken(): string | null {
@@ -1655,6 +1660,48 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
 // --- Types ---
 interface Email {
   id: string; subject: string; from: string; to?: string; date: string; otp: string | null; preview: string; html: string; account_label?: string | null; cached_at?: string | null;
+}
+
+function escapeEmailHtml(value = "") {
+  return String(value).replace(/[&<>"]/g, (ch) => {
+    if (ch === "&") return "&amp;";
+    if (ch === "<") return "&lt;";
+    if (ch === ">") return "&gt;";
+    if (ch === '"') return "&quot;";
+    return ch;
+  });
+}
+
+function stripRawMimeNoise(value = "") {
+  return String(value || "")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|tr|table|h[1-6])>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/^--[-=_A-Za-z0-9.'+\/]+--?\s*$/gm, "")
+    .replace(/^Content-(Type|Transfer-Encoding|Disposition|ID|Description):.*$/gim, "")
+    .replace(/^MIME-Version:.*$/gim, "")
+    .replace(/^charset=.*$/gim, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/\r/g, "")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n[ \t]+/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function emailHtmlForDisplay(email: Email | null) {
+  if (!email) return "";
+  const raw = String(email.html || "");
+  if (/^\s*Content-Type:/im.test(raw) || /^\s*--[-=_A-Za-z0-9.'+\/]+/m.test(raw)) {
+    const cleaned = stripRawMimeNoise(raw) || stripRawMimeNoise(email.preview || "");
+    return `<pre>${escapeEmailHtml(cleaned)}</pre>`;
+  }
+  return raw || `<pre>${escapeEmailHtml(stripRawMimeNoise(email.preview || ""))}</pre>`;
 }
 interface UserData {
   id: string; username: string; name: string; role: "admin" | "user"; totpSecret?: string; mustChangePassword?: boolean; assignedAccounts?: string[] | null; profileAvatar?: string | null; profilePrefs?: UserProfilePrefs;
@@ -3051,7 +3098,7 @@ function AllEmailsPanel() {
             </div>
             <div className="p-4 overflow-auto flex-1">
               {viewing.html ? (
-                <iframe title="email" srcDoc={`<!DOCTYPE html><html><head><base target="_blank"></head><body>${viewing.html}<script>(function(){function force(a){try{a.setAttribute('target','_blank');a.setAttribute('rel','noopener noreferrer');}catch(e){}}function scan(){document.querySelectorAll('a,button').forEach(force);}document.addEventListener('click',function(e){var a=e.target.closest('a,button');if(!a)return;var h=a.getAttribute('href')||a.dataset.href;if(h){e.preventDefault();window.open(h,'_blank','noopener,noreferrer');}},true);scan();try{new MutationObserver(scan).observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['href','target']});}catch(e){}})();<\/script></body></html>`} className="w-full min-h-[400px] border rounded" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-scripts" />
+                <iframe title="email" srcDoc={`<!DOCTYPE html><html><head><base target="_blank"></head><body>${emailHtmlForDisplay(viewing as Email)}<script>(function(){function force(a){try{a.setAttribute('target','_blank');a.setAttribute('rel','noopener noreferrer');}catch(e){}}function scan(){document.querySelectorAll('a,button').forEach(force);}document.addEventListener('click',function(e){var a=e.target.closest('a,button');if(!a)return;var h=a.getAttribute('href')||a.dataset.href;if(h){e.preventDefault();window.open(h,'_blank','noopener,noreferrer');}},true);scan();try{new MutationObserver(scan).observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['href','target']});}catch(e){}})();<\/script></body></html>`} className="w-full min-h-[400px] border rounded" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-scripts" />
               ) : (
                 <pre className="text-xs whitespace-pre-wrap text-slate-700">{viewing.preview || "(no content)"}</pre>
               )}
@@ -6592,6 +6639,7 @@ function EmailViewer() {
     const toastId = "nf-refresh";
     toast.loading("Checking Netflix mail…", { id: toastId });
     try {
+      await loadCachedEmails({ limit: 200 });
       // Fast path: worker sync returns fresh emails directly — no second round-trip.
       const synced = await syncViaWorker();
       let merged: Email[] = emails;
@@ -7000,7 +7048,7 @@ function EmailViewer() {
                   )}
                   <div className="email-html-wrapper">
                     <iframe
-                      srcDoc={`<!DOCTYPE html><html><head><base target="_blank"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0;padding:8px;font-family:sans-serif;font-size:14px;color:#334155;overflow-x:hidden;word-break:break-word}img{max-width:100%!important;height:auto!important}table{max-width:100%!important;width:100%!important}td,th{max-width:100%!important;overflow:hidden}a{color:#e11d48}*{box-sizing:border-box}</style></head><body>${selectedEmail.html}<script>(function(){function force(a){try{a.setAttribute('target','_blank');a.setAttribute('rel','noopener noreferrer');}catch(e){}}function scan(){document.querySelectorAll('a,button').forEach(force);}document.addEventListener('click',function(e){var a=e.target.closest('a,button');if(!a)return;var href=a.getAttribute('href')||a.dataset.href;if(href){e.preventDefault();window.open(href,'_blank','noopener,noreferrer');}},true);document.addEventListener('contextmenu',function(e){e.preventDefault();});scan();try{new MutationObserver(scan).observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['href','target']});}catch(e){}try{var links=document.querySelectorAll('a').length;var buttons=document.querySelectorAll('button').length;var base=document.querySelector('base');window.parent&&window.parent.postMessage({__nf:'iframe-links',links:links,buttons:buttons,hijack:true,baseTarget:(base&&base.getAttribute('target'))||''}, '*');}catch(e){}})();<\/script></body></html>`}
+                      srcDoc={`<!DOCTYPE html><html><head><base target="_blank"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0;padding:8px;font-family:sans-serif;font-size:14px;color:#334155;overflow-x:hidden;word-break:break-word}img{max-width:100%!important;height:auto!important}table{max-width:100%!important;width:100%!important}td,th{max-width:100%!important;overflow:hidden}a{color:#e11d48}pre{white-space:pre-wrap;word-break:break-word;font-family:ui-sans-serif,system-ui,sans-serif;line-height:1.45}*{box-sizing:border-box}</style></head><body>${emailHtmlForDisplay(selectedEmail)}<script>(function(){function force(a){try{a.setAttribute('target','_blank');a.setAttribute('rel','noopener noreferrer');}catch(e){}}function scan(){document.querySelectorAll('a,button').forEach(force);}document.addEventListener('click',function(e){var a=e.target.closest('a,button');if(!a)return;var href=a.getAttribute('href')||a.dataset.href;if(href){e.preventDefault();window.open(href,'_blank','noopener,noreferrer');}},true);document.addEventListener('contextmenu',function(e){e.preventDefault();});scan();try{new MutationObserver(scan).observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['href','target']});}catch(e){}try{var links=document.querySelectorAll('a').length;var buttons=document.querySelectorAll('button').length;var base=document.querySelector('base');window.parent&&window.parent.postMessage({__nf:'iframe-links',links:links,buttons:buttons,hijack:true,baseTarget:(base&&base.getAttribute('target'))||''}, '*');}catch(e){}})();<\/script></body></html>`}
                       sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-scripts"
                       className="w-full border-0"
                       style={{ minHeight: "400px" }}
