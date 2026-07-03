@@ -6481,7 +6481,7 @@ function EmailViewer() {
         const workerEndpoint = `${workerBase}/api/emails?limit=${encodeURIComponent(String(limit))}${bust ? "&bust=1" : ""}`;
         const started = performance.now();
         try {
-          const res = await fetch(workerEndpoint, { headers: { ...headers, "Cache-Control": "no-store" } });
+          const res = await fetch(workerEndpoint, { headers });
           const text = await res.text();
           pushDiag({
             ts: Date.now(),
@@ -6545,7 +6545,7 @@ function EmailViewer() {
       try {
         const res = await fetch(endpoint, {
           method: "POST",
-          headers: { ...headers, "Content-Type": "application/json", "Cache-Control": "no-store" },
+          headers: { ...headers, "Content-Type": "application/json" },
           body: JSON.stringify({ mode: "sync_async", source: "user_refresh", limit: 3 }),
         });
         const text = await res.text();
