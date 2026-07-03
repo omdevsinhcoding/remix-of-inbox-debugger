@@ -123,9 +123,26 @@ function applyEmailFilters(emails: any[], filterSignInCodes: boolean, filterPass
   return output;
 }
 
-async function readCache(supabase: any, accountFilter: string[] | null, filterSignInCodes: boolean, filterPasswordResets: boolean) {
+async function getEmailVisibility(supabase: any): Promise<{ enabled: boolean; days: number } | null> {
+  try {
+    const { data } = await supabase.from("app_settings").select("value").eq("key", "email_visibility").maybeSingle();
+    const v = data?.value;
+    if (v && v.enabled === true && Number(v.days) > 0) return { enabled: true, days: Number(v.days) };
+  } catch {}
+  return null;
+}
+
+async function readCache(supabase: any, accountFilter: string[] | null, filterSignInCodes: boolean, filterPasswordResets: boolean, session: Session | null) {
   let query = supabase.from("cached_emails").select("*").order("date", { ascending: false }).limit(500);
   if (accountFilter && accountFilter.length > 0) query = query.in("account_label", accountFilter);
+  if (session && session.role !== "admin") {
+    const vis = await getEmailVisibility(supabase);
+    if (vis) {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - vis.days);
+      query = query.gte("date", cutoff.toISOString());
+    }
+  }
   const { data: cached, error } = await query;
   if (error) throw error;
   const emails = (cached || []).map((e: any) => ({
