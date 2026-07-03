@@ -6481,7 +6481,7 @@ function EmailViewer() {
         const workerEndpoint = `${workerBase}/api/emails?limit=${encodeURIComponent(String(limit))}${bust ? "&bust=1" : ""}`;
         const started = performance.now();
         try {
-          const res = await fetch(workerEndpoint, { headers: { ...headers, "Cache-Control": "no-store" } });
+          const res = await fetch(workerEndpoint, { headers });
           const text = await res.text();
           pushDiag({
             ts: Date.now(),
@@ -6545,7 +6545,7 @@ function EmailViewer() {
       try {
         const res = await fetch(endpoint, {
           method: "POST",
-          headers: { ...headers, "Content-Type": "application/json", "Cache-Control": "no-store" },
+          headers: { ...headers, "Content-Type": "application/json" },
           body: JSON.stringify({ mode: "sync_async", source: "user_refresh", limit: 3 }),
         });
         const text = await res.text();
@@ -6579,6 +6579,7 @@ function EmailViewer() {
       // Refresh must never blank or block: latest 3 DB rows first, then IMAP sync in background.
       const cachedCount = await loadCachedEmails({ bust: true, limit: 3 });
       const baseline = Math.max(before, cachedCount);
+      toast.success(cachedCount > 0 ? "Latest 3 Netflix emails loaded" : "No Netflix emails found yet", { id: toastId, duration: 1400 });
       window.setTimeout(() => {
         if (!refreshingRef.current) return;
         setRefreshing(false);
@@ -6607,7 +6608,6 @@ function EmailViewer() {
           const newCount = after - baseline;
           if (newCount > 0) {
             toast.success(`📬 ${newCount} new email${newCount === 1 ? "" : "s"} arrived`, {
-              id: toastId,
               duration: 3500,
               style: {
                 background: "linear-gradient(135deg, #7c1d6f 0%, #c026d3 50%, #e11d48 100%)",
@@ -6617,8 +6617,6 @@ function EmailViewer() {
                 fontWeight: 700,
               },
             });
-          } else {
-            toast.success("✓ Inbox already up to date", { id: toastId, duration: 2200 });
           }
         })
         .catch((err) => {
