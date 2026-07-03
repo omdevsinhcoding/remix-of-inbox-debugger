@@ -1,4 +1,5 @@
 import { connect } from "cloudflare:sockets";
+import PostalMime from "postal-mime";
 
 /**
  * Cloudflare Worker — Email Cache Proxy
@@ -559,35 +560,45 @@ function extractOtpCode(subject, body) {
   return line?.[1] || null;
 }
 
-function parseRawEmail(raw, accountLabel, uid) {
-  const { headers, body } = parseHeaders(raw);
-  const subject = decodeMimeWords(headers.subject || "");
-  const from = decodeMimeWords(headers.from || "Netflix");
-  const to = decodeMimeWords(headers.to || "");
-  const content = extractMimeContent(body, headers);
+async function parseRawEmail(raw, accountLabel, uid) {
+  // Use postal-mime (same-quality parsing as mailparser's simpleParser used by
+  // the old Supabase fetch-emails path). Returns clean subject/from/html/text
+  // with quoted-printable + base64 already decoded — no manual MIME work.
+  let parsed;
+  try {
+    parsed = await PostalMime.parse(raw);
+  } catch (err) {
+    console.error("postal-mime parse failed:", err?.message || err);
+    return null;
+  }
 
-  // Prefer the original HTML as sent — do NOT sanitize or reflow it.
-  const rawHtml = content.html && /<\w+/i.test(content.html) ? content.html : "";
-  // Text is only used for OTP detection + list preview. Keep it minimal.
-  const bodyText = (content.text || htmlToText(content.html || "")).replace(/\r/g, "").trim();
+  const subject = String(parsed.subject || "").trim();
+  const from = parsed.from?.address
+    ? (parsed.from.name ? `${parsed.from.name} <${parsed.from.address}>` : parsed.from.address)
+    : "Netflix";
+  const to = Array.isArray(parsed.to) && parsed.to[0]
+    ? (parsed.to[0].name ? `${parsed.to[0].name} <${parsed.to[0].address}>` : parsed.to[0].address)
+    : undefined;
+  const html = String(parsed.html || "").trim();
+  const bodyText = String(parsed.text || "").replace(/\r/g, "").trim();
 
-  const signal = `${subject} ${from} ${to} ${bodyText.slice(0, 2000)}`;
+  const signal = `${subject} ${from} ${to || ""} ${bodyText.slice(0, 2000)}`;
   if (!/netflix/i.test(signal)) return null;
 
-  const date = headers.date ? new Date(headers.date) : new Date();
-  const html = rawHtml || `<pre style="white-space:pre-wrap;font-family:ui-sans-serif,system-ui,sans-serif">${escapeHtml(bodyText)}</pre>`;
+  const date = parsed.date ? new Date(parsed.date) : new Date();
+  const finalHtml = html || `<pre style="white-space:pre-wrap;font-family:ui-sans-serif,system-ui,sans-serif">${escapeHtml(bodyText)}</pre>`;
   const previewSource = bodyText.replace(/\s+/g, " ").trim();
 
   return {
     id: `${accountLabel}:${uid}`,
-    message_id: headers["message-id"] || null,
+    message_id: parsed.messageId || null,
     subject,
-    from: from || "Netflix",
-    to: to || undefined,
+    from,
+    to,
     date: Number.isNaN(date.getTime()) ? new Date().toISOString() : date.toISOString(),
     otp: extractOtpCode(subject, bodyText),
     preview: previewSource.length > 140 ? `${previewSource.slice(0, 140)}...` : previewSource,
-    html,
+    html: finalHtml,
     account_label: accountLabel,
   };
 }
@@ -753,7 +764,7 @@ async function fetchFromImapAccount(account, limit = 3) {
     const emails = [];
     for (const item of literals) {
       const uid = Number(item.meta.match(/UID\s+(\d+)/i)?.[1] || 0) || Math.floor(Date.now() + Math.random() * 1000);
-      const parsed = parseRawEmail(item.data, account.label, uid);
+      const parsed = await parseRawEmail(item.data, account.label, uid);
       if (parsed) emails.push(parsed);
     }
     emails.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
