@@ -798,10 +798,16 @@ export type Database = {
     }
     Functions: {
       get_cron_status: { Args: never; Returns: Json }
+      get_email_cleanup_status: { Args: never; Returns: Json }
+      schedule_email_cleanup: {
+        Args: { days: number; hour: number }
+        Returns: undefined
+      }
       schedule_email_sync: {
         Args: { auth_key: string; cron_expr: string; function_url: string }
         Returns: undefined
       }
+      unschedule_email_cleanup: { Args: never; Returns: undefined }
       unschedule_email_sync: { Args: never; Returns: undefined }
     }
     Enums: {
