@@ -690,13 +690,26 @@ function ResponsiveToaster() {
   return (
     <Toaster
       position={isMobile ? "bottom-center" : "bottom-right"}
-      richColors
       closeButton
       expand={false}
       visibleToasts={2}
       duration={2500}
       offset={isMobile ? "calc(env(safe-area-inset-bottom) + 5.5rem)" : "5rem"}
-      toastOptions={{ className: "pointer-events-auto" }}
+      toastOptions={{
+        className: "pointer-events-auto !rounded-xl !border !shadow-lg !backdrop-blur",
+        style: {
+          background: "linear-gradient(135deg, rgba(30,41,59,0.96), rgba(15,23,42,0.96))",
+          color: "#f1f5f9",
+          border: "1px solid rgba(99,102,241,0.35)",
+          boxShadow: "0 10px 30px -10px rgba(79,70,229,0.45)",
+        },
+        classNames: {
+          success: "!bg-gradient-to-br !from-indigo-600 !to-violet-700 !text-white !border-indigo-400/50",
+          error: "!bg-gradient-to-br !from-rose-600 !to-red-700 !text-white !border-rose-400/50",
+          info: "!bg-gradient-to-br !from-sky-600 !to-blue-700 !text-white !border-sky-400/50",
+          warning: "!bg-gradient-to-br !from-amber-500 !to-orange-600 !text-white !border-amber-400/50",
+        },
+      }}
     />
   );
 }
