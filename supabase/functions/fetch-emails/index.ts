@@ -105,7 +105,9 @@ async function decryptValue(encrypted: string, secret: string): Promise<string> 
 async function getAssignedAccountFilter(supabase: any, session: Session | null): Promise<string[] | null> {
   if (!session || session.role === "admin") return null;
   const { data: userData } = await supabase.from("app_users").select("assigned_accounts").eq("id", session.userId).single();
-  return Array.isArray(userData?.assigned_accounts) && userData.assigned_accounts.length > 0 ? userData.assigned_accounts : null;
+  // For non-admin users: return the assigned list (possibly empty).
+  // An empty array means "no accounts ticked" -> show nothing.
+  return Array.isArray(userData?.assigned_accounts) ? userData.assigned_accounts : [];
 }
 
 function applyEmailFilters(emails: any[], filterSignInCodes: boolean, filterPasswordResets: boolean) {
