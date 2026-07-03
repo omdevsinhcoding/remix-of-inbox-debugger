@@ -752,8 +752,11 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   useEffect(() => {
     // Initial paint from cache so UI is not blocked, then verify against DB.
     setUser(readCached());
+    // C.2: arm auto-refresh from any stored refresh token in this tab.
+    import("./lib/sessionRefresh").then(({ armAutoRefresh }) => armAutoRefresh()).catch(() => {});
     void hydrateFromServer();
   }, []);
+
 
   return <AuthContext.Provider value={{ user, loading, checkAuth }}>{children}</AuthContext.Provider>;
 };
