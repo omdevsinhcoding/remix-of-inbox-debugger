@@ -1668,6 +1668,46 @@ interface UserData {
   id: string; username: string; name: string; role: "admin" | "user"; totpSecret?: string; mustChangePassword?: boolean; assignedAccounts?: string[] | null; profileAvatar?: string | null; profilePrefs?: UserProfilePrefs;
 }
 
+function getUserRefreshAccountLabels(user: Partial<UserData>): string[] | null {
+  if (Array.isArray(user.assignedAccounts)) {
+    return Array.from(new Set(user.assignedAccounts.map(String).map((s) => s.trim()).filter(Boolean)));
+  }
+  return user.role === "admin" ? null : [];
+}
+
+function buildWorkerRequestGroups(labels: string[] | null, map: WorkerUrlMap, primaryUrls: string[]) {
+  const primary = Array.from(new Set([...(map.primary || []), ...primaryUrls].map((u) => u.trim().replace(/\/+$/, "")).filter(Boolean)));
+  if (labels === null) {
+    const pool = primary.length > 0 ? primary : Array.from(new Set(Object.values(map.byAccount || {}).flat().map((u) => u.trim().replace(/\/+$/, "")).filter(Boolean)));
+    const url = pool.length > 0 ? shuffleArray(pool)[0] : "";
+    return url ? [{ url, labels: null as string[] | null }] : [];
+  }
+  const grouped = new Map<string, string[]>();
+  for (const label of labels) {
+    const dedicated = Array.from(new Set((map.byAccount?.[label] || []).map((u) => u.trim().replace(/\/+$/, "")).filter(Boolean)));
+    const pool = dedicated.length > 0 ? dedicated : primary;
+    const url = pool.length > 0 ? shuffleArray(pool)[0] : "";
+    if (!url) continue;
+    grouped.set(url, [...(grouped.get(url) || []), label]);
+  }
+  return Array.from(grouped.entries()).map(([url, groupLabels]) => ({ url, labels: groupLabels }));
+}
+
+function appendAccountLabelParams(params: URLSearchParams, labels: string[] | null) {
+  if (!labels) return;
+  for (const label of labels) params.append("accountLabel", label);
+}
+
+function mergeEmailsById(lists: Email[][]): Email[] {
+  const byId = new Map<string, Email>();
+  for (const list of lists) {
+    for (const email of list) {
+      if (email?.id) byId.set(email.id, email);
+    }
+  }
+  return Array.from(byId.values()).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+}
+
 type UserProfilePrefs = {
   avatarId?: string | null;
   hiddenBefore?: string | null;
