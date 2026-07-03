@@ -1602,9 +1602,10 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
       setRemainingMs(Math.max(0, rem));
       if (rem > 0 && rem <= 60_000 && !warnedRef.current) {
         warnedRef.current = true;
-        toast("⏰ Session ending in 1 minute", {
+        premiumToast("Session ending in 1 minute", {
           id: "session-1min-warning",
-          description: "Finish what you're doing — you'll need to sign in again soon.",
+          variant: "warning",
+          description: "Finish what you're doing — sign in again soon.",
           duration: 5000,
         });
       }
