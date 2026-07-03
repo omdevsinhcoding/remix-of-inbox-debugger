@@ -104,6 +104,30 @@ function cachePrefixes() {
     .map((version) => ({ list: `emails_list:${version}`, ts: `emails_timestamp:${version}` }));
 }
 
+function candidateCacheKeys(userAccountsKey, limit) {
+  return cachePrefixes().flatMap(({ list }) => [
+    `${list}:${userAccountsKey}:limit:${limit}`,
+    `${list}:${userAccountsKey}:limit:200`,
+    `${list}:${userAccountsKey}:limit:50`,
+    `${list}:${userAccountsKey}:limit:3`,
+    `${list}:${userAccountsKey}`,
+    `${list}:all:limit:${limit}`,
+    `${list}:all:limit:200`,
+    `${list}:all:limit:50`,
+    `${list}:all:limit:3`,
+    `${list}:all`,
+  ]).filter((key, index, arr) => arr.indexOf(key) === index);
+}
+
+async function readBestCachedRaw(env, userAccountsKey, limit, skipKey = "") {
+  for (const key of candidateCacheKeys(userAccountsKey, limit)) {
+    if (key === skipKey) continue;
+    const raw = await kvGet(env, key);
+    if (raw) return { key, raw };
+  }
+  return null;
+}
+
 function mergeEmailPayloads(existingRaw, incomingRaw) {
   if (!existingRaw) return null;
   const existingEmails = parseEmailList(existingRaw);
@@ -277,24 +301,10 @@ async function handleGetEmails(env, session, rawToken, opts = {}) {
   const age = timestamp ? (now - parseInt(timestamp)) / 1000 : Infinity;
 
   if (!cached) {
-    const fallbackKeys = cachePrefixes().flatMap(({ list }) => [
-      `${list}:${userAccountsKey}:limit:${limit}`,
-      `${list}:${userAccountsKey}:limit:200`,
-      `${list}:${userAccountsKey}:limit:50`,
-      `${list}:${userAccountsKey}:limit:3`,
-      `${list}:${userAccountsKey}`,
-      `${list}:all:limit:${limit}`,
-      `${list}:all:limit:200`,
-      `${list}:all:limit:50`,
-      `${list}:all:limit:3`,
-      `${list}:all`,
-    ]).filter((key, index, arr) => key !== cacheKey && arr.indexOf(key) === index);
-    for (const fallbackKey of fallbackKeys) {
-      const fallback = await kvGet(env, fallbackKey);
-      if (fallback) {
-        await Promise.all([kvPut(env, cacheKey, fallback), kvPut(env, tsKey, Date.now().toString())]);
-        return new Response(fallback, { headers: diagHeaders({ "X-Cache-Status": "FALLBACK_HIT", "X-Cache-Key": fallbackKey }) });
-      }
+    const fallback = await readBestCachedRaw(env, userAccountsKey, limit, cacheKey);
+    if (fallback?.raw) {
+      await Promise.all([kvPut(env, cacheKey, fallback.raw), kvPut(env, tsKey, Date.now().toString())]);
+      return new Response(fallback.raw, { headers: diagHeaders({ "X-Cache-Status": "FALLBACK_HIT", "X-Cache-Key": fallback.key }) });
     }
     return new Response(JSON.stringify([]), { headers: diagHeaders({ "X-Cache-Status": "MISS", "X-Cache-Key": cacheKey }) });
   }
@@ -350,7 +360,7 @@ async function handleSync(env, session, rawToken, requestBody, ctx) {
           if (Array.isArray(result?.emails)) freshRaw = JSON.stringify(result.emails);
         } catch {}
         const fullCacheKey = `${CACHE_KEY}:${userAccountsKey}:limit:200`;
-        const existingFull = await kvGet(env, fullCacheKey);
+        const existingFull = await kvGet(env, fullCacheKey) || (await readBestCachedRaw(env, userAccountsKey, 200, fullCacheKey))?.raw || null;
         const mergedFull = mergeEmailPayloads(existingFull, freshRaw) || freshRaw;
         await Promise.all([
           kvPut(env, cacheKey, freshRaw),
