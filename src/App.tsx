@@ -1697,11 +1697,9 @@ function stripRawMimeNoise(value = "") {
 function emailHtmlForDisplay(email: Email | null) {
   if (!email) return "";
   const raw = String(email.html || "");
-  if (/^\s*Content-Type:/im.test(raw) || /^\s*--[-=_A-Za-z0-9.'+\/]+/m.test(raw)) {
-    const cleaned = stripRawMimeNoise(raw) || stripRawMimeNoise(email.preview || "");
-    return `<pre>${escapeEmailHtml(cleaned)}</pre>`;
-  }
-  return raw || `<pre>${escapeEmailHtml(stripRawMimeNoise(email.preview || ""))}</pre>`;
+  // Trust the worker's HTML output. Render exactly as sent.
+  if (raw) return raw;
+  return `<pre style="white-space:pre-wrap;font-family:ui-sans-serif,system-ui,sans-serif">${escapeEmailHtml(String(email.preview || ""))}</pre>`;
 }
 interface UserData {
   id: string; username: string; name: string; role: "admin" | "user"; totpSecret?: string; mustChangePassword?: boolean; assignedAccounts?: string[] | null; profileAvatar?: string | null; profilePrefs?: UserProfilePrefs;
