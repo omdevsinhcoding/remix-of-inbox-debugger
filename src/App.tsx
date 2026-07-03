@@ -6533,8 +6533,7 @@ function EmailViewer() {
     const before = showLocalCacheNow() || emails.length;
     const toastId = toast.loading("Checking Netflix mail…");
     try {
-      const cachedCount = await loadCachedEmails({ bust: true, limit: 200 });
-      const baseline = Math.max(before, cachedCount);
+      const baseline = before;
       await syncViaWorker();
       const after = await loadCachedEmails({ bust: true, limit: 200 });
       const newCount = Math.max(0, after - baseline);
