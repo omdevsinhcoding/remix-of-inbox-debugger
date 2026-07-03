@@ -6693,17 +6693,18 @@ function EmailViewer() {
   // never lose seconds waiting for emails to appear.
   useEffect(() => {
     let cancelled = false;
+    // 1) Instant paint from localStorage — user sees full cached inbox immediately.
     showLocalCacheNow();
     setLoading(false);
 
-    loadCachedEmails({ limit: 3 }).finally(() => {
+    // 2) Pull the latest full inbox from DB cache (fast — no IMAP).
+    loadCachedEmails({ limit: 200 }).finally(() => {
       if (cancelled) return;
       setLoading(false);
       if (!sessionGet("session_started_at" as any)) markSessionStart();
-      // Follow up with the full inbox so users can scroll past the latest 3.
-      window.setTimeout(() => { if (!cancelled) void loadCachedEmails({ limit: 200 }); }, 250);
     });
 
+    // 3) Gentle polling so new mails appear without user action.
     const pollInterval = window.setInterval(() => {
       void loadCachedEmails({ limit: 200 });
     }, 15000);
