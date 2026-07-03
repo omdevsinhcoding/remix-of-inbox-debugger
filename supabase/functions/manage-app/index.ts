@@ -1917,46 +1917,31 @@ Deno.serve(async (originalReq) => {
       // Generate OTP
       const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
 
-      // Save OTP to DB
-      await supabase.from("app_otps").delete().eq("user_id", user_id);
-      const { error: otpErr } = await supabase.from("app_otps").insert({ user_id, otp: otpCode });
-      if (otpErr) throw otpErr;
+      // Kick off DB write (delete+insert) and Telegram-config lookup in parallel
+      // so we spend one round-trip on both, not two sequentially.
+      const dbWrite = (async () => {
+        await supabase.from("app_otps").delete().eq("user_id", user_id);
+        const { error } = await supabase.from("app_otps").insert({ user_id, otp: otpCode });
+        if (error) throw error;
+      })();
+      const cfgLookup = getTelegramConfig(supabase);
 
-      // Get Telegram config
-      let tgConfig: { botToken: string; chatId: string } | null = null;
-      try {
-        const { data: settingsData } = await supabase
-          .from("app_settings")
-          .select("value")
-          .eq("key", "config")
-          .single();
-        if (settingsData?.value) {
-          const cfg = settingsData.value as any;
-          if (cfg.TELEGRAM_BOT_TOKEN && cfg.TELEGRAM_CHAT_ID) {
-            tgConfig = { botToken: cfg.TELEGRAM_BOT_TOKEN, chatId: cfg.TELEGRAM_CHAT_ID };
-          }
-        }
-      } catch {}
-      if (!tgConfig) {
-        const bt = Deno.env.get("TELEGRAM_BOT_TOKEN");
-        const ci = Deno.env.get("TELEGRAM_CHAT_ID");
-        if (bt && ci) tgConfig = { botToken: bt, chatId: ci };
-      }
-
+      const [tgConfig] = await Promise.all([cfgLookup, dbWrite]);
       if (!tgConfig) {
         throw new Error("Telegram not configured. Set bot token and chat ID in admin settings.");
       }
 
-      // Send OTP via Telegram
-      const telegramRes = await fetch(`https://api.telegram.org/bot${tgConfig.botToken}/sendMessage`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: tgConfig.chatId,
+      // Send OTP via Telegram with a hard 6s timeout so a slow Telegram edge
+      // can't stall the whole response for 20-30s.
+      let telegramRes: Response;
+      try {
+        telegramRes = await postTelegram(tgConfig, {
           text: `🛡 Admin 3FA OTP: <code>${otpCode}</code>\nValid for 5 minutes.`,
-          parse_mode: "HTML",
-        }),
-      });
+        }, 6000);
+      } catch (e) {
+        console.error("Telegram send timeout/error:", e);
+        throw new Error("Telegram is slow to respond. Try again in a moment.");
+      }
 
       if (!telegramRes.ok) {
         const errText = await telegramRes.text();
