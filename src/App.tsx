@@ -3046,6 +3046,176 @@ function usePageHead(title: string, description: string, path: string) {
   }, [title, description, path]);
 }
 
+function timeAgo(iso?: string | null): string {
+  if (!iso) return "—";
+  const d = Date.now() - new Date(iso).getTime();
+  if (d < 0) return "—";
+  const s = Math.floor(d / 1000);
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const days = Math.floor(h / 24);
+  return `${days}d ago`;
+}
+
+function RecipientsDrawer({ notification, onClose, onChanged }: { notification: any; onClose: () => void; onChanged?: () => void }) {
+  const [loading, setLoading] = useState(true);
+  const [rows, setRows] = useState<NotificationRecipient[]>([]);
+  const [removing, setRemoving] = useState<string | null>(null);
+  const [filter, setFilter] = useState<"all" | "seen" | "read" | "clicked" | "deleted" | "pending">("all");
+  const [search, setSearch] = useState("");
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const list = await adminListRecipients(notification.id);
+      setRows(list);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to load recipients");
+    } finally { setLoading(false); }
+  };
+
+  useEffect(() => { load(); }, [notification.id]);
+
+  const removeForUser = async (userId: string) => {
+    if (!confirm("Is user ke inbox se yeh notification hata dein?")) return;
+    setRemoving(userId);
+    try {
+      await adminDeleteNotificationForUser(notification.id, userId);
+      toast.success("Removed for this user");
+      await load();
+      onChanged?.();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed");
+    } finally { setRemoving(null); }
+  };
+
+  const q = search.trim().toLowerCase();
+  const filtered = rows.filter((r) => {
+    if (q && !((r.name || "").toLowerCase().includes(q) || (r.username || "").toLowerCase().includes(q))) return false;
+    switch (filter) {
+      case "seen": return !!r.seen_at;
+      case "read": return !!r.read_at;
+      case "clicked": return !!r.clicked_at;
+      case "deleted": return !!r.deleted_at;
+      case "pending": return !r.seen_at && !r.deleted_at;
+      default: return true;
+    }
+  });
+
+  const seenN = rows.filter((r) => !!r.seen_at).length;
+  const readN = rows.filter((r) => !!r.read_at).length;
+  const clickedN = rows.filter((r) => !!r.clicked_at).length;
+  const deletedN = rows.filter((r) => !!r.deleted_at).length;
+
+  return (
+    <div className="fixed inset-0 z-[110] bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={onClose}>
+      <div className="bg-white w-full sm:max-w-3xl sm:rounded-2xl rounded-t-2xl max-h-[92vh] flex flex-col shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="p-4 sm:p-5 border-b flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500">👥 Recipients</div>
+            <h3 className="font-black text-base sm:text-lg text-slate-900 truncate mt-0.5">{notification.title}</h3>
+            <div className="mt-2 flex items-center gap-3 text-[11px] font-bold flex-wrap">
+              <span className="text-slate-600">Total {rows.length}</span>
+              <span className="text-slate-600">👀 {seenN} seen</span>
+              <span className="text-emerald-700">✅ {readN} read</span>
+              <span className="text-sky-700">🖱 {clickedN} clicked</span>
+              <span className="text-rose-600">🗑 {deletedN} deleted</span>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-900 shrink-0 p-1"><X className="w-5 h-5" /></button>
+        </div>
+
+        <div className="p-3 sm:p-4 border-b bg-slate-50 flex items-center gap-2 flex-wrap">
+          <div className="relative flex-1 min-w-[180px]">
+            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text" value={search} onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by name or username…"
+              className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-200 text-sm text-slate-900 bg-white focus:outline-none focus:border-slate-400"
+            />
+          </div>
+          <div className="flex items-center gap-1 flex-wrap">
+            {([
+              { k: "all", label: "All" },
+              { k: "pending", label: "Pending" },
+              { k: "seen", label: "Seen" },
+              { k: "read", label: "Read" },
+              { k: "clicked", label: "Clicked" },
+              { k: "deleted", label: "Deleted" },
+            ] as const).map((f) => (
+              <button key={f.k} onClick={() => setFilter(f.k)}
+                className={`px-3 py-1.5 rounded-full text-[11px] font-bold transition-colors ${filter === f.k ? "bg-slate-900 text-white" : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"}`}>
+                {f.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
+          {loading ? (
+            <div className="p-8 text-center text-sm text-slate-500">Loading recipients…</div>
+          ) : filtered.length === 0 ? (
+            <div className="p-8 text-center text-sm text-slate-500">Koi recipient nahi mila.</div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 sticky top-0 z-10 text-[10px] uppercase tracking-wider text-slate-500 font-bold">
+                <tr>
+                  <th className="text-left px-4 py-2.5">User</th>
+                  <th className="text-left px-3 py-2.5">Seen</th>
+                  <th className="text-left px-3 py-2.5">Read</th>
+                  <th className="text-left px-3 py-2.5">Clicked</th>
+                  <th className="text-left px-3 py-2.5">Deleted</th>
+                  <th className="text-right px-4 py-2.5">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((r) => {
+                  const isDeleted = !!r.deleted_at;
+                  return (
+                    <tr key={r.user_id} className="border-t border-slate-100 hover:bg-slate-50">
+                      <td className="px-4 py-2.5">
+                        <div className="font-semibold text-slate-900 text-[13px]">{r.name || r.username}</div>
+                        <div className="text-[11px] text-slate-500">@{r.username}</div>
+                      </td>
+                      <td className="px-3 py-2.5 text-[12px] text-slate-700">{timeAgo(r.seen_at)}</td>
+                      <td className={`px-3 py-2.5 text-[12px] ${r.read_at ? "text-emerald-700 font-semibold" : "text-slate-400"}`}>{timeAgo(r.read_at)}</td>
+                      <td className={`px-3 py-2.5 text-[12px] ${r.clicked_at ? "text-sky-700 font-semibold" : "text-slate-400"}`}>{timeAgo(r.clicked_at)}</td>
+                      <td className={`px-3 py-2.5 text-[12px] ${isDeleted ? "text-rose-600 font-semibold" : "text-slate-400"}`}>{timeAgo(r.deleted_at)}</td>
+                      <td className="px-4 py-2.5 text-right">
+                        {isDeleted ? (
+                          <span className="text-[11px] text-slate-400 italic">already deleted</span>
+                        ) : (
+                          <button
+                            onClick={() => removeForUser(r.user_id)}
+                            disabled={removing === r.user_id}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold text-rose-600 hover:bg-rose-50 border border-rose-200 disabled:opacity-50">
+                            <Trash2 className="w-3 h-3" />
+                            {removing === r.user_id ? "…" : "Remove for user"}
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        <div className="p-3 border-t bg-slate-50 flex items-center justify-between rounded-b-2xl">
+          <button onClick={load} className="text-[12px] font-semibold text-slate-600 hover:text-slate-900 flex items-center gap-1.5">
+            <RefreshCw className="w-3.5 h-3.5" /> Refresh
+          </button>
+          <button onClick={onClose} className="px-4 py-2 rounded-lg bg-slate-900 text-white text-[12px] font-bold hover:bg-slate-800">Done</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AdminPanel() {
   usePageHead("Admin Dashboard — Netflix Mail", "Admin control panel for managing users, sessions, notifications, and email accounts.", "/admin/dashboard");
   const [activeTab, setActiveTab] = useState<"users" | "security" | "emails" | "settings" | "notifications" | "inbox" | "logins" | "allmails">("users");
