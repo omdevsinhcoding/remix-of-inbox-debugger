@@ -6326,7 +6326,11 @@ function UserProfileModal({
 // ==================== EMAIL VIEWER ====================
 function EmailViewer() {
   usePageHead("Email Inbox — Netflix Mail", "Secure viewer for Netflix sign-in codes, OTPs, and household verification emails.", "/viewer");
-  const user = JSON.parse(sessionGet("user" as any) || "{}");
+  const user = useMemo<UserData>(() => {
+    try { return JSON.parse(sessionGet("user" as any) || "{}"); }
+    catch { return {} as UserData; }
+  }, []);
+  const refreshAccountLabels = useMemo(() => getUserRefreshAccountLabels(user), [user]);
   const { checkAuth } = useAuth();
   const cacheKey = `cached_emails_v2:${user.id || "anon"}`;
   const [profilePrefs, setProfilePrefs] = useState<UserProfilePrefs>(() => user.profilePrefs || {});
