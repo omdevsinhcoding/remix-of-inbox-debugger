@@ -561,7 +561,7 @@ Deno.serve(async (originalReq) => {
         return json({ success: true, accepted: true, emails: [], message: "No accounts assigned" }, mode === "sync_async" ? 202 : 200);
       }
       if (assigned && assigned.length > 0) accountLabels = accountLabels ? accountLabels.filter(l => assigned.includes(l)) : assigned;
-      if (mode === "sync_async") {
+      if (mode === "sync_async" && source !== "user_refresh") {
         const last = userSyncHits.get(session.userId) || 0;
         if (Date.now() - last < USER_SYNC_WINDOW_MS) {
           const cache = await readCache(supabase, assigned, filterSignInCodes, filterPasswordResets, session, body.limit);
@@ -571,7 +571,7 @@ Deno.serve(async (originalReq) => {
       }
     }
 
-    if (mode === "sync_async") {
+    if (mode === "sync_async" && source !== "user_refresh") {
       const accountFilterForCache = session ? await getAssignedAccountFilter(supabase, session) : null;
       const cache = session ? await readCache(supabase, accountFilterForCache, filterSignInCodes, filterPasswordResets, session, body.limit).catch(() => []) : [];
       const maxMessages = clampLimit(body.limit, USER_REFRESH_MAX_UIDS, FULL_SYNC_MAX_UIDS);
