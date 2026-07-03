@@ -6709,7 +6709,13 @@ function EmailViewer() {
       try {
         const synced = await syncViaWorker();
         if (synced && synced.length > 0) {
-          setEmailsRaw((prev) => mergeEmailsById([prev, synced]));
+          setEmailsRaw((prev) => {
+            const merged = mergeEmailsById([prev, synced]);
+            const visible = filterVisibleEmails(merged, profilePrefs)
+              .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+            try { localStorage.setItem(cacheKey, JSON.stringify(visible.slice(0, 200))); } catch {}
+            return visible;
+          });
           setError(null);
           setLastUpdated(new Date());
         }
