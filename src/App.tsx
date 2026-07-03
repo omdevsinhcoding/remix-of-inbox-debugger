@@ -2887,20 +2887,6 @@ function AllEmailsPanel() {
     })();
     load(0);
 
-    // Auto-refresh the emails table every 8s while tab is visible.
-    let interval: number | null = null;
-    const start = () => {
-      if (interval != null) return;
-      interval = window.setInterval(() => { void load(offsetRef.current); }, 8000);
-    };
-    const stop = () => { if (interval != null) { clearInterval(interval); interval = null; } };
-    const onVis = () => {
-      if (document.visibilityState === "visible") { void load(offsetRef.current); start(); }
-      else stop();
-    };
-    start();
-    document.addEventListener("visibilitychange", onVis);
-    return () => { stop(); document.removeEventListener("visibilitychange", onVis); };
     // eslint-disable-next-line
   }, [load]);
 
