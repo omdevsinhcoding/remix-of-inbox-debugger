@@ -7069,13 +7069,25 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
       <MaintenanceScreen
         {...screenProps}
         isAdmin
-        onAdminBypass={() => {
+        onAdminBypass={async () => {
+          // D.2: request a signed short-lived bypass token from server. Falls back
+          // to legacy client flag only if the server call fails (e.g. offline) so
+          // admins are never locked out of their own maintenance window.
+          try {
+            const res = await apiCall("manage-app", { action: "admin_issue_maint_bypass" });
+            if (res?.success && typeof res.token === "string") {
+              try { sessionStorage.setItem(MAINT_BYPASS_KEY, res.token); } catch {}
+              setBypass(true);
+              return;
+            }
+          } catch {}
           try { sessionStorage.setItem(MAINT_BYPASS_KEY, "1"); } catch {}
           setBypass(true);
         }}
       />
     );
   }
+
 
 
   return <>{children}</>;
