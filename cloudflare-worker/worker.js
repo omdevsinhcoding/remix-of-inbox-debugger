@@ -501,10 +501,12 @@ function htmlToText(html = "") {
 
 function cleanDisplayText(text = "") {
   return String(text || "")
-    .replace(/^--[-=_A-Za-z0-9.'+\/]+--?\s*$/gm, "")
-    .replace(/^Content-(Type|Transfer-Encoding|Disposition|ID|Description):.*$/gim, "")
-    .replace(/^MIME-Version:.*$/gim, "")
-    .replace(/^charset=.*$/gim, "")
+    // Strip standalone MIME boundary delimiter lines
+    .replace(/(^|\n)[ \t]*--[-=_A-Za-z0-9.'+\/]{6,}--?[ \t]*(?=\n|$)/g, "\n")
+    // Strip MIME header lines at start of line
+    .replace(/(^|\n)[ \t]*(Content-(Type|Transfer-Encoding|Disposition|ID|Description|Language|Location)|MIME-Version)[ \t]*:[^\n]*/gi, "\n")
+    // Strip standalone charset= tokens
+    .replace(/\bcharset=[^\s;]+/gi, "")
     .replace(/\r/g, "")
     .replace(/[ \t]+/g, " ")
     .replace(/\n[ \t]+/g, "\n")
@@ -513,25 +515,35 @@ function cleanDisplayText(text = "") {
     .slice(0, 20000);
 }
 
+function detectBoundaryFromBody(body = "") {
+  const m = String(body).match(/(?:^|\n)--([-=_A-Za-z0-9.'+\/]{6,})(?:\r?\n)/);
+  if (!m) return "";
+  const candidate = m[1];
+  const occurrences = String(body).split(`--${candidate}`).length - 1;
+  return occurrences >= 2 ? candidate : "";
+}
+
 function extractMimeContent(raw, inheritedHeaders = {}) {
   const hasHeaders = inheritedHeaders && Object.keys(inheritedHeaders).length > 0;
   const parsed = hasHeaders ? { headers: inheritedHeaders, body: String(raw || "") } : parseHeaders(raw);
   const type = contentMime(parsed.headers);
-  const boundary = headerParam(parsed.headers["content-type"] || "", "boundary");
+  let boundary = headerParam(parsed.headers["content-type"] || "", "boundary");
+  const looksMultipart = type.startsWith("multipart/") || (!boundary && /(?:^|\n)--[-=_A-Za-z0-9.'+\/]{6,}\r?\n/.test(parsed.body));
+  if (looksMultipart && !boundary) boundary = detectBoundaryFromBody(parsed.body);
 
-  if (type.startsWith("multipart/") && boundary) {
+  if (boundary) {
     const children = splitMultipart(parsed.body, boundary).map((part) => {
       const child = parseHeaders(part);
       return extractMimeContent(child.body, child.headers);
     });
     const text = children.find((p) => p.type === "text/plain" && p.text)?.text || children.find((p) => p.text)?.text || "";
     const html = children.find((p) => p.type === "text/html" && p.html)?.html || children.find((p) => p.html)?.html || "";
-    return { type, text: text || htmlToText(html), html };
+    if (text || html) return { type: type || "multipart/alternative", text: text || htmlToText(html), html };
   }
 
   const decoded = decodeTransferBody(parsed.body, parsed.headers);
-  if (type === "text/html") return { type, text: htmlToText(decoded), html: decoded };
-  return { type, text: decoded, html: "" };
+  if (type === "text/html" || /<html[\s>]/i.test(decoded)) return { type: "text/html", text: htmlToText(decoded), html: decoded };
+  return { type: type || "text/plain", text: decoded, html: "" };
 }
 
 function escapeHtml(value = "") {
@@ -547,6 +559,15 @@ function extractOtpCode(subject, body) {
   return line?.[1] || null;
 }
 
+function stripMimeNoiseHtml(html = "") {
+  return String(html)
+    // Remove any leaked boundary delimiter lines
+    .replace(/--[-=_A-Za-z0-9.'+\/]{6,}(?:--)?/g, "")
+    // Remove leaked MIME header lines
+    .replace(/(^|>|\n)\s*(Content-(Type|Transfer-Encoding|Disposition|ID|Description|Language|Location)|MIME-Version)\s*:[^\n<]*/gi, "$1")
+    .replace(/\bcharset=[a-zA-Z0-9-]+/gi, "");
+}
+
 function parseRawEmail(raw, accountLabel, uid) {
   const { headers, body } = parseHeaders(raw);
   const subject = decodeMimeWords(headers.subject || "");
@@ -557,7 +578,8 @@ function parseRawEmail(raw, accountLabel, uid) {
   const signal = `${subject} ${from} ${to} ${bodyText.slice(0, 2000)}`;
   if (!/netflix/i.test(signal)) return null;
   const date = headers.date ? new Date(headers.date) : new Date();
-  const html = content.html && /<\w+/i.test(content.html) ? content.html : `<pre>${escapeHtml(bodyText)}</pre>`;
+  const rawHtml = content.html && /<\w+/i.test(content.html) ? stripMimeNoiseHtml(content.html) : "";
+  const html = rawHtml || `<pre>${escapeHtml(bodyText)}</pre>`;
   return {
     id: `${accountLabel}:${uid}`,
     message_id: headers["message-id"] || null,
@@ -722,11 +744,11 @@ async function fetchFromImapAccount(account, limit = 3) {
     let literals = [];
     if (uids.length > 0) {
       const newest = Array.from(new Set(uids)).sort((a, b) => b - a).slice(0, Math.max(1, limit));
-      const fetched = await imap.command(`UID FETCH ${newest.join(",")} (BODY.PEEK[]<0.24000>)`, 2800);
+      const fetched = await imap.command(`UID FETCH ${newest.join(",")} (BODY.PEEK[]<0.200000>)`, 2800);
       literals = fetched.literals;
     } else if (total > 0) {
       const start = Math.max(1, total - 3);
-      const fetched = await imap.command(`FETCH ${start}:* (UID BODY.PEEK[]<0.24000>)`, 2800);
+      const fetched = await imap.command(`FETCH ${start}:* (UID BODY.PEEK[]<0.200000>)`, 2800);
       literals = fetched.literals;
     }
 
