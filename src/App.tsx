@@ -3881,7 +3881,9 @@ function AdminPanel() {
       const adminToken = localStorage.getItem("session_token");
       const adminAuth = localStorage.getItem("admin_auth");
 
+      toast.loading(`Opening ${targetUser.name}'s inbox…`, { id: "impersonate" });
       const data = await apiCall("manage-app", { action: "impersonate", target_user_id: targetUser.id });
+      toast.dismiss("impersonate");
 
       // F4: Use sessionStorage (auto-cleared on tab close) with a 10-min TTL so a
       // shared-device user or same-origin script can't lift the admin session token.
@@ -3891,6 +3893,13 @@ function AdminPanel() {
         }));
       } catch {}
       try { localStorage.removeItem("admin_backup"); } catch {}
+
+      // CRITICAL: navigate to /viewer BEFORE swapping the session in state.
+      // Otherwise ProtectedRoute on /admin/dashboard sees role="user" and
+      // redirects to "/" (login), racing past navigate("/viewer") and
+      // kicking the admin out.
+      navigate("/viewer", { replace: true });
+
       localStorage.setItem("user", JSON.stringify(data.user));
       if (data.sessionToken) localStorage.setItem("session_token", data.sessionToken);
       // Impersonation: also defer session timer until EmailViewer loads inbox.
@@ -3898,11 +3907,12 @@ function AdminPanel() {
       localStorage.removeItem("admin_auth");
       checkAuth();
       toast.success(`Viewing as ${targetUser.name}`);
-      navigate("/viewer");
     } catch (err) {
+      toast.dismiss("impersonate");
       toast.error(err instanceof Error ? err.message : "Failed to impersonate user");
     }
   };
+
 
 
   const createUser = async () => {
