@@ -5,37 +5,16 @@ import { motion, AnimatePresence } from "motion/react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import NetflixHouseholdVerificationGuide from "./pages/NetflixHouseholdVerificationGuide";
 import { Toaster, toast } from "sonner";
-import { premiumToast } from "./components/premium-toast";
 import { supabase } from "./integrations/supabase/client";
 import { AVATAR_CATEGORIES, resolveAvatar, buildAvatarId, prettyName, getAvatarCategoryUrls } from "./lib/avatars";
 import { bootstrapFromSupabase, clearSessionData, markSessionStart, readBootstrapCache, refreshBootstrap, patchBootstrapCacheUser, getEmailFilters, setEmailFilters as setEmailFiltersCache, listNotifications, markNotificationRead, markAllNotificationsRead, markNotificationSeen, deleteNotificationForMe, logNotificationEvent, getPoppedIds, markPopped, adminListRecipients, adminDeleteNotificationForUser, type EmailFilters, type AppNotification, type MaintenanceInfo, type NotificationRecipient } from "./lib/bootstrap";
 import MaintenanceScreen from "./components/MaintenanceScreen";
 import DateTimePicker from "./components/DateTimePicker";
-import { sessionGet, sessionSet, sessionRemove, sessionClearAll } from "./lib/session";
 
 
 // Lazy-loaded heavy auth-only libs — kept out of the public first-load chunk.
 const ReCAPTCHA = lazy(() => import("react-google-recaptcha"));
 const QRCodeSVG = lazy(() => import("qrcode.react").then((m) => ({ default: m.QRCodeSVG })));
-
-// Preload Google reCAPTCHA API script as soon as siteKey is known so the
-// widget mounts instantly when the modal opens (avoids 5–10s cold load).
-let __recaptchaPreloaded = false;
-function preloadRecaptchaScript() {
-  if (__recaptchaPreloaded || typeof document === "undefined") return;
-  __recaptchaPreloaded = true;
-  try {
-    // Warm up react-google-recaptcha JS chunk (no-op if already bundled).
-    import("react-google-recaptcha").catch(() => {});
-    if (document.querySelector('script[data-recaptcha-preload]')) return;
-    const s = document.createElement("script");
-    s.src = "https://www.google.com/recaptcha/api.js?render=explicit";
-    s.async = true;
-    s.defer = true;
-    s.setAttribute("data-recaptcha-preload", "1");
-    document.head.appendChild(s);
-  } catch {}
-}
 
 // --- Admin composer: platform logo options ---
 type PlatformOption = { id: string; label: string; logoFile: string; aliases?: string[] };
@@ -301,7 +280,7 @@ function storeWorkerUrls(urls: string[]) {
 
 function getSessionToken(): string | null {
   try {
-    return sessionGet("session_token" as any);
+    return localStorage.getItem("session_token");
   } catch { return null; }
 }
 
@@ -481,9 +460,40 @@ async function collectDeviceFingerprint(): Promise<DeviceFingerprint> {
 
 const LOGIN_GEO_TIMEOUT_MS = 20_000;
 
+function isPublicIpv4Like(ip: string): boolean {
+  if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) return false;
+  const parts = ip.split(".").map(Number);
+  if (parts.some((p) => !Number.isInteger(p) || p < 0 || p > 255)) return false;
+  const [a, b] = parts;
+  if (a === 10 || a === 127 || a === 0) return false;
+  if (a === 192 && b === 168) return false;
+  if (a === 172 && b >= 16 && b <= 31) return false;
+  if (a === 169 && b === 254) return false;
+  if (a === 100 && b >= 64 && b <= 127) return false;
+  return true;
+}
+
 async function fetchBrowserPublicIp(): Promise<Pick<LoginLocationPayload, "publicIp" | "publicIpSource">> {
-  // Encrypted-only mode: disable third-party browser IP lookups.
-  return {};
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 2500);
+  try {
+    const response = await fetch("https://ipwho.is/", {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal: controller.signal,
+      cache: "no-store",
+    });
+    if (!response.ok) return {};
+    const data = await response.json();
+    const ip = typeof data?.ip === "string" ? data.ip.trim() : "";
+    if (!isPublicIpv4Like(ip)) return {};
+    return { publicIp: ip, publicIpSource: "ipwho.is" };
+  } catch (error) {
+    console.warn("[IP] Browser public IP lookup failed:", error);
+    return {};
+  } finally {
+    window.clearTimeout(timeout);
+  }
 }
 
 function buildLocationSignInMessage(location: LoginLocationPayload): string {
@@ -609,56 +619,121 @@ async function requireLoginLocation(): Promise<LoginLocationPayload> {
   return { ...location, ...publicIp, device };
 }
 
-// --- API Helper (encrypted-only Supabase edge transport) ---
+// --- API Helper (routes ALL calls through Cloudflare Workers) ---
 
 async function apiCall(functionName: string, body: any) {
-  const token = getSessionToken();
-  const pendingToken = (() => { try { return sessionGet("pending_admin_token" as any); } catch { return null; } })();
-  const pendingActions = new Set(["request_admin_otp", "verify_otp", "verify_totp", "update_totp", "finalize_admin_session"]);
-  const extraHeaders: Record<string, string> = {};
-  if (token) extraHeaders["X-Session-Token"] = token;
-  if (pendingToken && functionName === "manage-app" && pendingActions.has(body?.action)) extraHeaders["X-Pending-Token"] = pendingToken;
-
-  const { invokeEdge } = await import("./lib/secureTransport");
-  const { storeSessionPair, refreshNow, ensureFreshAccess } = await import("./lib/sessionRefresh");
-
-  // C.2: proactively refresh if access token is within 30s of expiry,
-  // but never for the refresh endpoint itself (would recurse).
-  if (functionName === "manage-app" && body?.action !== "refresh_session") {
-    await ensureFreshAccess(30_000).catch(() => {});
-    // Re-read possibly-rotated token
-    const t2 = getSessionToken();
-    if (t2) extraHeaders["X-Session-Token"] = t2;
+  let workerUrls = getStoredWorkerUrls();
+  const mustUseWorker = functionName === "manage-app" && body?.action === "login";
+  const shouldUseWorker = mustUseWorker;
+  if (mustUseWorker && workerUrls.length === 0) {
+    try {
+      const bootstrap = await bootstrapFromSupabase();
+      if (Array.isArray(bootstrap.workerUrls) && bootstrap.workerUrls.length > 0) {
+        storeWorkerUrls(bootstrap.workerUrls);
+        workerUrls = bootstrap.workerUrls;
+      }
+    } catch (err) {
+      console.warn("[apiCall] login worker bootstrap failed:", err);
+    }
   }
+  
+  const token = getSessionToken();
+  const pendingToken = (() => { try { return localStorage.getItem("pending_admin_token"); } catch { return null; } })();
+  const pendingActions = new Set(["request_admin_otp", "verify_otp", "verify_totp", "update_totp", "finalize_admin_session"]);
 
-  let data: any;
-  try {
-    data = await invokeEdge(functionName, body, { headers: extraHeaders });
-  } catch (err: any) {
-    const msg = String(err?.message || err || "");
-    const looksExpired = /session expired|session revoked|authentication required|session invalid/i.test(msg);
-    // C.2: single retry after refresh on stale-session errors, except for the
-    // refresh endpoint itself and unauthenticated calls.
-    if (looksExpired && functionName === "manage-app" && body?.action !== "refresh_session" && getSessionToken()) {
-      const ok = await refreshNow();
-      if (!ok) throw err;
-      const t3 = getSessionToken();
-      if (t3) extraHeaders["X-Session-Token"] = t3;
-      data = await invokeEdge(functionName, body, { headers: extraHeaders });
-    } else {
-      throw err;
+  // Try each worker URL with random load balancing
+  if (shouldUseWorker && workerUrls.length > 0) {
+    const shuffled = shuffleArray(workerUrls);
+    for (const cfUrl of shuffled) {
+      try {
+        const headers: Record<string, string> = {
+          "Content-Type": "application/json",
+        };
+        if (token) headers["X-Session-Token"] = token;
+        if (pendingToken && functionName === "manage-app" && pendingActions.has(body?.action)) headers["X-Pending-Token"] = pendingToken;
+
+        const res = await fetch(`${cfUrl}/api/fn/${functionName}`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(body),
+        });
+
+        if (res.status === 404 || res.status === 405 || res.status === 502) {
+          console.warn(`[apiCall] ${cfUrl} returned ${res.status}, trying next worker`);
+          continue;
+        }
+
+        const text = await res.text();
+        let data: any;
+        try {
+          data = JSON.parse(text);
+        } catch {
+          throw new Error(`Request failed (${res.status}). Server returned non-JSON response.`);
+        }
+
+        if (!res.ok) {
+          throw new Error(data?.error || `Request failed with status ${res.status}`);
+        }
+
+        // Do NOT auto-persist sessionToken for `impersonate` — the caller
+        // (loginAsUser) must back up the admin token first, otherwise the
+        // admin session is silently overwritten and returning from
+        // impersonation yields a `user`-role token that triggers
+        // "Admin access required".
+        if (data.sessionToken && body?.action !== "impersonate") {
+          localStorage.setItem("session_token", data.sessionToken);
+        }
+        return data;
+      } catch (err: any) {
+        // If it's a business logic error (not a network/worker error), throw immediately
+        if (err.message && !err.message.includes("Failed to fetch") && !err.message.includes("trying next worker") && !err.message.includes("NetworkError") && !err.message.includes("502")) {
+          throw err;
+        }
+        console.warn(`[apiCall] ${cfUrl} failed:`, err);
+        continue;
+      }
     }
   }
 
-  if (data?.sessionToken) {
-    sessionSet("session_token" as any, data.sessionToken);
+  if (mustUseWorker) {
+    throw new Error("Secure login route is unavailable. Please refresh once and try again.");
   }
-  if (data?.refreshToken || data?.expiresAt) {
-    storeSessionPair(data);
+
+  // Fallback: call Supabase edge function directly
+  if (shouldUseWorker) console.log(`[apiCall] All workers failed or none configured, falling back to direct Supabase for ${functionName}`);
+  const { createClient } = await import("@supabase/supabase-js");
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+  const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+  const headers: Record<string, string> = {};
+  if (token) headers["X-Session-Token"] = token;
+  if (pendingToken && functionName === "manage-app" && pendingActions.has(body?.action)) headers["X-Pending-Token"] = pendingToken;
+  
+  const res = await fetch(`${supabaseUrl}/functions/v1/${functionName}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${supabaseKey}`,
+      "apikey": supabaseKey,
+      ...headers,
+    },
+    body: JSON.stringify(body),
+  });
+  
+  const text = await res.text();
+  let data: any;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error(`Direct Supabase call failed (${res.status})`);
+  }
+  if (!res.ok) {
+    throw new Error(data?.error || `Request failed with status ${res.status}`);
+  }
+  if (data.sessionToken) {
+    localStorage.setItem("session_token", data.sessionToken);
   }
   return data;
 }
-
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
   state = { error: null as Error | null };
@@ -691,26 +766,13 @@ function ResponsiveToaster() {
   return (
     <Toaster
       position={isMobile ? "bottom-center" : "bottom-right"}
+      richColors
       closeButton
       expand={false}
       visibleToasts={2}
       duration={2500}
       offset={isMobile ? "calc(env(safe-area-inset-bottom) + 5.5rem)" : "5rem"}
-      toastOptions={{
-        className: "pointer-events-auto !rounded-xl !border !shadow-lg !backdrop-blur",
-        style: {
-          background: "linear-gradient(135deg, rgba(30,41,59,0.96), rgba(15,23,42,0.96))",
-          color: "#f1f5f9",
-          border: "1px solid rgba(99,102,241,0.35)",
-          boxShadow: "0 10px 30px -10px rgba(79,70,229,0.45)",
-        },
-        classNames: {
-          success: "!bg-gradient-to-br !from-indigo-600 !to-violet-700 !text-white !border-indigo-400/50",
-          error: "!bg-gradient-to-br !from-rose-600 !to-red-700 !text-white !border-rose-400/50",
-          info: "!bg-gradient-to-br !from-sky-600 !to-blue-700 !text-white !border-sky-400/50",
-          warning: "!bg-gradient-to-br !from-amber-500 !to-orange-600 !text-white !border-amber-400/50",
-        },
-      }}
+      toastOptions={{ className: "pointer-events-auto" }}
     />
   );
 }
@@ -738,7 +800,7 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   // Read cached user immediately for fast paint, then re-hydrate from the DB.
   const readCached = () => {
     try {
-      const stored = sessionGet("user" as any);
+      const stored = localStorage.getItem("user");
       return stored ? JSON.parse(stored) : null;
     } catch { return null; }
   };
@@ -746,7 +808,7 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const hydrateFromServer = async () => {
     const token = getSessionToken();
     if (!token) {
-      try { sessionRemove("user" as any); } catch {}
+      try { localStorage.removeItem("user"); } catch {}
       setUser(null);
       setLoading(false);
       return;
@@ -755,7 +817,7 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       const res = await apiCall("manage-app", { action: "me" });
       if (res?.success && res.user) {
         const merged = { ...(readCached() || {}), ...res.user };
-        try { sessionSet("user" as any, JSON.stringify(merged)); } catch {}
+        try { localStorage.setItem("user", JSON.stringify(merged)); } catch {}
         setUser(merged);
       } else {
         throw new Error(res?.error || "Session invalid");
@@ -763,14 +825,12 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     } catch {
       // Session revoked, expired, or account missing → force logout
       try {
-        sessionRemove("session_token" as any);
-        sessionRemove("user" as any);
-        sessionRemove("admin_auth" as any);
-        sessionRemove("pending_admin_token" as any);
+        localStorage.removeItem("session_token");
+        localStorage.removeItem("user");
+        localStorage.removeItem("admin_auth");
+        localStorage.removeItem("pending_admin_token");
       } catch {}
-      try { const { clearRefreshState } = await import("./lib/sessionRefresh"); clearRefreshState(); } catch {}
       setUser(null);
-
     } finally {
       setLoading(false);
     }
@@ -785,11 +845,8 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   useEffect(() => {
     // Initial paint from cache so UI is not blocked, then verify against DB.
     setUser(readCached());
-    // C.2: arm auto-refresh from any stored refresh token in this tab.
-    import("./lib/sessionRefresh").then(({ armAutoRefresh }) => armAutoRefresh()).catch(() => {});
     void hydrateFromServer();
   }, []);
-
 
   return <AuthContext.Provider value={{ user, loading, checkAuth }}>{children}</AuthContext.Provider>;
 };
@@ -832,7 +889,7 @@ function useSessionTimeoutGuard(role: "admin" | "user", enabled = true) {
         timer = setTimeout(doLogout, remaining);
       };
 
-      const started = Number(sessionGet("session_started_at" as any) || "0");
+      const started = Number(localStorage.getItem("session_started_at") || "0");
       if (started) {
         armFrom(started);
       } else if (role === "admin") {
@@ -843,7 +900,7 @@ function useSessionTimeoutGuard(role: "admin" | "user", enabled = true) {
         // User: wait for EmailViewer to call markSessionStart after first inbox load.
         poll = setInterval(() => {
           if (cancelled) return;
-          const s = Number(sessionGet("session_started_at" as any) || "0");
+          const s = Number(localStorage.getItem("session_started_at") || "0");
           if (s) {
             clearInterval(poll);
             poll = null;
@@ -1606,7 +1663,7 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
     if (!minutes || minutes <= 0) return;
     warnedRef.current = false;
     const tick = () => {
-      const started = Number(sessionGet("session_started_at" as any) || "0");
+      const started = Number(localStorage.getItem("session_started_at") || "0");
       if (!started) { setRemainingMs(0); return; }
       const rem = started + minutes * 60_000 - Date.now();
       setRemainingMs(Math.max(0, rem));
@@ -1663,50 +1720,10 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
 
 // --- Types ---
 interface Email {
-  id: string; subject: string; from: string; to?: string; date: string; otp: string | null; preview: string; html: string; account_label?: string | null; cached_at?: string | null;
+  id: string; subject: string; from: string; to?: string; date: string; otp: string | null; preview: string; html: string; account_label?: string | null;
 }
 interface UserData {
   id: string; username: string; name: string; role: "admin" | "user"; totpSecret?: string; mustChangePassword?: boolean; assignedAccounts?: string[] | null; profileAvatar?: string | null; profilePrefs?: UserProfilePrefs;
-}
-
-function getUserRefreshAccountLabels(user: Partial<UserData>): string[] | null {
-  if (Array.isArray(user.assignedAccounts)) {
-    return Array.from(new Set(user.assignedAccounts.map(String).map((s) => s.trim()).filter(Boolean)));
-  }
-  return user.role === "admin" ? null : [];
-}
-
-function buildWorkerRequestGroups(labels: string[] | null, map: WorkerUrlMap, primaryUrls: string[]) {
-  const primary = Array.from(new Set([...(map.primary || []), ...primaryUrls].map((u) => u.trim().replace(/\/+$/, "")).filter(Boolean)));
-  if (labels === null) {
-    const pool = primary.length > 0 ? primary : Array.from(new Set(Object.values(map.byAccount || {}).flat().map((u) => u.trim().replace(/\/+$/, "")).filter(Boolean)));
-    const url = pool.length > 0 ? shuffleArray(pool)[0] : "";
-    return url ? [{ url, labels: null as string[] | null }] : [];
-  }
-  const grouped = new Map<string, string[]>();
-  for (const label of labels) {
-    const dedicated = Array.from(new Set((map.byAccount?.[label] || []).map((u) => u.trim().replace(/\/+$/, "")).filter(Boolean)));
-    const pool = dedicated.length > 0 ? dedicated : primary;
-    const url = pool.length > 0 ? shuffleArray(pool)[0] : "";
-    if (!url) continue;
-    grouped.set(url, [...(grouped.get(url) || []), label]);
-  }
-  return Array.from(grouped.entries()).map(([url, groupLabels]) => ({ url, labels: groupLabels }));
-}
-
-function appendAccountLabelParams(params: URLSearchParams, labels: string[] | null) {
-  if (!labels) return;
-  for (const label of labels) params.append("accountLabel", label);
-}
-
-function mergeEmailsById(lists: Email[][]): Email[] {
-  const byId = new Map<string, Email>();
-  for (const list of lists) {
-    for (const email of list) {
-      if (email?.id) byId.set(email.id, email);
-    }
-  }
-  return Array.from(byId.values()).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 }
 
 type UserProfilePrefs = {
@@ -1900,7 +1917,6 @@ function filterVisibleEmails(list: Email[], prefs?: UserProfilePrefs | null) {
 // ==================== CAPTCHA MODAL (shared) ====================
 function CaptchaModal({ siteKey, onVerify, onCancel }: { siteKey: string; onVerify: (token: string) => void; onCancel: () => void }) {
   const [token, setToken] = useState<string | null>(null);
-  const [loadError, setLoadError] = useState(false);
   const submit = useCallback(() => {
     if (token) onVerify(token);
   }, [token, onVerify]);
@@ -1934,17 +1950,12 @@ function CaptchaModal({ siteKey, onVerify, onCancel }: { siteKey: string; onVeri
           <Suspense fallback={<div className="h-[78px] w-[304px] rounded-lg bg-slate-100 animate-pulse" />}>
             <ReCAPTCHA
               sitekey={siteKey}
-              onChange={(t) => { setLoadError(false); setToken(t); }}
+              onChange={(t) => setToken(t)}
               onExpired={() => setToken(null)}
-              onErrored={() => { setToken(null); setLoadError(true); }}
+              onErrored={() => setToken(null)}
             />
           </Suspense>
         </div>
-        {loadError && (
-          <p className="px-6 pb-4 text-xs font-bold text-red-600 text-center">
-            CAPTCHA domain/key is not allowed for this site. Add this domain in Google reCAPTCHA settings, then refresh.
-          </p>
-        )}
 
         <div className="flex border-t border-slate-100">
           <button onClick={onCancel}
@@ -1980,15 +1991,11 @@ function ProfileSelectPage() {
   const [fromCache, setFromCache] = useState(cachedUsers.length > 0);
   const [loginLoading, setLoginLoading] = useState(false);
   const [error, setError] = useState("");
-  const [siteKey, setSiteKey] = useState<string | null>(() => {
-    const k = cachedBootstrap?.recaptcha?.enabled === true && cachedBootstrap?.recaptcha?.siteKey
+  const [siteKey, setSiteKey] = useState<string | null>(
+    cachedBootstrap?.recaptcha?.enabled === true && cachedBootstrap?.recaptcha?.siteKey
       ? cachedBootstrap.recaptcha.siteKey
-      : null;
-    if (k) preloadRecaptchaScript();
-    return k;
-  });
-  const [captchaReady, setCaptchaReady] = useState(false);
-  const [captchaConfigError, setCaptchaConfigError] = useState(false);
+      : null
+  );
   const [showCaptcha, setShowCaptcha] = useState(false);
   const navigate = useNavigate();
   const { checkAuth } = useAuth();
@@ -1997,31 +2004,22 @@ function ProfileSelectPage() {
     let cancelled = false;
     // Always fetch fresh on mount so after logout / avatar change the profile
     // grid reflects the latest data instead of the stale module singleton.
-    bootstrapFromSupabase({ force: true })
+    refreshBootstrap()
       .then((bootstrap) => {
         if (cancelled) return;
         setProfiles((bootstrap.users || []).filter((u: UserData) => u.role === "user"));
         if (bootstrap.recaptcha?.enabled === true && bootstrap.recaptcha?.siteKey) {
           setSiteKey(bootstrap.recaptcha.siteKey);
-          preloadRecaptchaScript();
         } else {
           setSiteKey(null);
         }
         setError("");
         setFromCache(false);
-        setCaptchaReady(true);
-        setCaptchaConfigError(false);
       })
       .catch((err) => {
         console.error("Failed to load profiles:", err);
-        if (!cancelled) {
-          setCaptchaConfigError(true);
-          setCaptchaReady(false);
-          if (profiles.length === 0) {
-            setError("Failed to load profiles. Please try again.");
-          } else {
-            setError("Security check failed to load. Please refresh and try again.");
-          }
+        if (!cancelled && profiles.length === 0) {
+          setError("Failed to load profiles. Please try again.");
         }
       })
       .finally(() => { if (!cancelled) setLoading(false); });
@@ -2051,10 +2049,6 @@ function ProfileSelectPage() {
   const initiateLogin = (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    if (!captchaReady) {
-      setError(captchaConfigError ? "Security check failed to load. Please refresh and try again." : "Security check is loading. Please wait.");
-      return;
-    }
     if (siteKey) {
       setShowCaptcha(true);
     } else {
@@ -2062,7 +2056,7 @@ function ProfileSelectPage() {
     }
   };
 
-  const executeLogin = async (captchaToken?: string) => {
+  const executeLogin = async () => {
     if (!selectedProfile) return;
     setLoginLoading(true);
     setError("");
@@ -2078,18 +2072,17 @@ function ProfileSelectPage() {
         username: selectedProfile.username,
         password,
         clientGeo,
-        captchaToken,
       });
 
       if (data.workerUrls && Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
         storeWorkerUrls(data.workerUrls);
       }
 
-      sessionSet("user" as any, JSON.stringify(data.user));
+      localStorage.setItem("user", JSON.stringify(data.user));
       // Session timer intentionally NOT started here — EmailViewer starts it
       // after the first cached-email load finishes so users always see their
       // inbox before the countdown begins.
-      try { sessionRemove("session_started_at" as any); } catch {}
+      try { localStorage.removeItem("session_started_at"); } catch {}
       checkAuth();
 
       navigate("/viewer");
@@ -2291,7 +2284,7 @@ function ProfileSelectPage() {
 
       <AnimatePresence>
         {showCaptcha && siteKey && (
-          <CaptchaModal siteKey={siteKey} onVerify={(token) => { setShowCaptcha(false); executeLogin(token); }} onCancel={() => setShowCaptcha(false)} />
+          <CaptchaModal siteKey={siteKey} onVerify={() => { setShowCaptcha(false); executeLogin(); }} onCancel={() => setShowCaptcha(false)} />
         )}
       </AnimatePresence>
     </div>
@@ -2304,52 +2297,25 @@ function AdminLoginPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const cachedBootstrap = useMemo(() => readBootstrapCache(), []);
-  const [siteKey, setSiteKey] = useState<string | null>(() => {
-    const k = cachedBootstrap?.recaptcha?.enabled === true && cachedBootstrap?.recaptcha?.siteKey
-      ? cachedBootstrap.recaptcha.siteKey
-      : null;
-    if (k) preloadRecaptchaScript();
-    return k;
-  });
-  const [captchaReady, setCaptchaReady] = useState(false);
-  const [captchaConfigError, setCaptchaConfigError] = useState(false);
+  const [siteKey, setSiteKey] = useState<string | null>(null);
   const [showCaptcha, setShowCaptcha] = useState(false);
   const navigate = useNavigate();
   const { checkAuth } = useAuth();
 
   useEffect(() => {
-    let cancelled = false;
     (async () => {
       try {
-        const bootstrap = await bootstrapFromSupabase({ force: true });
-        if (cancelled) return;
+        const bootstrap = await bootstrapFromSupabase();
         if (bootstrap.recaptcha?.enabled === true && bootstrap.recaptcha?.siteKey) {
           setSiteKey(bootstrap.recaptcha.siteKey);
-          preloadRecaptchaScript();
-        } else {
-          setSiteKey(null);
         }
-        setCaptchaReady(true);
-        setCaptchaConfigError(false);
-      } catch {
-        if (!cancelled) {
-          setCaptchaReady(false);
-          setCaptchaConfigError(true);
-          setError("Security check failed to load. Please refresh and try again.");
-        }
-      }
+      } catch {}
     })();
-    return () => { cancelled = true; };
   }, []);
 
   const initiateLogin = (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    if (!captchaReady) {
-      setError(captchaConfigError ? "Security check failed to load. Please refresh and try again." : "Security check is loading. Please wait.");
-      return;
-    }
     if (siteKey) {
       setShowCaptcha(true);
     } else {
@@ -2357,26 +2323,26 @@ function AdminLoginPage() {
     }
   };
 
-  const executeLogin = async (captchaToken?: string) => {
+  const executeLogin = async () => {
     setLoading(true);
     setError("");
     try {
       if (!checkRateLimit(`admin_${username}`)) throw new Error("Too many attempts. Wait 1 minute.");
 
       const clientGeo = await requireLoginLocation();
-      const data: any = await apiCall("manage-app", { action: "login", username, password, clientGeo, captchaToken });
+      const data: any = await apiCall("manage-app", { action: "login", username, password, clientGeo });
 
       if (data.user.role !== "admin") throw new Error("Access denied");
       if (data.pendingToken) {
-        sessionSet("pending_admin_token" as any, data.pendingToken);
-        sessionSet("pending_admin_token_at" as any, String(Date.now()));
+        localStorage.setItem("pending_admin_token", data.pendingToken);
+        localStorage.setItem("pending_admin_token_at", String(Date.now()));
       }
 
       if (data.workerUrls && Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
         storeWorkerUrls(data.workerUrls);
       }
 
-      sessionSet("user" as any, JSON.stringify({ ...data.user, pending: true }));
+      localStorage.setItem("user", JSON.stringify({ ...data.user, pending: true }));
       checkAuth();
 
       toast.success("Password verified. Complete 2FA to enter admin.");
@@ -2427,9 +2393,9 @@ function AdminLoginPage() {
               <AlertCircle className="w-4 h-4" />{error}
             </div>
           )}
-          <button type="submit" disabled={loading || !captchaReady}
+          <button type="submit" disabled={loading}
             className="w-full bg-red-600 text-white font-bold py-4 rounded-2xl hover:bg-red-700 transition-all active:scale-95 disabled:opacity-50">
-            {loading ? "Authenticating..." : captchaReady ? "Admin Sign In" : "Loading Security..."}
+            {loading ? "Authenticating..." : "Admin Sign In"}
           </button>
         </form>
 
@@ -2443,7 +2409,7 @@ function AdminLoginPage() {
 
       <AnimatePresence>
         {showCaptcha && siteKey && (
-          <CaptchaModal siteKey={siteKey} onVerify={(token) => { setShowCaptcha(false); executeLogin(token); }} onCancel={() => setShowCaptcha(false)} />
+          <CaptchaModal siteKey={siteKey} onVerify={() => { setShowCaptcha(false); executeLogin(); }} onCancel={() => setShowCaptcha(false)} />
         )}
       </AnimatePresence>
     </div>
@@ -2465,13 +2431,13 @@ function AdminAuthPage() {
   const { user } = useAuth();
   const PROOF_TTL_MS = 15 * 60 * 1000;
   const [remainingMs, setRemainingMs] = useState<number>(() => {
-    const at = Number(sessionGet("pending_admin_token_at" as any) || 0);
+    const at = Number(localStorage.getItem("pending_admin_token_at") || 0);
     if (!at) return PROOF_TTL_MS;
     return Math.max(0, PROOF_TTL_MS - (Date.now() - at));
   });
   useEffect(() => {
     const t = setInterval(() => {
-      const at = Number(sessionGet("pending_admin_token_at" as any) || 0);
+      const at = Number(localStorage.getItem("pending_admin_token_at") || 0);
       const left = at ? Math.max(0, PROOF_TTL_MS - (Date.now() - at)) : 0;
       setRemainingMs(left);
     }, 1000);
@@ -2482,15 +2448,15 @@ function AdminAuthPage() {
   const ss = String(Math.floor((remainingMs % 60000) / 1000)).padStart(2, "0");
   const restartLogin = () => {
     try {
-      sessionRemove("pending_admin_token" as any);
-      sessionRemove("pending_admin_token_at" as any);
-      sessionRemove("user" as any);
+      localStorage.removeItem("pending_admin_token");
+      localStorage.removeItem("pending_admin_token_at");
+      localStorage.removeItem("user");
     } catch {}
     navigate("/admin", { replace: true });
   };
 
   useEffect(() => {
-    const pending = (() => { try { return sessionGet("pending_admin_token" as any); } catch { return null; } })();
+    const pending = (() => { try { return localStorage.getItem("pending_admin_token"); } catch { return null; } })();
     if (!pending) { navigate("/admin", { replace: true }); return; }
     if (!user || user.role !== "admin") { navigate("/admin", { replace: true }); return; }
 
@@ -2571,10 +2537,10 @@ function AdminAuthPage() {
       if (finalData.workerUrls && Array.isArray(finalData.workerUrls) && finalData.workerUrls.length > 0) {
         storeWorkerUrls(finalData.workerUrls);
       }
-      if (finalData.sessionToken) sessionSet("session_token" as any, finalData.sessionToken);
-      sessionRemove("pending_admin_token" as any);
-      sessionSet("admin_auth" as any, "true");
-      sessionSet("user" as any, JSON.stringify(finalData.user));
+      if (finalData.sessionToken) localStorage.setItem("session_token", finalData.sessionToken);
+      localStorage.removeItem("pending_admin_token");
+      localStorage.setItem("admin_auth", "true");
+      localStorage.setItem("user", JSON.stringify(finalData.user));
       markSessionStart();
       toast.success("Admin session secured.");
       navigate("/admin/dashboard");
@@ -2896,6 +2862,8 @@ function AllEmailsPanel() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [viewing, setViewing] = useState<any | null>(null);
   const [offset, setOffset] = useState(0);
+  const offsetRef = useRef(0);
+  useEffect(() => { offsetRef.current = offset; }, [offset]);
   const limit = 100;
 
 
@@ -2926,6 +2894,20 @@ function AllEmailsPanel() {
     })();
     load(0);
 
+    // Auto-refresh the emails table every 8s while tab is visible.
+    let interval: number | null = null;
+    const start = () => {
+      if (interval != null) return;
+      interval = window.setInterval(() => { void load(offsetRef.current); }, 8000);
+    };
+    const stop = () => { if (interval != null) { clearInterval(interval); interval = null; } };
+    const onVis = () => {
+      if (document.visibilityState === "visible") { void load(offsetRef.current); start(); }
+      else stop();
+    };
+    start();
+    document.addEventListener("visibilitychange", onVis);
+    return () => { stop(); document.removeEventListener("visibilitychange", onVis); };
     // eslint-disable-next-line
   }, [load]);
 
@@ -3356,7 +3338,7 @@ function AdminPanel() {
   const [clearingInbox, setClearingInbox] = useState(false);
 
   const [primaryCfInput, setPrimaryCfInput] = useState("");
-  const [signingSecretReveal, setSigningSecretReveal] = useState<{ fingerprint: string; length: number; source: string } | null>(null);
+  const [signingSecretReveal, setSigningSecretReveal] = useState<{ value: string; length: number } | null>(null);
   const [revealingSigningSecret, setRevealingSigningSecret] = useState(false);
   const [editingAccountUrls, setEditingAccountUrls] = useState<number | null>(null);
   const [editCfUrls, setEditCfUrls] = useState<string[]>([]);
@@ -3822,33 +3804,37 @@ function AdminPanel() {
       // Direct Supabase call on purpose: this secret is needed to configure Cloudflare,
       // so revealing it must not depend on an already-working Worker.
       const token = getSessionToken();
-      const { invokeEdge } = await import("./lib/secureTransport");
-      const res: any = await invokeEdge(
-        "manage-app",
-        { action: "admin_reveal_session_signing_secret" },
-        { headers: token ? { "X-Session-Token": token } : {} },
-      );
-      if (!res?.success) throw new Error(res?.error || "Could not inspect SESSION_SIGNING_SECRET");
-      setSigningSecretReveal({
-        fingerprint: String(res.fingerprint || ""),
-        length: Number(res.length) || 0,
-        source: String(res.source || ""),
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+      const response = await fetch(`${supabaseUrl}/functions/v1/manage-app`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${supabaseKey}`,
+          "apikey": supabaseKey,
+          ...(token ? { "X-Session-Token": token } : {}),
+        },
+        body: JSON.stringify({ action: "admin_reveal_session_signing_secret" }),
       });
-      toast.success("Signing secret verified. Copy the raw value from Supabase Dashboard → Edge Function Secrets.");
+      const res: any = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(res?.error || "Could not reveal SESSION_SIGNING_SECRET");
+      if (!res?.value) throw new Error("Secret value was empty");
+      setSigningSecretReveal({ value: res.value, length: Number(res.length) || String(res.value).length });
+      toast.success("SESSION_SIGNING_SECRET revealed — copy it to Cloudflare as Secret type.");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not inspect SESSION_SIGNING_SECRET");
+      toast.error(err instanceof Error ? err.message : "Could not reveal SESSION_SIGNING_SECRET");
     } finally {
       setRevealingSigningSecret(false);
     }
   };
 
   const copySigningSecret = async () => {
-    if (!signingSecretReveal?.fingerprint) return;
+    if (!signingSecretReveal?.value) return;
     try {
-      await navigator.clipboard.writeText(signingSecretReveal.fingerprint);
-      toast.success("Fingerprint copied (not the raw secret)");
+      await navigator.clipboard.writeText(signingSecretReveal.value);
+      toast.success("SESSION_SIGNING_SECRET copied");
     } catch {
-      toast.error("Copy failed — long press/select manually.");
+      toast.error("Copy failed — long press/select the value manually.");
     }
   };
 
@@ -3899,7 +3885,7 @@ function AdminPanel() {
         target_user_id: notifAudience === "user" ? notifTargetUser : null,
         expiresInDays: notifExpiresDays ? Number(notifExpiresDays) : null,
       });
-      premiumToast("Notification sent", { variant: "info", description: "Delivered to targeted users", duration: 2400 });
+      toast.success("🔔 Notification sent");
       setNotifTitle(""); setNotifBody(""); setNotifDescription(""); setNotifImageUrl("");
       setNotifActionUrl(""); setNotifActionLabel("");
       setNotifExpiresDays(""); setNotifPlatformIcon(""); setNotifTemplate("");
@@ -4024,42 +4010,32 @@ function AdminPanel() {
       // response carries a user-role sessionToken; if we read localStorage
       // after the call, we'd back up the user token as "admin" and later
       // restoration would fail with "Admin access required".
-      const adminUser = sessionGet("user" as any);
-      const adminToken = sessionGet("session_token" as any);
-      const adminAuth = sessionGet("admin_auth" as any);
+      const adminUser = localStorage.getItem("user");
+      const adminToken = localStorage.getItem("session_token");
+      const adminAuth = localStorage.getItem("admin_auth");
 
-      toast.loading(`Opening ${targetUser.name}'s inbox…`, { id: "impersonate" });
       const data = await apiCall("manage-app", { action: "impersonate", target_user_id: targetUser.id });
-      toast.dismiss("impersonate");
 
       // F4: Use sessionStorage (auto-cleared on tab close) with a 10-min TTL so a
       // shared-device user or same-origin script can't lift the admin session token.
       try {
-        sessionSet("admin_backup" as any, JSON.stringify({
+        sessionStorage.setItem("admin_backup", JSON.stringify({
           user: adminUser, token: adminToken, adminAuth, exp: Date.now() + 10 * 60_000,
         }));
       } catch {}
-      try { sessionRemove("admin_backup" as any); } catch {}
-
-      // CRITICAL: navigate to /viewer BEFORE swapping the session in state.
-      // Otherwise ProtectedRoute on /admin/dashboard sees role="user" and
-      // redirects to "/" (login), racing past navigate("/viewer") and
-      // kicking the admin out.
-      navigate("/viewer", { replace: true });
-
-      sessionSet("user" as any, JSON.stringify(data.user));
-      if (data.sessionToken) sessionSet("session_token" as any, data.sessionToken);
+      try { localStorage.removeItem("admin_backup"); } catch {}
+      localStorage.setItem("user", JSON.stringify(data.user));
+      if (data.sessionToken) localStorage.setItem("session_token", data.sessionToken);
       // Impersonation: also defer session timer until EmailViewer loads inbox.
-      try { sessionRemove("session_started_at" as any); } catch {}
-      sessionRemove("admin_auth" as any);
+      try { localStorage.removeItem("session_started_at"); } catch {}
+      localStorage.removeItem("admin_auth");
       checkAuth();
       toast.success(`Viewing as ${targetUser.name}`);
+      navigate("/viewer");
     } catch (err) {
-      toast.dismiss("impersonate");
       toast.error(err instanceof Error ? err.message : "Failed to impersonate user");
     }
   };
-
 
 
   const createUser = async () => {
@@ -4157,7 +4133,7 @@ function AdminPanel() {
             <span className="hidden sm:inline">Admin Control Panel</span>
             <span className="sm:hidden">Admin</span>
           </h2>
-          <button onClick={() => { sessionClearAll(); navigate("/"); }} className="p-2 hover:bg-slate-100 rounded-full transition-colors" title="Logout" aria-label="Logout">
+          <button onClick={() => { localStorage.clear(); navigate("/"); }} className="p-2 hover:bg-slate-100 rounded-full transition-colors" title="Logout" aria-label="Logout">
             <LogOut className="w-5 h-5 text-slate-400" aria-hidden="true" />
           </button>
         </div>
@@ -4230,7 +4206,7 @@ function AdminPanel() {
                       </label>
                     ))}
                   </div>
-                  <p className="text-[10px] text-slate-400 mt-1">Leave empty = user sees no accounts</p>
+                  <p className="text-[10px] text-slate-400 mt-1">Leave empty = access all accounts</p>
                 </div>
 
                 <button onClick={createUser}
@@ -4269,7 +4245,7 @@ function AdminPanel() {
                             </div>
                           )}
                           {(!u.assignedAccounts || u.assignedAccounts.length === 0) && u.role !== "admin" && (
-                            <p className="text-[10px] text-amber-600 mt-0.5 font-semibold">No accounts assigned</p>
+                            <p className="text-[10px] text-slate-400 mt-0.5">All accounts</p>
                           )}
                         </div>
                       </div>
@@ -5525,17 +5501,12 @@ function AdminPanel() {
                       {signingSecretReveal && (
                         <div className="rounded-lg border border-amber-300 bg-white p-2">
                           <div className="flex items-center justify-between gap-2 mb-1">
-                            <span className="text-[10px] font-black uppercase text-amber-700">Verified · {signingSecretReveal.length} chars · {signingSecretReveal.source}</span>
+                            <span className="text-[10px] font-black uppercase text-amber-700">SESSION_SIGNING_SECRET · {signingSecretReveal.length} chars</span>
                             <button type="button" onClick={copySigningSecret} className="inline-flex items-center gap-1 rounded-md bg-amber-100 px-2 py-1 text-[10px] font-black text-amber-900 hover:bg-amber-200">
-                              <Copy className="w-3 h-3" /> Copy fingerprint
+                              <Copy className="w-3 h-3" /> Copy
                             </button>
                           </div>
-                          <code className="block break-all rounded-md bg-slate-950 p-2 text-[11px] leading-relaxed text-amber-100">fp: {signingSecretReveal.fingerprint}</code>
-                          <p className="mt-2 text-[10px] leading-snug text-amber-800">
-                            🔒 For security, the raw signing secret is never returned by the API. Copy it from
-                            <strong> Supabase Dashboard → Edge Functions → Secrets → SESSION_SIGNING_SECRET</strong>.
-                            The fingerprint above lets you confirm both sides match after rotation.
-                          </p>
+                          <code className="block max-h-20 overflow-auto break-all rounded-md bg-slate-950 p-2 text-[11px] leading-relaxed text-amber-100">{signingSecretReveal.value}</code>
                         </div>
                       )}
                     </div>
@@ -5905,9 +5876,9 @@ function ChangePasswordModal({ user, onDone, forced = false }: { user: UserData;
         ...(forced ? {} : { current_password: currentPass }),
         new_password: newPass,
       });
-      const stored = JSON.parse(sessionGet("user" as any) || "{}");
+      const stored = JSON.parse(localStorage.getItem("user") || "{}");
       stored.mustChangePassword = false;
-      sessionSet("user" as any, JSON.stringify(stored));
+      localStorage.setItem("user", JSON.stringify(stored));
       toast.success("Password changed successfully!");
       onDone();
     } catch (err) {
@@ -6327,21 +6298,17 @@ function UserProfileModal({
 // ==================== EMAIL VIEWER ====================
 function EmailViewer() {
   usePageHead("Email Inbox — Netflix Mail", "Secure viewer for Netflix sign-in codes, OTPs, and household verification emails.", "/viewer");
-  const user = useMemo<UserData>(() => {
-    try { return JSON.parse(sessionGet("user" as any) || "{}"); }
-    catch { return {} as UserData; }
-  }, []);
-  const refreshAccountLabels = useMemo(() => getUserRefreshAccountLabels(user), [user]);
+  const user = JSON.parse(localStorage.getItem("user") || "{}");
   const { checkAuth } = useAuth();
-  const cacheKey = `cached_emails_v2:${user.id || "anon"}`;
+  const cacheKey = `cached_emails_v1:${user.id || "anon"}`;
   const [profilePrefs, setProfilePrefs] = useState<UserProfilePrefs>(() => user.profilePrefs || {});
   const saveProfilePrefsLocally = useCallback((nextPrefs: UserProfilePrefs) => {
     setProfilePrefs(nextPrefs);
     try {
-      const stored = JSON.parse(sessionGet("user" as any) || "{}");
+      const stored = JSON.parse(localStorage.getItem("user") || "{}");
       stored.profilePrefs = nextPrefs;
       stored.profileAvatar = nextPrefs.avatarId || null;
-      sessionSet("user" as any, JSON.stringify(stored));
+      localStorage.setItem("user", JSON.stringify(stored));
     } catch {}
   }, []);
   const readLocalCachedEmails = useCallback((): Email[] => {
@@ -6349,9 +6316,7 @@ function EmailViewer() {
       const raw = localStorage.getItem(cacheKey);
       if (!raw) return [];
       const parsed = JSON.parse(raw);
-      if (!Array.isArray(parsed)) return [];
-      return filterVisibleEmails(parsed as Email[], profilePrefs)
-        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      return Array.isArray(parsed) ? filterVisibleEmails(parsed as Email[], profilePrefs) : [];
     } catch {
       return [];
     }
@@ -6361,17 +6326,14 @@ function EmailViewer() {
       const raw = localStorage.getItem(cacheKey);
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) return filterVisibleEmails(parsed as Email[], user.profilePrefs || {})
-          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        if (Array.isArray(parsed)) return filterVisibleEmails(parsed as Email[], user.profilePrefs || {});
       }
     } catch {}
     return [];
   });
   const setEmails = useCallback((next: Email[]) => {
-    const visible = filterVisibleEmails(next, profilePrefs)
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    const visible = filterVisibleEmails(next, profilePrefs);
     setEmailsRaw(visible);
-    // Persist up to 200 in localStorage so next visit paints the full inbox instantly.
     try { localStorage.setItem(cacheKey, JSON.stringify(visible.slice(0, 200))); } catch {}
   }, [cacheKey, profilePrefs]);
   const showLocalCacheNow = useCallback(() => {
@@ -6396,11 +6358,11 @@ function EmailViewer() {
   // F4: read impersonation backup from sessionStorage (with TTL check).
   const readImpersonationBackup = (): { user?: string | null; token?: string | null; adminAuth?: string | null } | null => {
     try {
-      const raw = sessionGet("admin_backup" as any);
+      const raw = sessionStorage.getItem("admin_backup");
       if (!raw) return null;
       const parsed = JSON.parse(raw);
       if (!parsed || (parsed.exp && Date.now() > parsed.exp)) {
-        try { sessionRemove("admin_backup" as any); } catch {}
+        try { sessionStorage.removeItem("admin_backup"); } catch {}
         return null;
       }
       return parsed;
@@ -6409,17 +6371,15 @@ function EmailViewer() {
   const isImpersonating = !!readImpersonationBackup();
 
   const [refreshing, setRefreshing] = useState(false);
-  const refreshingRef = useRef(false);
-  const refreshPollRef = useRef<number | null>(null);
   const [resolvedWorkerUrls, setResolvedWorkerUrls] = useState<string[]>(() => getStoredWorkerUrls());
   const [workerUrlMap, setWorkerUrlMap] = useState<WorkerUrlMap>({ primary: [], byAccount: {} });
   const [workerUrlsLoading, setWorkerUrlsLoading] = useState(true);
   const workerUrlLoaded = React.useRef(false);
 
-  // F7: refresh diagnostics — records each worker hit while the
+  // F7: refresh diagnostics — records each worker/Supabase hit while the
   // spinner is running so we can tell WHY it never stops.
   type DiagEntry = {
-    ts: number; kind: "worker" | "sync" | "iframe" | "cache";
+    ts: number; kind: "worker" | "supabase" | "sync" | "iframe" | "cache";
     endpoint: string; status?: number; ms?: number;
     cacheStatus?: string; cacheAge?: string; cacheKey?: string;
     error?: string; note?: string;
@@ -6436,15 +6396,15 @@ function EmailViewer() {
       const backup = readImpersonationBackup();
       if (!backup) {
         toast.error("Impersonation session expired — please sign in again as admin.");
-        try { sessionRemove("admin_backup" as any); } catch {}
+        try { sessionStorage.removeItem("admin_backup"); } catch {}
         navigate("/admin");
         return;
       }
-      if (backup.user) sessionSet("user" as any, backup.user);
-      if (backup.token) sessionSet("session_token" as any, backup.token);
-      if (backup.adminAuth) sessionSet("admin_auth" as any, backup.adminAuth);
-      try { sessionRemove("admin_backup" as any); } catch {}
-      try { sessionRemove("admin_backup" as any); } catch {}
+      if (backup.user) localStorage.setItem("user", backup.user);
+      if (backup.token) localStorage.setItem("session_token", backup.token);
+      if (backup.adminAuth) localStorage.setItem("admin_auth", backup.adminAuth);
+      try { sessionStorage.removeItem("admin_backup"); } catch {}
+      try { localStorage.removeItem("admin_backup"); } catch {}
       checkAuth();
       navigate("/admin/dashboard");
     } catch {
@@ -6505,49 +6465,104 @@ function EmailViewer() {
     })();
   }, []);
 
-  const loadCachedEmails = useCallback(async (opts?: { bust?: boolean; limit?: number }) => {
+  const fetchFromWorkers = useCallback(async (path: string, method: string, body?: any, urlOverride?: string[]): Promise<Response | null> => {
+    const token = getSessionToken();
+    const urls = shuffleArray(urlOverride || resolvedWorkerUrls);
+    for (const cfUrl of urls) {
+      const started = performance.now();
+      const endpoint = `${cfUrl}${path}`;
+      try {
+        const headers: Record<string, string> = {};
+        if (token) headers["X-Session-Token"] = token;
+        if (body) headers["Content-Type"] = "application/json";
+        const res = await fetch(endpoint, { method, headers, ...(body ? { body: JSON.stringify(body) } : {}) });
+        const ms = Math.round(performance.now() - started);
+        const cacheStatus = res.headers.get("X-Cache-Status") || res.headers.get("X-Cache") || undefined;
+        const cacheAge = res.headers.get("X-Cache-Age") || undefined;
+        const cacheKey = res.headers.get("X-Cache-Key") || undefined;
+        pushDiag({ ts: Date.now(), kind: path.startsWith("/api/emails/sync") ? "sync" : "worker", endpoint, status: res.status, ms, cacheStatus, cacheAge, cacheKey });
+        if (res.status === 404 || res.status === 405 || res.status === 502) {
+          console.warn(`[worker] ${cfUrl} returned ${res.status}, trying next`);
+          continue;
+        }
+        return res;
+      } catch (err) {
+        const ms = Math.round(performance.now() - started);
+        const msg = err instanceof Error ? err.message : String(err);
+        pushDiag({ ts: Date.now(), kind: "worker", endpoint, ms, error: msg });
+        console.warn(`[worker] ${cfUrl} unreachable, trying next:`, err);
+        continue;
+      }
+    }
+    return null;
+  }, [resolvedWorkerUrls, pushDiag]);
+
+  const loadCachedEmails = useCallback(async (opts?: { bust?: boolean }) => {
     const bust = !!opts?.bust;
-    const limit = opts?.limit || 3;
     try {
       const token = getSessionToken();
-      const headers: Record<string, string> = {};
-      if (token) headers["X-Session-Token"] = token;
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
-      const labels = refreshAccountLabels;
-      if (labels && labels.length === 0) {
-        setEmails([]);
-        setError(null);
-        setLastUpdated(new Date());
+      const cacheUrls = workerUrlMap.primary.length > 0 ? workerUrlMap.primary : resolvedWorkerUrls;
+      const path = bust ? "/api/emails?bust=1" : "/api/emails";
+
+      // Race: fire ALL workers + Supabase edge function in parallel,
+      // take the first successful response. Whichever backend is fastest wins.
+      const attempts: Promise<any[]>[] = [];
+
+      for (const cfUrl of cacheUrls) {
+        attempts.push((async () => {
+          const started = performance.now();
+          const endpoint = `${cfUrl}${path}`;
+          const headers: Record<string, string> = {};
+          if (token) headers["X-Session-Token"] = token;
+          const res = await fetch(endpoint, { method: "GET", headers });
+          const ms = Math.round(performance.now() - started);
+          const cacheStatus = res.headers.get("X-Cache-Status") || res.headers.get("X-Cache") || undefined;
+          pushDiag({ ts: Date.now(), kind: "worker", endpoint, status: res.status, ms, cacheStatus });
+          if (!res.ok) throw new Error(`worker ${res.status}`);
+          const data = await res.json();
+          if (!Array.isArray(data) || data.length === 0) throw new Error("empty");
+          return data as any[];
+        })());
+      }
+
+      // Always race Supabase edge function in parallel so a slow worker
+      // never blocks first paint.
+      attempts.push((async () => {
+        const started = performance.now();
+        const endpoint = `${supabaseUrl}/functions/v1/fetch-emails`;
+        const headers: Record<string, string> = {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${supabaseKey}`,
+          "apikey": supabaseKey,
+        };
+        if (token) headers["X-Session-Token"] = token;
+        const res = await fetch(endpoint, {
+          method: "POST", headers, body: JSON.stringify({ mode: "cache" }),
+        });
+        const ms = Math.round(performance.now() - started);
+        pushDiag({ ts: Date.now(), kind: "supabase", endpoint, status: res.status, ms, note: bust ? "bust=1 race" : "race" });
+        if (!res.ok) throw new Error(`supabase ${res.status}`);
+        const data = await res.json();
+        return Array.isArray(data) ? data : [];
+      })());
+
+      let emailData: any[] | null = null;
+      try {
+        emailData = await Promise.any(attempts);
+      } catch {
+        emailData = null;
+      }
+
+      if (!emailData) {
+        setError("Failed to load emails");
         return 0;
       }
-      const groups = buildWorkerRequestGroups(labels, workerUrlMap, resolvedWorkerUrls);
-      if (groups.length === 0) throw new Error("Cloudflare worker is not configured");
 
-      const lists = await Promise.all(groups.map(async (group) => {
-        const params = new URLSearchParams({ limit: String(limit) });
-        if (bust) params.set("bust", "1");
-        appendAccountLabelParams(params, group.labels);
-        const workerEndpoint = `${group.url}/api/emails?${params.toString()}`;
-        const started = performance.now();
-        const res = await fetch(workerEndpoint, { headers });
-        const text = await res.text();
-        pushDiag({
-          ts: Date.now(),
-          kind: "worker",
-          endpoint: workerEndpoint,
-          status: res.status,
-          ms: Math.round(performance.now() - started),
-          cacheStatus: res.headers.get("X-Cache-Status") || undefined,
-          cacheAge: res.headers.get("X-Cache-Age") || undefined,
-          cacheKey: res.headers.get("X-Cache-Key") || undefined,
-          note: `${bust ? "bust=1" : "kv"}${group.labels ? ` · ${group.labels.join(", ")}` : ""}`,
-        });
-        if (!res.ok) throw new Error(text.slice(0, 180) || "Worker failed to load emails");
-        const data = text ? JSON.parse(text) : [];
-        return Array.isArray(data) ? data as Email[] : [];
-      }));
-
-      const emailList = mergeEmailsById(lists);
+      const emailList = emailData as Email[];
+      emailList.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
       setEmails(emailList);
       setError(null);
       setLastUpdated(new Date());
@@ -6558,83 +6573,132 @@ function EmailViewer() {
       setError(msg);
       return 0;
     }
-  }, [profilePrefs, setEmails, pushDiag, resolvedWorkerUrls, workerUrlMap, refreshAccountLabels]);
+  }, [profilePrefs, resolvedWorkerUrls, workerUrlMap.primary, setEmails, pushDiag]);
 
 
-  const syncViaWorker = useCallback(async (): Promise<Email[] | null> => {
-    const token = getSessionToken();
-    const headers: Record<string, string> = {};
-    if (token) headers["X-Session-Token"] = token;
-    const labels = refreshAccountLabels;
-    if (labels && labels.length === 0) return null;
-    const groups = buildWorkerRequestGroups(labels, workerUrlMap, resolvedWorkerUrls);
-    if (groups.length === 0) throw new Error("Cloudflare worker is not configured");
+  const syncViaWorker = useCallback(async () => {
+    const { primary, byAccount } = workerUrlMap;
+    const accountLabelsWithWorkers = Object.keys(byAccount);
+    const hasAnyWorker = resolvedWorkerUrls.length > 0;
 
-    const collected: Email[][] = [];
-    await Promise.all(groups.map(async (group) => {
-      const endpoint = `${group.url}/api/emails/sync`;
-      const started = performance.now();
-      const res = await fetch(endpoint, {
-        method: "POST",
-        headers: { ...headers, "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "user_sync", source: "user_refresh", limit: 3, accountLabels: group.labels || undefined }),
+    // Direct Supabase sync fallback
+    const syncDirectSupabase = async (accountLabels?: string[]) => {
+      const token = getSessionToken();
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${supabaseKey}`,
+        "apikey": supabaseKey,
+      };
+      if (token) headers["X-Session-Token"] = token;
+        const body: any = { mode: "sync_async", source: "user_refresh" };
+      if (accountLabels) body.accountLabels = accountLabels;
+      const res = await fetch(`${supabaseUrl}/functions/v1/fetch-emails`, {
+        method: "POST", headers, body: JSON.stringify(body),
       });
-      const text = await res.text();
-      pushDiag({ ts: Date.now(), kind: "worker", endpoint, status: res.status, ms: Math.round(performance.now() - started), note: `user_sync${group.labels ? ` · ${group.labels.join(", ")}` : ""}` });
-      if (!res.ok) throw new Error(text.slice(0, 180) || "Worker sync failed");
-      const data: any = text ? JSON.parse(text) : null;
-      if (data && data.success === false) throw new Error(data?.error || "Sync failed");
-      if (data && Array.isArray(data.emails)) collected.push(data.emails as Email[]);
-    }));
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.error || `Sync failed (${res.status})`);
+      }
+    };
 
-    if (collected.length === 0) return [];
-    return mergeEmailsById(collected);
-  }, [pushDiag, resolvedWorkerUrls, workerUrlMap, refreshAccountLabels]);
+    if (!hasAnyWorker) {
+      // No workers at all — sync directly via Supabase
+      console.log("[sync] No workers configured, syncing directly via Supabase");
+      await syncDirectSupabase();
+      return;
+    }
+
+    const syncPromises: Promise<void>[] = [];
+
+    // Per-account syncs through their dedicated workers
+    for (const label of accountLabelsWithWorkers) {
+      const accountWorkerUrls = byAccount[label];
+      syncPromises.push((async () => {
+        const urlsToTry = [...accountWorkerUrls, ...primary];
+        const res = await fetchFromWorkers("/api/emails/sync", "POST", { mode: "sync_async", source: "user_refresh", accountLabels: [label] }, urlsToTry);
+        if (!res || !res.ok) {
+          console.warn(`[sync] Workers failed for "${label}", falling back to Supabase`);
+          await syncDirectSupabase([label]);
+        } else {
+          console.log(`[sync] Account "${label}" synced via dedicated worker`);
+        }
+      })());
+    }
+
+    // Remaining accounts sync through primary workers (with Supabase fallback)
+    if (primary.length > 0) {
+      syncPromises.push((async () => {
+        const res = await fetchFromWorkers("/api/emails/sync", "POST", { mode: "sync_async", source: "user_refresh" }, primary);
+        if (!res || !res.ok) {
+          console.warn("[sync] Primary workers failed, falling back to Supabase");
+          await syncDirectSupabase();
+        }
+      })());
+    } else if (accountLabelsWithWorkers.length === 0) {
+      const res = await fetchFromWorkers("/api/emails/sync", "POST", { mode: "sync_async", source: "user_refresh" });
+      if (!res || !res.ok) {
+        console.warn("[sync] All workers failed, falling back to Supabase");
+        await syncDirectSupabase();
+      }
+    }
+
+    await Promise.allSettled(syncPromises);
+  }, [fetchFromWorkers, resolvedWorkerUrls.length, workerUrlMap]);
 
   const fetchEmails = async () => {
-    if (refreshingRef.current) return;
-    refreshingRef.current = true;
+    if (refreshing) return;
     setRefreshing(true);
-    const beforeIds = new Set(emails.map((e) => e.id));
-    const toastId = "nf-refresh";
-    toast.loading("Checking Netflix mail…", { id: toastId });
+    const before = showLocalCacheNow() || emails.length;
+    const toastId = toast.loading("Checking Netflix mail…");
     try {
-      // Fast path: worker sync returns fresh emails directly — no second round-trip.
-      const synced = await syncViaWorker();
-      let merged: Email[] = emails;
-      if (synced && synced.length > 0) {
-        merged = mergeEmailsById([emails, synced]);
-        setEmails(merged);
-        setError(null);
-        setLastUpdated(new Date());
-      }
-      // Background top-up in case worker returned only latest 3 — do not block UI.
-      loadCachedEmails({ bust: true, limit: 200 }).catch(() => {});
+      // Refresh must never blank or block: DB cache first, then slow IMAP sync in background.
+      // F7: manual refresh always passes bust=1 so KV can't return a stale snapshot.
+      const cachedCount = await loadCachedEmails({ bust: true });
+      setRefreshing(false);
+      const baseline = Math.max(before, cachedCount);
 
-      const visible = filterVisibleEmails(merged, profilePrefs);
-      const newCount = visible.filter((e) => !beforeIds.has(e.id)).length;
-      toast.dismiss(toastId);
-      if (newCount > 0) {
-        premiumToast(`${newCount} new email${newCount === 1 ? "" : "s"} arrived`, {
-          variant: "mail",
-          description: "Freshly delivered to your inbox",
-          duration: 2600,
-        });
-      } else {
-        premiumToast(visible.length > 0 ? "Inbox is up to date" : "No Netflix emails yet", {
-          variant: "success",
-          duration: 2000,
-        });
-      }
+      syncViaWorker()
+        .then(() => new Promise(resolve => setTimeout(resolve, 4000)))
+        .then(() => loadCachedEmails({ bust: true }))
+        .then((after) => {
+          const newCount = after - baseline;
+          if (newCount > 0) {
+            toast.success(`📬 ${newCount} new email${newCount === 1 ? "" : "s"} arrived`, {
+              id: toastId,
+              duration: 3500,
+              style: {
+                background: "linear-gradient(135deg, #7c1d6f 0%, #c026d3 50%, #e11d48 100%)",
+                color: "#fff",
+                border: "1px solid rgba(255,255,255,0.15)",
+                boxShadow: "0 10px 30px -10px rgba(225,29,72,0.55)",
+                fontWeight: 700,
+              },
+            });
+          } else {
+            toast.success("✓ Inbox already up to date", { id: toastId, duration: 2200 });
+          }
+        })
+        .catch((err) => {
+          const msg = err instanceof Error ? err.message : "Sync failed";
+          toast.error(msg, {
+            id: toastId,
+            duration: 4000,
+            icon: "⚠️",
+            style: {
+              background: "#1f0a12",
+              color: "#fff",
+              border: "1px solid #e11d48",
+              boxShadow: "0 10px 30px -10px rgba(225,29,72,0.55)",
+              fontWeight: 700,
+            },
+          });
+        })
+        .finally(() => setRefreshing(false));
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to load";
-      toast.error(msg, { id: toastId, duration: 4000 });
-    } finally {
-      if (refreshPollRef.current) {
-        clearTimeout(refreshPollRef.current);
-        refreshPollRef.current = null;
-      }
-      refreshingRef.current = false;
+      toast.error(msg);
       setRefreshing(false);
     }
   };
@@ -6669,25 +6733,45 @@ function EmailViewer() {
   // never lose seconds waiting for emails to appear.
   useEffect(() => {
     let cancelled = false;
-    // 1) Instant paint from localStorage — user sees full cached inbox immediately.
     showLocalCacheNow();
     setLoading(false);
 
-    // 2) Pull the latest full inbox from worker cache (fast — no IMAP) once worker URLs are known.
-    if (!workerUrlsLoading) {
-      loadCachedEmails({ limit: 200 }).finally(() => {
-        if (cancelled) return;
-        setLoading(false);
-        if (!sessionGet("session_started_at" as any)) markSessionStart();
-      });
-    } else if (!sessionGet("session_started_at" as any)) {
-      markSessionStart();
-    }
+    loadCachedEmails().finally(() => {
+      if (cancelled) return;
+      setLoading(false);
+      if (!localStorage.getItem("session_started_at")) markSessionStart();
+    });
+
+    const pollInterval = window.setInterval(() => {
+      void loadCachedEmails();
+    }, 60000);
+
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        void loadCachedEmails();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibility);
     return () => {
       cancelled = true;
+      clearInterval(pollInterval);
+      document.removeEventListener("visibilitychange", handleVisibility);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadCachedEmails, workerUrlsLoading]);
+  }, [loadCachedEmails]);
+
+  // Background sync on first mount (after worker discovery) — so newly arrived
+  // emails show up without user clicking Refresh
+  const initialSyncFired = useRef(false);
+  useEffect(() => {
+    if (workerUrlsLoading || initialSyncFired.current) return;
+    initialSyncFired.current = true;
+    syncViaWorker()
+      .then(() => new Promise(resolve => setTimeout(resolve, 4000)))
+      .then(() => loadCachedEmails())
+      .catch(() => {});
+  }, [workerUrlsLoading, syncViaWorker, loadCachedEmails]);
 
   // F7: listen for iframe self-report messages verifying that the link/button
   // click hijack is actually attached inside the sandboxed email preview.
@@ -6788,8 +6872,20 @@ function EmailViewer() {
                 <button onClick={clearDiag} className="px-3 py-1.5 text-xs font-bold rounded-lg bg-white border border-slate-200 hover:bg-slate-100">Clear</button>
                 <button
                   onClick={async () => {
-                    pushDiag({ ts: Date.now(), kind: "cache", endpoint: "worker cache purge", note: "blocked in encrypted-only mode" });
-                    toast.message("Worker cache purge is disabled in encrypted-only mode");
+                    pushDiag({ ts: Date.now(), kind: "cache", endpoint: "manual purge", note: "requested" });
+                    let purged = 0;
+                    for (const url of resolvedWorkerUrls) {
+                      try {
+                        const token = getSessionToken();
+                        const started = performance.now();
+                        const r = await fetch(`${url}/api/cache/purge`, { method: "POST", headers: token ? { "X-Session-Token": token } : {} });
+                        pushDiag({ ts: Date.now(), kind: "cache", endpoint: `${url}/api/cache/purge`, status: r.status, ms: Math.round(performance.now() - started), cacheStatus: r.headers.get("X-Cache-Status") || undefined });
+                        if (r.ok) purged++;
+                      } catch (err) {
+                        pushDiag({ ts: Date.now(), kind: "cache", endpoint: `${url}/api/cache/purge`, error: err instanceof Error ? err.message : String(err) });
+                      }
+                    }
+                    toast.success(`Purged KV on ${purged}/${resolvedWorkerUrls.length} workers`);
                   }}
                   className="px-3 py-1.5 text-xs font-bold rounded-lg bg-red-600 text-white hover:bg-red-700"
                 >Purge KV cache</button>
@@ -6799,8 +6895,16 @@ function EmailViewer() {
                 >Force fresh fetch</button>
                 <button
                   onClick={async () => {
-                    pushDiag({ ts: Date.now(), kind: "worker", endpoint: "worker /api/health", note: "blocked in encrypted-only mode" });
-                    toast.message("Worker health ping is disabled in encrypted-only mode");
+                    for (const url of resolvedWorkerUrls) {
+                      const started = performance.now();
+                      try {
+                        const r = await fetch(`${url}/api/health`);
+                        const j = await r.json().catch(() => ({}));
+                        pushDiag({ ts: Date.now(), kind: "worker", endpoint: `${url}/api/health`, status: r.status, ms: Math.round(performance.now() - started), note: `kv=${j.kv} v=${j.version}` });
+                      } catch (err) {
+                        pushDiag({ ts: Date.now(), kind: "worker", endpoint: `${url}/api/health`, ms: Math.round(performance.now() - started), error: err instanceof Error ? err.message : String(err) });
+                      }
+                    }
                   }}
                   className="px-3 py-1.5 text-xs font-bold rounded-lg bg-slate-100 hover:bg-slate-200"
                 >Ping /api/health</button>
@@ -6872,7 +6976,7 @@ function EmailViewer() {
             )}
             <button onClick={() => {
               if (isImpersonating) { backToAdmin(); return; }
-              sessionClearAll(); navigate("/");
+              localStorage.clear(); navigate("/");
             }} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
               <LogOut className="w-5 h-5 text-slate-400" />
             </button>
@@ -7046,30 +7150,13 @@ function EmailViewer() {
 // ==================== MAINTENANCE GATE ====================
 const MAINT_BYPASS_KEY = "maintenance_admin_bypass";
 
-// D.2: bypass is a server-signed JWS `{kind:'maint_bypass', uid, exp, jti}` with
-// 10 min TTL. Client parses `exp` locally to auto-expire; signature is HMAC so
-// clients cannot forge or extend it. Old "1" values are treated as invalid.
-function readMaintBypassExp(): number | null {
-  try {
-    const raw = sessionStorage.getItem(MAINT_BYPASS_KEY);
-    if (!raw || raw === "1") return null;
-    const dataB64 = raw.split(".")[0];
-    if (!dataB64) return null;
-    const payload = JSON.parse(atob(dataB64));
-    if (payload?.kind !== "maint_bypass") return null;
-    if (typeof payload.exp !== "number" || Date.now() > payload.exp) return null;
-    return payload.exp;
-  } catch { return null; }
-}
-
-
 function hasActiveAdminImpersonationBackup(): boolean {
   try {
-    const raw = sessionGet("admin_backup" as any);
+    const raw = sessionStorage.getItem("admin_backup");
     if (!raw) return false;
     const parsed = JSON.parse(raw);
     if (!parsed || (parsed.exp && Date.now() > parsed.exp)) {
-      sessionRemove("admin_backup" as any);
+      sessionStorage.removeItem("admin_backup");
       return false;
     }
     return !!parsed.token && !!parsed.user;
@@ -7085,24 +7172,9 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
   const [maint, setMaint] = useState<MaintenanceInfo>(
     cached?.maintenance || { enabled: false }
   );
-  const [bypass, setBypass] = useState<boolean>(() => readMaintBypassExp() !== null);
-
-  // Auto-expire bypass locally when the signed token's exp passes (no round-trip).
-  useEffect(() => {
-    if (!bypass) return;
-    const exp = readMaintBypassExp();
-    if (exp === null) {
-      try { sessionStorage.removeItem(MAINT_BYPASS_KEY); } catch {}
-      setBypass(false);
-      return;
-    }
-    const t = setTimeout(() => {
-      try { sessionStorage.removeItem(MAINT_BYPASS_KEY); } catch {}
-      setBypass(false);
-    }, Math.max(0, exp - Date.now()) + 250);
-    return () => clearTimeout(t);
-  }, [bypass]);
-
+  const [bypass, setBypass] = useState<boolean>(() => {
+    try { return sessionStorage.getItem(MAINT_BYPASS_KEY) === "1"; } catch { return false; }
+  });
 
   // 🚨 Force-kick non-admin users the moment maintenance turns ON.
   // Admins are never kicked — they can bypass to continue working.
@@ -7197,25 +7269,13 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
       <MaintenanceScreen
         {...screenProps}
         isAdmin
-        onAdminBypass={async () => {
-          // D.2: request a signed short-lived bypass token from server. Falls back
-          // to legacy client flag only if the server call fails (e.g. offline) so
-          // admins are never locked out of their own maintenance window.
-          try {
-            const res = await apiCall("manage-app", { action: "admin_issue_maint_bypass" });
-            if (res?.success && typeof res.token === "string") {
-              try { sessionStorage.setItem(MAINT_BYPASS_KEY, res.token); } catch {}
-              setBypass(true);
-              return;
-            }
-          } catch {}
+        onAdminBypass={() => {
           try { sessionStorage.setItem(MAINT_BYPASS_KEY, "1"); } catch {}
           setBypass(true);
         }}
       />
     );
   }
-
 
 
   return <>{children}</>;
