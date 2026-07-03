@@ -17,6 +17,25 @@ import { sessionGet, sessionSet, sessionRemove, sessionClearAll } from "./lib/se
 const ReCAPTCHA = lazy(() => import("react-google-recaptcha"));
 const QRCodeSVG = lazy(() => import("qrcode.react").then((m) => ({ default: m.QRCodeSVG })));
 
+// Preload Google reCAPTCHA API script as soon as siteKey is known so the
+// widget mounts instantly when the modal opens (avoids 5–10s cold load).
+let __recaptchaPreloaded = false;
+function preloadRecaptchaScript() {
+  if (__recaptchaPreloaded || typeof document === "undefined") return;
+  __recaptchaPreloaded = true;
+  try {
+    // Warm up react-google-recaptcha JS chunk (no-op if already bundled).
+    import("react-google-recaptcha").catch(() => {});
+    if (document.querySelector('script[data-recaptcha-preload]')) return;
+    const s = document.createElement("script");
+    s.src = "https://www.google.com/recaptcha/api.js?render=explicit";
+    s.async = true;
+    s.defer = true;
+    s.setAttribute("data-recaptcha-preload", "1");
+    document.head.appendChild(s);
+  } catch {}
+}
+
 // --- Admin composer: platform logo options ---
 type PlatformOption = { id: string; label: string; logoFile: string; aliases?: string[] };
 const PLATFORM_LOGO_BASE = "/platform-logos/";
@@ -1907,11 +1926,13 @@ function ProfileSelectPage() {
   const [fromCache, setFromCache] = useState(cachedUsers.length > 0);
   const [loginLoading, setLoginLoading] = useState(false);
   const [error, setError] = useState("");
-  const [siteKey, setSiteKey] = useState<string | null>(
-    cachedBootstrap?.recaptcha?.enabled === true && cachedBootstrap?.recaptcha?.siteKey
+  const [siteKey, setSiteKey] = useState<string | null>(() => {
+    const k = cachedBootstrap?.recaptcha?.enabled === true && cachedBootstrap?.recaptcha?.siteKey
       ? cachedBootstrap.recaptcha.siteKey
-      : null
-  );
+      : null;
+    if (k) preloadRecaptchaScript();
+    return k;
+  });
   const [captchaReady, setCaptchaReady] = useState(false);
   const [captchaConfigError, setCaptchaConfigError] = useState(false);
   const [showCaptcha, setShowCaptcha] = useState(false);
@@ -1928,6 +1949,7 @@ function ProfileSelectPage() {
         setProfiles((bootstrap.users || []).filter((u: UserData) => u.role === "user"));
         if (bootstrap.recaptcha?.enabled === true && bootstrap.recaptcha?.siteKey) {
           setSiteKey(bootstrap.recaptcha.siteKey);
+          preloadRecaptchaScript();
         } else {
           setSiteKey(null);
         }
@@ -2229,11 +2251,13 @@ function AdminLoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const cachedBootstrap = useMemo(() => readBootstrapCache(), []);
-  const [siteKey, setSiteKey] = useState<string | null>(
-    cachedBootstrap?.recaptcha?.enabled === true && cachedBootstrap?.recaptcha?.siteKey
+  const [siteKey, setSiteKey] = useState<string | null>(() => {
+    const k = cachedBootstrap?.recaptcha?.enabled === true && cachedBootstrap?.recaptcha?.siteKey
       ? cachedBootstrap.recaptcha.siteKey
-      : null
-  );
+      : null;
+    if (k) preloadRecaptchaScript();
+    return k;
+  });
   const [captchaReady, setCaptchaReady] = useState(false);
   const [captchaConfigError, setCaptchaConfigError] = useState(false);
   const [showCaptcha, setShowCaptcha] = useState(false);
@@ -2248,6 +2272,7 @@ function AdminLoginPage() {
         if (cancelled) return;
         if (bootstrap.recaptcha?.enabled === true && bootstrap.recaptcha?.siteKey) {
           setSiteKey(bootstrap.recaptcha.siteKey);
+          preloadRecaptchaScript();
         } else {
           setSiteKey(null);
         }
