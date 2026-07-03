@@ -684,25 +684,26 @@ function ResponsiveToaster() {
   }, []);
   return (
     <Toaster
-      position={isMobile ? "bottom-center" : "bottom-right"}
+      position={isMobile ? "top-center" : "bottom-right"}
       closeButton
       expand={false}
-      visibleToasts={2}
-      duration={2600}
-      offset={isMobile ? "calc(env(safe-area-inset-bottom) + 5.5rem)" : "5rem"}
+      visibleToasts={1}
+      duration={2800}
+      gap={0}
+      offset={isMobile ? "calc(env(safe-area-inset-top) + 0.75rem)" : "1.25rem"}
       toastOptions={{
         unstyled: true,
         classNames: {
-          toast: "lux-toast group",
-          title: "lux-toast-title",
-          description: "lux-toast-desc",
-          icon: "lux-toast-icon",
-          closeButton: "lux-toast-close",
-          success: "lux-variant-success",
-          error: "lux-variant-error",
-          info: "lux-variant-info",
-          warning: "lux-variant-warning",
-          loading: "lux-variant-loading",
+          toast: "cx-toast group",
+          title: "cx-toast-title",
+          description: "cx-toast-desc",
+          icon: "cx-toast-icon",
+          closeButton: "cx-toast-close",
+          success: "cx-v-success",
+          error: "cx-v-error",
+          info: "cx-v-info",
+          warning: "cx-v-warning",
+          loading: "cx-v-loading",
         },
       }}
     />
