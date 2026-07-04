@@ -248,19 +248,26 @@ export async function listNotificationsWithEtag(etag: string | null): Promise<No
 }
 
 
+// Fire-and-forget cache buster shared by every mutation below.
+// Ensures the singleton store re-fetches with a fresh etag after any write.
+function bustNotifStore() {
+  import("./notificationsStore").then(({ invalidateNotifications }) => invalidateNotifications()).catch(() => {});
+}
+
 export async function markNotificationRead(id: string): Promise<void> {
-  try { await callManage("mark_notification_read", { notification_id: id }); } catch {}
+  try { await callManage("mark_notification_read", { notification_id: id }); } finally { bustNotifStore(); }
 }
 export async function markAllNotificationsRead(): Promise<void> {
-  try { await callManage("mark_all_notifications_read"); } catch {}
+  try { await callManage("mark_all_notifications_read"); } finally { bustNotifStore(); }
 }
 export async function markNotificationSeen(ids: string[]): Promise<void> {
   if (!ids?.length) return;
-  try { await callManage("mark_notifications_seen", { ids }); } catch {}
+  try { await callManage("mark_notifications_seen", { ids }); } finally { bustNotifStore(); }
 }
 export async function deleteNotificationForMe(id: string): Promise<void> {
-  try { await callManage("user_delete_notification", { notification_id: id }); } catch {}
+  try { await callManage("user_delete_notification", { notification_id: id }); } finally { bustNotifStore(); }
 }
+
 // snoozeNotification removed — Snooze is no longer a supported user action.
 
 export async function logNotificationEvent(id: string, event: string, meta?: any): Promise<void> {
