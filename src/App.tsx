@@ -2550,6 +2550,8 @@ function ProfileSelectPage() {
           <CaptchaModal siteKey={siteKey} onVerify={(token) => { setShowCaptcha(false); executeLogin(token); }} onCancel={() => { pendingClientGeoRef.current = null; setShowCaptcha(false); }} />
         )}
       </AnimatePresence>
+
+      <GpsHelpModal open={gpsHelpOpen} onClose={() => setGpsHelpOpen(false)} onRetry={retryGpsPermission} />
     </div>
   );
 }
