@@ -114,188 +114,178 @@
 }
 
 /* ============================================================
-   Global Toast System — Classic, theme-inverted, full-message.
-   Dark page -> white card. Light page -> dark card.
-   Text wraps in full, no ellipsis truncation, ever.
+   Global Toast System — rebuilt compact contrast cards.
+   Dark page -> light card. Light page -> dark card.
+   One-line text remains one-line; long text wraps fully.
    ============================================================ */
 .gt-toast-viewport {
   position: fixed;
   z-index: 2147483647;
   right: max(20px, env(safe-area-inset-right));
   bottom: max(20px, env(safe-area-inset-bottom));
-  width: min(420px, calc(100vw - 28px));
+  width: min(460px, calc(100vw - 28px));
   display: flex;
   flex-direction: column-reverse;
-  gap: 12px;
+  gap: 10px;
   pointer-events: none;
 }
 
 .gt-toast {
-  /* default: light card (for dark pages) */
-  --gt-fg: hsl(222 30% 11%);
-  --gt-muted: hsl(220 12% 40%);
   --gt-bg: hsl(0 0% 100%);
-  --gt-border: hsl(220 14% 88%);
-  --gt-shadow:
-    0 24px 60px -22px hsl(224 40% 4% / 0.55),
-    0 4px 14px -6px hsl(224 40% 4% / 0.32),
-    0 0 0 1px hsl(0 0% 100% / 0.06);
-  --gt-chip-bg: hsl(220 16% 95%);
-  --gt-chip-fg: hsl(220 14% 32%);
-  --gt-close-hover: hsl(220 14% 40% / 0.09);
-  --gt-progress-track: hsl(220 14% 92%);
-  --gt-accent: hsl(220 14% 50%);
+  --gt-fg: hsl(225 30% 9%);
+  --gt-muted: hsl(222 11% 39%);
+  --gt-border: hsl(220 18% 88%);
+  --gt-chip-bg: hsl(220 17% 95%);
+  --gt-chip-fg: hsl(220 11% 28%);
+  --gt-close-bg: hsl(220 20% 92% / 0.78);
+  --gt-close-hover: hsl(220 18% 86%);
+  --gt-accent: hsl(220 10% 46%);
+  --gt-shadow: 0 22px 54px -24px hsl(222 45% 4% / 0.62), 0 2px 10px hsl(222 45% 4% / 0.18);
 
   position: relative;
   display: grid;
-  grid-template-columns: 4px 36px minmax(0, 1fr) 26px;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 14px 14px 16px 0;
-  border-radius: 14px;
+  grid-template-columns: 32px minmax(0, 1fr) 24px;
+  align-items: center;
+  column-gap: 10px;
+  min-height: 48px;
+  padding: 9px 9px 9px 10px;
+  border-radius: 10px;
   color: var(--gt-fg);
-  background: var(--gt-bg);
+  background:
+    linear-gradient(90deg, var(--gt-accent) 0 3px, transparent 3px),
+    var(--gt-bg);
   border: 1px solid var(--gt-border);
   box-shadow: var(--gt-shadow);
   pointer-events: auto;
   overflow: hidden;
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  animation: gtToastIn 260ms cubic-bezier(.22, .9, .28, 1) both;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+  animation: gtToastIn 220ms cubic-bezier(.22, .9, .28, 1) both;
 }
 
-/* dark card variant (for light pages) */
-.gt-toast[data-tone="light"] {
+.gt-toast[data-card="dark"] {
+  --gt-bg: hsl(224 32% 9%);
   --gt-fg: hsl(0 0% 100%);
-  --gt-muted: hsl(220 12% 74%);
-  --gt-bg: hsl(224 30% 9%);
-  --gt-border: hsl(220 14% 20%);
-  --gt-shadow:
-    0 24px 60px -22px hsl(224 60% 2% / 0.85),
-    0 4px 14px -6px hsl(224 60% 2% / 0.55),
-    0 0 0 1px hsl(0 0% 100% / 0.04);
-  --gt-chip-bg: hsl(220 14% 18%);
-  --gt-chip-fg: hsl(220 12% 82%);
-  --gt-close-hover: hsl(220 14% 70% / 0.14);
-  --gt-progress-track: hsl(220 14% 18%);
-}
-
-/* left accent stripe (per variant) */
-.gt-toast-accent {
-  align-self: stretch;
-  width: 4px;
-  background: var(--gt-accent);
+  --gt-muted: hsl(220 12% 76%);
+  --gt-border: hsl(220 18% 19%);
+  --gt-chip-bg: hsl(220 16% 17%);
+  --gt-chip-fg: hsl(220 10% 86%);
+  --gt-close-bg: hsl(220 16% 18% / 0.82);
+  --gt-close-hover: hsl(220 16% 24%);
+  --gt-shadow: 0 24px 60px -24px hsl(224 60% 2% / 0.9), 0 2px 12px hsl(224 60% 2% / 0.46);
 }
 
 .gt-toast-icon {
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   color: var(--gt-chip-fg);
   background: var(--gt-chip-bg);
   flex-shrink: 0;
-  margin-top: 1px;
-  margin-left: 4px;
 }
-.gt-toast-icon svg { width: 18px; height: 18px; stroke-width: 2.4; }
-.gt-toast[data-variant="loading"] .gt-toast-icon svg { animation: gtSpin 900ms linear infinite; }
+.gt-toast-icon svg { width: 17px; height: 17px; stroke-width: 2.55; }
+.gt-toast[data-variant="loading"] .gt-toast-icon svg { animation: gtSpin 850ms linear infinite; }
 
 .gt-toast-copy {
   min-width: 0;
-  padding-top: 3px;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  justify-content: center;
+  gap: 1px;
+}
+.gt-toast-title,
+.gt-toast-desc {
+  display: block;
+  max-width: 100%;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  white-space: normal;
+  letter-spacing: 0;
 }
 .gt-toast-title {
   color: var(--gt-fg);
-  font-size: 13.75px;
-  font-weight: 650;
-  line-height: 1.35;
-  letter-spacing: -0.005em;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-  white-space: normal;
+  font-size: 12px;
+  font-weight: 760;
+  line-height: 1.2;
 }
 .gt-toast-desc {
   color: var(--gt-muted);
-  font-size: 12.25px;
-  font-weight: 450;
-  line-height: 1.5;
-  letter-spacing: 0;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-  white-space: normal;
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.28;
 }
 
 .gt-toast-close {
-  width: 26px;
-  height: 26px;
+  width: 24px;
+  height: 24px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 999px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   color: var(--gt-muted);
-  background: transparent;
+  background: var(--gt-close-bg);
   cursor: pointer;
-  opacity: 0.7;
+  opacity: 0.82;
   flex-shrink: 0;
-  margin-top: 3px;
-  transition: background 160ms ease, color 160ms ease, opacity 160ms ease;
+  transition: background 150ms ease, color 150ms ease, opacity 150ms ease;
 }
-.gt-toast-close svg { width: 14px; height: 14px; stroke-width: 2.4; }
+.gt-toast-close svg { width: 13px; height: 13px; stroke-width: 2.45; }
 .gt-toast-close:hover { opacity: 1; color: var(--gt-fg); background: var(--gt-close-hover); }
 
-/* accent + chip colors per variant */
-.gt-toast[data-variant="success"] { --gt-accent: hsl(158 74% 42%); }
-.gt-toast[data-variant="success"] .gt-toast-icon { color: hsl(158 74% 38%); background: hsl(158 74% 44% / 0.14); }
-.gt-toast[data-tone="light"][data-variant="success"] .gt-toast-icon { color: hsl(158 70% 62%); background: hsl(158 74% 44% / 0.18); }
+.gt-toast[data-variant="success"] { --gt-accent: hsl(158 72% 42%); }
+.gt-toast[data-variant="success"] .gt-toast-icon { color: hsl(158 72% 36%); background: hsl(158 72% 44% / 0.14); }
+.gt-toast[data-card="dark"][data-variant="success"] .gt-toast-icon { color: hsl(158 72% 63%); background: hsl(158 72% 44% / 0.18); }
 
 .gt-toast[data-variant="error"] { --gt-accent: hsl(0 78% 58%); }
-.gt-toast[data-variant="error"] .gt-toast-icon { color: hsl(0 74% 55%); background: hsl(0 84% 60% / 0.14); }
-.gt-toast[data-tone="light"][data-variant="error"] .gt-toast-icon { color: hsl(0 84% 72%); background: hsl(0 84% 60% / 0.18); }
+.gt-toast[data-variant="error"] .gt-toast-icon { color: hsl(0 74% 54%); background: hsl(0 84% 60% / 0.14); }
+.gt-toast[data-card="dark"][data-variant="error"] .gt-toast-icon { color: hsl(0 86% 72%); background: hsl(0 84% 60% / 0.18); }
 
-.gt-toast[data-variant="warning"] { --gt-accent: hsl(35 92% 50%); }
-.gt-toast[data-variant="warning"] .gt-toast-icon { color: hsl(35 92% 45%); background: hsl(40 96% 52% / 0.16); }
-.gt-toast[data-tone="light"][data-variant="warning"] .gt-toast-icon { color: hsl(40 96% 68%); background: hsl(40 96% 52% / 0.2); }
+.gt-toast[data-variant="warning"] { --gt-accent: hsl(38 92% 50%); }
+.gt-toast[data-variant="warning"] .gt-toast-icon { color: hsl(36 90% 41%); background: hsl(40 96% 52% / 0.16); }
+.gt-toast[data-card="dark"][data-variant="warning"] .gt-toast-icon { color: hsl(40 96% 68%); background: hsl(40 96% 52% / 0.20); }
 
-.gt-toast[data-variant="info"] { --gt-accent: hsl(207 84% 54%); }
-.gt-toast[data-variant="info"] .gt-toast-icon { color: hsl(207 84% 50%); background: hsl(207 92% 56% / 0.14); }
-.gt-toast[data-tone="light"][data-variant="info"] .gt-toast-icon { color: hsl(207 92% 72%); background: hsl(207 92% 56% / 0.18); }
+.gt-toast[data-variant="info"] { --gt-accent: hsl(204 86% 54%); }
+.gt-toast[data-variant="info"] .gt-toast-icon { color: hsl(204 82% 46%); background: hsl(204 92% 56% / 0.14); }
+.gt-toast[data-card="dark"][data-variant="info"] .gt-toast-icon { color: hsl(204 92% 72%); background: hsl(204 92% 56% / 0.18); }
 
-.gt-toast[data-variant="loading"] { --gt-accent: hsl(220 14% 55%); }
+.gt-toast[data-variant="loading"] { --gt-accent: hsl(220 12% 54%); }
 
-/* auto-dismiss progress bar */
 .gt-toast-progress {
   position: absolute;
-  left: 0;
+  left: 3px;
   right: 0;
   bottom: 0;
   height: 2px;
   background: var(--gt-accent);
   transform-origin: left center;
   animation: gtProgress linear forwards;
-  opacity: 0.55;
+  opacity: 0.62;
 }
 
-/* mobile: top-center full width */
 @media (max-width: 767px) {
   .gt-toast-viewport {
     top: max(12px, env(safe-area-inset-top));
-    right: 12px;
+    right: 10px;
     bottom: auto;
-    left: 12px;
+    left: 10px;
     width: auto;
     flex-direction: column;
   }
-  .gt-toast { border-radius: 12px; }
+  .gt-toast {
+    grid-template-columns: 30px minmax(0, 1fr) 24px;
+    min-height: 46px;
+    padding: 8px 8px 8px 10px;
+  }
+  .gt-toast-icon { width: 30px; height: 30px; }
 }
 
 @keyframes gtToastIn {
-  from { opacity: 0; transform: translateY(10px) scale(0.98); }
+  from { opacity: 0; transform: translateY(8px) scale(0.985); }
   to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 @keyframes gtSpin { to { transform: rotate(360deg); } }
