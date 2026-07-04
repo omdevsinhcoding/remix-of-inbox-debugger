@@ -6541,6 +6541,12 @@ function EmailViewer() {
   const [workerUrlMap, setWorkerUrlMap] = useState<WorkerUrlMap>({ primary: [], byAccount: {} });
   const [workerUrlsLoading, setWorkerUrlsLoading] = useState(true);
   const workerUrlLoaded = React.useRef(false);
+  const inboxSessionStartedRef = useRef(false);
+  const markInboxReady = useCallback(() => {
+    if (inboxSessionStartedRef.current) return;
+    inboxSessionStartedRef.current = true;
+    if (!sessionGet("session_started_at" as any)) markSessionStart();
+  }, []);
 
   // F7: refresh diagnostics — records each worker hit while the
   // spinner is running so we can tell WHY it never stops.
@@ -6819,7 +6825,6 @@ function EmailViewer() {
   const didAutoRefreshRef = useRef(false);
   useEffect(() => {
     setLoading(false);
-    if (!sessionGet("session_started_at" as any)) markSessionStart();
 
     // Fire ONE silent auto-refresh once worker URLs are known — per component mount/login.
     if (workerUrlsLoading) return;
@@ -6899,18 +6904,24 @@ function EmailViewer() {
         if (cached.length > 0) {
           setEmails(cached as unknown as Email[]);
           setLastUpdated(new Date());
+          markInboxReady();
           const dt = performance.now() - t0;
           pushDiag({ ts: Date.now(), kind: "cache", endpoint: "idb:instant-paint", ms: Math.round(dt), note: `${cached.length} rows` });
           console.log(`[inbox] instant paint in ${dt.toFixed(1)}ms (${cached.length} rows from IDB)`);
         }
 
         // ---- (2) Delta sync via Supabase edge function ----
-        const cursor = await getSyncCursor(db);
+        const storedCursor = await getSyncCursor(db);
+        // If the cache is empty but a cursor exists (stale/corrupt IDB, profile/account switch,
+        // or an older failed rollout), force a baseline snapshot instead of asking only for
+        // changes after that cursor. Otherwise old emails can never backfill.
+        const cursor = cached.length === 0 ? 0 : storedCursor;
         const started = performance.now();
-        console.log(`[inbox] calling list_delta since=${cursor}`);
-        const delta = await apiCall("manage-app", { action: "list_delta", since: cursor, limit: 500 });
+        console.log(`[inbox] calling list_delta since=${cursor}${storedCursor && cursor === 0 ? ` (reset stale cursor ${storedCursor})` : ""}`);
+        const delta = await apiCall("manage-app", { action: "list_delta", since: cursor, limit: cursor === 0 ? 1000 : 500 });
         console.log("[inbox] list_delta response", {
           success: delta?.success,
+          mode: delta?.mode,
           rows: delta?.rows?.length || 0,
           removed: delta?.removedIds?.length || 0,
           newCursor: delta?.newCursor,
@@ -6934,16 +6945,20 @@ function EmailViewer() {
           console.log(`[inbox] after writeDelta, IDB has ${fresh.length} rows → repaint`);
           setEmails(fresh as unknown as Email[]);
           setLastUpdated(new Date());
+          if (fresh.length > 0) markInboxReady();
         }
         setError(null);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err || "");
         console.error("[inbox] instant-inbox error:", msg, err);
         pushDiag({ ts: Date.now(), kind: "cache", endpoint: "instant-inbox", error: msg });
+      } finally {
+        // Start the countdown only after the instant cache/delta load has had a chance to paint.
+        markInboxReady();
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id]);
+  }, [user?.id, markInboxReady]);
 
 
   // Wrap email selection so full HTML is lazy-fetched on first click.
