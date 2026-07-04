@@ -5032,7 +5032,13 @@ function AdminPanel() {
                             className="p-2 hover:bg-blue-50 text-blue-400 hover:text-blue-600 rounded-lg transition-colors">
                             <Eye className="w-4 h-4" />
                           </button>
-                          <button onClick={() => { setEditingUserAccounts(editingUserAccounts === u.id ? null : u.id); setEditAccountsList((u as any).assignedAccounts || []); }} title="Edit accounts"
+                          <button onClick={() => {
+                              const opening = editingUserAccounts !== u.id;
+                              setEditingUserAccounts(opening ? u.id : null);
+                              setEditAccountsList((u as any).assignedAccounts || []);
+                              const cur = (u as any).session_limit;
+                              setEditSessionLimit(cur === null || cur === undefined ? "" : String(cur));
+                            }} title="Edit accounts & session limit"
                             className="p-2 hover:bg-green-50 text-green-400 hover:text-green-600 rounded-lg transition-colors">
                             <Edit className="w-4 h-4" />
                           </button>
