@@ -1797,6 +1797,27 @@ function appendAccountLabelParams(params: URLSearchParams, labels: string[] | nu
   for (const label of labels) params.append("accountLabel", label);
 }
 
+async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}, timeoutMs = 12000) {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+async function isUsableEmailWorker(url: string) {
+  try {
+    const res = await fetchWithTimeout(`${url.replace(/\/+$/, "")}/api/health`, { cache: "no-store" }, 5000);
+    if (!res.ok) return false;
+    const data = await res.json().catch(() => null);
+    return data?.ok === true && data?.kv === true && data?.signing === true;
+  } catch {
+    return false;
+  }
+}
+
 function mergeEmailsById(lists: Email[][]): Email[] {
   const byId = new Map<string, Email>();
   for (const list of lists) {
@@ -6556,13 +6577,24 @@ function EmailViewer() {
       } catch { }
 
       // Only primary URLs go into the general pool (used by apiCall)
-      const normalizedPrimary = primaryUrls
+      const normalizedPrimaryRaw = primaryUrls
         .map((u) => u.trim().replace(/\/+$/, ""))
         .filter(Boolean)
         .filter((u, i, arr) => arr.indexOf(u) === i);
 
+      const primaryChecks = await Promise.all(normalizedPrimaryRaw.map(async (url) => ({ url, ok: await isUsableEmailWorker(url) })));
+      const normalizedPrimary = primaryChecks.filter((x) => x.ok).map((x) => x.url);
+
+      const usableAccountUrls: Record<string, string[]> = {};
+      await Promise.all(Object.entries(accountUrls).map(async ([label, urls]) => {
+        const unique = Array.from(new Set(urls.map((u) => u.trim().replace(/\/+$/, "")).filter(Boolean)));
+        const checks = await Promise.all(unique.map(async (url) => ({ url, ok: await isUsableEmailWorker(url) })));
+        const valid = checks.filter((x) => x.ok).map((x) => x.url);
+        if (valid.length > 0) usableAccountUrls[label] = valid;
+      }));
+
       setResolvedWorkerUrls(normalizedPrimary);
-      setWorkerUrlMap({ primary: normalizedPrimary, byAccount: accountUrls });
+      setWorkerUrlMap({ primary: normalizedPrimary, byAccount: usableAccountUrls });
       if (normalizedPrimary.length > 0) storeWorkerUrls(normalizedPrimary);
       setWorkerUrlsLoading(false);
     })();
@@ -6595,7 +6627,7 @@ function EmailViewer() {
         appendAccountLabelParams(params, group.labels);
         const workerEndpoint = `${group.url}/api/emails?${params.toString()}`;
         const started = performance.now();
-        const res = await fetch(workerEndpoint, { headers });
+        const res = await fetchWithTimeout(workerEndpoint, { headers }, 12000);
         const text = await res.text();
         pushDiag({
           ts: Date.now(),
@@ -6648,11 +6680,11 @@ function EmailViewer() {
     await Promise.all(groups.map(async (group) => {
       const endpoint = `${group.url}/api/emails/sync`;
       const started = performance.now();
-      const res = await fetch(endpoint, {
+      const res = await fetchWithTimeout(endpoint, {
         method: "POST",
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({ mode: "user_sync", source: "user_refresh", limit: 3, accountLabels: group.labels || undefined }),
-      });
+      }, 18000);
       const text = await res.text();
       pushDiag({ ts: Date.now(), kind: "worker", endpoint, status: res.status, ms: Math.round(performance.now() - started), note: `user_sync${group.labels ? ` · ${group.labels.join(", ")}` : ""}` });
       if (!res.ok) {
