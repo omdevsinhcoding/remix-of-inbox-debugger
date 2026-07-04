@@ -6879,8 +6879,10 @@ function EmailViewer() {
   const idbRef = useRef<Awaited<ReturnType<typeof openInboxDB>> | null>(null);
   const instantInboxRanRef = useRef(false);
   useEffect(() => {
+    // eslint-disable-next-line no-console
+    console.log("[inbox] effect fired", { userId: user?.id, alreadyRan: instantInboxRanRef.current });
     if (instantInboxRanRef.current) return;
-    if (!user?.id) return;
+    if (!user?.id) { console.log("[inbox] no user.id, skipping"); return; }
     instantInboxRanRef.current = true;
 
     const t0 = performance.now();
@@ -6889,22 +6891,31 @@ function EmailViewer() {
       try {
         db = await openInboxDB(user.id);
         idbRef.current = db;
+        console.log("[inbox] IDB opened for user", user.id);
 
         // ---- (1) Instant paint from IDB ----
         const cached = await readLatestEmails(db, 200);
+        console.log(`[inbox] IDB has ${cached.length} cached rows`);
         if (cached.length > 0) {
           setEmails(cached as unknown as Email[]);
           setLastUpdated(new Date());
           const dt = performance.now() - t0;
           pushDiag({ ts: Date.now(), kind: "cache", endpoint: "idb:instant-paint", ms: Math.round(dt), note: `${cached.length} rows` });
-          // eslint-disable-next-line no-console
           console.log(`[inbox] instant paint in ${dt.toFixed(1)}ms (${cached.length} rows from IDB)`);
         }
 
         // ---- (2) Delta sync via Supabase edge function ----
         const cursor = await getSyncCursor(db);
         const started = performance.now();
+        console.log(`[inbox] calling list_delta since=${cursor}`);
         const delta = await apiCall("manage-app", { action: "list_delta", since: cursor, limit: 500 });
+        console.log("[inbox] list_delta response", {
+          success: delta?.success,
+          rows: delta?.rows?.length || 0,
+          removed: delta?.removedIds?.length || 0,
+          newCursor: delta?.newCursor,
+          sample: delta?.rows?.[0],
+        });
         pushDiag({
           ts: Date.now(),
           kind: "sync",
@@ -6920,18 +6931,20 @@ function EmailViewer() {
         if (rows.length > 0 || removedIds.length > 0 || newCursor > cursor) {
           await writeDelta(db, { rows, removedIds, newCursor });
           const fresh = await readLatestEmails(db, 200);
+          console.log(`[inbox] after writeDelta, IDB has ${fresh.length} rows → repaint`);
           setEmails(fresh as unknown as Email[]);
           setLastUpdated(new Date());
         }
         setError(null);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err || "");
+        console.error("[inbox] instant-inbox error:", msg, err);
         pushDiag({ ts: Date.now(), kind: "cache", endpoint: "instant-inbox", error: msg });
-        // Silent fallback — the existing worker path will still populate the inbox.
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
+
 
   // Wrap email selection so full HTML is lazy-fetched on first click.
   // List rows from list_delta don't include HTML (kept payload tiny). On click:
