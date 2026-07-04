@@ -112,7 +112,7 @@ async function getAssignedAccountFilter(supabase: any, session: Session | null):
   return Array.isArray(userData?.assigned_accounts) ? userData.assigned_accounts : [];
 }
 
-function applyEmailFilters(emails: any[], filterSignInCodes: boolean, filterPasswordResets: boolean) {
+function applyEmailFilters(emails: any[], filterSignInCodes: boolean, filterPasswordResets: boolean, blockPromo = false) {
   let output = emails;
   if (filterSignInCodes) {
     output = output.filter((e: any) => {
@@ -125,6 +125,9 @@ function applyEmailFilters(emails: any[], filterSignInCodes: boolean, filterPass
       const sub = (e.subject || "").toLowerCase();
       return !PASSWORD_RESET_SUBJECTS.some(kw => sub.includes(kw));
     });
+  }
+  if (blockPromo) {
+    output = output.filter((e: any) => !isNetflixPromo(e.subject));
   }
   return output;
 }
@@ -157,8 +160,9 @@ function isNetflixFrom(fromRaw: string | null | undefined): boolean {
   return /@([a-z0-9-]+\.)*netflix\.com\b/.test(s);
 }
 
-// Reject Netflix marketing/promo mail — users only want transactional
-// (sign-in codes, household verification, password resets, billing).
+// Optional Netflix marketing/promo blocklist. OFF by default — all official
+// Netflix mail (including "new movie/series" announcements) is shown. Admin can
+// enable blocking via the admin panel (app_settings key "netflix_promo").
 const NETFLIX_PROMO_SUBJECTS = [
   "unlimited series", "ready to watch", "finish signing up", "welcome to netflix",
   "new on netflix", "recommended for you", "top 10", "trending now",
@@ -168,6 +172,19 @@ const NETFLIX_PROMO_SUBJECTS = [
 function isNetflixPromo(subject: string | null | undefined): boolean {
   const s = (subject || "").toLowerCase();
   return NETFLIX_PROMO_SUBJECTS.some((kw) => s.includes(kw));
+}
+// Cached per-invocation flag so we don't hit app_settings for every email row.
+let _blockPromoCache: { value: boolean; at: number } | null = null;
+async function shouldBlockPromo(supabase: any): Promise<boolean> {
+  if (_blockPromoCache && Date.now() - _blockPromoCache.at < 60_000) return _blockPromoCache.value;
+  try {
+    const { data } = await supabase.from("app_settings").select("value").eq("key", "netflix_promo").maybeSingle();
+    const block = data?.value?.block === true;
+    _blockPromoCache = { value: block, at: Date.now() };
+    return block;
+  } catch {
+    return false;
+  }
 }
 
 function decodeQuotedPrintable(input: string) {
@@ -198,9 +215,10 @@ function parseFastEmail(rawSource: Uint8Array, envelope: any, accountLabel: stri
   const subject = (envelope?.subject || "").toString();
   const from = (envelope?.from || []).map(formatAddress).filter(Boolean).join(", ") || "Netflix";
   const to = (envelope?.to || []).map(formatAddress).filter(Boolean).join(", ") || undefined;
-  // Strict: sender must be a real @netflix.com address, and drop marketing subjects.
+  // Strict: sender must be a real @netflix.com address. Promo filtering happens
+  // at read-time (respecting the admin toggle), not at ingest — so all official
+  // Netflix mail (marketing/new-release announcements included) enters the cache.
   if (!isNetflixFrom(from)) return null;
-  if (isNetflixPromo(subject)) return null;
   const preview = bodyText.length > 100 ? `${bodyText.substring(0, 100)}...` : bodyText;
   return {
     id: `${accountLabel}:${uid}`,
@@ -244,7 +262,9 @@ async function readCache(supabase: any, accountFilter: string[] | null, filterSi
     account_label: e.account_label,
     cached_at: e.cached_at,
   }));
-  return applyEmailFilters(emails, filterSignInCodes, filterPasswordResets);
+  // Apply promo block for everyone when admin turned it on. Default = OFF (all Netflix mail shows).
+  const blockPromo = await shouldBlockPromo(supabase);
+  return applyEmailFilters(emails, filterSignInCodes, filterPasswordResets, blockPromo);
 }
 
 async function fetchFromAccount(
@@ -349,13 +369,10 @@ async function fetchFromAccount(
           const bodyText = (parsed.text || "").trim();
           const subjectText = (parsed.subject || fullMsg.envelope?.subject || "").toString();
           const fromText = parsed.from?.text || "";
-          // Final gate — even if a UID slipped through, drop non-netflix senders and promo mail.
+          // Final gate — drop non-netflix senders. Promo/marketing mail is kept in cache
+          // and filtered at read-time based on the admin toggle.
           if (!isNetflixFrom(fromText)) {
             console.log(`[${accountLabel}] Skipping UID ${uid}: sender not @netflix.com (${fromText})`);
-            continue;
-          }
-          if (isNetflixPromo(subjectText)) {
-            console.log(`[${accountLabel}] Skipping UID ${uid}: promo subject (${subjectText})`);
             continue;
           }
           const otpCode = extractOtpCode(subjectText, bodyText);

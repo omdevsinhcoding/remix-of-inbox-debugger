@@ -3976,6 +3976,8 @@ function AdminPanel() {
   const [emailAutoDeleteDays, setEmailAutoDeleteDays] = useState<string>("30");
   const [emailAutoDeleteHour, setEmailAutoDeleteHour] = useState<string>("3");
   const [savingEmailAutoDelete, setSavingEmailAutoDelete] = useState(false);
+  const [blockNetflixPromo, setBlockNetflixPromo] = useState(false);
+  const [savingBlockPromo, setSavingBlockPromo] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newAdminPassword, setNewAdminPassword] = useState("");
   const [changingPassword, setChangingPassword] = useState(false);
@@ -4135,6 +4137,9 @@ function AdminPanel() {
           setEmailAutoDeleteEnabled(s.email_auto_delete.enabled === true);
           if (Number(s.email_auto_delete.days) > 0) setEmailAutoDeleteDays(String(s.email_auto_delete.days));
           if (Number.isFinite(Number(s.email_auto_delete.hour))) setEmailAutoDeleteHour(String(s.email_auto_delete.hour));
+        }
+        if (s.netflix_promo) {
+          setBlockNetflixPromo(s.netflix_promo.block === true);
         }
         if (s.config) {
           const c = s.config as any;
@@ -4487,6 +4492,19 @@ function AdminPanel() {
       notify.error(err instanceof Error ? err.message : "Failed to save");
     } finally {
       setSavingEmailAutoDelete(false);
+    }
+  };
+
+  const saveBlockNetflixPromo = async (nextBlock: boolean) => {
+    setSavingBlockPromo(true);
+    try {
+      await apiCall("manage-app", { action: "set_settings", key: "netflix_promo", value: { block: nextBlock } });
+      setBlockNetflixPromo(nextBlock);
+      notify.success(nextBlock ? "Netflix marketing/promo emails are now hidden from users" : "Netflix marketing/promo emails are visible to users");
+    } catch (err) {
+      notify.error(err instanceof Error ? err.message : "Failed to save");
+    } finally {
+      setSavingBlockPromo(false);
     }
   };
 
@@ -5167,6 +5185,24 @@ function AdminPanel() {
                 </div>
               </div>
             </section>
+
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
+                <div className="bg-amber-50 p-1.5 rounded-lg"><Mail className="w-4 h-4 text-amber-600" /></div>
+                Netflix Marketing / Promo Emails
+              </h2>
+              <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border">
+                <div className="pr-3">
+                  <p className="font-bold text-sm text-slate-900">Hide Netflix promotional emails from users</p>
+                  <p className="text-xs text-slate-500 mt-1">Only affects emails from official Netflix domains (welcome, new releases, top 10, "start watching today", etc.). Transactional mail like sign-in codes, household verification, password resets and billing is always shown. <b>Default: OFF</b> — users see all official Netflix mail.</p>
+                </div>
+                <button onClick={() => saveBlockNetflixPromo(!blockNetflixPromo)} disabled={savingBlockPromo}
+                  className={`relative w-12 h-6 rounded-full transition-colors flex-shrink-0 ml-3 ${blockNetflixPromo ? "bg-rose-500" : "bg-slate-300"}`}>
+                  <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${blockNetflixPromo ? "translate-x-6" : "translate-x-0.5"}`} />
+                </button>
+              </div>
+            </section>
+
 
             <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
               <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
