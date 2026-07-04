@@ -352,10 +352,6 @@ type LoginLocationPayload = {
   device?: DeviceFingerprint;
 };
 
-  if (action === "update_profile_prefs") return { success: true };
-  if (action === "change_password") return { success: true };
-  return undefined;
-}
 
 async function sha256Hex(s: string): Promise<string> {
   try {
