@@ -11,12 +11,20 @@
 // encrypted payload so the server can detect replays.
 
 const VERSION = 0x01;
+// Server may reply with 0x02 if it gzipped the payload before AES-GCM.
+// We advertise support via the `x-accept-encoding: gzip` request header.
+const VERSION_GZIP = 0x02;
 const SESSION_ID_BYTES = 16;
 const IV_BYTES = 12;
 const CT_BINARY = "application/octet-stream";
 const HKDF_INFO = "lovable-transport-v1";
 const ROTATE_BEFORE_EXPIRY_MS = 60_000; // rotate 1 min before expiry
 const FALLBACK_TTL_MS = 14 * 60_000; // if server omits expiresAt, assume 14min
+
+async function gunzipBytes(input: Uint8Array): Promise<Uint8Array> {
+  const stream = new Blob([input]).stream().pipeThrough(new DecompressionStream("gzip"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
 
 type Session = { sidBytes: Uint8Array; key: CryptoKey; expiresAt: number };
 let sessionPromise: Promise<Session> | null = null;
