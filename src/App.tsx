@@ -553,21 +553,6 @@ async function collectLoginLocation(): Promise<LoginLocationPayload> {
   }
 
   let permissionState: LoginLocationPayload["permissionState"] = "unknown";
-  try {
-    if (navigator.permissions?.query) {
-      const permission = await navigator.permissions.query({ name: "geolocation" as PermissionName });
-      permissionState = permission.state;
-      console.log("[GPS] Permission state:", permission.state);
-      // Always call getCurrentPosition after a user click. If the browser is still
-      // allowed to show the native permission prompt, this is the only API that
-      // can show it again; a permissions.query() pre-check must not stop it.
-    } else {
-      console.log("[GPS] navigator.permissions.query not available — proceeding anyway.");
-    }
-  } catch (e) {
-    console.warn("[GPS] permissions.query threw:", e);
-  }
-
   console.log("[GPS] GPS request started (enableHighAccuracy=true, timeout=20000, maximumAge=0)");
   const startedAt = Date.now();
 
