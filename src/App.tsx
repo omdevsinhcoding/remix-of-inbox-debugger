@@ -2673,6 +2673,7 @@ function AdminLoginPage() {
   const [gpsRequesting, setGpsRequesting] = useState(false);
   const [gpsPermissionMode, setGpsPermissionMode] = useState<GpsPermissionMode | null>(null);
   const pendingClientGeoRef = useRef<LoginLocationPayload | null>(null);
+  const armedGeoRef = useRef<Promise<LoginLocationPayload> | null>(null);
   const gpsBlocked = gpsPermissionMode !== null;
   const navigate = useNavigate();
   const { checkAuth } = useAuth();
@@ -2725,11 +2726,22 @@ function AdminLoginPage() {
   const initiateLogin = (e: React.FormEvent) => {
     e.preventDefault();
     // FIRE GEO FIRST synchronously — preserve user activation (Chrome Incognito).
-    const geoPromise = beginGeolocationCapture();
+    const geoPromise = armedGeoRef.current ?? beginGeolocationCapture();
+    armedGeoRef.current = null;
     setGpsPermissionMode(null);
     notify.dismiss(GPS_PERMISSION_TOAST_ID);
     setError("");
     void startLocationThenLogin(geoPromise);
+  };
+
+  const primeGpsFromPointer = () => {
+    if (loading || !username.trim() || !password.trim()) return;
+    if (!armedGeoRef.current) armedGeoRef.current = beginGeolocationCapture();
+  };
+
+  const primeGpsEnableFromPointer = () => {
+    if (gpsRequesting || loading) return;
+    if (!armedGeoRef.current) armedGeoRef.current = beginGeolocationCapture();
   };
 
   useEffect(() => {
@@ -2739,7 +2751,7 @@ function AdminLoginPage() {
     const clearBlocked = () => {
       setGpsPermissionMode(null);
       notify.dismiss(GPS_PERMISSION_TOAST_ID);
-      notify.info("Location ready", { id: "gps-permission-ready", description: "Tap Admin Sign In to continue.", duration: 3500 });
+      notify.info("Location ready", { id: "gps-permission-ready", description: "Tap Admin Sign In to continue.", duration: 8500 });
     };
     const recheck = async () => {
       if (!active || !navigator.permissions?.query) return;
@@ -2778,7 +2790,7 @@ function AdminLoginPage() {
           throw new Error("Security check failed to load. Please refresh and try again.");
         }
         setLoading(false);
-        notify.info("Location ready", { id: "gps-permission-ready", description: "Wait for security check, then tap Admin Sign In.", duration: 3500 });
+        notify.info("Location ready", { id: "gps-permission-ready", description: "Wait for security check, then tap Admin Sign In.", duration: 8500 });
         return;
       }
       if (siteKey) {
@@ -2803,7 +2815,8 @@ function AdminLoginPage() {
 
   const requestGpsPermissionOnly = async () => {
     // FIRE GEO FIRST synchronously — preserve user activation (Chrome Incognito).
-    const geoPromise = beginGeolocationCapture();
+    const geoPromise = armedGeoRef.current ?? beginGeolocationCapture();
+    armedGeoRef.current = null;
     setGpsRequesting(true);
     setError("");
     notify.dismiss(GPS_PERMISSION_TOAST_ID);
@@ -2811,7 +2824,7 @@ function AdminLoginPage() {
       const location = await geoPromise;
       if (location.status === "granted" && typeof location.latitude === "number" && typeof location.longitude === "number") {
         setGpsPermissionMode(null);
-        notify.success("Location enabled", { id: "gps-permission-ready", description: "Now tap Admin Sign In.", duration: 3000 });
+        notify.success("Location enabled", { id: "gps-permission-ready", description: "Now tap Admin Sign In.", duration: 8500 });
         return;
       }
       const msg = buildLocationSignInMessage(location);
@@ -2910,10 +2923,10 @@ function AdminLoginPage() {
           )}
 
           <AnimatePresence>
-            <GpsPermissionSheet mode={gpsPermissionMode} loading={gpsRequesting || loading} onEnable={() => void requestGpsPermissionOnly()} />
+            <GpsPermissionSheet mode={gpsPermissionMode} loading={gpsRequesting || loading} onPrimeEnable={primeGpsEnableFromPointer} onEnable={() => void requestGpsPermissionOnly()} />
           </AnimatePresence>
 
-          <button type="submit" disabled={loading || !captchaReady}
+          <button type="submit" onPointerDownCapture={primeGpsFromPointer} disabled={loading}
             className="w-full bg-red-600 text-white font-bold py-4 rounded-2xl hover:bg-red-700 transition-all active:scale-95 disabled:opacity-50">
             {loading ? "Authenticating..." : captchaReady ? "Admin Sign In" : "Loading Security..."}
           </button>
