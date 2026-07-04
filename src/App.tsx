@@ -647,7 +647,7 @@ async function requireLoginLocation(preStarted?: Promise<LoginLocationPayload> |
   return { ...location, ...publicIp, device };
 }
 
-function GpsPermissionSheet({ mode, loading, onEnable }: { mode: GpsPermissionMode | null; loading: boolean; onEnable: () => void }) {
+function GpsPermissionSheet({ mode, loading, onEnable, onPrimeEnable }: { mode: GpsPermissionMode | null; loading: boolean; onEnable: () => void; onPrimeEnable?: () => void }) {
   if (!mode) return null;
   const blocked = mode === "blocked";
   return (
@@ -671,6 +671,7 @@ function GpsPermissionSheet({ mode, loading, onEnable }: { mode: GpsPermissionMo
           </p>
           <button
             type="button"
+            onPointerDownCapture={onPrimeEnable}
             onClick={onEnable}
             disabled={loading}
             className="mt-3 inline-flex min-h-10 items-center justify-center rounded-lg bg-[#e50914] px-4 text-[13px] font-bold text-white transition active:scale-[0.98] disabled:opacity-55"
