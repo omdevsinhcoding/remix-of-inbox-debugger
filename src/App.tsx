@@ -6812,36 +6812,41 @@ function AvatarPicker({
             {saving ? "Saving…" : pendingCategoryKey ? "Preparing…" : `${activeCategory.files.length} icons`}
           </span>
         </div>
-        <div className="relative">
-          {chipEdges.left && (
-            <>
-              <div className="pointer-events-none absolute inset-y-0 left-0 w-10 bg-gradient-to-r from-slate-900 to-transparent z-10" />
+        {/* Desktop: wrap all chips as a pill grid (no scroll, no leakage). */}
+        <div className="hidden sm:flex flex-wrap gap-2">
+          {AVATAR_CATEGORIES.map((c) => {
+            const active = activeCategoryKey === c.key;
+            const pending = pendingCategoryKey === c.key;
+            return (
               <button
-                type="button"
-                aria-label="Scroll left"
-                onClick={() => scrollChips(-1)}
-                className="hidden sm:flex absolute left-0 top-1/2 -translate-y-1/2 z-20 h-7 w-7 items-center justify-center rounded-full bg-black/70 border border-white/10 text-white hover:bg-red-600 transition-colors"
+                key={c.key}
+                data-cat-key={c.key}
+                onClick={() => selectCategory(c.key)}
+                onMouseEnter={() => warmAvatarCategory(c.key, "low")}
+                className={`px-3.5 py-1.5 text-[12px] font-bold rounded-full transition-all duration-200 border ${
+                  active
+                    ? "bg-gradient-to-r from-red-600 to-red-700 text-white border-red-500 shadow-[0_4px_14px_rgba(239,68,68,0.5)] scale-105"
+                    : pending
+                    ? "bg-white text-slate-900 border-white animate-pulse"
+                    : "bg-white/5 text-white/80 border-white/10 hover:bg-white/10 hover:text-white hover:border-red-500/40"
+                }`}
               >
-                <ChevronLeft className="h-4 w-4" />
+                {c.label}
               </button>
-            </>
+            );
+          })}
+        </div>
+        {/* Mobile: horizontal scroll, clipped and padded so chips can't leak past the panel edge. */}
+        <div className="sm:hidden relative overflow-hidden rounded-lg">
+          {chipEdges.left && (
+            <div className="pointer-events-none absolute inset-y-0 left-0 w-8 bg-gradient-to-r from-slate-900 to-transparent z-10" />
           )}
           {chipEdges.right && (
-            <>
-              <div className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-slate-900 to-transparent z-10" />
-              <button
-                type="button"
-                aria-label="Scroll right"
-                onClick={() => scrollChips(1)}
-                className="hidden sm:flex absolute right-0 top-1/2 -translate-y-1/2 z-20 h-7 w-7 items-center justify-center rounded-full bg-black/70 border border-white/10 text-white hover:bg-red-600 transition-colors"
-              >
-                <ChevronRight className="h-4 w-4" />
-              </button>
-            </>
+            <div className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-slate-900 to-transparent z-10" />
           )}
           <div
             ref={chipScrollRef}
-            className="flex gap-2 overflow-x-auto scrollbar-none -mx-1 px-1 pb-1 snap-x snap-mandatory"
+            className="flex gap-2 overflow-x-auto scrollbar-none px-1 pb-1 snap-x snap-mandatory"
             style={{ scrollbarWidth: "none" }}
           >
             {AVATAR_CATEGORIES.map((c) => {
@@ -6852,7 +6857,6 @@ function AvatarPicker({
                   key={c.key}
                   data-cat-key={c.key}
                   onClick={() => selectCategory(c.key)}
-                  onMouseEnter={() => warmAvatarCategory(c.key, "low")}
                   className={`snap-start flex-shrink-0 px-3.5 py-1.5 text-[12px] font-bold rounded-full transition-all duration-200 border ${
                     active
                       ? "bg-gradient-to-r from-red-600 to-red-700 text-white border-red-500 shadow-[0_4px_14px_rgba(239,68,68,0.5)] scale-105"
@@ -6867,6 +6871,7 @@ function AvatarPicker({
             })}
           </div>
         </div>
+
       </div>
       <div className="pt-4">
         <AvatarRow
