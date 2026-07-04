@@ -4,8 +4,9 @@ import { Mail, RefreshCw, ShieldCheck, Shield, Clock, AlertCircle, Copy, Check, 
 import { motion, AnimatePresence } from "motion/react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import NetflixHouseholdVerificationGuide from "./pages/NetflixHouseholdVerificationGuide";
-import { Toaster, toast } from "sonner";
-import { premiumToast } from "./components/premium-toast";
+import { notify } from "./components/toast/notify";
+import { ToastProvider } from "./components/toast/toast-provider";
+
 import { supabase } from "./integrations/supabase/client";
 import { AVATAR_CATEGORIES, resolveAvatar, buildAvatarId, prettyName, getAvatarCategoryUrls } from "./lib/avatars";
 import { bootstrapFromSupabase, clearSessionData, markSessionStart, readBootstrapCache, refreshBootstrap, patchBootstrapCacheUser, getEmailFilters, setEmailFilters as setEmailFiltersCache, listNotifications, markNotificationRead, markAllNotificationsRead, markNotificationSeen, deleteNotificationForMe, logNotificationEvent, getPoppedIds, markPopped, adminListRecipients, adminDeleteNotificationForUser, type EmailFilters, type AppNotification, type MaintenanceInfo, type NotificationRecipient } from "./lib/bootstrap";
@@ -676,42 +677,8 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { err
   }
 }
 
-function ResponsiveToaster() {
-  const [isMobile, setIsMobile] = useState(() => typeof window !== "undefined" ? window.matchMedia("(max-width: 640px)").matches : true);
-  useEffect(() => {
-    const mq = window.matchMedia("(max-width: 640px)");
-    const onChange = () => setIsMobile(mq.matches);
-    onChange();
-    mq.addEventListener?.("change", onChange);
-    return () => mq.removeEventListener?.("change", onChange);
-  }, []);
-  return (
-    <Toaster
-      position={isMobile ? "top-center" : "bottom-right"}
-      closeButton
-      expand={false}
-      visibleToasts={1}
-      duration={2800}
-      gap={0}
-      offset={isMobile ? "calc(env(safe-area-inset-top) + 0.75rem)" : "1.25rem"}
-      toastOptions={{
-        unstyled: true,
-        classNames: {
-          toast: "cx-toast group",
-          title: "cx-toast-title",
-          description: "cx-toast-desc",
-          icon: "cx-toast-icon",
-          closeButton: "cx-toast-close",
-          success: "cx-v-success",
-          error: "cx-v-error",
-          info: "cx-v-info",
-          warning: "cx-v-warning",
-          loading: "cx-v-loading",
-        },
-      }}
-    />
-  );
-}
+// Toast surface is fully owned by <ToastProvider /> from ./components/toast.
+
 
 // --- Rate Limiter ---
 const loginAttempts: { [key: string]: number[] } = {};
