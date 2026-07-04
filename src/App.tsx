@@ -5019,8 +5019,16 @@ function AdminPanel() {
                               {u.assignedAccounts.map((a: string) => (
                                 <span key={a} className="bg-blue-100 text-blue-700 text-[10px] px-1.5 py-0.5 rounded-md font-bold">{a}</span>
                               ))}
-                            </div>
+                          </div>
                           )}
+                          {u.role !== "admin" && (u as any).session_limit != null && (
+                            <p className="text-[10px] text-emerald-700 mt-0.5 font-semibold">
+                              Session limit: {(u as any).session_limit === 0 ? "unlimited" : `${(u as any).session_limit} device${(u as any).session_limit === 1 ? "" : "s"}`}
+                            </p>
+                          )}
+                          {false && (
+                            <div>
+
                           {(!u.assignedAccounts || u.assignedAccounts.length === 0) && u.role !== "admin" && (
                             <p className="text-[10px] text-amber-600 mt-0.5 font-semibold">No accounts assigned</p>
                           )}
