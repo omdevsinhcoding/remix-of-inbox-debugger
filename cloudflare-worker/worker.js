@@ -244,6 +244,15 @@ export default {
 
 
 
+
+    // Immutable-HTML cache: single most impactful egress cut. Email HTML never
+    // changes after IMAP ingest, so we can KV-cache forever. Authz enforced
+    // via session.assignedAccounts / role on cache HIT; MISS forwards to
+    // Supabase manage-app (X-Cron-Secret marks trusted-proxy for plaintext).
+    if (url.pathname === "/api/inbox/html" && request.method === "POST") {
+      return handleInboxHtml(request, env, session, sessionToken, ctx);
+    }
+
     // Proxy manage-app and other edge functions through worker
     if (url.pathname.startsWith("/api/fn/") && request.method === "POST") {
       const fnName = url.pathname.replace("/api/fn/", "");
@@ -640,6 +649,153 @@ async function handleFunctionProxy(request, env, fnName) {
     return new Response(JSON.stringify({ error: "Proxy error: " + (err.message || "Unknown") }), {
       status: 502,
       headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+    });
+  }
+}
+
+// ------------------------------------------------------------------
+// Email HTML cache — 1 year TTL (immutable content)
+// ------------------------------------------------------------------
+// KV key layout:  email_html:v1:<emailId>  →  JSON { html, account_label, at }
+// - HIT + session.assignedAccounts allows label (or admin role): serve cached.
+// - HIT + session lacks assignedAccounts info: skip cache, fall through (safe).
+// - MISS: proxy to Supabase manage-app { action:"get_email_html", id } with
+//   X-Session-Token + X-Cron-Secret (trusted-proxy marker enabling plaintext).
+//   Cache the response for 1 year.
+//
+// User impact: none. Emails render identically. Repeat opens across ANY device
+// or browser (that shares this worker's KV) are served from Cloudflare edge
+// with zero Supabase egress.
+
+const EMAIL_HTML_KEY_PREFIX = "email_html:v1:";
+const EMAIL_HTML_TTL_SECONDS = 60 * 60 * 24 * 365; // 1 year
+
+function inboxHtmlHeaders(extra = {}) {
+  return {
+    ...CORS_HEADERS,
+    "Content-Type": "application/json",
+    "Cache-Control": "no-store",
+    "Access-Control-Expose-Headers": "X-Cache-Status, X-Cache-Age",
+    ...extra,
+  };
+}
+
+function sessionAllowsLabel(session, label) {
+  if (!session) return null; // unknown — cannot decide
+  if (session.role === "admin") return true;
+  const assigned = session.assignedAccounts;
+  if (!Array.isArray(assigned)) return null; // unknown shape — cannot decide
+  if (assigned.length === 0) return false;   // user has no accounts assigned
+  return assigned.map((s) => String(s).trim()).filter(Boolean).includes(String(label || "").trim());
+}
+
+async function handleInboxHtml(request, env, session, rawToken, ctx) {
+  // Require signing config + a verified session token. This mirrors the
+  // Supabase-side requireSession() contract.
+  const hasSigning = !!(env.SESSION_SIGNING_SECRET || env.SESSION_SECRET);
+  if (hasSigning && !session) {
+    return new Response(JSON.stringify({ success: false, error: "Invalid session" }), {
+      status: 401, headers: inboxHtmlHeaders(),
+    });
+  }
+
+  let body = null;
+  try { body = await request.json(); } catch {}
+  const id = body && typeof body.id === "string" ? body.id.trim() : "";
+  if (!id) {
+    return new Response(JSON.stringify({ success: false, error: "id required" }), {
+      status: 400, headers: inboxHtmlHeaders(),
+    });
+  }
+
+  const kv = getKV(env);
+  const cacheKey = `${EMAIL_HTML_KEY_PREFIX}${id}`;
+
+  // ---- Cache lookup ----
+  if (kv) {
+    const raw = await kvGet(env, cacheKey);
+    if (raw) {
+      let cached = null;
+      try { cached = JSON.parse(raw); } catch { cached = null; }
+      if (cached && typeof cached.html === "string") {
+        const allowed = sessionAllowsLabel(session, cached.account_label);
+        if (allowed === true) {
+          const age = cached.at ? Math.max(0, Math.round((Date.now() - cached.at) / 1000)) : 0;
+          return new Response(
+            JSON.stringify({ success: true, id, html: cached.html, account_label: cached.account_label || "" }),
+            { headers: inboxHtmlHeaders({ "X-Cache-Status": "HIT", "X-Cache-Age": String(age) }) },
+          );
+        }
+        if (allowed === false) {
+          return new Response(JSON.stringify({ success: false, error: "Not authorized" }), {
+            status: 403, headers: inboxHtmlHeaders({ "X-Cache-Status": "HIT_DENY" }),
+          });
+        }
+        // allowed === null → session shape unknown, fall through to Supabase.
+      }
+    }
+  }
+
+  // ---- Cache miss / unverifiable → proxy to Supabase (plaintext via X-Cron-Secret) ----
+  if (!env.SUPABASE_URL || !env.SUPABASE_KEY) {
+    return new Response(JSON.stringify({ success: false, error: "Worker not configured (SUPABASE_URL/KEY missing)" }), {
+      status: 500, headers: inboxHtmlHeaders(),
+    });
+  }
+  if (!env.CRON_SHARED_SECRET) {
+    return new Response(JSON.stringify({ success: false, error: "Worker not configured (CRON_SHARED_SECRET missing)" }), {
+      status: 500, headers: inboxHtmlHeaders(),
+    });
+  }
+
+  try {
+    const upstreamHeaders = {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${env.SUPABASE_KEY}`,
+      "apikey": env.SUPABASE_KEY,
+      "X-Cron-Secret": env.CRON_SHARED_SECRET,
+    };
+    if (rawToken) upstreamHeaders["X-Session-Token"] = rawToken;
+
+    const upstream = await fetch(`${env.SUPABASE_URL}/functions/v1/manage-app`, {
+      method: "POST",
+      headers: upstreamHeaders,
+      body: JSON.stringify({ action: "get_email_html", id }),
+    });
+    const text = await upstream.text();
+    if (!upstream.ok) {
+      return new Response(text || JSON.stringify({ success: false, error: "upstream error" }), {
+        status: upstream.status,
+        headers: inboxHtmlHeaders({ "X-Cache-Status": "MISS_ERR" }),
+      });
+    }
+    let parsed = null;
+    try { parsed = JSON.parse(text); } catch {}
+    if (parsed && parsed.success && typeof parsed.html === "string" && parsed.html.length > 0 && kv) {
+      const payload = {
+        html: parsed.html,
+        account_label: parsed.account_label || "",
+        at: Date.now(),
+      };
+      const writeWork = (async () => {
+        try {
+          const primaryKV = env.EMAIL_CACHE_V2 || env.EMAIL_CACHE;
+          if (primaryKV) {
+            await primaryKV.put(cacheKey, JSON.stringify(payload), { expirationTtl: EMAIL_HTML_TTL_SECONDS });
+          }
+        } catch (err) {
+          console.error("[inbox-html] KV write failed:", err.message || err);
+        }
+      })();
+      if (ctx?.waitUntil) ctx.waitUntil(writeWork); else await writeWork;
+    }
+    return new Response(text, {
+      status: 200,
+      headers: inboxHtmlHeaders({ "X-Cache-Status": "MISS" }),
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ success: false, error: "Worker upstream failed: " + (err.message || "Unknown") }), {
+      status: 502, headers: inboxHtmlHeaders({ "X-Cache-Status": "MISS_ERR" }),
     });
   }
 }

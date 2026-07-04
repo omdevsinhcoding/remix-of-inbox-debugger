@@ -4,7 +4,7 @@ import { readRequest, maybeEncryptResponse, EncryptedRequestContext, PlaintextRe
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-session-token, x-pending-token, x-client-ip, x-crypto-session, x-accept-encoding",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-session-token, x-pending-token, x-client-ip, x-crypto-session, x-accept-encoding, x-cron-secret",
 };
 
 // Warm-instance memo for bootstrap_public. Deno edge instances stay warm for
@@ -1428,10 +1428,18 @@ Deno.serve(async (originalReq) => {
   }
 
   // ---- transport encryption boundary ----
+  // Trusted server-to-server callers (Cloudflare worker cache-proxy, cron) may
+  // send plaintext JSON when they present X-Cron-Secret matching the shared
+  // secret. This enables the worker to KV-cache immutable email HTML and
+  // dramatically cut Supabase egress, while all end-user calls remain
+  // encrypted. Session token is still required for auth on protected actions.
+  const __cronSecret = Deno.env.get("CRON_SHARED_SECRET") || "";
+  const __presentedCron = originalReq.headers.get("x-cron-secret") || originalReq.headers.get("X-Cron-Secret") || "";
+  const __trustedProxy = !!__cronSecret && __presentedCron === __cronSecret;
   let __ctx: EncryptedRequestContext | null = null;
   let __parsedBody: any = null;
   try {
-    const __r = await readRequest(originalReq);
+    const __r = await readRequest(originalReq, { allowPlaintext: __trustedProxy });
     __parsedBody = __r.body ?? {};
     __ctx = __r.encrypted ? __r.ctx : null;
   } catch (e) {
@@ -2598,7 +2606,9 @@ Deno.serve(async (originalReq) => {
       }
       if (labels && labels.length === 0 && !isAdmin) throw new Error("Not authorized");
 
-      return new Response(JSON.stringify({ success: true, id: row.id, html: row.html || "" }), {
+      // Include account_label so the Cloudflare worker cache can enforce
+      // per-user authz on cache hits without a round-trip.
+      return new Response(JSON.stringify({ success: true, id: row.id, html: row.html || "", account_label: row.account_label || "" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
