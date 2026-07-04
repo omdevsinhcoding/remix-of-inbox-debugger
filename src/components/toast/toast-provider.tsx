@@ -1,0 +1,159 @@
+import { AlertTriangle, Check, Info, LoaderCircle, X, XCircle } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
+import { type GlobalToast, notify, toastStore } from "./notify";
+
+type ToastTone = "light" | "dark";
+
+const ICONS = {
+  success: Check,
+  error: XCircle,
+  warning: AlertTriangle,
+  info: Info,
+  loading: LoaderCircle,
+};
+
+/* ---------- page tone detection (samples the actual page background) ---------- */
+
+function parseRgb(value: string): [number, number, number, number] | null {
+  if (!value || value === "transparent") return null;
+  const m = value.match(/rgba?\((\d+(?:\.\d+)?),\s*(\d+(?:\.\d+)?),\s*(\d+(?:\.\d+)?)(?:,\s*(\d+(?:\.\d+)?))?\)/i);
+  if (!m) return null;
+  const a = m[4] === undefined ? 1 : Number(m[4]);
+  return [Number(m[1]), Number(m[2]), Number(m[3]), a];
+}
+
+function luminance([r, g, b]: [number, number, number, number]) {
+  const toLin = (c: number) => {
+    const v = c / 255;
+    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * toLin(r) + 0.7152 * toLin(g) + 0.0722 * toLin(b);
+}
+
+function sampleAt(x: number, y: number): number | null {
+  const stack = document.elementsFromPoint(x, y);
+  for (const el of stack) {
+    if ((el as HTMLElement).closest?.("[data-global-toast-root]")) continue;
+    let node: Element | null = el;
+    while (node) {
+      const rgba = parseRgb(window.getComputedStyle(node).backgroundColor);
+      if (rgba && rgba[3] >= 0.2) return luminance(rgba);
+      node = node.parentElement;
+    }
+  }
+  return null;
+}
+
+function getPageTone(): ToastTone {
+  if (typeof window === "undefined" || typeof document === "undefined") return "dark";
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  // Sample multiple points, prefer the majority tone.
+  const samples: number[] = [];
+  const points: Array<[number, number]> = [
+    [Math.max(12, w - 40), Math.max(12, h - 40)],
+    [Math.floor(w / 2), Math.floor(h / 2)],
+    [Math.floor(w / 2), 40],
+    [40, Math.floor(h / 2)],
+  ];
+  for (const [x, y] of points) {
+    const l = sampleAt(x, y);
+    if (l !== null) samples.push(l);
+  }
+  if (samples.length === 0) {
+    const bodyRgba = parseRgb(window.getComputedStyle(document.body).backgroundColor);
+    if (bodyRgba) samples.push(luminance(bodyRgba));
+  }
+  if (samples.length === 0) return "dark";
+  const avg = samples.reduce((a, b) => a + b, 0) / samples.length;
+  // Bright page → dark toast; dark page → light toast.
+  return avg > 0.42 ? "dark" : "light";
+}
+
+/* ---------- individual card with progress bar ---------- */
+
+function ToastCard({ toast, tone }: { toast: GlobalToast; tone: ToastTone }) {
+  const Icon = ICONS[toast.variant];
+  const hasProgress = Number.isFinite(toast.duration) && toast.duration > 0 && toast.variant !== "loading";
+  return (
+    <div className="gt-toast" data-tone={tone} data-variant={toast.variant} role="status" aria-live="polite">
+      <div className="gt-toast-accent" aria-hidden="true" />
+      <div className="gt-toast-icon" aria-hidden="true">
+        <Icon />
+      </div>
+      <div className="gt-toast-copy">
+        {toast.title ? <div className="gt-toast-title">{toast.title}</div> : null}
+        {toast.description ? <div className="gt-toast-desc">{toast.description}</div> : null}
+      </div>
+      <button
+        className="gt-toast-close"
+        type="button"
+        aria-label="Dismiss notification"
+        onClick={() => notify.dismiss(toast.id)}
+      >
+        <X />
+      </button>
+      {hasProgress ? (
+        <div
+          className="gt-toast-progress"
+          style={{ animationDuration: `${toast.duration}ms` }}
+          aria-hidden="true"
+        />
+      ) : null}
+    </div>
+  );
+}
+
+/* ---------- provider ---------- */
+
+export function ToastProvider() {
+  const [toasts, setToasts] = useState<GlobalToast[]>(() => toastStore.getSnapshot());
+  const [tone, setTone] = useState<ToastTone>(() => (typeof window === "undefined" ? "dark" : getPageTone()));
+
+  useEffect(() => toastStore.subscribe(setToasts), []);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof document === "undefined") return;
+    let raf = 0;
+    const update = () => {
+      window.cancelAnimationFrame(raf);
+      raf = window.requestAnimationFrame(() => setTone(getPageTone()));
+    };
+    update();
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    const observer = new MutationObserver(update);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      childList: true,
+      subtree: true,
+      attributeFilter: ["class", "style", "data-theme"],
+    });
+    return () => {
+      window.cancelAnimationFrame(raf);
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+      observer.disconnect();
+    };
+  }, []);
+
+  // Re-sample whenever a new toast arrives (route changes usually trigger a toast).
+  useEffect(() => {
+    if (typeof window !== "undefined") setTone(getPageTone());
+  }, [toasts.length]);
+
+  const root = useMemo(() => (typeof document === "undefined" ? null : document.body), []);
+  if (!root || toasts.length === 0) return null;
+
+  return createPortal(
+    <div className="gt-toast-viewport" data-global-toast-root="true">
+      {toasts.map((toast) => (
+        <ToastCard key={toast.id} toast={toast} tone={tone} />
+      ))}
+    </div>,
+    root,
+  );
+}
+
+export default ToastProvider;
