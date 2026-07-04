@@ -68,7 +68,9 @@ export const toastStore = {
   subscribe(listener: Listener) {
     listeners.add(listener);
     listener(snapshot());
-    return () => listeners.delete(listener);
+    return () => {
+      listeners.delete(listener);
+    };
   },
   getSnapshot: snapshot,
 };
