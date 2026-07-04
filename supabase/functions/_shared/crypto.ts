@@ -113,6 +113,7 @@ async function loadSession(sessionId: string): Promise<{ key: CryptoKey; origin_
 export interface EncryptedRequestContext {
   sessionId: string;
   key: CryptoKey;
+  acceptGzip: boolean;
 }
 
 export class PlaintextRejectedError extends Error {
