@@ -4194,7 +4194,6 @@ function AdminPanel() {
           user: adminUser, token: adminToken, adminAuth, exp: Date.now() + 10 * 60_000,
         }));
       } catch {}
-      try { sessionRemove("admin_backup" as any); } catch {}
 
       // CRITICAL: navigate to /viewer BEFORE swapping the session in state.
       // Otherwise ProtectedRoute on /admin/dashboard sees role="user" and
