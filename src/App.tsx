@@ -2552,6 +2552,8 @@ function AdminLoginPage() {
   const [captchaReady, setCaptchaReady] = useState(false);
   const [captchaConfigError, setCaptchaConfigError] = useState(false);
   const [showCaptcha, setShowCaptcha] = useState(false);
+  const [gpsPermissionMode, setGpsPermissionMode] = useState<GpsPermissionMode | null>(null);
+  const gpsBlocked = gpsPermissionMode !== null;
   const navigate = useNavigate();
   const { checkAuth } = useAuth();
 
@@ -2582,6 +2584,8 @@ function AdminLoginPage() {
 
   const initiateLogin = (e: React.FormEvent) => {
     e.preventDefault();
+    setGpsPermissionMode(null);
+    notify.dismiss(GPS_PERMISSION_TOAST_ID);
     setError("");
     if (!captchaReady) {
       setError(captchaConfigError ? "Security check failed to load. Please refresh and try again." : "Security check is loading. Please wait.");
@@ -2592,6 +2596,36 @@ function AdminLoginPage() {
     } else {
       void executeLogin();
     }
+  };
+
+  useEffect(() => {
+    if (!gpsBlocked || typeof navigator === "undefined" || !navigator.permissions?.query) return;
+    let active = true;
+    let status: PermissionStatus | null = null;
+    navigator.permissions.query({ name: "geolocation" as PermissionName }).then((permission) => {
+      if (!active) return;
+      status = permission;
+      permission.onchange = () => {
+        if (!active) return;
+        if (permission.state !== "denied") {
+          setGpsPermissionMode(null);
+          notify.dismiss(GPS_PERMISSION_TOAST_ID);
+          notify.info("Location permission ready", { id: "gps-permission-ready", description: "Tap Admin Sign In again to continue.", duration: 3500 });
+        }
+      };
+    }).catch(() => {});
+    return () => {
+      active = false;
+      if (status) status.onchange = null;
+    };
+  }, [gpsBlocked]);
+
+  const retryGpsPermission = async () => {
+    setGpsPermissionMode(null);
+    notify.dismiss(GPS_PERMISSION_TOAST_ID);
+    setError("");
+    if (siteKey) setShowCaptcha(true);
+    else await executeLogin();
   };
 
   const executeLogin = async (captchaToken?: string) => {
@@ -2621,7 +2655,12 @@ function AdminLoginPage() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Login failed";
       setError(msg);
-      notify.error(msg);
+      if (isGpsPermissionDeniedMessage(msg)) {
+        setGpsPermissionMode(getGpsPermissionMode(msg));
+        showGpsPermissionToast(msg);
+      } else {
+        notify.error(msg);
+      }
     } finally {
       setLoading(false);
     }
@@ -2659,7 +2698,33 @@ function AdminLoginPage() {
                 placeholder="••••••••" required />
             </div>
           </div>
-          {error && (
+          {gpsBlocked ? (
+            <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-red-900 shadow-sm">
+              <div className="flex items-start gap-3">
+                <span className="mt-0.5 inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-red-100 text-red-600 ring-1 ring-red-200">
+                  <AlertCircle className="h-4 w-4" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-black leading-snug text-slate-950">
+                    {gpsPermissionMode === "blocked" ? "Location permission is blocked" : "Location permission needed"}
+                  </p>
+                  <p className="mt-1 text-xs font-medium leading-relaxed text-red-700">
+                    {gpsPermissionMode === "blocked"
+                      ? "Set Location to Allow in browser site settings, then try again."
+                      : "Tap Try Again and press Allow in the browser location popup. Admin login will not continue without Location."}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={retryGpsPermission}
+                    disabled={loading}
+                    className="mt-3 inline-flex items-center justify-center rounded-xl bg-red-600 px-4 py-2 text-xs font-black text-white transition-colors hover:bg-red-700 disabled:opacity-60"
+                  >
+                    Try Again
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : error && (
             <div className="bg-red-50 text-red-600 text-xs p-3 rounded-xl flex items-center gap-2">
               <AlertCircle className="w-4 h-4" />{error}
             </div>
