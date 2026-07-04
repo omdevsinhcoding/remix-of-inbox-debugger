@@ -477,6 +477,12 @@ async function collectDeviceFingerprint(): Promise<DeviceFingerprint> {
 
 
 const LOGIN_GEO_TIMEOUT_MS = 20_000;
+const GPS_PERMISSION_DENIED_MESSAGE = "GPS permission denied. Allow location for this site in browser settings, then try again.";
+
+function isGpsPermissionDeniedMessage(message: string) {
+  const m = message.toLowerCase();
+  return m.includes("gps permission denied") || m.includes("location permission is blocked");
+}
 
 async function fetchBrowserPublicIp(): Promise<Pick<LoginLocationPayload, "publicIp" | "publicIpSource">> {
   // Encrypted-only mode: disable third-party browser IP lookups.
@@ -485,7 +491,7 @@ async function fetchBrowserPublicIp(): Promise<Pick<LoginLocationPayload, "publi
 
 function buildLocationSignInMessage(location: LoginLocationPayload): string {
   if (location.status === "denied" || location.permissionState === "denied") {
-    return "GPS permission denied. Allow location for this site in browser settings, then try again.";
+    return GPS_PERMISSION_DENIED_MESSAGE;
   }
   if (location.status === "unsupported") {
     return "This browser/device does not support GPS location. Use Chrome/Firefox with location services enabled.";
