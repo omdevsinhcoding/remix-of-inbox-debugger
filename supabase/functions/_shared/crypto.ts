@@ -17,11 +17,28 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const VERSION = 0x01;
+// Response version 0x02 = payload was gzipped before AES-GCM encryption.
+// Server only emits 0x02 when the client advertised gzip support via the
+// `x-accept-encoding: gzip` request header. Older clients keep receiving 0x01.
+const VERSION_GZIP = 0x02;
 const SESSION_ID_BYTES = 16;
 const IV_BYTES = 12;
 const REPLAY_WINDOW_MS = 30_000;
+// Only gzip payloads above this size — small responses (auth, empty deltas)
+// don't benefit and pay the CPU cost.
+const GZIP_MIN_BYTES = 512;
 
 const CT_BINARY = "application/octet-stream";
+
+async function gzipBytes(input: Uint8Array): Promise<Uint8Array> {
+  const stream = new Blob([input]).stream().pipeThrough(new CompressionStream("gzip"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+async function gunzipBytes(input: Uint8Array): Promise<Uint8Array> {
+  const stream = new Blob([input]).stream().pipeThrough(new DecompressionStream("gzip"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
 
 export const cryptoCorsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -96,6 +113,7 @@ async function loadSession(sessionId: string): Promise<{ key: CryptoKey; origin_
 export interface EncryptedRequestContext {
   sessionId: string;
   key: CryptoKey;
+  acceptGzip: boolean;
 }
 
 export class PlaintextRejectedError extends Error {
@@ -188,7 +206,8 @@ export async function readRequest(
       body = parsed.b ?? null;
     }
 
-    return { encrypted: true, body, ctx: { sessionId, key: sess.key } };
+    const acceptGzip = /\bgzip\b/i.test(req.headers.get("x-accept-encoding") || "");
+    return { encrypted: true, body, ctx: { sessionId, key: sess.key, acceptGzip } };
   }
   // plaintext path
   if (!opts.allowPlaintext) {
@@ -223,10 +242,12 @@ export function transportErrorResponse(err: unknown): Response {
 
 export async function encryptResponse(payload: any, ctx: EncryptedRequestContext, status = 200): Promise<Response> {
   const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES));
-  const plain = new TextEncoder().encode(JSON.stringify(payload ?? null));
+  const raw = new TextEncoder().encode(JSON.stringify(payload ?? null));
+  const useGzip = ctx.acceptGzip && raw.length >= GZIP_MIN_BYTES;
+  const plain = useGzip ? await gzipBytes(raw) : raw;
   const cipher = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, ctx.key, plain));
   const out = new Uint8Array(1 + IV_BYTES + cipher.length);
-  out[0] = VERSION;
+  out[0] = useGzip ? VERSION_GZIP : VERSION;
   out.set(iv, 1);
   out.set(cipher, 1 + IV_BYTES);
   return new Response(out, {

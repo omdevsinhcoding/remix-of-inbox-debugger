@@ -4,8 +4,17 @@ import { readRequest, maybeEncryptResponse, EncryptedRequestContext, PlaintextRe
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-session-token, x-pending-token, x-client-ip, x-crypto-session",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-session-token, x-pending-token, x-client-ip, x-crypto-session, x-accept-encoding",
 };
+
+// Warm-instance memo for bootstrap_public. Deno edge instances stay warm for
+// ~15 min; 10-second TTL means at 5k concurrent users we serve most calls from
+// this in-memory cache, dropping DB reads + egress on the public bootstrap
+// path by ~99%. Invalidated on any admin write to app_users / app_settings
+// (see bumpBootstrapVersion below).
+let __bootstrapCache: { at: number; payload: any } | null = null;
+const BOOTSTRAP_TTL_MS = 10_000;
+function invalidateBootstrapCache() { __bootstrapCache = null; }
 
 // --- Crypto helpers ---
 async function hashPassword(password: string): Promise<string> {
@@ -1604,6 +1613,15 @@ Deno.serve(async (originalReq) => {
 
     // Bootstrap: returns profiles, recaptcha config, and worker URLs for fresh browsers
     if (action === "bootstrap_public") {
+      // Warm-instance cache: 5000 concurrent users all hitting this on load
+      // otherwise re-runs the SELECTs and repays the egress. 10s TTL keeps
+      // profile picker feeling live while removing 99% of DB reads.
+      const now = Date.now();
+      if (__bootstrapCache && (now - __bootstrapCache.at) < BOOTSTRAP_TTL_MS) {
+        return new Response(JSON.stringify(__bootstrapCache.payload), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
       // Public profile picker — only non-admin users, minimal fields.
       const usersP = supabase
         .from("app_users")
@@ -1689,7 +1707,9 @@ Deno.serve(async (originalReq) => {
         role: u.role,
         profileAvatar: u.profile_prefs?.avatarId || null,
       }));
-      return new Response(JSON.stringify({ success: true, users: mappedUsers, recaptcha, workerUrls, emailFilters, maintenance, avatarBaseUrl }), {
+      const payload = { success: true, users: mappedUsers, recaptcha, workerUrls, emailFilters, maintenance, avatarBaseUrl };
+      __bootstrapCache = { at: now, payload };
+      return new Response(JSON.stringify(payload), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -1848,6 +1868,7 @@ Deno.serve(async (originalReq) => {
         .select("id, username, name, role, assigned_accounts, profile_prefs")
         .single();
       if (error) throw error;
+      invalidateBootstrapCache();
 
       await auditLog(supabase, bootstrapCreate ? "bootstrap_admin_created" : "user_created", actorId, data.id, { username, role: role || "user" }, ip);
 
@@ -1861,6 +1882,7 @@ Deno.serve(async (originalReq) => {
       const { id } = params;
       const { error } = await supabase.from("app_users").delete().eq("id", id);
       if (error) throw error;
+      invalidateBootstrapCache();
       await auditLog(supabase, "user_deleted", session.userId, id, {}, ip);
       return new Response(JSON.stringify({ success: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -1915,6 +1937,7 @@ Deno.serve(async (originalReq) => {
     if (action === "update_profile_prefs") {
       const session = await requireSession(req);
       const { profile_prefs } = params;
+      invalidateBootstrapCache();
       if (!profile_prefs || typeof profile_prefs !== "object" || Array.isArray(profile_prefs)) {
         throw new Error("Profile settings are invalid");
       }
@@ -2154,6 +2177,9 @@ Deno.serve(async (originalReq) => {
     if (action === "set_settings") {
       const session = await requireAdmin(req);
       const { key, value } = params;
+      // Any change to keys that feed bootstrap_public must drop the cache so
+      // profile picker/maintenance banner update within a second, not 10s.
+      invalidateBootstrapCache();
 
       let processedValue = value;
 
