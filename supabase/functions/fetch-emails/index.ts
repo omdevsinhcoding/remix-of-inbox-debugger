@@ -311,12 +311,6 @@ async function fetchFromAccount(
           const fullMsg = await client.fetchOne(uid, { source: true, envelope: true }, { uid: true });
           if (!fullMsg?.source) continue;
 
-          if (quickRefresh) {
-            const fastEmail = parseFastEmail(fullMsg.source as Uint8Array, fullMsg.envelope, accountLabel, uid);
-            if (fastEmail) emails.push(fastEmail);
-            continue;
-          }
-
           const parsed = await simpleParser(fullMsg.source, { skipImageLinks: true, skipTextLinks: true });
           const bodyText = (parsed.text || "").trim();
           const subjectText = (parsed.subject || fullMsg.envelope?.subject || "").toString();
@@ -422,7 +416,9 @@ async function loadAccounts(supabase: any, secret: string, accountLabels: string
 
 async function runSync(supabase: any, secret: string, source: string, accountLabels: string[] | null, maxMessages = FULL_SYNC_MAX_UIDS) {
   console.log(`[sync] Starting parallel IMAP sync (source: ${source})`);
-  const quickRefresh = source === "user_refresh";
+  // Keep output identical to the old working fetch-emails implementation:
+  // every refresh uses mailparser/simpleParser so Netflix HTML is cached and displayed as-is.
+  const quickRefresh = false;
   const accounts = await loadAccounts(supabase, secret, accountLabels);
 
   if (accounts.length === 0) {
