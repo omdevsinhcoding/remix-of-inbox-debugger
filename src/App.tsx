@@ -4199,21 +4199,16 @@ function AdminPanel() {
         }));
       } catch {}
 
-      // CRITICAL: navigate to /viewer BEFORE swapping the session in state.
-      // Otherwise ProtectedRoute on /admin/dashboard sees role="user" and
-      // redirects to "/" (login), racing past navigate("/viewer") and
-      // kicking the admin out.
-      navigate("/viewer", { replace: true });
-
+      // Write the impersonated user session BEFORE /viewer mounts so EmailViewer
+      // opens the correct per-user IndexedDB and delta-syncs that user's account.
+      // Do not call checkAuth here; keeping AuthContext as admin for this tick
+      // avoids the admin dashboard guard redirect race while navigation commits.
       sessionSet("user" as any, JSON.stringify(data.user));
       if (data.sessionToken) sessionSet("session_token" as any, data.sessionToken);
       // Impersonation: also defer session timer until EmailViewer loads inbox.
       try { sessionRemove("session_started_at" as any); } catch {}
       sessionRemove("admin_auth" as any);
-      // Do NOT call checkAuth here. React Router may still be rendering the
-      // admin dashboard for this tick; swapping AuthContext to role="user"
-      // before /viewer commits makes ProtectedRoute redirect to "/" and kicks
-      // the admin out. EmailViewer reads the impersonated session directly.
+      navigate("/viewer", { replace: true });
       toast.success(`Viewing as ${targetUser.name}`);
     } catch (err) {
       toast.dismiss("impersonate");
