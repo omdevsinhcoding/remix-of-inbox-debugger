@@ -212,9 +212,10 @@ function parseFastEmail(rawSource: Uint8Array, envelope: any, accountLabel: stri
   const subject = (envelope?.subject || "").toString();
   const from = (envelope?.from || []).map(formatAddress).filter(Boolean).join(", ") || "Netflix";
   const to = (envelope?.to || []).map(formatAddress).filter(Boolean).join(", ") || undefined;
-  // Strict: sender must be a real @netflix.com address, and drop marketing subjects.
+  // Strict: sender must be a real @netflix.com address. Promo filtering happens
+  // at read-time (respecting the admin toggle), not at ingest — so all official
+  // Netflix mail (marketing/new-release announcements included) enters the cache.
   if (!isNetflixFrom(from)) return null;
-  if (isNetflixPromo(subject)) return null;
   const preview = bodyText.length > 100 ? `${bodyText.substring(0, 100)}...` : bodyText;
   return {
     id: `${accountLabel}:${uid}`,
