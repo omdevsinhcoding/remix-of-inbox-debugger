@@ -1292,8 +1292,12 @@ async function persistLoginEvent(
 ) {
   const dev = clientGeo?.device || {};
   const forwardedUa = dev.userAgent || req.headers.get("x-client-user-agent") || req.headers.get("user-agent") || "";
-  const { browser, browserVersion, os, osVersion } = parseUserAgent(forwardedUa);
-  const { model: devModel, type: devType, vendor: devVendor } = inferDeviceModel(forwardedUa, dev);
+  const parsedUa = parseUserAgent(forwardedUa);
+  const identity = normalizeDeviceIdentity(forwardedUa, dev);
+  const browser = dev.browserName || parsedUa.browser;
+  const browserVersion = dev.browserVersion || parsedUa.browserVersion;
+  const os = dev.osName || parsedUa.os;
+  const osVersion = dev.osVersion || parsedUa.osVersion;
   const fpHash = dev.fingerprintHash || null;
 
   // is_new_device: fingerprint (or user_agent) not seen for this user in past 90d
@@ -1362,9 +1366,9 @@ async function persistLoginEvent(
     gps_heading: isGps ? (clientGeo!.heading ?? null) : null,
     gps_speed: isGps ? (clientGeo!.speed ?? null) : null,
     gps_captured_at: isGps && clientGeo!.timestamp ? new Date(clientGeo!.timestamp).toISOString() : null,
-    device_type: devType || null, device_brand: devVendor || null, device_model: devModel || null,
-    os_name: os || null, os_version: osVersion || null,
-    browser_name: browser || null, browser_version: browserVersion || null,
+    device_type: identity.type || null, device_brand: identity.vendor || null, device_model: identity.model || null,
+    os_name: os || null, os_version: osVersion ? normalizedVersion(osVersion) : null,
+    browser_name: browser || null, browser_version: browserVersion ? normalizedVersion(browserVersion) : null,
     user_agent: forwardedUa || null, platform: dev.platform || null,
     languages: Array.isArray(dev.languages) ? dev.languages : null,
     hardware_concurrency: typeof dev.hardwareConcurrency === "number" ? dev.hardwareConcurrency : null,
