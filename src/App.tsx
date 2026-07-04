@@ -538,42 +538,35 @@ function buildLocationSignInMessage(location: LoginLocationPayload): string {
   return `Could not read device GPS coordinates (${location.error || "unknown"}).`;
 }
 
-async function collectLoginLocation(): Promise<LoginLocationPayload> {
-  console.log("[GPS] === collectLoginLocation called ===");
-  console.log("[GPS] Secure context (HTTPS):", typeof window !== "undefined" ? window.isSecureContext : "n/a");
-  console.log("[GPS] Origin:", typeof window !== "undefined" ? window.location.origin : "n/a");
-
+// CRITICAL for Chrome Android / Incognito:
+// getCurrentPosition MUST be called synchronously in the same tick as the user
+// gesture (click/submit), BEFORE any setState / await / notify calls. Any async
+// gap invalidates user activation and Chrome silently drops the native prompt.
+// This helper is intentionally NOT async — it fires getCurrentPosition
+// immediately and returns a plain Promise consumers can await later.
+function beginGeolocationCapture(): Promise<LoginLocationPayload> {
   if (typeof window === "undefined" || typeof navigator === "undefined" || !navigator.geolocation) {
-    console.error("[GPS] navigator.geolocation NOT AVAILABLE");
-    return { status: "unsupported", permissionState: "unknown", error: "Geolocation is not supported on this device." };
+    return Promise.resolve({ status: "unsupported", permissionState: "unknown", error: "Geolocation is not supported on this device." });
   }
   if (!window.isSecureContext) {
-    console.error("[GPS] Not a secure context — geolocation blocked.");
-    return { status: "error", permissionState: "unknown", error: "HTTPS is required for GPS." };
+    return Promise.resolve({ status: "error", permissionState: "unknown", error: "HTTPS is required for GPS." });
   }
 
-  let permissionState: LoginLocationPayload["permissionState"] = "unknown";
-  console.log("[GPS] GPS request started (enableHighAccuracy=true, timeout=20000, maximumAge=0)");
   const startedAt = Date.now();
-
-  return await new Promise<LoginLocationPayload>((resolve) => {
+  return new Promise<LoginLocationPayload>((resolve) => {
     let settled = false;
+    let timer: number | undefined;
     const finish = (payload: LoginLocationPayload) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
-      const elapsed = Date.now() - startedAt;
-      console.log(`[GPS] finish (${elapsed}ms):`, payload);
-      resolve({ permissionState, ...payload });
+      if (timer !== undefined) clearTimeout(timer);
+      console.log(`[GPS] finish (${Date.now() - startedAt}ms):`, payload);
+      resolve(payload);
     };
     const onSuccess = (pos: GeolocationPosition) => {
-      console.log("[GPS] GPS success");
-      console.log("[GPS] Latitude:", pos.coords.latitude);
-      console.log("[GPS] Longitude:", pos.coords.longitude);
-      console.log("[GPS] Accuracy (m):", pos.coords.accuracy);
-      console.log("[GPS] Timestamp:", pos.timestamp, new Date(pos.timestamp).toISOString());
       finish({
         status: "granted",
+        permissionState: "granted",
         latitude: pos.coords.latitude,
         longitude: pos.coords.longitude,
         accuracy: pos.coords.accuracy,
@@ -584,26 +577,21 @@ async function collectLoginLocation(): Promise<LoginLocationPayload> {
       });
     };
     const onError = async (err: GeolocationPositionError) => {
-      console.error("[GPS] GPS error code:", err.code, "message:", err.message);
+      console.error("[GPS] error code:", err.code, "message:", err.message);
       let status: LoginLocationPayload["status"] = "error";
       if (err.code === err.PERMISSION_DENIED) status = "denied";
       else if (err.code === err.POSITION_UNAVAILABLE) status = "unavailable";
       else if (err.code === err.TIMEOUT) status = "timeout";
-      let nextPermissionState: LoginLocationPayload["permissionState"] = permissionState;
+      let nextPermissionState: LoginLocationPayload["permissionState"] = "unknown";
       try {
         if (navigator.permissions?.query) {
           const permission = await navigator.permissions.query({ name: "geolocation" as PermissionName });
           nextPermissionState = permission.state;
-          console.log("[GPS] Permission state after error:", permission.state);
         }
       } catch {}
       finish({ status, permissionState: nextPermissionState, error: err.message || `code ${err.code}` });
     };
-    const timer = window.setTimeout(() => {
-      console.warn("[GPS] Wall-clock timeout hit (20s)");
-      finish({ status: "timeout", error: "GPS fix timed out." });
-    }, LOGIN_GEO_TIMEOUT_MS);
-
+    // FIRE FIRST — before setTimeout / any other work — to preserve user activation.
     try {
       navigator.geolocation.getCurrentPosition(onSuccess, onError, {
         enableHighAccuracy: true,
@@ -611,14 +599,22 @@ async function collectLoginLocation(): Promise<LoginLocationPayload> {
         maximumAge: 0,
       });
     } catch (err: any) {
-      console.error("[GPS] getCurrentPosition threw:", err);
-      finish({ status: "error", error: err?.message || "Could not start location request." });
+      finish({ status: "error", permissionState: "unknown", error: err?.message || "Could not start location request." });
+      return;
     }
+    timer = window.setTimeout(() => {
+      finish({ status: "timeout", permissionState: "unknown", error: "GPS fix timed out." });
+    }, LOGIN_GEO_TIMEOUT_MS);
   });
 }
 
-async function requireLoginLocation(): Promise<LoginLocationPayload> {
-  const location = await collectLoginLocation();
+// Async variant kept for non-gesture code paths (auto-recovery etc.).
+async function collectLoginLocation(): Promise<LoginLocationPayload> {
+  return beginGeolocationCapture();
+}
+
+async function requireLoginLocation(preStarted?: Promise<LoginLocationPayload> | null): Promise<LoginLocationPayload> {
+  const location = await (preStarted ?? beginGeolocationCapture());
   console.log("[GPS] Outgoing clientGeo payload:", {
     status: location.status,
     latitude: location.latitude,
