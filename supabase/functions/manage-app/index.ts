@@ -1882,6 +1882,7 @@ Deno.serve(async (originalReq) => {
       const { id } = params;
       const { error } = await supabase.from("app_users").delete().eq("id", id);
       if (error) throw error;
+      invalidateBootstrapCache();
       await auditLog(supabase, "user_deleted", session.userId, id, {}, ip);
       return new Response(JSON.stringify({ success: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
