@@ -2174,6 +2174,9 @@ Deno.serve(async (originalReq) => {
     if (action === "set_settings") {
       const session = await requireAdmin(req);
       const { key, value } = params;
+      // Any change to keys that feed bootstrap_public must drop the cache so
+      // profile picker/maintenance banner update within a second, not 10s.
+      invalidateBootstrapCache();
 
       let processedValue = value;
 
