@@ -2428,7 +2428,7 @@ function ProfileSelectPage() {
           <motion.div key="password" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.3 }}
             className="relative z-10 w-full max-w-sm px-2 mt-16 sm:mt-24">
-            <button onClick={() => { setSelectedProfile(null); setPassword(""); setError(""); }}
+            <button onClick={() => { setSelectedProfile(null); setPassword(""); setError(""); setGpsBlocked(false); notify.dismiss("gps-permission-blocked"); }}
               className="text-neutral-400 hover:text-white text-sm font-normal mb-8 flex items-center gap-1.5 transition-colors group">
               <ArrowLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" /> Back
             </button>
@@ -2450,7 +2450,28 @@ function ProfileSelectPage() {
                   placeholder="Password" autoFocus required />
               </div>
 
-              {error && (
+              {gpsBlocked ? (
+                <motion.div initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }}
+                  className="rounded-xl border border-[#e50914]/45 bg-[#2a0d10]/95 p-3.5 text-[#ffe4e6] shadow-[0_16px_40px_-24px_rgba(229,9,20,0.75)]">
+                  <div className="flex items-start gap-3">
+                    <span className="mt-0.5 inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-[#e50914]/18 text-[#ffb4ba] ring-1 ring-[#e50914]/25">
+                      <AlertCircle className="h-4 w-4" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[13px] font-semibold leading-snug text-white">Location permission is blocked</p>
+                      <p className="mt-1 text-[12px] leading-relaxed text-[#f5c9cc]">Allow Location for this site in browser settings, then try again.</p>
+                      <button
+                        type="button"
+                        onClick={retryGpsPermission}
+                        disabled={loginLoading || pendingLogin}
+                        className="mt-3 inline-flex items-center justify-center rounded-md bg-[#e50914] px-3 py-2 text-[12px] font-bold text-white transition-colors hover:bg-[#f6121d] disabled:opacity-60"
+                      >
+                        Try Again
+                      </button>
+                    </div>
+                  </div>
+                </motion.div>
+              ) : error && (
                 <motion.div initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }}
                   className="bg-[#e50914]/10 border border-[#e50914]/30 text-[#f5c9cc] text-xs p-3 rounded-md flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 flex-shrink-0" />{error}
