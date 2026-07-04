@@ -2825,7 +2825,7 @@ function AdminLoginPage() {
       setError(msg);
       if (isGpsPermissionDeniedMessage(msg)) {
         setGpsPermissionMode(getGpsPermissionMode(msg));
-        showGpsPermissionToast(msg);
+        showGpsPermissionToast(msg, () => setGpsHelpOpen(true));
       } else {
         notify.error(msg);
       }
@@ -2863,7 +2863,7 @@ function AdminLoginPage() {
       setError(msg);
       if (isGpsPermissionDeniedMessage(msg)) {
         setGpsPermissionMode(getGpsPermissionMode(msg));
-        showGpsPermissionToast(msg);
+        showGpsPermissionToast(msg, () => setGpsHelpOpen(true));
       } else {
         notify.error(msg);
       }
