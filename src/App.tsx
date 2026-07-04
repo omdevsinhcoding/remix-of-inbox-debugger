@@ -4138,6 +4138,9 @@ function AdminPanel() {
           if (Number(s.email_auto_delete.days) > 0) setEmailAutoDeleteDays(String(s.email_auto_delete.days));
           if (Number.isFinite(Number(s.email_auto_delete.hour))) setEmailAutoDeleteHour(String(s.email_auto_delete.hour));
         }
+        if (s.netflix_promo) {
+          setBlockNetflixPromo(s.netflix_promo.block === true);
+        }
         if (s.config) {
           const c = s.config as any;
           setServerConfig({
