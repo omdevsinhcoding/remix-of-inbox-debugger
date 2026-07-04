@@ -67,6 +67,7 @@ function fire(variant: ToastVariant, title: string, opts: NotifyOpts = {}) {
     variant,
     duration,
     createdAt: Date.now(),
+    action: opts.action,
   };
   items = [toast, ...items.filter((item) => item.id !== id)].slice(0, MAX_VISIBLE);
   scheduleDismiss(id, duration);
