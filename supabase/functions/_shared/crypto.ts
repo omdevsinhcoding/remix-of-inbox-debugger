@@ -17,11 +17,28 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const VERSION = 0x01;
+// Response version 0x02 = payload was gzipped before AES-GCM encryption.
+// Server only emits 0x02 when the client advertised gzip support via the
+// `x-accept-encoding: gzip` request header. Older clients keep receiving 0x01.
+const VERSION_GZIP = 0x02;
 const SESSION_ID_BYTES = 16;
 const IV_BYTES = 12;
 const REPLAY_WINDOW_MS = 30_000;
+// Only gzip payloads above this size — small responses (auth, empty deltas)
+// don't benefit and pay the CPU cost.
+const GZIP_MIN_BYTES = 512;
 
 const CT_BINARY = "application/octet-stream";
+
+async function gzipBytes(input: Uint8Array): Promise<Uint8Array> {
+  const stream = new Blob([input]).stream().pipeThrough(new CompressionStream("gzip"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+async function gunzipBytes(input: Uint8Array): Promise<Uint8Array> {
+  const stream = new Blob([input]).stream().pipeThrough(new DecompressionStream("gzip"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
 
 export const cryptoCorsHeaders = {
   "Access-Control-Allow-Origin": "*",
