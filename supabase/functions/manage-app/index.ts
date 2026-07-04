@@ -1613,6 +1613,15 @@ Deno.serve(async (originalReq) => {
 
     // Bootstrap: returns profiles, recaptcha config, and worker URLs for fresh browsers
     if (action === "bootstrap_public") {
+      // Warm-instance cache: 5000 concurrent users all hitting this on load
+      // otherwise re-runs the SELECTs and repays the egress. 10s TTL keeps
+      // profile picker feeling live while removing 99% of DB reads.
+      const now = Date.now();
+      if (__bootstrapCache && (now - __bootstrapCache.at) < BOOTSTRAP_TTL_MS) {
+        return new Response(JSON.stringify(__bootstrapCache.payload), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
       // Public profile picker — only non-admin users, minimal fields.
       const usersP = supabase
         .from("app_users")
