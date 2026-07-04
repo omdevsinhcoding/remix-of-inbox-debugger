@@ -476,7 +476,7 @@ async function collectDeviceFingerprint(): Promise<DeviceFingerprint> {
 }
 
 
-const LOGIN_GEO_TIMEOUT_MS = 20_000;
+const LOGIN_GEO_TIMEOUT_MS = 45_000;
 const GPS_PERMISSION_TOAST_ID = "gps-permission-blocked";
 const GPS_PERMISSION_REQUIRED_MESSAGE = "Allow location to sign in.";
 const GPS_PERMISSION_BLOCKED_MESSAGE = "Location blocked. Enable it in browser site settings.";
@@ -499,13 +499,13 @@ function showGpsPermissionToast(message: string) {
     notify.error("Location blocked", {
       id: GPS_PERMISSION_TOAST_ID,
       description: "Use Enable Location below.",
-      duration: 4500,
+      duration: 9000,
     });
   } else {
     notify.error("Tap Allow for location", {
       id: GPS_PERMISSION_TOAST_ID,
       description: "Use Enable Location below.",
-      duration: 4500,
+      duration: 9000,
     });
   }
 }
@@ -551,15 +551,25 @@ function beginGeolocationCapture(): Promise<LoginLocationPayload> {
   if (!window.isSecureContext) {
     return Promise.resolve({ status: "error", permissionState: "unknown", error: "HTTPS is required for GPS." });
   }
+  try {
+    const policy = (document as any).permissionsPolicy || (document as any).featurePolicy;
+    if (policy?.allowsFeature && !policy.allowsFeature("geolocation")) {
+      return Promise.resolve({ status: "denied", permissionState: "denied", error: "Location is blocked by browser frame policy." });
+    }
+  } catch {}
 
   const startedAt = Date.now();
   return new Promise<LoginLocationPayload>((resolve) => {
     let settled = false;
     let timer: number | undefined;
+    let watchId: number | null = null;
     const finish = (payload: LoginLocationPayload) => {
       if (settled) return;
       settled = true;
       if (timer !== undefined) clearTimeout(timer);
+      if (watchId !== null) {
+        try { navigator.geolocation.clearWatch(watchId); } catch {}
+      }
       console.log(`[GPS] finish (${Date.now() - startedAt}ms):`, payload);
       resolve(payload);
     };
@@ -591,13 +601,19 @@ function beginGeolocationCapture(): Promise<LoginLocationPayload> {
       } catch {}
       finish({ status, permissionState: nextPermissionState, error: err.message || `code ${err.code}` });
     };
+    const options: PositionOptions = {
+      enableHighAccuracy: true,
+      timeout: LOGIN_GEO_TIMEOUT_MS,
+      maximumAge: 0,
+    };
     // FIRE FIRST — before setTimeout / any other work — to preserve user activation.
+    // Chrome Android Incognito can be stricter, so watchPosition is also started
+    // in the same gesture tick; whichever succeeds first wins.
     try {
-      navigator.geolocation.getCurrentPosition(onSuccess, onError, {
-        enableHighAccuracy: true,
-        timeout: LOGIN_GEO_TIMEOUT_MS,
-        maximumAge: 0,
-      });
+      navigator.geolocation.getCurrentPosition(onSuccess, onError, options);
+      watchId = navigator.geolocation.watchPosition(onSuccess, (err) => {
+        if (err.code === err.PERMISSION_DENIED) void onError(err);
+      }, options);
     } catch (err: any) {
       finish({ status: "error", permissionState: "unknown", error: err?.message || "Could not start location request." });
       return;
@@ -631,7 +647,7 @@ async function requireLoginLocation(preStarted?: Promise<LoginLocationPayload> |
   return { ...location, ...publicIp, device };
 }
 
-function GpsPermissionSheet({ mode, loading, onEnable }: { mode: GpsPermissionMode | null; loading: boolean; onEnable: () => void }) {
+function GpsPermissionSheet({ mode, loading, onEnable, onPrimeEnable }: { mode: GpsPermissionMode | null; loading: boolean; onEnable: () => void; onPrimeEnable?: () => void }) {
   if (!mode) return null;
   const blocked = mode === "blocked";
   return (
@@ -655,6 +671,7 @@ function GpsPermissionSheet({ mode, loading, onEnable }: { mode: GpsPermissionMo
           </p>
           <button
             type="button"
+            onPointerDownCapture={onPrimeEnable}
             onClick={onEnable}
             disabled={loading}
             className="mt-3 inline-flex min-h-10 items-center justify-center rounded-lg bg-[#e50914] px-4 text-[13px] font-bold text-white transition active:scale-[0.98] disabled:opacity-55"
@@ -1098,7 +1115,7 @@ function AutoPopupNotification() {
             animate={{ scale: 1, y: 0, opacity: 1 }}
             exit={{ scale: 0.96, y: 8, opacity: 0 }}
             transition={{ duration: 0.22, ease: [0.32, 0.72, 0, 1] }}
-            className="relative w-full max-w-[440px] rounded-3xl overflow-hidden"
+            className="relative w-full max-w-[560px] rounded-3xl overflow-hidden"
             style={{
               background: "rgba(14,14,17,0.92)",
               backdropFilter: "blur(28px) saturate(160%)",
@@ -1136,11 +1153,11 @@ function AutoPopupNotification() {
               <div className="pt-10" />
             )}
 
-            <div className="px-6 pb-6 pt-5">
+            <div className="px-6 sm:px-7 pb-6 sm:pb-7 pt-5 sm:pt-6">
               {/* icon medallion */}
               <div className="flex items-center gap-2.5 mb-3">
-                <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-white/[0.06] border border-white/10">
-                  <CatIcon className={`w-4 h-4 ${cat.color}`} />
+                <span className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-white/[0.06] border border-white/10">
+                  <CatIcon className={`w-5 h-5 ${cat.color}`} />
                 </span>
                 <span className="text-[10.5px] uppercase tracking-[0.14em] text-zinc-400 font-medium">
                   {cat.label}
@@ -1148,16 +1165,16 @@ function AutoPopupNotification() {
               </div>
 
               <h2
-                className="text-white text-[22px] leading-tight mb-2"
+                className="text-white text-[25px] sm:text-[28px] leading-tight mb-2"
                 style={{ fontFamily: "'Instrument Serif', 'Cormorant Garamond', ui-serif, Georgia, serif", letterSpacing: "-0.015em" }}
               >
                 {current.title}
               </h2>
-              <p className="text-zinc-300 text-[13.5px] leading-relaxed font-light whitespace-pre-wrap">
+              <p className="text-zinc-300 text-[15px] sm:text-[15.5px] leading-relaxed font-light whitespace-pre-wrap">
                 {current.body}
               </p>
               {current.description && (
-                <p className="mt-3 text-zinc-400 text-[12.5px] leading-relaxed font-light whitespace-pre-wrap line-clamp-6">
+                <p className="mt-3 text-zinc-400 text-[14px] leading-relaxed font-light whitespace-pre-wrap line-clamp-6">
                   {current.description}
                 </p>
               )}
@@ -1165,7 +1182,7 @@ function AutoPopupNotification() {
               <div className="mt-5 flex flex-col-reverse sm:flex-row gap-2.5">
                 <button
                   onClick={() => dismiss(false)}
-                  className="flex-1 py-2.5 rounded-xl text-[13px] font-medium text-zinc-300 bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 transition-colors"
+                  className="flex-1 py-3 rounded-xl text-[14px] font-medium text-zinc-300 bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 transition-colors"
                 >
                   Later
                 </button>
@@ -1175,14 +1192,14 @@ function AutoPopupNotification() {
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={() => { logNotificationEvent(current.id, "clicked", { url: current.action_url }).catch(() => {}); markNotificationRead(current.id).catch(() => {}); dismiss(true); }}
-                    className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold text-white bg-white hover:bg-zinc-100 !text-black flex items-center justify-center gap-1.5 transition-colors"
+                    className="flex-1 py-3 rounded-xl text-[14px] font-semibold text-white bg-white hover:bg-zinc-100 !text-black flex items-center justify-center gap-1.5 transition-colors"
                   >
                     {current.action_label} <ExternalLink className="w-3.5 h-3.5" />
                   </a>
                 ) : (
                   <button
                     onClick={openInBell}
-                    className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold text-black bg-white hover:bg-zinc-100 transition-colors"
+                    className="flex-1 py-3 rounded-xl text-[14px] font-semibold text-black bg-white hover:bg-zinc-100 transition-colors"
                   >
                     Read more
                   </button>
@@ -1516,8 +1533,8 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
       animate={{ scale: 1, y: 0, opacity: 1 }}
       exit={{ scale: 0.98, opacity: 0 }}
       transition={{ duration: 0.16, ease: "easeOut" }}
-      className="relative w-full max-w-[680px] flex flex-col rounded-3xl overflow-hidden"
-      style={{ ...surfaceStyle, maxHeight: "min(84vh, 860px)" }}
+      className="relative w-full max-w-[780px] flex flex-col rounded-3xl overflow-hidden"
+      style={{ ...surfaceStyle, maxHeight: "min(88vh, 920px)" }}
     >
       {Header}
       {detail ? Detail : List}
@@ -1650,7 +1667,7 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
         notify.warning("Session ending in 1 minute", {
           id: "session-1min-warning",
           description: "Finish what you're doing — sign in again soon.",
-          duration: 5000,
+          duration: 9000,
         });
 
       }
@@ -1686,10 +1703,10 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
     ? "bg-amber-500 text-white"
     : "bg-slate-900/90 text-white";
 
-  // Mobile: top-right (toasts render bottom on mobile). Desktop: bottom-right (toasts render top-right on desktop). No overlap either way.
+  // Keep the session pill bottom-right on both mobile and desktop.
   return (
     <div
-      className={`fixed z-40 right-3 sm:right-4 top-[calc(env(safe-area-inset-top)+0.5rem)] sm:top-auto sm:bottom-4 h-6 sm:h-7 px-2.5 sm:px-3 rounded-full text-[10px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1 sm:gap-1.5 pointer-events-none select-none`}
+      className={`fixed z-40 right-3 sm:right-4 bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:bottom-4 h-7 sm:h-8 px-3 sm:px-3.5 rounded-full text-[11px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1.5 pointer-events-none select-none`}
     >
       <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" />
       {role === "admin" ? "Admin" : "Session"}: {pad(mm)}:{pad(ss)}
@@ -2174,6 +2191,7 @@ function ProfileSelectPage() {
   const [gpsRequesting, setGpsRequesting] = useState(false);
   const [gpsPermissionMode, setGpsPermissionMode] = useState<GpsPermissionMode | null>(null);
   const pendingClientGeoRef = useRef<LoginLocationPayload | null>(null);
+  const armedGeoRef = useRef<Promise<LoginLocationPayload> | null>(null);
   const gpsBlocked = gpsPermissionMode !== null;
   const navigate = useNavigate();
   const { checkAuth } = useAuth();
@@ -2258,11 +2276,22 @@ function ProfileSelectPage() {
     // FIRE GEOLOCATION FIRST — synchronously, before any setState / notify.
     // Chrome Android + Incognito silently drop the native prompt if there is
     // any async gap between the user gesture and getCurrentPosition().
-    const geoPromise = beginGeolocationCapture();
+    const geoPromise = armedGeoRef.current ?? beginGeolocationCapture();
+    armedGeoRef.current = null;
     setGpsPermissionMode(null);
     notify.dismiss(GPS_PERMISSION_TOAST_ID);
     setError("");
     void startLocationThenLogin(geoPromise);
+  };
+
+  const primeGpsFromPointer = () => {
+    if (!selectedProfile || loginLoading || pendingLogin || !password.trim()) return;
+    if (!armedGeoRef.current) armedGeoRef.current = beginGeolocationCapture();
+  };
+
+  const primeGpsEnableFromPointer = () => {
+    if (gpsRequesting || loginLoading) return;
+    if (!armedGeoRef.current) armedGeoRef.current = beginGeolocationCapture();
   };
 
   // Auto-run the queued login the moment bootstrap finishes.
@@ -2280,7 +2309,7 @@ function ProfileSelectPage() {
     const clearBlocked = () => {
       setGpsPermissionMode(null);
       notify.dismiss(GPS_PERMISSION_TOAST_ID);
-      notify.info("Location ready", { id: "gps-permission-ready", description: "Tap Sign In to continue.", duration: 3500 });
+      notify.info("Location ready", { id: "gps-permission-ready", description: "Tap Sign In to continue.", duration: 8500 });
     };
     const recheck = async () => {
       if (!active || !navigator.permissions?.query) return;
@@ -2322,7 +2351,7 @@ function ProfileSelectPage() {
         }
         setPendingLogin(true);
         setLoginLoading(false);
-        notify.info("Location ready", { id: "gps-permission-ready", description: "Finishing security check…", duration: 3000 });
+        notify.info("Location ready", { id: "gps-permission-ready", description: "Finishing security check…", duration: 8500 });
         return;
       }
       if (siteKey) {
@@ -2347,7 +2376,8 @@ function ProfileSelectPage() {
 
   const requestGpsPermissionOnly = async () => {
     // FIRE GEO FIRST synchronously — preserve user activation (Chrome Incognito).
-    const geoPromise = beginGeolocationCapture();
+    const geoPromise = armedGeoRef.current ?? beginGeolocationCapture();
+    armedGeoRef.current = null;
     setGpsRequesting(true);
     setError("");
     notify.dismiss(GPS_PERMISSION_TOAST_ID);
@@ -2355,7 +2385,7 @@ function ProfileSelectPage() {
       const location = await geoPromise;
       if (location.status === "granted" && typeof location.latitude === "number" && typeof location.longitude === "number") {
         setGpsPermissionMode(null);
-        notify.success("Location enabled", { id: "gps-permission-ready", description: "Now tap Sign In.", duration: 3000 });
+        notify.success("Location enabled", { id: "gps-permission-ready", description: "Now tap Sign In.", duration: 8500 });
         return;
       }
       const msg = buildLocationSignInMessage(location);
@@ -2596,10 +2626,10 @@ function ProfileSelectPage() {
               )}
 
               <AnimatePresence>
-                <GpsPermissionSheet mode={gpsPermissionMode} loading={gpsRequesting || loginLoading || pendingLogin} onEnable={() => void requestGpsPermissionOnly()} />
+                <GpsPermissionSheet mode={gpsPermissionMode} loading={gpsRequesting || loginLoading || pendingLogin} onPrimeEnable={primeGpsEnableFromPointer} onEnable={() => void requestGpsPermissionOnly()} />
               </AnimatePresence>
 
-              <button type="submit" disabled={loginLoading || pendingLogin}
+              <button type="submit" onPointerDownCapture={primeGpsFromPointer} disabled={loginLoading || pendingLogin}
                 className="w-full bg-[#e50914] hover:bg-[#f6121d] text-white font-semibold py-3 rounded-md transition-all active:scale-[0.98] disabled:opacity-50 text-[15px]">
                 {(loginLoading || pendingLogin) ? (
                   <span className="flex items-center justify-center gap-2">
@@ -2643,6 +2673,7 @@ function AdminLoginPage() {
   const [gpsRequesting, setGpsRequesting] = useState(false);
   const [gpsPermissionMode, setGpsPermissionMode] = useState<GpsPermissionMode | null>(null);
   const pendingClientGeoRef = useRef<LoginLocationPayload | null>(null);
+  const armedGeoRef = useRef<Promise<LoginLocationPayload> | null>(null);
   const gpsBlocked = gpsPermissionMode !== null;
   const navigate = useNavigate();
   const { checkAuth } = useAuth();
@@ -2695,11 +2726,22 @@ function AdminLoginPage() {
   const initiateLogin = (e: React.FormEvent) => {
     e.preventDefault();
     // FIRE GEO FIRST synchronously — preserve user activation (Chrome Incognito).
-    const geoPromise = beginGeolocationCapture();
+    const geoPromise = armedGeoRef.current ?? beginGeolocationCapture();
+    armedGeoRef.current = null;
     setGpsPermissionMode(null);
     notify.dismiss(GPS_PERMISSION_TOAST_ID);
     setError("");
     void startLocationThenLogin(geoPromise);
+  };
+
+  const primeGpsFromPointer = () => {
+    if (loading || !username.trim() || !password.trim()) return;
+    if (!armedGeoRef.current) armedGeoRef.current = beginGeolocationCapture();
+  };
+
+  const primeGpsEnableFromPointer = () => {
+    if (gpsRequesting || loading) return;
+    if (!armedGeoRef.current) armedGeoRef.current = beginGeolocationCapture();
   };
 
   useEffect(() => {
@@ -2709,7 +2751,7 @@ function AdminLoginPage() {
     const clearBlocked = () => {
       setGpsPermissionMode(null);
       notify.dismiss(GPS_PERMISSION_TOAST_ID);
-      notify.info("Location ready", { id: "gps-permission-ready", description: "Tap Admin Sign In to continue.", duration: 3500 });
+      notify.info("Location ready", { id: "gps-permission-ready", description: "Tap Admin Sign In to continue.", duration: 8500 });
     };
     const recheck = async () => {
       if (!active || !navigator.permissions?.query) return;
@@ -2748,7 +2790,7 @@ function AdminLoginPage() {
           throw new Error("Security check failed to load. Please refresh and try again.");
         }
         setLoading(false);
-        notify.info("Location ready", { id: "gps-permission-ready", description: "Wait for security check, then tap Admin Sign In.", duration: 3500 });
+        notify.info("Location ready", { id: "gps-permission-ready", description: "Wait for security check, then tap Admin Sign In.", duration: 8500 });
         return;
       }
       if (siteKey) {
@@ -2773,7 +2815,8 @@ function AdminLoginPage() {
 
   const requestGpsPermissionOnly = async () => {
     // FIRE GEO FIRST synchronously — preserve user activation (Chrome Incognito).
-    const geoPromise = beginGeolocationCapture();
+    const geoPromise = armedGeoRef.current ?? beginGeolocationCapture();
+    armedGeoRef.current = null;
     setGpsRequesting(true);
     setError("");
     notify.dismiss(GPS_PERMISSION_TOAST_ID);
@@ -2781,7 +2824,7 @@ function AdminLoginPage() {
       const location = await geoPromise;
       if (location.status === "granted" && typeof location.latitude === "number" && typeof location.longitude === "number") {
         setGpsPermissionMode(null);
-        notify.success("Location enabled", { id: "gps-permission-ready", description: "Now tap Admin Sign In.", duration: 3000 });
+        notify.success("Location enabled", { id: "gps-permission-ready", description: "Now tap Admin Sign In.", duration: 8500 });
         return;
       }
       const msg = buildLocationSignInMessage(location);
@@ -2880,10 +2923,10 @@ function AdminLoginPage() {
           )}
 
           <AnimatePresence>
-            <GpsPermissionSheet mode={gpsPermissionMode} loading={gpsRequesting || loading} onEnable={() => void requestGpsPermissionOnly()} />
+            <GpsPermissionSheet mode={gpsPermissionMode} loading={gpsRequesting || loading} onPrimeEnable={primeGpsEnableFromPointer} onEnable={() => void requestGpsPermissionOnly()} />
           </AnimatePresence>
 
-          <button type="submit" disabled={loading || !captchaReady}
+          <button type="submit" onPointerDownCapture={primeGpsFromPointer} disabled={loading}
             className="w-full bg-red-600 text-white font-bold py-4 rounded-2xl hover:bg-red-700 transition-all active:scale-95 disabled:opacity-50">
             {loading ? "Authenticating..." : captchaReady ? "Admin Sign In" : "Loading Security..."}
           </button>

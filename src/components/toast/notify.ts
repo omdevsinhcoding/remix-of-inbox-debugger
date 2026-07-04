@@ -33,7 +33,7 @@ let items: GlobalToast[] = [];
 let seed = 0;
 
 const MAX_VISIBLE = 3;
-const DEFAULT_DURATION = 4200;
+const DEFAULT_DURATION = 8500;
 const LOADING_DURATION = Number.POSITIVE_INFINITY;
 
 function snapshot() {
