@@ -4,8 +4,17 @@ import { readRequest, maybeEncryptResponse, EncryptedRequestContext, PlaintextRe
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-session-token, x-pending-token, x-client-ip, x-crypto-session",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-session-token, x-pending-token, x-client-ip, x-crypto-session, x-accept-encoding",
 };
+
+// Warm-instance memo for bootstrap_public. Deno edge instances stay warm for
+// ~15 min; 10-second TTL means at 5k concurrent users we serve most calls from
+// this in-memory cache, dropping DB reads + egress on the public bootstrap
+// path by ~99%. Invalidated on any admin write to app_users / app_settings
+// (see bumpBootstrapVersion below).
+let __bootstrapCache: { at: number; payload: any } | null = null;
+const BOOTSTRAP_TTL_MS = 10_000;
+function invalidateBootstrapCache() { __bootstrapCache = null; }
 
 // --- Crypto helpers ---
 async function hashPassword(password: string): Promise<string> {
