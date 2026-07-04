@@ -3348,7 +3348,7 @@ Deno.serve(async (originalReq) => {
       // Kick everything off in PARALLEL server-side. Edge → Postgres latency is
       // ~1-5ms each, so 12 parallel queries return in ~50-150ms total.
       const usersP = supabase.from("app_users")
-        .select("id, username, name, role, assigned_accounts, profile_prefs")
+        .select("id, username, name, role, assigned_accounts, profile_prefs, session_limit")
         .order("created_at", { ascending: true });
 
       const emailsCountP = supabase.from("cached_emails").select("id", { count: "exact", head: true });
