@@ -5075,9 +5075,25 @@ function AdminPanel() {
                             </label>
                           ))}
                         </div>
+                        <div className="mb-2">
+                          <label className="block text-xs font-bold text-slate-500 mb-1">Concurrent session limit</label>
+                          <input
+                            type="number"
+                            min={0}
+                            max={50}
+                            step={1}
+                            value={editSessionLimit}
+                            onChange={(e) => setEditSessionLimit(e.target.value)}
+                            placeholder="Blank = use global default"
+                            className="w-full bg-slate-50 border rounded-lg p-2 outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
+                          />
+                          <p className="text-[10px] text-slate-400 mt-1">
+                            How many devices this user can be signed in on at once. <b>Blank</b> = use the global limit set under Security. <b>0</b> = unlimited for this user. <b>1, 2, …</b> = cap; extra logins kick the oldest device out.
+                          </p>
+                        </div>
                         <button onClick={() => updateUserAccounts(u.id)}
                           className="w-full bg-green-600 text-white text-xs font-bold py-2 rounded-lg hover:bg-green-700 transition-all">
-                          Save Accounts
+                          Save Settings
                         </button>
                       </div>
                     )}
