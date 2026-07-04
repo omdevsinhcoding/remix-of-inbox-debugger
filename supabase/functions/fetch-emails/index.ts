@@ -157,8 +157,9 @@ function isNetflixFrom(fromRaw: string | null | undefined): boolean {
   return /@([a-z0-9-]+\.)*netflix\.com\b/.test(s);
 }
 
-// Reject Netflix marketing/promo mail — users only want transactional
-// (sign-in codes, household verification, password resets, billing).
+// Optional Netflix marketing/promo blocklist. OFF by default — all official
+// Netflix mail (including "new movie/series" announcements) is shown. Admin can
+// enable blocking via the admin panel (app_settings key "netflix_promo").
 const NETFLIX_PROMO_SUBJECTS = [
   "unlimited series", "ready to watch", "finish signing up", "welcome to netflix",
   "new on netflix", "recommended for you", "top 10", "trending now",
@@ -168,6 +169,19 @@ const NETFLIX_PROMO_SUBJECTS = [
 function isNetflixPromo(subject: string | null | undefined): boolean {
   const s = (subject || "").toLowerCase();
   return NETFLIX_PROMO_SUBJECTS.some((kw) => s.includes(kw));
+}
+// Cached per-invocation flag so we don't hit app_settings for every email row.
+let _blockPromoCache: { value: boolean; at: number } | null = null;
+async function shouldBlockPromo(supabase: any): Promise<boolean> {
+  if (_blockPromoCache && Date.now() - _blockPromoCache.at < 60_000) return _blockPromoCache.value;
+  try {
+    const { data } = await supabase.from("app_settings").select("value").eq("key", "netflix_promo").maybeSingle();
+    const block = data?.value?.block === true;
+    _blockPromoCache = { value: block, at: Date.now() };
+    return block;
+  } catch {
+    return false;
+  }
 }
 
 function decodeQuotedPrintable(input: string) {
