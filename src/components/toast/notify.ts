@@ -1,4 +1,7 @@
-type ToastVariant = "success" | "error" | "warning" | "info" | "loading";
+// Global toast store — framework-free, single source of truth for all
+// user + admin surfaces. No external toast library. Full-text friendly.
+
+export type ToastVariant = "success" | "error" | "warning" | "info" | "loading";
 
 export type NotifyOpts = {
   id?: string | number;
@@ -22,7 +25,8 @@ const timers = new Map<string | number, number>();
 let items: GlobalToast[] = [];
 let seed = 0;
 
-const DEFAULT_DURATION = 3200;
+const MAX_VISIBLE = 3;
+const DEFAULT_DURATION = 4200;
 const LOADING_DURATION = Number.POSITIVE_INFINITY;
 
 function snapshot() {
@@ -47,18 +51,17 @@ function scheduleDismiss(id: string | number, duration: number) {
 }
 
 function fire(variant: ToastVariant, title: string, opts: NotifyOpts = {}) {
-  const id = opts.id ?? `global-toast-${Date.now()}-${++seed}`;
+  const id = opts.id ?? `gt-${Date.now()}-${++seed}`;
   const duration = opts.duration ?? (variant === "loading" ? LOADING_DURATION : DEFAULT_DURATION);
   const toast: GlobalToast = {
     id,
-    title,
+    title: title || "",
     description: opts.description,
     variant,
     duration,
     createdAt: Date.now(),
   };
-
-  items = [toast, ...items.filter((item) => item.id !== id)].slice(0, 3);
+  items = [toast, ...items.filter((item) => item.id !== id)].slice(0, MAX_VISIBLE);
   scheduleDismiss(id, duration);
   publish();
   return id;
@@ -77,9 +80,9 @@ export const toastStore = {
 
 export const notify = {
   success: (title: string, opts?: NotifyOpts) => fire("success", title, opts),
-  error: (title: string, opts?: NotifyOpts) => fire("error", title, opts),
+  error:   (title: string, opts?: NotifyOpts) => fire("error", title, opts),
   warning: (title: string, opts?: NotifyOpts) => fire("warning", title, opts),
-  info: (title: string, opts?: NotifyOpts) => fire("info", title, opts),
+  info:    (title: string, opts?: NotifyOpts) => fire("info", title, opts),
   loading: (title: string, opts?: NotifyOpts) => fire("loading", title, opts),
   dismiss(id?: string | number) {
     if (id === undefined) {
