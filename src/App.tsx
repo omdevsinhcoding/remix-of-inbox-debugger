@@ -7015,14 +7015,12 @@ function EmailViewer() {
 
 
 
-            {!isImpersonating && (
-              <button onClick={() => setShowProfile(true)}
-                className="flex items-center p-2.5 sm:px-3 sm:py-2 bg-gradient-to-r from-violet-500 to-purple-600 text-white rounded-full text-sm font-bold hover:from-violet-600 hover:to-purple-700 transition-all active:scale-95 shadow-md shadow-purple-200"
-                title="Profile">
-                <UserCircle className="w-4 h-4 sm:w-5 sm:h-5" />
-                <span className="hidden sm:inline ml-1.5">Profile</span>
-              </button>
-            )}
+            <button onClick={() => setShowProfile(true)}
+              className="flex items-center p-2.5 sm:px-3 sm:py-2 bg-gradient-to-r from-violet-500 to-purple-600 text-white rounded-full text-sm font-bold hover:from-violet-600 hover:to-purple-700 transition-all active:scale-95 shadow-md shadow-purple-200"
+              title="Profile">
+              <UserCircle className="w-4 h-4 sm:w-5 sm:h-5" />
+              <span className="hidden sm:inline ml-1.5">Profile</span>
+            </button>
             <button onClick={() => {
               if (isImpersonating) { backToAdmin(); return; }
               sessionClearAll(); navigate("/");
