@@ -1935,6 +1935,7 @@ Deno.serve(async (originalReq) => {
     if (action === "update_profile_prefs") {
       const session = await requireSession(req);
       const { profile_prefs } = params;
+      invalidateBootstrapCache();
       if (!profile_prefs || typeof profile_prefs !== "object" || Array.isArray(profile_prefs)) {
         throw new Error("Profile settings are invalid");
       }
