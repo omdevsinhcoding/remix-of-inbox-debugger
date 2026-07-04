@@ -58,7 +58,7 @@ function fire(variant: ToastVariant, title: string, opts: NotifyOpts = {}) {
     createdAt: Date.now(),
   };
 
-  items = [toast, ...items.filter((item) => item.id !== id)].slice(0, 1);
+  items = [toast, ...items.filter((item) => item.id !== id)].slice(0, 3);
   scheduleDismiss(id, duration);
   publish();
   return id;
