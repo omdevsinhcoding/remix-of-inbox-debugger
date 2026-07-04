@@ -2563,7 +2563,6 @@ function AdminLoginPage() {
   const [captchaConfigError, setCaptchaConfigError] = useState(false);
   const [showCaptcha, setShowCaptcha] = useState(false);
   const [gpsPermissionMode, setGpsPermissionMode] = useState<GpsPermissionMode | null>(null);
-  const [gpsHelpOpen, setGpsHelpOpen] = useState(false);
   const pendingClientGeoRef = useRef<LoginLocationPayload | null>(null);
   const gpsBlocked = gpsPermissionMode !== null;
   const navigate = useNavigate();
@@ -2612,7 +2611,6 @@ function AdminLoginPage() {
     let status: PermissionStatus | null = null;
     const clearBlocked = () => {
       setGpsPermissionMode(null);
-      setGpsHelpOpen(false);
       notify.dismiss(GPS_PERMISSION_TOAST_ID);
       notify.info("Location ready", { id: "gps-permission-ready", description: "Tap Admin Sign In to continue.", duration: 3500 });
     };
@@ -2641,13 +2639,6 @@ function AdminLoginPage() {
     };
   }, [gpsBlocked]);
 
-  const retryGpsPermission = async () => {
-    setGpsPermissionMode(null);
-    notify.dismiss(GPS_PERMISSION_TOAST_ID);
-    setError("");
-    await startLocationThenLogin();
-  };
-
   const startLocationThenLogin = async () => {
     pendingClientGeoRef.current = null;
     setLoading(true);
@@ -2666,7 +2657,7 @@ function AdminLoginPage() {
       setError(msg);
       if (isGpsPermissionDeniedMessage(msg)) {
         setGpsPermissionMode(getGpsPermissionMode(msg));
-        showGpsPermissionToast(msg, () => setGpsHelpOpen(true));
+        showGpsPermissionToast(msg);
       } else {
         notify.error(msg);
       }
@@ -2704,7 +2695,7 @@ function AdminLoginPage() {
       setError(msg);
       if (isGpsPermissionDeniedMessage(msg)) {
         setGpsPermissionMode(getGpsPermissionMode(msg));
-        showGpsPermissionToast(msg, () => setGpsHelpOpen(true));
+        showGpsPermissionToast(msg);
       } else {
         notify.error(msg);
       }
@@ -2769,8 +2760,6 @@ function AdminLoginPage() {
           <CaptchaModal siteKey={siteKey} onVerify={(token) => { setShowCaptcha(false); executeLogin(token); }} onCancel={() => { pendingClientGeoRef.current = null; setShowCaptcha(false); }} />
         )}
       </AnimatePresence>
-
-      <GpsHelpModal open={gpsHelpOpen} onClose={() => setGpsHelpOpen(false)} onRetry={retryGpsPermission} />
     </div>
   );
 }
