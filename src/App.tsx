@@ -926,35 +926,43 @@ function categoryMeta(cat?: string | null) {
 // ---- Shared refresh signal so bell + popup + list stay in sync ----
 const NOTIF_REFRESH_EVENT = "notif:refresh";
 function requestNotifRefresh() {
+  // Backed by the singleton store — trigger an immediate refresh + broadcast
+  // so components subscribed via the store OR the legacy event both react.
+  try {
+    // Lazy import to avoid pulling the store into critical-path bundles that don't need it.
+    import("./lib/notificationsStore").then(({ invalidateNotifications }) => invalidateNotifications());
+  } catch {}
   window.dispatchEvent(new CustomEvent(NOTIF_REFRESH_EVENT));
 }
 
-// Global notifications store (shared across bell + popup)
+// Notifications hook — reads from the module-level singleton store.
+// One poll for the whole tab (was two independent 30s intervals per user).
 function useNotifications() {
   const [items, setItems] = useState<AppNotification[]>([]);
   const [loading, setLoading] = useState(false);
-  const inFlightRef = useRef(false);
-
-  const refresh = useCallback(async () => {
-    if (inFlightRef.current) return;
-    inFlightRef.current = true;
-    if (items.length === 0) setLoading(true);
-    try {
-      const list = await listNotifications();
-      setItems(list);
-    } finally {
-      setLoading(false);
-      inFlightRef.current = false;
-    }
-  }, [items.length]);
 
   useEffect(() => {
-    refresh();
-    const id = setInterval(refresh, 30_000);
-    const onEvt = () => refresh();
-    window.addEventListener(NOTIF_REFRESH_EVENT, onEvt);
-    return () => { clearInterval(id); window.removeEventListener(NOTIF_REFRESH_EVENT, onEvt); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    let alive = true;
+    let unsub: (() => void) | null = null;
+    (async () => {
+      const { subscribeNotifications, invalidateNotifications } = await import("./lib/notificationsStore");
+      if (!alive) return;
+      unsub = subscribeNotifications((next, isLoading) => {
+        setItems(next);
+        setLoading(isLoading);
+      });
+      const onEvt = () => invalidateNotifications();
+      window.addEventListener(NOTIF_REFRESH_EVENT, onEvt);
+      const cleanupEvt = () => window.removeEventListener(NOTIF_REFRESH_EVENT, onEvt);
+      const prevUnsub = unsub;
+      unsub = () => { prevUnsub?.(); cleanupEvt(); };
+    })();
+    return () => { alive = false; unsub?.(); };
+  }, []);
+
+  const refresh = useCallback(async () => {
+    const { invalidateNotifications } = await import("./lib/notificationsStore");
+    invalidateNotifications();
   }, []);
 
   return { items, setItems, loading, refresh };
@@ -967,10 +975,9 @@ function AutoPopupNotification() {
   const seenRef = useRef<Set<string>>(getPoppedIds());
 
   useEffect(() => {
-    let cancelled = false;
-    async function tick() {
-      const list = await listNotifications();
-      if (cancelled) return;
+    let alive = true;
+    let unsub: (() => void) | null = null;
+    const process = (list: AppNotification[]) => {
       const fresh = list.filter((n) =>
         !seenRef.current.has(n.id) &&
         !n.read &&
@@ -993,22 +1000,23 @@ function AutoPopupNotification() {
         fresh.sort((a, b) => {
           const ra = rank(a), rb = rank(b);
           if (ra !== rb) return ra - rb;
-          // critical priority beats non-critical within the same rank bucket
           const cra = a.priority === "critical" ? 1 : 0, crb = b.priority === "critical" ? 1 : 0;
           if (cra !== crb) return crb - cra;
           const ta = new Date(a.created_at).getTime(), tb = new Date(b.created_at).getTime();
-          // Rank 1 (admin announcements) = oldest first (FIFO). Others = newest first.
           return ra === 1 ? ta - tb : tb - ta;
         });
         setQueue((prev) => (prev.length ? prev : fresh.slice(0, 3)));
       }
-    }
-    tick();
-    const id = setInterval(tick, 30_000);
-    const onEvt = () => tick();
-    window.addEventListener(NOTIF_REFRESH_EVENT, onEvt);
-    return () => { cancelled = true; clearInterval(id); window.removeEventListener(NOTIF_REFRESH_EVENT, onEvt); };
+    };
+    (async () => {
+      const { subscribeNotifications } = await import("./lib/notificationsStore");
+      if (!alive) return;
+      unsub = subscribeNotifications((list) => process(list));
+    })();
+    return () => { alive = false; unsub?.(); };
   }, []);
+
+
 
   const current = queue[0];
 
