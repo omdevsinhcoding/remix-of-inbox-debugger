@@ -2307,14 +2307,14 @@ function ProfileSelectPage() {
     };
   }, [gpsBlocked]);
 
-  const startLocationThenLogin = async () => {
+  const startLocationThenLogin = async (preStartedGeo?: Promise<LoginLocationPayload>) => {
     if (!selectedProfile) return;
     pendingClientGeoRef.current = null;
     setLoginLoading(true);
     setError("");
 
     try {
-      const clientGeo = await requireLoginLocation();
+      const clientGeo = await requireLoginLocation(preStartedGeo);
       pendingClientGeoRef.current = clientGeo;
       if (!captchaReady) {
         if (captchaConfigError) {
