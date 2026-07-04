@@ -478,14 +478,14 @@ async function collectDeviceFingerprint(): Promise<DeviceFingerprint> {
 
 const LOGIN_GEO_TIMEOUT_MS = 20_000;
 const GPS_PERMISSION_TOAST_ID = "gps-permission-blocked";
-const GPS_PERMISSION_REQUIRED_MESSAGE = "Location permission is required for login. Tap Allow in the browser location popup to continue.";
-const GPS_PERMISSION_BLOCKED_MESSAGE = "Location permission is blocked. Allow Location for this site in browser settings, then try again.";
+const GPS_PERMISSION_REQUIRED_MESSAGE = "Allow location to sign in.";
+const GPS_PERMISSION_BLOCKED_MESSAGE = "Location blocked. Enable it in browser site settings.";
 
 type GpsPermissionMode = "needed" | "blocked";
 
 function isGpsPermissionDeniedMessage(message: string) {
   const m = message.toLowerCase();
-  return m.includes("gps permission") || m.includes("location permission") || m.includes("browser location popup");
+  return m.includes("gps permission") || m.includes("location permission") || m.includes("allow location") || m.includes("location blocked") || m.includes("browser location popup");
 }
 
 function getGpsPermissionMode(message: string): GpsPermissionMode {
@@ -493,16 +493,24 @@ function getGpsPermissionMode(message: string): GpsPermissionMode {
   return m.includes("blocked") || m.includes("browser settings") || m.includes("site settings") ? "blocked" : "needed";
 }
 
-function showGpsPermissionToast(message: string) {
+function showGpsPermissionToast(message: string, onOpenHelp?: () => void) {
   const mode = getGpsPermissionMode(message);
-  notify.error(mode === "blocked" ? "Location is blocked" : "Location needed for login", {
-    id: GPS_PERMISSION_TOAST_ID,
-    description: mode === "blocked"
-      ? "Browser blocked Location for this site. Set Location to Allow, then tap Try Again."
-      : "Tap Allow in the browser popup. If you dismiss or deny it, login will stay blocked.",
-    duration: 7000,
-  });
+  if (mode === "blocked") {
+    notify.error("Location blocked", {
+      id: GPS_PERMISSION_TOAST_ID,
+      description: "Enable it in site settings.",
+      duration: 8000,
+      action: onOpenHelp ? { label: "How to enable", onClick: onOpenHelp } : undefined,
+    });
+  } else {
+    notify.error("Allow location to sign in", {
+      id: GPS_PERMISSION_TOAST_ID,
+      description: "Tap Allow in the location popup.",
+      duration: 6000,
+    });
+  }
 }
+
 
 async function fetchBrowserPublicIp(): Promise<Pick<LoginLocationPayload, "publicIp" | "publicIpSource">> {
   // Encrypted-only mode: disable third-party browser IP lookups.
@@ -2148,6 +2156,7 @@ function ProfileSelectPage() {
   const [showCaptcha, setShowCaptcha] = useState(false);
   const [pendingLogin, setPendingLogin] = useState(false);
   const [gpsPermissionMode, setGpsPermissionMode] = useState<GpsPermissionMode | null>(null);
+  const [gpsHelpOpen, setGpsHelpOpen] = useState(false);
   const pendingClientGeoRef = useRef<LoginLocationPayload | null>(null);
   const gpsBlocked = gpsPermissionMode !== null;
   const navigate = useNavigate();
@@ -2234,24 +2243,37 @@ function ProfileSelectPage() {
   }, [pendingLogin, captchaReady, siteKey]);
 
   useEffect(() => {
-    if (!gpsBlocked || typeof navigator === "undefined" || !navigator.permissions?.query) return;
+    if (!gpsBlocked || typeof navigator === "undefined") return;
     let active = true;
     let status: PermissionStatus | null = null;
-    navigator.permissions.query({ name: "geolocation" as PermissionName }).then((permission) => {
-      if (!active) return;
-      status = permission;
-      permission.onchange = () => {
+    const clearBlocked = () => {
+      setGpsPermissionMode(null);
+      setGpsHelpOpen(false);
+      notify.dismiss(GPS_PERMISSION_TOAST_ID);
+      notify.info("Location ready", { id: "gps-permission-ready", description: "Tap Sign In to continue.", duration: 3500 });
+    };
+    const recheck = async () => {
+      if (!active || !navigator.permissions?.query) return;
+      try {
+        const p = await navigator.permissions.query({ name: "geolocation" as PermissionName });
+        if (active && p.state !== "denied") clearBlocked();
+      } catch {}
+    };
+    if (navigator.permissions?.query) {
+      navigator.permissions.query({ name: "geolocation" as PermissionName }).then((permission) => {
         if (!active) return;
-        if (permission.state !== "denied") {
-          setGpsPermissionMode(null);
-          notify.dismiss(GPS_PERMISSION_TOAST_ID);
-          notify.info("Location permission ready", { id: "gps-permission-ready", description: "Tap Sign In again to continue.", duration: 3500 });
-        }
-      };
-    }).catch(() => {});
+        status = permission;
+        permission.onchange = () => { if (active && permission.state !== "denied") clearBlocked(); };
+      }).catch(() => {});
+    }
+    const onVisible = () => { if (document.visibilityState === "visible") recheck(); };
+    window.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", recheck);
     return () => {
       active = false;
       if (status) status.onchange = null;
+      window.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", recheck);
     };
   }, [gpsBlocked]);
 
@@ -2282,7 +2304,7 @@ function ProfileSelectPage() {
       setError(msg);
       if (isGpsPermissionDeniedMessage(msg)) {
         setGpsPermissionMode(getGpsPermissionMode(msg));
-        showGpsPermissionToast(msg);
+        showGpsPermissionToast(msg, () => setGpsHelpOpen(true));
       } else {
         notify.error(msg);
       }
@@ -2327,7 +2349,7 @@ function ProfileSelectPage() {
       setError(msg);
       if (isGpsPermissionDeniedMessage(msg)) {
         setGpsPermissionMode(getGpsPermissionMode(msg));
-        showGpsPermissionToast(msg);
+        showGpsPermissionToast(msg, () => setGpsHelpOpen(true));
       } else {
         notify.error(msg);
       }
@@ -2502,34 +2524,7 @@ function ProfileSelectPage() {
                   placeholder="Password" autoFocus required />
               </div>
 
-              {gpsBlocked ? (
-                <motion.div initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }}
-                  className="rounded-xl border border-[#e50914]/45 bg-[#2a0d10]/95 p-3.5 text-[#ffe4e6] shadow-[0_16px_40px_-24px_rgba(229,9,20,0.75)]">
-                  <div className="flex items-start gap-3">
-                    <span className="mt-0.5 inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-[#e50914]/18 text-[#ffb4ba] ring-1 ring-[#e50914]/25">
-                      <AlertCircle className="h-4 w-4" />
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[13px] font-semibold leading-snug text-white">
-                        {gpsPermissionMode === "blocked" ? "Location permission is blocked" : "Location permission needed"}
-                      </p>
-                      <p className="mt-1 text-[12px] leading-relaxed text-[#f5c9cc]">
-                        {gpsPermissionMode === "blocked"
-                          ? "Set Location to Allow in browser site settings, then try again."
-                          : "Tap Try Again and press Allow in the browser location popup. Login will not continue without Location."}
-                      </p>
-                      <button
-                        type="button"
-                        onClick={retryGpsPermission}
-                        disabled={loginLoading || pendingLogin}
-                        className="mt-3 inline-flex items-center justify-center rounded-md bg-[#e50914] px-3 py-2 text-[12px] font-bold text-white transition-colors hover:bg-[#f6121d] disabled:opacity-60"
-                      >
-                        Try Again
-                      </button>
-                    </div>
-                  </div>
-                </motion.div>
-              ) : error && (
+              {error && (
                 <motion.div initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }}
                   className="bg-[#e50914]/10 border border-[#e50914]/30 text-[#f5c9cc] text-xs p-3 rounded-md flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 flex-shrink-0" />{error}
@@ -2555,11 +2550,161 @@ function ProfileSelectPage() {
           <CaptchaModal siteKey={siteKey} onVerify={(token) => { setShowCaptcha(false); executeLogin(token); }} onCancel={() => { pendingClientGeoRef.current = null; setShowCaptcha(false); }} />
         )}
       </AnimatePresence>
+
+      <GpsHelpModal open={gpsHelpOpen} onClose={() => setGpsHelpOpen(false)} onRetry={retryGpsPermission} />
     </div>
   );
 }
 
+// ==================== GPS HELP MODAL ====================
+type GpsBrowserId = "chrome-android" | "safari-ios" | "chrome-desktop" | "firefox-desktop" | "safari-desktop" | "edge-desktop" | "generic";
+
+function detectGpsBrowser(): GpsBrowserId {
+  if (typeof navigator === "undefined") return "generic";
+  const ua = navigator.userAgent;
+  const isMobile = /Android|iPhone|iPad|iPod/i.test(ua);
+  if (/iPhone|iPad|iPod/i.test(ua)) return "safari-ios";
+  if (isMobile && /Chrome|CriOS/i.test(ua)) return "chrome-android";
+  if (/Edg\//i.test(ua)) return "edge-desktop";
+  if (/Firefox\//i.test(ua)) return "firefox-desktop";
+  if (/Safari\//i.test(ua) && !/Chrome|Chromium/i.test(ua)) return "safari-desktop";
+  if (/Chrome|Chromium/i.test(ua)) return "chrome-desktop";
+  return "generic";
+}
+
+const GPS_STEPS: Record<GpsBrowserId, { label: string; steps: string[] }> = {
+  "chrome-android": {
+    label: "Chrome (Android)",
+    steps: [
+      "Tap the lock icon on the left of the address bar.",
+      "Tap Permissions → Location → Allow.",
+      "Return here and tap I've enabled it.",
+    ],
+  },
+  "safari-ios": {
+    label: "Safari (iPhone / iPad)",
+    steps: [
+      "Open iOS Settings → Safari → Location.",
+      "Choose Ask or Allow for this website.",
+      "Also enable Settings → Privacy → Location Services → Safari.",
+    ],
+  },
+  "chrome-desktop": {
+    label: "Chrome",
+    steps: [
+      "Click the tune / lock icon on the left of the address bar.",
+      "Open Site settings → Location → set to Allow.",
+      "Reload the page, then tap I've enabled it.",
+    ],
+  },
+  "firefox-desktop": {
+    label: "Firefox",
+    steps: [
+      "Click the lock icon on the left of the address bar.",
+      "Clear the blocked Location permission (click the × next to it).",
+      "Reload the page and allow when prompted.",
+    ],
+  },
+  "safari-desktop": {
+    label: "Safari (macOS)",
+    steps: [
+      "Safari menu → Settings → Websites → Location.",
+      "Find this site and set it to Allow.",
+      "Reload the page, then tap I've enabled it.",
+    ],
+  },
+  "edge-desktop": {
+    label: "Edge",
+    steps: [
+      "Click the lock icon on the left of the address bar.",
+      "Open Permissions for this site → Location → Allow.",
+      "Reload the page, then tap I've enabled it.",
+    ],
+  },
+  generic: {
+    label: "Your browser",
+    steps: [
+      "Open site settings for this page (usually the lock icon in the address bar).",
+      "Set Location to Allow.",
+      "Reload and try again.",
+    ],
+  },
+};
+
+function GpsHelpModal({ open, onClose, onRetry }: { open: boolean; onClose: () => void; onRetry: () => void }) {
+  const browserId = useMemo(detectGpsBrowser, []);
+  const guide = GPS_STEPS[browserId];
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-[2147483646] flex items-end sm:items-center justify-center px-3 sm:px-4 pb-4 sm:pb-0" role="dialog" aria-modal="true" aria-label="How to enable location">
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
+      <motion.div
+        initial={{ opacity: 0, y: 20, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 10 }}
+        transition={{ duration: 0.22, ease: "easeOut" }}
+        className="relative w-full max-w-md rounded-2xl bg-[#111] border border-white/10 shadow-2xl p-5 sm:p-6 text-white"
+      >
+        <div className="flex items-start gap-3 mb-4">
+          <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-[#e50914]/15 text-[#ff5560] ring-1 ring-[#e50914]/30 flex-shrink-0">
+            <AlertCircle className="h-5 w-5" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <h3 className="text-[15px] font-bold leading-tight">Enable location for this site</h3>
+            <p className="text-[12px] text-white/60 mt-0.5">Detected: {guide.label}</p>
+          </div>
+          <button
+            type="button"
+            aria-label="Close"
+            onClick={onClose}
+            className="text-white/50 hover:text-white transition-colors p-1 -mr-1"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <ol className="space-y-2.5 mb-5">
+          {guide.steps.map((step, i) => (
+            <li key={i} className="flex items-start gap-3 text-[13px] leading-relaxed">
+              <span className="inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-white/10 text-[11px] font-bold text-white/80 mt-0.5">{i + 1}</span>
+              <span className="text-white/85">{step}</span>
+            </li>
+          ))}
+        </ol>
+
+        <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
+          <button
+            type="button"
+            onClick={() => { onClose(); onRetry(); }}
+            className="flex-1 bg-[#e50914] hover:bg-[#f6121d] text-white font-bold text-[13px] py-2.5 rounded-lg transition-colors"
+          >
+            I've enabled it — Try again
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="sm:w-auto bg-white/5 hover:bg-white/10 text-white/80 font-semibold text-[13px] py-2.5 px-4 rounded-lg transition-colors"
+          >
+            Close
+          </button>
+        </div>
+      </motion.div>
+    </div>,
+    document.body,
+  );
+}
+
 // ==================== ADMIN LOGIN ====================
+
 function AdminLoginPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -2577,6 +2722,7 @@ function AdminLoginPage() {
   const [captchaConfigError, setCaptchaConfigError] = useState(false);
   const [showCaptcha, setShowCaptcha] = useState(false);
   const [gpsPermissionMode, setGpsPermissionMode] = useState<GpsPermissionMode | null>(null);
+  const [gpsHelpOpen, setGpsHelpOpen] = useState(false);
   const pendingClientGeoRef = useRef<LoginLocationPayload | null>(null);
   const gpsBlocked = gpsPermissionMode !== null;
   const navigate = useNavigate();
@@ -2620,24 +2766,37 @@ function AdminLoginPage() {
   };
 
   useEffect(() => {
-    if (!gpsBlocked || typeof navigator === "undefined" || !navigator.permissions?.query) return;
+    if (!gpsBlocked || typeof navigator === "undefined") return;
     let active = true;
     let status: PermissionStatus | null = null;
-    navigator.permissions.query({ name: "geolocation" as PermissionName }).then((permission) => {
-      if (!active) return;
-      status = permission;
-      permission.onchange = () => {
+    const clearBlocked = () => {
+      setGpsPermissionMode(null);
+      setGpsHelpOpen(false);
+      notify.dismiss(GPS_PERMISSION_TOAST_ID);
+      notify.info("Location ready", { id: "gps-permission-ready", description: "Tap Admin Sign In to continue.", duration: 3500 });
+    };
+    const recheck = async () => {
+      if (!active || !navigator.permissions?.query) return;
+      try {
+        const p = await navigator.permissions.query({ name: "geolocation" as PermissionName });
+        if (active && p.state !== "denied") clearBlocked();
+      } catch {}
+    };
+    if (navigator.permissions?.query) {
+      navigator.permissions.query({ name: "geolocation" as PermissionName }).then((permission) => {
         if (!active) return;
-        if (permission.state !== "denied") {
-          setGpsPermissionMode(null);
-          notify.dismiss(GPS_PERMISSION_TOAST_ID);
-          notify.info("Location permission ready", { id: "gps-permission-ready", description: "Tap Admin Sign In again to continue.", duration: 3500 });
-        }
-      };
-    }).catch(() => {});
+        status = permission;
+        permission.onchange = () => { if (active && permission.state !== "denied") clearBlocked(); };
+      }).catch(() => {});
+    }
+    const onVisible = () => { if (document.visibilityState === "visible") recheck(); };
+    window.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", recheck);
     return () => {
       active = false;
       if (status) status.onchange = null;
+      window.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", recheck);
     };
   }, [gpsBlocked]);
 
@@ -2666,7 +2825,7 @@ function AdminLoginPage() {
       setError(msg);
       if (isGpsPermissionDeniedMessage(msg)) {
         setGpsPermissionMode(getGpsPermissionMode(msg));
-        showGpsPermissionToast(msg);
+        showGpsPermissionToast(msg, () => setGpsHelpOpen(true));
       } else {
         notify.error(msg);
       }
@@ -2704,7 +2863,7 @@ function AdminLoginPage() {
       setError(msg);
       if (isGpsPermissionDeniedMessage(msg)) {
         setGpsPermissionMode(getGpsPermissionMode(msg));
-        showGpsPermissionToast(msg);
+        showGpsPermissionToast(msg, () => setGpsHelpOpen(true));
       } else {
         notify.error(msg);
       }
@@ -2745,33 +2904,7 @@ function AdminLoginPage() {
                 placeholder="••••••••" required />
             </div>
           </div>
-          {gpsBlocked ? (
-            <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-red-900 shadow-sm">
-              <div className="flex items-start gap-3">
-                <span className="mt-0.5 inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-red-100 text-red-600 ring-1 ring-red-200">
-                  <AlertCircle className="h-4 w-4" />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-black leading-snug text-slate-950">
-                    {gpsPermissionMode === "blocked" ? "Location permission is blocked" : "Location permission needed"}
-                  </p>
-                  <p className="mt-1 text-xs font-medium leading-relaxed text-red-700">
-                    {gpsPermissionMode === "blocked"
-                      ? "Set Location to Allow in browser site settings, then try again."
-                      : "Tap Try Again and press Allow in the browser location popup. Admin login will not continue without Location."}
-                  </p>
-                  <button
-                    type="button"
-                    onClick={retryGpsPermission}
-                    disabled={loading}
-                    className="mt-3 inline-flex items-center justify-center rounded-xl bg-red-600 px-4 py-2 text-xs font-black text-white transition-colors hover:bg-red-700 disabled:opacity-60"
-                  >
-                    Try Again
-                  </button>
-                </div>
-              </div>
-            </div>
-          ) : error && (
+          {error && (
             <div className="bg-red-50 text-red-600 text-xs p-3 rounded-xl flex items-center gap-2">
               <AlertCircle className="w-4 h-4" />{error}
             </div>
@@ -2795,6 +2928,8 @@ function AdminLoginPage() {
           <CaptchaModal siteKey={siteKey} onVerify={(token) => { setShowCaptcha(false); executeLogin(token); }} onCancel={() => { pendingClientGeoRef.current = null; setShowCaptcha(false); }} />
         )}
       </AnimatePresence>
+
+      <GpsHelpModal open={gpsHelpOpen} onClose={() => setGpsHelpOpen(false)} onRetry={retryGpsPermission} />
     </div>
   );
 }

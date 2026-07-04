@@ -3,10 +3,16 @@
 
 export type ToastVariant = "success" | "error" | "warning" | "info" | "loading";
 
+export type ToastAction = {
+  label: string;
+  onClick: () => void;
+};
+
 export type NotifyOpts = {
   id?: string | number;
   description?: string;
   duration?: number;
+  action?: ToastAction;
 };
 
 export type GlobalToast = {
@@ -16,6 +22,7 @@ export type GlobalToast = {
   variant: ToastVariant;
   duration: number;
   createdAt: number;
+  action?: ToastAction;
 };
 
 type Listener = (items: GlobalToast[]) => void;
@@ -60,6 +67,7 @@ function fire(variant: ToastVariant, title: string, opts: NotifyOpts = {}) {
     variant,
     duration,
     createdAt: Date.now(),
+    action: opts.action,
   };
   items = [toast, ...items.filter((item) => item.id !== id)].slice(0, MAX_VISIBLE);
   scheduleDismiss(id, duration);
