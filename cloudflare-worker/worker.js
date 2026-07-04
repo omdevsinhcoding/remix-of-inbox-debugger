@@ -656,19 +656,22 @@ async function handleFunctionProxy(request, env, fnName) {
 // ------------------------------------------------------------------
 // Email HTML cache — 1 year TTL (immutable content)
 // ------------------------------------------------------------------
-// KV key layout:  email_html:v1:<emailId>  →  JSON { html, account_label, at }
-// - HIT + session.assignedAccounts allows label (or admin role): serve cached.
-// - HIT + session lacks assignedAccounts info: skip cache, fall through (safe).
-// - MISS: proxy to Supabase manage-app { action:"get_email_html", id } with
-//   X-Session-Token + X-Cron-Secret (trusted-proxy marker enabling plaintext).
-//   Cache the response for 1 year.
+// Only requires: SUPABASE_URL + SUPABASE_KEY (anon).
+// All auth is delegated to the dedicated `email-html` Supabase edge function
+// which verifies session tokens internally.
 //
-// User impact: none. Emails render identically. Repeat opens across ANY device
-// or browser (that shares this worker's KV) are served from Cloudflare edge
-// with zero Supabase egress.
+// KV key:  email_html:v1:<emailId> → JSON { html, account_label, at }
+// Flow:
+//   - HIT:  send a tiny authz_only=true request to Supabase (~80 byte
+//           response). If allowed, serve cached HTML from Cloudflare edge.
+//   - MISS: full request to Supabase, cache 1 year, return.
+//
+// User impact: none. Emails render identically. Egress drops ~95% because the
+// heavy HTML body (50–500 KB) only leaves Supabase on the first-ever open.
 
 const EMAIL_HTML_KEY_PREFIX = "email_html:v1:";
 const EMAIL_HTML_TTL_SECONDS = 60 * 60 * 24 * 365; // 1 year
+const EMAIL_HTML_FUNCTION = "email-html";
 
 function inboxHtmlHeaders(extra = {}) {
   return {
@@ -680,21 +683,31 @@ function inboxHtmlHeaders(extra = {}) {
   };
 }
 
-function sessionAllowsLabel(session, label) {
-  if (!session) return null; // unknown — cannot decide
-  if (session.role === "admin") return true;
-  const assigned = session.assignedAccounts;
-  if (!Array.isArray(assigned)) return null; // unknown shape — cannot decide
-  if (assigned.length === 0) return false;   // user has no accounts assigned
-  return assigned.map((s) => String(s).trim()).filter(Boolean).includes(String(label || "").trim());
+async function callEmailHtmlFn(env, rawToken, payload) {
+  const res = await fetch(`${env.SUPABASE_URL}/functions/v1/${EMAIL_HTML_FUNCTION}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${env.SUPABASE_KEY}`,
+      "apikey": env.SUPABASE_KEY,
+      "X-Session-Token": rawToken || "",
+    },
+    body: JSON.stringify(payload),
+  });
+  const text = await res.text();
+  let json = null;
+  try { json = JSON.parse(text); } catch {}
+  return { status: res.status, ok: res.ok, text, json };
 }
 
-async function handleInboxHtml(request, env, session, rawToken, ctx) {
-  // Require signing config + a verified session token. This mirrors the
-  // Supabase-side requireSession() contract.
-  const hasSigning = !!(env.SESSION_SIGNING_SECRET || env.SESSION_SECRET);
-  if (hasSigning && !session) {
-    return new Response(JSON.stringify({ success: false, error: "Invalid session" }), {
+async function handleInboxHtml(request, env, _session, rawToken, ctx) {
+  if (!env.SUPABASE_URL || !env.SUPABASE_KEY) {
+    return new Response(JSON.stringify({ success: false, error: "Worker not configured (SUPABASE_URL/KEY missing)" }), {
+      status: 500, headers: inboxHtmlHeaders(),
+    });
+  }
+  if (!rawToken) {
+    return new Response(JSON.stringify({ success: false, error: "session required" }), {
       status: 401, headers: inboxHtmlHeaders(),
     });
   }
@@ -717,64 +730,40 @@ async function handleInboxHtml(request, env, session, rawToken, ctx) {
     if (raw) {
       let cached = null;
       try { cached = JSON.parse(raw); } catch { cached = null; }
-      if (cached && typeof cached.html === "string") {
-        const allowed = sessionAllowsLabel(session, cached.account_label);
-        if (allowed === true) {
+      if (cached && typeof cached.html === "string" && cached.html.length > 0) {
+        // Tiny authz check — Supabase verifies session + assigned_accounts.
+        // Response is ~80 bytes vs 50-500 KB of HTML. Massive egress win.
+        const authz = await callEmailHtmlFn(env, rawToken, { id, authz_only: true });
+        if (authz.ok && authz.json?.success && authz.json?.allowed) {
           const age = cached.at ? Math.max(0, Math.round((Date.now() - cached.at) / 1000)) : 0;
           return new Response(
             JSON.stringify({ success: true, id, html: cached.html, account_label: cached.account_label || "" }),
             { headers: inboxHtmlHeaders({ "X-Cache-Status": "HIT", "X-Cache-Age": String(age) }) },
           );
         }
-        if (allowed === false) {
-          return new Response(JSON.stringify({ success: false, error: "Not authorized" }), {
-            status: 403, headers: inboxHtmlHeaders({ "X-Cache-Status": "HIT_DENY" }),
+        if (authz.status === 401 || authz.status === 403) {
+          return new Response(authz.text || JSON.stringify({ success: false, error: "Not authorized" }), {
+            status: authz.status, headers: inboxHtmlHeaders({ "X-Cache-Status": "HIT_DENY" }),
           });
         }
-        // allowed === null → session shape unknown, fall through to Supabase.
+        // Any other error → fall through to full MISS path.
       }
     }
   }
 
-  // ---- Cache miss / unverifiable → proxy to Supabase (plaintext via X-Cron-Secret) ----
-  if (!env.SUPABASE_URL || !env.SUPABASE_KEY) {
-    return new Response(JSON.stringify({ success: false, error: "Worker not configured (SUPABASE_URL/KEY missing)" }), {
-      status: 500, headers: inboxHtmlHeaders(),
-    });
-  }
-  if (!env.CRON_SHARED_SECRET) {
-    return new Response(JSON.stringify({ success: false, error: "Worker not configured (CRON_SHARED_SECRET missing)" }), {
-      status: 500, headers: inboxHtmlHeaders(),
-    });
-  }
-
+  // ---- Cache miss: fetch full HTML from Supabase ----
   try {
-    const upstreamHeaders = {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${env.SUPABASE_KEY}`,
-      "apikey": env.SUPABASE_KEY,
-      "X-Cron-Secret": env.CRON_SHARED_SECRET,
-    };
-    if (rawToken) upstreamHeaders["X-Session-Token"] = rawToken;
-
-    const upstream = await fetch(`${env.SUPABASE_URL}/functions/v1/manage-app`, {
-      method: "POST",
-      headers: upstreamHeaders,
-      body: JSON.stringify({ action: "get_email_html", id }),
-    });
-    const text = await upstream.text();
+    const upstream = await callEmailHtmlFn(env, rawToken, { id });
     if (!upstream.ok) {
-      return new Response(text || JSON.stringify({ success: false, error: "upstream error" }), {
+      return new Response(upstream.text || JSON.stringify({ success: false, error: "upstream error" }), {
         status: upstream.status,
         headers: inboxHtmlHeaders({ "X-Cache-Status": "MISS_ERR" }),
       });
     }
-    let parsed = null;
-    try { parsed = JSON.parse(text); } catch {}
-    if (parsed && parsed.success && typeof parsed.html === "string" && parsed.html.length > 0 && kv) {
+    if (upstream.json?.success && typeof upstream.json?.html === "string" && upstream.json.html.length > 0 && kv) {
       const payload = {
-        html: parsed.html,
-        account_label: parsed.account_label || "",
+        html: upstream.json.html,
+        account_label: upstream.json.account_label || "",
         at: Date.now(),
       };
       const writeWork = (async () => {
@@ -789,7 +778,7 @@ async function handleInboxHtml(request, env, session, rawToken, ctx) {
       })();
       if (ctx?.waitUntil) ctx.waitUntil(writeWork); else await writeWork;
     }
-    return new Response(text, {
+    return new Response(upstream.text, {
       status: 200,
       headers: inboxHtmlHeaders({ "X-Cache-Status": "MISS" }),
     });
