@@ -2291,11 +2291,12 @@ function ProfileSelectPage() {
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Login failed";
-      setError(msg);
       if (isGpsPermissionDeniedMessage(msg)) {
+        setError("");
         setGpsPermissionMode(getGpsPermissionMode(msg));
         showGpsPermissionToast(msg);
       } else {
+        setError(msg);
         notify.error(msg);
       }
       setLoginLoading(false);
@@ -2336,11 +2337,12 @@ function ProfileSelectPage() {
       navigate("/viewer");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Login failed";
-      setError(msg);
       if (isGpsPermissionDeniedMessage(msg)) {
+        setError("");
         setGpsPermissionMode(getGpsPermissionMode(msg));
         showGpsPermissionToast(msg);
       } else {
+        setError(msg);
         notify.error(msg);
       }
     } finally {
@@ -2654,11 +2656,12 @@ function AdminLoginPage() {
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Login failed";
-      setError(msg);
       if (isGpsPermissionDeniedMessage(msg)) {
+        setError("");
         setGpsPermissionMode(getGpsPermissionMode(msg));
         showGpsPermissionToast(msg);
       } else {
+        setError(msg);
         notify.error(msg);
       }
       setLoading(false);
@@ -2692,11 +2695,12 @@ function AdminLoginPage() {
       navigate("/admin-auth");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Login failed";
-      setError(msg);
       if (isGpsPermissionDeniedMessage(msg)) {
+        setError("");
         setGpsPermissionMode(getGpsPermissionMode(msg));
         showGpsPermissionToast(msg);
       } else {
+        setError(msg);
         notify.error(msg);
       }
     } finally {
