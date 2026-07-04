@@ -242,10 +242,12 @@ export function transportErrorResponse(err: unknown): Response {
 
 export async function encryptResponse(payload: any, ctx: EncryptedRequestContext, status = 200): Promise<Response> {
   const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES));
-  const plain = new TextEncoder().encode(JSON.stringify(payload ?? null));
+  const raw = new TextEncoder().encode(JSON.stringify(payload ?? null));
+  const useGzip = ctx.acceptGzip && raw.length >= GZIP_MIN_BYTES;
+  const plain = useGzip ? await gzipBytes(raw) : raw;
   const cipher = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, ctx.key, plain));
   const out = new Uint8Array(1 + IV_BYTES + cipher.length);
-  out[0] = VERSION;
+  out[0] = useGzip ? VERSION_GZIP : VERSION;
   out.set(iv, 1);
   out.set(cipher, 1 + IV_BYTES);
   return new Response(out, {
