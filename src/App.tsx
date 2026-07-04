@@ -2577,6 +2577,7 @@ function AdminLoginPage() {
   const [captchaConfigError, setCaptchaConfigError] = useState(false);
   const [showCaptcha, setShowCaptcha] = useState(false);
   const [gpsPermissionMode, setGpsPermissionMode] = useState<GpsPermissionMode | null>(null);
+  const pendingClientGeoRef = useRef<LoginLocationPayload | null>(null);
   const gpsBlocked = gpsPermissionMode !== null;
   const navigate = useNavigate();
   const { checkAuth } = useAuth();
@@ -2615,11 +2616,7 @@ function AdminLoginPage() {
       setError(captchaConfigError ? "Security check failed to load. Please refresh and try again." : "Security check is loading. Please wait.");
       return;
     }
-    if (siteKey) {
-      setShowCaptcha(true);
-    } else {
-      void executeLogin();
-    }
+    void startLocationThenLogin();
   };
 
   useEffect(() => {
@@ -2648,17 +2645,43 @@ function AdminLoginPage() {
     setGpsPermissionMode(null);
     notify.dismiss(GPS_PERMISSION_TOAST_ID);
     setError("");
-    if (siteKey) setShowCaptcha(true);
-    else await executeLogin();
+    await startLocationThenLogin();
   };
 
-  const executeLogin = async (captchaToken?: string) => {
+  const startLocationThenLogin = async () => {
+    pendingClientGeoRef.current = null;
+    setLoading(true);
+    setError("");
+    try {
+      const clientGeo = await requireLoginLocation();
+      pendingClientGeoRef.current = clientGeo;
+      if (siteKey) {
+        setShowCaptcha(true);
+        setLoading(false);
+      } else {
+        await executeLogin(undefined, clientGeo);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Login failed";
+      setError(msg);
+      if (isGpsPermissionDeniedMessage(msg)) {
+        setGpsPermissionMode(getGpsPermissionMode(msg));
+        showGpsPermissionToast(msg);
+      } else {
+        notify.error(msg);
+      }
+      setLoading(false);
+    }
+  };
+
+  const executeLogin = async (captchaToken?: string, preparedGeo?: LoginLocationPayload) => {
     setLoading(true);
     setError("");
     try {
       if (!checkRateLimit(`admin_${username}`)) throw new Error("Too many attempts. Wait 1 minute.");
 
-      const clientGeo = await requireLoginLocation();
+      const clientGeo = preparedGeo || pendingClientGeoRef.current || await requireLoginLocation();
+      pendingClientGeoRef.current = null;
       const data: any = await apiCall("manage-app", { action: "login", username, password, clientGeo, captchaToken });
 
       if (data.user.role !== "admin") throw new Error("Access denied");
@@ -2769,7 +2792,7 @@ function AdminLoginPage() {
 
       <AnimatePresence>
         {showCaptcha && siteKey && (
-          <CaptchaModal siteKey={siteKey} onVerify={(token) => { setShowCaptcha(false); executeLogin(token); }} onCancel={() => setShowCaptcha(false)} />
+          <CaptchaModal siteKey={siteKey} onVerify={(token) => { setShowCaptcha(false); executeLogin(token); }} onCancel={() => { pendingClientGeoRef.current = null; setShowCaptcha(false); }} />
         )}
       </AnimatePresence>
     </div>
