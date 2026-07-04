@@ -5188,6 +5188,24 @@ function AdminPanel() {
 
             <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
               <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
+                <div className="bg-amber-50 p-1.5 rounded-lg"><Mail className="w-4 h-4 text-amber-600" /></div>
+                Netflix Marketing / Promo Emails
+              </h2>
+              <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border">
+                <div className="pr-3">
+                  <p className="font-bold text-sm text-slate-900">Hide Netflix promotional emails from users</p>
+                  <p className="text-xs text-slate-500 mt-1">Only affects emails from official Netflix domains (welcome, new releases, top 10, "start watching today", etc.). Transactional mail like sign-in codes, household verification, password resets and billing is always shown. <b>Default: OFF</b> — users see all official Netflix mail.</p>
+                </div>
+                <button onClick={() => saveBlockNetflixPromo(!blockNetflixPromo)} disabled={savingBlockPromo}
+                  className={`relative w-12 h-6 rounded-full transition-colors flex-shrink-0 ml-3 ${blockNetflixPromo ? "bg-rose-500" : "bg-slate-300"}`}>
+                  <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${blockNetflixPromo ? "translate-x-6" : "translate-x-0.5"}`} />
+                </button>
+              </div>
+            </section>
+
+
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
                 <div className="bg-rose-50 p-1.5 rounded-lg"><Trash2 className="w-4 h-4 text-rose-600" /></div>
                 Auto-Delete Old Emails
               </h2>
