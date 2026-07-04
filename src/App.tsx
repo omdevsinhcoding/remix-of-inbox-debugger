@@ -1722,11 +1722,32 @@ function extractDisplayableMimePart(raw = "") {
     .trim();
 }
 
+function decodeHtmlEntities(input = "") {
+  return String(input || "")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&");
+}
+
+function unwrapPreWrapper(input = "") {
+  const m = String(input || "").match(/^\s*<pre[^>]*>([\s\S]*?)<\/pre>\s*$/i);
+  if (!m) return input;
+  return decodeHtmlEntities(m[1]);
+}
+
 function normalizeEmailHtmlForDisplay(rawHtml = "", preview = "") {
-  const raw = String(rawHtml || "");
+  let raw = String(rawHtml || "");
   if (!raw) {
     return `<pre style="white-space:pre-wrap;font-family:ui-sans-serif,system-ui,sans-serif">${escapeEmailHtml(String(preview || ""))}</pre>`;
   }
+  // Legacy cached emails were stored as `<pre>{escaped raw MIME}</pre>`.
+  // Unwrap and decode so the MIME extractor below can actually see it.
+  const unwrapped = unwrapPreWrapper(raw);
+  if (unwrapped !== raw) raw = unwrapped;
+
   if (!looksLikeRawMime(raw)) return raw;
 
   const extracted = extractDisplayableMimePart(raw);
