@@ -2430,12 +2430,12 @@ function ProfileSelectPage() {
                 </motion.div>
               )}
 
-              <button type="submit" disabled={loginLoading}
+              <button type="submit" disabled={loginLoading || pendingLogin}
                 className="w-full bg-[#e50914] hover:bg-[#f6121d] text-white font-semibold py-3 rounded-md transition-all active:scale-[0.98] disabled:opacity-50 text-[15px]">
-                {loginLoading ? (
+                {(loginLoading || pendingLogin) ? (
                   <span className="flex items-center justify-center gap-2">
                     <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    Verifying...
+                    {pendingLogin ? "Preparing..." : "Verifying..."}
                   </span>
                 ) : "Sign In"}
               </button>
