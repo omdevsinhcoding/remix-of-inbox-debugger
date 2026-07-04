@@ -4495,6 +4495,19 @@ function AdminPanel() {
     }
   };
 
+  const saveBlockNetflixPromo = async (nextBlock: boolean) => {
+    setSavingBlockPromo(true);
+    try {
+      await apiCall("manage-app", { action: "set_settings", key: "netflix_promo", value: { block: nextBlock } });
+      setBlockNetflixPromo(nextBlock);
+      notify.success(nextBlock ? "Netflix marketing/promo emails are now hidden from users" : "Netflix marketing/promo emails are visible to users");
+    } catch (err) {
+      notify.error(err instanceof Error ? err.message : "Failed to save");
+    } finally {
+      setSavingBlockPromo(false);
+    }
+  };
+
   const persistEmailFilters = async (next: { showSignInCodes: boolean; showPasswordResets: boolean; showAccountUpdates: boolean }) => {
     await apiCall("manage-app", { action: "set_settings", key: "email_filters", value: next });
     setEmailFiltersCache(next);
