@@ -253,6 +253,20 @@ export default {
       return handleInboxHtml(request, env, session, sessionToken, ctx);
     }
 
+    // Notifications list — per-user KV cache (60s TTL). Cuts Supabase
+    // invocations ~95% at 5000 users. Etag-aware so mid-cache-window changes
+    // still surface via 304-equivalent path on cache expiry.
+    if (url.pathname === "/api/notifications/list" && request.method === "POST") {
+      return handleNotificationsList(request, env, session, sessionToken, ctx);
+    }
+
+    // Cache buster called after any mark/read/delete write — invalidates
+    // the user's KV entry so the next poll picks up the change immediately.
+    if (url.pathname === "/api/notifications/invalidate" && request.method === "POST") {
+      return handleNotificationsInvalidate(env, session);
+    }
+
+
 
 
 
