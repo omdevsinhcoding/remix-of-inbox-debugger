@@ -3976,6 +3976,8 @@ function AdminPanel() {
   const [emailAutoDeleteDays, setEmailAutoDeleteDays] = useState<string>("30");
   const [emailAutoDeleteHour, setEmailAutoDeleteHour] = useState<string>("3");
   const [savingEmailAutoDelete, setSavingEmailAutoDelete] = useState(false);
+  const [blockNetflixPromo, setBlockNetflixPromo] = useState(false);
+  const [savingBlockPromo, setSavingBlockPromo] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newAdminPassword, setNewAdminPassword] = useState("");
   const [changingPassword, setChangingPassword] = useState(false);
