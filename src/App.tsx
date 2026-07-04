@@ -352,6 +352,107 @@ type LoginLocationPayload = {
   device?: DeviceFingerprint;
 };
 
+const DEV_ADMIN_BYPASS_FLAG = "nf_dev_admin_bypass";
+const DEV_ADMIN_TOKEN = "dev-admin-session-token";
+const DEV_USER_TOKEN = "dev-user-session-token";
+
+const devAdminUser = {
+  id: "dev-admin",
+  username: "admin",
+  name: "Dev Admin",
+  role: "admin" as const,
+  profilePrefs: {},
+  assignedAccounts: ["Primary"],
+};
+
+const devUsers = [
+  {
+    id: "dev-user-1",
+    username: "rahul",
+    name: "Rahul Test User",
+    role: "user" as const,
+    assignedAccounts: ["Primary"],
+    profilePrefs: {},
+  },
+  {
+    id: "dev-user-2",
+    username: "priya",
+    name: "Priya Test User",
+    role: "user" as const,
+    assignedAccounts: null,
+    profilePrefs: {},
+  },
+];
+
+function isDevAdminBypassEnabled() {
+  if (!import.meta.env.DEV || typeof window === "undefined") return false;
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("__devAdmin") === "1") {
+      sessionStorage.setItem(DEV_ADMIN_BYPASS_FLAG, "1");
+      return true;
+    }
+    return sessionStorage.getItem(DEV_ADMIN_BYPASS_FLAG) === "1";
+  } catch { return false; }
+}
+
+function activateDevAdminBypassIfRequested() {
+  if (!isDevAdminBypassEnabled()) return;
+  try {
+    sessionSet("user" as any, JSON.stringify(devAdminUser));
+    sessionSet("session_token" as any, DEV_ADMIN_TOKEN);
+    sessionSet("admin_auth" as any, "true");
+  } catch {}
+}
+
+function getDevSessionUser() {
+  try {
+    const raw = sessionGet("user" as any);
+    return raw ? JSON.parse(raw) : devAdminUser;
+  } catch { return devAdminUser; }
+}
+
+function devAdminBypassResponse(functionName: string, body: any) {
+  if (!isDevAdminBypassEnabled() || functionName !== "manage-app") return undefined;
+  const action = body?.action;
+  if (action === "me") return { success: true, user: getDevSessionUser() };
+  if (action === "logout") return { success: true };
+  if (action === "admin_dashboard_bootstrap" || action === "admin_dashboard_refresh") {
+    return {
+      success: true,
+      users: [devAdminUser, ...devUsers],
+      emailsTotal: 3,
+      notifications: [],
+      settings: action === "admin_dashboard_bootstrap" ? {
+        recaptcha: { enabled: false, siteKey: "", secretKey: "" },
+        email_visibility: { enabled: false, days: 20 },
+        email_auto_delete: { enabled: false, days: 30, hour: 3 },
+        config: {},
+        primary_cloudflare_urls: [],
+        email_filters: { showSignInCodes: true, showPasswordResets: false, showAccountUpdates: false },
+        email_accounts: [],
+        session_config: { timeoutMinutes: 0 },
+        admin_session_config: { timeoutMinutes: 0 },
+        ipwho_alert: { enabled: false },
+        maintenance: { enabled: false },
+      } : undefined,
+      r2: { enabled: false, secretAccessKeySet: false },
+    };
+  }
+  if (action === "impersonate") {
+    const target = devUsers.find((u) => u.id === body?.target_user_id) || devUsers[0];
+    return { success: true, user: { ...target, role: "user", impersonated: true }, sessionToken: DEV_USER_TOKEN };
+  }
+  if (action === "get_settings") {
+    if (body?.key === "primary_cloudflare_urls") return { success: true, value: [] };
+    if (body?.key === "email_accounts") return { success: true, value: [] };
+    return { success: true, value: null };
+  }
+  if (action === "update_profile_prefs") return { success: true };
+  if (action === "change_password") return { success: true };
+  return undefined;
+}
+
 async function sha256Hex(s: string): Promise<string> {
   try {
     const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
@@ -606,6 +707,9 @@ async function requireLoginLocation(): Promise<LoginLocationPayload> {
 // --- API Helper (encrypted-only Supabase edge transport) ---
 
 async function apiCall(functionName: string, body: any) {
+  const devResponse = devAdminBypassResponse(functionName, body);
+  if (devResponse !== undefined) return devResponse;
+
   const token = getSessionToken();
   const pendingToken = (() => { try { return sessionGet("pending_admin_token" as any); } catch { return null; } })();
   const pendingActions = new Set(["request_admin_otp", "verify_otp", "verify_totp", "update_totp", "finalize_admin_session"]);
@@ -778,6 +882,7 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   useEffect(() => {
+    activateDevAdminBypassIfRequested();
     // Initial paint from cache so UI is not blocked, then verify against DB.
     setUser(readCached());
     // C.2: arm auto-refresh from any stored refresh token in this tab.
@@ -4206,7 +4311,10 @@ function AdminPanel() {
       // Impersonation: also defer session timer until EmailViewer loads inbox.
       try { sessionRemove("session_started_at" as any); } catch {}
       sessionRemove("admin_auth" as any);
-      checkAuth();
+      // Do NOT call checkAuth here. React Router may still be rendering the
+      // admin dashboard for this tick; swapping AuthContext to role="user"
+      // before /viewer commits makes ProtectedRoute redirect to "/" and kicks
+      // the admin out. EmailViewer reads the impersonated session directly.
       toast.success(`Viewing as ${targetUser.name}`);
     } catch (err) {
       toast.dismiss("impersonate");
