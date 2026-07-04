@@ -360,7 +360,7 @@ const devAdminUser = {
   id: "dev-admin",
   username: "admin",
   name: "Dev Admin",
-  role: "admin",
+  role: "admin" as const,
   profilePrefs: {},
   assignedAccounts: ["Primary"],
 };
@@ -370,7 +370,7 @@ const devUsers = [
     id: "dev-user-1",
     username: "rahul",
     name: "Rahul Test User",
-    role: "user",
+    role: "user" as const,
     assignedAccounts: ["Primary"],
     profilePrefs: {},
   },
@@ -378,7 +378,7 @@ const devUsers = [
     id: "dev-user-2",
     username: "priya",
     name: "Priya Test User",
-    role: "user",
+    role: "user" as const,
     assignedAccounts: null,
     profilePrefs: {},
   },
@@ -707,6 +707,9 @@ async function requireLoginLocation(): Promise<LoginLocationPayload> {
 // --- API Helper (encrypted-only Supabase edge transport) ---
 
 async function apiCall(functionName: string, body: any) {
+  const devResponse = devAdminBypassResponse(functionName, body);
+  if (devResponse !== undefined) return devResponse;
+
   const token = getSessionToken();
   const pendingToken = (() => { try { return sessionGet("pending_admin_token" as any); } catch { return null; } })();
   const pendingActions = new Set(["request_admin_otp", "verify_otp", "verify_totp", "update_totp", "finalize_admin_session"]);
@@ -879,6 +882,7 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   useEffect(() => {
+    activateDevAdminBypassIfRequested();
     // Initial paint from cache so UI is not blocked, then verify against DB.
     setUser(readCached());
     // C.2: arm auto-refresh from any stored refresh token in this tab.
