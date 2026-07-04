@@ -169,6 +169,11 @@ export async function secureFetchJson(
     "Content-Type": CT_BINARY,
     Authorization: `Bearer ${anonKey()}`,
     apikey: anonKey(),
+    // Tell the server we can decompress gzipped payloads. This trims Supabase
+    // egress by 60-85% on JSON responses (list_delta, get_email_html,
+    // bootstrap_public, admin lists). Server only gzips when this header is
+    // present, so older clients keep working.
+    "x-accept-encoding": "gzip",
     ...(opts.headers || {}),
   };
 
@@ -186,7 +191,8 @@ export async function secureFetchJson(
     );
   }
   const buf = new Uint8Array(await res.arrayBuffer());
-  if (buf.length < 1 + IV_BYTES + 16 || buf[0] !== VERSION) {
+  const ver = buf[0];
+  if (buf.length < 1 + IV_BYTES + 16 || (ver !== VERSION && ver !== VERSION_GZIP)) {
     resetSession();
     throw new Error("secureTransport: bad frame");
   }
@@ -198,6 +204,14 @@ export async function secureFetchJson(
   } catch (e) {
     resetSession();
     throw e;
+  }
+  if (ver === VERSION_GZIP) {
+    try {
+      dec = await gunzipBytes(dec);
+    } catch (e) {
+      resetSession();
+      throw new Error(`secureTransport: gunzip failed for ${functionName}: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
   const text = new TextDecoder().decode(dec);
   const data = text ? JSON.parse(text) : null;
