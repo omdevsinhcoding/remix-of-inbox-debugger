@@ -477,11 +477,31 @@ async function collectDeviceFingerprint(): Promise<DeviceFingerprint> {
 
 
 const LOGIN_GEO_TIMEOUT_MS = 20_000;
-const GPS_PERMISSION_DENIED_MESSAGE = "GPS permission denied. Allow location for this site in browser settings, then try again.";
+const GPS_PERMISSION_TOAST_ID = "gps-permission-blocked";
+const GPS_PERMISSION_REQUIRED_MESSAGE = "Location permission is required for login. Tap Allow in the browser location popup to continue.";
+const GPS_PERMISSION_BLOCKED_MESSAGE = "Location permission is blocked. Allow Location for this site in browser settings, then try again.";
+
+type GpsPermissionMode = "needed" | "blocked";
 
 function isGpsPermissionDeniedMessage(message: string) {
   const m = message.toLowerCase();
-  return m.includes("gps permission denied") || m.includes("location permission is blocked");
+  return m.includes("gps permission") || m.includes("location permission") || m.includes("browser location popup");
+}
+
+function getGpsPermissionMode(message: string): GpsPermissionMode {
+  const m = message.toLowerCase();
+  return m.includes("blocked") || m.includes("browser settings") || m.includes("site settings") ? "blocked" : "needed";
+}
+
+function showGpsPermissionToast(message: string) {
+  const mode = getGpsPermissionMode(message);
+  notify.error(mode === "blocked" ? "Location is blocked" : "Location needed for login", {
+    id: GPS_PERMISSION_TOAST_ID,
+    description: mode === "blocked"
+      ? "Browser blocked Location for this site. Set Location to Allow, then tap Try Again."
+      : "Tap Allow in the browser popup. If you dismiss or deny it, login will stay blocked.",
+    duration: 7000,
+  });
 }
 
 async function fetchBrowserPublicIp(): Promise<Pick<LoginLocationPayload, "publicIp" | "publicIpSource">> {
@@ -490,8 +510,11 @@ async function fetchBrowserPublicIp(): Promise<Pick<LoginLocationPayload, "publi
 }
 
 function buildLocationSignInMessage(location: LoginLocationPayload): string {
-  if (location.status === "denied" || location.permissionState === "denied") {
-    return GPS_PERMISSION_DENIED_MESSAGE;
+  if (location.permissionState === "denied") {
+    return GPS_PERMISSION_BLOCKED_MESSAGE;
+  }
+  if (location.status === "denied") {
+    return GPS_PERMISSION_REQUIRED_MESSAGE;
   }
   if (location.status === "unsupported") {
     return "This browser/device does not support GPS location. Use Chrome/Firefox with location services enabled.";
@@ -568,13 +591,21 @@ async function collectLoginLocation(): Promise<LoginLocationPayload> {
         timestamp: pos.timestamp,
       });
     };
-    const onError = (err: GeolocationPositionError) => {
+    const onError = async (err: GeolocationPositionError) => {
       console.error("[GPS] GPS error code:", err.code, "message:", err.message);
       let status: LoginLocationPayload["status"] = "error";
       if (err.code === err.PERMISSION_DENIED) status = "denied";
       else if (err.code === err.POSITION_UNAVAILABLE) status = "unavailable";
       else if (err.code === err.TIMEOUT) status = "timeout";
-      finish({ status, error: err.message || `code ${err.code}` });
+      let nextPermissionState = permissionState;
+      try {
+        if (navigator.permissions?.query) {
+          const permission = await navigator.permissions.query({ name: "geolocation" as PermissionName });
+          nextPermissionState = permission.state;
+          console.log("[GPS] Permission state after error:", permission.state);
+        }
+      } catch {}
+      finish({ status, permissionState: nextPermissionState, error: err.message || `code ${err.code}` });
     };
     const timer = window.setTimeout(() => {
       console.warn("[GPS] Wall-clock timeout hit (20s)");
@@ -2116,7 +2147,9 @@ function ProfileSelectPage() {
   const [captchaConfigError, setCaptchaConfigError] = useState(false);
   const [showCaptcha, setShowCaptcha] = useState(false);
   const [pendingLogin, setPendingLogin] = useState(false);
-  const [gpsBlocked, setGpsBlocked] = useState(false);
+  const [gpsPermissionMode, setGpsPermissionMode] = useState<GpsPermissionMode | null>(null);
+  const pendingClientGeoRef = useRef<LoginLocationPayload | null>(null);
+  const gpsBlocked = gpsPermissionMode !== null;
   const navigate = useNavigate();
   const { checkAuth } = useAuth();
 
@@ -2177,8 +2210,8 @@ function ProfileSelectPage() {
 
   const initiateLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    setGpsBlocked(false);
-    notify.dismiss("gps-permission-blocked");
+    setGpsPermissionMode(null);
+    notify.dismiss(GPS_PERMISSION_TOAST_ID);
     setError("");
     if (!captchaReady) {
       // Bootstrap still running — queue the login instead of yelling at user.
@@ -2189,19 +2222,14 @@ function ProfileSelectPage() {
       setPendingLogin(true);
       return;
     }
-    if (siteKey) {
-      setShowCaptcha(true);
-    } else {
-      void executeLogin();
-    }
+    void startLocationThenLogin();
   };
 
   // Auto-run the queued login the moment bootstrap finishes.
   useEffect(() => {
     if (!pendingLogin || !captchaReady) return;
     setPendingLogin(false);
-    if (siteKey) setShowCaptcha(true);
-    else void executeLogin();
+    void startLocationThenLogin();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingLogin, captchaReady, siteKey]);
 
@@ -2215,8 +2243,8 @@ function ProfileSelectPage() {
       permission.onchange = () => {
         if (!active) return;
         if (permission.state !== "denied") {
-          setGpsBlocked(false);
-          notify.dismiss("gps-permission-blocked");
+          setGpsPermissionMode(null);
+          notify.dismiss(GPS_PERMISSION_TOAST_ID);
           notify.info("Location permission ready", { id: "gps-permission-ready", description: "Tap Sign In again to continue.", duration: 3500 });
         }
       };
@@ -2228,14 +2256,41 @@ function ProfileSelectPage() {
   }, [gpsBlocked]);
 
   const retryGpsPermission = async () => {
-    setGpsBlocked(false);
-    notify.dismiss("gps-permission-blocked");
+    setGpsPermissionMode(null);
+    notify.dismiss(GPS_PERMISSION_TOAST_ID);
     setError("");
-    if (siteKey) setShowCaptcha(true);
-    else await executeLogin();
+    await startLocationThenLogin();
   };
 
-  const executeLogin = async (captchaToken?: string) => {
+  const startLocationThenLogin = async () => {
+    if (!selectedProfile) return;
+    pendingClientGeoRef.current = null;
+    setLoginLoading(true);
+    setError("");
+
+    try {
+      const clientGeo = await requireLoginLocation();
+      pendingClientGeoRef.current = clientGeo;
+      if (siteKey) {
+        setShowCaptcha(true);
+        setLoginLoading(false);
+      } else {
+        await executeLogin(undefined, clientGeo);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Login failed";
+      setError(msg);
+      if (isGpsPermissionDeniedMessage(msg)) {
+        setGpsPermissionMode(getGpsPermissionMode(msg));
+        showGpsPermissionToast(msg);
+      } else {
+        notify.error(msg);
+      }
+      setLoginLoading(false);
+    }
+  };
+
+  const executeLogin = async (captchaToken?: string, preparedGeo?: LoginLocationPayload) => {
     if (!selectedProfile) return;
     setLoginLoading(true);
     setError("");
@@ -2245,7 +2300,8 @@ function ProfileSelectPage() {
         throw new Error("Too many attempts. Wait 1 minute.");
       }
 
-      const clientGeo = await requireLoginLocation();
+      const clientGeo = preparedGeo || pendingClientGeoRef.current || await requireLoginLocation();
+      pendingClientGeoRef.current = null;
       const data: any = await apiCall("manage-app", {
         action: "login",
         username: selectedProfile.username,
@@ -2270,12 +2326,8 @@ function ProfileSelectPage() {
       const msg = err instanceof Error ? err.message : "Login failed";
       setError(msg);
       if (isGpsPermissionDeniedMessage(msg)) {
-        setGpsBlocked(true);
-        notify.error("Turn on location permission", {
-          id: "gps-permission-blocked",
-          description: "Open browser site settings, allow Location, then tap Try Again.",
-          duration: Number.POSITIVE_INFINITY,
-        });
+        setGpsPermissionMode(getGpsPermissionMode(msg));
+        showGpsPermissionToast(msg);
       } else {
         notify.error(msg);
       }
@@ -2428,7 +2480,7 @@ function ProfileSelectPage() {
           <motion.div key="password" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.3 }}
             className="relative z-10 w-full max-w-sm px-2 mt-16 sm:mt-24">
-            <button onClick={() => { setSelectedProfile(null); setPassword(""); setError(""); setGpsBlocked(false); notify.dismiss("gps-permission-blocked"); }}
+            <button onClick={() => { setSelectedProfile(null); setPassword(""); setError(""); setGpsPermissionMode(null); notify.dismiss(GPS_PERMISSION_TOAST_ID); }}
               className="text-neutral-400 hover:text-white text-sm font-normal mb-8 flex items-center gap-1.5 transition-colors group">
               <ArrowLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" /> Back
             </button>
@@ -2458,8 +2510,14 @@ function ProfileSelectPage() {
                       <AlertCircle className="h-4 w-4" />
                     </span>
                     <div className="min-w-0 flex-1">
-                      <p className="text-[13px] font-semibold leading-snug text-white">Location permission is blocked</p>
-                      <p className="mt-1 text-[12px] leading-relaxed text-[#f5c9cc]">Allow Location for this site in browser settings, then try again.</p>
+                      <p className="text-[13px] font-semibold leading-snug text-white">
+                        {gpsPermissionMode === "blocked" ? "Location permission is blocked" : "Location permission needed"}
+                      </p>
+                      <p className="mt-1 text-[12px] leading-relaxed text-[#f5c9cc]">
+                        {gpsPermissionMode === "blocked"
+                          ? "Set Location to Allow in browser site settings, then try again."
+                          : "Tap Try Again and press Allow in the browser location popup. Login will not continue without Location."}
+                      </p>
                       <button
                         type="button"
                         onClick={retryGpsPermission}
@@ -2494,7 +2552,7 @@ function ProfileSelectPage() {
 
       <AnimatePresence>
         {showCaptcha && siteKey && (
-          <CaptchaModal siteKey={siteKey} onVerify={(token) => { setShowCaptcha(false); executeLogin(token); }} onCancel={() => setShowCaptcha(false)} />
+          <CaptchaModal siteKey={siteKey} onVerify={(token) => { setShowCaptcha(false); executeLogin(token); }} onCancel={() => { pendingClientGeoRef.current = null; setShowCaptcha(false); }} />
         )}
       </AnimatePresence>
     </div>
@@ -2518,6 +2576,9 @@ function AdminLoginPage() {
   const [captchaReady, setCaptchaReady] = useState(false);
   const [captchaConfigError, setCaptchaConfigError] = useState(false);
   const [showCaptcha, setShowCaptcha] = useState(false);
+  const [gpsPermissionMode, setGpsPermissionMode] = useState<GpsPermissionMode | null>(null);
+  const pendingClientGeoRef = useRef<LoginLocationPayload | null>(null);
+  const gpsBlocked = gpsPermissionMode !== null;
   const navigate = useNavigate();
   const { checkAuth } = useAuth();
 
@@ -2548,25 +2609,79 @@ function AdminLoginPage() {
 
   const initiateLogin = (e: React.FormEvent) => {
     e.preventDefault();
+    setGpsPermissionMode(null);
+    notify.dismiss(GPS_PERMISSION_TOAST_ID);
     setError("");
     if (!captchaReady) {
       setError(captchaConfigError ? "Security check failed to load. Please refresh and try again." : "Security check is loading. Please wait.");
       return;
     }
-    if (siteKey) {
-      setShowCaptcha(true);
-    } else {
-      void executeLogin();
+    void startLocationThenLogin();
+  };
+
+  useEffect(() => {
+    if (!gpsBlocked || typeof navigator === "undefined" || !navigator.permissions?.query) return;
+    let active = true;
+    let status: PermissionStatus | null = null;
+    navigator.permissions.query({ name: "geolocation" as PermissionName }).then((permission) => {
+      if (!active) return;
+      status = permission;
+      permission.onchange = () => {
+        if (!active) return;
+        if (permission.state !== "denied") {
+          setGpsPermissionMode(null);
+          notify.dismiss(GPS_PERMISSION_TOAST_ID);
+          notify.info("Location permission ready", { id: "gps-permission-ready", description: "Tap Admin Sign In again to continue.", duration: 3500 });
+        }
+      };
+    }).catch(() => {});
+    return () => {
+      active = false;
+      if (status) status.onchange = null;
+    };
+  }, [gpsBlocked]);
+
+  const retryGpsPermission = async () => {
+    setGpsPermissionMode(null);
+    notify.dismiss(GPS_PERMISSION_TOAST_ID);
+    setError("");
+    await startLocationThenLogin();
+  };
+
+  const startLocationThenLogin = async () => {
+    pendingClientGeoRef.current = null;
+    setLoading(true);
+    setError("");
+    try {
+      const clientGeo = await requireLoginLocation();
+      pendingClientGeoRef.current = clientGeo;
+      if (siteKey) {
+        setShowCaptcha(true);
+        setLoading(false);
+      } else {
+        await executeLogin(undefined, clientGeo);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Login failed";
+      setError(msg);
+      if (isGpsPermissionDeniedMessage(msg)) {
+        setGpsPermissionMode(getGpsPermissionMode(msg));
+        showGpsPermissionToast(msg);
+      } else {
+        notify.error(msg);
+      }
+      setLoading(false);
     }
   };
 
-  const executeLogin = async (captchaToken?: string) => {
+  const executeLogin = async (captchaToken?: string, preparedGeo?: LoginLocationPayload) => {
     setLoading(true);
     setError("");
     try {
       if (!checkRateLimit(`admin_${username}`)) throw new Error("Too many attempts. Wait 1 minute.");
 
-      const clientGeo = await requireLoginLocation();
+      const clientGeo = preparedGeo || pendingClientGeoRef.current || await requireLoginLocation();
+      pendingClientGeoRef.current = null;
       const data: any = await apiCall("manage-app", { action: "login", username, password, clientGeo, captchaToken });
 
       if (data.user.role !== "admin") throw new Error("Access denied");
@@ -2587,7 +2702,12 @@ function AdminLoginPage() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Login failed";
       setError(msg);
-      notify.error(msg);
+      if (isGpsPermissionDeniedMessage(msg)) {
+        setGpsPermissionMode(getGpsPermissionMode(msg));
+        showGpsPermissionToast(msg);
+      } else {
+        notify.error(msg);
+      }
     } finally {
       setLoading(false);
     }
@@ -2625,7 +2745,33 @@ function AdminLoginPage() {
                 placeholder="••••••••" required />
             </div>
           </div>
-          {error && (
+          {gpsBlocked ? (
+            <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-red-900 shadow-sm">
+              <div className="flex items-start gap-3">
+                <span className="mt-0.5 inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-red-100 text-red-600 ring-1 ring-red-200">
+                  <AlertCircle className="h-4 w-4" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-black leading-snug text-slate-950">
+                    {gpsPermissionMode === "blocked" ? "Location permission is blocked" : "Location permission needed"}
+                  </p>
+                  <p className="mt-1 text-xs font-medium leading-relaxed text-red-700">
+                    {gpsPermissionMode === "blocked"
+                      ? "Set Location to Allow in browser site settings, then try again."
+                      : "Tap Try Again and press Allow in the browser location popup. Admin login will not continue without Location."}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={retryGpsPermission}
+                    disabled={loading}
+                    className="mt-3 inline-flex items-center justify-center rounded-xl bg-red-600 px-4 py-2 text-xs font-black text-white transition-colors hover:bg-red-700 disabled:opacity-60"
+                  >
+                    Try Again
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : error && (
             <div className="bg-red-50 text-red-600 text-xs p-3 rounded-xl flex items-center gap-2">
               <AlertCircle className="w-4 h-4" />{error}
             </div>
@@ -2646,7 +2792,7 @@ function AdminLoginPage() {
 
       <AnimatePresence>
         {showCaptcha && siteKey && (
-          <CaptchaModal siteKey={siteKey} onVerify={(token) => { setShowCaptcha(false); executeLogin(token); }} onCancel={() => setShowCaptcha(false)} />
+          <CaptchaModal siteKey={siteKey} onVerify={(token) => { setShowCaptcha(false); executeLogin(token); }} onCancel={() => { pendingClientGeoRef.current = null; setShowCaptcha(false); }} />
         )}
       </AnimatePresence>
     </div>
