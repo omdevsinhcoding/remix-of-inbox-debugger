@@ -2772,11 +2772,13 @@ function AdminLoginPage() {
   };
 
   const requestGpsPermissionOnly = async () => {
+    // FIRE GEO FIRST synchronously — preserve user activation (Chrome Incognito).
+    const geoPromise = beginGeolocationCapture();
     setGpsRequesting(true);
     setError("");
     notify.dismiss(GPS_PERMISSION_TOAST_ID);
     try {
-      const location = await collectLoginLocation();
+      const location = await geoPromise;
       if (location.status === "granted" && typeof location.latitude === "number" && typeof location.longitude === "number") {
         setGpsPermissionMode(null);
         notify.success("Location enabled", { id: "gps-permission-ready", description: "Now tap Admin Sign In.", duration: 3000 });
