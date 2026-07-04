@@ -1586,12 +1586,12 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
       setRemainingMs(Math.max(0, rem));
       if (rem > 0 && rem <= 60_000 && !warnedRef.current) {
         warnedRef.current = true;
-        premiumToast("Session ending in 1 minute", {
+        notify.warning("Session ending in 1 minute", {
           id: "session-1min-warning",
-          variant: "warning",
           description: "Finish what you're doing — sign in again soon.",
           duration: 5000,
         });
+
       }
     };
     tick();
@@ -4033,7 +4033,7 @@ function AdminPanel() {
         target_user_id: notifAudience === "user" ? notifTargetUser : null,
         expiresInDays: notifExpiresDays ? Number(notifExpiresDays) : null,
       });
-      premiumToast("Notification sent", { variant: "info", description: "Delivered to targeted users", duration: 2400 });
+      notify.info("Notification sent", { description: "Delivered to targeted users", duration: 2400 });
       setNotifTitle(""); setNotifBody(""); setNotifDescription(""); setNotifImageUrl("");
       setNotifActionUrl(""); setNotifActionLabel("");
       setNotifExpiresDays(""); setNotifPlatformIcon(""); setNotifTemplate("");
@@ -6741,21 +6741,20 @@ function EmailViewer() {
       const newCount = visible.filter((e) => !beforeIds.has(e.id)).length;
       notify.dismiss(toastId);
       if (newCount > 0) {
-        premiumToast(`${newCount} new email${newCount === 1 ? "" : "s"} arrived`, {
-          variant: "mail",
+        notify.info(`${newCount} new email${newCount === 1 ? "" : "s"} arrived`, {
           description: "Freshly delivered to your inbox",
           duration: 2600,
         });
       } else {
-        premiumToast(visible.length > 0 ? "Inbox is up to date" : "No Netflix emails yet", {
-          variant: "success",
+        notify.success(visible.length > 0 ? "Inbox is up to date" : "No Netflix emails yet", {
           duration: 2000,
         });
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to load";
       notify.dismiss(toastId);
-      premiumToast("Refresh could not complete", { variant: "error", description: msg, duration: 3200 });
+      notify.error("Refresh could not complete", { description: msg, duration: 3200 });
+
     } finally {
       if (refreshPollRef.current) {
         clearTimeout(refreshPollRef.current);
