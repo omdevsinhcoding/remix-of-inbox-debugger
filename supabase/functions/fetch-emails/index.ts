@@ -262,7 +262,9 @@ async function readCache(supabase: any, accountFilter: string[] | null, filterSi
     account_label: e.account_label,
     cached_at: e.cached_at,
   }));
-  return applyEmailFilters(emails, filterSignInCodes, filterPasswordResets);
+  // Apply promo block for everyone when admin turned it on. Default = OFF (all Netflix mail shows).
+  const blockPromo = await shouldBlockPromo(supabase);
+  return applyEmailFilters(emails, filterSignInCodes, filterPasswordResets, blockPromo);
 }
 
 async function fetchFromAccount(
