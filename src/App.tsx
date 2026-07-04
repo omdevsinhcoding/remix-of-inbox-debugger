@@ -4869,11 +4869,18 @@ function AdminPanel() {
 
   const updateUserAccounts = async (userId: string) => {
     try {
-      await apiCall("manage-app", { action: "update_user", id: userId, assigned_accounts: editAccountsList.length > 0 ? editAccountsList : null });
+      const raw = editSessionLimit.trim();
+      const session_limit = raw === "" ? null : Math.max(0, Math.min(50, Math.floor(Number(raw) || 0)));
+      await apiCall("manage-app", {
+        action: "update_user",
+        id: userId,
+        assigned_accounts: editAccountsList.length > 0 ? editAccountsList : null,
+        session_limit,
+      });
       const nextAccounts = editAccountsList.length > 0 ? editAccountsList : null;
       setEditingUserAccounts(null);
-      setUsers(prev => prev.map(u => u.id === userId ? { ...u, assignedAccounts: nextAccounts } : u));
-      notify.success("User accounts updated!");
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, assignedAccounts: nextAccounts, session_limit } : u));
+      notify.success("User settings updated!");
     } catch (err) {
       notify.error(err instanceof Error ? err.message : "Failed to update");
     }
