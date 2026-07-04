@@ -6974,8 +6974,37 @@ function EmailViewer() {
           return;
         }
       }
-      const res = await apiCall("manage-app", { action: "get_email_html", id: email.id });
-      const html: string = res?.html || "";
+
+      // Worker-first: /api/inbox/html serves email HTML from Cloudflare KV
+      // (1 year TTL, immutable per email id). This offloads the single
+      // biggest Supabase egress path — HTML bodies can be 50–500 KB each.
+      // Any failure (network, 401, 5xx) falls back to the encrypted edge call.
+      let html = "";
+      const token = sessionGet("session_token" as any);
+      const workerUrls = resolvedWorkerUrls || [];
+      if (workerUrls.length > 0 && token) {
+        const workerBase = workerUrls[Math.floor(Math.random() * workerUrls.length)];
+        try {
+          const wRes = await fetchWithTimeout(`${workerBase}/api/inbox/html`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-Session-Token": token },
+            body: JSON.stringify({ id: email.id }),
+          }, 8000);
+          if (wRes.ok) {
+            const wJson = await wRes.json().catch(() => null);
+            if (wJson?.success && typeof wJson.html === "string") {
+              html = wJson.html;
+              pushDiag({ ts: Date.now(), kind: "cache", endpoint: `${workerBase}/api/inbox/html`, status: wRes.status, cacheStatus: wRes.headers.get("X-Cache-Status") || undefined, cacheAge: wRes.headers.get("X-Cache-Age") || undefined });
+            }
+          }
+        } catch {
+          // fall through to encrypted edge call
+        }
+      }
+      if (!html) {
+        const res = await apiCall("manage-app", { action: "get_email_html", id: email.id });
+        html = res?.html || "";
+      }
       if (html) {
         setSelectedEmail((cur) => (cur && cur.id === email.id ? { ...cur, html } : cur));
         if (db) { try { await cacheEmailHtml(db, email.id, html); } catch { /* quota etc. */ } }
@@ -6984,7 +7013,7 @@ function EmailViewer() {
       const msg = err instanceof Error ? err.message : String(err || "");
       pushDiag({ ts: Date.now(), kind: "cache", endpoint: "get_email_html", error: msg });
     }
-  }, [user?.id, pushDiag]);
+  }, [user?.id, resolvedWorkerUrls, pushDiag]);
 
   const copyOtp = (otp: string) => {
     navigator.clipboard.writeText(otp);
