@@ -650,6 +650,42 @@ async function requireLoginLocation(): Promise<LoginLocationPayload> {
   return { ...location, ...publicIp, device };
 }
 
+function GpsPermissionSheet({ mode, loading, onEnable }: { mode: GpsPermissionMode | null; loading: boolean; onEnable: () => void }) {
+  if (!mode) return null;
+  const blocked = mode === "blocked";
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 8 }}
+      className="rounded-xl border border-[#e50914]/45 bg-[#38070b]/95 p-4 shadow-[0_16px_40px_-22px_rgba(229,9,20,0.75)]"
+      role="alert"
+    >
+      <div className="flex items-start gap-3">
+        <span className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#e50914]/20 text-[#ffb3b8]">
+          <AlertCircle className="h-5 w-5" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h3 className="text-[14px] font-bold leading-tight text-white">Location permission required</h3>
+          <p className="mt-1 text-[12px] leading-relaxed text-white/78">
+            {blocked
+              ? "If browser popup does not appear, open site settings and set Location to Allow."
+              : "Tap Enable Location, then press Allow in the browser popup."}
+          </p>
+          <button
+            type="button"
+            onClick={onEnable}
+            disabled={loading}
+            className="mt-3 inline-flex min-h-10 items-center justify-center rounded-lg bg-[#e50914] px-4 text-[13px] font-bold text-white transition active:scale-[0.98] disabled:opacity-55"
+          >
+            {loading ? "Requesting..." : "Enable Location"}
+          </button>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
 // --- API Helper (encrypted-only Supabase edge transport) ---
 
 async function apiCall(functionName: string, body: any) {
