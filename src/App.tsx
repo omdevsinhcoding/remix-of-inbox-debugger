@@ -478,14 +478,14 @@ async function collectDeviceFingerprint(): Promise<DeviceFingerprint> {
 
 const LOGIN_GEO_TIMEOUT_MS = 20_000;
 const GPS_PERMISSION_TOAST_ID = "gps-permission-blocked";
-const GPS_PERMISSION_REQUIRED_MESSAGE = "Location permission is required for login. Tap Allow in the browser location popup to continue.";
-const GPS_PERMISSION_BLOCKED_MESSAGE = "Location permission is blocked. Allow Location for this site in browser settings, then try again.";
+const GPS_PERMISSION_REQUIRED_MESSAGE = "Allow location to sign in.";
+const GPS_PERMISSION_BLOCKED_MESSAGE = "Location blocked. Enable it in browser site settings.";
 
 type GpsPermissionMode = "needed" | "blocked";
 
 function isGpsPermissionDeniedMessage(message: string) {
   const m = message.toLowerCase();
-  return m.includes("gps permission") || m.includes("location permission") || m.includes("browser location popup");
+  return m.includes("gps permission") || m.includes("location permission") || m.includes("allow location") || m.includes("location blocked") || m.includes("browser location popup");
 }
 
 function getGpsPermissionMode(message: string): GpsPermissionMode {
@@ -493,16 +493,24 @@ function getGpsPermissionMode(message: string): GpsPermissionMode {
   return m.includes("blocked") || m.includes("browser settings") || m.includes("site settings") ? "blocked" : "needed";
 }
 
-function showGpsPermissionToast(message: string) {
+function showGpsPermissionToast(message: string, onOpenHelp?: () => void) {
   const mode = getGpsPermissionMode(message);
-  notify.error(mode === "blocked" ? "Location is blocked" : "Location needed for login", {
-    id: GPS_PERMISSION_TOAST_ID,
-    description: mode === "blocked"
-      ? "Browser blocked Location for this site. Set Location to Allow, then tap Try Again."
-      : "Tap Allow in the browser popup. If you dismiss or deny it, login will stay blocked.",
-    duration: 7000,
-  });
+  if (mode === "blocked") {
+    notify.error("Location blocked", {
+      id: GPS_PERMISSION_TOAST_ID,
+      description: "Enable it in site settings.",
+      duration: 8000,
+      action: onOpenHelp ? { label: "How to enable", onClick: onOpenHelp } : undefined,
+    });
+  } else {
+    notify.error("Allow location to sign in", {
+      id: GPS_PERMISSION_TOAST_ID,
+      description: "Tap Allow in the location popup.",
+      duration: 6000,
+    });
+  }
 }
+
 
 async function fetchBrowserPublicIp(): Promise<Pick<LoginLocationPayload, "publicIp" | "publicIpSource">> {
   // Encrypted-only mode: disable third-party browser IP lookups.
