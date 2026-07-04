@@ -2722,6 +2722,7 @@ function AdminLoginPage() {
   const [captchaConfigError, setCaptchaConfigError] = useState(false);
   const [showCaptcha, setShowCaptcha] = useState(false);
   const [gpsPermissionMode, setGpsPermissionMode] = useState<GpsPermissionMode | null>(null);
+  const [gpsHelpOpen, setGpsHelpOpen] = useState(false);
   const pendingClientGeoRef = useRef<LoginLocationPayload | null>(null);
   const gpsBlocked = gpsPermissionMode !== null;
   const navigate = useNavigate();
