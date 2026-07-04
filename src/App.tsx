@@ -2193,7 +2193,12 @@ function ProfileSelectPage() {
     e.preventDefault();
     setError("");
     if (!captchaReady) {
-      setError(captchaConfigError ? "Security check failed to load. Please refresh and try again." : "Security check is loading. Please wait.");
+      // Bootstrap still running — queue the login instead of yelling at user.
+      if (captchaConfigError) {
+        setError("Couldn't reach server. Please refresh and try again.");
+        return;
+      }
+      setPendingLogin(true);
       return;
     }
     if (siteKey) {
@@ -2202,6 +2207,15 @@ function ProfileSelectPage() {
       void executeLogin();
     }
   };
+
+  // Auto-run the queued login the moment bootstrap finishes.
+  useEffect(() => {
+    if (!pendingLogin || !captchaReady) return;
+    setPendingLogin(false);
+    if (siteKey) setShowCaptcha(true);
+    else void executeLogin();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingLogin, captchaReady, siteKey]);
 
   const executeLogin = async (captchaToken?: string) => {
     if (!selectedProfile) return;
