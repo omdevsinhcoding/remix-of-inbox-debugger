@@ -1,13 +1,10 @@
-import { connect } from "cloudflare:sockets";
-import PostalMime from "postal-mime";
-
 /**
  * Cloudflare Worker — Email Cache Proxy
  * 
  * Features:
  * - Validates session tokens (HMAC-SHA256)
  * - Multi-KV namespace support (EMAIL_CACHE_V2 -> EMAIL_CACHE fallback)
-  * - Direct Cloudflare → Gmail IMAP sync support
+ * - Supabase fetch-emails proxy + KV cache support
  * - Proper error logging for KV failures
  * 
  * Environment Variables:
@@ -23,14 +20,11 @@ const CORS_HEADERS = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Session-Token, X-Pending-Token, X-Cron-Secret, X-Worker-Config-Secret, Cache-Control",
 };
 
-// F7: Bump CACHE_SCHEMA_VERSION whenever the shape of cached email JSON
-// changes, or to force every worker/user to drop old snapshots on the next
-// read. Version is baked into every KV key so old entries become unreachable
-// (and expire naturally) without needing a manual purge.
-const CACHE_SCHEMA_VERSION = "v3";
-const LEGACY_CACHE_SCHEMA_VERSIONS = ["v2", "v1"];
-const CACHE_KEY = `emails_list:${CACHE_SCHEMA_VERSION}`;
-const CACHE_TIMESTAMP_KEY = `emails_timestamp:${CACHE_SCHEMA_VERSION}`;
+// Keep the original unversioned keys so already-cached worker emails remain visible.
+const CACHE_SCHEMA_VERSION = "classic";
+const LEGACY_CACHE_SCHEMA_VERSIONS = ["v3", "v2", "v1"];
+const CACHE_KEY = "emails_list";
+const CACHE_TIMESTAMP_KEY = "emails_timestamp";
 const WORKER_CONFIG_KEY = "inbox_worker_config:v1";
 const STALE_SECONDS = 3;
 
@@ -101,8 +95,10 @@ function parseEmailList(raw) {
 }
 
 function cachePrefixes() {
-  return [CACHE_SCHEMA_VERSION, ...LEGACY_CACHE_SCHEMA_VERSIONS]
-    .map((version) => ({ list: `emails_list:${version}`, ts: `emails_timestamp:${version}` }));
+  return [
+    { list: CACHE_KEY, ts: CACHE_TIMESTAMP_KEY },
+    ...LEGACY_CACHE_SCHEMA_VERSIONS.map((version) => ({ list: `emails_list:${version}`, ts: `emails_timestamp:${version}` })),
+  ];
 }
 
 function candidateCacheKeys(userAccountsKey, limit) {
@@ -249,11 +245,46 @@ export default {
     return new Response("Not Found", { status: 404, headers: CORS_HEADERS });
   },
 
-  // Cron/scheduled handler — triggers an IMAP sync automatically
+  // Cron/scheduled handler — same as the uploaded worker: proxy sync to Supabase, then refresh KV.
   async scheduled(event, env, ctx) {
-    // Background polling is intentionally disabled. User refreshes hit Gmail
-    // directly from Cloudflare and update KV only for that scoped inbox.
-    console.log("[cron] disabled — no background Supabase/Gmail fetch");
+    console.log("[cron] Scheduled sync triggered at", new Date().toISOString());
+    try {
+      const headers = {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${env.SUPABASE_KEY}`,
+        "apikey": env.SUPABASE_KEY,
+        ...(env.CRON_SHARED_SECRET ? { "X-Cron-Secret": env.CRON_SHARED_SECRET } : {}),
+      };
+
+      const res = await fetch(`${env.SUPABASE_URL}/functions/v1/fetch-emails`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ mode: "sync", source: "cron" }),
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        console.error("[cron] Sync failed:", res.status, text);
+        return;
+      }
+
+      const cacheRes = await fetch(`${env.SUPABASE_URL}/functions/v1/fetch-emails`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ mode: "cache" }),
+      });
+
+      if (cacheRes.ok) {
+        const cacheData = await cacheRes.text();
+        await Promise.all([
+          kvPut(env, `${CACHE_KEY}:all`, cacheData),
+          kvPut(env, `${CACHE_TIMESTAMP_KEY}:all`, Date.now().toString()),
+        ]);
+        console.log("[cron] Cache updated successfully");
+      }
+    } catch (err) {
+      console.error("[cron] Error:", err);
+    }
   },
 };
 
@@ -281,7 +312,7 @@ async function handleGetEmails(env, session, rawToken, opts = {}) {
   const accountLabels = Array.isArray(opts.accountLabels) ? opts.accountLabels : [];
 
   if (!hasKV) {
-    return new Response(JSON.stringify([]), { headers: diagHeaders({ "X-Cache-Status": "NO_KV" }) });
+    return fetchDirectFromSupabase(env, session, rawToken, { accountLabels, limit });
   }
 
   const scopedLabels = accountLabels.length > 0 ? accountLabels : (session?.assignedAccounts || []);
@@ -289,12 +320,15 @@ async function handleGetEmails(env, session, rawToken, opts = {}) {
   const cacheKey = `${CACHE_KEY}:${userAccountsKey}:limit:${limit}`;
   const tsKey = `${CACHE_TIMESTAMP_KEY}:${userAccountsKey}`;
 
-  // F7: bust=1 → skip KV read, refetch fresh, write back, return with BYPASS status.
+  // bust=1 → skip KV read, reload the existing Supabase cache, write back, return with BYPASS status.
   if (bust) {
-    const result = await syncDirectFromAccounts(env, session, { accountLabels, limit, source: "user_refresh" });
-    const body = JSON.stringify(result.emails || []);
-    await Promise.all([kvPut(env, cacheKey, body), kvPut(env, tsKey, Date.now().toString())]);
-    return new Response(body, { status: 200, headers: diagHeaders({ "X-Cache-Status": "BYPASS", "X-Cache-Key": cacheKey }) });
+    const result = await fetchDirectFromSupabase(env, session, rawToken, { accountLabels, limit });
+    if (result.status === 200) {
+      const body = await result.clone().text();
+      await Promise.all([kvPut(env, cacheKey, body), kvPut(env, tsKey, Date.now().toString())]);
+      return new Response(body, { status: 200, headers: diagHeaders({ "X-Cache-Status": "BYPASS", "X-Cache-Key": cacheKey }) });
+    }
+    return result;
   }
 
   const [cached, timestamp] = await Promise.all([kvGet(env, cacheKey), kvGet(env, tsKey)]);
@@ -307,12 +341,18 @@ async function handleGetEmails(env, session, rawToken, opts = {}) {
       await Promise.all([kvPut(env, cacheKey, fallback.raw), kvPut(env, tsKey, Date.now().toString())]);
       return new Response(fallback.raw, { headers: diagHeaders({ "X-Cache-Status": "FALLBACK_HIT", "X-Cache-Key": fallback.key }) });
     }
-    return new Response(JSON.stringify([]), { headers: diagHeaders({ "X-Cache-Status": "MISS", "X-Cache-Key": cacheKey }) });
+    const result = await fetchDirectFromSupabase(env, session, rawToken, { accountLabels, limit });
+    if (result.status === 200) {
+      const body = await result.clone().text();
+      await Promise.all([kvPut(env, cacheKey, body), kvPut(env, tsKey, now.toString())]);
+    }
+    return result;
   }
 
   let status = "HIT";
   if (age > STALE_SECONDS) {
     status = "STALE";
+    refreshFromSupabase(env, session, rawToken, cacheKey, tsKey, { accountLabels, limit }).catch(err => console.error("BG refresh error:", err));
   }
 
   return new Response(cached, {
@@ -341,12 +381,38 @@ async function handleSync(env, session, rawToken, requestBody, ctx) {
   try {
     const limit = clampLimit(requestBody?.limit, 3, 50);
     const requestedLabels = Array.isArray(requestBody?.accountLabels) ? requestBody.accountLabels : [];
-    const result = await syncDirectFromAccounts(env, session, {
-      accountLabels: requestedLabels,
-      limit,
+    const headers = {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${env.SUPABASE_KEY}`,
+      "apikey": env.SUPABASE_KEY,
+    };
+    if (rawToken) headers["X-Session-Token"] = rawToken;
+
+    const syncPayload = {
+      mode: requestBody?.mode || "sync",
       source: requestBody?.source || "worker",
+      limit,
+    };
+    if (requestedLabels.length > 0) syncPayload.accountLabels = requestedLabels;
+
+    const res = await fetch(`${env.SUPABASE_URL}/functions/v1/fetch-emails`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(syncPayload),
     });
-    const responseText = JSON.stringify(result);
+    const responseText = await res.text();
+
+    if (!res.ok) {
+      let errorMsg = "Sync failed";
+      try {
+        const parsed = JSON.parse(responseText);
+        errorMsg = parsed?.error || errorMsg;
+      } catch {}
+      return new Response(JSON.stringify({ success: false, error: errorMsg }), {
+        status: res.status,
+        headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+      });
+    }
 
     // Update KV cache after successful sync without blocking the user response.
     if (getKV(env)) {
@@ -355,20 +421,8 @@ async function handleSync(env, session, rawToken, requestBody, ctx) {
       const cacheKey = `${CACHE_KEY}:${userAccountsKey}:limit:${limit}`;
       const tsKey = `${CACHE_TIMESTAMP_KEY}:${userAccountsKey}`;
 
-      const cacheWork = (async () => {
-        let freshRaw = "[]";
-        try {
-          if (Array.isArray(result?.emails)) freshRaw = JSON.stringify(result.emails);
-        } catch {}
-        const fullCacheKey = `${CACHE_KEY}:${userAccountsKey}:limit:200`;
-        const existingFull = await kvGet(env, fullCacheKey) || (await readBestCachedRaw(env, userAccountsKey, 200, fullCacheKey))?.raw || null;
-        const mergedFull = mergeEmailPayloads(existingFull, freshRaw) || freshRaw;
-        await Promise.all([
-          kvPut(env, cacheKey, freshRaw),
-          kvPut(env, fullCacheKey, mergedFull),
-          kvPut(env, tsKey, Date.now().toString()),
-        ]);
-      })().catch((err) => console.error("[sync] async KV update failed:", err.message || err));
+      const cacheWork = refreshFromSupabase(env, session, rawToken, cacheKey, tsKey, { accountLabels: requestedLabels, limit })
+        .catch((err) => console.error("[sync] async KV update failed:", err.message || err));
       if (ctx?.waitUntil) ctx.waitUntil(cacheWork);
     }
 
