@@ -1931,6 +1931,7 @@ Deno.serve(async (originalReq) => {
         expiresAt: pair.accessExpMs,
         refreshToken: pair.refreshToken,
         refreshExpiresAt: pair.refreshExpMs,
+        sessionFamilyId: pair.familyId,
         workerUrls,
         user: {
           id: user.id, username: user.username, name: user.name, role: user.role,
@@ -1942,6 +1943,7 @@ Deno.serve(async (originalReq) => {
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+
 
     }
 
