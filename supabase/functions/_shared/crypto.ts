@@ -206,7 +206,8 @@ export async function readRequest(
       body = parsed.b ?? null;
     }
 
-    return { encrypted: true, body, ctx: { sessionId, key: sess.key } };
+    const acceptGzip = /\bgzip\b/i.test(req.headers.get("x-accept-encoding") || "");
+    return { encrypted: true, body, ctx: { sessionId, key: sess.key, acceptGzip } };
   }
   // plaintext path
   if (!opts.allowPlaintext) {
