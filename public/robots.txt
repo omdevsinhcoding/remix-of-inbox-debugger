@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /admin-auth
+Disallow: /admin/
+Disallow: /viewer
+
+Sitemap: https://nfotp.netlify.app/sitemap.xml

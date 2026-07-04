@@ -1,0 +1,294 @@
+import { supabase } from "../integrations/supabase/client";
+import { setAvatarBaseUrl } from "./avatars";
+import { sessionGet, sessionSet, sessionRemove, sessionClearAll } from "./session";
+
+const WORKER_URLS_KEY = "cloudflare_worker_urls";
+const BOOTSTRAP_CACHE_KEY = "bootstrap_cache_v1";
+const BOOTSTRAP_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const BOOTSTRAP_TIMEOUT_MS = 20000;
+
+export type EmailFilters = { showSignInCodes?: boolean; showPasswordResets?: boolean; showAccountUpdates?: boolean };
+export type MaintenanceInfo = { enabled: boolean; title?: string; message?: string; eta?: string; startsAt?: string | null; endsAt?: string | null; versionFrom?: string; versionTo?: string; updated_at?: string | null };
+export type BootstrapResult = { users: any[]; recaptcha: any; workerUrls: string[]; emailFilters?: EmailFilters; maintenance?: MaintenanceInfo; avatarBaseUrl?: string };
+
+
+// Module-level filter cache — read synchronously by filterVisibleEmails.
+let currentEmailFilters: EmailFilters = { showSignInCodes: true, showPasswordResets: false, showAccountUpdates: false };
+try {
+  const raw = typeof localStorage !== "undefined" ? localStorage.getItem("email_filters_cache_v1") : null;
+  if (raw) currentEmailFilters = { ...currentEmailFilters, ...JSON.parse(raw) };
+} catch {}
+export function getEmailFilters(): EmailFilters { return currentEmailFilters; }
+export function setEmailFilters(next: EmailFilters) {
+  currentEmailFilters = { ...currentEmailFilters, ...next };
+  try { localStorage.setItem("email_filters_cache_v1", JSON.stringify(currentEmailFilters)); } catch {}
+}
+
+function storeWorkerUrls(urls: string[]) {
+  try {
+    localStorage.setItem(WORKER_URLS_KEY, JSON.stringify(urls));
+  } catch {}
+}
+
+export function markSessionStart() {
+  try { sessionSet("session_started_at" as any, String(Date.now())); } catch {}
+}
+
+export function clearSessionData() {
+  // Best-effort: revoke session server-side so the DB row is deleted.
+  try {
+    const token = sessionGet("session_token" as any);
+    if (token) {
+      import("./secureTransport")
+        .then(({ invokeEdge }) => invokeEdge("manage-app", { action: "logout" }, { headers: { "X-Session-Token": token } }))
+        .catch(() => {});
+    }
+  } catch {}
+  try {
+    // Capture the user id BEFORE clearing so we can purge that profile's OTP cache too.
+    let uid: string | null = null;
+    try {
+      const raw = sessionGet("user" as any);
+      if (raw) uid = JSON.parse(raw)?.id || null;
+    } catch {}
+    sessionRemove("user" as any);
+    sessionRemove("session_token" as any);
+    sessionRemove("session_started_at" as any);
+    sessionRemove("admin_auth" as any);
+    sessionRemove("pending_admin_token" as any);
+    localStorage.removeItem("pending_admin_user");
+    // F4: impersonation backup is now in sessionStorage; sweep both stores for safety.
+    sessionRemove("admin_backup" as any);
+    try { sessionRemove("admin_backup" as any); } catch {}
+    // F8: purge cached Netflix OTP emails so the next profile on this device
+    // can't read the previous profile's inbox after a timeout/forced logout.
+    if (uid) localStorage.removeItem(`cached_emails_v1:${uid}`);
+    try {
+      // Belt-and-suspenders: sweep any lingering per-profile caches.
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith("cached_emails_v1:")) localStorage.removeItem(k);
+      }
+    } catch {}
+    // C.2: clear refresh-token state and cancel scheduler.
+    try { import("./sessionRefresh").then(({ clearRefreshState }) => clearRefreshState()).catch(() => {}); } catch {}
+  } catch {}
+
+}
+
+
+export function readBootstrapCache(): BootstrapResult | null {
+  try {
+    const raw = localStorage.getItem(BOOTSTRAP_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    if (!parsed.savedAt || Date.now() - parsed.savedAt > BOOTSTRAP_CACHE_TTL_MS) return null;
+    const result = { users: parsed.users || [], recaptcha: parsed.recaptcha, workerUrls: parsed.workerUrls || [], emailFilters: parsed.emailFilters, maintenance: parsed.maintenance, avatarBaseUrl: parsed.avatarBaseUrl || "" };
+    setAvatarBaseUrl(result.avatarBaseUrl);
+    return result;
+  } catch { return null; }
+}
+
+function writeBootstrapCache(result: BootstrapResult) {
+  try {
+    localStorage.setItem(BOOTSTRAP_CACHE_KEY, JSON.stringify({ ...result, savedAt: Date.now() }));
+  } catch {}
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("Bootstrap timed out")), ms);
+    promise.then((value) => { clearTimeout(timer); resolve(value); }, (err) => { clearTimeout(timer); reject(err); });
+  });
+}
+
+let bootstrapInFlight: Promise<BootstrapResult> | null = null;
+
+export async function bootstrapFromSupabase(opts?: { force?: boolean }): Promise<BootstrapResult> {
+  if (!opts?.force) {
+    const cached = readBootstrapCache();
+    if (cached) return cached;
+    if (bootstrapInFlight) return bootstrapInFlight;
+  }
+
+  const request = (async () => {
+    const { invokeEdge } = await import("./secureTransport");
+    const data: any = await withTimeout(
+      invokeEdge("manage-app", { action: "bootstrap_public" }),
+      BOOTSTRAP_TIMEOUT_MS,
+    );
+    if (!data?.success) throw new Error(data?.error || "Bootstrap failed");
+
+    if (Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
+      storeWorkerUrls(data.workerUrls);
+    }
+
+    const result: BootstrapResult = { users: data.users || [], recaptcha: data.recaptcha, workerUrls: data.workerUrls || [], emailFilters: data.emailFilters || {}, maintenance: data.maintenance || { enabled: false }, avatarBaseUrl: data.avatarBaseUrl || "" };
+    setAvatarBaseUrl(result.avatarBaseUrl);
+    if (data.emailFilters && typeof data.emailFilters === "object") setEmailFilters(data.emailFilters);
+    writeBootstrapCache(result);
+    return result;
+  })();
+
+  if (!opts?.force) bootstrapInFlight = request;
+  try {
+    return await request;
+  } finally {
+    if (bootstrapInFlight === request) bootstrapInFlight = null;
+  }
+}
+
+
+export const bootstrapPromise: Promise<BootstrapResult> = bootstrapFromSupabase().catch((err) => {
+  console.warn("[bootstrap] prefetch failed:", err);
+  const cached = readBootstrapCache();
+  if (cached) return cached;
+  return { users: [], recaptcha: null, workerUrls: [] };
+});
+
+// Force-refresh: always hits the network, updates cache, returns fresh result.
+export async function refreshBootstrap(): Promise<BootstrapResult> {
+  try {
+    return await bootstrapFromSupabase({ force: true });
+  } catch (err) {
+    console.warn("[bootstrap] refresh failed:", err);
+    const cached = readBootstrapCache();
+    if (cached) return cached;
+    return { users: [], recaptcha: null, workerUrls: [] };
+  }
+}
+
+// Patch a single user's fields in the cached bootstrap so the next mount
+// renders the new avatar/prefs instantly (no wait for network).
+export function patchBootstrapCacheUser(userId: string, patch: Record<string, any>) {
+  try {
+    const raw = localStorage.getItem(BOOTSTRAP_CACHE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (!parsed || !Array.isArray(parsed.users)) return;
+    parsed.users = parsed.users.map((u: any) => (u && u.id === userId ? { ...u, ...patch } : u));
+    localStorage.setItem(BOOTSTRAP_CACHE_KEY, JSON.stringify(parsed));
+  } catch {}
+}
+
+// ---------- Notifications helpers ----------
+export type NotificationCategory = "announcement" | "update" | "security" | "maintenance" | "promo" | "billing";
+export type NotificationPriority = "low" | "normal" | "high" | "critical";
+
+export type AppNotification = {
+  id: string;
+  title: string;
+  body: string;
+  description?: string | null;
+  
+  image_url?: string | null;
+  category?: NotificationCategory | string;
+  priority?: NotificationPriority | string;
+  icon?: string | null;
+  platform_icon?: string | null;
+  kind?: "flash" | string;
+  sub_kind?: string | null;
+  locked?: boolean;
+  show_frequency?: "once" | "always" | "session" | "daily" | string | null;
+  mode?: "popup" | "silent" | "banner" | string | null;
+  action_url?: string | null;
+  action_label?: string | null;
+  action2_url?: string | null;
+  action2_label?: string | null;
+  
+  audience: "all" | "user";
+  created_at: string;
+  expires_at: string | null;
+  publish_at?: string | null;
+  read: boolean;
+  seen?: boolean;
+  
+  snoozed_until?: string | null;
+};
+
+async function callManage<T = any>(action: string, payload: Record<string, any> = {}): Promise<T> {
+  const token = sessionGet("session_token" as any);
+  const headers: Record<string, string> = {};
+  if (token) headers["X-Session-Token"] = token;
+  const { invokeEdge } = await import("./secureTransport");
+  const data: any = await invokeEdge("manage-app", { action, ...payload }, { headers });
+  if (!data?.success) throw new Error(data?.error || `${action} failed`);
+  return data as T;
+}
+
+export async function listNotifications(): Promise<AppNotification[]> {
+  try {
+    const data = await callManage<{ notifications: AppNotification[] }>("list_notifications");
+    return data.notifications || [];
+  } catch (err) {
+    console.warn("[notifications] list failed:", err);
+    return [];
+  }
+}
+
+export async function markNotificationRead(id: string): Promise<void> {
+  try { await callManage("mark_notification_read", { notification_id: id }); } catch {}
+}
+export async function markAllNotificationsRead(): Promise<void> {
+  try { await callManage("mark_all_notifications_read"); } catch {}
+}
+export async function markNotificationSeen(ids: string[]): Promise<void> {
+  if (!ids?.length) return;
+  try { await callManage("mark_notifications_seen", { ids }); } catch {}
+}
+export async function deleteNotificationForMe(id: string): Promise<void> {
+  try { await callManage("user_delete_notification", { notification_id: id }); } catch {}
+}
+// snoozeNotification removed — Snooze is no longer a supported user action.
+
+export async function logNotificationEvent(id: string, event: string, meta?: any): Promise<void> {
+  try { await callManage("log_notification_event", { notification_id: id, event, meta }); } catch {}
+}
+
+export async function clearMyInbox(visibleIds: string[]): Promise<any> {
+  return await callManage("clear_user_inbox", { visibleIds });
+}
+
+// ---------- Admin: per-notification recipients ----------
+export type NotificationRecipient = {
+  user_id: string;
+  username: string;
+  name: string;
+  profileAvatar?: string | null;
+  seen_at: string | null;
+  read_at: string | null;
+  clicked_at: string | null;
+  deleted_at: string | null;
+};
+
+export async function adminListRecipients(notificationId: string): Promise<NotificationRecipient[]> {
+  const data = await callManage<{ recipients: NotificationRecipient[] }>("admin_notification_recipients", { notification_id: notificationId });
+  return data.recipients || [];
+}
+
+export async function adminDeleteNotificationForUser(notificationId: string, userId: string): Promise<void> {
+  await callManage("admin_delete_notification_for_user", { notification_id: notificationId, user_id: userId });
+}
+
+// Auto-popup dedupe: track which notification IDs the user has already been popped for.
+const POPUP_SEEN_KEY = "notif_popup_seen_v1";
+export function getPoppedIds(): Set<string> {
+  try {
+    const raw = localStorage.getItem(POPUP_SEEN_KEY);
+    if (!raw) return new Set();
+    const arr = JSON.parse(raw);
+    return new Set(Array.isArray(arr) ? arr : []);
+  } catch { return new Set(); }
+}
+export function markPopped(id: string) {
+  try {
+    const s = getPoppedIds();
+    s.add(id);
+    const arr = Array.from(s).slice(-200);
+    localStorage.setItem(POPUP_SEEN_KEY, JSON.stringify(arr));
+  } catch {}
+}
+
+
+

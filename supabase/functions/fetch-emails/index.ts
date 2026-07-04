@@ -1,10 +1,11 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { ImapFlow } from "npm:imapflow@1.2.18";
 import { simpleParser } from "npm:mailparser@3.9.6";
+import { readRequest, maybeEncryptResponse, EncryptedRequestContext, PlaintextRejectedError, plaintextRejectedResponse, TransportError, transportErrorResponse } from "../_shared/crypto.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-session-token",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-session-token, x-cron-secret, x-crypto-session",
 };
 
 const PASSWORD_RESET_SUBJECTS = [
@@ -18,11 +19,48 @@ const SIGN_IN_CODE_SUBJECTS = [
   "verification code", "login code", "sign in code",
 ];
 
-const FULL_SYNC_MAX_UIDS = 10;
-const PER_ACCOUNT_TIMEOUT_MS = 15000;
-const STALE_DAYS = 60;
+// Only extract an OTP when the email is *actually* a sign-in / verification code email.
+// Netflix marketing emails often contain random 4-8 digit numbers (dates, IDs) that must NOT
+// be shown as an OTP.
+const OTP_SUBJECT_HINT = /(sign[\s-]?in code|verification code|one[\s-]?time|login code|enter this code|access code|otp|confirm.*account|verify.*account|temporary.*code)/i;
+const OTP_BODY_CONTEXT = /(sign[\s-]?in code|verification code|one[\s-]?time (?:code|password|pin)|otp|login code|enter (?:the |this )?code|use (?:the |this )?code|your code is|code below|access code|temporary (?:code|password|pin))/i;
 
-async function verifySessionToken(token: string, secret: string): Promise<Record<string, any> | null> {
+function extractOtpCode(subject: string, body: string): string | null {
+  const subj = (subject || "").toString();
+  const txt = (body || "").toString();
+  const looksLikeCodeEmail = OTP_SUBJECT_HINT.test(subj) || OTP_BODY_CONTEXT.test(txt);
+  if (!looksLikeCodeEmail) return null;
+
+  // Strategy 1: number that appears near a context keyword (within ~80 chars).
+  const contextRe = /(sign[\s-]?in code|verification code|one[\s-]?time (?:code|password|pin)|otp|login code|access code|your code is|use (?:the |this )?code|enter (?:the |this )?code|temporary (?:code|password|pin))[\s\S]{0,80}?\b(\d{4,8})\b/i;
+  const m1 = txt.match(contextRe) || subj.match(contextRe);
+  if (m1 && m1[2]) return m1[2];
+
+  // Strategy 2: standalone 4-8 digit block on its own line (Netflix formats codes this way).
+  const lineRe = /^\s*(\d{4,8})\s*$/m;
+  const m2 = txt.match(lineRe);
+  if (m2 && m2[1]) return m2[1];
+
+  return null;
+}
+
+const FULL_SYNC_MAX_UIDS = 10;
+const USER_REFRESH_MAX_UIDS = 1;
+const PER_ACCOUNT_TIMEOUT_MS = 6500;
+const FAST_REFRESH_TIMEOUT_MS = 1800;
+const FAST_REFRESH_SCAN_COUNT = 4;
+const STALE_DAYS = 60;
+const USER_SYNC_WINDOW_MS = 5_000;
+const userSyncHits = new Map<string, number>();
+
+type Session = { userId: string; username: string; role: "admin" | "user"; assignedAccounts?: string[] | null; exp?: number };
+type Account = { label: string; host: string; port: number; user: string; password: string };
+
+function json(body: any, status = 200) {
+  return new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+}
+
+async function verifySessionToken(token: string, secret: string): Promise<Session | null> {
   try {
     const [dataB64, sigHex] = token.split(".");
     if (!dataB64 || !sigHex) return null;
@@ -37,6 +75,16 @@ async function verifySessionToken(token: string, secret: string): Promise<Record
   } catch { return null; }
 }
 
+async function requireSession(req: Request, body: any, primary: string, legacy?: string): Promise<Session | null> {
+  const token = req.headers.get("x-session-token") || body.sessionToken;
+  if (!token) return null;
+  const p = await verifySessionToken(token, primary);
+  if (p) return p;
+  if (legacy && legacy !== primary) return await verifySessionToken(token, legacy);
+  return null;
+}
+
+
 async function deriveEncKey(secret: string): Promise<CryptoKey> {
   const encoder = new TextEncoder();
   const keyMaterial = await crypto.subtle.importKey("raw", encoder.encode(secret), "PBKDF2", false, ["deriveKey"]);
@@ -47,7 +95,7 @@ async function deriveEncKey(secret: string): Promise<CryptoKey> {
 }
 
 async function decryptValue(encrypted: string, secret: string): Promise<string> {
-  if (!encrypted.startsWith("enc:")) return encrypted;
+  if (!encrypted?.startsWith?.("enc:")) return encrypted;
   const [, ivHex, ctHex] = encrypted.split(":");
   const key = await deriveEncKey(secret);
   const iv = new Uint8Array(ivHex.match(/.{2}/g)!.map(b => parseInt(b, 16)));
@@ -56,20 +104,150 @@ async function decryptValue(encrypted: string, secret: string): Promise<string> 
   return new TextDecoder().decode(plain);
 }
 
+async function getAssignedAccountFilter(supabase: any, session: Session | null): Promise<string[] | null> {
+  if (!session || session.role === "admin") return null;
+  const { data: userData } = await supabase.from("app_users").select("assigned_accounts").eq("id", session.userId).single();
+  // For non-admin users: return the assigned list (possibly empty).
+  // An empty array means "no accounts ticked" -> show nothing.
+  return Array.isArray(userData?.assigned_accounts) ? userData.assigned_accounts : [];
+}
+
+function applyEmailFilters(emails: any[], filterSignInCodes: boolean, filterPasswordResets: boolean) {
+  let output = emails;
+  if (filterSignInCodes) {
+    output = output.filter((e: any) => {
+      const sub = (e.subject || "").toLowerCase();
+      return !SIGN_IN_CODE_SUBJECTS.some(kw => sub.includes(kw));
+    });
+  }
+  if (filterPasswordResets) {
+    output = output.filter((e: any) => {
+      const sub = (e.subject || "").toLowerCase();
+      return !PASSWORD_RESET_SUBJECTS.some(kw => sub.includes(kw));
+    });
+  }
+  return output;
+}
+
+async function getEmailVisibility(supabase: any): Promise<{ enabled: boolean; days: number } | null> {
+  try {
+    const { data } = await supabase.from("app_settings").select("value").eq("key", "email_visibility").maybeSingle();
+    const v = data?.value;
+    if (v && v.enabled === true && Number(v.days) > 0) return { enabled: true, days: Number(v.days) };
+  } catch {}
+  return null;
+}
+
+function clampLimit(value: any, fallback: number, max: number) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.max(1, Math.min(max, Math.floor(n)));
+}
+
+function escapeHtml(input: string) {
+  return input.replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch] || ch));
+}
+
+function decodeQuotedPrintable(input: string) {
+  return input
+    .replace(/=\r?\n/g, "")
+    .replace(/=([0-9A-F]{2})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+}
+
+function formatAddress(addr: any) {
+  if (!addr) return "";
+  const name = addr.name ? `${addr.name} ` : "";
+  const address = addr.address || "";
+  return `${name}${address}`.trim();
+}
+
+function parseFastEmail(rawSource: Uint8Array, envelope: any, accountLabel: string, uid: number) {
+  const raw = new TextDecoder().decode(rawSource);
+  const splitAt = raw.search(/\r?\n\r?\n/);
+  const rawBody = splitAt >= 0 ? raw.slice(splitAt) : raw;
+  const bodyText = decodeQuotedPrintable(rawBody)
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
+    .slice(0, 20_000);
+  const subject = (envelope?.subject || "").toString();
+  const from = (envelope?.from || []).map(formatAddress).filter(Boolean).join(", ") || "Netflix";
+  const to = (envelope?.to || []).map(formatAddress).filter(Boolean).join(", ") || undefined;
+  const netflixSignal = `${subject} ${from} ${to || ""} ${bodyText.slice(0, 2000)}`;
+  if (!/netflix/i.test(netflixSignal)) return null;
+  const preview = bodyText.length > 100 ? `${bodyText.substring(0, 100)}...` : bodyText;
+  return {
+    id: `${accountLabel}:${uid}`,
+    message_id: envelope?.messageId || null,
+    subject,
+    from,
+    to,
+    date: envelope?.date || new Date(),
+    otp: extractOtpCode(subject, bodyText),
+    preview,
+    html: `<pre>${escapeHtml(bodyText)}</pre>`,
+    account_label: accountLabel,
+  };
+}
+
+async function readCache(supabase: any, accountFilter: string[] | null, filterSignInCodes: boolean, filterPasswordResets: boolean, session: Session | null, limit = 500) {
+  const safeLimit = clampLimit(limit, 500, session?.role === "admin" ? 500 : 200);
+  // Non-admin with zero assigned accounts -> nothing visible.
+  if (accountFilter && accountFilter.length === 0 && session && session.role !== "admin") return [];
+  let query = supabase.from("cached_emails").select("*").order("date", { ascending: false }).limit(safeLimit);
+  if (accountFilter && accountFilter.length > 0) query = query.in("account_label", accountFilter);
+  if (session && session.role !== "admin") {
+    const vis = await getEmailVisibility(supabase);
+    if (vis) {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - vis.days);
+      query = query.gte("date", cutoff.toISOString());
+    }
+  }
+  const { data: cached, error } = await query;
+  if (error) throw error;
+  const emails = (cached || []).map((e: any) => ({
+    id: e.id,
+    subject: e.subject,
+    from: e.from_address,
+    to: e.to_address,
+    date: e.date,
+    otp: e.otp,
+    preview: e.preview,
+    html: e.html,
+    account_label: e.account_label,
+    cached_at: e.cached_at,
+  }));
+  return applyEmailFilters(emails, filterSignInCodes, filterPasswordResets);
+}
+
 async function fetchFromAccount(
-  imapHost: string, imapPort: number, imapUser: string, imapPassword: string,
-  accountLabel: string, cachedIds: Set<string>,
+  imapHost: string,
+  imapPort: number,
+  imapUser: string,
+  imapPassword: string,
+  accountLabel: string,
+  maxMessages = FULL_SYNC_MAX_UIDS,
+  quickRefresh = false,
 ): Promise<{ emails: any[]; fetched: number; skipped: number }> {
   const emails: any[] = [];
   let timedOut = false;
-  let skipped = 0;
-  let timeout: ReturnType<typeof setTimeout> | null = null;
+  const startedAt = Date.now();
+  const budgetMs = quickRefresh ? FAST_REFRESH_TIMEOUT_MS : PER_ACCOUNT_TIMEOUT_MS;
+  const timer = setTimeout(() => { timedOut = true; }, budgetMs);
+  const hasBudget = () => !timedOut && Date.now() - startedAt < budgetMs;
 
   const client = new ImapFlow({
-    host: imapHost, port: imapPort, secure: true,
-    auth: { user: imapUser, pass: imapPassword }, logger: false,
-    socketTimeout: 10000,
-    greetingTimeout: 5000,
+    host: imapHost,
+    port: imapPort,
+    secure: true,
+    auth: { user: imapUser, pass: imapPassword },
+    logger: false,
+    socketTimeout: quickRefresh ? 1800 : 7000,
+    greetingTimeout: quickRefresh ? 1200 : 3000,
   });
 
   try {
@@ -78,72 +256,53 @@ async function fetchFromAccount(
     const lock = await client.getMailboxLock("INBOX");
 
     try {
-      // Only search last 7 days instead of 30 for speed
-      const since = new Date();
-      since.setDate(since.getDate() - 7);
-
       let netflixUids: number[] = [];
-      const searchTerms = ["netflix.com", "netflix"];
-      for (const term of searchTerms) {
-        if (netflixUids.length > 0) break;
-        try {
-          const searchResults = await client.search({ from: term, since }, { uid: true });
-          if (searchResults && searchResults.length > 0) {
-            netflixUids = searchResults as number[];
-            console.log(`[${accountLabel}] IMAP search "${term}" found ${netflixUids.length} UIDs`);
+      let newestUids: number[] = [];
+      const totalMessages = (client.mailbox as any)?.exists || 0;
+
+      // Fast path: newly delivered OTP emails are almost always in the newest inbox rows.
+      // Fetching envelopes for the last few messages is much faster than a server-side IMAP search.
+      if (totalMessages > 0 && hasBudget()) {
+        const scanCount = quickRefresh ? FAST_REFRESH_SCAN_COUNT : 12;
+        const startSeq = Math.max(1, totalMessages - (scanCount - 1));
+        for await (const message of client.fetch(`${startSeq}:${totalMessages}`, { envelope: true, uid: true })) {
+          if (!hasBudget()) break;
+          newestUids.push(message.uid);
+          const fromAddr = message.envelope?.from?.[0]?.address?.toLowerCase() || "";
+          const toAddr = message.envelope?.to?.[0]?.address?.toLowerCase() || "";
+          const subject = (message.envelope?.subject || "").toLowerCase();
+          if (fromAddr.includes("netflix") || toAddr.includes("netflix") || subject.includes("netflix")) {
+            netflixUids.push(message.uid);
           }
-        } catch (searchErr) {
-          console.log(`[${accountLabel}] IMAP search "${term}" failed:`, searchErr);
         }
+        if (netflixUids.length > 0) console.log(`[${accountLabel}] Latest inbox scan found ${netflixUids.length}`);
       }
 
-      // Fallback: scan only last 30 emails (not 300)
-      if (netflixUids.length === 0) {
-        console.log(`[${accountLabel}] Search returned 0, falling back to quick envelope scan`);
-        const totalMessages = (client.mailbox as any)?.exists || 0;
-        if (totalMessages > 0) {
-          const startSeq = Math.max(1, totalMessages - 29);
-          for await (const message of client.fetch(`${startSeq}:${totalMessages}`, { envelope: true, uid: true })) {
-            if (timedOut) break;
-            const fromAddr = message.envelope?.from?.[0]?.address?.toLowerCase() || "";
-            const toAddr = message.envelope?.to?.[0]?.address?.toLowerCase() || "";
-            const subject = (message.envelope?.subject || "").toLowerCase();
-            if (fromAddr.includes("netflix") || toAddr.includes("netflix") || subject.includes("netflix")) {
-              netflixUids.push(message.uid);
+      if (!quickRefresh && netflixUids.length === 0 && hasBudget()) {
+        const since = new Date();
+        since.setDate(since.getDate() - 7);
+        for (const term of ["netflix.com", "netflix"]) {
+          if (netflixUids.length > 0 || !hasBudget()) break;
+          try {
+            const searchResults = await client.search({ from: term, since }, { uid: true });
+            if (searchResults?.length > 0) {
+              netflixUids = searchResults as number[];
+              console.log(`[${accountLabel}] Search "${term}" found ${netflixUids.length}`);
             }
+          } catch (searchErr) {
+            console.log(`[${accountLabel}] Search "${term}" failed:`, searchErr);
           }
-          console.log(`[${accountLabel}] Envelope scan found ${netflixUids.length} Netflix UIDs`);
         }
       }
 
-      // Sort newest first, take only top 10
-      netflixUids.sort((a, b) => b - a);
-      const uidsToFetch = netflixUids.slice(0, FULL_SYNC_MAX_UIDS);
+      netflixUids = Array.from(new Set(netflixUids)).sort((a, b) => b - a);
+      newestUids = Array.from(new Set(newestUids)).sort((a, b) => b - a);
+      const candidates = netflixUids.length > 0 ? netflixUids : (quickRefresh ? newestUids.slice(0, 1) : []);
+      const uidsToFetch = candidates.slice(0, quickRefresh ? USER_REFRESH_MAX_UIDS : clampLimit(maxMessages, USER_REFRESH_MAX_UIDS, FULL_SYNC_MAX_UIDS));
+      console.log(`[${accountLabel}] Fetching ${uidsToFetch.length} recent candidate UIDs`);
 
-      // Start timeout AFTER search completes
-      timeout = setTimeout(() => { timedOut = true; }, PER_ACCOUNT_TIMEOUT_MS);
-
-      // Determine uncached UIDs
-      const uncachedUids: number[] = [];
       for (const uid of uidsToFetch) {
-        const plainId = String(uid);
-        const prefixedId = `${accountLabel}:${uid}`;
-        if (cachedIds.has(plainId) || cachedIds.has(prefixedId)) {
-          skipped++;
-        } else {
-          uncachedUids.push(uid);
-        }
-      }
-
-      // If all recent UIDs are cached, skip IMAP fetch entirely
-      if (uncachedUids.length === 0) {
-        console.log(`[${accountLabel}] All ${skipped} recent UIDs already cached — skipping fetch`);
-      } else {
-        console.log(`[${accountLabel}] ${uncachedUids.length} uncached UIDs to fetch, ${skipped} already cached`);
-      }
-
-      for (const uid of uncachedUids) {
-        if (timedOut) {
+        if (!hasBudget()) {
           console.log(`[${accountLabel}] Timed out, stopping fetch`);
           break;
         }
@@ -152,265 +311,94 @@ async function fetchFromAccount(
           const fullMsg = await client.fetchOne(uid, { source: true, envelope: true }, { uid: true });
           if (!fullMsg?.source) continue;
 
+          if (quickRefresh) {
+            const fastEmail = parseFastEmail(fullMsg.source as Uint8Array, fullMsg.envelope, accountLabel, uid);
+            if (fastEmail) emails.push(fastEmail);
+            continue;
+          }
+
           const parsed = await simpleParser(fullMsg.source, { skipImageLinks: true, skipTextLinks: true });
           const bodyText = (parsed.text || "").trim();
-          const otpMatch = bodyText.match(/\b\d{4,8}\b/);
-
-          // Use plain UID as ID to match existing DB format
-          const stableId = String(uid);
-          const messageId = parsed.messageId || null;
+          const subjectText = (parsed.subject || fullMsg.envelope?.subject || "").toString();
+          const otpCode = extractOtpCode(subjectText, bodyText);
+          const stableId = `${accountLabel}:${uid}`;
 
           emails.push({
             id: stableId,
-            message_id: messageId,
+            message_id: parsed.messageId || null,
             subject: parsed.subject || fullMsg.envelope?.subject || "",
             from: parsed.from?.text || "Netflix",
             to: parsed.to ? (Array.isArray(parsed.to) ? parsed.to[0]?.text : parsed.to.text) : undefined,
-            date: parsed.date, otp: otpMatch ? otpMatch[0] : null,
+            date: parsed.date || new Date(),
+            otp: otpCode,
             preview: bodyText.length > 100 ? `${bodyText.substring(0, 100)}...` : bodyText,
             html: parsed.html || parsed.textAsHtml || `<pre>${bodyText}</pre>`,
             account_label: accountLabel,
           });
-          console.log(`[${accountLabel}] Fetched UID ${uid}: ${parsed.subject?.substring(0, 50)}`);
         } catch (parseErr) {
           const errMsg = parseErr instanceof Error ? parseErr.message : String(parseErr);
           console.error(`[${accountLabel}] Fetch error UID ${uid}: ${errMsg}`);
-          // If TLS/connection error, stop trying more UIDs
-          if (/eof|closed|reset|tls|socket/i.test(errMsg)) {
-            console.log(`[${accountLabel}] Connection error, stopping further fetches`);
-            break;
-          }
+          if (/eof|closed|reset|tls|socket/i.test(errMsg)) break;
         }
       }
     } finally {
       lock.release();
     }
-    try { await client.logout(); } catch {}
   } finally {
-    if (timeout) clearTimeout(timeout);
+    clearTimeout(timer);
+    if (quickRefresh) {
+      try { (client as any).close?.(); } catch {}
+      try { client.logout().catch(() => {}); } catch {}
+    } else {
+      try { await client.logout(); } catch {}
+    }
   }
-  return { emails, fetched: emails.length, skipped };
+
+  return { emails, fetched: emails.length, skipped: 0 };
 }
 
-Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+async function loadAccounts(supabase: any, secret: string, accountLabels: string[] | null): Promise<Account[]> {
+  let accounts: Account[] = [];
+  const requested = accountLabels && accountLabels.length > 0
+    ? new Set(accountLabels.map((label) => String(label).trim()).filter(Boolean))
+    : null;
+  const onlyPrimaryRequested = !!requested && requested.size === 1 && requested.has("Primary");
+
+  if (!onlyPrimaryRequested) {
+    try {
+      const { data: accountsData } = await supabase.from("app_settings").select("value").eq("key", "email_accounts").single();
+      if (Array.isArray(accountsData?.value)) {
+        const accountRows = requested
+          ? accountsData.value.filter((acc: any) => requested.has(String(acc.label || acc.user || "").trim()))
+          : accountsData.value;
+        const decrypted = await Promise.all(accountRows.map(async (acc: any) => {
+          if (!acc.user || !acc.password) return null;
+          return {
+            label: acc.label || acc.user,
+            host: acc.host || "imap.gmail.com",
+            port: parseInt(acc.port) || 993,
+            user: acc.user,
+            password: await decryptValue(acc.password, secret),
+          } as Account;
+        }));
+        accounts.push(...decrypted.filter(Boolean) as Account[]);
+      }
+    } catch (err) {
+      console.error("[sync] Failed to load email_accounts:", err);
+    }
   }
 
-  try {
-    const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-    const SESSION_SECRET = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-
-    let body: any = {};
-    try { body = await req.json(); } catch {}
-    const mode = body.mode || "sync";
-    const source = body.source || "manual";
-
-    // MODE: CRON_STATUS
-    if (mode === "cron_status") {
-      try {
-        const { data, error } = await supabase.rpc("get_cron_status");
-        if (error) {
-          const { data: fallback } = await supabase.from("app_settings").select("value").eq("key", "cron_config").single();
-          return new Response(JSON.stringify({
-            active: fallback?.value?.active || false,
-            interval: fallback?.value?.interval || 3,
-            lastSync: null,
-          }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        }
-        return new Response(JSON.stringify(data), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      } catch {
-        return new Response(JSON.stringify({ active: false, interval: 3, lastSync: null }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-    }
-
-    // MODE: CRON_TOGGLE
-    if (mode === "cron_toggle") {
-      const enabled = body.enabled === true;
-      const interval = parseInt(body.interval) || 3;
-      const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-      const ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpzcWNodXRuZmRlbGphamt4bWx5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxMjI5MzksImV4cCI6MjA4OTY5ODkzOX0.HYN4zMEYEiP-H5KD_iIbFpr0GsatNoeyw40FI2mW_eA";
-
-      try {
-        try {
-          await supabase.rpc("unschedule_email_sync");
-        } catch {}
-
-        if (enabled) {
-          const cronExpr = `*/${interval} * * * *`;
-          const { error: schedErr } = await supabase.rpc("schedule_email_sync", {
-            cron_expr: cronExpr,
-            function_url: `${SUPABASE_URL}/functions/v1/fetch-emails`,
-            auth_key: ANON_KEY,
-          });
-          if (schedErr) throw schedErr;
-          console.log(`[cron] Scheduled email sync every ${interval} minutes`);
-        } else {
-          console.log("[cron] Disabled email sync cron");
-        }
-
-        await supabase.from("app_settings").upsert({
-          key: "cron_config",
-          value: { active: enabled, interval },
-        }, { onConflict: "key" });
-
-        return new Response(JSON.stringify({ success: true, active: enabled, interval }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.error("[cron] Toggle error:", msg);
-        return new Response(JSON.stringify({ success: false, error: msg }), {
-          status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-    }
-
-    let filterSignInCodes = false;
-    let filterPasswordResets = true;
-    try {
-      const { data: filterData } = await supabase
-        .from("app_settings").select("value").eq("key", "email_filters").single();
-      if (filterData?.value) {
-        if (filterData.value.showSignInCodes === false) filterSignInCodes = true;
-        if (filterData.value.showPasswordResets === true) filterPasswordResets = false;
-      }
-    } catch {}
-
-    // MODE: CACHE
-    if (mode === "cache") {
-      let accountFilter: string[] | null = null;
-      let isAdmin = false;
-      const sessionToken = req.headers.get("x-session-token") || body.sessionToken;
-      if (sessionToken) {
-        const session = await verifySessionToken(sessionToken, SESSION_SECRET);
-        if (session?.role === "admin") {
-          isAdmin = true;
-        }
-        // Always fetch fresh assigned_accounts from DB instead of stale session token
-        if (session?.userId && !isAdmin) {
-          const { data: userData } = await supabase
-            .from("app_users").select("assigned_accounts").eq("id", session.userId).single();
-          if (userData?.assigned_accounts && Array.isArray(userData.assigned_accounts) && userData.assigned_accounts.length > 0) {
-            accountFilter = userData.assigned_accounts;
-          }
-        }
-      }
-
-      let query = supabase.from("cached_emails").select("*").order("date", { ascending: false }).limit(500);
-
-      if (accountFilter && accountFilter.length > 0) {
-        query = query.in("account_label", accountFilter);
-      } else if (!isAdmin) {
-        return new Response(JSON.stringify([]), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-
-      const { data: cached, error: cacheErr } = await query;
-
-      if (cacheErr) {
-        return new Response(JSON.stringify({ error: "Database query failed: " + cacheErr.message }), {
-          status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-
-      let emails = (cached || []).map((e: any) => ({
-        id: e.id, subject: e.subject, from: e.from_address, to: e.to_address,
-        date: e.date, otp: e.otp, preview: e.preview, html: e.html, account_label: e.account_label,
-      }));
-
-      if (filterSignInCodes) {
-        emails = emails.filter((e: any) => {
-          const sub = (e.subject || "").toLowerCase();
-          return !SIGN_IN_CODE_SUBJECTS.some(kw => sub.includes(kw));
-        });
-      }
-      if (filterPasswordResets) {
-        emails = emails.filter((e: any) => {
-          const sub = (e.subject || "").toLowerCase();
-          return !PASSWORD_RESET_SUBJECTS.some(kw => sub.includes(kw));
-        });
-      }
-
-      return new Response(JSON.stringify(emails), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    // MODE: UNFILTERED_COUNT
-    if (mode === "unfiltered_count") {
-      let accountFilter: string[] | null = null;
-      let isAdmin = false;
-      const sessionToken = req.headers.get("x-session-token") || body.sessionToken;
-      if (sessionToken) {
-        const session = await verifySessionToken(sessionToken, SESSION_SECRET);
-        if (session?.role === "admin") isAdmin = true;
-        // Always fetch fresh assigned_accounts from DB
-        if (session?.userId && !isAdmin) {
-          const { data: userData } = await supabase
-            .from("app_users").select("assigned_accounts").eq("id", session.userId).single();
-          if (userData?.assigned_accounts && Array.isArray(userData.assigned_accounts) && userData.assigned_accounts.length > 0) {
-            accountFilter = userData.assigned_accounts;
-          }
-        }
-      }
-      if (!isAdmin && (!accountFilter || accountFilter.length === 0)) {
-        return new Response(JSON.stringify({ total: 0, error: null }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      let query = supabase.from("cached_emails").select("id", { count: "exact", head: true });
-      if (accountFilter && accountFilter.length > 0) {
-        query = query.in("account_label", accountFilter);
-      }
-      const { count, error: countErr } = await query;
-      return new Response(JSON.stringify({ total: count || 0, error: countErr?.message || null }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    // MODE: SYNC
-    console.log(`[sync] Starting IMAP sync (source: ${source})`);
-
-    const { data: cachedRows } = await supabase.from("cached_emails").select("id, account_label, date");
-    const cachedIds = new Set((cachedRows || []).map((r: any) => String(r.id)));
-    const hasLegacyNullLabels = (cachedRows || []).some((row: any) => row.account_label == null);
-
-    let accounts: Array<{ label: string; host: string; port: number; user: string; password: string }> = [];
-
-    try {
-      const { data: accountsData } = await supabase
-        .from("app_settings").select("value").eq("key", "email_accounts").single();
-      if (accountsData?.value && Array.isArray(accountsData.value) && accountsData.value.length > 0) {
-        for (const acc of accountsData.value) {
-          if (acc.user && acc.password) {
-            const decryptedPass = await decryptValue(acc.password, SESSION_SECRET);
-            accounts.push({
-              label: acc.label || acc.user,
-              host: acc.host || "imap.gmail.com",
-              port: parseInt(acc.port) || 993,
-              user: acc.user,
-              password: decryptedPass,
-            });
-          }
-        }
-      }
-    } catch {}
-
+  if (!requested || requested.has("Primary")) {
     let primaryHost = "", primaryPort = 993, primaryUser = "", primaryPassword = "";
     try {
       const { data } = await supabase.from("app_settings").select("value").eq("key", "config").single();
-      if (data?.value) {
-        const config = data.value as any;
-        if (config.IMAP_HOST) primaryHost = config.IMAP_HOST;
-        if (config.IMAP_PORT) primaryPort = parseInt(config.IMAP_PORT) || 993;
-        if (config.IMAP_USER) primaryUser = config.IMAP_USER;
-        if (config.IMAP_PASSWORD) primaryPassword = config.IMAP_PASSWORD;
+      const config = data?.value as any;
+      if (config) {
+        primaryHost = config.IMAP_HOST || "";
+        primaryPort = parseInt(config.IMAP_PORT) || 993;
+        primaryUser = config.IMAP_USER || "";
+        primaryPassword = config.IMAP_PASSWORD || "";
+        if (primaryPassword?.startsWith?.("enc:")) primaryPassword = await decryptValue(primaryPassword, secret);
       }
     } catch {}
 
@@ -420,137 +408,296 @@ Deno.serve(async (req) => {
     const envPort = Deno.env.get("IMAP_PORT");
     if (primaryPort === 993 && envPort) primaryPort = parseInt(envPort) || 993;
 
-    if (primaryUser && primaryPassword) {
-      const alreadyAdded = accounts.some(a => a.user === primaryUser);
-      if (!alreadyAdded) {
-        accounts.unshift({ label: "Primary", host: primaryHost, port: primaryPort, user: primaryUser, password: primaryPassword });
-      }
+    if (primaryUser && primaryPassword && !accounts.some(a => a.user === primaryUser)) {
+      accounts.unshift({ label: "Primary", host: primaryHost, port: primaryPort, user: primaryUser, password: primaryPassword });
     }
+  }
 
-    // Filter to specific accounts if requested (per-account worker routing)
-    if (body.accountLabels && Array.isArray(body.accountLabels) && body.accountLabels.length > 0) {
-      const requestedLabels: string[] = body.accountLabels;
-      accounts = accounts.filter(a => requestedLabels.includes(a.label));
-      console.log(`[sync] Filtered to ${accounts.length} accounts: ${requestedLabels.join(", ")}`);
-    }
+  if (accountLabels && accountLabels.length > 0) {
+    accounts = accounts.filter(a => accountLabels.includes(a.label));
+  }
 
-    if (accounts.length === 0) {
-      return new Response(
-        JSON.stringify({ success: false, error: "Inbox not configured. Add IMAP email in Admin Panel." }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
+  return accounts;
+}
 
-    // Backfill legacy null labels
-    if (hasLegacyNullLabels) {
-      try {
-        await supabase.from("cached_emails").update({ account_label: "Primary" }).is("account_label", null);
-        console.log("[sync] Backfilled null account_labels to Primary");
-      } catch (e) {
-        console.error("[sync] Backfill error:", e);
-      }
-    }
+async function runSync(supabase: any, secret: string, source: string, accountLabels: string[] | null, maxMessages = FULL_SYNC_MAX_UIDS) {
+  console.log(`[sync] Starting parallel IMAP sync (source: ${source})`);
+  const quickRefresh = source === "user_refresh";
+  const accounts = await loadAccounts(supabase, secret, accountLabels);
 
-    const allEmails: any[] = [];
-    const accountErrors: Array<{ label: string; error: string }> = [];
-    const syncStats: Record<string, { fetched: number; skipped: number; error?: string }> = {};
+  if (accounts.length === 0) {
+    return { success: false, error: "Inbox not configured. Add IMAP email in Admin Panel.", stats: {}, totalFetched: 0, inserted: 0 };
+  }
 
-    // Fetch accounts sequentially to reduce connection pressure
-    for (const acc of accounts) {
-      try {
-        console.log(`[sync] Fetching ${acc.label} (${acc.user})`);
-        const result = await fetchFromAccount(acc.host, acc.port, acc.user, acc.password, acc.label, cachedIds);
-        syncStats[acc.label] = { fetched: result.fetched, skipped: result.skipped };
-        allEmails.push(...result.emails);
-      } catch (err) {
-        const errMsg = err instanceof Error ? err.message : String(err);
-        console.error(`[sync] Error ${acc.label}:`, errMsg);
-        const isAuthError = /auth|login|invalid credentials|authenticationfailed/i.test(errMsg);
-        const errorText = isAuthError
-          ? `IMAP login failed for "${acc.label}". Check email and app password.`
-          : `Failed to connect to "${acc.label}": ${errMsg}`;
-        syncStats[acc.label] = { fetched: 0, skipped: 0, error: errorText };
-        accountErrors.push({ label: acc.label, error: errorText });
-      }
-    }
-
-    if (accountErrors.length > 0 && accountErrors.length === accounts.length) {
-      const combinedMsg = accountErrors.map(e => e.error).join(" | ");
-      console.error("[sync] All accounts failed:", combinedMsg);
-      return new Response(
-        JSON.stringify({ success: false, error: combinedMsg, stats: syncStats }),
-        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    allEmails.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-
-    let inserted = 0;
-    if (allEmails.length > 0) {
-      const rows = allEmails.map((e: any) => ({
-        id: String(e.id), subject: e.subject, from_address: e.from, to_address: e.to || null,
-        date: e.date, otp: e.otp || null, preview: e.preview || null, html: e.html || null,
-        account_label: e.account_label || "Primary", cached_at: new Date().toISOString(),
-        message_id: e.message_id || null,
-      }));
-
-      const { error: upsertErr } = await supabase.from("cached_emails").upsert(rows, { onConflict: "id" });
-      if (upsertErr) {
-        console.error("[sync] Cache upsert error:", upsertErr);
-      } else {
-        inserted = rows.length;
-        console.log(`[sync] Upserted ${inserted} emails`);
-      }
-    }
-
-    // Cleanup stale emails
+  if (!quickRefresh) {
     try {
-      const cutoff = new Date();
-      cutoff.setDate(cutoff.getDate() - STALE_DAYS);
-      const { error: deleteErr, count } = await supabase
-        .from("cached_emails")
-        .delete({ count: "exact" })
-        .lt("date", cutoff.toISOString());
-      if (!deleteErr && count && count > 0) {
-        console.log(`[sync] Cleaned up ${count} stale emails older than ${STALE_DAYS} days`);
-      }
+      await supabase.from("cached_emails").update({ account_label: "Primary" }).is("account_label", null);
     } catch (e) {
-      console.error("[sync] Stale cleanup error:", e);
+      console.error("[sync] Legacy label backfill skipped:", e);
+    }
+  }
+
+  const settled = await Promise.allSettled(accounts.map(async (acc) => {
+    console.log(`[sync] Fetching ${acc.label} (${acc.user})`);
+    const result = await fetchFromAccount(acc.host, acc.port, acc.user, acc.password, acc.label, maxMessages, quickRefresh);
+    return { acc, result };
+  }));
+
+  const allEmails: any[] = [];
+  const accountErrors: Array<{ label: string; error: string }> = [];
+  const syncStats: Record<string, { fetched: number; skipped: number; error?: string }> = {};
+
+  settled.forEach((item, index) => {
+    const label = accounts[index]?.label || `Account ${index + 1}`;
+    if (item.status === "fulfilled") {
+      syncStats[label] = { fetched: item.value.result.fetched, skipped: item.value.result.skipped };
+      allEmails.push(...item.value.result.emails);
+    } else {
+      const errMsg = item.reason instanceof Error ? item.reason.message : String(item.reason);
+      const isAuthError = /auth|login|invalid credentials|authenticationfailed/i.test(errMsg);
+      const errorText = isAuthError ? `IMAP login failed for "${label}". Check email and app password.` : `Failed to connect to "${label}": ${errMsg}`;
+      syncStats[label] = { fetched: 0, skipped: 0, error: errorText };
+      accountErrors.push({ label, error: errorText });
+    }
+  });
+
+  if (accountErrors.length > 0 && accountErrors.length === accounts.length) {
+    const combinedMsg = accountErrors.map(e => e.error).join(" | ");
+    console.error("[sync] All accounts failed:", combinedMsg);
+    return { success: false, error: combinedMsg, stats: syncStats, totalFetched: 0, inserted: 0 };
+  }
+
+  allEmails.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+  let inserted = 0;
+  if (allEmails.length > 0) {
+    const rows = allEmails.map((e: any) => ({
+      id: String(e.id),
+      subject: e.subject,
+      from_address: e.from,
+      to_address: e.to || null,
+      date: e.date,
+      otp: e.otp || null,
+      preview: e.preview || null,
+      html: e.html || null,
+      account_label: e.account_label || "Primary",
+      cached_at: new Date().toISOString(),
+      message_id: e.message_id || null,
+    }));
+
+    const persistWork = supabase.from("cached_emails").upsert(rows, { onConflict: "id" })
+      .then(({ error: upsertErr }: any) => {
+        if (upsertErr) console.error("[sync] Cache upsert error:", upsertErr);
+      });
+    if (quickRefresh) {
+      inserted = rows.length;
+      ((globalThis as any).EdgeRuntime?.waitUntil?.(persistWork) ?? persistWork.catch((err: any) => console.error("[sync] Background upsert error:", err)));
+    } else {
+      await persistWork;
+      inserted = rows.length;
+    }
+  }
+
+  const cleanupWork = (async () => {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - STALE_DAYS);
+    await supabase.from("cached_emails").delete().lt("date", cutoff.toISOString());
+  })().catch((e) => console.error("[sync] Stale cleanup error:", e));
+  if (quickRefresh) ((globalThis as any).EdgeRuntime?.waitUntil?.(cleanupWork) ?? cleanupWork);
+  else await cleanupWork;
+
+  const response: any = {
+    success: true,
+    emails: allEmails,
+    stats: syncStats,
+    totalFetched: allEmails.length,
+    inserted,
+    duplicatesSkipped: 0,
+  };
+  if (accountErrors.length > 0) response.warnings = accountErrors.map(e => e.error);
+  console.log(`[sync] Complete: ${allEmails.length} fetched/upserted across ${accounts.length} account(s)`);
+  return response;
+}
+
+Deno.serve(async (originalReq) => {
+  if (originalReq.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+
+  // ---- transport encryption boundary ----
+  // Server-to-server callers may POST plaintext JSON. Browser callers include
+  // Sec-Fetch-Site and must still use encrypted transport.
+  const CRON_SHARED_SECRET_FOR_TRANSPORT = Deno.env.get("CRON_SHARED_SECRET") || "";
+  const SERVICE_ROLE_FOR_TRANSPORT = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+  const cronHeaderForTransport = originalReq.headers.get("x-cron-secret") || "";
+  const authHeaderForTransport = originalReq.headers.get("authorization") || "";
+  const sessionTokenForTransport = originalReq.headers.get("x-session-token") || "";
+  const secFetchSiteForTransport = originalReq.headers.get("sec-fetch-site") || "";
+  const hasValidCronSecret = !!CRON_SHARED_SECRET_FOR_TRANSPORT && cronHeaderForTransport === CRON_SHARED_SECRET_FOR_TRANSPORT;
+  const hasServiceRoleBearer = !!SERVICE_ROLE_FOR_TRANSPORT && authHeaderForTransport === `Bearer ${SERVICE_ROLE_FOR_TRANSPORT}`;
+  const serverLikeSessionProxy = !!sessionTokenForTransport && !secFetchSiteForTransport;
+  const allowServerPlaintext = hasValidCronSecret || hasServiceRoleBearer || serverLikeSessionProxy;
+  let ctx: EncryptedRequestContext | null = null;
+  let parsedBody: any = null;
+  try {
+    const r = await readRequest(originalReq, { allowPlaintext: allowServerPlaintext });
+    parsedBody = r.body ?? {};
+    ctx = r.encrypted ? r.ctx : null;
+  } catch (e) {
+    if (e instanceof PlaintextRejectedError) return plaintextRejectedResponse();
+    if (e instanceof TransportError) return transportErrorResponse(e);
+    return new Response(JSON.stringify({ success: false, error: "bad request" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
+  const req = new Request(originalReq.url, {
+    method: originalReq.method,
+    headers: originalReq.headers,
+    body: JSON.stringify(parsedBody ?? {}),
+  });
+  const __run = async () => {
+  try {
+    const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    // F5: dedicated signing key with legacy fallback (see manage-app).
+    // ENCRYPTION_SECRET (=SERVICE_ROLE_KEY) stays for decrypting IMAP passwords in runSync.
+    const ENCRYPTION_SECRET = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const SIGNING_SECRET = Deno.env.get("SESSION_SIGNING_SECRET") || ENCRYPTION_SECRET;
+    const LEGACY_SIGNING = ENCRYPTION_SECRET;
+    const CRON_SHARED_SECRET = Deno.env.get("CRON_SHARED_SECRET") || "";
+
+    let body: any = {};
+    try { body = await req.json(); } catch {}
+    const mode = body.mode || "sync";
+    const source = body.source || "manual";
+    const session = await requireSession(req, body, SIGNING_SECRET, LEGACY_SIGNING);
+    const isCron = !!CRON_SHARED_SECRET && req.headers.get("x-cron-secret") === CRON_SHARED_SECRET;
+
+
+    let filterSignInCodes = false;
+    let filterPasswordResets = true;
+    try {
+      const { data: filterData } = await supabase.from("app_settings").select("value").eq("key", "email_filters").single();
+      if (filterData?.value) {
+        if (filterData.value.showSignInCodes === false) filterSignInCodes = true;
+        if (filterData.value.showPasswordResets === true) filterPasswordResets = false;
+      }
+    } catch {}
+
+    if (mode === "cron_status") {
+      if (!session || session.role !== "admin") return json({ success: false, error: "Admin session required" }, 401);
+      try {
+        const { data, error } = await supabase.rpc("get_cron_status");
+        if (error) throw error;
+        return json(data);
+      } catch {
+        const { data: fallback } = await supabase.from("app_settings").select("value").eq("key", "cron_config").single();
+        return json({ active: fallback?.value?.active || false, interval: fallback?.value?.interval || 3, lastSync: null });
+      }
     }
 
-    const response: any = {
-      success: true,
-      emails: allEmails,
-      stats: syncStats,
-      totalFetched: allEmails.length,
-      inserted,
-      duplicatesSkipped: Object.values(syncStats).reduce((s, v) => s + v.skipped, 0),
-    };
-    if (accountErrors.length > 0) {
-      response.warnings = accountErrors.map(e => e.error);
+    if (mode === "cron_toggle") {
+      if (!session || session.role !== "admin") return json({ success: false, error: "Admin session required" }, 401);
+      const enabled = body.enabled === true;
+      const interval = parseInt(body.interval) || 3;
+      const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+      const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") || Deno.env.get("SUPABASE_PUBLISHABLE_KEY") || "";
+      if (!ANON_KEY) return json({ success: false, error: "SUPABASE_ANON_KEY is not configured" }, 500);
+      if (!CRON_SHARED_SECRET) return json({ success: false, error: "CRON_SHARED_SECRET is not configured" }, 500);
+
+      try {
+        try { await supabase.rpc("unschedule_email_sync"); } catch {}
+        if (enabled) {
+          const cronExpr = `*/${interval} * * * *`;
+          const { error: schedErr } = await supabase.rpc("schedule_email_sync", {
+            cron_expr: cronExpr,
+            function_url: `${SUPABASE_URL}/functions/v1/fetch-emails`,
+            auth_key: CRON_SHARED_SECRET,
+          });
+          if (schedErr) throw schedErr;
+        }
+        await supabase.from("app_settings").upsert({ key: "cron_config", value: { active: enabled, interval } }, { onConflict: "key" });
+        return json({ success: true, active: enabled, interval });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("[cron] Toggle error:", msg);
+        return json({ success: false, error: msg }, 500);
+      }
     }
 
-    console.log(`[sync] Complete: ${allEmails.length} new, ${response.duplicatesSkipped} skipped`);
+    if (mode === "cache") {
+      if (!session) return json({ success: false, error: "Authentication required" }, 401);
+      const accountFilter = await getAssignedAccountFilter(supabase, session);
+      const emails = await readCache(supabase, accountFilter, filterSignInCodes, filterPasswordResets, session, body.limit);
+      return json(emails);
+    }
 
-    return new Response(JSON.stringify(response), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    if (mode === "unfiltered_count") {
+      if (!session) return json({ success: false, error: "Authentication required" }, 401);
+      const accountFilter = await getAssignedAccountFilter(supabase, session);
+      if (session.role !== "admin" && accountFilter && accountFilter.length === 0) {
+        return json({ total: 0, error: null });
+      }
+      let query = supabase.from("cached_emails").select("id", { count: "exact", head: true });
+      if (accountFilter && accountFilter.length > 0) query = query.in("account_label", accountFilter);
+      if (session.role !== "admin") {
+        const vis = await getEmailVisibility(supabase);
+        if (vis) {
+          const cutoff = new Date();
+          cutoff.setDate(cutoff.getDate() - vis.days);
+          query = query.gte("date", cutoff.toISOString());
+        }
+      }
+      const { count, error } = await query;
+      return json({ total: count || 0, error: error?.message || null });
+    }
+
+    const adminOrCron = (session?.role === "admin") || isCron;
+    const userRequestedSync = mode === "user_sync" || mode === "sync_async";
+    if (mode === "sync" && !adminOrCron) return json({ success: false, error: "Admin session or cron secret required" }, 401);
+    if (userRequestedSync && !session && !isCron) return json({ success: false, error: "Authentication required" }, 401);
+    if (!["sync", "sync_async", "user_sync"].includes(mode)) return json({ success: false, error: `Unknown mode: ${mode}` }, 400);
+
+    let accountLabels: string[] | null = null;
+    if (Array.isArray(body.accountLabels) && body.accountLabels.length > 0) accountLabels = body.accountLabels;
+
+    if (session && session.role !== "admin") {
+      const assigned = await getAssignedAccountFilter(supabase, session);
+      // Non-admin user: restrict sync scope to their assigned accounts.
+      // Empty assignment -> nothing to sync/display.
+      if (assigned && assigned.length === 0) {
+        return json({ success: true, accepted: true, emails: [], message: "No accounts assigned" }, mode === "sync_async" ? 202 : 200);
+      }
+      if (assigned && assigned.length > 0) accountLabels = accountLabels ? accountLabels.filter(l => assigned.includes(l)) : assigned;
+      if (mode === "sync_async" && source !== "user_refresh") {
+        const last = userSyncHits.get(session.userId) || 0;
+        if (Date.now() - last < USER_SYNC_WINDOW_MS) {
+          const cache = await readCache(supabase, assigned, filterSignInCodes, filterPasswordResets, session, body.limit);
+          return json({ success: true, rateLimited: true, message: "Please wait before refreshing again", emails: cache }, 202);
+        }
+        userSyncHits.set(session.userId, Date.now());
+      }
+    }
+
+    if (mode === "sync_async" && source !== "user_refresh") {
+      const accountFilterForCache = session ? await getAssignedAccountFilter(supabase, session) : null;
+      const cache = session ? await readCache(supabase, accountFilterForCache, filterSignInCodes, filterPasswordResets, session, body.limit).catch(() => []) : [];
+      const maxMessages = clampLimit(body.limit, USER_REFRESH_MAX_UIDS, FULL_SYNC_MAX_UIDS);
+      const work = runSync(supabase, ENCRYPTION_SECRET, source || "async", accountLabels, maxMessages).catch(err => console.error("[sync_async] background failed:", err));
+      ((globalThis as any).EdgeRuntime?.waitUntil?.(work) ?? work);
+      return json({ success: true, accepted: true, emails: cache }, 202);
+    }
+
+    const result = await runSync(supabase, ENCRYPTION_SECRET, source, accountLabels, clampLimit(body.limit, FULL_SYNC_MAX_UIDS, FULL_SYNC_MAX_UIDS));
+    return json(result, result.success === false ? 502 : 200);
   } catch (err) {
     console.error("[sync] Fatal error:", err);
     const errorMessage = err instanceof Error ? err.message : String(err);
     const isImapAuthError = /auth|login|invalid credentials|authenticationfailed/i.test(errorMessage);
-
-    return new Response(
-      JSON.stringify({
-        success: false,
-        error: isImapAuthError
-          ? "IMAP login failed. Check the inbox email address and app password in Admin Panel."
-          : `Failed to fetch emails: ${errorMessage}`,
-      }),
-      {
-        status: isImapAuthError ? 401 : 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
-    );
+    return json({
+      success: false,
+      error: isImapAuthError
+        ? "IMAP login failed. Check the inbox email address and app password in Admin Panel."
+        : `Failed to fetch emails: ${errorMessage}`,
+    }, isImapAuthError ? 401 : 500);
   }
+  };
+  const res = await __run();
+  return await maybeEncryptResponse(res, ctx);
 });
+
