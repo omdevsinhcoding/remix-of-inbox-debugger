@@ -1870,6 +1870,45 @@ Deno.serve(async (originalReq) => {
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
+      // Enforce admin-configured concurrent session cap per user.
+      // Default: unlimited (0). When set, revoke oldest families so only
+      // (maxPerUser - 1) remain active — the new login becomes the Nth session.
+      try {
+        const { data: limitRow } = await supabase.from("app_settings").select("value").eq("key", "session_limits").maybeSingle();
+        const maxPerUser = Math.max(0, Math.floor(Number((limitRow?.value as any)?.maxPerUser) || 0));
+        if (maxPerUser > 0) {
+          const nowIso = new Date().toISOString();
+          const { data: activeRows } = await supabase
+            .from("app_sessions")
+            .select("id, family_id, created_at")
+            .eq("user_id", user.id)
+            .is("revoked_at", null)
+            .or(`refresh_expires_at.gt.${nowIso},expires_at.gt.${nowIso}`)
+            .order("created_at", { ascending: false });
+          const seenFamily = new Set<string>();
+          const families: { family_id: string; created_at: string }[] = [];
+          for (const r of activeRows || []) {
+            const fid = r.family_id || r.id;
+            if (seenFamily.has(fid)) continue;
+            seenFamily.add(fid);
+            families.push({ family_id: fid, created_at: r.created_at });
+          }
+          // Keep newest (maxPerUser - 1) families; revoke the rest so the
+          // brand-new session slots in as the Nth.
+          const keep = Math.max(0, maxPerUser - 1);
+          const toRevoke = families.slice(keep).map((f) => f.family_id);
+          if (toRevoke.length) {
+            await supabase.from("app_sessions")
+              .update({ revoked_at: nowIso })
+              .in("family_id", toRevoke)
+              .is("revoked_at", null);
+            await auditLog(supabase, "session_limit_enforced", user.id, null, { revokedFamilies: toRevoke.length, maxPerUser }, ip);
+          }
+        }
+      } catch (e) {
+        console.warn("[login] session-limit enforcement skipped:", (e as any)?.message || e);
+      }
+
       // C.2: mint access (15 min) + refresh (12 h) rotating pair
       const pair = await mintSessionPair(user.id, user.role, {
         userId: user.id,
@@ -1877,6 +1916,7 @@ Deno.serve(async (originalReq) => {
         role: user.role,
         assignedAccounts: user.assigned_accounts || null,
       });
+
       const workerUrls = await loadWorkerUrls(supabase);
 
       return new Response(JSON.stringify({
