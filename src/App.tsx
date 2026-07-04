@@ -1694,12 +1694,52 @@ function stripRawMimeNoise(value = "") {
     .trim();
 }
 
+function looksLikeRawMime(value = "") {
+  return /Content-Transfer-Encoding|quoted-printable|MIME-Version:|Content-Type:|=_Part_|--[A-Za-z0-9'_()+,./:=?-]{8,}/i.test(String(value || ""));
+}
+
+function decodeQuotedPrintableText(input = "") {
+  try {
+    return String(input || "")
+      .replace(/=\r?\n/g, "")
+      .replace(/=([0-9A-F]{2})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+  } catch {
+    return String(input || "");
+  }
+}
+
+function extractDisplayableMimePart(raw = "") {
+  const source = String(raw || "").replace(/\r/g, "");
+  const parts = source.split(/\n--[^\n]+/g).map((part) => part.trim()).filter(Boolean);
+  const htmlPart = parts.find((part) => /Content-Type:\s*text\/html/i.test(part)) || "";
+  const textPart = parts.find((part) => /Content-Type:\s*text\/plain/i.test(part)) || "";
+  const chosen = htmlPart || textPart || source;
+  const bodyStart = chosen.search(/\n\n/);
+  const body = bodyStart >= 0 ? chosen.slice(bodyStart + 2) : chosen;
+  return decodeQuotedPrintableText(body)
+    .replace(/^Content-[^\n]+$/gim, "")
+    .replace(/^MIME-Version:[^\n]+$/gim, "")
+    .trim();
+}
+
+function normalizeEmailHtmlForDisplay(rawHtml = "", preview = "") {
+  const raw = String(rawHtml || "");
+  if (!raw) {
+    return `<pre style="white-space:pre-wrap;font-family:ui-sans-serif,system-ui,sans-serif">${escapeEmailHtml(String(preview || ""))}</pre>`;
+  }
+  if (!looksLikeRawMime(raw)) return raw;
+
+  const extracted = extractDisplayableMimePart(raw);
+  if (/<\s*(html|body|table|div|p|span|a|img)\b/i.test(extracted) && !looksLikeRawMime(extracted.replace(/<[^>]+>/g, " "))) {
+    return extracted;
+  }
+  const cleaned = stripRawMimeNoise(decodeQuotedPrintableText(extracted || raw));
+  return `<pre style="white-space:pre-wrap;font-family:ui-sans-serif,system-ui,sans-serif;line-height:1.45">${escapeEmailHtml(cleaned || String(preview || ""))}</pre>`;
+}
+
 function emailHtmlForDisplay(email: Email | null) {
   if (!email) return "";
-  const raw = String(email.html || "");
-  // Trust the worker's HTML output. Render exactly as sent.
-  if (raw) return raw;
-  return `<pre style="white-space:pre-wrap;font-family:ui-sans-serif,system-ui,sans-serif">${escapeEmailHtml(String(email.preview || ""))}</pre>`;
+  return normalizeEmailHtmlForDisplay(email.html, email.preview);
 }
 interface UserData {
   id: string; username: string; name: string; role: "admin" | "user"; totpSecret?: string; mustChangePassword?: boolean; assignedAccounts?: string[] | null; profileAvatar?: string | null; profilePrefs?: UserProfilePrefs;
@@ -1755,6 +1795,27 @@ function buildWorkerRequestGroups(labels: string[] | null, map: WorkerUrlMap, pr
 function appendAccountLabelParams(params: URLSearchParams, labels: string[] | null) {
   if (!labels) return;
   for (const label of labels) params.append("accountLabel", label);
+}
+
+async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}, timeoutMs = 12000) {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+async function isUsableEmailWorker(url: string) {
+  try {
+    const res = await fetchWithTimeout(`${url.replace(/\/+$/, "")}/api/health`, { cache: "no-store" }, 5000);
+    if (!res.ok) return false;
+    const data = await res.json().catch(() => null);
+    return data?.ok === true && data?.kv === true && data?.signing === true;
+  } catch {
+    return false;
+  }
 }
 
 function mergeEmailsById(lists: Email[][]): Email[] {
@@ -5528,7 +5589,7 @@ function AdminPanel() {
 
                 <div>
                   <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Cloudflare Worker URLs</label>
-                  <p className="text-[10px] text-slate-400 mb-2 ml-1">These are the default/primary workers used for all accounts without dedicated workers. Add multiple URLs for random load balancing. Deploy workers using <span className="font-mono">npx wrangler deploy</span> from the <span className="font-mono">cloudflare-worker/</span> folder.</p>
+                  <p className="text-[10px] text-slate-400 mb-2 ml-1">These are the default/primary workers used for all accounts without dedicated workers. Add multiple URLs for random load balancing. Update code from Cloudflare Dashboard → Workers & Pages → Edit code → Deploy, or let Cloudflare GitHub builds deploy it.</p>
                   <div className="space-y-1.5 mb-2">
                     {primaryCfUrls.map((url, i) => (
                       <div key={i} className="flex items-center gap-2 p-2 bg-slate-50 rounded-lg border">
@@ -6516,13 +6577,24 @@ function EmailViewer() {
       } catch { }
 
       // Only primary URLs go into the general pool (used by apiCall)
-      const normalizedPrimary = primaryUrls
+      const normalizedPrimaryRaw = primaryUrls
         .map((u) => u.trim().replace(/\/+$/, ""))
         .filter(Boolean)
         .filter((u, i, arr) => arr.indexOf(u) === i);
 
+      const primaryChecks = await Promise.all(normalizedPrimaryRaw.map(async (url) => ({ url, ok: await isUsableEmailWorker(url) })));
+      const normalizedPrimary = primaryChecks.filter((x) => x.ok).map((x) => x.url);
+
+      const usableAccountUrls: Record<string, string[]> = {};
+      await Promise.all(Object.entries(accountUrls).map(async ([label, urls]) => {
+        const unique = Array.from(new Set(urls.map((u) => u.trim().replace(/\/+$/, "")).filter(Boolean)));
+        const checks = await Promise.all(unique.map(async (url) => ({ url, ok: await isUsableEmailWorker(url) })));
+        const valid = checks.filter((x) => x.ok).map((x) => x.url);
+        if (valid.length > 0) usableAccountUrls[label] = valid;
+      }));
+
       setResolvedWorkerUrls(normalizedPrimary);
-      setWorkerUrlMap({ primary: normalizedPrimary, byAccount: accountUrls });
+      setWorkerUrlMap({ primary: normalizedPrimary, byAccount: usableAccountUrls });
       if (normalizedPrimary.length > 0) storeWorkerUrls(normalizedPrimary);
       setWorkerUrlsLoading(false);
     })();
@@ -6555,7 +6627,7 @@ function EmailViewer() {
         appendAccountLabelParams(params, group.labels);
         const workerEndpoint = `${group.url}/api/emails?${params.toString()}`;
         const started = performance.now();
-        const res = await fetch(workerEndpoint, { headers });
+        const res = await fetchWithTimeout(workerEndpoint, { headers }, 12000);
         const text = await res.text();
         pushDiag({
           ts: Date.now(),
@@ -6608,11 +6680,11 @@ function EmailViewer() {
     await Promise.all(groups.map(async (group) => {
       const endpoint = `${group.url}/api/emails/sync`;
       const started = performance.now();
-      const res = await fetch(endpoint, {
+      const res = await fetchWithTimeout(endpoint, {
         method: "POST",
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({ mode: "user_sync", source: "user_refresh", limit: 3, accountLabels: group.labels || undefined }),
-      });
+      }, 18000);
       const text = await res.text();
       pushDiag({ ts: Date.now(), kind: "worker", endpoint, status: res.status, ms: Math.round(performance.now() - started), note: `user_sync${group.labels ? ` · ${group.labels.join(", ")}` : ""}` });
       if (!res.ok) {

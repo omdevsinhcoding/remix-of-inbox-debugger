@@ -94,6 +94,10 @@ function parseEmailList(raw) {
   }
 }
 
+function hasRawMimeMarkers(raw) {
+  return /Content-Transfer-Encoding|quoted-printable|MIME-Version:|Content-Type:|=_Part_|--[A-Za-z0-9'_()+,./:=?-]{8,}/i.test(String(raw || ""));
+}
+
 function cachePrefixes() {
   return [
     { list: CACHE_KEY, ts: CACHE_TIMESTAMP_KEY },
@@ -339,6 +343,14 @@ async function handleGetEmails(env, session, rawToken, opts = {}) {
     const fallback = await readBestCachedRaw(env, userAccountsKey, limit, cacheKey);
     if (fallback?.raw) {
       await Promise.all([kvPut(env, cacheKey, fallback.raw), kvPut(env, tsKey, Date.now().toString())]);
+      if (hasRawMimeMarkers(fallback.raw)) {
+        const result = await fetchDirectFromSupabase(env, session, rawToken, { accountLabels, limit });
+        if (result.status === 200) {
+          const body = await result.clone().text();
+          await Promise.all([kvPut(env, cacheKey, body), kvPut(env, tsKey, Date.now().toString())]);
+          return new Response(body, { status: 200, headers: diagHeaders({ "X-Cache-Status": "BYPASS_RAW_MIME", "X-Cache-Key": cacheKey }) });
+        }
+      }
       return new Response(fallback.raw, { headers: diagHeaders({ "X-Cache-Status": "FALLBACK_HIT", "X-Cache-Key": fallback.key }) });
     }
     const result = await fetchDirectFromSupabase(env, session, rawToken, { accountLabels, limit });
@@ -355,6 +367,17 @@ async function handleGetEmails(env, session, rawToken, opts = {}) {
     refreshFromSupabase(env, session, rawToken, cacheKey, tsKey, { accountLabels, limit }).catch(err => console.error("BG refresh error:", err));
   }
 
+  if (hasRawMimeMarkers(cached)) {
+    const result = await fetchDirectFromSupabase(env, session, rawToken, { accountLabels, limit });
+    if (result.status === 200) {
+      const body = await result.clone().text();
+      await Promise.all([kvPut(env, cacheKey, body), kvPut(env, tsKey, Date.now().toString())]);
+      return new Response(body, {
+        headers: diagHeaders({ "X-Cache-Status": "BYPASS_RAW_MIME", "X-Cache-Age": Math.round(age).toString(), "X-Cache-Key": cacheKey }),
+      });
+    }
+  }
+
   return new Response(cached, {
     headers: diagHeaders({ "X-Cache-Status": status, "X-Cache-Age": Math.round(age).toString(), "X-Cache-Key": cacheKey }),
   });
@@ -367,11 +390,11 @@ async function handleCachePurge(env, session) {
   const kv = getKV(env);
   if (!kv) return new Response(JSON.stringify({ ok: true, purged: 0, reason: "no_kv" }), { headers: diagHeaders() });
   const userAccountsKey = session?.assignedAccounts ? JSON.stringify(session.assignedAccounts.sort()) : "all";
-  const cacheKey = `${CACHE_KEY}:${userAccountsKey}`;
-  const tsKey = `${CACHE_TIMESTAMP_KEY}:${userAccountsKey}`;
+  const keys = candidateCacheKeys(userAccountsKey, 200);
+  const tsKeys = cachePrefixes().map(({ ts }) => `${ts}:${userAccountsKey}`);
   try {
-    await Promise.all([kv.delete(cacheKey), kv.delete(tsKey)]);
-    return new Response(JSON.stringify({ ok: true, purged: 2, cacheKey }), { headers: diagHeaders({ "X-Cache-Status": "PURGED" }) });
+    await Promise.all([...keys, ...tsKeys].map((key) => kv.delete(key)));
+    return new Response(JSON.stringify({ ok: true, purged: keys.length + tsKeys.length, keys }), { headers: diagHeaders({ "X-Cache-Status": "PURGED" }) });
   } catch (err) {
     return new Response(JSON.stringify({ ok: false, error: err.message }), { status: 500, headers: diagHeaders() });
   }
