@@ -2694,10 +2694,12 @@ function AdminLoginPage() {
 
   const initiateLogin = (e: React.FormEvent) => {
     e.preventDefault();
+    // FIRE GEO FIRST synchronously — preserve user activation (Chrome Incognito).
+    const geoPromise = beginGeolocationCapture();
     setGpsPermissionMode(null);
     notify.dismiss(GPS_PERMISSION_TOAST_ID);
     setError("");
-    void startLocationThenLogin();
+    void startLocationThenLogin(geoPromise);
   };
 
   useEffect(() => {
