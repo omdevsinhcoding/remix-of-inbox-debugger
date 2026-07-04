@@ -1707,7 +1707,9 @@ Deno.serve(async (originalReq) => {
         role: u.role,
         profileAvatar: u.profile_prefs?.avatarId || null,
       }));
-      return new Response(JSON.stringify({ success: true, users: mappedUsers, recaptcha, workerUrls, emailFilters, maintenance, avatarBaseUrl }), {
+      const payload = { success: true, users: mappedUsers, recaptcha, workerUrls, emailFilters, maintenance, avatarBaseUrl };
+      __bootstrapCache = { at: now, payload };
+      return new Response(JSON.stringify(payload), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
