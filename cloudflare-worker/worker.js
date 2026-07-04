@@ -253,6 +253,14 @@ export default {
       return handleInboxHtml(request, env, session, sessionToken, ctx);
     }
 
+    // Peer cache probe — allows sibling workers (across accounts) to check
+    // this worker's KV without hitting Supabase. Auth via shared PEER_SECRET
+    // header only (no user session). Returns HTML if in own KV, 404 otherwise.
+    // NEVER falls back to Supabase — pure KV read.
+    if (url.pathname === "/api/inbox/html/peer" && request.method === "POST") {
+      return handlePeerProbe(request, env);
+    }
+
     // Proxy manage-app and other edge functions through worker
     if (url.pathname.startsWith("/api/fn/") && request.method === "POST") {
       const fnName = url.pathname.replace("/api/fn/", "");
