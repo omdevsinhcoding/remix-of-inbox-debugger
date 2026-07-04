@@ -477,11 +477,31 @@ async function collectDeviceFingerprint(): Promise<DeviceFingerprint> {
 
 
 const LOGIN_GEO_TIMEOUT_MS = 20_000;
-const GPS_PERMISSION_DENIED_MESSAGE = "GPS permission denied. Allow location for this site in browser settings, then try again.";
+const GPS_PERMISSION_TOAST_ID = "gps-permission-blocked";
+const GPS_PERMISSION_REQUIRED_MESSAGE = "Location permission is required for login. Tap Allow in the browser location popup to continue.";
+const GPS_PERMISSION_BLOCKED_MESSAGE = "Location permission is blocked. Allow Location for this site in browser settings, then try again.";
+
+type GpsPermissionMode = "needed" | "blocked";
 
 function isGpsPermissionDeniedMessage(message: string) {
   const m = message.toLowerCase();
-  return m.includes("gps permission denied") || m.includes("location permission is blocked");
+  return m.includes("gps permission") || m.includes("location permission") || m.includes("browser location popup");
+}
+
+function getGpsPermissionMode(message: string): GpsPermissionMode {
+  const m = message.toLowerCase();
+  return m.includes("blocked") || m.includes("browser settings") || m.includes("site settings") ? "blocked" : "needed";
+}
+
+function showGpsPermissionToast(message: string) {
+  const mode = getGpsPermissionMode(message);
+  notify.error(mode === "blocked" ? "Location is blocked" : "Location needed for login", {
+    id: GPS_PERMISSION_TOAST_ID,
+    description: mode === "blocked"
+      ? "Browser blocked Location for this site. Set Location to Allow, then tap Try Again."
+      : "Tap Allow in the browser popup. If you dismiss or deny it, login will stay blocked.",
+    duration: 7000,
+  });
 }
 
 async function fetchBrowserPublicIp(): Promise<Pick<LoginLocationPayload, "publicIp" | "publicIpSource">> {
@@ -490,8 +510,11 @@ async function fetchBrowserPublicIp(): Promise<Pick<LoginLocationPayload, "publi
 }
 
 function buildLocationSignInMessage(location: LoginLocationPayload): string {
-  if (location.status === "denied" || location.permissionState === "denied") {
-    return GPS_PERMISSION_DENIED_MESSAGE;
+  if (location.permissionState === "denied") {
+    return GPS_PERMISSION_BLOCKED_MESSAGE;
+  }
+  if (location.status === "denied") {
+    return GPS_PERMISSION_REQUIRED_MESSAGE;
   }
   if (location.status === "unsupported") {
     return "This browser/device does not support GPS location. Use Chrome/Firefox with location services enabled.";
@@ -568,13 +591,21 @@ async function collectLoginLocation(): Promise<LoginLocationPayload> {
         timestamp: pos.timestamp,
       });
     };
-    const onError = (err: GeolocationPositionError) => {
+    const onError = async (err: GeolocationPositionError) => {
       console.error("[GPS] GPS error code:", err.code, "message:", err.message);
       let status: LoginLocationPayload["status"] = "error";
       if (err.code === err.PERMISSION_DENIED) status = "denied";
       else if (err.code === err.POSITION_UNAVAILABLE) status = "unavailable";
       else if (err.code === err.TIMEOUT) status = "timeout";
-      finish({ status, error: err.message || `code ${err.code}` });
+      let nextPermissionState = permissionState;
+      try {
+        if (navigator.permissions?.query) {
+          const permission = await navigator.permissions.query({ name: "geolocation" as PermissionName });
+          nextPermissionState = permission.state;
+          console.log("[GPS] Permission state after error:", permission.state);
+        }
+      } catch {}
+      finish({ status, permissionState: nextPermissionState, error: err.message || `code ${err.code}` });
     };
     const timer = window.setTimeout(() => {
       console.warn("[GPS] Wall-clock timeout hit (20s)");
