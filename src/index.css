@@ -114,97 +114,144 @@
 }
 
 /* =========================================================
-   Universal classic toast — one compact dark pill.
-   No gold/serif, no nested card, no avatar bubble, no green.
-   Matches the reference: dark rounded card, small mono icon,
-   title + subtle description, identical across all variants.
+   Toast v2 — Classic Card with Icon Chip
+   Same layout light + dark; theme switches via prefers-color-scheme.
+   Card | 32px icon chip | title + optional description | close (hover).
    ========================================================= */
-.cx-toast {
+[data-sonner-toaster] { --tst-radius: 14px; }
+[data-sonner-toaster][data-mobile="true"] { max-width: min(94vw, 420px); }
+
+.tst-toast {
   position: relative;
   display: flex;
-  align-items: center;
-  gap: 10px;
-  width: min(92vw, 360px);
-  min-height: 52px;
-  padding: 11px 34px 11px 12px;
-  border-radius: 14px;
+  align-items: flex-start;
+  gap: 12px;
+  width: min(94vw, 380px);
+  min-height: 60px;
+  padding: 13px 40px 13px 13px;
+  border-radius: var(--tst-radius);
   pointer-events: auto;
   overflow: hidden;
-  color: #f4f4f5;
   font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  background: #17171a;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+
+  /* Dark (default) */
+  color: hsl(210 40% 98%);
+  background: hsl(224 40% 8% / 0.94);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  border: 1px solid hsl(215 20% 22%);
   box-shadow:
-    0 10px 30px -12px rgba(0, 0, 0, 0.55),
-    0 2px 6px -2px rgba(0, 0, 0, 0.35);
-}
-@media (min-width: 1024px) {
-  .cx-toast { width: min(92vw, 380px); }
+    0 14px 34px -12px rgb(0 0 0 / 0.55),
+    0 2px 6px -2px rgb(0 0 0 / 0.35);
+  animation: tstIn 240ms cubic-bezier(.16, 1, .3, 1) both;
 }
 
-.cx-toast > [data-content] {
-  flex: 1;
-  min-width: 0;
+@media (prefers-color-scheme: light) {
+  .tst-toast {
+    color: hsl(222 47% 11%);
+    background: hsl(0 0% 100%);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    border: 1px solid hsl(220 13% 91%);
+    box-shadow:
+      0 10px 28px -10px rgb(15 23 42 / 0.14),
+      0 2px 6px -2px rgb(15 23 42 / 0.08);
+  }
 }
 
-.cx-toast-title {
-  font-size: 13.5px;
+.tst-toast > [data-content] { flex: 1; min-width: 0; padding-top: 1px; }
+
+.tst-toast-title {
+  font-size: 14px;
   font-weight: 600;
-  line-height: 1.3;
+  line-height: 1.35;
   letter-spacing: -0.005em;
-  color: #fafafa;
+  color: inherit;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.cx-toast-desc {
-  margin-top: 2px;
-  font-size: 12px;
-  line-height: 1.4;
-  color: rgba(244, 244, 245, 0.62);
+.tst-toast-desc {
+  margin-top: 3px;
+  font-size: 12.5px;
+  font-weight: 450;
+  line-height: 1.45;
+  color: hsl(215 20% 65%);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+@media (prefers-color-scheme: light) {
+  .tst-toast-desc { color: hsl(215 16% 47%); }
 }
 
-.cx-toast-icon {
+/* Icon chip — 32x32 rounded square, tinted by variant */
+.tst-toast-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex: none;
-  width: 26px;
-  height: 26px;
-  border-radius: 8px;
-  color: #d4d4d8;
-  background: rgba(255, 255, 255, 0.06);
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  color: hsl(215 20% 70%);
+  background: hsl(215 20% 22% / 0.55);
 }
-.cx-toast-icon svg { width: 14px; height: 14px; }
-.cx-toast-icon [data-lucide="loader-2"],
-.cx-toast-icon [data-lucide="loader-circle"] { animation: cxSpin 900ms linear infinite; }
-@keyframes cxSpin { to { transform: rotate(360deg); } }
+@media (prefers-color-scheme: light) {
+  .tst-toast-icon { color: hsl(215 16% 47%); background: hsl(220 14% 96%); }
+}
+.tst-toast-icon svg { width: 16px; height: 16px; }
+.tst-toast-icon [data-lucide="loader-2"],
+.tst-toast-icon [data-lucide="loader-circle"] { animation: tstSpin 900ms linear infinite; }
+@keyframes tstSpin { to { transform: rotate(360deg); } }
 
-.cx-toast-close {
+/* Variant accents — chip only, card stays neutral */
+.tst-v-success .tst-toast-icon { color: hsl(160 84% 55%); background: hsl(160 84% 42% / 0.14); }
+.tst-v-error   .tst-toast-icon { color: hsl(0   84% 68%); background: hsl(0   84% 55% / 0.15); }
+.tst-v-warning .tst-toast-icon { color: hsl(38  95% 60%); background: hsl(38  95% 50% / 0.16); }
+.tst-v-info    .tst-toast-icon { color: hsl(210 92% 65%); background: hsl(210 92% 55% / 0.14); }
+.tst-v-loading .tst-toast-icon { color: hsl(215 20% 78%); background: hsl(215 20% 40% / 0.18); }
+@media (prefers-color-scheme: light) {
+  .tst-v-success .tst-toast-icon { color: hsl(160 84% 30%); background: hsl(160 84% 42% / 0.12); }
+  .tst-v-error   .tst-toast-icon { color: hsl(0   72% 45%); background: hsl(0   84% 55% / 0.10); }
+  .tst-v-warning .tst-toast-icon { color: hsl(28  88% 42%); background: hsl(38  95% 50% / 0.12); }
+  .tst-v-info    .tst-toast-icon { color: hsl(210 88% 42%); background: hsl(210 92% 55% / 0.10); }
+  .tst-v-loading .tst-toast-icon { color: hsl(215 16% 40%); background: hsl(220 14% 92%); }
+}
+
+/* Close button — hover on desktop, always visible on mobile */
+.tst-toast-close {
   position: absolute !important;
-  top: 7px; right: 7px;
-  width: 20px; height: 20px;
+  top: 8px; right: 8px;
+  width: 22px; height: 22px;
   display: inline-flex; align-items: center; justify-content: center;
-  border-radius: 6px;
+  border-radius: 7px;
   background: transparent;
   border: 0;
-  color: rgba(244, 244, 245, 0.4);
+  color: hsl(215 20% 55%);
   opacity: 0;
+  cursor: pointer;
   transition: opacity .15s ease, color .15s ease, background .15s ease;
 }
-.cx-toast:hover .cx-toast-close { opacity: 1; }
-.cx-toast-close:hover {
-  color: #fafafa;
-  background: rgba(255, 255, 255, 0.08);
+.tst-toast-close svg { width: 12px; height: 12px; }
+.tst-toast:hover .tst-toast-close { opacity: 1; }
+.tst-toast-close:hover {
+  color: hsl(210 40% 98%);
+  background: hsl(215 20% 30% / 0.5);
+}
+@media (prefers-color-scheme: light) {
+  .tst-toast-close:hover { color: hsl(222 47% 11%); background: hsl(220 14% 92%); }
+}
+@media (max-width: 767px) {
+  .tst-toast-close { opacity: 0.7; }
 }
 
-/* Variant accents — icon tint only, card stays neutral dark. */
-.cx-v-success .cx-toast-icon { color: #a7f3d0; background: rgba(16, 185, 129, 0.14); }
-.cx-v-error   .cx-toast-icon { color: #fca5a5; background: rgba(239, 68, 68, 0.16); }
-.cx-v-warning .cx-toast-icon { color: #fcd34d; background: rgba(245, 158, 11, 0.16); }
-.cx-v-info    .cx-toast-icon { color: #93c5fd; background: rgba(59, 130, 246, 0.16); }
-.cx-v-loading .cx-toast-icon { color: #e4e4e7; background: rgba(255, 255, 255, 0.08); }
+@keyframes tstIn {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tst-toast { animation: none; }
+}
+
 
