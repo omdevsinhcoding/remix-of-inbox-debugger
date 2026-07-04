@@ -754,27 +754,8 @@ async function handleInboxHtml(request, env, _session, rawToken, ctx) {
     }
   }
 
-  // ---- Cache miss: try peer workers first (cross-account cache sharing) ----
-  const peerHit = await tryPeerCache(env, id, rawToken);
-  if (peerHit) {
-    // Peer had it. Write to own KV so next request is a local HIT.
-    if (kv) {
-      const payload = { html: peerHit.html, account_label: peerHit.account_label || "", at: Date.now() };
-      const writeWork = (async () => {
-        try {
-          const primaryKV = env.EMAIL_CACHE_V2 || env.EMAIL_CACHE;
-          if (primaryKV) await primaryKV.put(cacheKey, JSON.stringify(payload), { expirationTtl: EMAIL_HTML_TTL_SECONDS });
-        } catch (err) { console.error("[inbox-html] peer-KV write failed:", err.message || err); }
-      })();
-      if (ctx?.waitUntil) ctx.waitUntil(writeWork); else await writeWork;
-    }
-    return new Response(
-      JSON.stringify({ success: true, id, html: peerHit.html, account_label: peerHit.account_label || "" }),
-      { headers: inboxHtmlHeaders({ "X-Cache-Status": "PEER_HIT" }) },
-    );
-  }
+  // ---- Cache miss: fetch full HTML from Supabase ----
 
-  // ---- All peers missed: fetch full HTML from Supabase ----
   try {
     const upstream = await callEmailHtmlFn(env, rawToken, { id });
     if (!upstream.ok) {
