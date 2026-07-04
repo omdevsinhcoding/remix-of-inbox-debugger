@@ -217,15 +217,36 @@ async function callManage<T = any>(action: string, payload: Record<string, any> 
   return data as T;
 }
 
+export type NotificationsResult = {
+  notifications: AppNotification[];
+  etag: string | null;
+  unchanged: boolean;
+};
+
 export async function listNotifications(): Promise<AppNotification[]> {
+  const r = await listNotificationsWithEtag(null);
+  return r.notifications;
+}
+
+// Etag-aware fetch: send last etag, receive {unchanged:true} + empty list, or fresh list + new etag.
+// Used by the singleton store so 97%+ of polls return ~200 bytes instead of ~6 KB.
+export async function listNotificationsWithEtag(etag: string | null): Promise<NotificationsResult> {
   try {
-    const data = await callManage<{ notifications: AppNotification[] }>("list_notifications");
-    return data.notifications || [];
+    const data = await callManage<{ notifications?: AppNotification[]; etag?: string; unchanged?: boolean }>(
+      "list_notifications",
+      etag ? { if_etag: etag } : {},
+    );
+    return {
+      notifications: data.notifications || [],
+      etag: data.etag || null,
+      unchanged: !!data.unchanged,
+    };
   } catch (err) {
     console.warn("[notifications] list failed:", err);
-    return [];
+    return { notifications: [], etag: null, unchanged: false };
   }
 }
+
 
 export async function markNotificationRead(id: string): Promise<void> {
   try { await callManage("mark_notification_read", { notification_id: id }); } catch {}
