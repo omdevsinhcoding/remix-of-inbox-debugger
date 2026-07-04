@@ -17,7 +17,7 @@
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Session-Token, X-Pending-Token, X-Cron-Secret",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Session-Token",
 };
 
 const CACHE_KEY = "emails_list";
@@ -164,7 +164,6 @@ export default {
         "Authorization": `Bearer ${env.SUPABASE_KEY}`,
         "apikey": env.SUPABASE_KEY,
       };
-      if (env.CRON_SHARED_SECRET) headers["X-Cron-Secret"] = env.CRON_SHARED_SECRET;
 
       const res = await fetch(`${env.SUPABASE_URL}/functions/v1/fetch-emails`, {
         method: "POST", headers, body: JSON.stringify({ mode: "sync" }),
@@ -183,7 +182,19 @@ export default {
       const cacheKey = `${CACHE_KEY}:all`;
       const tsKey = `${CACHE_TIMESTAMP_KEY}:all`;
 
-      // Cache reads are session-protected now; users refresh their own scoped cache on next open.
+      // Fetch fresh cache to store
+      const cacheRes = await fetch(`${env.SUPABASE_URL}/functions/v1/fetch-emails`, {
+        method: "POST", headers, body: JSON.stringify({ mode: "cache" }),
+      });
+
+      if (cacheRes.ok) {
+        const cacheData = await cacheRes.text();
+        await Promise.all([
+          kvPut(env, cacheKey, cacheData),
+          kvPut(env, tsKey, Date.now().toString()),
+        ]);
+        console.log("[cron] Cache updated successfully");
+      }
     } catch (err) {
       console.error("[cron] Error:", err);
     }
@@ -241,7 +252,7 @@ async function handleSync(env, session, rawToken, requestBody) {
     if (rawToken) headers["X-Session-Token"] = rawToken;
 
     // Pass through accountLabels from the request body for per-account routing
-    const syncPayload = { mode: requestBody?.mode === "sync" ? "sync" : "sync_async", source: requestBody?.source || "worker" };
+    const syncPayload = { mode: "sync" };
     if (requestBody?.accountLabels && Array.isArray(requestBody.accountLabels)) {
       syncPayload.accountLabels = requestBody.accountLabels;
     }
@@ -260,20 +271,6 @@ async function handleSync(env, session, rawToken, requestBody) {
       } catch {}
       return new Response(JSON.stringify({ success: false, error: errorMsg }), {
         status: res.status, headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-      });
-    }
-
-    if (res.status === 202) {
-      if (getKV(env)) {
-        const userAccountsKey = session?.assignedAccounts ? JSON.stringify(session.assignedAccounts.sort()) : "all";
-        await Promise.all([
-          kvPut(env, `${CACHE_KEY}:${userAccountsKey}`, JSON.stringify(JSON.parse(responseText).emails || [])),
-          kvPut(env, `${CACHE_TIMESTAMP_KEY}:${userAccountsKey}`, Date.now().toString()),
-        ]).catch(() => {});
-      }
-      return new Response(responseText, {
-        status: 202,
-        headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
       });
     }
 
@@ -376,88 +373,17 @@ async function refreshFromSupabase(env, session, rawToken, cacheKey, tsKey) {
   }
 }
 
-// --- IP helpers ---
-function isPrivateIp(ip) {
-  if (!ip) return true;
-  if (ip === "::1" || ip === "127.0.0.1" || ip.startsWith("::ffff:127.")) return true;
-  if (ip.startsWith("10.") || ip.startsWith("192.168.")) return true;
-  if (ip.startsWith("169.254.") || ip.startsWith("100.64.")) return true;
-  const m = ip.match(/^172\.(\d+)\./);
-  if (m && +m[1] >= 16 && +m[1] <= 31) return true;
-  if (ip.startsWith("fc") || ip.startsWith("fd") || ip.startsWith("fe80")) return true;
-  return false;
-}
-// Cloudflare's own IP ranges (Warp/proxy). If cf-connecting-ip returns one of these,
-// the *real* user is likely behind Warp — but a forwarded IPv4 might still be better.
-function isCloudflareIp(ip) {
-  if (!ip) return false;
-  if (ip.startsWith("2a06:98c") || ip.startsWith("2606:4700") || ip.startsWith("2803:f800")
-    || ip.startsWith("2405:b500") || ip.startsWith("2405:8100") || ip.startsWith("2c0f:f248")
-    || ip.startsWith("2a06:98d")) return true;
-  // Common IPv4 CF ranges (partial list)
-  if (/^(104\.16\.|104\.17\.|104\.18\.|104\.19\.|172\.6[4-7]\.|172\.68\.|172\.69\.|172\.70\.|172\.71\.|173\.245\.4[8-9]\.|173\.245\.5\d\.|103\.21\.244\.|103\.22\.200\.|103\.31\.4\.|141\.101\.6[4-9]\.|141\.101\.7\d\.|141\.101\.12[0-7]\.|108\.162\.19[2-9]\.|108\.162\.2\d\d\.|190\.93\.240\.|190\.93\.24[1-9]\.|190\.93\.25[0-5]\.|188\.114\.9[6-9]\.|197\.234\.240\.|198\.41\.12[8-9]\.|198\.41\.1[3-9]\d\.|198\.41\.2\d\d\.|162\.158\.)/.test(ip)) return true;
-  return false;
-}
-
-function normalizeIp(raw) {
-  if (!raw) return "";
-  let ip = String(raw).trim().replace(/^"|"$/g, "");
-  if (ip.startsWith("::ffff:")) ip = ip.slice(7);
-  const bracket = ip.match(/^\[([^\]]+)\](?::\d+)?$/);
-  if (bracket) return bracket[1].trim();
-  if (/^\d{1,3}(\.\d{1,3}){3}:\d+$/.test(ip)) ip = ip.replace(/:\d+$/, "");
-  return ip.trim();
-}
-
-function isKnownEdgeIp(ip) {
-  // AWS Global Accelerator / Vercel-style edge IPs often appear in XFF when the
-  // request chain is browser → hosting/CDN → Supabase. They are not the user's ISP.
-  return /^(13\.248\.|76\.223\.|75\.2\.)/.test(ip || "");
-}
-
-function isPublic(ip) {
-  return !!ip && !isPrivateIp(ip);
-}
-
-function isRealPublicClientIp(ip) {
-  return isPublic(ip) && !isCloudflareIp(ip) && !isKnownEdgeIp(ip);
-}
-
 // --- Proxy any Supabase edge function through the worker ---
 async function handleFunctionProxy(request, env, fnName) {
   try {
     const body = await request.text();
     const sessionToken = request.headers.get("X-Session-Token") || request.headers.get("x-session-token");
-    const pendingToken = request.headers.get("X-Pending-Token") || request.headers.get("x-pending-token");
 
-    // Collect ALL possible client-IP signals, in preference order.
-    const rawCandidates = [];
-    const push = (label, val) => {
-      const ip = normalizeIp(val);
-      if (ip) rawCandidates.push({ label, ip });
-    };
-    push("cf-connecting-ip", request.headers.get("cf-connecting-ip"));
-    push("true-client-ip", request.headers.get("true-client-ip"));
-    push("x-real-ip", request.headers.get("x-real-ip"));
-    const xff = request.headers.get("x-forwarded-for") || "";
-    xff.split(",").forEach((p, i) => push(`xff[${i}]`, p));
-
-    // Deduplicate while preserving order.
-    const seen = new Set();
-    const candidates = rawCandidates.filter(c => c.ip && !seen.has(c.ip) && seen.add(c.ip));
-
-    // Selection priority: when traffic is really behind Cloudflare, CF-Connecting-IP
-    // is the browser's visible client IP. Do not skip it in favor of an AWS/Vercel
-    // X-Forwarded-For hop, because that is how Portland/edge IPs leaked into alerts.
-    let selected = candidates.find(c => c.label === "cf-connecting-ip" && isRealPublicClientIp(c.ip))
-      || candidates.find(c => c.label === "true-client-ip" && isRealPublicClientIp(c.ip))
-      || candidates.find(c => c.label === "x-real-ip" && isRealPublicClientIp(c.ip))
-      || candidates.find(c => c.label.startsWith("xff[") && isRealPublicClientIp(c.ip))
-      || candidates.find(c => isRealPublicClientIp(c.ip));
-    const clientIp = selected?.ip || "";
-    const clientIpSource = selected?.label || "unknown";
-    const cfCountry = request.headers.get("cf-ipcountry") || "";
-    const cfRay = request.headers.get("cf-ray") || "";
+    // Resolve real client IP from Cloudflare headers
+    const clientIp = request.headers.get("cf-connecting-ip")
+      || request.headers.get("x-real-ip")
+      || (request.headers.get("x-forwarded-for") || "").split(",")[0].trim()
+      || "";
 
     const headers = {
       "Content-Type": "application/json",
@@ -465,24 +391,7 @@ async function handleFunctionProxy(request, env, fnName) {
       "apikey": env.SUPABASE_KEY,
     };
     if (sessionToken) headers["X-Session-Token"] = sessionToken;
-    if (pendingToken) headers["X-Pending-Token"] = pendingToken;
     if (clientIp) headers["X-Client-IP"] = clientIp;
-    const ua = request.headers.get("user-agent") || "";
-    const acceptLanguage = request.headers.get("accept-language") || "";
-    const chPlatform = request.headers.get("sec-ch-ua-platform") || "";
-    if (ua) headers["X-Client-User-Agent"] = ua;
-    if (acceptLanguage) headers["X-Client-Accept-Language"] = acceptLanguage;
-    if (chPlatform) headers["X-Client-Platform"] = chPlatform;
-    // Full trace (compact JSON) so backend can log & display which header we picked.
-    try {
-      headers["X-IP-Trace"] = JSON.stringify({
-        selected: clientIp,
-        selectedFrom: clientIpSource,
-        cfCountry,
-        cfRay,
-        candidates: candidates.map(c => ({ h: c.label, ip: c.ip })),
-      }).slice(0, 1800);
-    } catch {}
 
     const res = await fetch(`${env.SUPABASE_URL}/functions/v1/${fnName}`, {
       method: "POST",

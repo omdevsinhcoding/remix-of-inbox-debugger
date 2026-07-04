@@ -1,52 +1,70 @@
-## Fixes
 
-### 1. Live countdown timer + friendlier toast (session timeout)
+# Fix Telegram login location not showing
 
-Currently `useSessionTimeoutGuard` only schedules a silent `setTimeout` and shows a plain error toast on expiry. Nothing visible during the session.
+## Root cause
+- This is not a Telegram formatting issue. Your screenshot has no `Maps:` line, which means the edge function never received usable coordinates (`hasCoords = false`), so the problem is earlier in the flow.
+- In `src/App.tsx`, location is gathered in the browser and failures are silently swallowed (`.catch(() => null)`). If browser geolocation is blocked, denied, times out, or preview/iframe restrictions apply, no `lat/lon` is sent.
+- The browser-side IP fallback (`ipapi.co`) is also unreliable because it runs client-side and its failure is also ignored.
+- If notification sending falls back through `apiCall("send-login-notification")`, `cloudflare-worker/worker.js` proxies the request but does not forward the real visitor IP headers. Then `send-login-notification` cannot resolve IP-based location and ends up with `Unknown Location`.
+- Current edge logs only show boot/shutdown, so there is no visibility into whether GPS failed, IP headers were missing, or reverse geocoding failed.
 
-**Changes in `src/App.tsx`:**
-- Create a new `SessionCountdown` component that reads `session_started_at` + timeout minutes from `app_settings` and renders a small fixed pill (bottom-right on desktop, top-right on mobile) showing `mm:ss` remaining.
-  - Green when > 2 min, amber when 60–120s, red + pulse when < 60s.
-  - Auto-hides when timeout is disabled (0 min) or admin session.
-- Warning toast at 60s left: `"⏰ Session ending in 1 minute — save your work"` (only once per session).
-- On expiry, replace current toast with a nicer one:
-  ```
-  toast("🔒 Session timed out", {
-    description: `You've been signed out after ${minutes} min of activity. Tap your profile to sign back in.`,
-    duration: 6000,
-  });
-  ```
-- Mount `<SessionCountdown />` inside `ProtectedRoute` right next to `useSessionTimeoutGuard(role)` so it appears on every authenticated page.
+## Plan
+1. Make location capture happen at the earliest possible user action
+- Start geolocation immediately from the login submit/captcha entry point.
+- Store that pending result and reuse it later when sending the login notification.
 
-### 2. Show cached emails instantly on login (no blank screen)
+2. Stop depending on browser IP lookup as the main fallback
+- Keep browser GPS as preferred.
+- Move the reliable fallback to the edge function, where it can use the request IP.
 
-Root cause in `EmailViewer` (line 2446): the load `useEffect` early-returns when `resolvedWorkerUrls.length === 0`, so on first mount — before worker URLs finish loading from `app_settings` — nothing calls `loadCachedEmails`. Cached emails only appear after the 30s poll or a manual refresh.
+3. Preserve real client IP through proxies
+- Update `cloudflare-worker/worker.js` to forward original client IP headers (or a normalized `x-client-ip`) to Supabase when proxying `send-login-notification`.
+- Expand `getClientIp()` in `supabase/functions/send-login-notification/index.ts` to read the forwarded header plus common proxy headers.
+- Optionally align `server.ts` too, so every proxy path behaves the same.
 
-**Changes in `src/App.tsx` → `EmailViewer`:**
-- Kick off `loadCachedEmails()` **immediately on mount**, independent of worker URL discovery. `loadCachedEmails` already falls back to direct Supabase when workers are unavailable, so it works day-one.
-- Cache emails in `localStorage` under `cached_emails_v1` (keyed by user id) whenever `setEmails` runs. On mount, hydrate `emails` state from that cache **synchronously** via `useState(() => …)` → user sees their previous inbox in < 50 ms, before any network.
-- Keep the worker-URL effect for later syncs, but remove the `resolvedWorkerUrls.length === 0` early return that blocks the load.
-- Drop the initial `setLoading(true)` full-screen spinner when hydrated cache is present — show emails immediately with a subtle "Refreshing…" indicator in the header instead.
+4. Make the edge function always return a useful location result
+- If coords exist: reverse geocode and include the Google Maps link.
+- If coords do not exist but client IP exists: geolocate via IP and still include approximate city/state plus a map link.
+- If reverse geocoding fails but coords exist: send map link anyway and show approximate coordinates instead of `Unknown Location`.
 
-### 3. Fast refresh — "click and emails are there"
+5. Add diagnostics so this does not become guesswork again
+- Log which source was used: `gps`, `ip-header`, `client-ip-fallback`, or `none`.
+- Log whether reverse geocoding failed and whether client IP headers were present.
 
-Current `fetchEmails` awaits full IMAP sync before showing anything, so refresh button feels slow (5–15 s).
+## Files to update
+- `src/App.tsx`
+- `cloudflare-worker/worker.js`
+- `supabase/functions/send-login-notification/index.ts`
+- `server.ts` (if we want all proxy paths covered)
 
-**Changes in `src/App.tsx` → `EmailViewer.fetchEmails`:**
-- Change flow to: (a) call `loadCachedEmails()` first (returns in ~200 ms), (b) *then* fire `syncViaWorker()` in the background without blocking UI, (c) when sync resolves, run `loadCachedEmails()` again to pull in newly synced messages.
-- Toast changes:
-  - Immediate success on cache load: quietly update `lastUpdated`.
-  - Background sync: show a tiny inline "Checking for new…" spinner in the header (not a blocking toast).
-  - When sync finishes: `toast.success("N new emails")` if count grew, else silent.
-- Add optimistic update: keep old email list visible during sync (never clear before new data arrives).
-- Reduce poll interval from 30 s → 15 s for cached refresh (cheap; hits worker/Supabase cache endpoint only).
+## Technical details
+```text
+Current failure path:
+browser GPS fails
+  + client-side ipapi fallback fails or is blocked
+  + worker fallback strips client IP
+  => edge function gets no coords and no usable IP
+  => Telegram shows Unknown Location
 
-### Technical notes
+Target flow:
+user action
+  -> start geolocation immediately
+  -> login completes
+  -> send notification with coords if available
+  -> otherwise edge function uses forwarded real client IP
+  -> reverse geocode / build map link
+  -> Telegram shows location + map
+```
 
-- `session_config` shape in `app_settings`: `{ timeoutMinutes: number }` — already in place.
-- localStorage cache key must be namespaced per user so switching profiles doesn't leak emails: `cached_emails_v1:${user.id}`.
-- Countdown ticker uses `setInterval(1000)` inside the `SessionCountdown` component; cleaned up on unmount.
-- No DB migrations. No new secrets. No edge function changes.
+## Verification
+- Test normal user login
+- Test admin login
+- Test with CAPTCHA enabled
+- Test when browser location permission is denied
+- Test worker-proxied notification path
+- Confirm Telegram message shows city/state and a working Google Maps link
+- Confirm `Unknown Location` appears only in true hard-failure cases
 
-### Files touched
-- `src/App.tsx` (only)
+## Notes
+- No database changes are needed for this fix.
+- The main bug is in location capture and proxy header forwarding, not in Telegram itself.
