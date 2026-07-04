@@ -230,10 +230,12 @@ async function fetchFromAccount(
   imapUser: string,
   imapPassword: string,
   accountLabel: string,
+  cachedIds: Set<string>,
   maxMessages = FULL_SYNC_MAX_UIDS,
   quickRefresh = false,
 ): Promise<{ emails: any[]; fetched: number; skipped: number }> {
   const emails: any[] = [];
+  let skipped = 0;
   let timedOut = false;
   const startedAt = Date.now();
   const budgetMs = quickRefresh ? FAST_REFRESH_TIMEOUT_MS : PER_ACCOUNT_TIMEOUT_MS;
@@ -299,9 +301,16 @@ async function fetchFromAccount(
       newestUids = Array.from(new Set(newestUids)).sort((a, b) => b - a);
       const candidates = netflixUids.length > 0 ? netflixUids : (quickRefresh ? newestUids.slice(0, 1) : []);
       const uidsToFetch = candidates.slice(0, quickRefresh ? USER_REFRESH_MAX_UIDS : clampLimit(maxMessages, USER_REFRESH_MAX_UIDS, FULL_SYNC_MAX_UIDS));
-      console.log(`[${accountLabel}] Fetching ${uidsToFetch.length} recent candidate UIDs`);
-
+      const uncachedUids: number[] = [];
       for (const uid of uidsToFetch) {
+        const plainId = String(uid);
+        const prefixedId = `${accountLabel}:${uid}`;
+        if (cachedIds.has(plainId) || cachedIds.has(prefixedId)) skipped++;
+        else uncachedUids.push(uid);
+      }
+      console.log(`[${accountLabel}] Fetching ${uncachedUids.length} uncached candidate UIDs, ${skipped} already cached`);
+
+      for (const uid of uncachedUids) {
         if (!hasBudget()) {
           console.log(`[${accountLabel}] Timed out, stopping fetch`);
           break;
@@ -310,12 +319,6 @@ async function fetchFromAccount(
         try {
           const fullMsg = await client.fetchOne(uid, { source: true, envelope: true }, { uid: true });
           if (!fullMsg?.source) continue;
-
-          if (quickRefresh) {
-            const fastEmail = parseFastEmail(fullMsg.source as Uint8Array, fullMsg.envelope, accountLabel, uid);
-            if (fastEmail) emails.push(fastEmail);
-            continue;
-          }
 
           const parsed = await simpleParser(fullMsg.source, { skipImageLinks: true, skipTextLinks: true });
           const bodyText = (parsed.text || "").trim();
@@ -354,7 +357,7 @@ async function fetchFromAccount(
     }
   }
 
-  return { emails, fetched: emails.length, skipped: 0 };
+  return { emails, fetched: emails.length, skipped };
 }
 
 async function loadAccounts(supabase: any, secret: string, accountLabels: string[] | null): Promise<Account[]> {
@@ -422,7 +425,9 @@ async function loadAccounts(supabase: any, secret: string, accountLabels: string
 
 async function runSync(supabase: any, secret: string, source: string, accountLabels: string[] | null, maxMessages = FULL_SYNC_MAX_UIDS) {
   console.log(`[sync] Starting parallel IMAP sync (source: ${source})`);
-  const quickRefresh = source === "user_refresh";
+  // Keep output identical to the old working fetch-emails implementation:
+  // every refresh uses mailparser/simpleParser so Netflix HTML is cached and displayed as-is.
+  const quickRefresh = false;
   const accounts = await loadAccounts(supabase, secret, accountLabels);
 
   if (accounts.length === 0) {
@@ -437,9 +442,12 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
     }
   }
 
+  const { data: cachedRows } = await supabase.from("cached_emails").select("id");
+  const cachedIds = new Set((cachedRows || []).map((r: any) => String(r.id)));
+
   const settled = await Promise.allSettled(accounts.map(async (acc) => {
     console.log(`[sync] Fetching ${acc.label} (${acc.user})`);
-    const result = await fetchFromAccount(acc.host, acc.port, acc.user, acc.password, acc.label, maxMessages, quickRefresh);
+    const result = await fetchFromAccount(acc.host, acc.port, acc.user, acc.password, acc.label, cachedIds, maxMessages, quickRefresh);
     return { acc, result };
   }));
 
@@ -511,8 +519,8 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
     emails: allEmails,
     stats: syncStats,
     totalFetched: allEmails.length,
-    inserted,
-    duplicatesSkipped: 0,
+      inserted,
+      duplicatesSkipped: Object.values(syncStats).reduce((s: number, v: any) => s + (v.skipped || 0), 0),
   };
   if (accountErrors.length > 0) response.warnings = accountErrors.map(e => e.error);
   console.log(`[sync] Complete: ${allEmails.length} fetched/upserted across ${accounts.length} account(s)`);

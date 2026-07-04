@@ -1,13 +1,10 @@
-import { connect } from "cloudflare:sockets";
-import PostalMime from "postal-mime";
-
 /**
  * Cloudflare Worker — Email Cache Proxy
  * 
  * Features:
  * - Validates session tokens (HMAC-SHA256)
  * - Multi-KV namespace support (EMAIL_CACHE_V2 -> EMAIL_CACHE fallback)
-  * - Direct Cloudflare → Gmail IMAP sync support
+ * - Supabase fetch-emails proxy + KV cache support
  * - Proper error logging for KV failures
  * 
  * Environment Variables:
@@ -23,14 +20,11 @@ const CORS_HEADERS = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Session-Token, X-Pending-Token, X-Cron-Secret, X-Worker-Config-Secret, Cache-Control",
 };
 
-// F7: Bump CACHE_SCHEMA_VERSION whenever the shape of cached email JSON
-// changes, or to force every worker/user to drop old snapshots on the next
-// read. Version is baked into every KV key so old entries become unreachable
-// (and expire naturally) without needing a manual purge.
-const CACHE_SCHEMA_VERSION = "v3";
-const LEGACY_CACHE_SCHEMA_VERSIONS = ["v2", "v1"];
-const CACHE_KEY = `emails_list:${CACHE_SCHEMA_VERSION}`;
-const CACHE_TIMESTAMP_KEY = `emails_timestamp:${CACHE_SCHEMA_VERSION}`;
+// Keep the original unversioned keys so already-cached worker emails remain visible.
+const CACHE_SCHEMA_VERSION = "classic";
+const LEGACY_CACHE_SCHEMA_VERSIONS = ["v3", "v2", "v1"];
+const CACHE_KEY = "emails_list";
+const CACHE_TIMESTAMP_KEY = "emails_timestamp";
 const WORKER_CONFIG_KEY = "inbox_worker_config:v1";
 const STALE_SECONDS = 3;
 
@@ -101,8 +95,10 @@ function parseEmailList(raw) {
 }
 
 function cachePrefixes() {
-  return [CACHE_SCHEMA_VERSION, ...LEGACY_CACHE_SCHEMA_VERSIONS]
-    .map((version) => ({ list: `emails_list:${version}`, ts: `emails_timestamp:${version}` }));
+  return [
+    { list: CACHE_KEY, ts: CACHE_TIMESTAMP_KEY },
+    ...LEGACY_CACHE_SCHEMA_VERSIONS.map((version) => ({ list: `emails_list:${version}`, ts: `emails_timestamp:${version}` })),
+  ];
 }
 
 function candidateCacheKeys(userAccountsKey, limit) {
@@ -249,11 +245,46 @@ export default {
     return new Response("Not Found", { status: 404, headers: CORS_HEADERS });
   },
 
-  // Cron/scheduled handler — triggers an IMAP sync automatically
+  // Cron/scheduled handler — same as the uploaded worker: proxy sync to Supabase, then refresh KV.
   async scheduled(event, env, ctx) {
-    // Background polling is intentionally disabled. User refreshes hit Gmail
-    // directly from Cloudflare and update KV only for that scoped inbox.
-    console.log("[cron] disabled — no background Supabase/Gmail fetch");
+    console.log("[cron] Scheduled sync triggered at", new Date().toISOString());
+    try {
+      const headers = {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${env.SUPABASE_KEY}`,
+        "apikey": env.SUPABASE_KEY,
+        ...(env.CRON_SHARED_SECRET ? { "X-Cron-Secret": env.CRON_SHARED_SECRET } : {}),
+      };
+
+      const res = await fetch(`${env.SUPABASE_URL}/functions/v1/fetch-emails`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ mode: "sync", source: "cron" }),
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        console.error("[cron] Sync failed:", res.status, text);
+        return;
+      }
+
+      const cacheRes = await fetch(`${env.SUPABASE_URL}/functions/v1/fetch-emails`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ mode: "cache" }),
+      });
+
+      if (cacheRes.ok) {
+        const cacheData = await cacheRes.text();
+        await Promise.all([
+          kvPut(env, `${CACHE_KEY}:all`, cacheData),
+          kvPut(env, `${CACHE_TIMESTAMP_KEY}:all`, Date.now().toString()),
+        ]);
+        console.log("[cron] Cache updated successfully");
+      }
+    } catch (err) {
+      console.error("[cron] Error:", err);
+    }
   },
 };
 
@@ -281,7 +312,7 @@ async function handleGetEmails(env, session, rawToken, opts = {}) {
   const accountLabels = Array.isArray(opts.accountLabels) ? opts.accountLabels : [];
 
   if (!hasKV) {
-    return new Response(JSON.stringify([]), { headers: diagHeaders({ "X-Cache-Status": "NO_KV" }) });
+    return fetchDirectFromSupabase(env, session, rawToken, { accountLabels, limit });
   }
 
   const scopedLabels = accountLabels.length > 0 ? accountLabels : (session?.assignedAccounts || []);
@@ -289,12 +320,15 @@ async function handleGetEmails(env, session, rawToken, opts = {}) {
   const cacheKey = `${CACHE_KEY}:${userAccountsKey}:limit:${limit}`;
   const tsKey = `${CACHE_TIMESTAMP_KEY}:${userAccountsKey}`;
 
-  // F7: bust=1 → skip KV read, refetch fresh, write back, return with BYPASS status.
+  // bust=1 → skip KV read, reload the existing Supabase cache, write back, return with BYPASS status.
   if (bust) {
-    const result = await syncDirectFromAccounts(env, session, { accountLabels, limit, source: "user_refresh" });
-    const body = JSON.stringify(result.emails || []);
-    await Promise.all([kvPut(env, cacheKey, body), kvPut(env, tsKey, Date.now().toString())]);
-    return new Response(body, { status: 200, headers: diagHeaders({ "X-Cache-Status": "BYPASS", "X-Cache-Key": cacheKey }) });
+    const result = await fetchDirectFromSupabase(env, session, rawToken, { accountLabels, limit });
+    if (result.status === 200) {
+      const body = await result.clone().text();
+      await Promise.all([kvPut(env, cacheKey, body), kvPut(env, tsKey, Date.now().toString())]);
+      return new Response(body, { status: 200, headers: diagHeaders({ "X-Cache-Status": "BYPASS", "X-Cache-Key": cacheKey }) });
+    }
+    return result;
   }
 
   const [cached, timestamp] = await Promise.all([kvGet(env, cacheKey), kvGet(env, tsKey)]);
@@ -307,12 +341,18 @@ async function handleGetEmails(env, session, rawToken, opts = {}) {
       await Promise.all([kvPut(env, cacheKey, fallback.raw), kvPut(env, tsKey, Date.now().toString())]);
       return new Response(fallback.raw, { headers: diagHeaders({ "X-Cache-Status": "FALLBACK_HIT", "X-Cache-Key": fallback.key }) });
     }
-    return new Response(JSON.stringify([]), { headers: diagHeaders({ "X-Cache-Status": "MISS", "X-Cache-Key": cacheKey }) });
+    const result = await fetchDirectFromSupabase(env, session, rawToken, { accountLabels, limit });
+    if (result.status === 200) {
+      const body = await result.clone().text();
+      await Promise.all([kvPut(env, cacheKey, body), kvPut(env, tsKey, now.toString())]);
+    }
+    return result;
   }
 
   let status = "HIT";
   if (age > STALE_SECONDS) {
     status = "STALE";
+    refreshFromSupabase(env, session, rawToken, cacheKey, tsKey, { accountLabels, limit }).catch(err => console.error("BG refresh error:", err));
   }
 
   return new Response(cached, {
@@ -341,12 +381,38 @@ async function handleSync(env, session, rawToken, requestBody, ctx) {
   try {
     const limit = clampLimit(requestBody?.limit, 3, 50);
     const requestedLabels = Array.isArray(requestBody?.accountLabels) ? requestBody.accountLabels : [];
-    const result = await syncDirectFromAccounts(env, session, {
-      accountLabels: requestedLabels,
-      limit,
+    const headers = {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${env.SUPABASE_KEY}`,
+      "apikey": env.SUPABASE_KEY,
+    };
+    if (rawToken) headers["X-Session-Token"] = rawToken;
+
+    const syncPayload = {
+      mode: requestBody?.mode || "sync",
       source: requestBody?.source || "worker",
+      limit,
+    };
+    if (requestedLabels.length > 0) syncPayload.accountLabels = requestedLabels;
+
+    const res = await fetch(`${env.SUPABASE_URL}/functions/v1/fetch-emails`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(syncPayload),
     });
-    const responseText = JSON.stringify(result);
+    const responseText = await res.text();
+
+    if (!res.ok) {
+      let errorMsg = "Sync failed";
+      try {
+        const parsed = JSON.parse(responseText);
+        errorMsg = parsed?.error || errorMsg;
+      } catch {}
+      return new Response(JSON.stringify({ success: false, error: errorMsg }), {
+        status: res.status,
+        headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+      });
+    }
 
     // Update KV cache after successful sync without blocking the user response.
     if (getKV(env)) {
@@ -355,20 +421,8 @@ async function handleSync(env, session, rawToken, requestBody, ctx) {
       const cacheKey = `${CACHE_KEY}:${userAccountsKey}:limit:${limit}`;
       const tsKey = `${CACHE_TIMESTAMP_KEY}:${userAccountsKey}`;
 
-      const cacheWork = (async () => {
-        let freshRaw = "[]";
-        try {
-          if (Array.isArray(result?.emails)) freshRaw = JSON.stringify(result.emails);
-        } catch {}
-        const fullCacheKey = `${CACHE_KEY}:${userAccountsKey}:limit:200`;
-        const existingFull = await kvGet(env, fullCacheKey) || (await readBestCachedRaw(env, userAccountsKey, 200, fullCacheKey))?.raw || null;
-        const mergedFull = mergeEmailPayloads(existingFull, freshRaw) || freshRaw;
-        await Promise.all([
-          kvPut(env, cacheKey, freshRaw),
-          kvPut(env, fullCacheKey, mergedFull),
-          kvPut(env, tsKey, Date.now().toString()),
-        ]);
-      })().catch((err) => console.error("[sync] async KV update failed:", err.message || err));
+      const cacheWork = refreshFromSupabase(env, session, rawToken, cacheKey, tsKey, { accountLabels: requestedLabels, limit })
+        .catch((err) => console.error("[sync] async KV update failed:", err.message || err));
       if (ctx?.waitUntil) ctx.waitUntil(cacheWork);
     }
 
@@ -385,420 +439,54 @@ async function handleSync(env, session, rawToken, requestBody, ctx) {
 // handleDebug removed (F6). Route no longer exposed.
 
 
-function jsonResponse(body, status = 200, extraHeaders = {}) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...CORS_HEADERS, "Content-Type": "application/json", ...extraHeaders },
-  });
-}
-
-function imapQuote(value) {
-  return `"${String(value || "").replace(/\\/g, "\\\\").replace(/"/g, "\\\"")}"`;
-}
-
-function imapDate(date) {
-  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  return `${String(date.getUTCDate()).padStart(2, "0")}-${months[date.getUTCMonth()]}-${date.getUTCFullYear()}`;
-}
-
-function decodeMimeWords(value = "") {
-  return String(value).replace(/=\?([^?]+)\?([bqBQ])\?([^?]*)\?=/g, (_, charset, enc, text) => {
-    try {
-      if (enc.toUpperCase() === "B") {
-        const bin = atob(text);
-        const bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
-        return new TextDecoder(charset || "utf-8").decode(bytes);
-      }
-      const qp = text.replace(/_/g, " ").replace(/=([0-9A-F]{2})/gi, (_, h) => String.fromCharCode(parseInt(h, 16)));
-      return qp;
-    } catch { return text; }
-  });
-}
-
-function decodeBytes(bytes, charset = "utf-8") {
-  try { return new TextDecoder(String(charset || "utf-8").toLowerCase()).decode(bytes); }
-  catch { return new TextDecoder("utf-8").decode(bytes); }
-}
-
-function decodeBase64Body(input = "", charset = "utf-8") {
-  const bin = atob(String(input).replace(/\s+/g, ""));
-  return decodeBytes(Uint8Array.from(bin, c => c.charCodeAt(0)), charset);
-}
-
-function decodeQuotedPrintable(input = "", charset = "utf-8") {
-  const normalized = String(input).replace(/=\r?\n/g, "");
-  const bytes = [];
-  for (let i = 0; i < normalized.length; i++) {
-    if (normalized[i] === "=" && /^[0-9A-Fa-f]{2}$/.test(normalized.slice(i + 1, i + 3))) {
-      bytes.push(parseInt(normalized.slice(i + 1, i + 3), 16));
-      i += 2;
-    } else {
-      bytes.push(normalized.charCodeAt(i));
-    }
-  }
-  return decodeBytes(new Uint8Array(bytes), charset);
-}
-
-function parseHeaders(raw) {
-  const [headerBlock, ...bodyParts] = String(raw || "").split(/\r?\n\r?\n/);
-  const headers = {};
-  let current = "";
-  for (const line of headerBlock.split(/\r?\n/)) {
-    if (/^[ \t]/.test(line) && current) headers[current] += " " + line.trim();
-    else {
-      const idx = line.indexOf(":");
-      if (idx > 0) {
-        current = line.slice(0, idx).toLowerCase();
-        headers[current] = line.slice(idx + 1).trim();
-      }
-    }
-  }
-  const body = bodyParts.join("\n\n");
-  return { headers, body };
-}
-
-function headerParam(value = "", name) {
-  const re = new RegExp(`${name}\\*?=(?:\"([^\"]*)\"|([^;\\s]+))`, "i");
-  const m = String(value || "").match(re);
-  return decodeMimeWords((m?.[1] || m?.[2] || "").trim());
-}
-
-function contentMime(headers) {
-  return String(headers?.["content-type"] || "text/plain").split(";")[0].trim().toLowerCase() || "text/plain";
-}
-
-function decodeTransferBody(body, headers) {
-  const enc = String(headers?.["content-transfer-encoding"] || "").trim().toLowerCase();
-  const charset = headerParam(headers?.["content-type"] || "", "charset") || "utf-8";
+async function fetchDirectFromSupabase(env, session, rawToken, opts = {}) {
   try {
-    if (enc === "base64") return decodeBase64Body(body, charset);
-    if (enc === "quoted-printable") return decodeQuotedPrintable(body, charset);
-  } catch {}
-  return String(body || "");
-}
+    const accountLabels = Array.isArray(opts.accountLabels) ? opts.accountLabels : [];
+    const bodyPayload = { mode: "cache", limit: clampLimit(opts.limit, 500, 500) };
+    if (accountLabels.length > 0) bodyPayload.accountLabels = accountLabels;
+    else if (session?.assignedAccounts) bodyPayload.accountLabels = session.assignedAccounts;
 
-function splitMultipart(body, boundary) {
-  if (!boundary) return [];
-  return String(body || "")
-    .split(`--${boundary}`)
-    .map((part) => part.replace(/^\r?\n/, "").replace(/\r?\n$/, ""))
-    .filter((part) => part.trim() && part.trim() !== "--" && !part.trim().startsWith("--"));
-}
+    const headers = {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${env.SUPABASE_KEY}`,
+      "apikey": env.SUPABASE_KEY,
+    };
+    if (rawToken) headers["X-Session-Token"] = rawToken;
 
-function htmlToText(html = "") {
-  return String(html)
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/(p|div|tr|table|h[1-6])>/gi, "\n")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
-    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
-    .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCharCode(parseInt(n, 16)));
-}
-
-function cleanDisplayText(text = "") {
-  return String(text || "")
-    // Strip standalone MIME boundary delimiter lines
-    .replace(/(^|\n)[ \t]*--[-=_A-Za-z0-9.'+\/]{6,}--?[ \t]*(?=\n|$)/g, "\n")
-    // Strip MIME header lines at start of line
-    .replace(/(^|\n)[ \t]*(Content-(Type|Transfer-Encoding|Disposition|ID|Description|Language|Location)|MIME-Version)[ \t]*:[^\n]*/gi, "\n")
-    // Strip standalone charset= tokens
-    .replace(/\bcharset=[^\s;]+/gi, "")
-    .replace(/\r/g, "")
-    .replace(/[ \t]+/g, " ")
-    .replace(/\n[ \t]+/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim()
-    .slice(0, 20000);
-}
-
-function detectBoundaryFromBody(body = "") {
-  const m = String(body).match(/(?:^|\n)--([-=_A-Za-z0-9.'+\/]{6,})(?:\r?\n)/);
-  if (!m) return "";
-  const candidate = m[1];
-  const occurrences = String(body).split(`--${candidate}`).length - 1;
-  return occurrences >= 2 ? candidate : "";
-}
-
-function extractMimeContent(raw, inheritedHeaders = {}) {
-  const hasHeaders = inheritedHeaders && Object.keys(inheritedHeaders).length > 0;
-  const parsed = hasHeaders ? { headers: inheritedHeaders, body: String(raw || "") } : parseHeaders(raw);
-  const type = contentMime(parsed.headers);
-  let boundary = headerParam(parsed.headers["content-type"] || "", "boundary");
-  const looksMultipart = type.startsWith("multipart/") || (!boundary && /(?:^|\n)--[-=_A-Za-z0-9.'+\/]{6,}\r?\n/.test(parsed.body));
-  if (looksMultipart && !boundary) boundary = detectBoundaryFromBody(parsed.body);
-
-  if (boundary) {
-    const children = splitMultipart(parsed.body, boundary).map((part) => {
-      const child = parseHeaders(part);
-      return extractMimeContent(child.body, child.headers);
+    const res = await fetch(`${env.SUPABASE_URL}/functions/v1/fetch-emails`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(bodyPayload),
     });
-    const text = children.find((p) => p.type === "text/plain" && p.text)?.text || children.find((p) => p.text)?.text || "";
-    const html = children.find((p) => p.type === "text/html" && p.html)?.html || children.find((p) => p.html)?.html || "";
-    if (text || html) return { type: type || "multipart/alternative", text: text || htmlToText(html), html };
-  }
 
-  const decoded = decodeTransferBody(parsed.body, parsed.headers);
-  if (type === "text/html" || /<html[\s>]/i.test(decoded)) return { type: "text/html", text: htmlToText(decoded), html: decoded };
-  return { type: type || "text/plain", text: decoded, html: "" };
-}
-
-function escapeHtml(value = "") {
-  return String(value).replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
-}
-
-function extractOtpCode(subject, body) {
-  const hay = `${subject || ""}\n${body || ""}`;
-  if (!/(sign[\s-]?in code|verification code|one[\s-]?time|login code|enter this code|otp|your code is|use (?:the |this )?code)/i.test(hay)) return null;
-  const near = hay.match(/(?:code|otp|verification|sign[\s-]?in)[\s\S]{0,80}?\b(\d{4,8})\b/i);
-  if (near?.[1]) return near[1];
-  const line = hay.match(/^\s*(\d{4,8})\s*$/m);
-  return line?.[1] || null;
-}
-
-async function parseRawEmail(raw, accountLabel, uid) {
-  // Use postal-mime (same-quality parsing as mailparser's simpleParser used by
-  // the old Supabase fetch-emails path). Returns clean subject/from/html/text
-  // with quoted-printable + base64 already decoded — no manual MIME work.
-  let parsed;
-  try {
-    parsed = await PostalMime.parse(raw);
+    const data = await res.text();
+    return new Response(data, {
+      status: res.status,
+      headers: diagHeaders({ "X-Cache-Status": "BYPASS" }),
+    });
   } catch (err) {
-    console.error("postal-mime parse failed:", err?.message || err);
-    return null;
-  }
-
-  const subject = String(parsed.subject || "").trim();
-  const from = parsed.from?.address
-    ? (parsed.from.name ? `${parsed.from.name} <${parsed.from.address}>` : parsed.from.address)
-    : "Netflix";
-  const to = Array.isArray(parsed.to) && parsed.to[0]
-    ? (parsed.to[0].name ? `${parsed.to[0].name} <${parsed.to[0].address}>` : parsed.to[0].address)
-    : undefined;
-  const html = String(parsed.html || "").trim();
-  const bodyText = String(parsed.text || "").replace(/\r/g, "").trim();
-
-  const signal = `${subject} ${from} ${to || ""} ${bodyText.slice(0, 2000)}`;
-  if (!/netflix/i.test(signal)) return null;
-
-  const date = parsed.date ? new Date(parsed.date) : new Date();
-  const finalHtml = html || `<pre style="white-space:pre-wrap;font-family:ui-sans-serif,system-ui,sans-serif">${escapeHtml(bodyText)}</pre>`;
-  const previewSource = bodyText.replace(/\s+/g, " ").trim();
-
-  return {
-    id: `${accountLabel}:${uid}`,
-    message_id: parsed.messageId || null,
-    subject,
-    from,
-    to,
-    date: Number.isNaN(date.getTime()) ? new Date().toISOString() : date.toISOString(),
-    otp: extractOtpCode(subject, bodyText),
-    preview: previewSource.length > 140 ? `${previewSource.slice(0, 140)}...` : previewSource,
-    html: finalHtml,
-    account_label: accountLabel,
-  };
-}
-
-async function createImapConnection(account, timeoutMs = 3500) {
-  const socket = connect({ hostname: account.host, port: account.port || 993 }, { secureTransport: "on" });
-  await Promise.race([socket.opened, new Promise((_, reject) => setTimeout(() => reject(new Error("IMAP connect timeout")), timeoutMs))]);
-  const reader = socket.readable.getReader();
-  const writer = socket.writable.getWriter();
-  const decoder = new TextDecoder();
-  const encoder = new TextEncoder();
-  let buffer = "";
-  const readChunk = async (deadline) => {
-    if (Date.now() > deadline) throw new Error("IMAP read timeout");
-    const { value, done } = await reader.read();
-    if (done) throw new Error("IMAP socket closed");
-    buffer += decoder.decode(value, { stream: true });
-  };
-  const readLine = async (deadline) => {
-    while (true) {
-      const idx = buffer.indexOf("\r\n");
-      if (idx >= 0) {
-        const line = buffer.slice(0, idx);
-        buffer = buffer.slice(idx + 2);
-        return line;
-      }
-      await readChunk(deadline);
-    }
-  };
-  const readBytes = async (n, deadline) => {
-    while (buffer.length < n) await readChunk(deadline);
-    const out = buffer.slice(0, n);
-    buffer = buffer.slice(n);
-    return out;
-  };
-  let tagNo = 1;
-  const command = async (cmd, timeoutMs = 2500) => {
-    const tag = `A${String(tagNo++).padStart(4, "0")}`;
-    const deadline = Date.now() + timeoutMs;
-    await writer.write(encoder.encode(`${tag} ${cmd}\r\n`));
-    const lines = [];
-    const literals = [];
-    while (true) {
-      const line = await readLine(deadline);
-      lines.push(line);
-      const lit = line.match(/\{(\d+)\}$/);
-      if (lit) {
-        const data = await readBytes(Number(lit[1]), deadline);
-        literals.push({ meta: line, data });
-      }
-      if (line.startsWith(`${tag} `)) {
-        if (!/^A\d+ OK/i.test(line)) throw new Error(line.replace(/^A\d+\s+/i, ""));
-        return { lines, literals };
-      }
-    }
-  };
-  const close = async () => {
-    try { await command("LOGOUT", 900); } catch {}
-    try { writer.releaseLock(); } catch {}
-    try { reader.releaseLock(); } catch {}
-    try { await socket.close(); } catch {}
-  };
-  await readLine(Date.now() + timeoutMs);
-  return { command, close };
-}
-
-async function decryptValue(encrypted, secret) {
-  if (!encrypted?.startsWith?.("enc:")) return encrypted;
-  const [, ivHex, ctHex] = encrypted.split(":");
-  const encoder = new TextEncoder();
-  const keyMaterial = await crypto.subtle.importKey("raw", encoder.encode(secret), "PBKDF2", false, ["deriveKey"]);
-  const key = await crypto.subtle.deriveKey(
-    { name: "PBKDF2", salt: encoder.encode("imap-enc-salt-v1"), iterations: 100000, hash: "SHA-256" },
-    keyMaterial,
-    { name: "AES-GCM", length: 256 },
-    false,
-    ["decrypt"],
-  );
-  const iv = new Uint8Array(ivHex.match(/.{2}/g).map(b => parseInt(b, 16)));
-  const ct = new Uint8Array(ctHex.match(/.{2}/g).map(b => parseInt(b, 16)));
-  const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ct);
-  return new TextDecoder().decode(plain);
-}
-
-async function loadWorkerConfig(env) {
-  const raw = await kvGet(env, WORKER_CONFIG_KEY);
-  if (!raw) throw new Error("Worker inbox config missing. Save inbox settings in Admin Panel once.");
-  try {
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") throw new Error("bad config");
-    return parsed;
-  } catch {
-    throw new Error("Worker inbox config is invalid. Save inbox settings in Admin Panel once.");
-  }
-}
-
-async function loadAccounts(env, session, requestedLabels = []) {
-  const settings = await loadWorkerConfig(env);
-  const allowed = session?.role === "admin" ? null : Array.isArray(session?.assignedAccounts) ? session.assignedAccounts : [];
-  const requested = requestedLabels.length > 0 ? requestedLabels.map(String).map(s => s.trim()).filter(Boolean) : null;
-  const finalLabels = allowed === null
-    ? requested
-    : requested ? requested.filter(label => allowed.includes(label)) : allowed;
-  if (Array.isArray(finalLabels) && finalLabels.length === 0) return [];
-
-  const accounts = [];
-  const emailAccounts = settings.email_accounts;
-  const decryptSecret = env.SESSION_SIGNING_SECRET || env.SESSION_SECRET || env.ENCRYPTION_SECRET || env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_KEY;
-  if (!decryptSecret) throw new Error("Worker IMAP decrypt secret is missing");
-  if (Array.isArray(emailAccounts)) {
-    for (const acc of emailAccounts) {
-      const label = String(acc.label || acc.user || "").trim();
-      if (!label || (finalLabels && !finalLabels.includes(label))) continue;
-      if (!acc.user || !acc.password) continue;
-      accounts.push({
-        label,
-        host: acc.host || "imap.gmail.com",
-        port: parseInt(acc.port) || 993,
-        user: acc.user,
-        password: await decryptValue(acc.password, decryptSecret),
-      });
-    }
-  }
-  const config = settings.config || {};
-  if ((!finalLabels || finalLabels.includes("Primary")) && config.IMAP_USER && config.IMAP_PASSWORD && !accounts.some(a => a.user === config.IMAP_USER)) {
-    accounts.unshift({
-      label: "Primary",
-      host: config.IMAP_HOST || "imap.gmail.com",
-      port: parseInt(config.IMAP_PORT) || 993,
-      user: config.IMAP_USER,
-      password: await decryptValue(config.IMAP_PASSWORD, decryptSecret),
+    return new Response(JSON.stringify({ error: "Worker cannot reach backend: " + (err.message || "Unknown") }), {
+      status: 502,
+      headers: diagHeaders(),
     });
   }
-  return accounts;
 }
 
-async function fetchFromImapAccount(account, limit = 3) {
-  const imap = await createImapConnection(account);
+async function refreshFromSupabase(env, session, rawToken, cacheKey, tsKey, opts = {}) {
   try {
-    await imap.command(`LOGIN ${imapQuote(account.user)} ${imapQuote(account.password)}`, 2500);
-    const selected = await imap.command("SELECT INBOX", 2500);
-    const existsLine = selected.lines.find(line => /\*\s+\d+\s+EXISTS/i.test(line));
-    const total = Number(existsLine?.match(/\*\s+(\d+)\s+EXISTS/i)?.[1] || 0);
-    const since = imapDate(new Date(Date.now() - 2 * 24 * 60 * 60 * 1000));
-    let uids = [];
-    try {
-      const search = await imap.command(`UID SEARCH SINCE ${since} OR FROM ${imapQuote("netflix")} SUBJECT ${imapQuote("netflix")}`, 1800);
-      const searchLine = search.lines.find(line => /^\* SEARCH/i.test(line)) || "";
-      uids = searchLine.replace(/^\* SEARCH\s*/i, "").trim().split(/\s+/).filter(Boolean).map(Number).filter(Boolean);
-    } catch {}
-
-    let literals = [];
-    if (uids.length > 0) {
-      const newest = Array.from(new Set(uids)).sort((a, b) => b - a).slice(0, Math.max(1, limit));
-      const fetched = await imap.command(`UID FETCH ${newest.join(",")} (BODY.PEEK[]<0.500000>)`, 2800);
-      literals = fetched.literals;
-    } else if (total > 0) {
-      const start = Math.max(1, total - 3);
-      const fetched = await imap.command(`FETCH ${start}:* (UID BODY.PEEK[]<0.500000>)`, 2800);
-      literals = fetched.literals;
+    const result = await fetchDirectFromSupabase(env, session, rawToken, opts);
+    if (!result.ok) {
+      console.error("Supabase cache fetch failed:", result.status);
+      return;
     }
-
-    const emails = [];
-    for (const item of literals) {
-      const uid = Number(item.meta.match(/UID\s+(\d+)/i)?.[1] || 0) || Math.floor(Date.now() + Math.random() * 1000);
-      const parsed = await parseRawEmail(item.data, account.label, uid);
-      if (parsed) emails.push(parsed);
-    }
-    emails.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    return { emails: emails.slice(0, limit), fetched: emails.length, skipped: Math.max(0, literals.length - emails.length) };
-  } finally {
-    await imap.close();
+    const data = await result.text();
+    await Promise.all([
+      kvPut(env, cacheKey, data),
+      kvPut(env, tsKey, Date.now().toString()),
+    ]);
+  } catch (err) {
+    console.error("Refresh from Supabase error:", err);
   }
-}
-
-async function syncDirectFromAccounts(env, session, opts = {}) {
-  if (!session) throw new Error("Authentication required");
-  const accountLabels = Array.isArray(opts.accountLabels) ? opts.accountLabels : [];
-  const limit = clampLimit(opts.limit, 3, 50);
-  const accounts = await loadAccounts(env, session, accountLabels);
-  if (accounts.length === 0) return { success: true, emails: [], stats: {}, totalFetched: 0, inserted: 0, source: "cloudflare-imap" };
-
-  const settled = await Promise.allSettled(accounts.map(async (account) => ({ account, result: await fetchFromImapAccount(account, limit) })));
-  const emails = [];
-  const stats = {};
-  const warnings = [];
-  settled.forEach((item, index) => {
-    const label = accounts[index]?.label || `Account ${index + 1}`;
-    if (item.status === "fulfilled") {
-      stats[label] = { fetched: item.value.result.fetched, skipped: item.value.result.skipped };
-      emails.push(...item.value.result.emails);
-    } else {
-      const msg = item.reason?.message || String(item.reason || "IMAP failed");
-      stats[label] = { fetched: 0, skipped: 0, error: msg };
-      warnings.push(`${label}: ${msg}`);
-    }
-  });
-  if (warnings.length === accounts.length) throw new Error(warnings.join(" | "));
-  emails.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  return { success: true, emails: emails.slice(0, Math.max(limit, 3)), stats, totalFetched: emails.length, inserted: emails.length, warnings, source: "cloudflare-imap" };
 }
 
 // --- IP helpers ---

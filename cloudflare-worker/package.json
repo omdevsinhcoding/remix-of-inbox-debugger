@@ -8,9 +8,7 @@
     "deploy": "wrangler deploy",
     "dev": "wrangler dev"
   },
-  "dependencies": {
-    "postal-mime": "^2.4.3"
-  },
+  "dependencies": {},
   "devDependencies": {
     "wrangler": "^3.90.0"
   }
