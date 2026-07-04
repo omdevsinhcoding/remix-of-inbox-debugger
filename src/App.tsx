@@ -789,9 +789,16 @@ function GpsPermissionSheet({ mode, loading, onEnable, onPrimeEnable }: { mode: 
           <h3 className="text-[14px] font-bold leading-tight text-white">Location permission required</h3>
           <p className="mt-1 text-[12px] leading-relaxed text-white/78">
             {blocked
-              ? "If browser popup does not appear, open site settings and set Location to Allow."
+              ? "You blocked location earlier. Reset it below, then tap Enable Location to see the browser popup again."
               : "Tap Enable Location, then press Allow in the browser popup."}
           </p>
+          {blocked && (
+            <ol className="mt-2 space-y-1 text-[11.5px] leading-relaxed text-white/70 list-decimal pl-4">
+              <li>Tap the <span className="font-semibold text-white/90">lock / tune icon</span> left of the URL bar.</li>
+              <li>Open <span className="font-semibold text-white/90">Permissions</span> and set <span className="font-semibold text-white/90">Location → Allow</span> (or tap Reset).</li>
+              <li>Come back and tap <span className="font-semibold text-white/90">Enable Location</span> — the native popup will appear.</li>
+            </ol>
+          )}
           <button
             type="button"
             onPointerDownCapture={onPrimeEnable}
@@ -806,6 +813,7 @@ function GpsPermissionSheet({ mode, loading, onEnable, onPrimeEnable }: { mode: 
     </motion.div>
   );
 }
+
 
 // --- API Helper (encrypted-only Supabase edge transport) ---
 
