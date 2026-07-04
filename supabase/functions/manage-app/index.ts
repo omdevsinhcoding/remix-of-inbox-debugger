@@ -2516,7 +2516,9 @@ Deno.serve(async (originalReq) => {
         expiresAt: pair.accessExpMs,
         refreshToken: pair.refreshToken,
         refreshExpiresAt: pair.refreshExpMs,
+        sessionFamilyId: pair.familyId,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
     }
 
 
