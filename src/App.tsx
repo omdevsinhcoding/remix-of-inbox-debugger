@@ -3988,6 +3988,7 @@ function AdminPanel() {
   const [showAccountUpdates, setShowAccountUpdates] = useState(false);
   const [editingUserAccounts, setEditingUserAccounts] = useState<string | null>(null);
   const [editAccountsList, setEditAccountsList] = useState<string[]>([]);
+  const [editSessionLimit, setEditSessionLimit] = useState<string>("");
   const [serverConfig, setServerConfig] = useState({
     TELEGRAM_BOT_TOKEN: "", TELEGRAM_CHAT_ID: "", IMAP_HOST: "", IMAP_PORT: "", IMAP_USER: "", IMAP_PASSWORD: "",
   });
