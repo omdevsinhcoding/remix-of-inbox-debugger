@@ -607,8 +607,6 @@ async function requireLoginLocation(): Promise<LoginLocationPayload> {
 // --- API Helper (encrypted-only Supabase edge transport) ---
 
 async function apiCall(functionName: string, body: any) {
-  const devResponse = devAdminBypassResponse(functionName, body);
-  if (devResponse !== undefined) return devResponse;
 
   const token = getSessionToken();
   const pendingToken = (() => { try { return sessionGet("pending_admin_token" as any); } catch { return null; } })();
@@ -782,7 +780,7 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   useEffect(() => {
-    activateDevAdminBypassIfRequested();
+    
     // Initial paint from cache so UI is not blocked, then verify against DB.
     setUser(readCached());
     // C.2: arm auto-refresh from any stored refresh token in this tab.
