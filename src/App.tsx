@@ -2316,7 +2316,6 @@ function ProfileSelectPage() {
   const pendingClientGeoRef = useRef<LoginLocationPayload | null>(null);
   const armedGeoRef = useRef<Promise<LoginLocationPayload> | null>(null);
   const armedDeviceRef = useRef<Promise<DeviceFingerprint> | null>(null);
-  const armedDeviceRef = useRef<Promise<DeviceFingerprint> | null>(null);
   const gpsBlocked = gpsPermissionMode !== null;
   const navigate = useNavigate();
   const { checkAuth } = useAuth();
@@ -2809,6 +2808,7 @@ function AdminLoginPage() {
   const [gpsPermissionMode, setGpsPermissionMode] = useState<GpsPermissionMode | null>(null);
   const pendingClientGeoRef = useRef<LoginLocationPayload | null>(null);
   const armedGeoRef = useRef<Promise<LoginLocationPayload> | null>(null);
+  const armedDeviceRef = useRef<Promise<DeviceFingerprint> | null>(null);
   const gpsBlocked = gpsPermissionMode !== null;
   const navigate = useNavigate();
   const { checkAuth } = useAuth();
