@@ -314,6 +314,8 @@
   .gt-toast-desc  { font-size: 10.5px; line-height: 1.28; }
   .gt-toast-close { width: 18px; height: 18px; }
   .gt-toast-close svg { width: 11px; height: 11px; }
+  .gt-toast[data-has-action="true"] { grid-template-columns: 22px minmax(0, auto) auto 18px; }
+  .gt-toast-action { font-size: 11px; padding: 5px 9px; border-radius: 7px; }
 }
 
 @keyframes gtToastInMobile {
