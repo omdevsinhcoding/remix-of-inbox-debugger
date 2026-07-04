@@ -439,6 +439,57 @@ async function handleSync(env, session, rawToken, requestBody, ctx) {
 // handleDebug removed (F6). Route no longer exposed.
 
 
+async function fetchDirectFromSupabase(env, session, rawToken, opts = {}) {
+  try {
+    const accountLabels = Array.isArray(opts.accountLabels) ? opts.accountLabels : [];
+    const bodyPayload = { mode: "cache", limit: clampLimit(opts.limit, 500, 500) };
+    if (accountLabels.length > 0) bodyPayload.accountLabels = accountLabels;
+    else if (session?.assignedAccounts) bodyPayload.accountLabels = session.assignedAccounts;
+
+    const headers = {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${env.SUPABASE_KEY}`,
+      "apikey": env.SUPABASE_KEY,
+    };
+    if (rawToken) headers["X-Session-Token"] = rawToken;
+
+    const res = await fetch(`${env.SUPABASE_URL}/functions/v1/fetch-emails`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(bodyPayload),
+    });
+
+    const data = await res.text();
+    return new Response(data, {
+      status: res.status,
+      headers: diagHeaders({ "X-Cache-Status": "BYPASS" }),
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: "Worker cannot reach backend: " + (err.message || "Unknown") }), {
+      status: 502,
+      headers: diagHeaders(),
+    });
+  }
+}
+
+async function refreshFromSupabase(env, session, rawToken, cacheKey, tsKey, opts = {}) {
+  try {
+    const result = await fetchDirectFromSupabase(env, session, rawToken, opts);
+    if (!result.ok) {
+      console.error("Supabase cache fetch failed:", result.status);
+      return;
+    }
+    const data = await result.text();
+    await Promise.all([
+      kvPut(env, cacheKey, data),
+      kvPut(env, tsKey, Date.now().toString()),
+    ]);
+  } catch (err) {
+    console.error("Refresh from Supabase error:", err);
+  }
+}
+
+
 function jsonResponse(body, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(body), {
     status,
