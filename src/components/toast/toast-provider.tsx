@@ -74,11 +74,10 @@ function getCardTone(): CardTone {
   return avg > 0.46 ? "dark" : "light";
 }
 
-/* ---------- individual card with progress bar ---------- */
+/* ---------- individual compact card ---------- */
 
 function ToastCard({ toast, tone }: { toast: GlobalToast; tone: CardTone }) {
   const Icon = ICONS[toast.variant];
-  const hasProgress = Number.isFinite(toast.duration) && toast.duration > 0 && toast.variant !== "loading";
   return (
     <div className="gt-toast" data-card={tone} data-variant={toast.variant} role={toast.variant === "error" ? "alert" : "status"} aria-live={toast.variant === "error" ? "assertive" : "polite"}>
       <div className="gt-toast-icon" aria-hidden="true">
@@ -96,13 +95,6 @@ function ToastCard({ toast, tone }: { toast: GlobalToast; tone: CardTone }) {
       >
         <X />
       </button>
-      {hasProgress ? (
-        <div
-          className="gt-toast-progress"
-          style={{ animationDuration: `${toast.duration}ms` }}
-          aria-hidden="true"
-        />
-      ) : null}
     </div>
   );
 }
