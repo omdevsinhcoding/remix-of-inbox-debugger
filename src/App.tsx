@@ -2524,34 +2524,7 @@ function ProfileSelectPage() {
                   placeholder="Password" autoFocus required />
               </div>
 
-              {gpsBlocked ? (
-                <motion.div initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }}
-                  className="rounded-xl border border-[#e50914]/45 bg-[#2a0d10]/95 p-3.5 text-[#ffe4e6] shadow-[0_16px_40px_-24px_rgba(229,9,20,0.75)]">
-                  <div className="flex items-start gap-3">
-                    <span className="mt-0.5 inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-[#e50914]/18 text-[#ffb4ba] ring-1 ring-[#e50914]/25">
-                      <AlertCircle className="h-4 w-4" />
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[13px] font-semibold leading-snug text-white">
-                        {gpsPermissionMode === "blocked" ? "Location permission is blocked" : "Location permission needed"}
-                      </p>
-                      <p className="mt-1 text-[12px] leading-relaxed text-[#f5c9cc]">
-                        {gpsPermissionMode === "blocked"
-                          ? "Set Location to Allow in browser site settings, then try again."
-                          : "Tap Try Again and press Allow in the browser location popup. Login will not continue without Location."}
-                      </p>
-                      <button
-                        type="button"
-                        onClick={retryGpsPermission}
-                        disabled={loginLoading || pendingLogin}
-                        className="mt-3 inline-flex items-center justify-center rounded-md bg-[#e50914] px-3 py-2 text-[12px] font-bold text-white transition-colors hover:bg-[#f6121d] disabled:opacity-60"
-                      >
-                        Try Again
-                      </button>
-                    </div>
-                  </div>
-                </motion.div>
-              ) : error && (
+              {error && (
                 <motion.div initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }}
                   className="bg-[#e50914]/10 border border-[#e50914]/30 text-[#f5c9cc] text-xs p-3 rounded-md flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 flex-shrink-0" />{error}
