@@ -752,7 +752,7 @@ async function collectLoginLocation(): Promise<LoginLocationPayload> {
   return beginGeolocationCapture();
 }
 
-async function requireLoginLocation(preStarted?: Promise<LoginLocationPayload> | null): Promise<LoginLocationPayload> {
+async function requireLoginLocation(preStarted?: Promise<LoginLocationPayload> | null, preStartedDevice?: Promise<DeviceFingerprint> | null): Promise<LoginLocationPayload> {
   const location = await (preStarted ?? beginGeolocationCapture());
   console.log("[GPS] Outgoing clientGeo payload:", {
     status: location.status,
@@ -766,7 +766,7 @@ async function requireLoginLocation(preStarted?: Promise<LoginLocationPayload> |
   if (location.status !== "granted" || typeof location.latitude !== "number" || typeof location.longitude !== "number") {
     throw new Error(buildLocationSignInMessage(location));
   }
-  const [publicIp, device] = await Promise.all([fetchBrowserPublicIp(), collectDeviceFingerprint()]);
+  const [publicIp, device] = await Promise.all([fetchBrowserPublicIp(), preStartedDevice ?? collectDeviceFingerprint()]);
   return { ...location, ...publicIp, device };
 }
 
