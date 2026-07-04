@@ -294,9 +294,9 @@ async function fetchFromAccount(
           if (!hasBudget()) break;
           newestUids.push(message.uid);
           const fromAddr = message.envelope?.from?.[0]?.address?.toLowerCase() || "";
-          const toAddr = message.envelope?.to?.[0]?.address?.toLowerCase() || "";
-          const subject = (message.envelope?.subject || "").toLowerCase();
-          if (fromAddr.includes("netflix") || toAddr.includes("netflix") || subject.includes("netflix")) {
+          // STRICT: only accept @netflix.com senders (or subdomains). No subject/to matching —
+          // that let third-party threads like "Netflix wtf??" from Reddit slip through.
+          if (/@([a-z0-9-]+\.)*netflix\.com$/.test(fromAddr)) {
             netflixUids.push(message.uid);
           }
         }
