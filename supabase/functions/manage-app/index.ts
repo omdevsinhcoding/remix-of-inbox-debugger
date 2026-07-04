@@ -2468,7 +2468,117 @@ Deno.serve(async (originalReq) => {
       });
     }
 
+    // ---------- Instant Inbox: delta sync (list-only, no HTML) ----------
+    if (action === "list_delta") {
+      const session = await requireSession(req);
+      const { since, limit } = (params || {}) as { since?: number; limit?: number };
+      const cursor = Math.max(0, Number(since) || 0);
+      const cap = Math.min(Math.max(Number(limit) || 500, 1), 1000);
+
+      const { data: u, error: uErr } = await supabase
+        .from("app_users")
+        .select("assigned_accounts, role")
+        .eq("id", session.userId)
+        .single();
+      if (uErr || !u) throw new Error("User not found");
+
+      const isAdmin = u.role === "admin";
+      const labels: string[] | null = Array.isArray(u.assigned_accounts) && u.assigned_accounts.length > 0
+        ? Array.from(new Set(u.assigned_accounts.map((s: any) => String(s).trim()).filter(Boolean)))
+        : (isAdmin ? null : []);
+
+      if (labels && labels.length === 0) {
+        return new Response(JSON.stringify({ success: true, rows: [], removedIds: [], newCursor: cursor, hasMore: false }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      let dateCutoff: string | null = null;
+      if (!isAdmin) {
+        const { data: visRow } = await supabase.from("app_settings").select("value").eq("key", "email_visibility").maybeSingle();
+        const vis = (visRow?.value || {}) as { enabled?: boolean; days?: number };
+        if (vis?.enabled && Number(vis.days) > 0) {
+          const cut = new Date();
+          cut.setDate(cut.getDate() - Number(vis.days));
+          dateCutoff = cut.toISOString();
+        }
+      }
+
+      let q = supabase
+        .from("cached_emails")
+        .select("id, subject, from_address, to_address, date, otp, preview, account_label, modseq, destroyed")
+        .gt("modseq", cursor)
+        .order("modseq", { ascending: true })
+        .limit(cap);
+      if (labels && labels.length > 0) q = q.in("account_label", labels);
+      if (dateCutoff) q = q.gte("date", dateCutoff);
+
+      const { data, error } = await q;
+      if (error) throw error;
+
+      const rows: any[] = [];
+      const removedIds: string[] = [];
+      let maxModseq = cursor;
+      for (const r of (data || [])) {
+        if (Number(r.modseq) > maxModseq) maxModseq = Number(r.modseq);
+        if (r.destroyed) {
+          removedIds.push(r.id);
+        } else {
+          rows.push({
+            id: r.id,
+            subject: r.subject,
+            from: r.from_address,
+            to: r.to_address,
+            date: r.date,
+            otp: r.otp,
+            preview: r.preview,
+            account_label: r.account_label,
+            modseq: Number(r.modseq),
+          });
+        }
+      }
+
+      return new Response(JSON.stringify({
+        success: true,
+        rows,
+        removedIds,
+        newCursor: maxModseq,
+        hasMore: (data?.length || 0) >= cap,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ---------- Instant Inbox: lazy full-HTML fetch ----------
+    if (action === "get_email_html") {
+      const session = await requireSession(req);
+      const { id } = (params || {}) as { id?: string };
+      if (!id || typeof id !== "string") throw new Error("id required");
+
+      const { data: u } = await supabase
+        .from("app_users").select("assigned_accounts, role").eq("id", session.userId).single();
+      const isAdmin = u?.role === "admin";
+      const labels: string[] | null = Array.isArray(u?.assigned_accounts) && u.assigned_accounts.length > 0
+        ? u.assigned_accounts.map((s: any) => String(s).trim()).filter(Boolean)
+        : (isAdmin ? null : []);
+
+      const { data: row, error } = await supabase
+        .from("cached_emails")
+        .select("id, html, account_label, destroyed")
+        .eq("id", id)
+        .maybeSingle();
+      if (error) throw error;
+      if (!row || row.destroyed) throw new Error("Email not found");
+      if (labels && labels.length > 0 && !labels.includes(row.account_label || "")) {
+        throw new Error("Not authorized");
+      }
+      if (labels && labels.length === 0 && !isAdmin) throw new Error("Not authorized");
+
+      return new Response(JSON.stringify({ success: true, id: row.id, html: row.html || "" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     // ---------- User: clear own inbox (hide-only) ----------
+
     if (action === "clear_user_inbox") {
       const session = await requireSession(req);
       const { visibleIds } = params as { visibleIds?: string[] };

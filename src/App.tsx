@@ -12,6 +12,7 @@ import { bootstrapFromSupabase, clearSessionData, markSessionStart, readBootstra
 import MaintenanceScreen from "./components/MaintenanceScreen";
 import DateTimePicker from "./components/DateTimePicker";
 import { sessionGet, sessionSet, sessionRemove, sessionClearAll } from "./lib/session";
+import { openInboxDB, readLatestEmails, writeDelta, getSyncCursor, cacheEmailHtml, getEmailHtml, type CachedEmail } from "./lib/inboxCache";
 
 
 // Lazy-loaded heavy auth-only libs — kept out of the public first-load chunk.
@@ -6868,12 +6869,106 @@ function EmailViewer() {
 
 
 
+  // ============================================================================
+  // INSTANT INBOX — Gmail-style stale-while-revalidate via IndexedDB + delta sync
+  //  1) Open per-user IDB, read latest 50 rows → paint (target < 50ms)
+  //  2) Fire /list_delta with last cursor → merge new/updated/removed → repaint
+  // Runs in parallel with the existing worker refresh path (which stays as
+  // a redundant sync). Falls back silently on any error — no user-visible break.
+  // ============================================================================
+  const idbRef = useRef<Awaited<ReturnType<typeof openInboxDB>> | null>(null);
+  const instantInboxRanRef = useRef(false);
+  useEffect(() => {
+    if (instantInboxRanRef.current) return;
+    if (!user?.id) return;
+    instantInboxRanRef.current = true;
+
+    const t0 = performance.now();
+    (async () => {
+      let db: Awaited<ReturnType<typeof openInboxDB>> | null = null;
+      try {
+        db = await openInboxDB(user.id);
+        idbRef.current = db;
+
+        // ---- (1) Instant paint from IDB ----
+        const cached = await readLatestEmails(db, 200);
+        if (cached.length > 0) {
+          setEmails(cached as unknown as Email[]);
+          setLastUpdated(new Date());
+          const dt = performance.now() - t0;
+          pushDiag({ ts: Date.now(), kind: "cache", endpoint: "idb:instant-paint", ms: Math.round(dt), note: `${cached.length} rows` });
+          // eslint-disable-next-line no-console
+          console.log(`[inbox] instant paint in ${dt.toFixed(1)}ms (${cached.length} rows from IDB)`);
+        }
+
+        // ---- (2) Delta sync via Supabase edge function ----
+        const cursor = await getSyncCursor(db);
+        const started = performance.now();
+        const delta = await apiCall("manage-app", { action: "list_delta", since: cursor, limit: 500 });
+        pushDiag({
+          ts: Date.now(),
+          kind: "sync",
+          endpoint: "list_delta",
+          ms: Math.round(performance.now() - started),
+          note: `since=${cursor} +${delta?.rows?.length || 0}/-${delta?.removedIds?.length || 0} → ${delta?.newCursor || 0}`,
+        });
+
+        const rows: CachedEmail[] = Array.isArray(delta?.rows) ? delta.rows : [];
+        const removedIds: string[] = Array.isArray(delta?.removedIds) ? delta.removedIds : [];
+        const newCursor = Number(delta?.newCursor || 0);
+
+        if (rows.length > 0 || removedIds.length > 0 || newCursor > cursor) {
+          await writeDelta(db, { rows, removedIds, newCursor });
+          const fresh = await readLatestEmails(db, 200);
+          setEmails(fresh as unknown as Email[]);
+          setLastUpdated(new Date());
+        }
+        setError(null);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err || "");
+        pushDiag({ ts: Date.now(), kind: "cache", endpoint: "instant-inbox", error: msg });
+        // Silent fallback — the existing worker path will still populate the inbox.
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
+
+  // Wrap email selection so full HTML is lazy-fetched on first click.
+  // List rows from list_delta don't include HTML (kept payload tiny). On click:
+  //  1) show the row instantly (preview text renders in iframe as fallback)
+  //  2) check IDB for cached html — use if present
+  //  3) otherwise call get_email_html, cache to IDB + update state
+  const openEmail = useCallback(async (email: Email) => {
+    setSelectedEmail(email);
+    if (email.html && email.html.length > 0) return;
+    try {
+      const db = idbRef.current || (user?.id ? await openInboxDB(user.id) : null);
+      if (db) {
+        idbRef.current = db;
+        const localHtml = await getEmailHtml(db, email.id);
+        if (localHtml) {
+          setSelectedEmail({ ...email, html: localHtml });
+          return;
+        }
+      }
+      const res = await apiCall("manage-app", { action: "get_email_html", id: email.id });
+      const html: string = res?.html || "";
+      if (html) {
+        setSelectedEmail((cur) => (cur && cur.id === email.id ? { ...cur, html } : cur));
+        if (db) { try { await cacheEmailHtml(db, email.id, html); } catch { /* quota etc. */ } }
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err || "");
+      pushDiag({ ts: Date.now(), kind: "cache", endpoint: "get_email_html", error: msg });
+    }
+  }, [user?.id, pushDiag]);
 
   const copyOtp = (otp: string) => {
     navigator.clipboard.writeText(otp);
     setOtpCopied(true);
     setTimeout(() => setOtpCopied(false), 2000);
   };
+
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
@@ -7076,7 +7171,7 @@ function EmailViewer() {
                   </div>
                 ) : (
                   emails.map(email => (
-                    <button key={email.id} onClick={() => setSelectedEmail(email)}
+                    <button key={email.id} onClick={() => { void openEmail(email); }}
                       className={`w-full text-left p-3 rounded-xl border transition-all ${
                         selectedEmail?.id === email.id
                           ? "bg-white border-red-200 shadow-md ring-1 ring-red-100"

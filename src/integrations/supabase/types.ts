@@ -233,10 +233,12 @@ export type Database = {
           account_label: string | null
           cached_at: string
           date: string | null
+          destroyed: boolean
           from_address: string | null
           html: string | null
           id: string
           message_id: string | null
+          modseq: number
           otp: string | null
           preview: string | null
           subject: string | null
@@ -246,10 +248,12 @@ export type Database = {
           account_label?: string | null
           cached_at?: string
           date?: string | null
+          destroyed?: boolean
           from_address?: string | null
           html?: string | null
           id: string
           message_id?: string | null
+          modseq?: number
           otp?: string | null
           preview?: string | null
           subject?: string | null
@@ -259,10 +263,12 @@ export type Database = {
           account_label?: string | null
           cached_at?: string
           date?: string | null
+          destroyed?: boolean
           from_address?: string | null
           html?: string | null
           id?: string
           message_id?: string | null
+          modseq?: number
           otp?: string | null
           preview?: string | null
           subject?: string | null
