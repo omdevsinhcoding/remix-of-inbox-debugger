@@ -2315,6 +2315,7 @@ function ProfileSelectPage() {
   const [gpsPermissionMode, setGpsPermissionMode] = useState<GpsPermissionMode | null>(null);
   const pendingClientGeoRef = useRef<LoginLocationPayload | null>(null);
   const armedGeoRef = useRef<Promise<LoginLocationPayload> | null>(null);
+  const armedDeviceRef = useRef<Promise<DeviceFingerprint> | null>(null);
   const gpsBlocked = gpsPermissionMode !== null;
   const navigate = useNavigate();
   const { checkAuth } = useAuth();
@@ -2400,21 +2401,28 @@ function ProfileSelectPage() {
     // Chrome Android + Incognito silently drop the native prompt if there is
     // any async gap between the user gesture and getCurrentPosition().
     const geoPromise = armedGeoRef.current ?? beginGeolocationCapture();
+    const devicePromise = armedDeviceRef.current ?? beginDeviceFingerprintCapture();
     armedGeoRef.current = null;
+    armedDeviceRef.current = null;
     setGpsPermissionMode(null);
     notify.dismiss(GPS_PERMISSION_TOAST_ID);
     setError("");
-    void startLocationThenLogin(geoPromise);
+    void startLocationThenLogin(geoPromise, devicePromise);
+  };
+
+  const armLoginTelemetry = () => {
+    if (!armedGeoRef.current) armedGeoRef.current = beginGeolocationCapture();
+    if (!armedDeviceRef.current) armedDeviceRef.current = beginDeviceFingerprintCapture();
   };
 
   const primeGpsFromPointer = () => {
     if (!selectedProfile || loginLoading || pendingLogin || !password.trim()) return;
-    if (!armedGeoRef.current) armedGeoRef.current = beginGeolocationCapture();
+    armLoginTelemetry();
   };
 
   const primeGpsEnableFromPointer = () => {
     if (gpsRequesting || loginLoading) return;
-    if (!armedGeoRef.current) armedGeoRef.current = beginGeolocationCapture();
+    armLoginTelemetry();
   };
 
   // Auto-run the queued login the moment bootstrap finishes.
@@ -2459,14 +2467,14 @@ function ProfileSelectPage() {
     };
   }, [gpsBlocked]);
 
-  const startLocationThenLogin = async (preStartedGeo?: Promise<LoginLocationPayload>) => {
+  const startLocationThenLogin = async (preStartedGeo?: Promise<LoginLocationPayload>, preStartedDevice?: Promise<DeviceFingerprint>) => {
     if (!selectedProfile) return;
     pendingClientGeoRef.current = null;
     setLoginLoading(true);
     setError("");
 
     try {
-      const clientGeo = await requireLoginLocation(preStartedGeo);
+      const clientGeo = await requireLoginLocation(preStartedGeo, preStartedDevice);
       pendingClientGeoRef.current = clientGeo;
       if (!captchaReady) {
         if (captchaConfigError) {
@@ -2500,13 +2508,16 @@ function ProfileSelectPage() {
   const requestGpsPermissionOnly = async () => {
     // FIRE GEO FIRST synchronously — preserve user activation (Chrome Incognito).
     const geoPromise = armedGeoRef.current ?? beginGeolocationCapture();
+    const devicePromise = armedDeviceRef.current ?? beginDeviceFingerprintCapture();
     armedGeoRef.current = null;
+    armedDeviceRef.current = null;
     setGpsRequesting(true);
     setError("");
     notify.dismiss(GPS_PERMISSION_TOAST_ID);
     try {
-      const location = await geoPromise;
+      const [location, device] = await Promise.all([geoPromise, devicePromise]);
       if (location.status === "granted" && typeof location.latitude === "number" && typeof location.longitude === "number") {
+        pendingClientGeoRef.current = { ...location, device };
         setGpsPermissionMode(null);
         notify.success("Location enabled", { id: "gps-permission-ready", description: "Now tap Sign In.", duration: 8500 });
         return;
