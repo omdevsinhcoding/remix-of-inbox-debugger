@@ -5589,7 +5589,7 @@ function AdminPanel() {
 
                 <div>
                   <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Cloudflare Worker URLs</label>
-                  <p className="text-[10px] text-slate-400 mb-2 ml-1">These are the default/primary workers used for all accounts without dedicated workers. Add multiple URLs for random load balancing. Deploy workers using <span className="font-mono">npx wrangler deploy</span> from the <span className="font-mono">cloudflare-worker/</span> folder.</p>
+                  <p className="text-[10px] text-slate-400 mb-2 ml-1">These are the default/primary workers used for all accounts without dedicated workers. Add multiple URLs for random load balancing. Update code from Cloudflare Dashboard → Workers & Pages → Edit code → Deploy, or let Cloudflare GitHub builds deploy it.</p>
                   <div className="space-y-1.5 mb-2">
                     {primaryCfUrls.map((url, i) => (
                       <div key={i} className="flex items-center gap-2 p-2 bg-slate-50 rounded-lg border">
