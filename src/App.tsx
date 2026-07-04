@@ -5245,6 +5245,46 @@ function AdminPanel() {
             </section>
 
             <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <h2 className="font-black text-base sm:text-lg mb-2 flex items-center gap-2 text-slate-900">
+                <div className="bg-emerald-50 p-1.5 rounded-lg"><Shield className="w-4 h-4 text-emerald-600" /></div>
+                Concurrent Session Limit
+              </h2>
+              <p className="text-xs text-slate-500 mb-4">
+                Max active sessions/devices per user at the same time. When a user logs in and would exceed
+                this cap, the <span className="font-bold">oldest session is revoked</span> and that device is
+                logged out. Set <span className="font-bold">1</span> for single-device login, or
+                <span className="font-bold"> 0</span> to allow unlimited.
+              </p>
+              <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
+                <div className="flex-1">
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">Max sessions per user</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={concurrentSessionLimit}
+                    onChange={(e) => setConcurrentSessionLimit(e.target.value)}
+                    placeholder="e.g. 1"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-emerald-500 text-sm text-slate-900 placeholder:text-slate-400"
+                  />
+                </div>
+                <button
+                  onClick={saveConcurrentSessionLimit}
+                  disabled={savingConcurrentSessionLimit}
+                  className="sm:mt-5 bg-emerald-600 text-white font-bold py-3 px-6 rounded-xl hover:bg-emerald-700 transition-all disabled:opacity-50 text-sm whitespace-nowrap">
+                  {savingConcurrentSessionLimit ? "Saving..." : "Save"}
+                </button>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-3">
+                Current: {Number(concurrentSessionLimit) > 0
+                  ? `${concurrentSessionLimit} active session${Number(concurrentSessionLimit) === 1 ? "" : "s"} per user — extra logins kick the oldest device out`
+                  : "Unlimited — users can be signed in on any number of devices at once"}
+              </p>
+            </section>
+
+
+
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
               <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
                 <div className="bg-red-50 p-1.5 rounded-lg"><Send className="w-4 h-4 text-red-600" /></div>
                 ipwho.is provider
