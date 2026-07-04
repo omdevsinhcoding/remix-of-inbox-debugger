@@ -6970,7 +6970,7 @@ function EmailViewer() {
               {/* Mobile: user's profile avatar (click opens profile settings). Desktop: N logo + divider + avatar */}
               <button
                 type="button"
-                onClick={() => !isImpersonating && setShowProfile(true)}
+                onClick={() => setShowProfile(true)}
                 className="sm:hidden rounded-md focus:outline-none focus:ring-2 focus:ring-red-600/60 active:scale-95 transition-transform"
                 aria-label="Open profile settings"
                 title="Profile settings"
@@ -6981,7 +6981,7 @@ function EmailViewer() {
               <div className="hidden sm:block h-8 w-px bg-slate-200 ml-1" />
               <button
                 type="button"
-                onClick={() => !isImpersonating && setShowProfile(true)}
+                onClick={() => setShowProfile(true)}
                 className="hidden sm:block ml-1 rounded-full focus:outline-none focus:ring-2 focus:ring-red-600/60 active:scale-95 transition-transform"
                 aria-label="Open profile settings"
                 title="Profile settings"
@@ -7015,14 +7015,12 @@ function EmailViewer() {
 
 
 
-            {!isImpersonating && (
-              <button onClick={() => setShowProfile(true)}
-                className="flex items-center p-2.5 sm:px-3 sm:py-2 bg-gradient-to-r from-violet-500 to-purple-600 text-white rounded-full text-sm font-bold hover:from-violet-600 hover:to-purple-700 transition-all active:scale-95 shadow-md shadow-purple-200"
-                title="Profile">
-                <UserCircle className="w-4 h-4 sm:w-5 sm:h-5" />
-                <span className="hidden sm:inline ml-1.5">Profile</span>
-              </button>
-            )}
+            <button onClick={() => setShowProfile(true)}
+              className="flex items-center p-2.5 sm:px-3 sm:py-2 bg-gradient-to-r from-violet-500 to-purple-600 text-white rounded-full text-sm font-bold hover:from-violet-600 hover:to-purple-700 transition-all active:scale-95 shadow-md shadow-purple-200"
+              title="Profile">
+              <UserCircle className="w-4 h-4 sm:w-5 sm:h-5" />
+              <span className="hidden sm:inline ml-1.5">Profile</span>
+            </button>
             <button onClick={() => {
               if (isImpersonating) { backToAdmin(); return; }
               sessionClearAll(); navigate("/");
