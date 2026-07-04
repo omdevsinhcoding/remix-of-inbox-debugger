@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { type GlobalToast, notify, toastStore } from "./notify";
 
-type ToastTone = "light" | "dark";
+type CardTone = "light" | "dark";
 
 const ICONS = {
   success: Check,
@@ -13,7 +13,10 @@ const ICONS = {
   loading: LoaderCircle,
 };
 
-/* ---------- page tone detection (samples the actual page background) ---------- */
+/* ---------- surface-aware card tone ----------
+   light page  -> dark toast card
+   dark page   -> light toast card
+   The name here is the CARD tone, not the page tone. */
 
 function parseRgb(value: string): [number, number, number, number] | null {
   if (!value || value === "transparent") return null;
@@ -45,17 +48,18 @@ function sampleAt(x: number, y: number): number | null {
   return null;
 }
 
-function getPageTone(): ToastTone {
-  if (typeof window === "undefined" || typeof document === "undefined") return "dark";
+function getCardTone(): CardTone {
+  if (typeof window === "undefined" || typeof document === "undefined") return "light";
   const w = window.innerWidth;
   const h = window.innerHeight;
-  // Sample multiple points, prefer the majority tone.
+  // Sample around the toast anchor first, then the main visible page.
   const samples: number[] = [];
   const points: Array<[number, number]> = [
-    [Math.max(12, w - 40), Math.max(12, h - 40)],
+    [Math.max(16, w - 56), Math.max(16, h - 56)],
+    [Math.max(16, w - 220), Math.max(16, h - 96)],
+    [Math.max(16, w - 120), Math.floor(h / 2)],
     [Math.floor(w / 2), Math.floor(h / 2)],
-    [Math.floor(w / 2), 40],
-    [40, Math.floor(h / 2)],
+    [Math.floor(w / 2), Math.max(24, h - 120)],
   ];
   for (const [x, y] of points) {
     const l = sampleAt(x, y);
@@ -65,20 +69,18 @@ function getPageTone(): ToastTone {
     const bodyRgba = parseRgb(window.getComputedStyle(document.body).backgroundColor);
     if (bodyRgba) samples.push(luminance(bodyRgba));
   }
-  if (samples.length === 0) return "dark";
+  if (samples.length === 0) return "light";
   const avg = samples.reduce((a, b) => a + b, 0) / samples.length;
-  // Bright page → dark toast; dark page → light toast.
-  return avg > 0.42 ? "dark" : "light";
+  return avg > 0.46 ? "dark" : "light";
 }
 
 /* ---------- individual card with progress bar ---------- */
 
-function ToastCard({ toast, tone }: { toast: GlobalToast; tone: ToastTone }) {
+function ToastCard({ toast, tone }: { toast: GlobalToast; tone: CardTone }) {
   const Icon = ICONS[toast.variant];
   const hasProgress = Number.isFinite(toast.duration) && toast.duration > 0 && toast.variant !== "loading";
   return (
-    <div className="gt-toast" data-tone={tone} data-variant={toast.variant} role="status" aria-live="polite">
-      <div className="gt-toast-accent" aria-hidden="true" />
+    <div className="gt-toast" data-card={tone} data-variant={toast.variant} role={toast.variant === "error" ? "alert" : "status"} aria-live={toast.variant === "error" ? "assertive" : "polite"}>
       <div className="gt-toast-icon" aria-hidden="true">
         <Icon />
       </div>
@@ -109,7 +111,7 @@ function ToastCard({ toast, tone }: { toast: GlobalToast; tone: ToastTone }) {
 
 export function ToastProvider() {
   const [toasts, setToasts] = useState<GlobalToast[]>(() => toastStore.getSnapshot());
-  const [tone, setTone] = useState<ToastTone>(() => (typeof window === "undefined" ? "dark" : getPageTone()));
+  const [tone, setTone] = useState<CardTone>(() => (typeof window === "undefined" ? "light" : getCardTone()));
 
   useEffect(() => toastStore.subscribe(setToasts), []);
 
@@ -118,7 +120,7 @@ export function ToastProvider() {
     let raf = 0;
     const update = () => {
       window.cancelAnimationFrame(raf);
-      raf = window.requestAnimationFrame(() => setTone(getPageTone()));
+      raf = window.requestAnimationFrame(() => setTone(getCardTone()));
     };
     update();
     window.addEventListener("resize", update);
@@ -140,7 +142,7 @@ export function ToastProvider() {
 
   // Re-sample whenever a new toast arrives (route changes usually trigger a toast).
   useEffect(() => {
-    if (typeof window !== "undefined") setTone(getPageTone());
+    if (typeof window !== "undefined") setTone(getCardTone());
   }, [toasts.length]);
 
   const root = useMemo(() => (typeof document === "undefined" ? null : document.body), []);
