@@ -306,10 +306,7 @@
   .gt-toast-progress { animation: none; }
 }
 
-@keyframes gtSpin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) {
-  .gt-toast, .gt-toast[data-variant="loading"] .gt-toast-icon svg { animation: none; }
-}
+
 
 
 
