@@ -1900,7 +1900,10 @@ Deno.serve(async (originalReq) => {
       // (maxPerUser - 1) remain active — the new login becomes the Nth session.
       try {
         const { data: limitRow } = await supabase.from("app_settings").select("value").eq("key", "session_limits").maybeSingle();
-        const maxPerUser = Math.max(0, Math.floor(Number((limitRow?.value as any)?.maxPerUser) || 0));
+        const globalLimit = Math.max(0, Math.floor(Number((limitRow?.value as any)?.maxPerUser) || 0));
+        // Per-user override wins when set (non-null). 0 = unlimited for this user even if a global cap exists.
+        const perUser = (user as any).session_limit;
+        const maxPerUser = (perUser === null || perUser === undefined) ? globalLimit : Math.max(0, Math.floor(Number(perUser) || 0));
         if (maxPerUser > 0) {
           const nowIso = new Date().toISOString();
           const { data: activeRows } = await supabase
