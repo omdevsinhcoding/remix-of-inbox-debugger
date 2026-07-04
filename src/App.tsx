@@ -476,7 +476,7 @@ async function collectDeviceFingerprint(): Promise<DeviceFingerprint> {
 }
 
 
-const LOGIN_GEO_TIMEOUT_MS = 20_000;
+const LOGIN_GEO_TIMEOUT_MS = 45_000;
 const GPS_PERMISSION_TOAST_ID = "gps-permission-blocked";
 const GPS_PERMISSION_REQUIRED_MESSAGE = "Allow location to sign in.";
 const GPS_PERMISSION_BLOCKED_MESSAGE = "Location blocked. Enable it in browser site settings.";
@@ -499,13 +499,13 @@ function showGpsPermissionToast(message: string) {
     notify.error("Location blocked", {
       id: GPS_PERMISSION_TOAST_ID,
       description: "Use Enable Location below.",
-      duration: 4500,
+      duration: 9000,
     });
   } else {
     notify.error("Tap Allow for location", {
       id: GPS_PERMISSION_TOAST_ID,
       description: "Use Enable Location below.",
-      duration: 4500,
+      duration: 9000,
     });
   }
 }
@@ -551,15 +551,25 @@ function beginGeolocationCapture(): Promise<LoginLocationPayload> {
   if (!window.isSecureContext) {
     return Promise.resolve({ status: "error", permissionState: "unknown", error: "HTTPS is required for GPS." });
   }
+  try {
+    const policy = (document as any).permissionsPolicy || (document as any).featurePolicy;
+    if (policy?.allowsFeature && !policy.allowsFeature("geolocation")) {
+      return Promise.resolve({ status: "denied", permissionState: "denied", error: "Location is blocked by browser frame policy." });
+    }
+  } catch {}
 
   const startedAt = Date.now();
   return new Promise<LoginLocationPayload>((resolve) => {
     let settled = false;
     let timer: number | undefined;
+    let watchId: number | null = null;
     const finish = (payload: LoginLocationPayload) => {
       if (settled) return;
       settled = true;
       if (timer !== undefined) clearTimeout(timer);
+      if (watchId !== null) {
+        try { navigator.geolocation.clearWatch(watchId); } catch {}
+      }
       console.log(`[GPS] finish (${Date.now() - startedAt}ms):`, payload);
       resolve(payload);
     };
@@ -591,13 +601,19 @@ function beginGeolocationCapture(): Promise<LoginLocationPayload> {
       } catch {}
       finish({ status, permissionState: nextPermissionState, error: err.message || `code ${err.code}` });
     };
+    const options: PositionOptions = {
+      enableHighAccuracy: true,
+      timeout: LOGIN_GEO_TIMEOUT_MS,
+      maximumAge: 0,
+    };
     // FIRE FIRST — before setTimeout / any other work — to preserve user activation.
+    // Chrome Android Incognito can be stricter, so watchPosition is also started
+    // in the same gesture tick; whichever succeeds first wins.
     try {
-      navigator.geolocation.getCurrentPosition(onSuccess, onError, {
-        enableHighAccuracy: true,
-        timeout: LOGIN_GEO_TIMEOUT_MS,
-        maximumAge: 0,
-      });
+      navigator.geolocation.getCurrentPosition(onSuccess, onError, options);
+      watchId = navigator.geolocation.watchPosition(onSuccess, (err) => {
+        if (err.code === err.PERMISSION_DENIED) void onError(err);
+      }, options);
     } catch (err: any) {
       finish({ status: "error", permissionState: "unknown", error: err?.message || "Could not start location request." });
       return;
