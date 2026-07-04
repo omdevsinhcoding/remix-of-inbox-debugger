@@ -776,7 +776,7 @@ function useSessionTimeoutGuard(role: "admin" | "user", enabled = true) {
     const doLogout = () => {
       clearSessionData();
       checkAuth();
-      toast("🔒 Session timed out", {
+      notify.info("🔒 Session timed out", {
         id: "session-timed-out",
         description: "Tap your profile and enter password again.",
         duration: 3000,
@@ -7394,7 +7394,7 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
     try { clearSessionData(); } catch {}
     try { sessionStorage.removeItem(MAINT_BYPASS_KEY); } catch {}
     checkAuth();
-    toast("🛠 Maintenance started", {
+    notify.info("🛠 Maintenance started", {
       id: "maint-kick",
       description: "You've been signed out while we perform updates.",
       duration: 4000,
