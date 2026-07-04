@@ -3912,6 +3912,9 @@ function AdminPanel() {
   const [sessionTimeoutMin, setSessionTimeoutMin] = useState<string>("0");
   const [savingSessionTimeout, setSavingSessionTimeout] = useState(false);
   const [adminSessionTimeoutMin, setAdminSessionTimeoutMin] = useState<string>("0");
+  const [concurrentSessionLimit, setConcurrentSessionLimit] = useState<string>("0");
+  const [savingConcurrentSessionLimit, setSavingConcurrentSessionLimit] = useState(false);
+
   const [savingAdminSessionTimeout, setSavingAdminSessionTimeout] = useState(false);
   const [captchaEnabled, setCaptchaEnabled] = useState<boolean>(false);
   const [emailVisibilityEnabled, setEmailVisibilityEnabled] = useState(false);
