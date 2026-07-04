@@ -4,8 +4,9 @@ import { Mail, RefreshCw, ShieldCheck, Shield, Clock, AlertCircle, Copy, Check, 
 import { motion, AnimatePresence } from "motion/react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import NetflixHouseholdVerificationGuide from "./pages/NetflixHouseholdVerificationGuide";
-import { Toaster, toast } from "sonner";
-import { premiumToast } from "./components/premium-toast";
+import { notify } from "./components/toast/notify";
+import { ToastProvider } from "./components/toast/toast-provider";
+
 import { supabase } from "./integrations/supabase/client";
 import { AVATAR_CATEGORIES, resolveAvatar, buildAvatarId, prettyName, getAvatarCategoryUrls } from "./lib/avatars";
 import { bootstrapFromSupabase, clearSessionData, markSessionStart, readBootstrapCache, refreshBootstrap, patchBootstrapCacheUser, getEmailFilters, setEmailFilters as setEmailFiltersCache, listNotifications, markNotificationRead, markAllNotificationsRead, markNotificationSeen, deleteNotificationForMe, logNotificationEvent, getPoppedIds, markPopped, adminListRecipients, adminDeleteNotificationForUser, type EmailFilters, type AppNotification, type MaintenanceInfo, type NotificationRecipient } from "./lib/bootstrap";
@@ -676,42 +677,8 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { err
   }
 }
 
-function ResponsiveToaster() {
-  const [isMobile, setIsMobile] = useState(() => typeof window !== "undefined" ? window.matchMedia("(max-width: 640px)").matches : true);
-  useEffect(() => {
-    const mq = window.matchMedia("(max-width: 640px)");
-    const onChange = () => setIsMobile(mq.matches);
-    onChange();
-    mq.addEventListener?.("change", onChange);
-    return () => mq.removeEventListener?.("change", onChange);
-  }, []);
-  return (
-    <Toaster
-      position={isMobile ? "top-center" : "bottom-right"}
-      closeButton
-      expand={false}
-      visibleToasts={1}
-      duration={2800}
-      gap={0}
-      offset={isMobile ? "calc(env(safe-area-inset-top) + 0.75rem)" : "1.25rem"}
-      toastOptions={{
-        unstyled: true,
-        classNames: {
-          toast: "cx-toast group",
-          title: "cx-toast-title",
-          description: "cx-toast-desc",
-          icon: "cx-toast-icon",
-          closeButton: "cx-toast-close",
-          success: "cx-v-success",
-          error: "cx-v-error",
-          info: "cx-v-info",
-          warning: "cx-v-warning",
-          loading: "cx-v-loading",
-        },
-      }}
-    />
-  );
-}
+// Toast surface is fully owned by <ToastProvider /> from ./components/toast.
+
 
 // --- Rate Limiter ---
 const loginAttempts: { [key: string]: number[] } = {};
@@ -809,7 +776,7 @@ function useSessionTimeoutGuard(role: "admin" | "user", enabled = true) {
     const doLogout = () => {
       clearSessionData();
       checkAuth();
-      toast("🔒 Session timed out", {
+      notify.info("🔒 Session timed out", {
         id: "session-timed-out",
         description: "Tap your profile and enter password again.",
         duration: 3000,
@@ -1251,7 +1218,7 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
   const handleMarkAllRead = async () => {
     await markAllNotificationsRead();
     onChange();
-    toast.success("All caught up");
+    notify.success("All caught up");
   };
 
   // ---- grouped rendering ----
@@ -1619,12 +1586,12 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
       setRemainingMs(Math.max(0, rem));
       if (rem > 0 && rem <= 60_000 && !warnedRef.current) {
         warnedRef.current = true;
-        premiumToast("Session ending in 1 minute", {
+        notify.warning("Session ending in 1 minute", {
           id: "session-1min-warning",
-          variant: "warning",
           description: "Finish what you're doing — sign in again soon.",
           duration: 5000,
         });
+
       }
     };
     tick();
@@ -2263,7 +2230,7 @@ function ProfileSelectPage() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Login failed";
       setError(msg);
-      toast.error(msg);
+      notify.error(msg);
     } finally {
       setLoginLoading(false);
     }
@@ -2546,12 +2513,12 @@ function AdminLoginPage() {
       sessionSet("user" as any, JSON.stringify({ ...data.user, pending: true }));
       checkAuth();
 
-      toast.success("Password verified. Complete 2FA to enter admin.");
+      notify.success("Password verified. Complete 2FA to enter admin.");
       navigate("/admin-auth");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Login failed";
       setError(msg);
-      toast.error(msg);
+      notify.error(msg);
     } finally {
       setLoading(false);
     }
@@ -2668,11 +2635,11 @@ function AdminAuthPage() {
       (async () => {
         try {
           await apiCall("manage-app", { action: "request_admin_otp", user_id: user.id });
-          toast.success("Secure OTP sent to your Telegram.");
+          notify.success("Secure OTP sent to your Telegram.");
         } catch (err) {
           const msg = err instanceof Error ? err.message : "Failed to send OTP";
           setError(msg);
-          toast.error(msg);
+          notify.error(msg);
           otpRequested.current = false;
         } finally {
           setLoading(false);
@@ -2689,7 +2656,7 @@ function AdminAuthPage() {
           if (res.otpauthUrl) setQrCode(res.otpauthUrl);
         } catch (err) {
           console.error("TOTP setup error:", err);
-          toast.error(err instanceof Error ? err.message : "Could not start authenticator setup");
+          notify.error(err instanceof Error ? err.message : "Could not start authenticator setup");
         }
       })();
     }
@@ -2714,7 +2681,7 @@ function AdminAuthPage() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Invalid OTP";
       setError(msg);
-      toast.error(msg);
+      notify.error(msg);
     } finally {
       setLoading(false);
     }
@@ -2743,12 +2710,12 @@ function AdminAuthPage() {
       sessionSet("admin_auth" as any, "true");
       sessionSet("user" as any, JSON.stringify(finalData.user));
       markSessionStart();
-      toast.success("Admin session secured.");
+      notify.success("Admin session secured.");
       navigate("/admin/dashboard");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Invalid Google Auth Code";
       setError(msg);
-      toast.error(msg);
+      notify.error(msg);
     } finally {
       setLoading(false);
     }
@@ -2892,7 +2859,7 @@ function LoginEventsPanel() {
 
       setEvents(res?.events || []);
     } catch (e: any) {
-      toast.error(e?.message || "Failed to load login events");
+      notify.error(e?.message || "Failed to load login events");
     } finally { setLoading(false); }
   };
   useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
@@ -2962,7 +2929,7 @@ function LoginEventsPanel() {
                         {(typeof e.gps_lat === "number" || typeof e.ip_lat === "number") && (
                           <a target="_blank" rel="noreferrer" href={`https://maps.google.com/?q=${e.gps_lat ?? e.ip_lat},${e.gps_lon ?? e.ip_lon}`} className="text-blue-600 hover:underline text-[11px] mr-2">Map</a>
                         )}
-                        {e.ip && <button onClick={() => { navigator.clipboard.writeText(e.ip); toast.success("IP copied"); }} className="text-slate-600 hover:underline text-[11px] mr-2">Copy IP</button>}
+                        {e.ip && <button onClick={() => { navigator.clipboard.writeText(e.ip); notify.success("IP copied"); }} className="text-slate-600 hover:underline text-[11px] mr-2">Copy IP</button>}
                         <button onClick={() => setExpanded(expanded === e.id ? null : e.id)} className="text-slate-600 hover:underline text-[11px]">{expanded === e.id ? "Hide" : "Raw"}</button>
                       </td>
                     </tr>
@@ -3034,7 +3001,7 @@ function LoginEventsPanel() {
                       <a target="_blank" rel="noreferrer" href={`https://maps.google.com/?q=${e.gps_lat ?? e.ip_lat},${e.gps_lon ?? e.ip_lon}`}
                         className="text-blue-600 hover:underline text-[11px] font-semibold">Map</a>
                     )}
-                    {e.ip && <button onClick={() => { navigator.clipboard.writeText(e.ip); toast.success("IP copied"); }} className="text-slate-600 hover:underline text-[11px] font-semibold">Copy IP</button>}
+                    {e.ip && <button onClick={() => { navigator.clipboard.writeText(e.ip); notify.success("IP copied"); }} className="text-slate-600 hover:underline text-[11px] font-semibold">Copy IP</button>}
                     <button onClick={() => setExpanded(isOpen ? null : e.id)} className="text-slate-600 hover:underline text-[11px] font-semibold ml-auto">{isOpen ? "Hide raw" : "Raw"}</button>
                   </div>
 
@@ -3080,7 +3047,7 @@ function AllEmailsPanel() {
       setOffset(nextOffset);
       setSelected(new Set());
     } catch (e: any) {
-      toast.error(e?.message || "Failed to load emails");
+      notify.error(e?.message || "Failed to load emails");
     } finally { setLoading(false); }
   }, [search, accountLabel]);
 
@@ -3101,7 +3068,7 @@ function AllEmailsPanel() {
     try {
       const res: any = await apiCall("manage-app", { action: "admin_get_email", id });
       setViewing(res?.email || null);
-    } catch (e: any) { toast.error(e?.message || "Failed to open"); }
+    } catch (e: any) { notify.error(e?.message || "Failed to open"); }
   };
 
   const deleteIds = async (ids: string[]) => {
@@ -3109,10 +3076,10 @@ function AllEmailsPanel() {
     if (!confirm(`Delete ${ids.length} email${ids.length === 1 ? "" : "s"} from the database? This removes them for every user and cannot be undone.`)) return;
     try {
       const res: any = await apiCall("manage-app", { action: "admin_delete_emails", ids });
-      toast.success(`Deleted ${res?.deleted ?? ids.length} email${(res?.deleted ?? ids.length) === 1 ? "" : "s"}`);
+      notify.success(`Deleted ${res?.deleted ?? ids.length} email${(res?.deleted ?? ids.length) === 1 ? "" : "s"}`);
       if (viewing && ids.includes(viewing.id)) setViewing(null);
       await load(offset);
-    } catch (e: any) { toast.error(e?.message || "Delete failed"); }
+    } catch (e: any) { notify.error(e?.message || "Delete failed"); }
   };
 
   const toggle = (id: string) => {
@@ -3264,7 +3231,7 @@ function RecipientsDrawer({ notification, onClose, onChanged }: { notification: 
       const list = await adminListRecipients(notification.id);
       setRows(list);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to load recipients");
+      notify.error(err instanceof Error ? err.message : "Failed to load recipients");
     } finally { setLoading(false); }
   };
 
@@ -3275,11 +3242,11 @@ function RecipientsDrawer({ notification, onClose, onChanged }: { notification: 
     setRemoving(userId);
     try {
       await adminDeleteNotificationForUser(notification.id, userId);
-      toast.success("Removed for this user");
+      notify.success("Removed for this user");
       await load();
       onChanged?.();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed");
+      notify.error(err instanceof Error ? err.message : "Failed");
     } finally { setRemoving(null); }
   };
 
@@ -3699,9 +3666,9 @@ function AdminPanel() {
         value: { timeoutMinutes: m },
       });
       setSessionTimeoutMin(String(m));
-      toast.success(m === 0 ? "Session timeout disabled" : `Session timeout set to ${m} min`);
+      notify.success(m === 0 ? "Session timeout disabled" : `Session timeout set to ${m} min`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to save session timeout");
+      notify.error(err instanceof Error ? err.message : "Failed to save session timeout");
     } finally {
       setSavingSessionTimeout(false);
     }
@@ -3716,9 +3683,9 @@ function AdminPanel() {
         value: { timeoutMinutes: m },
       });
       setAdminSessionTimeoutMin(String(m));
-      toast.success(m === 0 ? "Admin session timeout disabled" : `Admin auto-logout set to ${m} min`);
+      notify.success(m === 0 ? "Admin session timeout disabled" : `Admin auto-logout set to ${m} min`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to save admin session timeout");
+      notify.error(err instanceof Error ? err.message : "Failed to save admin session timeout");
     } finally {
       setSavingAdminSessionTimeout(false);
     }
@@ -3734,7 +3701,7 @@ function AdminPanel() {
     const startsAtIso = toIso(maintenanceStartsAt);
     const endsAtIso = toIso(maintenanceEndsAt);
     if (startsAtIso && endsAtIso && new Date(endsAtIso).getTime() <= new Date(startsAtIso).getTime()) {
-      toast.error("End time must be after start time");
+      notify.error("End time must be after start time");
       return;
     }
 
@@ -3782,13 +3749,13 @@ function AdminPanel() {
       prevSavedVersionToRef.current = nextVersionTo;
       try { await refreshBootstrap(); } catch {}
       window.dispatchEvent(new Event("maintenance:changed"));
-      if (autoBumped) toast.success(`Saved · version auto-bumped to v${nextVersionTo}`);
-      else toast.success(enabled ? `Maintenance ON · v${nextVersionTo}` : `Maintenance OFF · v${nextVersionTo}`);
+      if (autoBumped) notify.success(`Saved · version auto-bumped to v${nextVersionTo}`);
+      else notify.success(enabled ? `Maintenance ON · v${nextVersionTo}` : `Maintenance OFF · v${nextVersionTo}`);
       if (hasSchedule && !maintenanceEnabled && typeof nextEnabled !== "boolean") {
-        toast.message("Scheduled — site will auto-lock at start time and auto-unlock at end time.");
+        notify.info("Scheduled — site will auto-lock at start time and auto-unlock at end time.");
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to save maintenance settings");
+      notify.error(err instanceof Error ? err.message : "Failed to save maintenance settings");
     } finally {
       setSavingMaintenance(false);
     }
@@ -3825,9 +3792,9 @@ function AdminPanel() {
       setR2Cfg((c) => ({ ...c, secretAccessKeySet: persisted }));
       setR2Dirty(false);
       const note = Array.isArray(res?.warnings) && res.warnings.length ? ` (${res.warnings[0]})` : "";
-      toast.success(`${r2Cfg.enabled ? "R2 storage saved & enabled" : "R2 storage saved"}${note}`);
+      notify.success(`${r2Cfg.enabled ? "R2 storage saved & enabled" : "R2 storage saved"}${note}`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to save R2 config");
+      notify.error(err instanceof Error ? err.message : "Failed to save R2 config");
     } finally {
       setR2Saving(false);
     }
@@ -3854,12 +3821,12 @@ function AdminPanel() {
         publicUrlWorks: res?.publicUrlWorks,
         warnings: Array.isArray(res?.warnings) ? res.warnings : undefined,
       });
-      if (res?.success) toast.success(`Typed R2 values valid · ${res.latencyMs}ms`);
-      else toast.error(res?.message || "R2 test failed");
+      if (res?.success) notify.success(`Typed R2 values valid · ${res.latencyMs}ms`);
+      else notify.error(res?.message || "R2 test failed");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "R2 test failed";
       setR2TestResult({ ok: false, message: msg });
-      toast.error(msg);
+      notify.error(msg);
     } finally {
       setR2Testing(false);
     }
@@ -3869,15 +3836,15 @@ function AdminPanel() {
   const toggleCaptcha = async () => {
     try {
       const newEnabled = !captchaEnabled;
-      if (newEnabled && (!siteKey || !secretKeyVal)) { toast.error("Enter both Site Key and Secret Key first"); return; }
+      if (newEnabled && (!siteKey || !secretKeyVal)) { notify.error("Enter both Site Key and Secret Key first"); return; }
       await apiCall("manage-app", { action: "set_settings", key: "recaptcha", value: { siteKey, secretKey: secretKeyVal, enabled: newEnabled } });
       const fresh = await apiCall("manage-app", { action: "get_settings", key: "recaptcha" });
       setCaptchaEnabled(fresh.value?.enabled === true);
       setSiteKey(fresh.value?.siteKey || "");
       setSecretKeyVal(fresh.value?.secretKey || "");
-      toast.success(newEnabled ? "CAPTCHA enabled!" : "CAPTCHA disabled!");
+      notify.success(newEnabled ? "CAPTCHA enabled!" : "CAPTCHA disabled!");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to toggle CAPTCHA");
+      notify.error(err instanceof Error ? err.message : "Failed to toggle CAPTCHA");
     }
   };
 
@@ -3887,9 +3854,9 @@ function AdminPanel() {
       await apiCall("manage-app", { action: "set_settings", key: "recaptcha", value: { siteKey, secretKey: secretKeyVal, enabled: newEnabled } });
       const fresh = await apiCall("manage-app", { action: "get_settings", key: "recaptcha" });
       setCaptchaEnabled(fresh.value?.enabled === true);
-      toast.success("ReCAPTCHA settings saved!");
+      notify.success("ReCAPTCHA settings saved!");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to save settings");
+      notify.error(err instanceof Error ? err.message : "Failed to save settings");
     }
   };
 
@@ -3901,9 +3868,9 @@ function AdminPanel() {
       await apiCall("manage-app", { action: "email_visibility_set", enabled, days });
       setEmailVisibilityEnabled(enabled);
       setEmailVisibilityDays(String(days));
-      toast.success(enabled ? `Users will see last ${days} days of emails` : "Users can see all emails");
+      notify.success(enabled ? `Users will see last ${days} days of emails` : "Users can see all emails");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to save");
+      notify.error(err instanceof Error ? err.message : "Failed to save");
     } finally {
       setSavingEmailVisibility(false);
     }
@@ -3919,9 +3886,9 @@ function AdminPanel() {
       setEmailAutoDeleteEnabled(enabled);
       setEmailAutoDeleteDays(String(days));
       setEmailAutoDeleteHour(String(hour));
-      toast.success(enabled ? `Auto-delete: emails older than ${days} days will be removed daily at ${hour}:00` : "Auto-delete turned off");
+      notify.success(enabled ? `Auto-delete: emails older than ${days} days will be removed daily at ${hour}:00` : "Auto-delete turned off");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to save");
+      notify.error(err instanceof Error ? err.message : "Failed to save");
     } finally {
       setSavingEmailAutoDelete(false);
     }
@@ -3937,9 +3904,9 @@ function AdminPanel() {
     setShowSignInCodes(newVal);
     try {
       await persistEmailFilters({ showSignInCodes: newVal, showPasswordResets, showAccountUpdates });
-      toast.success(newVal ? "Sign-in code emails will be shown" : "Sign-in code emails will be hidden");
+      notify.success(newVal ? "Sign-in code emails will be shown" : "Sign-in code emails will be hidden");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to save filter setting");
+      notify.error(err instanceof Error ? err.message : "Failed to save filter setting");
       setShowSignInCodes(!newVal);
     }
   };
@@ -3949,9 +3916,9 @@ function AdminPanel() {
     setShowPasswordResets(newVal);
     try {
       await persistEmailFilters({ showSignInCodes, showPasswordResets: newVal, showAccountUpdates });
-      toast.success(newVal ? "Password reset emails will be shown" : "Password reset emails will be hidden");
+      notify.success(newVal ? "Password reset emails will be shown" : "Password reset emails will be hidden");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to save filter setting");
+      notify.error(err instanceof Error ? err.message : "Failed to save filter setting");
       setShowPasswordResets(!newVal);
     }
   };
@@ -3961,9 +3928,9 @@ function AdminPanel() {
     setShowAccountUpdates(newVal);
     try {
       await persistEmailFilters({ showSignInCodes, showPasswordResets, showAccountUpdates: newVal });
-      toast.success(newVal ? "Account update emails will be shown" : "Account update emails will be hidden");
+      notify.success(newVal ? "Account update emails will be shown" : "Account update emails will be hidden");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to save filter setting");
+      notify.error(err instanceof Error ? err.message : "Failed to save filter setting");
       setShowAccountUpdates(!newVal);
     }
   };
@@ -3975,9 +3942,9 @@ function AdminPanel() {
       await apiCall("manage-app", { action: "set_settings", key: "primary_cloudflare_urls", value: primaryCfUrls });
       // No browser-persistent worker URL cache; viewer reloads server settings.
       storeWorkerUrls(primaryCfUrls);
-      toast.success("Server configuration saved!");
+      notify.success("Server configuration saved!");
     } catch (err) {
-      toast.error("Failed to save: " + (err instanceof Error ? err.message : String(err)));
+      notify.error("Failed to save: " + (err instanceof Error ? err.message : String(err)));
     } finally {
       setSavingConfig(false);
     }
@@ -4001,9 +3968,9 @@ function AdminPanel() {
         length: Number(res.length) || 0,
         source: String(res.source || ""),
       });
-      toast.success("Signing secret verified. Copy the raw value from Supabase Dashboard → Edge Function Secrets.");
+      notify.success("Signing secret verified. Copy the raw value from Supabase Dashboard → Edge Function Secrets.");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not inspect SESSION_SIGNING_SECRET");
+      notify.error(err instanceof Error ? err.message : "Could not inspect SESSION_SIGNING_SECRET");
     } finally {
       setRevealingSigningSecret(false);
     }
@@ -4013,9 +3980,9 @@ function AdminPanel() {
     if (!signingSecretReveal?.fingerprint) return;
     try {
       await navigator.clipboard.writeText(signingSecretReveal.fingerprint);
-      toast.success("Fingerprint copied (not the raw secret)");
+      notify.success("Fingerprint copied (not the raw secret)");
     } catch {
-      toast.error("Copy failed — long press/select manually.");
+      notify.error("Copy failed — long press/select manually.");
     }
   };
 
@@ -4025,10 +3992,10 @@ function AdminPanel() {
     setSavingIpwho(true);
     try {
       await apiCall("manage-app", { action: "set_settings", key: "ipwho_alert", value: { enabled: next } });
-      toast.success(next ? "Legacy ipwho.is alert enabled" : "Legacy ipwho.is alert disabled");
+      notify.success(next ? "Legacy ipwho.is alert enabled" : "Legacy ipwho.is alert disabled");
     } catch (err) {
       setIpwhoAlertEnabled(!next);
-      toast.error(err instanceof Error ? err.message : "Failed");
+      notify.error(err instanceof Error ? err.message : "Failed");
     } finally { setSavingIpwho(false); }
   };
 
@@ -4040,10 +4007,10 @@ function AdminPanel() {
   };
 
   const sendNotification = async () => {
-    if (!notifTitle.trim() || !notifBody.trim()) { toast.error("Title and body required"); return; }
-    if (notifAudience === "user" && !notifTargetUser) { toast.error("Choose a target user"); return; }
-    if (notifImageUrl.trim() && !/^https:\/\//i.test(notifImageUrl.trim())) { toast.error("Image URL must start with https://"); return; }
-    if (notifActionUrl.trim() && !/^https?:\/\//i.test(notifActionUrl.trim())) { toast.error("Action URL must be a valid link"); return; }
+    if (!notifTitle.trim() || !notifBody.trim()) { notify.error("Title and body required"); return; }
+    if (notifAudience === "user" && !notifTargetUser) { notify.error("Choose a target user"); return; }
+    if (notifImageUrl.trim() && !/^https:\/\//i.test(notifImageUrl.trim())) { notify.error("Image URL must start with https://"); return; }
+    if (notifActionUrl.trim() && !/^https?:\/\//i.test(notifActionUrl.trim())) { notify.error("Action URL must be a valid link"); return; }
     setSendingNotif(true);
     try {
       await apiCall("manage-app", {
@@ -4066,14 +4033,14 @@ function AdminPanel() {
         target_user_id: notifAudience === "user" ? notifTargetUser : null,
         expiresInDays: notifExpiresDays ? Number(notifExpiresDays) : null,
       });
-      premiumToast("Notification sent", { variant: "info", description: "Delivered to targeted users", duration: 2400 });
+      notify.info("Notification sent", { description: "Delivered to targeted users", duration: 2400 });
       setNotifTitle(""); setNotifBody(""); setNotifDescription(""); setNotifImageUrl("");
       setNotifActionUrl(""); setNotifActionLabel("");
       setNotifExpiresDays(""); setNotifPlatformIcon(""); setNotifTemplate("");
       setNotifLocked(false);
       await reloadAdminNotifs();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to send");
+      notify.error(err instanceof Error ? err.message : "Failed to send");
     } finally { setSendingNotif(false); }
   };
 
@@ -4083,14 +4050,14 @@ function AdminPanel() {
     try {
       await apiCall("manage-app", { action: "admin_delete_notification", id });
       setAdminNotifs((prev) => prev.filter((n) => n.id !== id));
-      toast.success("Deleted");
-    } catch (err) { toast.error(err instanceof Error ? err.message : "Failed"); }
+      notify.success("Deleted");
+    } catch (err) { notify.error(err instanceof Error ? err.message : "Failed"); }
   };
 
   const saveEditNotif = async () => {
     if (!editingNotif) return;
     const e = editingNotif;
-    if (!e.title?.trim() || !e.body?.trim()) { toast.error("Title and message required"); return; }
+    if (!e.title?.trim() || !e.body?.trim()) { notify.error("Title and message required"); return; }
     setSavingEditNotif(true);
     try {
       await apiCall("manage-app", {
@@ -4105,10 +4072,10 @@ function AdminPanel() {
         audience: e.audience || "all",
         target_user_id: e.audience === "user" ? (e.target_user_id || null) : null,
       });
-      toast.success("Updated");
+      notify.success("Updated");
       setEditingNotif(null);
       await reloadAdminNotifs();
-    } catch (err) { toast.error(err instanceof Error ? err.message : "Failed"); }
+    } catch (err) { notify.error(err instanceof Error ? err.message : "Failed"); }
     finally { setSavingEditNotif(false); }
   };
 
@@ -4127,7 +4094,7 @@ function AdminPanel() {
     setNotifTargetUser(n.target_user_id || "");
     setNotifShowFrequency(n.show_frequency || "once");
     setNotifMode(n.mode || "popup");
-    toast.success("Copied to composer — edit and publish as new");
+    notify.success("Copied to composer — edit and publish as new");
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -4136,11 +4103,11 @@ function AdminPanel() {
 
   const adminClearInbox = async () => {
     if (inboxMode === "all" && inboxConfirm !== "DELETE ALL") {
-      toast.error('Type DELETE ALL to confirm');
+      notify.error('Type DELETE ALL to confirm');
       return;
     }
-    if (inboxMode === "label" && !inboxLabel) { toast.error("Choose an account label"); return; }
-    if (inboxMode === "days" && !inboxDays) { toast.error("Enter days"); return; }
+    if (inboxMode === "label" && !inboxLabel) { notify.error("Choose an account label"); return; }
+    if (inboxMode === "days" && !inboxDays) { notify.error("Enter days"); return; }
     if (!confirm("This permanently deletes emails from the database. Continue?")) return;
     setClearingInbox(true);
     try {
@@ -4151,37 +4118,37 @@ function AdminPanel() {
         days: inboxMode === "days" ? Number(inboxDays) : undefined,
         confirm: inboxMode === "all" ? inboxConfirm : undefined,
       });
-      toast.success(`Deleted ${res.deleted || 0} email(s)`);
+      notify.success(`Deleted ${res.deleted || 0} email(s)`);
       setInboxConfirm("");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed");
+      notify.error(err instanceof Error ? err.message : "Failed");
     } finally { setClearingInbox(false); }
   };
 
   const changeAdminPassword = async () => {
-    if (!currentPassword || !newAdminPassword) { toast.error("Fill both fields"); return; }
+    if (!currentPassword || !newAdminPassword) { notify.error("Fill both fields"); return; }
     setChangingPassword(true);
     try {
       await apiCall("manage-app", {
         action: "change_password", id: currentUser?.id, current_password: currentPassword, new_password: newAdminPassword,
       });
       setCurrentPassword(""); setNewAdminPassword("");
-      toast.success("Password changed successfully!");
+      notify.success("Password changed successfully!");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to change password");
+      notify.error(err instanceof Error ? err.message : "Failed to change password");
     } finally {
       setChangingPassword(false);
     }
   };
 
   const changeUserPassword = async (userId: string) => {
-    if (!userNewPass || userNewPass.length < 6) { toast.error("Password must be at least 6 characters"); return; }
+    if (!userNewPass || userNewPass.length < 6) { notify.error("Password must be at least 6 characters"); return; }
     try {
       await apiCall("manage-app", { action: "change_password", id: userId, new_password: userNewPass });
       setUserNewPass(""); setChangingUserPass(null);
-      toast.success("User password changed!");
+      notify.success("User password changed!");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to change password");
+      notify.error(err instanceof Error ? err.message : "Failed to change password");
     }
   };
 
@@ -4195,9 +4162,9 @@ function AdminPanel() {
       const adminToken = sessionGet("session_token" as any);
       const adminAuth = sessionGet("admin_auth" as any);
 
-      toast.loading(`Opening ${targetUser.name}'s inbox…`, { id: "impersonate" });
+      notify.loading(`Opening ${targetUser.name}'s inbox…`, { id: "impersonate" });
       const data = await apiCall("manage-app", { action: "impersonate", target_user_id: targetUser.id });
-      toast.dismiss("impersonate");
+      notify.dismiss("impersonate");
 
       // F4: Use sessionStorage (auto-cleared on tab close) with a 10-min TTL so a
       // shared-device user or same-origin script can't lift the admin session token.
@@ -4217,17 +4184,17 @@ function AdminPanel() {
       try { sessionRemove("session_started_at" as any); } catch {}
       sessionRemove("admin_auth" as any);
       navigate("/viewer", { replace: true });
-      toast.success(`Viewing as ${targetUser.name}`);
+      notify.success(`Viewing as ${targetUser.name}`);
     } catch (err) {
-      toast.dismiss("impersonate");
-      toast.error(err instanceof Error ? err.message : "Failed to impersonate user");
+      notify.dismiss("impersonate");
+      notify.error(err instanceof Error ? err.message : "Failed to impersonate user");
     }
   };
 
 
 
   const createUser = async () => {
-    if (!newUsername || !newPassword || !newName) { toast.error("Please fill all fields"); return; }
+    if (!newUsername || !newPassword || !newName) { notify.error("Please fill all fields"); return; }
     if (creatingUser) return;
     setCreatingUser(true);
     try {
@@ -4239,9 +4206,9 @@ function AdminPanel() {
       if (!res?.user) throw new Error("Server did not return the created user");
       setUsers(prev => [...prev, res.user]);
       setStats(prev => ({ ...prev, totalUsers: prev.totalUsers + 1 }));
-      toast.success("User created!");
+      notify.success("User created!");
     } catch (err) {
-      toast.error("Failed: " + (err instanceof Error ? err.message : String(err)));
+      notify.error("Failed: " + (err instanceof Error ? err.message : String(err)));
     } finally {
       setCreatingUser(false);
     }
@@ -4251,15 +4218,15 @@ function AdminPanel() {
     try {
       await apiCall("manage-app", { action: "delete", id });
       setUsers(users.filter(u => u.id !== id));
-      toast.success("User deleted!");
+      notify.success("User deleted!");
     } catch (err) {
-      toast.error("Failed: " + (err instanceof Error ? err.message : String(err)));
+      notify.error("Failed: " + (err instanceof Error ? err.message : String(err)));
     }
   };
 
   const addEmailAccount = async () => {
     if (!newAccount.label || !newAccount.user || !newAccount.password) {
-      toast.error("Fill label, email, and password"); return;
+      notify.error("Fill label, email, and password"); return;
     }
     const updated = [...emailAccounts, { ...newAccount, cloudflareUrls: [...newAccountCfUrls] }];
     setEmailAccounts(updated);
@@ -4268,9 +4235,9 @@ function AdminPanel() {
     setNewAccountCfInput("");
     try {
       await apiCall("manage-app", { action: "set_settings", key: "email_accounts", value: updated });
-      toast.success("Email account added!");
+      notify.success("Email account added!");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to save account");
+      notify.error(err instanceof Error ? err.message : "Failed to save account");
     }
   };
 
@@ -4279,9 +4246,9 @@ function AdminPanel() {
     setEmailAccounts(updated);
     try {
       await apiCall("manage-app", { action: "set_settings", key: "email_accounts", value: updated });
-      toast.success("Account removed!");
+      notify.success("Account removed!");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to remove account");
+      notify.error(err instanceof Error ? err.message : "Failed to remove account");
     }
   };
 
@@ -4291,9 +4258,9 @@ function AdminPanel() {
       const nextAccounts = editAccountsList.length > 0 ? editAccountsList : null;
       setEditingUserAccounts(null);
       setUsers(prev => prev.map(u => u.id === userId ? { ...u, assignedAccounts: nextAccounts } : u));
-      toast.success("User accounts updated!");
+      notify.success("User accounts updated!");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to update");
+      notify.error(err instanceof Error ? err.message : "Failed to update");
     }
   };
 
@@ -5026,7 +4993,7 @@ function AdminPanel() {
                                 const file = e.target.files?.[0];
                                 e.currentTarget.value = "";
                                 if (!file) return;
-                                if (file.size > 8 * 1024 * 1024) { toast.error("Image too large (max 8 MB)"); return; }
+                                if (file.size > 8 * 1024 * 1024) { notify.error("Image too large (max 8 MB)"); return; }
                                 setNotifImageUploading(true);
                                 try {
                                   const dataBase64: string = await new Promise((resolve, reject) => {
@@ -5041,9 +5008,9 @@ function AdminPanel() {
                                     contentType: file.type || "image/jpeg",
                                     dataBase64,
                                   });
-                                  if (res?.success && res.url) { setNotifImageUrl(res.url); toast.success("Uploaded"); }
+                                  if (res?.success && res.url) { setNotifImageUrl(res.url); notify.success("Uploaded"); }
                                   else throw new Error(res?.error || "upload failed");
-                                } catch (err: any) { toast.error(err?.message || "Upload failed"); }
+                                } catch (err: any) { notify.error(err?.message || "Upload failed"); }
                                 finally { setNotifImageUploading(false); }
                               }} />
                           </label>
@@ -5540,9 +5507,9 @@ function AdminPanel() {
                                   setEditingAccountUrls(null);
                                   try {
                                     await apiCall("manage-app", { action: "set_settings", key: "email_accounts", value: updated });
-                                    toast.success("Worker URLs updated!");
+                                    notify.success("Worker URLs updated!");
                                   } catch (err) {
-                                    toast.error(err instanceof Error ? err.message : "Failed to save URLs");
+                                    notify.error(err instanceof Error ? err.message : "Failed to save URLs");
                                   }
                                 }} className="w-full bg-blue-600 text-white text-xs font-bold py-1.5 rounded-lg hover:bg-blue-700 transition-all">
                                   Save URLs
@@ -6072,7 +6039,7 @@ function ChangePasswordModal({ user, onDone, forced = false }: { user: UserData;
       const stored = JSON.parse(sessionGet("user" as any) || "{}");
       stored.mustChangePassword = false;
       sessionSet("user" as any, JSON.stringify(stored));
-      toast.success("Password changed successfully!");
+      notify.success("Password changed successfully!");
       onDone();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to change password");
@@ -6434,11 +6401,11 @@ function UserProfileModal({
     }
     try {
       await apiCall("manage-app", { action: "update_profile_prefs", profile_prefs: nextPrefs });
-      toast.success("Profile icon updated");
+      notify.success("Profile icon updated");
       // Kick off a background refresh so any other cached fields also update.
       refreshBootstrap().catch(() => {});
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not save icon");
+      notify.error(err instanceof Error ? err.message : "Could not save icon");
     } finally {
       setSavingAvatar(false);
     }
@@ -6570,7 +6537,7 @@ function EmailViewer() {
     try {
       const backup = readImpersonationBackup();
       if (!backup) {
-        toast.error("Impersonation session expired — please sign in again as admin.");
+        notify.error("Impersonation session expired — please sign in again as admin.");
         try { sessionRemove("admin_backup" as any); } catch {}
         navigate("/admin");
         return;
@@ -6758,7 +6725,7 @@ function EmailViewer() {
     setRefreshing(true);
     const beforeIds = new Set(emails.map((e) => e.id));
     const toastId = "nf-refresh";
-    toast.loading("Checking Netflix mail…", { id: toastId });
+    notify.loading("Checking Netflix mail…", { id: toastId });
     try {
       await loadCachedEmails({ limit: 200 });
       // Fast path: worker sync returns fresh emails directly — no second round-trip.
@@ -6772,23 +6739,22 @@ function EmailViewer() {
       }
       const visible = filterVisibleEmails(merged, profilePrefs);
       const newCount = visible.filter((e) => !beforeIds.has(e.id)).length;
-      toast.dismiss(toastId);
+      notify.dismiss(toastId);
       if (newCount > 0) {
-        premiumToast(`${newCount} new email${newCount === 1 ? "" : "s"} arrived`, {
-          variant: "mail",
+        notify.info(`${newCount} new email${newCount === 1 ? "" : "s"} arrived`, {
           description: "Freshly delivered to your inbox",
           duration: 2600,
         });
       } else {
-        premiumToast(visible.length > 0 ? "Inbox is up to date" : "No Netflix emails yet", {
-          variant: "success",
+        notify.success(visible.length > 0 ? "Inbox is up to date" : "No Netflix emails yet", {
           duration: 2000,
         });
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to load";
-      toast.dismiss(toastId);
-      premiumToast("Refresh could not complete", { variant: "error", description: msg, duration: 3200 });
+      notify.dismiss(toastId);
+      notify.error("Refresh could not complete", { description: msg, duration: 3200 });
+
     } finally {
       if (refreshPollRef.current) {
         clearTimeout(refreshPollRef.current);
@@ -6817,9 +6783,9 @@ function EmailViewer() {
 
     try {
       await apiCall("manage-app", { action: "update_profile_prefs", profile_prefs: nextPrefs });
-      toast.success("Old emails deleted for this profile");
+      notify.success("Old emails deleted for this profile");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not save delete setting");
+      notify.error(err instanceof Error ? err.message : "Could not save delete setting");
     }
   };
 
@@ -7103,7 +7069,7 @@ function EmailViewer() {
                 <button
                   onClick={async () => {
                     pushDiag({ ts: Date.now(), kind: "cache", endpoint: "worker cache purge", note: "blocked in encrypted-only mode" });
-                    toast.message("Worker cache purge is disabled in encrypted-only mode");
+                    notify.info("Worker cache purge is disabled in encrypted-only mode");
                   }}
                   className="px-3 py-1.5 text-xs font-bold rounded-lg bg-red-600 text-white hover:bg-red-700"
                 >Purge KV cache</button>
@@ -7114,7 +7080,7 @@ function EmailViewer() {
                 <button
                   onClick={async () => {
                     pushDiag({ ts: Date.now(), kind: "worker", endpoint: "worker /api/health", note: "blocked in encrypted-only mode" });
-                    toast.message("Worker health ping is disabled in encrypted-only mode");
+                    notify.info("Worker health ping is disabled in encrypted-only mode");
                   }}
                   className="px-3 py-1.5 text-xs font-bold rounded-lg bg-slate-100 hover:bg-slate-200"
                 >Ping /api/health</button>
@@ -7428,7 +7394,7 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
     try { clearSessionData(); } catch {}
     try { sessionStorage.removeItem(MAINT_BYPASS_KEY); } catch {}
     checkAuth();
-    toast("🛠 Maintenance started", {
+    notify.info("🛠 Maintenance started", {
       id: "maint-kick",
       description: "You've been signed out while we perform updates.",
       duration: 4000,
@@ -7538,7 +7504,7 @@ export default function App() {
   return (
     <Router>
       <AuthProvider>
-        <ResponsiveToaster />
+        <ToastProvider />
         <ErrorBoundary>
           <MaintenanceGate>
             <Routes>
