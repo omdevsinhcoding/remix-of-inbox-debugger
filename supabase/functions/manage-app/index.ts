@@ -1548,6 +1548,31 @@ Deno.serve(async (originalReq) => {
     supabase.from("app_sessions").delete().lt("expires_at", new Date().toISOString()).eq("user_id", userId).then(() => {});
   }
 
+  // Realtime Broadcast — instant remote logout. Sends one WebSocket-delivered
+  // message (~50 bytes) to `session-family-<uuid>` channels so old devices log
+  // out within ~1s. No polling, no DB egress spike.
+  async function broadcastSessionRevoked(familyIds: string[], reason: string): Promise<void> {
+    if (!familyIds.length) return;
+    const url = `${Deno.env.get("SUPABASE_URL")}/realtime/v1/api/broadcast`;
+    const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const messages = familyIds.map((fid) => ({
+      topic: `session-family-${fid}`,
+      event: "revoked",
+      payload: { reason, at: Date.now() },
+      private: false,
+    }));
+    try {
+      await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", apikey: key, Authorization: `Bearer ${key}` },
+        body: JSON.stringify({ messages }),
+      });
+    } catch (e) {
+      console.warn("[broadcast] failed:", (e as any)?.message || e);
+    }
+  }
+
+
   // C.2 refresh-token rotation: mint access+refresh pair inside one session
   // family. Access TTL 15 min, refresh TTL 12 h. Refresh rotates on every use;
   // reuse of a rotated refresh token revokes the whole family (see refresh_session action).
