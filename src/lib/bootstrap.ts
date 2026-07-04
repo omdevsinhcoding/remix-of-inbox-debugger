@@ -1,10 +1,11 @@
 import { supabase } from "../integrations/supabase/client";
 import { setAvatarBaseUrl } from "./avatars";
+import { sessionGet, sessionSet, sessionRemove, sessionClearAll } from "./session";
 
 const WORKER_URLS_KEY = "cloudflare_worker_urls";
 const BOOTSTRAP_CACHE_KEY = "bootstrap_cache_v1";
 const BOOTSTRAP_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-const BOOTSTRAP_TIMEOUT_MS = 8000;
+const BOOTSTRAP_TIMEOUT_MS = 20000;
 
 export type EmailFilters = { showSignInCodes?: boolean; showPasswordResets?: boolean; showAccountUpdates?: boolean };
 export type MaintenanceInfo = { enabled: boolean; title?: string; message?: string; eta?: string; startsAt?: string | null; endsAt?: string | null; versionFrom?: string; versionTo?: string; updated_at?: string | null };
@@ -30,47 +31,35 @@ function storeWorkerUrls(urls: string[]) {
 }
 
 export function markSessionStart() {
-  try { localStorage.setItem("session_started_at", String(Date.now())); } catch {}
+  try { sessionSet("session_started_at" as any, String(Date.now())); } catch {}
 }
 
 export function clearSessionData() {
   // Best-effort: revoke session server-side so the DB row is deleted.
   try {
-    const token = localStorage.getItem("session_token");
+    const token = sessionGet("session_token" as any);
     if (token) {
-      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/manage-app`;
-      const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-      const body = JSON.stringify({ action: "logout" });
-      // Use keepalive fetch so the request survives navigation/unload.
-      fetch(url, {
-        method: "POST",
-        keepalive: true,
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${key}`,
-          "apikey": key,
-          "X-Session-Token": token,
-        },
-        body,
-      }).catch(() => {});
+      import("./secureTransport")
+        .then(({ invokeEdge }) => invokeEdge("manage-app", { action: "logout" }, { headers: { "X-Session-Token": token } }))
+        .catch(() => {});
     }
   } catch {}
   try {
     // Capture the user id BEFORE clearing so we can purge that profile's OTP cache too.
     let uid: string | null = null;
     try {
-      const raw = localStorage.getItem("user");
+      const raw = sessionGet("user" as any);
       if (raw) uid = JSON.parse(raw)?.id || null;
     } catch {}
-    localStorage.removeItem("user");
-    localStorage.removeItem("session_token");
-    localStorage.removeItem("session_started_at");
-    localStorage.removeItem("admin_auth");
-    localStorage.removeItem("pending_admin_token");
+    sessionRemove("user" as any);
+    sessionRemove("session_token" as any);
+    sessionRemove("session_started_at" as any);
+    sessionRemove("admin_auth" as any);
+    sessionRemove("pending_admin_token" as any);
     localStorage.removeItem("pending_admin_user");
     // F4: impersonation backup is now in sessionStorage; sweep both stores for safety.
-    localStorage.removeItem("admin_backup");
-    try { sessionStorage.removeItem("admin_backup"); } catch {}
+    sessionRemove("admin_backup" as any);
+    try { sessionRemove("admin_backup" as any); } catch {}
     // F8: purge cached Netflix OTP emails so the next profile on this device
     // can't read the previous profile's inbox after a timeout/forced logout.
     if (uid) localStorage.removeItem(`cached_emails_v1:${uid}`);
@@ -81,7 +70,10 @@ export function clearSessionData() {
         if (k && k.startsWith("cached_emails_v1:")) localStorage.removeItem(k);
       }
     } catch {}
+    // C.2: clear refresh-token state and cancel scheduler.
+    try { import("./sessionRefresh").then(({ clearRefreshState }) => clearRefreshState()).catch(() => {}); } catch {}
   } catch {}
+
 }
 
 
@@ -121,11 +113,11 @@ export async function bootstrapFromSupabase(opts?: { force?: boolean }): Promise
   }
 
   const request = (async () => {
-    const { data, error } = await withTimeout(
-      supabase.functions.invoke("manage-app", { body: { action: "bootstrap_public" } }),
+    const { invokeEdge } = await import("./secureTransport");
+    const data: any = await withTimeout(
+      invokeEdge("manage-app", { action: "bootstrap_public" }),
       BOOTSTRAP_TIMEOUT_MS,
     );
-    if (error) throw error;
     if (!data?.success) throw new Error(data?.error || "Bootstrap failed");
 
     if (Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
@@ -216,14 +208,11 @@ export type AppNotification = {
 };
 
 async function callManage<T = any>(action: string, payload: Record<string, any> = {}): Promise<T> {
-  const token = localStorage.getItem("session_token");
+  const token = sessionGet("session_token" as any);
   const headers: Record<string, string> = {};
   if (token) headers["X-Session-Token"] = token;
-  const { data, error } = await supabase.functions.invoke("manage-app", {
-    body: { action, ...payload },
-    headers,
-  });
-  if (error) throw error;
+  const { invokeEdge } = await import("./secureTransport");
+  const data: any = await invokeEdge("manage-app", { action, ...payload }, { headers });
   if (!data?.success) throw new Error(data?.error || `${action} failed`);
   return data as T;
 }

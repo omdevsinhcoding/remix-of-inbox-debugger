@@ -83,33 +83,54 @@ export type Database = {
       }
       app_sessions: {
         Row: {
+          binding_hash: string | null
           created_at: string
           expires_at: string
+          family_id: string | null
           id: string
           ip: string | null
           last_seen_at: string
+          parent_session_id: string | null
+          refresh_expires_at: string | null
+          refresh_token_hash: string | null
+          revoked_at: string | null
+          revoked_reason: string | null
           role: string
           token_hash: string
           user_agent: string | null
           user_id: string
         }
         Insert: {
+          binding_hash?: string | null
           created_at?: string
           expires_at: string
+          family_id?: string | null
           id?: string
           ip?: string | null
           last_seen_at?: string
+          parent_session_id?: string | null
+          refresh_expires_at?: string | null
+          refresh_token_hash?: string | null
+          revoked_at?: string | null
+          revoked_reason?: string | null
           role?: string
           token_hash: string
           user_agent?: string | null
           user_id: string
         }
         Update: {
+          binding_hash?: string | null
           created_at?: string
           expires_at?: string
+          family_id?: string | null
           id?: string
           ip?: string | null
           last_seen_at?: string
+          parent_session_id?: string | null
+          refresh_expires_at?: string | null
+          refresh_token_hash?: string | null
+          revoked_at?: string | null
+          revoked_reason?: string | null
           role?: string
           token_hash?: string
           user_agent?: string | null
@@ -179,7 +200,9 @@ export type Database = {
           details: Json | null
           id: string
           ip: string | null
+          result: string | null
           target_id: string | null
+          user_agent: string | null
         }
         Insert: {
           action: string
@@ -188,7 +211,9 @@ export type Database = {
           details?: Json | null
           id?: string
           ip?: string | null
+          result?: string | null
           target_id?: string | null
+          user_agent?: string | null
         }
         Update: {
           action?: string
@@ -197,7 +222,9 @@ export type Database = {
           details?: Json | null
           id?: string
           ip?: string | null
+          result?: string | null
           target_id?: string | null
+          user_agent?: string | null
         }
         Relationships: []
       }
@@ -240,6 +267,69 @@ export type Database = {
           preview?: string | null
           subject?: string | null
           to_address?: string | null
+        }
+        Relationships: []
+      }
+      crypto_nonces: {
+        Row: {
+          nonce: string
+          seen_at: string
+          session_id: string
+        }
+        Insert: {
+          nonce: string
+          seen_at?: string
+          session_id: string
+        }
+        Update: {
+          nonce?: string
+          seen_at?: string
+          session_id?: string
+        }
+        Relationships: []
+      }
+      crypto_sessions: {
+        Row: {
+          aes_key: string
+          created_at: string
+          expires_at: string
+          id: string
+          ip: string | null
+          origin_hash: string | null
+        }
+        Insert: {
+          aes_key: string
+          created_at?: string
+          expires_at?: string
+          id?: string
+          ip?: string | null
+          origin_hash?: string | null
+        }
+        Update: {
+          aes_key?: string
+          created_at?: string
+          expires_at?: string
+          id?: string
+          ip?: string | null
+          origin_hash?: string | null
+        }
+        Relationships: []
+      }
+      handshake_rate: {
+        Row: {
+          count: number
+          ip: string
+          minute_bucket: string
+        }
+        Insert: {
+          count?: number
+          ip: string
+          minute_bucket: string
+        }
+        Update: {
+          count?: number
+          ip?: string
+          minute_bucket?: string
         }
         Relationships: []
       }
@@ -792,6 +882,39 @@ export type Database = {
         }
         Relationships: []
       }
+      security_events: {
+        Row: {
+          id: number
+          ip: unknown
+          meta: Json
+          severity: string
+          ts: string
+          type: string
+          ua: string | null
+          uid: string | null
+        }
+        Insert: {
+          id?: number
+          ip?: unknown
+          meta?: Json
+          severity?: string
+          ts?: string
+          type: string
+          ua?: string | null
+          uid?: string | null
+        }
+        Update: {
+          id?: number
+          ip?: unknown
+          meta?: Json
+          severity?: string
+          ts?: string
+          type?: string
+          ua?: string | null
+          uid?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
@@ -799,6 +922,8 @@ export type Database = {
     Functions: {
       get_cron_status: { Args: never; Returns: Json }
       get_email_cleanup_status: { Args: never; Returns: Json }
+      purge_expired_crypto_sessions: { Args: never; Returns: undefined }
+      purge_expired_nonces: { Args: never; Returns: undefined }
       schedule_email_cleanup: {
         Args: { days: number; hour: number }
         Returns: undefined
