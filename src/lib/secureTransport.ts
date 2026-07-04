@@ -22,7 +22,7 @@ const ROTATE_BEFORE_EXPIRY_MS = 60_000; // rotate 1 min before expiry
 const FALLBACK_TTL_MS = 14 * 60_000; // if server omits expiresAt, assume 14min
 
 async function gunzipBytes(input: Uint8Array): Promise<Uint8Array> {
-  const stream = new Blob([input]).stream().pipeThrough(new DecompressionStream("gzip"));
+  const stream = new Blob([input as BlobPart]).stream().pipeThrough(new DecompressionStream("gzip"));
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
