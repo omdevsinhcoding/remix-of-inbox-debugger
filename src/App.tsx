@@ -1115,7 +1115,7 @@ function AutoPopupNotification() {
             animate={{ scale: 1, y: 0, opacity: 1 }}
             exit={{ scale: 0.96, y: 8, opacity: 0 }}
             transition={{ duration: 0.22, ease: [0.32, 0.72, 0, 1] }}
-            className="relative w-full max-w-[440px] rounded-3xl overflow-hidden"
+            className="relative w-full max-w-[560px] rounded-3xl overflow-hidden"
             style={{
               background: "rgba(14,14,17,0.92)",
               backdropFilter: "blur(28px) saturate(160%)",
@@ -1153,11 +1153,11 @@ function AutoPopupNotification() {
               <div className="pt-10" />
             )}
 
-            <div className="px-6 pb-6 pt-5">
+            <div className="px-6 sm:px-7 pb-6 sm:pb-7 pt-5 sm:pt-6">
               {/* icon medallion */}
               <div className="flex items-center gap-2.5 mb-3">
-                <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-white/[0.06] border border-white/10">
-                  <CatIcon className={`w-4 h-4 ${cat.color}`} />
+                <span className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-white/[0.06] border border-white/10">
+                  <CatIcon className={`w-5 h-5 ${cat.color}`} />
                 </span>
                 <span className="text-[10.5px] uppercase tracking-[0.14em] text-zinc-400 font-medium">
                   {cat.label}
@@ -1165,16 +1165,16 @@ function AutoPopupNotification() {
               </div>
 
               <h2
-                className="text-white text-[22px] leading-tight mb-2"
+                className="text-white text-[25px] sm:text-[28px] leading-tight mb-2"
                 style={{ fontFamily: "'Instrument Serif', 'Cormorant Garamond', ui-serif, Georgia, serif", letterSpacing: "-0.015em" }}
               >
                 {current.title}
               </h2>
-              <p className="text-zinc-300 text-[13.5px] leading-relaxed font-light whitespace-pre-wrap">
+              <p className="text-zinc-300 text-[15px] sm:text-[15.5px] leading-relaxed font-light whitespace-pre-wrap">
                 {current.body}
               </p>
               {current.description && (
-                <p className="mt-3 text-zinc-400 text-[12.5px] leading-relaxed font-light whitespace-pre-wrap line-clamp-6">
+                <p className="mt-3 text-zinc-400 text-[14px] leading-relaxed font-light whitespace-pre-wrap line-clamp-6">
                   {current.description}
                 </p>
               )}
@@ -1182,7 +1182,7 @@ function AutoPopupNotification() {
               <div className="mt-5 flex flex-col-reverse sm:flex-row gap-2.5">
                 <button
                   onClick={() => dismiss(false)}
-                  className="flex-1 py-2.5 rounded-xl text-[13px] font-medium text-zinc-300 bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 transition-colors"
+                  className="flex-1 py-3 rounded-xl text-[14px] font-medium text-zinc-300 bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 transition-colors"
                 >
                   Later
                 </button>
@@ -1192,14 +1192,14 @@ function AutoPopupNotification() {
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={() => { logNotificationEvent(current.id, "clicked", { url: current.action_url }).catch(() => {}); markNotificationRead(current.id).catch(() => {}); dismiss(true); }}
-                    className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold text-white bg-white hover:bg-zinc-100 !text-black flex items-center justify-center gap-1.5 transition-colors"
+                    className="flex-1 py-3 rounded-xl text-[14px] font-semibold text-white bg-white hover:bg-zinc-100 !text-black flex items-center justify-center gap-1.5 transition-colors"
                   >
                     {current.action_label} <ExternalLink className="w-3.5 h-3.5" />
                   </a>
                 ) : (
                   <button
                     onClick={openInBell}
-                    className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold text-black bg-white hover:bg-zinc-100 transition-colors"
+                    className="flex-1 py-3 rounded-xl text-[14px] font-semibold text-black bg-white hover:bg-zinc-100 transition-colors"
                   >
                     Read more
                   </button>
@@ -1533,8 +1533,8 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
       animate={{ scale: 1, y: 0, opacity: 1 }}
       exit={{ scale: 0.98, opacity: 0 }}
       transition={{ duration: 0.16, ease: "easeOut" }}
-      className="relative w-full max-w-[680px] flex flex-col rounded-3xl overflow-hidden"
-      style={{ ...surfaceStyle, maxHeight: "min(84vh, 860px)" }}
+      className="relative w-full max-w-[780px] flex flex-col rounded-3xl overflow-hidden"
+      style={{ ...surfaceStyle, maxHeight: "min(88vh, 920px)" }}
     >
       {Header}
       {detail ? Detail : List}
