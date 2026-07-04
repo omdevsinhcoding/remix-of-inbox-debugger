@@ -1548,6 +1548,31 @@ Deno.serve(async (originalReq) => {
     supabase.from("app_sessions").delete().lt("expires_at", new Date().toISOString()).eq("user_id", userId).then(() => {});
   }
 
+  // Realtime Broadcast — instant remote logout. Sends one WebSocket-delivered
+  // message (~50 bytes) to `session-family-<uuid>` channels so old devices log
+  // out within ~1s. No polling, no DB egress spike.
+  async function broadcastSessionRevoked(familyIds: string[], reason: string): Promise<void> {
+    if (!familyIds.length) return;
+    const url = `${Deno.env.get("SUPABASE_URL")}/realtime/v1/api/broadcast`;
+    const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const messages = familyIds.map((fid) => ({
+      topic: `session-family-${fid}`,
+      event: "revoked",
+      payload: { reason, at: Date.now() },
+      private: false,
+    }));
+    try {
+      await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", apikey: key, Authorization: `Bearer ${key}` },
+        body: JSON.stringify({ messages }),
+      });
+    } catch (e) {
+      console.warn("[broadcast] failed:", (e as any)?.message || e);
+    }
+  }
+
+
   // C.2 refresh-token rotation: mint access+refresh pair inside one session
   // family. Access TTL 15 min, refresh TTL 12 h. Refresh rotates on every use;
   // reuse of a rotated refresh token revokes the whole family (see refresh_session action).
@@ -1903,7 +1928,13 @@ Deno.serve(async (originalReq) => {
               .in("family_id", toRevoke)
               .is("revoked_at", null);
             await auditLog(supabase, "session_limit_enforced", user.id, null, { revokedFamilies: toRevoke.length, maxPerUser }, ip);
+            // Instant kick — push a Realtime Broadcast to each revoked family so
+            // the old device logs out within ~1s over its persistent WebSocket
+            // (no polling, ~50 bytes egress per revoke).
+            const runBroadcast = broadcastSessionRevoked(toRevoke, "new_login");
+            (globalThis as any).EdgeRuntime?.waitUntil?.(runBroadcast) ?? runBroadcast.catch(() => {});
           }
+
         }
       } catch (e) {
         console.warn("[login] session-limit enforcement skipped:", (e as any)?.message || e);
@@ -1925,6 +1956,7 @@ Deno.serve(async (originalReq) => {
         expiresAt: pair.accessExpMs,
         refreshToken: pair.refreshToken,
         refreshExpiresAt: pair.refreshExpMs,
+        sessionFamilyId: pair.familyId,
         workerUrls,
         user: {
           id: user.id, username: user.username, name: user.name, role: user.role,
@@ -1936,6 +1968,7 @@ Deno.serve(async (originalReq) => {
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+
 
     }
 
@@ -2508,7 +2541,9 @@ Deno.serve(async (originalReq) => {
         expiresAt: pair.accessExpMs,
         refreshToken: pair.refreshToken,
         refreshExpiresAt: pair.refreshExpMs,
+        sessionFamilyId: pair.familyId,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
     }
 
 

@@ -19,6 +19,7 @@ import { sessionGet, sessionSet, sessionRemove } from "./session";
 const K_REFRESH = "refresh_token";
 const K_REFRESH_EXP = "refresh_expires_at";
 const K_ACCESS_EXP = "session_expires_at";
+const K_FAMILY = "session_family_id";
 
 let armedTimer: number | null = null;
 let inflight: Promise<boolean> | null = null;
@@ -28,12 +29,18 @@ export function storeSessionPair(data: {
   expiresAt?: number;
   refreshToken?: string;
   refreshExpiresAt?: number;
+  sessionFamilyId?: string;
 }) {
   if (!data) return;
   if (data.expiresAt) sessionSet(K_ACCESS_EXP as any, String(data.expiresAt));
   if (data.refreshToken) sessionSet(K_REFRESH as any, data.refreshToken);
   if (data.refreshExpiresAt) sessionSet(K_REFRESH_EXP as any, String(data.refreshExpiresAt));
+  if (data.sessionFamilyId) sessionSet(K_FAMILY as any, data.sessionFamilyId);
   armAutoRefresh();
+}
+
+export function getSessionFamilyId(): string | null {
+  try { return sessionGet(K_FAMILY as any); } catch { return null; }
 }
 
 export function clearRefreshState() {
@@ -41,7 +48,9 @@ export function clearRefreshState() {
   try { sessionRemove(K_REFRESH as any); } catch {}
   try { sessionRemove(K_REFRESH_EXP as any); } catch {}
   try { sessionRemove(K_ACCESS_EXP as any); } catch {}
+  try { sessionRemove(K_FAMILY as any); } catch {}
 }
+
 
 function getRefreshToken(): string | null { try { return sessionGet(K_REFRESH as any); } catch { return null; } }
 function getAccessExp(): number { const v = (() => { try { return sessionGet(K_ACCESS_EXP as any); } catch { return null; } })(); return v ? Number(v) : 0; }
