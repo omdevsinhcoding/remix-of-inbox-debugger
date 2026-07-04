@@ -2736,12 +2736,12 @@ function AdminLoginPage() {
     };
   }, [gpsBlocked]);
 
-  const startLocationThenLogin = async () => {
+  const startLocationThenLogin = async (preStartedGeo?: Promise<LoginLocationPayload>) => {
     pendingClientGeoRef.current = null;
     setLoading(true);
     setError("");
     try {
-      const clientGeo = await requireLoginLocation();
+      const clientGeo = await requireLoginLocation(preStartedGeo);
       pendingClientGeoRef.current = clientGeo;
       if (!captchaReady) {
         if (captchaConfigError) {
