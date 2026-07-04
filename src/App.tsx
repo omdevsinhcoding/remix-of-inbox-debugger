@@ -264,6 +264,8 @@ const SESSION_CONFIG_KEY_FOR = (role: "admin" | "user") =>
   role === "admin" ? "admin_session_config" : "session_config";
 
 // --- Worker URL Types & Helpers ---
+const WORKER_URLS_KEY = "cloudflare_worker_urls";
+
 type WorkerUrlMap = {
   primary: string[];
   byAccount: Record<string, string[]>;
@@ -280,16 +282,20 @@ function shuffleArray<T>(arr: T[]): T[] {
 
 function getStoredWorkerUrls(): string[] {
   try {
-    const raw = sessionGet("cloudflare_worker_urls" as any);
-    const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed.map(String).map((u) => u.trim().replace(/\/+$/, "")).filter(Boolean) : [];
-  } catch { return []; }
+    const stored = localStorage.getItem(WORKER_URLS_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+    const cached = readBootstrapCache();
+    if (Array.isArray(cached?.workerUrls) && cached.workerUrls.length > 0) return cached.workerUrls;
+  } catch {}
+  return [];
 }
 
 function storeWorkerUrls(urls: string[]) {
   try {
-    const normalized = Array.from(new Set((urls || []).map(String).map((u) => u.trim().replace(/\/+$/, "")).filter(Boolean)));
-    if (normalized.length) sessionSet("cloudflare_worker_urls" as any, JSON.stringify(normalized));
+    localStorage.setItem(WORKER_URLS_KEY, JSON.stringify(urls));
   } catch {}
 }
 
@@ -684,26 +690,25 @@ function ResponsiveToaster() {
   }, []);
   return (
     <Toaster
-      position={isMobile ? "top-center" : "bottom-right"}
+      position={isMobile ? "bottom-center" : "bottom-right"}
       closeButton
       expand={false}
-      visibleToasts={1}
-      duration={2800}
-      gap={0}
-      offset={isMobile ? "calc(env(safe-area-inset-top) + 0.75rem)" : "1.25rem"}
+      visibleToasts={2}
+      duration={2500}
+      offset={isMobile ? "calc(env(safe-area-inset-bottom) + 5.5rem)" : "5rem"}
       toastOptions={{
-        unstyled: true,
+        className: "pointer-events-auto !rounded-xl !border !shadow-lg !backdrop-blur",
+        style: {
+          background: "linear-gradient(135deg, rgba(30,41,59,0.96), rgba(15,23,42,0.96))",
+          color: "#f1f5f9",
+          border: "1px solid rgba(99,102,241,0.35)",
+          boxShadow: "0 10px 30px -10px rgba(79,70,229,0.45)",
+        },
         classNames: {
-          toast: "cx-toast group",
-          title: "cx-toast-title",
-          description: "cx-toast-desc",
-          icon: "cx-toast-icon",
-          closeButton: "cx-toast-close",
-          success: "cx-v-success",
-          error: "cx-v-error",
-          info: "cx-v-info",
-          warning: "cx-v-warning",
-          loading: "cx-v-loading",
+          success: "!bg-gradient-to-br !from-indigo-600 !to-violet-700 !text-white !border-indigo-400/50",
+          error: "!bg-gradient-to-br !from-rose-600 !to-red-700 !text-white !border-rose-400/50",
+          info: "!bg-gradient-to-br !from-sky-600 !to-blue-700 !text-white !border-sky-400/50",
+          warning: "!bg-gradient-to-br !from-amber-500 !to-orange-600 !text-white !border-amber-400/50",
         },
       }}
     />
@@ -772,7 +777,7 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const checkAuth = () => {
-    // Fast path: reflect tab session synchronously (used after login/logout).
+    // Fast path: reflect localStorage synchronously (used after login/logout).
     setUser(readCached());
     setLoading(false);
   };
@@ -1607,10 +1612,9 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
       setRemainingMs(Math.max(0, rem));
       if (rem > 0 && rem <= 60_000 && !warnedRef.current) {
         warnedRef.current = true;
-        premiumToast("Session ending in 1 minute", {
+        toast("⏰ Session ending in 1 minute", {
           id: "session-1min-warning",
-          variant: "warning",
-          description: "Finish what you're doing — sign in again soon.",
+          description: "Finish what you're doing — you'll need to sign in again soon.",
           duration: 5000,
         });
       }
@@ -1660,46 +1664,6 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
 // --- Types ---
 interface Email {
   id: string; subject: string; from: string; to?: string; date: string; otp: string | null; preview: string; html: string; account_label?: string | null; cached_at?: string | null;
-}
-
-function escapeEmailHtml(value = "") {
-  return String(value).replace(/[&<>"]/g, (ch) => {
-    if (ch === "&") return "&amp;";
-    if (ch === "<") return "&lt;";
-    if (ch === ">") return "&gt;";
-    if (ch === '"') return "&quot;";
-    return ch;
-  });
-}
-
-function stripRawMimeNoise(value = "") {
-  return String(value || "")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/(p|div|tr|table|h[1-6])>/gi, "\n")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/^--[-=_A-Za-z0-9.'+\/]+--?\s*$/gm, "")
-    .replace(/^Content-(Type|Transfer-Encoding|Disposition|ID|Description):.*$/gim, "")
-    .replace(/^MIME-Version:.*$/gim, "")
-    .replace(/^charset=.*$/gim, "")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
-    .replace(/\r/g, "")
-    .replace(/[ \t]+/g, " ")
-    .replace(/\n[ \t]+/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
-
-function emailHtmlForDisplay(email: Email | null) {
-  if (!email) return "";
-  const raw = String(email.html || "");
-  // Trust the worker's HTML output. Render exactly as sent.
-  if (raw) return raw;
-  return `<pre style="white-space:pre-wrap;font-family:ui-sans-serif,system-ui,sans-serif">${escapeEmailHtml(String(email.preview || ""))}</pre>`;
 }
 interface UserData {
   id: string; username: string; name: string; role: "admin" | "user"; totpSecret?: string; mustChangePassword?: boolean; assignedAccounts?: string[] | null; profileAvatar?: string | null; profilePrefs?: UserProfilePrefs;
@@ -3096,7 +3060,7 @@ function AllEmailsPanel() {
             </div>
             <div className="p-4 overflow-auto flex-1">
               {viewing.html ? (
-                <iframe title="email" srcDoc={`<!DOCTYPE html><html><head><base target="_blank"></head><body>${emailHtmlForDisplay(viewing as Email)}<script>(function(){function force(a){try{a.setAttribute('target','_blank');a.setAttribute('rel','noopener noreferrer');}catch(e){}}function scan(){document.querySelectorAll('a,button').forEach(force);}document.addEventListener('click',function(e){var a=e.target.closest('a,button');if(!a)return;var h=a.getAttribute('href')||a.dataset.href;if(h){e.preventDefault();window.open(h,'_blank','noopener,noreferrer');}},true);scan();try{new MutationObserver(scan).observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['href','target']});}catch(e){}})();<\/script></body></html>`} className="w-full min-h-[400px] border rounded" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-scripts" />
+                <iframe title="email" srcDoc={`<!DOCTYPE html><html><head><base target="_blank"></head><body>${viewing.html}<script>(function(){function force(a){try{a.setAttribute('target','_blank');a.setAttribute('rel','noopener noreferrer');}catch(e){}}function scan(){document.querySelectorAll('a,button').forEach(force);}document.addEventListener('click',function(e){var a=e.target.closest('a,button');if(!a)return;var h=a.getAttribute('href')||a.dataset.href;if(h){e.preventDefault();window.open(h,'_blank','noopener,noreferrer');}},true);scan();try{new MutationObserver(scan).observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['href','target']});}catch(e){}})();<\/script></body></html>`} className="w-full min-h-[400px] border rounded" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-scripts" />
               ) : (
                 <pre className="text-xs whitespace-pre-wrap text-slate-700">{viewing.preview || "(no content)"}</pre>
               )}
@@ -3864,7 +3828,7 @@ function AdminPanel() {
     try {
       await apiCall("manage-app", { action: "set_settings", key: "config", value: serverConfig });
       await apiCall("manage-app", { action: "set_settings", key: "primary_cloudflare_urls", value: primaryCfUrls });
-      // No browser-persistent worker URL cache; viewer reloads server settings.
+      // Persist worker URLs to localStorage for bootstrap
       storeWorkerUrls(primaryCfUrls);
       toast.success("Server configuration saved!");
     } catch (err) {
@@ -4079,7 +4043,7 @@ function AdminPanel() {
   const loginAsUser = async (targetUser: UserData) => {
     try {
       // Snapshot the admin identity BEFORE the network call. The impersonate
-      // response carries a user-role sessionToken; if we read session state
+      // response carries a user-role sessionToken; if we read localStorage
       // after the call, we'd back up the user token as "admin" and later
       // restoration would fail with "Admin access required".
       const adminUser = sessionGet("user" as any);
@@ -6391,6 +6355,7 @@ function EmailViewer() {
   }, []);
   const refreshAccountLabels = useMemo(() => getUserRefreshAccountLabels(user), [user]);
   const { checkAuth } = useAuth();
+  const cacheKey = `cached_emails_v2:${user.id || "anon"}`;
   const [profilePrefs, setProfilePrefs] = useState<UserProfilePrefs>(() => user.profilePrefs || {});
   const saveProfilePrefsLocally = useCallback((nextPrefs: UserProfilePrefs) => {
     setProfilePrefs(nextPrefs);
@@ -6401,12 +6366,46 @@ function EmailViewer() {
       sessionSet("user" as any, JSON.stringify(stored));
     } catch {}
   }, []);
-  const [emails, setEmailsRaw] = useState<Email[]>([]);
+  const readLocalCachedEmails = useCallback((): Email[] => {
+    try {
+      const raw = localStorage.getItem(cacheKey);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return [];
+      return filterVisibleEmails(parsed as Email[], profilePrefs)
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    } catch {
+      return [];
+    }
+  }, [cacheKey, profilePrefs]);
+  const [emails, setEmailsRaw] = useState<Email[]>(() => {
+    try {
+      const raw = localStorage.getItem(cacheKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return filterVisibleEmails(parsed as Email[], user.profilePrefs || {})
+          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      }
+    } catch {}
+    return [];
+  });
   const setEmails = useCallback((next: Email[]) => {
     const visible = filterVisibleEmails(next, profilePrefs)
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     setEmailsRaw(visible);
-  }, [profilePrefs]);
+    // Persist up to 200 in localStorage so next visit paints the full inbox instantly.
+    try { localStorage.setItem(cacheKey, JSON.stringify(visible.slice(0, 200))); } catch {}
+  }, [cacheKey, profilePrefs]);
+  const showLocalCacheNow = useCallback(() => {
+    const cached = readLocalCachedEmails();
+    if (cached.length > 0) {
+      cached.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      setEmailsRaw(cached);
+      setError(null);
+      setLastUpdated(new Date());
+    }
+    return cached.length;
+  }, [readLocalCachedEmails]);
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -6544,10 +6543,7 @@ function EmailViewer() {
         return 0;
       }
       const groups = buildWorkerRequestGroups(labels, workerUrlMap, resolvedWorkerUrls);
-      if (groups.length === 0) {
-        // No worker configured — keep whatever we already show, don't nuke inbox.
-        return filterVisibleEmails(emails, profilePrefs).length;
-      }
+      if (groups.length === 0) throw new Error("Cloudflare worker is not configured");
 
       const lists = await Promise.all(groups.map(async (group) => {
         const params = new URLSearchParams({ limit: String(limit) });
@@ -6568,17 +6564,12 @@ function EmailViewer() {
           cacheKey: res.headers.get("X-Cache-Key") || undefined,
           note: `${bust ? "bust=1" : "kv"}${group.labels ? ` · ${group.labels.join(", ")}` : ""}`,
         });
-        if (!res.ok) {
-          // Never surface raw transport JSON like `{"error":"encrypted transport required"}`.
-          // Treat as an empty response and keep existing emails visible.
-          return [] as Email[];
-        }
-        let data: any = [];
-        try { data = text ? JSON.parse(text) : []; } catch { data = []; }
+        if (!res.ok) throw new Error(text.slice(0, 180) || "Worker failed to load emails");
+        const data = text ? JSON.parse(text) : [];
         return Array.isArray(data) ? data as Email[] : [];
       }));
 
-      const emailList = mergeEmailsById([emails, ...lists]);
+      const emailList = mergeEmailsById(lists);
       setEmails(emailList);
       setError(null);
       setLastUpdated(new Date());
@@ -6586,10 +6577,10 @@ function EmailViewer() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to load emails";
       pushDiag({ ts: Date.now(), kind: "cache", endpoint: "loadCachedEmails", error: msg });
-      // Preserve currently-shown emails; do not blank the inbox on transient error.
-      return filterVisibleEmails(emails, profilePrefs).length;
+      setError(msg);
+      return 0;
     }
-  }, [profilePrefs, setEmails, pushDiag, resolvedWorkerUrls, workerUrlMap, refreshAccountLabels, emails]);
+  }, [profilePrefs, setEmails, pushDiag, resolvedWorkerUrls, workerUrlMap, refreshAccountLabels]);
 
 
   const syncViaWorker = useCallback(async (): Promise<Email[] | null> => {
@@ -6599,10 +6590,7 @@ function EmailViewer() {
     const labels = refreshAccountLabels;
     if (labels && labels.length === 0) return null;
     const groups = buildWorkerRequestGroups(labels, workerUrlMap, resolvedWorkerUrls);
-
-    if (groups.length === 0) {
-      throw new Error("Cloudflare worker URL is not configured for this inbox");
-    }
+    if (groups.length === 0) throw new Error("Cloudflare worker is not configured");
 
     const collected: Email[][] = [];
     await Promise.all(groups.map(async (group) => {
@@ -6615,13 +6603,9 @@ function EmailViewer() {
       });
       const text = await res.text();
       pushDiag({ ts: Date.now(), kind: "worker", endpoint, status: res.status, ms: Math.round(performance.now() - started), note: `user_sync${group.labels ? ` · ${group.labels.join(", ")}` : ""}` });
-      if (!res.ok) {
-        // Swallow transport-shaped errors — keep KV cache visible instead.
-        return;
-      }
-      let data: any = null;
-      try { data = text ? JSON.parse(text) : null; } catch { data = null; }
-      if (data && data.success === false) return;
+      if (!res.ok) throw new Error(text.slice(0, 180) || "Worker sync failed");
+      const data: any = text ? JSON.parse(text) : null;
+      if (data && data.success === false) throw new Error(data?.error || "Sync failed");
       if (data && Array.isArray(data.emails)) collected.push(data.emails as Email[]);
     }));
 
@@ -6637,7 +6621,6 @@ function EmailViewer() {
     const toastId = "nf-refresh";
     toast.loading("Checking Netflix mail…", { id: toastId });
     try {
-      await loadCachedEmails({ limit: 200 });
       // Fast path: worker sync returns fresh emails directly — no second round-trip.
       const synced = await syncViaWorker();
       let merged: Email[] = emails;
@@ -6664,8 +6647,7 @@ function EmailViewer() {
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to load";
-      toast.dismiss(toastId);
-      premiumToast("Refresh could not complete", { variant: "error", description: msg, duration: 3200 });
+      toast.error(msg, { id: toastId, duration: 4000 });
     } finally {
       if (refreshPollRef.current) {
         clearTimeout(refreshPollRef.current);
@@ -6691,6 +6673,7 @@ function EmailViewer() {
     saveProfilePrefsLocally(nextPrefs);
     setEmailsRaw([]);
     setSelectedEmail(null);
+    try { localStorage.setItem(cacheKey, JSON.stringify([])); } catch {}
 
     try {
       await apiCall("manage-app", { action: "update_profile_prefs", profile_prefs: nextPrefs });
@@ -6700,40 +6683,30 @@ function EmailViewer() {
     }
   };
 
-  // On mount/login: ONE silent auto-refresh via the worker POST sync path.
-  // No browser-persistent email cache, no background polling, no GET /api/emails.
-  const didAutoRefreshRef = useRef(false);
+  // Load cached emails immediately on mount — local first, no blocking blank screen.
+  // Session timer starts only AFTER the first inbox load resolves, so users
+  // never lose seconds waiting for emails to appear.
   useEffect(() => {
+    let cancelled = false;
+    // 1) Instant paint from localStorage — user sees full cached inbox immediately.
+    showLocalCacheNow();
     setLoading(false);
-    if (!sessionGet("session_started_at" as any)) markSessionStart();
 
-    // Fire ONE silent auto-refresh once worker URLs are known — per component mount/login.
-    if (workerUrlsLoading) return;
-    if (didAutoRefreshRef.current) return;
-    didAutoRefreshRef.current = true;
-
-    (async () => {
-      try {
-        await loadCachedEmails({ limit: 200 });
-        const synced = await syncViaWorker();
-        if (synced && synced.length > 0) {
-          setEmailsRaw((prev) => {
-            const merged = mergeEmailsById([prev, synced]);
-            const visible = filterVisibleEmails(merged, profilePrefs)
-              .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-            return visible;
-          });
-          setError(null);
-          setLastUpdated(new Date());
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err || "");
-        pushDiag({ ts: Date.now(), kind: "sync", endpoint: "login auto-refresh", error: msg });
-        await loadCachedEmails({ limit: 200 });
-      }
-    })();
+    // 2) Pull the latest full inbox from worker cache (fast — no IMAP) once worker URLs are known.
+    if (!workerUrlsLoading) {
+      loadCachedEmails({ limit: 200 }).finally(() => {
+        if (cancelled) return;
+        setLoading(false);
+        if (!sessionGet("session_started_at" as any)) markSessionStart();
+      });
+    } else if (!sessionGet("session_started_at" as any)) {
+      markSessionStart();
+    }
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workerUrlsLoading]);
+  }, [loadCachedEmails, workerUrlsLoading]);
 
   // F7: listen for iframe self-report messages verifying that the link/button
   // click hijack is actually attached inside the sandboxed email preview.
@@ -7046,7 +7019,7 @@ function EmailViewer() {
                   )}
                   <div className="email-html-wrapper">
                     <iframe
-                      srcDoc={`<!DOCTYPE html><html><head><base target="_blank"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0;padding:8px;font-family:sans-serif;font-size:14px;color:#334155;overflow-x:hidden;word-break:break-word}img{max-width:100%!important;height:auto!important}table{max-width:100%!important;width:100%!important}td,th{max-width:100%!important;overflow:hidden}a{color:#e11d48}pre{white-space:pre-wrap;word-break:break-word;font-family:ui-sans-serif,system-ui,sans-serif;line-height:1.45}*{box-sizing:border-box}</style></head><body>${emailHtmlForDisplay(selectedEmail)}<script>(function(){function force(a){try{a.setAttribute('target','_blank');a.setAttribute('rel','noopener noreferrer');}catch(e){}}function scan(){document.querySelectorAll('a,button').forEach(force);}document.addEventListener('click',function(e){var a=e.target.closest('a,button');if(!a)return;var href=a.getAttribute('href')||a.dataset.href;if(href){e.preventDefault();window.open(href,'_blank','noopener,noreferrer');}},true);document.addEventListener('contextmenu',function(e){e.preventDefault();});scan();try{new MutationObserver(scan).observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['href','target']});}catch(e){}try{var links=document.querySelectorAll('a').length;var buttons=document.querySelectorAll('button').length;var base=document.querySelector('base');window.parent&&window.parent.postMessage({__nf:'iframe-links',links:links,buttons:buttons,hijack:true,baseTarget:(base&&base.getAttribute('target'))||''}, '*');}catch(e){}})();<\/script></body></html>`}
+                      srcDoc={`<!DOCTYPE html><html><head><base target="_blank"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0;padding:8px;font-family:sans-serif;font-size:14px;color:#334155;overflow-x:hidden;word-break:break-word}img{max-width:100%!important;height:auto!important}table{max-width:100%!important;width:100%!important}td,th{max-width:100%!important;overflow:hidden}a{color:#e11d48}*{box-sizing:border-box}</style></head><body>${selectedEmail.html}<script>(function(){function force(a){try{a.setAttribute('target','_blank');a.setAttribute('rel','noopener noreferrer');}catch(e){}}function scan(){document.querySelectorAll('a,button').forEach(force);}document.addEventListener('click',function(e){var a=e.target.closest('a,button');if(!a)return;var href=a.getAttribute('href')||a.dataset.href;if(href){e.preventDefault();window.open(href,'_blank','noopener,noreferrer');}},true);document.addEventListener('contextmenu',function(e){e.preventDefault();});scan();try{new MutationObserver(scan).observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['href','target']});}catch(e){}try{var links=document.querySelectorAll('a').length;var buttons=document.querySelectorAll('button').length;var base=document.querySelector('base');window.parent&&window.parent.postMessage({__nf:'iframe-links',links:links,buttons:buttons,hijack:true,baseTarget:(base&&base.getAttribute('target'))||''}, '*');}catch(e){}})();<\/script></body></html>`}
                       sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-scripts"
                       className="w-full border-0"
                       style={{ minHeight: "400px" }}

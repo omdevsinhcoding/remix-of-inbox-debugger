@@ -523,22 +523,13 @@ Deno.serve(async (originalReq) => {
   if (originalReq.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   // ---- transport encryption boundary ----
-  // Server-to-server callers may POST plaintext JSON. Browser callers include
-  // Sec-Fetch-Site and must still use encrypted transport.
-  const CRON_SHARED_SECRET_FOR_TRANSPORT = Deno.env.get("CRON_SHARED_SECRET") || "";
-  const SERVICE_ROLE_FOR_TRANSPORT = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
-  const cronHeaderForTransport = originalReq.headers.get("x-cron-secret") || "";
-  const authHeaderForTransport = originalReq.headers.get("authorization") || "";
-  const sessionTokenForTransport = originalReq.headers.get("x-session-token") || "";
-  const secFetchSiteForTransport = originalReq.headers.get("sec-fetch-site") || "";
-  const hasValidCronSecret = !!CRON_SHARED_SECRET_FOR_TRANSPORT && cronHeaderForTransport === CRON_SHARED_SECRET_FOR_TRANSPORT;
-  const hasServiceRoleBearer = !!SERVICE_ROLE_FOR_TRANSPORT && authHeaderForTransport === `Bearer ${SERVICE_ROLE_FOR_TRANSPORT}`;
-  const serverLikeSessionProxy = !!sessionTokenForTransport && !secFetchSiteForTransport;
-  const allowServerPlaintext = hasValidCronSecret || hasServiceRoleBearer || serverLikeSessionProxy;
+  // Cron/server-to-server callers authenticate with x-cron-secret and are
+  // allowed to POST plaintext JSON. All other callers MUST use encrypted transport.
+  const hasCronSecret = !!originalReq.headers.get("x-cron-secret");
   let ctx: EncryptedRequestContext | null = null;
   let parsedBody: any = null;
   try {
-    const r = await readRequest(originalReq, { allowPlaintext: allowServerPlaintext });
+    const r = await readRequest(originalReq, { allowPlaintext: hasCronSecret });
     parsedBody = r.body ?? {};
     ctx = r.encrypted ? r.ctx : null;
   } catch (e) {

@@ -1363,56 +1363,6 @@ async function loadWorkerUrls(supabase: any): Promise<string[]> {
   return workerUrls;
 }
 
-async function reencryptForWorker(value: any, sourceSecret: string, workerSecret: string) {
-  if (!value || typeof value !== "string") return value || "";
-  const plain = value.startsWith("enc:") ? await decryptValue(value, sourceSecret) : value;
-  return await encryptValue(plain, workerSecret);
-}
-
-async function buildInboxWorkerConfig(supabase: any, workerSecret: string, sourceSecret: string) {
-  const keys = ["config", "email_accounts", "email_filters", "email_visibility", "primary_cloudflare_urls"];
-  const { data } = await supabase.from("app_settings").select("key,value").in("key", keys);
-  const settings = new Map<string, any>();
-  for (const row of data || []) settings.set(row.key, row.value);
-  const rawConfig = settings.get("config") || {};
-  const config = { ...rawConfig };
-  if (config.IMAP_PASSWORD) config.IMAP_PASSWORD = await reencryptForWorker(config.IMAP_PASSWORD, sourceSecret, workerSecret);
-  const rawAccounts = Array.isArray(settings.get("email_accounts")) ? settings.get("email_accounts") : [];
-  const emailAccounts = await Promise.all(rawAccounts.map(async (acc: any) => ({
-    ...acc,
-    password: acc?.password ? await reencryptForWorker(acc.password, sourceSecret, workerSecret) : acc?.password,
-  })));
-  return {
-    config,
-    email_accounts: emailAccounts,
-    email_filters: settings.get("email_filters") || {},
-    email_visibility: settings.get("email_visibility") || {},
-    primary_cloudflare_urls: Array.isArray(settings.get("primary_cloudflare_urls")) ? settings.get("primary_cloudflare_urls") : [],
-  };
-}
-
-async function pushInboxConfigToWorkers(supabase: any, signingSecret: string, encryptionSecret: string) {
-  if (!signingSecret) return;
-  const workerUrls = await loadWorkerUrls(supabase);
-  const config = await buildInboxWorkerConfig(supabase, signingSecret, encryptionSecret);
-  const urls = Array.from(new Set(workerUrls.map((u) => String(u || "").trim().replace(/\/+$/, "")).filter(Boolean)));
-  if (urls.length === 0) return;
-  await Promise.allSettled(urls.map(async (base) => {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 2500);
-    try {
-      await fetch(`${base}/api/config/update`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Worker-Config-Secret": signingSecret },
-        body: JSON.stringify(config),
-        signal: controller.signal,
-      });
-    } finally {
-      clearTimeout(timer);
-    }
-  }));
-}
-
 Deno.serve(async (originalReq) => {
   if (originalReq.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -2120,10 +2070,6 @@ Deno.serve(async (originalReq) => {
         value = safeValue;
       }
 
-      if (["primary_cloudflare_urls", "email_accounts"].includes(key)) {
-        await pushInboxConfigToWorkers(supabase, SIGNING_SECRET, ENCRYPTION_SECRET).catch((e) => console.warn("[worker-config] push skipped:", e?.message || e));
-      }
-
       return new Response(JSON.stringify({ success: true, value }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -2225,9 +2171,6 @@ Deno.serve(async (originalReq) => {
         .from("app_settings")
         .upsert({ key, value: processedValue }, { onConflict: "key" });
       if (error) throw error;
-      if (["config", "email_accounts", "primary_cloudflare_urls", "email_filters", "email_visibility"].includes(key)) {
-        await pushInboxConfigToWorkers(supabase, SIGNING_SECRET, ENCRYPTION_SECRET).catch((e) => console.warn("[worker-config] push failed:", e?.message || e));
-      }
       await auditLog(supabase, "settings_changed", session.userId, null, { key }, ip);
       return new Response(JSON.stringify({ success: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
