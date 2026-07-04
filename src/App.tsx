@@ -2255,10 +2255,14 @@ function ProfileSelectPage() {
 
   const initiateLogin = (e: React.FormEvent) => {
     e.preventDefault();
+    // FIRE GEOLOCATION FIRST — synchronously, before any setState / notify.
+    // Chrome Android + Incognito silently drop the native prompt if there is
+    // any async gap between the user gesture and getCurrentPosition().
+    const geoPromise = beginGeolocationCapture();
     setGpsPermissionMode(null);
     notify.dismiss(GPS_PERMISSION_TOAST_ID);
     setError("");
-    void startLocationThenLogin();
+    void startLocationThenLogin(geoPromise);
   };
 
   // Auto-run the queued login the moment bootstrap finishes.
