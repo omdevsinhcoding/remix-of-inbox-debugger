@@ -4116,7 +4116,10 @@ function AdminPanel() {
         if (Number.isFinite(m1) && m1 >= 0) setSessionTimeoutMin(String(m1));
         const m2 = Number(s.admin_session_config?.timeoutMinutes);
         if (Number.isFinite(m2) && m2 >= 0) setAdminSessionTimeoutMin(String(m2));
+        const cs = Number(s.session_limits?.maxPerUser);
+        if (Number.isFinite(cs) && cs >= 0) setConcurrentSessionLimit(String(cs));
         setIpwhoAlertEnabled(s.ipwho_alert?.enabled === true);
+
         if (s.maintenance) {
           const mnt = s.maintenance;
           setMaintenanceEnabled(mnt.enabled === true);
