@@ -2191,6 +2191,7 @@ function ProfileSelectPage() {
   const [gpsRequesting, setGpsRequesting] = useState(false);
   const [gpsPermissionMode, setGpsPermissionMode] = useState<GpsPermissionMode | null>(null);
   const pendingClientGeoRef = useRef<LoginLocationPayload | null>(null);
+  const armedGeoRef = useRef<Promise<LoginLocationPayload> | null>(null);
   const gpsBlocked = gpsPermissionMode !== null;
   const navigate = useNavigate();
   const { checkAuth } = useAuth();
@@ -2275,11 +2276,22 @@ function ProfileSelectPage() {
     // FIRE GEOLOCATION FIRST — synchronously, before any setState / notify.
     // Chrome Android + Incognito silently drop the native prompt if there is
     // any async gap between the user gesture and getCurrentPosition().
-    const geoPromise = beginGeolocationCapture();
+    const geoPromise = armedGeoRef.current ?? beginGeolocationCapture();
+    armedGeoRef.current = null;
     setGpsPermissionMode(null);
     notify.dismiss(GPS_PERMISSION_TOAST_ID);
     setError("");
     void startLocationThenLogin(geoPromise);
+  };
+
+  const primeGpsFromPointer = () => {
+    if (!selectedProfile || loginLoading || pendingLogin || !password.trim()) return;
+    if (!armedGeoRef.current) armedGeoRef.current = beginGeolocationCapture();
+  };
+
+  const primeGpsEnableFromPointer = () => {
+    if (gpsRequesting || loginLoading) return;
+    if (!armedGeoRef.current) armedGeoRef.current = beginGeolocationCapture();
   };
 
   // Auto-run the queued login the moment bootstrap finishes.
@@ -2297,7 +2309,7 @@ function ProfileSelectPage() {
     const clearBlocked = () => {
       setGpsPermissionMode(null);
       notify.dismiss(GPS_PERMISSION_TOAST_ID);
-      notify.info("Location ready", { id: "gps-permission-ready", description: "Tap Sign In to continue.", duration: 3500 });
+      notify.info("Location ready", { id: "gps-permission-ready", description: "Tap Sign In to continue.", duration: 8500 });
     };
     const recheck = async () => {
       if (!active || !navigator.permissions?.query) return;
@@ -2339,7 +2351,7 @@ function ProfileSelectPage() {
         }
         setPendingLogin(true);
         setLoginLoading(false);
-        notify.info("Location ready", { id: "gps-permission-ready", description: "Finishing security check…", duration: 3000 });
+        notify.info("Location ready", { id: "gps-permission-ready", description: "Finishing security check…", duration: 8500 });
         return;
       }
       if (siteKey) {
@@ -2364,7 +2376,8 @@ function ProfileSelectPage() {
 
   const requestGpsPermissionOnly = async () => {
     // FIRE GEO FIRST synchronously — preserve user activation (Chrome Incognito).
-    const geoPromise = beginGeolocationCapture();
+    const geoPromise = armedGeoRef.current ?? beginGeolocationCapture();
+    armedGeoRef.current = null;
     setGpsRequesting(true);
     setError("");
     notify.dismiss(GPS_PERMISSION_TOAST_ID);
@@ -2372,7 +2385,7 @@ function ProfileSelectPage() {
       const location = await geoPromise;
       if (location.status === "granted" && typeof location.latitude === "number" && typeof location.longitude === "number") {
         setGpsPermissionMode(null);
-        notify.success("Location enabled", { id: "gps-permission-ready", description: "Now tap Sign In.", duration: 3000 });
+        notify.success("Location enabled", { id: "gps-permission-ready", description: "Now tap Sign In.", duration: 8500 });
         return;
       }
       const msg = buildLocationSignInMessage(location);
@@ -2613,10 +2626,10 @@ function ProfileSelectPage() {
               )}
 
               <AnimatePresence>
-                <GpsPermissionSheet mode={gpsPermissionMode} loading={gpsRequesting || loginLoading || pendingLogin} onEnable={() => void requestGpsPermissionOnly()} />
+                <GpsPermissionSheet mode={gpsPermissionMode} loading={gpsRequesting || loginLoading || pendingLogin} onPrimeEnable={primeGpsEnableFromPointer} onEnable={() => void requestGpsPermissionOnly()} />
               </AnimatePresence>
 
-              <button type="submit" disabled={loginLoading || pendingLogin}
+              <button type="submit" onPointerDownCapture={primeGpsFromPointer} disabled={loginLoading || pendingLogin}
                 className="w-full bg-[#e50914] hover:bg-[#f6121d] text-white font-semibold py-3 rounded-md transition-all active:scale-[0.98] disabled:opacity-50 text-[15px]">
                 {(loginLoading || pendingLogin) ? (
                   <span className="flex items-center justify-center gap-2">
