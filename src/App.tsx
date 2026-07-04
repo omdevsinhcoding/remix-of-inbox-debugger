@@ -965,6 +965,58 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     void hydrateFromServer();
   }, []);
 
+  // Instant remote-logout via Supabase Realtime Broadcast.
+  // Server pushes a `revoked` event to `session-family-<uuid>` when another
+  // device logs in and the concurrent-session cap kicks this device out.
+  // One persistent WebSocket, ~50 bytes on revoke, no polling.
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    let channel: any = null;
+    (async () => {
+      try {
+        const { getSessionFamilyId } = await import("./lib/sessionRefresh");
+        const fid = getSessionFamilyId();
+        if (!fid || cancelled) return;
+        const { supabase } = await import("./integrations/supabase/client");
+        channel = supabase
+          .channel(`session-family-${fid}`)
+          .on("broadcast", { event: "revoked" }, async () => {
+            try {
+              sessionRemove("session_token" as any);
+              sessionRemove("user" as any);
+              sessionRemove("admin_auth" as any);
+              sessionRemove("pending_admin_token" as any);
+            } catch {}
+            try {
+              const { clearRefreshState } = await import("./lib/sessionRefresh");
+              clearRefreshState();
+            } catch {}
+            setUser(null);
+            try {
+              const { notify } = await import("./components/toast/notify");
+              notify.error("Signed out", {
+                description: "You signed in on another device.",
+                duration: 9000,
+              });
+            } catch {}
+            // Hard reload so any in-flight state (polling, workers, portals) resets.
+            setTimeout(() => { try { window.location.href = "/"; } catch {} }, 150);
+          })
+          .subscribe();
+      } catch {}
+    })();
+    return () => {
+      cancelled = true;
+      if (channel) {
+        try {
+          import("./integrations/supabase/client").then(({ supabase }) => supabase.removeChannel(channel)).catch(() => {});
+        } catch {}
+      }
+    };
+  }, [user?.id]);
+
+
 
   return <AuthContext.Provider value={{ user, loading, checkAuth }}>{children}</AuthContext.Provider>;
 };
