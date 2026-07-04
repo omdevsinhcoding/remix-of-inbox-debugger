@@ -2130,6 +2130,7 @@ function ProfileSelectPage() {
   const [captchaReady, setCaptchaReady] = useState(false);
   const [captchaConfigError, setCaptchaConfigError] = useState(false);
   const [showCaptcha, setShowCaptcha] = useState(false);
+  const [pendingLogin, setPendingLogin] = useState(false);
   const navigate = useNavigate();
   const { checkAuth } = useAuth();
 
@@ -2192,7 +2193,12 @@ function ProfileSelectPage() {
     e.preventDefault();
     setError("");
     if (!captchaReady) {
-      setError(captchaConfigError ? "Security check failed to load. Please refresh and try again." : "Security check is loading. Please wait.");
+      // Bootstrap still running — queue the login instead of yelling at user.
+      if (captchaConfigError) {
+        setError("Couldn't reach server. Please refresh and try again.");
+        return;
+      }
+      setPendingLogin(true);
       return;
     }
     if (siteKey) {
@@ -2201,6 +2207,15 @@ function ProfileSelectPage() {
       void executeLogin();
     }
   };
+
+  // Auto-run the queued login the moment bootstrap finishes.
+  useEffect(() => {
+    if (!pendingLogin || !captchaReady) return;
+    setPendingLogin(false);
+    if (siteKey) setShowCaptcha(true);
+    else void executeLogin();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingLogin, captchaReady, siteKey]);
 
   const executeLogin = async (captchaToken?: string) => {
     if (!selectedProfile) return;
@@ -2415,12 +2430,12 @@ function ProfileSelectPage() {
                 </motion.div>
               )}
 
-              <button type="submit" disabled={loginLoading}
+              <button type="submit" disabled={loginLoading || pendingLogin}
                 className="w-full bg-[#e50914] hover:bg-[#f6121d] text-white font-semibold py-3 rounded-md transition-all active:scale-[0.98] disabled:opacity-50 text-[15px]">
-                {loginLoading ? (
+                {(loginLoading || pendingLogin) ? (
                   <span className="flex items-center justify-center gap-2">
                     <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    Verifying...
+                    {pendingLogin ? "Preparing..." : "Verifying..."}
                   </span>
                 ) : "Sign In"}
               </button>
