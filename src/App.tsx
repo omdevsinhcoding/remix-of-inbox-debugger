@@ -4215,6 +4215,26 @@ function AdminPanel() {
     }
   };
 
+  const saveConcurrentSessionLimit = async () => {
+    const n = Math.max(0, Math.floor(Number(concurrentSessionLimit) || 0));
+    setSavingConcurrentSessionLimit(true);
+    try {
+      await apiCall("manage-app", {
+        action: "set_settings",
+        key: "session_limits",
+        value: { maxPerUser: n },
+      });
+      setConcurrentSessionLimit(String(n));
+      notify.success(n === 0 ? "Concurrent session limit disabled" : `Max ${n} active session${n === 1 ? "" : "s"} per user`);
+    } catch (err) {
+      notify.error(err instanceof Error ? err.message : "Failed to save session limit");
+    } finally {
+      setSavingConcurrentSessionLimit(false);
+    }
+  };
+
+
+
   const saveMaintenance = async (nextEnabled?: boolean) => {
     // Convert local datetime-local -> ISO. Empty string means no scheduled start/end.
     const toIso = (s: string): string | null => {
