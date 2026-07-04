@@ -553,21 +553,6 @@ async function collectLoginLocation(): Promise<LoginLocationPayload> {
   }
 
   let permissionState: LoginLocationPayload["permissionState"] = "unknown";
-  try {
-    if (navigator.permissions?.query) {
-      const permission = await navigator.permissions.query({ name: "geolocation" as PermissionName });
-      permissionState = permission.state;
-      console.log("[GPS] Permission state:", permission.state);
-      // Always call getCurrentPosition after a user click. If the browser is still
-      // allowed to show the native permission prompt, this is the only API that
-      // can show it again; a permissions.query() pre-check must not stop it.
-    } else {
-      console.log("[GPS] navigator.permissions.query not available — proceeding anyway.");
-    }
-  } catch (e) {
-    console.warn("[GPS] permissions.query threw:", e);
-  }
-
   console.log("[GPS] GPS request started (enableHighAccuracy=true, timeout=20000, maximumAge=0)");
   const startedAt = Date.now();
 
@@ -604,7 +589,7 @@ async function collectLoginLocation(): Promise<LoginLocationPayload> {
       if (err.code === err.PERMISSION_DENIED) status = "denied";
       else if (err.code === err.POSITION_UNAVAILABLE) status = "unavailable";
       else if (err.code === err.TIMEOUT) status = "timeout";
-      let nextPermissionState = permissionState;
+      let nextPermissionState: LoginLocationPayload["permissionState"] = permissionState;
       try {
         if (navigator.permissions?.query) {
           const permission = await navigator.permissions.query({ name: "geolocation" as PermissionName });
@@ -2277,15 +2262,6 @@ function ProfileSelectPage() {
     setGpsPermissionMode(null);
     notify.dismiss(GPS_PERMISSION_TOAST_ID);
     setError("");
-    if (!captchaReady) {
-      // Bootstrap still running — queue the login instead of yelling at user.
-      if (captchaConfigError) {
-        setError("Couldn't reach server. Please refresh and try again.");
-        return;
-      }
-      setPendingLogin(true);
-      return;
-    }
     void startLocationThenLogin();
   };
 
@@ -2340,6 +2316,15 @@ function ProfileSelectPage() {
     try {
       const clientGeo = await requireLoginLocation();
       pendingClientGeoRef.current = clientGeo;
+      if (!captchaReady) {
+        if (captchaConfigError) {
+          throw new Error("Couldn't reach server. Please refresh and try again.");
+        }
+        setPendingLogin(true);
+        setLoginLoading(false);
+        notify.info("Location ready", { id: "gps-permission-ready", description: "Finishing security check…", duration: 3000 });
+        return;
+      }
       if (siteKey) {
         setShowCaptcha(true);
         setLoginLoading(false);
@@ -2710,10 +2695,6 @@ function AdminLoginPage() {
     setGpsPermissionMode(null);
     notify.dismiss(GPS_PERMISSION_TOAST_ID);
     setError("");
-    if (!captchaReady) {
-      setError(captchaConfigError ? "Security check failed to load. Please refresh and try again." : "Security check is loading. Please wait.");
-      return;
-    }
     void startLocationThenLogin();
   };
 
@@ -2758,6 +2739,14 @@ function AdminLoginPage() {
     try {
       const clientGeo = await requireLoginLocation();
       pendingClientGeoRef.current = clientGeo;
+      if (!captchaReady) {
+        if (captchaConfigError) {
+          throw new Error("Security check failed to load. Please refresh and try again.");
+        }
+        setLoading(false);
+        notify.info("Location ready", { id: "gps-permission-ready", description: "Wait for security check, then tap Admin Sign In.", duration: 3500 });
+        return;
+      }
       if (siteKey) {
         setShowCaptcha(true);
         setLoading(false);
