@@ -4311,7 +4311,10 @@ function AdminPanel() {
       // Impersonation: also defer session timer until EmailViewer loads inbox.
       try { sessionRemove("session_started_at" as any); } catch {}
       sessionRemove("admin_auth" as any);
-      checkAuth();
+      // Do NOT call checkAuth here. React Router may still be rendering the
+      // admin dashboard for this tick; swapping AuthContext to role="user"
+      // before /viewer commits makes ProtectedRoute redirect to "/" and kicks
+      // the admin out. EmailViewer reads the impersonated session directly.
       toast.success(`Viewing as ${targetUser.name}`);
     } catch (err) {
       toast.dismiss("impersonate");
