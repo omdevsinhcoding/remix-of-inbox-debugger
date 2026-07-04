@@ -217,29 +217,112 @@ async function callManage<T = any>(action: string, payload: Record<string, any> 
   return data as T;
 }
 
+export type NotificationsResult = {
+  notifications: AppNotification[];
+  etag: string | null;
+  unchanged: boolean;
+};
+
 export async function listNotifications(): Promise<AppNotification[]> {
+  const r = await listNotificationsWithEtag(null);
+  return r.notifications;
+}
+
+// Etag-aware fetch: send last etag, receive {unchanged:true} + empty list, or fresh list + new etag.
+// Prefers the Cloudflare worker (`/api/notifications/list`) when configured —
+// it holds a 60 s per-user KV cache that cuts Supabase invocations ~95%.
+export async function listNotificationsWithEtag(etag: string | null): Promise<NotificationsResult> {
+  const token = sessionGet("session_token" as any);
+  const workerUrls = getWorkerUrlsFromCache();
+  // Try worker first (only if we have both a session token AND a worker URL).
+  if (token && workerUrls.length > 0) {
+    for (const base of workerUrls) {
+      try {
+        const res = await fetch(`${base.replace(/\/+$/, "")}/api/notifications/list`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Session-Token": String(token),
+          },
+          body: JSON.stringify(etag ? { if_etag: etag } : {}),
+        });
+        if (!res.ok) continue;
+        const data = await res.json();
+        if (!data?.success) continue;
+        return {
+          notifications: data.notifications || [],
+          etag: data.etag || null,
+          unchanged: !!data.unchanged,
+        };
+      } catch {
+        // fall through to next worker or Supabase
+      }
+    }
+  }
   try {
-    const data = await callManage<{ notifications: AppNotification[] }>("list_notifications");
-    return data.notifications || [];
+    const data = await callManage<{ notifications?: AppNotification[]; etag?: string; unchanged?: boolean }>(
+      "list_notifications",
+      etag ? { if_etag: etag } : {},
+    );
+    return {
+      notifications: data.notifications || [],
+      etag: data.etag || null,
+      unchanged: !!data.unchanged,
+    };
   } catch (err) {
     console.warn("[notifications] list failed:", err);
-    return [];
+    return { notifications: [], etag: null, unchanged: false };
   }
 }
 
+// Fire-and-forget worker cache invalidation (best-effort).
+async function invalidateWorkerNotifsCache(): Promise<void> {
+  const token = sessionGet("session_token" as any);
+  const workerUrls = getWorkerUrlsFromCache();
+  if (!token || workerUrls.length === 0) return;
+  await Promise.allSettled(workerUrls.map((base) =>
+    fetch(`${base.replace(/\/+$/, "")}/api/notifications/invalidate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Session-Token": String(token) },
+    }).catch(() => {})
+  ));
+}
+
+function getWorkerUrlsFromCache(): string[] {
+  try {
+    const raw = typeof localStorage !== "undefined" ? localStorage.getItem(WORKER_URLS_KEY) : null;
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr.filter((s) => typeof s === "string" && s.trim().length > 0) : [];
+  } catch { return []; }
+}
+
+
+
+// Fire-and-forget cache buster shared by every mutation below.
+// Ensures the singleton store re-fetches with a fresh etag after any write,
+// and the Cloudflare worker's per-user KV entry is dropped so the next poll
+// isn't served stale.
+function bustNotifStore() {
+  import("./notificationsStore").then(({ invalidateNotifications }) => invalidateNotifications()).catch(() => {});
+  invalidateWorkerNotifsCache().catch(() => {});
+}
+
+
 export async function markNotificationRead(id: string): Promise<void> {
-  try { await callManage("mark_notification_read", { notification_id: id }); } catch {}
+  try { await callManage("mark_notification_read", { notification_id: id }); } finally { bustNotifStore(); }
 }
 export async function markAllNotificationsRead(): Promise<void> {
-  try { await callManage("mark_all_notifications_read"); } catch {}
+  try { await callManage("mark_all_notifications_read"); } finally { bustNotifStore(); }
 }
 export async function markNotificationSeen(ids: string[]): Promise<void> {
   if (!ids?.length) return;
-  try { await callManage("mark_notifications_seen", { ids }); } catch {}
+  try { await callManage("mark_notifications_seen", { ids }); } finally { bustNotifStore(); }
 }
 export async function deleteNotificationForMe(id: string): Promise<void> {
-  try { await callManage("user_delete_notification", { notification_id: id }); } catch {}
+  try { await callManage("user_delete_notification", { notification_id: id }); } finally { bustNotifStore(); }
 }
+
 // snoozeNotification removed — Snooze is no longer a supported user action.
 
 export async function logNotificationEvent(id: string, event: string, meta?: any): Promise<void> {

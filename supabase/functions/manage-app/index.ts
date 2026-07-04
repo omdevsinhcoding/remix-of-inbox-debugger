@@ -2660,6 +2660,49 @@ Deno.serve(async (originalReq) => {
     if (action === "list_notifications") {
       const session = await requireSession(req);
       const nowIso = new Date().toISOString();
+      const clientEtag = typeof (params as any)?.if_etag === "string" ? (params as any).if_etag : null;
+
+      // ---- Etag pre-check (~2 tiny aggregate queries, no row payload) ----
+      // If the aggregate signature matches the client-sent etag, we return
+      // `{success:true, unchanged:true, etag}` — response body ~80 bytes vs
+      // ~6 KB for the full list. This is the primary egress lever.
+      const [aggN, aggR] = await Promise.all([
+        supabase
+          .from("notifications")
+          .select("id, created_at, expires_at, publish_at", { count: "exact", head: false })
+          .or(`audience.eq.all,target_user_id.eq.${session.userId}`),
+        supabase
+          .from("notification_reads")
+          .select("read_at, seen_at, deleted_at, snoozed_until, dismissed_at, archived_at")
+          .eq("user_id", session.userId),
+      ]);
+      let etagStr: string | null = null;
+      if (!aggN.error && !aggR.error) {
+        let cn = 0;
+        let mxN = 0;
+        for (const n of aggN.data || []) {
+          if (n.expires_at && n.expires_at <= nowIso) continue;
+          if (n.publish_at && n.publish_at > nowIso) continue;
+          cn++;
+          const t = n.created_at ? new Date(n.created_at).getTime() : 0;
+          if (t > mxN) mxN = t;
+        }
+        let mxR = 0;
+        for (const r of aggR.data || []) {
+          for (const k of ["read_at", "seen_at", "deleted_at", "snoozed_until", "dismissed_at", "archived_at"]) {
+            const v = (r as any)[k];
+            const t = v ? new Date(v).getTime() : 0;
+            if (t > mxR) mxR = t;
+          }
+        }
+        etagStr = `${cn}:${mxN}:${mxR}`;
+        if (clientEtag && clientEtag === etagStr) {
+          return new Response(JSON.stringify({ success: true, unchanged: true, etag: etagStr }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+      }
+
       const { data: notes, error: nErr } = await supabase
         .from("notifications")
         .select("id, title, body, description, body_markdown, image_url, category, priority, icon, platform_icon, kind, sub_kind, locked, show_frequency, mode, action_url, action_label, action2_url, action2_label, audience, target_user_id, created_at, expires_at, publish_at, group_key")
@@ -2706,10 +2749,11 @@ Deno.serve(async (originalReq) => {
           seen: seenSet.has(n.id),
           snoozed_until: snoozeMap.get(n.id) || null,
         }));
-      return new Response(JSON.stringify({ success: true, notifications: payload }), {
+      return new Response(JSON.stringify({ success: true, notifications: payload, etag: etagStr }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
 
 
     if (action === "mark_notification_read") {

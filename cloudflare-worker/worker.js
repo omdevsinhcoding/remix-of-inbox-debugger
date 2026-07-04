@@ -253,6 +253,20 @@ export default {
       return handleInboxHtml(request, env, session, sessionToken, ctx);
     }
 
+    // Notifications list — per-user KV cache (60s TTL). Cuts Supabase
+    // invocations ~95% at 5000 users. Etag-aware so mid-cache-window changes
+    // still surface via 304-equivalent path on cache expiry.
+    if (url.pathname === "/api/notifications/list" && request.method === "POST") {
+      return handleNotificationsList(request, env, session, sessionToken, ctx);
+    }
+
+    // Cache buster called after any mark/read/delete write — invalidates
+    // the user's KV entry so the next poll picks up the change immediately.
+    if (url.pathname === "/api/notifications/invalidate" && request.method === "POST") {
+      return handleNotificationsInvalidate(env, session);
+    }
+
+
 
 
 
@@ -792,3 +806,119 @@ async function handleInboxHtml(request, env, _session, rawToken, ctx) {
     });
   }
 }
+
+// ==================== Notifications cache ====================
+// Per-user KV cache in front of the notifications-list edge function.
+// TTL 60 s, invalidated on any mark_read / delete client-side write.
+const NOTIF_KEY_PREFIX = "notifs:v1:user:";
+const NOTIF_TTL_SECONDS = 60;
+
+function notifHeaders(extra = {}) {
+  return {
+    ...CORS_HEADERS,
+    "Content-Type": "application/json",
+    "Cache-Control": "no-store",
+    "Access-Control-Expose-Headers": "X-Cache-Status, X-Cache-Age",
+    ...extra,
+  };
+}
+
+async function handleNotificationsList(request, env, session, rawToken, ctx) {
+  if (!env.SUPABASE_URL || !env.SUPABASE_KEY) {
+    return new Response(JSON.stringify({ success: false, error: "Worker not configured" }), {
+      status: 500, headers: notifHeaders(),
+    });
+  }
+  if (!session?.userId || !rawToken) {
+    return new Response(JSON.stringify({ success: false, error: "session required" }), {
+      status: 401, headers: notifHeaders(),
+    });
+  }
+
+  let body = {};
+  try { body = await request.json(); } catch {}
+  const clientEtag = typeof body?.if_etag === "string" ? body.if_etag : null;
+
+  const kv = getKV(env);
+  const cacheKey = `${NOTIF_KEY_PREFIX}${session.userId}`;
+
+  // ---- Cache lookup ----
+  if (kv) {
+    const raw = await kvGet(env, cacheKey);
+    if (raw) {
+      let cached = null;
+      try { cached = JSON.parse(raw); } catch {}
+      if (cached && cached.body && cached.at) {
+        const age = Math.round((Date.now() - cached.at) / 1000);
+        if (age < NOTIF_TTL_SECONDS) {
+          // If client already has the cached etag, return unchanged (~80 B).
+          if (clientEtag && cached.etag && clientEtag === cached.etag) {
+            return new Response(
+              JSON.stringify({ success: true, unchanged: true, etag: cached.etag }),
+              { headers: notifHeaders({ "X-Cache-Status": "HIT_304", "X-Cache-Age": String(age) }) },
+            );
+          }
+          return new Response(cached.body, {
+            headers: notifHeaders({ "X-Cache-Status": "HIT", "X-Cache-Age": String(age) }),
+          });
+        }
+      }
+    }
+  }
+
+  // ---- MISS: forward to notifications-list edge function ----
+  try {
+    const upstream = await fetch(`${env.SUPABASE_URL}/functions/v1/notifications-list`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${env.SUPABASE_KEY}`,
+        "apikey": env.SUPABASE_KEY,
+        "X-Session-Token": rawToken,
+      },
+      body: JSON.stringify(clientEtag ? { if_etag: clientEtag } : {}),
+    });
+    const text = await upstream.text();
+    if (!upstream.ok) {
+      return new Response(text, {
+        status: upstream.status,
+        headers: notifHeaders({ "X-Cache-Status": "MISS_ERR" }),
+      });
+    }
+    let parsed = null;
+    try { parsed = JSON.parse(text); } catch {}
+    // Only cache the full payload (not unchanged responses). Store the etag
+    // separately so subsequent same-etag requests can short-circuit.
+    if (kv && parsed?.success && !parsed.unchanged) {
+      const store = { body: text, etag: parsed.etag || null, at: Date.now() };
+      const write = (async () => {
+        try {
+          const primary = env.EMAIL_CACHE_V2 || env.EMAIL_CACHE;
+          if (primary) await primary.put(cacheKey, JSON.stringify(store), { expirationTtl: NOTIF_TTL_SECONDS + 30 });
+        } catch (err) { console.error("[notifs] KV write failed:", err.message || err); }
+      })();
+      if (ctx?.waitUntil) ctx.waitUntil(write); else await write;
+    }
+    return new Response(text, {
+      headers: notifHeaders({ "X-Cache-Status": parsed?.unchanged ? "MISS_304" : "MISS" }),
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ success: false, error: "Upstream failed: " + (err.message || "unknown") }), {
+      status: 502, headers: notifHeaders({ "X-Cache-Status": "MISS_ERR" }),
+    });
+  }
+}
+
+async function handleNotificationsInvalidate(env, session) {
+  if (!session?.userId) {
+    return new Response(JSON.stringify({ success: false, error: "session required" }), {
+      status: 401, headers: notifHeaders(),
+    });
+  }
+  const primary = env.EMAIL_CACHE_V2 || env.EMAIL_CACHE;
+  if (primary) {
+    try { await primary.delete(`${NOTIF_KEY_PREFIX}${session.userId}`); } catch {}
+  }
+  return new Response(JSON.stringify({ success: true }), { headers: notifHeaders() });
+}
+
