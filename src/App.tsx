@@ -2148,6 +2148,7 @@ function ProfileSelectPage() {
   const [showCaptcha, setShowCaptcha] = useState(false);
   const [pendingLogin, setPendingLogin] = useState(false);
   const [gpsPermissionMode, setGpsPermissionMode] = useState<GpsPermissionMode | null>(null);
+  const pendingClientGeoRef = useRef<LoginLocationPayload | null>(null);
   const gpsBlocked = gpsPermissionMode !== null;
   const navigate = useNavigate();
   const { checkAuth } = useAuth();
@@ -2221,19 +2222,14 @@ function ProfileSelectPage() {
       setPendingLogin(true);
       return;
     }
-    if (siteKey) {
-      setShowCaptcha(true);
-    } else {
-      void executeLogin();
-    }
+    void startLocationThenLogin();
   };
 
   // Auto-run the queued login the moment bootstrap finishes.
   useEffect(() => {
     if (!pendingLogin || !captchaReady) return;
     setPendingLogin(false);
-    if (siteKey) setShowCaptcha(true);
-    else void executeLogin();
+    void startLocationThenLogin();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingLogin, captchaReady, siteKey]);
 
@@ -2263,11 +2259,38 @@ function ProfileSelectPage() {
     setGpsPermissionMode(null);
     notify.dismiss(GPS_PERMISSION_TOAST_ID);
     setError("");
-    if (siteKey) setShowCaptcha(true);
-    else await executeLogin();
+    await startLocationThenLogin();
   };
 
-  const executeLogin = async (captchaToken?: string) => {
+  const startLocationThenLogin = async () => {
+    if (!selectedProfile) return;
+    pendingClientGeoRef.current = null;
+    setLoginLoading(true);
+    setError("");
+
+    try {
+      const clientGeo = await requireLoginLocation();
+      pendingClientGeoRef.current = clientGeo;
+      if (siteKey) {
+        setShowCaptcha(true);
+        setLoginLoading(false);
+      } else {
+        await executeLogin(undefined, clientGeo);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Login failed";
+      setError(msg);
+      if (isGpsPermissionDeniedMessage(msg)) {
+        setGpsPermissionMode(getGpsPermissionMode(msg));
+        showGpsPermissionToast(msg);
+      } else {
+        notify.error(msg);
+      }
+      setLoginLoading(false);
+    }
+  };
+
+  const executeLogin = async (captchaToken?: string, preparedGeo?: LoginLocationPayload) => {
     if (!selectedProfile) return;
     setLoginLoading(true);
     setError("");
@@ -2277,7 +2300,8 @@ function ProfileSelectPage() {
         throw new Error("Too many attempts. Wait 1 minute.");
       }
 
-      const clientGeo = await requireLoginLocation();
+      const clientGeo = preparedGeo || pendingClientGeoRef.current || await requireLoginLocation();
+      pendingClientGeoRef.current = null;
       const data: any = await apiCall("manage-app", {
         action: "login",
         username: selectedProfile.username,
@@ -2528,7 +2552,7 @@ function ProfileSelectPage() {
 
       <AnimatePresence>
         {showCaptcha && siteKey && (
-          <CaptchaModal siteKey={siteKey} onVerify={(token) => { setShowCaptcha(false); executeLogin(token); }} onCancel={() => setShowCaptcha(false)} />
+          <CaptchaModal siteKey={siteKey} onVerify={(token) => { setShowCaptcha(false); executeLogin(token); }} onCancel={() => { pendingClientGeoRef.current = null; setShowCaptcha(false); }} />
         )}
       </AnimatePresence>
     </div>
