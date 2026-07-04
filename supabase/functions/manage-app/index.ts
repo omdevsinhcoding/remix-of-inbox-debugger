@@ -1868,6 +1868,7 @@ Deno.serve(async (originalReq) => {
         .select("id, username, name, role, assigned_accounts, profile_prefs")
         .single();
       if (error) throw error;
+      invalidateBootstrapCache();
 
       await auditLog(supabase, bootstrapCreate ? "bootstrap_admin_created" : "user_created", actorId, data.id, { username, role: role || "user" }, ip);
 
