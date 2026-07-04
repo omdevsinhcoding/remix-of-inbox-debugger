@@ -1694,12 +1694,52 @@ function stripRawMimeNoise(value = "") {
     .trim();
 }
 
+function looksLikeRawMime(value = "") {
+  return /Content-Transfer-Encoding|quoted-printable|MIME-Version:|Content-Type:|=_Part_|--[A-Za-z0-9'_()+,./:=?-]{8,}/i.test(String(value || ""));
+}
+
+function decodeQuotedPrintableText(input = "") {
+  try {
+    return String(input || "")
+      .replace(/=\r?\n/g, "")
+      .replace(/=([0-9A-F]{2})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+  } catch {
+    return String(input || "");
+  }
+}
+
+function extractDisplayableMimePart(raw = "") {
+  const source = String(raw || "").replace(/\r/g, "");
+  const parts = source.split(/\n--[^\n]+/g).map((part) => part.trim()).filter(Boolean);
+  const htmlPart = parts.find((part) => /Content-Type:\s*text\/html/i.test(part)) || "";
+  const textPart = parts.find((part) => /Content-Type:\s*text\/plain/i.test(part)) || "";
+  const chosen = htmlPart || textPart || source;
+  const bodyStart = chosen.search(/\n\n/);
+  const body = bodyStart >= 0 ? chosen.slice(bodyStart + 2) : chosen;
+  return decodeQuotedPrintableText(body)
+    .replace(/^Content-[^\n]+$/gim, "")
+    .replace(/^MIME-Version:[^\n]+$/gim, "")
+    .trim();
+}
+
+function normalizeEmailHtmlForDisplay(rawHtml = "", preview = "") {
+  const raw = String(rawHtml || "");
+  if (!raw) {
+    return `<pre style="white-space:pre-wrap;font-family:ui-sans-serif,system-ui,sans-serif">${escapeEmailHtml(String(preview || ""))}</pre>`;
+  }
+  if (!looksLikeRawMime(raw)) return raw;
+
+  const extracted = extractDisplayableMimePart(raw);
+  if (/<\s*(html|body|table|div|p|span|a|img)\b/i.test(extracted) && !looksLikeRawMime(extracted.replace(/<[^>]+>/g, " "))) {
+    return extracted;
+  }
+  const cleaned = stripRawMimeNoise(decodeQuotedPrintableText(extracted || raw));
+  return `<pre style="white-space:pre-wrap;font-family:ui-sans-serif,system-ui,sans-serif;line-height:1.45">${escapeEmailHtml(cleaned || String(preview || ""))}</pre>`;
+}
+
 function emailHtmlForDisplay(email: Email | null) {
   if (!email) return "";
-  const raw = String(email.html || "");
-  // Trust the worker's HTML output. Render exactly as sent.
-  if (raw) return raw;
-  return `<pre style="white-space:pre-wrap;font-family:ui-sans-serif,system-ui,sans-serif">${escapeEmailHtml(String(email.preview || ""))}</pre>`;
+  return normalizeEmailHtmlForDisplay(email.html, email.preview);
 }
 interface UserData {
   id: string; username: string; name: string; role: "admin" | "user"; totpSecret?: string; mustChangePassword?: boolean; assignedAccounts?: string[] | null; profileAvatar?: string | null; profilePrefs?: UserProfilePrefs;
