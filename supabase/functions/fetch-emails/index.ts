@@ -198,8 +198,9 @@ function parseFastEmail(rawSource: Uint8Array, envelope: any, accountLabel: stri
   const subject = (envelope?.subject || "").toString();
   const from = (envelope?.from || []).map(formatAddress).filter(Boolean).join(", ") || "Netflix";
   const to = (envelope?.to || []).map(formatAddress).filter(Boolean).join(", ") || undefined;
-  const netflixSignal = `${subject} ${from} ${to || ""} ${bodyText.slice(0, 2000)}`;
-  if (!/netflix/i.test(netflixSignal)) return null;
+  // Strict: sender must be a real @netflix.com address, and drop marketing subjects.
+  if (!isNetflixFrom(from)) return null;
+  if (isNetflixPromo(subject)) return null;
   const preview = bodyText.length > 100 ? `${bodyText.substring(0, 100)}...` : bodyText;
   return {
     id: `${accountLabel}:${uid}`,
