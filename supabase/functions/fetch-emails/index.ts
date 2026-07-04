@@ -148,6 +148,28 @@ function escapeHtml(input: string) {
   return input.replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch] || ch));
 }
 
+// Strict Netflix sender check — only emails FROM a netflix.com address (or subdomain)
+// count as Netflix mail. Prevents third-party mails (e.g. Reddit threads that mention
+// "netflix" in the subject) from ever entering the cache.
+function isNetflixFrom(fromRaw: string | null | undefined): boolean {
+  if (!fromRaw) return false;
+  const s = String(fromRaw).toLowerCase();
+  return /@([a-z0-9-]+\.)*netflix\.com\b/.test(s);
+}
+
+// Reject Netflix marketing/promo mail — users only want transactional
+// (sign-in codes, household verification, password resets, billing).
+const NETFLIX_PROMO_SUBJECTS = [
+  "unlimited series", "ready to watch", "finish signing up", "welcome to netflix",
+  "new on netflix", "recommended for you", "top 10", "trending now",
+  "coming soon", "start watching", "new releases", "we think you'll love",
+  "don't miss", "back on netflix",
+];
+function isNetflixPromo(subject: string | null | undefined): boolean {
+  const s = (subject || "").toLowerCase();
+  return NETFLIX_PROMO_SUBJECTS.some((kw) => s.includes(kw));
+}
+
 function decodeQuotedPrintable(input: string) {
   return input
     .replace(/=\r?\n/g, "")
@@ -176,8 +198,9 @@ function parseFastEmail(rawSource: Uint8Array, envelope: any, accountLabel: stri
   const subject = (envelope?.subject || "").toString();
   const from = (envelope?.from || []).map(formatAddress).filter(Boolean).join(", ") || "Netflix";
   const to = (envelope?.to || []).map(formatAddress).filter(Boolean).join(", ") || undefined;
-  const netflixSignal = `${subject} ${from} ${to || ""} ${bodyText.slice(0, 2000)}`;
-  if (!/netflix/i.test(netflixSignal)) return null;
+  // Strict: sender must be a real @netflix.com address, and drop marketing subjects.
+  if (!isNetflixFrom(from)) return null;
+  if (isNetflixPromo(subject)) return null;
   const preview = bodyText.length > 100 ? `${bodyText.substring(0, 100)}...` : bodyText;
   return {
     id: `${accountLabel}:${uid}`,
@@ -271,9 +294,9 @@ async function fetchFromAccount(
           if (!hasBudget()) break;
           newestUids.push(message.uid);
           const fromAddr = message.envelope?.from?.[0]?.address?.toLowerCase() || "";
-          const toAddr = message.envelope?.to?.[0]?.address?.toLowerCase() || "";
-          const subject = (message.envelope?.subject || "").toLowerCase();
-          if (fromAddr.includes("netflix") || toAddr.includes("netflix") || subject.includes("netflix")) {
+          // STRICT: only accept @netflix.com senders (or subdomains). No subject/to matching —
+          // that let third-party threads like "Netflix wtf??" from Reddit slip through.
+          if (/@([a-z0-9-]+\.)*netflix\.com$/.test(fromAddr)) {
             netflixUids.push(message.uid);
           }
         }
@@ -299,7 +322,9 @@ async function fetchFromAccount(
 
       netflixUids = Array.from(new Set(netflixUids)).sort((a, b) => b - a);
       newestUids = Array.from(new Set(newestUids)).sort((a, b) => b - a);
-      const candidates = netflixUids.length > 0 ? netflixUids : (quickRefresh ? newestUids.slice(0, 1) : []);
+      // Only ever process confirmed Netflix UIDs. Never fall back to newestUids —
+      // that fetched arbitrary third-party mail (Reddit, etc.) during quick refresh.
+      const candidates = netflixUids;
       const uidsToFetch = candidates.slice(0, quickRefresh ? USER_REFRESH_MAX_UIDS : clampLimit(maxMessages, USER_REFRESH_MAX_UIDS, FULL_SYNC_MAX_UIDS));
       const uncachedUids: number[] = [];
       for (const uid of uidsToFetch) {
@@ -323,6 +348,16 @@ async function fetchFromAccount(
           const parsed = await simpleParser(fullMsg.source, { skipImageLinks: true, skipTextLinks: true });
           const bodyText = (parsed.text || "").trim();
           const subjectText = (parsed.subject || fullMsg.envelope?.subject || "").toString();
+          const fromText = parsed.from?.text || "";
+          // Final gate — even if a UID slipped through, drop non-netflix senders and promo mail.
+          if (!isNetflixFrom(fromText)) {
+            console.log(`[${accountLabel}] Skipping UID ${uid}: sender not @netflix.com (${fromText})`);
+            continue;
+          }
+          if (isNetflixPromo(subjectText)) {
+            console.log(`[${accountLabel}] Skipping UID ${uid}: promo subject (${subjectText})`);
+            continue;
+          }
           const otpCode = extractOtpCode(subjectText, bodyText);
           const stableId = `${accountLabel}:${uid}`;
 
