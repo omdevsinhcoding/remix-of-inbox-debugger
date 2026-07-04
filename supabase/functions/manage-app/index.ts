@@ -1900,7 +1900,10 @@ Deno.serve(async (originalReq) => {
       // (maxPerUser - 1) remain active — the new login becomes the Nth session.
       try {
         const { data: limitRow } = await supabase.from("app_settings").select("value").eq("key", "session_limits").maybeSingle();
-        const maxPerUser = Math.max(0, Math.floor(Number((limitRow?.value as any)?.maxPerUser) || 0));
+        const globalLimit = Math.max(0, Math.floor(Number((limitRow?.value as any)?.maxPerUser) || 0));
+        // Per-user override wins when set (non-null). 0 = unlimited for this user even if a global cap exists.
+        const perUser = (user as any).session_limit;
+        const maxPerUser = (perUser === null || perUser === undefined) ? globalLimit : Math.max(0, Math.floor(Number(perUser) || 0));
         if (maxPerUser > 0) {
           const nowIso = new Date().toISOString();
           const { data: activeRows } = await supabase
@@ -2390,11 +2393,23 @@ Deno.serve(async (originalReq) => {
 
     if (action === "update_user") {
       const session = await requireAdmin(req);
-      const { id, assigned_accounts } = params;
+      const { id, assigned_accounts, session_limit } = params;
       if (!id) throw new Error("User ID required");
-      const { error } = await supabase.from("app_users").update({ assigned_accounts }).eq("id", id);
+      const patch: Record<string, any> = {};
+      if (assigned_accounts !== undefined) patch.assigned_accounts = assigned_accounts;
+      if (session_limit !== undefined) {
+        // null | "" -> clear (fall back to global). Otherwise clamp to a sane non-negative int.
+        if (session_limit === null || session_limit === "") {
+          patch.session_limit = null;
+        } else {
+          const n = Math.max(0, Math.min(50, Math.floor(Number(session_limit) || 0)));
+          patch.session_limit = n;
+        }
+      }
+      if (Object.keys(patch).length === 0) throw new Error("No fields to update");
+      const { error } = await supabase.from("app_users").update(patch).eq("id", id);
       if (error) throw error;
-      await auditLog(supabase, "user_updated", session.userId, id, { assigned_accounts }, ip);
+      await auditLog(supabase, "user_updated", session.userId, id, patch, ip);
       return new Response(JSON.stringify({ success: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -3333,7 +3348,7 @@ Deno.serve(async (originalReq) => {
       // Kick everything off in PARALLEL server-side. Edge → Postgres latency is
       // ~1-5ms each, so 12 parallel queries return in ~50-150ms total.
       const usersP = supabase.from("app_users")
-        .select("id, username, name, role, assigned_accounts, profile_prefs")
+        .select("id, username, name, role, assigned_accounts, profile_prefs, session_limit")
         .order("created_at", { ascending: true });
 
       const emailsCountP = supabase.from("cached_emails").select("id", { count: "exact", head: true });

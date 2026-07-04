@@ -3988,6 +3988,7 @@ function AdminPanel() {
   const [showAccountUpdates, setShowAccountUpdates] = useState(false);
   const [editingUserAccounts, setEditingUserAccounts] = useState<string | null>(null);
   const [editAccountsList, setEditAccountsList] = useState<string[]>([]);
+  const [editSessionLimit, setEditSessionLimit] = useState<string>("");
   const [serverConfig, setServerConfig] = useState({
     TELEGRAM_BOT_TOKEN: "", TELEGRAM_CHAT_ID: "", IMAP_HOST: "", IMAP_PORT: "", IMAP_USER: "", IMAP_PASSWORD: "",
   });
@@ -4868,11 +4869,18 @@ function AdminPanel() {
 
   const updateUserAccounts = async (userId: string) => {
     try {
-      await apiCall("manage-app", { action: "update_user", id: userId, assigned_accounts: editAccountsList.length > 0 ? editAccountsList : null });
+      const raw = editSessionLimit.trim();
+      const session_limit = raw === "" ? null : Math.max(0, Math.min(50, Math.floor(Number(raw) || 0)));
+      await apiCall("manage-app", {
+        action: "update_user",
+        id: userId,
+        assigned_accounts: editAccountsList.length > 0 ? editAccountsList : null,
+        session_limit,
+      });
       const nextAccounts = editAccountsList.length > 0 ? editAccountsList : null;
       setEditingUserAccounts(null);
-      setUsers(prev => prev.map(u => u.id === userId ? { ...u, assignedAccounts: nextAccounts } : u));
-      notify.success("User accounts updated!");
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, assignedAccounts: nextAccounts, session_limit } : u));
+      notify.success("User settings updated!");
     } catch (err) {
       notify.error(err instanceof Error ? err.message : "Failed to update");
     }
@@ -5013,6 +5021,11 @@ function AdminPanel() {
                               ))}
                             </div>
                           )}
+                          {u.role !== "admin" && (u as any).session_limit != null && (
+                            <p className="text-[10px] text-emerald-700 mt-0.5 font-semibold">
+                              Session limit: {(u as any).session_limit === 0 ? "unlimited" : `${(u as any).session_limit} device${(u as any).session_limit === 1 ? "" : "s"}`}
+                            </p>
+                          )}
                           {(!u.assignedAccounts || u.assignedAccounts.length === 0) && u.role !== "admin" && (
                             <p className="text-[10px] text-amber-600 mt-0.5 font-semibold">No accounts assigned</p>
                           )}
@@ -5024,7 +5037,13 @@ function AdminPanel() {
                             className="p-2 hover:bg-blue-50 text-blue-400 hover:text-blue-600 rounded-lg transition-colors">
                             <Eye className="w-4 h-4" />
                           </button>
-                          <button onClick={() => { setEditingUserAccounts(editingUserAccounts === u.id ? null : u.id); setEditAccountsList((u as any).assignedAccounts || []); }} title="Edit accounts"
+                          <button onClick={() => {
+                              const opening = editingUserAccounts !== u.id;
+                              setEditingUserAccounts(opening ? u.id : null);
+                              setEditAccountsList((u as any).assignedAccounts || []);
+                              const cur = (u as any).session_limit;
+                              setEditSessionLimit(cur === null || cur === undefined ? "" : String(cur));
+                            }} title="Edit accounts & session limit"
                             className="p-2 hover:bg-green-50 text-green-400 hover:text-green-600 rounded-lg transition-colors">
                             <Edit className="w-4 h-4" />
                           </button>
@@ -5056,9 +5075,25 @@ function AdminPanel() {
                             </label>
                           ))}
                         </div>
+                        <div className="mb-2">
+                          <label className="block text-xs font-bold text-slate-500 mb-1">Concurrent session limit</label>
+                          <input
+                            type="number"
+                            min={0}
+                            max={50}
+                            step={1}
+                            value={editSessionLimit}
+                            onChange={(e) => setEditSessionLimit(e.target.value)}
+                            placeholder="Blank = use global default"
+                            className="w-full bg-slate-50 border rounded-lg p-2 outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
+                          />
+                          <p className="text-[10px] text-slate-400 mt-1">
+                            How many devices this user can be signed in on at once. <b>Blank</b> = use the global limit set under Security. <b>0</b> = unlimited for this user. <b>1, 2, …</b> = cap; extra logins kick the oldest device out.
+                          </p>
+                        </div>
                         <button onClick={() => updateUserAccounts(u.id)}
                           className="w-full bg-green-600 text-white text-xs font-bold py-2 rounded-lg hover:bg-green-700 transition-all">
-                          Save Accounts
+                          Save Settings
                         </button>
                       </div>
                     )}
