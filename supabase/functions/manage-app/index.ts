@@ -472,6 +472,16 @@ type DeviceFingerprint = {
   userAgent?: string;
   platform?: string;
   vendor?: string;
+  deviceName?: string;
+  deviceModel?: string;
+  deviceVendor?: string;
+  deviceType?: string;
+  deviceInfoSource?: string;
+  deviceInfoConfidence?: string;
+  osName?: string;
+  osVersion?: string;
+  browserName?: string;
+  browserVersion?: string;
   language?: string;
   languages?: string[];
   screen?: { width: number; height: number; dpr: number; availWidth?: number; availHeight?: number; colorDepth?: number; pixelDepth?: number };
@@ -530,6 +540,16 @@ function sanitizeDevice(raw: any): DeviceFingerprint | undefined {
     userAgent: str(raw.userAgent, 512),
     platform: str(raw.platform, 64),
     vendor: str(raw.vendor, 64),
+    deviceName: str(raw.deviceName, 160),
+    deviceModel: str(raw.deviceModel, 128),
+    deviceVendor: str(raw.deviceVendor, 64),
+    deviceType: str(raw.deviceType, 32),
+    deviceInfoSource: str(raw.deviceInfoSource, 32),
+    deviceInfoConfidence: str(raw.deviceInfoConfidence, 32),
+    osName: str(raw.osName, 48),
+    osVersion: str(raw.osVersion, 64),
+    browserName: str(raw.browserName, 48),
+    browserVersion: str(raw.browserVersion, 64),
     language: str(raw.language, 32),
     languages: Array.isArray(raw.languages) ? raw.languages.filter((l: any) => typeof l === "string").slice(0, 6).map((l: string) => l.slice(0, 32)) : undefined,
     timezone: str(raw.timezone, 64),
@@ -932,9 +952,32 @@ function parseUserAgent(ua: string): { browser: string; browserVersion?: string;
   return { browser, browserVersion, os, osVersion };
 }
 
+function normalizedVersion(value?: string) {
+  const v = String(value || "").trim();
+  if (!v) return "";
+  const parts = v.split(".").filter(Boolean);
+  if (parts.length >= 2 && parts.slice(1).every((p) => p === "0")) return parts[0];
+  return parts.slice(0, 3).join(".");
+}
+
+function isReliableDeviceModel(model?: string) {
+  const m = String(model || "").trim();
+  return !!m && m.length >= 2 && !/^(k|android|mobile|linux|build|wv|unknown|generic)$/i.test(m);
+}
+
+function normalizeDeviceIdentity(ua: string, device?: DeviceFingerprint): { model: string; type: string; vendor: string; source: string; confidence: string } {
+  const inferred = inferDeviceModel(ua, device);
+  const model = isReliableDeviceModel(device?.deviceModel) ? device!.deviceModel! : isReliableDeviceModel(device?.uaModel) ? device!.uaModel! : inferred.model;
+  const type = device?.deviceType || inferred.type;
+  const vendor = device?.deviceVendor || inferred.vendor;
+  const source = device?.deviceInfoSource || (isReliableDeviceModel(device?.uaModel) ? "ua-ch" : "ua/fallback");
+  const confidence = device?.deviceInfoConfidence || (isReliableDeviceModel(device?.uaModel) ? "high" : isReliableDeviceModel(model) ? "medium" : "low");
+  return { model, type, vendor, source, confidence };
+}
+
 function inferDeviceModel(ua: string, device?: DeviceFingerprint): { model: string; type: string; vendor: string } {
   const s = ua || "";
-  let model = device?.uaModel || "";
+  let model = isReliableDeviceModel(device?.uaModel) ? device!.uaModel! : "";
   let vendor = "";
   let type = "Desktop";
   const mobile = device?.mobile ?? /Mobi|Android|iPhone|iPod/.test(s);
@@ -963,7 +1006,7 @@ function inferDeviceModel(ua: string, device?: DeviceFingerprint): { model: stri
     else if (/Apple|iPhone|iPad|Macintosh/.test(s)) vendor = "Apple";
     else if (/Windows/.test(s)) vendor = "PC";
   }
-  if (!model && device?.uaPlatform) model = `${device.uaPlatform}${device.uaPlatformVersion ? " " + device.uaPlatformVersion : ""}`;
+  if (!model && device?.uaPlatform && device.uaPlatform !== "Android") model = `${device.uaPlatform}${device.uaPlatformVersion ? " " + normalizedVersion(device.uaPlatformVersion) : ""}`;
   if (!model) model = type;
   return { model, type, vendor };
 }
