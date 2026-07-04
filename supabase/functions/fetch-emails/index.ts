@@ -322,7 +322,9 @@ async function fetchFromAccount(
 
       netflixUids = Array.from(new Set(netflixUids)).sort((a, b) => b - a);
       newestUids = Array.from(new Set(newestUids)).sort((a, b) => b - a);
-      const candidates = netflixUids.length > 0 ? netflixUids : (quickRefresh ? newestUids.slice(0, 1) : []);
+      // Only ever process confirmed Netflix UIDs. Never fall back to newestUids —
+      // that fetched arbitrary third-party mail (Reddit, etc.) during quick refresh.
+      const candidates = netflixUids;
       const uidsToFetch = candidates.slice(0, quickRefresh ? USER_REFRESH_MAX_UIDS : clampLimit(maxMessages, USER_REFRESH_MAX_UIDS, FULL_SYNC_MAX_UIDS));
       const uncachedUids: number[] = [];
       for (const uid of uidsToFetch) {
