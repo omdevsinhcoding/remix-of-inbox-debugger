@@ -2262,15 +2262,6 @@ function ProfileSelectPage() {
     setGpsPermissionMode(null);
     notify.dismiss(GPS_PERMISSION_TOAST_ID);
     setError("");
-    if (!captchaReady) {
-      // Bootstrap still running — queue the login instead of yelling at user.
-      if (captchaConfigError) {
-        setError("Couldn't reach server. Please refresh and try again.");
-        return;
-      }
-      setPendingLogin(true);
-      return;
-    }
     void startLocationThenLogin();
   };
 
@@ -2325,6 +2316,15 @@ function ProfileSelectPage() {
     try {
       const clientGeo = await requireLoginLocation();
       pendingClientGeoRef.current = clientGeo;
+      if (!captchaReady) {
+        if (captchaConfigError) {
+          throw new Error("Couldn't reach server. Please refresh and try again.");
+        }
+        setPendingLogin(true);
+        setLoginLoading(false);
+        notify.info("Location ready", { id: "gps-permission-ready", description: "Finishing security check…", duration: 3000 });
+        return;
+      }
       if (siteKey) {
         setShowCaptcha(true);
         setLoginLoading(false);
@@ -2695,10 +2695,6 @@ function AdminLoginPage() {
     setGpsPermissionMode(null);
     notify.dismiss(GPS_PERMISSION_TOAST_ID);
     setError("");
-    if (!captchaReady) {
-      setError(captchaConfigError ? "Security check failed to load. Please refresh and try again." : "Security check is loading. Please wait.");
-      return;
-    }
     void startLocationThenLogin();
   };
 
@@ -2743,6 +2739,14 @@ function AdminLoginPage() {
     try {
       const clientGeo = await requireLoginLocation();
       pendingClientGeoRef.current = clientGeo;
+      if (!captchaReady) {
+        if (captchaConfigError) {
+          throw new Error("Security check failed to load. Please refresh and try again.");
+        }
+        setLoading(false);
+        notify.info("Location ready", { id: "gps-permission-ready", description: "Wait for security check, then tap Admin Sign In.", duration: 3500 });
+        return;
+      }
       if (siteKey) {
         setShowCaptcha(true);
         setLoading(false);
