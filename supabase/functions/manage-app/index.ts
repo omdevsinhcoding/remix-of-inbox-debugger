@@ -1903,7 +1903,13 @@ Deno.serve(async (originalReq) => {
               .in("family_id", toRevoke)
               .is("revoked_at", null);
             await auditLog(supabase, "session_limit_enforced", user.id, null, { revokedFamilies: toRevoke.length, maxPerUser }, ip);
+            // Instant kick — push a Realtime Broadcast to each revoked family so
+            // the old device logs out within ~1s over its persistent WebSocket
+            // (no polling, ~50 bytes egress per revoke).
+            const runBroadcast = broadcastSessionRevoked(toRevoke, "new_login");
+            (globalThis as any).EdgeRuntime?.waitUntil?.(runBroadcast) ?? runBroadcast.catch(() => {});
           }
+
         }
       } catch (e) {
         console.warn("[login] session-limit enforcement skipped:", (e as any)?.message || e);
