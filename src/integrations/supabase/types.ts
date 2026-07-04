@@ -83,54 +83,33 @@ export type Database = {
       }
       app_sessions: {
         Row: {
-          binding_hash: string | null
           created_at: string
           expires_at: string
-          family_id: string | null
           id: string
           ip: string | null
           last_seen_at: string
-          parent_session_id: string | null
-          refresh_expires_at: string | null
-          refresh_token_hash: string | null
-          revoked_at: string | null
-          revoked_reason: string | null
           role: string
           token_hash: string
           user_agent: string | null
           user_id: string
         }
         Insert: {
-          binding_hash?: string | null
           created_at?: string
           expires_at: string
-          family_id?: string | null
           id?: string
           ip?: string | null
           last_seen_at?: string
-          parent_session_id?: string | null
-          refresh_expires_at?: string | null
-          refresh_token_hash?: string | null
-          revoked_at?: string | null
-          revoked_reason?: string | null
           role?: string
           token_hash: string
           user_agent?: string | null
           user_id: string
         }
         Update: {
-          binding_hash?: string | null
           created_at?: string
           expires_at?: string
-          family_id?: string | null
           id?: string
           ip?: string | null
           last_seen_at?: string
-          parent_session_id?: string | null
-          refresh_expires_at?: string | null
-          refresh_token_hash?: string | null
-          revoked_at?: string | null
-          revoked_reason?: string | null
           role?: string
           token_hash?: string
           user_agent?: string | null
@@ -200,9 +179,7 @@ export type Database = {
           details: Json | null
           id: string
           ip: string | null
-          result: string | null
           target_id: string | null
-          user_agent: string | null
         }
         Insert: {
           action: string
@@ -211,9 +188,7 @@ export type Database = {
           details?: Json | null
           id?: string
           ip?: string | null
-          result?: string | null
           target_id?: string | null
-          user_agent?: string | null
         }
         Update: {
           action?: string
@@ -222,9 +197,7 @@ export type Database = {
           details?: Json | null
           id?: string
           ip?: string | null
-          result?: string | null
           target_id?: string | null
-          user_agent?: string | null
         }
         Relationships: []
       }
@@ -267,69 +240,6 @@ export type Database = {
           preview?: string | null
           subject?: string | null
           to_address?: string | null
-        }
-        Relationships: []
-      }
-      crypto_nonces: {
-        Row: {
-          nonce: string
-          seen_at: string
-          session_id: string
-        }
-        Insert: {
-          nonce: string
-          seen_at?: string
-          session_id: string
-        }
-        Update: {
-          nonce?: string
-          seen_at?: string
-          session_id?: string
-        }
-        Relationships: []
-      }
-      crypto_sessions: {
-        Row: {
-          aes_key: string
-          created_at: string
-          expires_at: string
-          id: string
-          ip: string | null
-          origin_hash: string | null
-        }
-        Insert: {
-          aes_key: string
-          created_at?: string
-          expires_at?: string
-          id?: string
-          ip?: string | null
-          origin_hash?: string | null
-        }
-        Update: {
-          aes_key?: string
-          created_at?: string
-          expires_at?: string
-          id?: string
-          ip?: string | null
-          origin_hash?: string | null
-        }
-        Relationships: []
-      }
-      handshake_rate: {
-        Row: {
-          count: number
-          ip: string
-          minute_bucket: string
-        }
-        Insert: {
-          count?: number
-          ip: string
-          minute_bucket: string
-        }
-        Update: {
-          count?: number
-          ip?: string
-          minute_bucket?: string
         }
         Relationships: []
       }
@@ -576,53 +486,6 @@ export type Database = {
         }
         Relationships: []
       }
-      notification_impressions: {
-        Row: {
-          clicked_at: string | null
-          completed_at: string | null
-          dismissed_at: string | null
-          first_shown_at: string | null
-          id: string
-          meta: Json | null
-          notification_id: string
-          times_shown: number
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          clicked_at?: string | null
-          completed_at?: string | null
-          dismissed_at?: string | null
-          first_shown_at?: string | null
-          id?: string
-          meta?: Json | null
-          notification_id: string
-          times_shown?: number
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          clicked_at?: string | null
-          completed_at?: string | null
-          dismissed_at?: string | null
-          first_shown_at?: string | null
-          id?: string
-          meta?: Json | null
-          notification_id?: string
-          times_shown?: number
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "notification_impressions_notification_id_fkey"
-            columns: ["notification_id"]
-            isOneToOne: false
-            referencedRelation: "notifications"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       notification_prefs: {
         Row: {
           category: string
@@ -672,7 +535,6 @@ export type Database = {
         Row: {
           archived_at: string | null
           clicked_at: string | null
-          deleted_at: string | null
           dismissed_at: string | null
           notification_id: string
           read_at: string
@@ -683,7 +545,6 @@ export type Database = {
         Insert: {
           archived_at?: string | null
           clicked_at?: string | null
-          deleted_at?: string | null
           dismissed_at?: string | null
           notification_id: string
           read_at?: string
@@ -694,7 +555,6 @@ export type Database = {
         Update: {
           archived_at?: string | null
           clicked_at?: string | null
-          deleted_at?: string | null
           dismissed_at?: string | null
           notification_id?: string
           read_at?: string
@@ -712,41 +572,6 @@ export type Database = {
           },
         ]
       }
-      notification_translations: {
-        Row: {
-          body: string | null
-          body_markdown: string | null
-          created_at: string
-          lang: string
-          notification_id: string
-          title: string | null
-        }
-        Insert: {
-          body?: string | null
-          body_markdown?: string | null
-          created_at?: string
-          lang: string
-          notification_id: string
-          title?: string | null
-        }
-        Update: {
-          body?: string | null
-          body_markdown?: string | null
-          created_at?: string
-          lang?: string
-          notification_id?: string
-          title?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "notification_translations_notification_id_fkey"
-            columns: ["notification_id"]
-            isOneToOne: false
-            referencedRelation: "notifications"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       notifications: {
         Row: {
           action_label: string | null
@@ -755,30 +580,20 @@ export type Database = {
           action2_url: string | null
           audience: string
           body: string
-          body_markdown: string | null
           category: string
           created_at: string
           created_by: string | null
           dedupe_key: string | null
           description: string | null
           expires_at: string | null
-          genre_tags: string[] | null
           group_key: string | null
           icon: string | null
           id: string
           image_key: string | null
           image_url: string | null
-          kind: string
-          language: string | null
-          locked: boolean
-          mode: string | null
           pinned: boolean
-          platform_icon: string | null
           priority: string
           publish_at: string | null
-          rating: number | null
-          show_frequency: string | null
-          sub_kind: string | null
           target_user_id: string | null
           title: string
         }
@@ -789,30 +604,20 @@ export type Database = {
           action2_url?: string | null
           audience: string
           body: string
-          body_markdown?: string | null
           category?: string
           created_at?: string
           created_by?: string | null
           dedupe_key?: string | null
           description?: string | null
           expires_at?: string | null
-          genre_tags?: string[] | null
           group_key?: string | null
           icon?: string | null
           id?: string
           image_key?: string | null
           image_url?: string | null
-          kind?: string
-          language?: string | null
-          locked?: boolean
-          mode?: string | null
           pinned?: boolean
-          platform_icon?: string | null
           priority?: string
           publish_at?: string | null
-          rating?: number | null
-          show_frequency?: string | null
-          sub_kind?: string | null
           target_user_id?: string | null
           title: string
         }
@@ -823,30 +628,20 @@ export type Database = {
           action2_url?: string | null
           audience?: string
           body?: string
-          body_markdown?: string | null
           category?: string
           created_at?: string
           created_by?: string | null
           dedupe_key?: string | null
           description?: string | null
           expires_at?: string | null
-          genre_tags?: string[] | null
           group_key?: string | null
           icon?: string | null
           id?: string
           image_key?: string | null
           image_url?: string | null
-          kind?: string
-          language?: string | null
-          locked?: boolean
-          mode?: string | null
           pinned?: boolean
-          platform_icon?: string | null
           priority?: string
           publish_at?: string | null
-          rating?: number | null
-          show_frequency?: string | null
-          sub_kind?: string | null
           target_user_id?: string | null
           title?: string
         }
@@ -882,57 +677,16 @@ export type Database = {
         }
         Relationships: []
       }
-      security_events: {
-        Row: {
-          id: number
-          ip: unknown
-          meta: Json
-          severity: string
-          ts: string
-          type: string
-          ua: string | null
-          uid: string | null
-        }
-        Insert: {
-          id?: number
-          ip?: unknown
-          meta?: Json
-          severity?: string
-          ts?: string
-          type: string
-          ua?: string | null
-          uid?: string | null
-        }
-        Update: {
-          id?: number
-          ip?: unknown
-          meta?: Json
-          severity?: string
-          ts?: string
-          type?: string
-          ua?: string | null
-          uid?: string | null
-        }
-        Relationships: []
-      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
       get_cron_status: { Args: never; Returns: Json }
-      get_email_cleanup_status: { Args: never; Returns: Json }
-      purge_expired_crypto_sessions: { Args: never; Returns: undefined }
-      purge_expired_nonces: { Args: never; Returns: undefined }
-      schedule_email_cleanup: {
-        Args: { days: number; hour: number }
-        Returns: undefined
-      }
       schedule_email_sync: {
         Args: { auth_key: string; cron_expr: string; function_url: string }
         Returns: undefined
       }
-      unschedule_email_cleanup: { Args: never; Returns: undefined }
       unschedule_email_sync: { Args: never; Returns: undefined }
     }
     Enums: {

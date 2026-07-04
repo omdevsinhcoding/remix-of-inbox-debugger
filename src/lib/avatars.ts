@@ -1,11 +1,7 @@
-// Netflix character avatar catalog (hosted on the configured public R2 URL).
+// Netflix character avatar catalog (hosted on Cloudflare R2).
 // Avatar IDs use the format: `netflix:<CategoryKey>:<FileName>` (filename without .png).
 
-let avatarBaseUrl = "";
-
-export function setAvatarBaseUrl(url?: string | null) {
-  avatarBaseUrl = typeof url === "string" ? url.trim().replace(/\/+$/, "") : "";
-}
+const R2_BASE = "https://pub-90e867a2bce847e1a7d6085e493daee6.r2.dev";
 
 export type AvatarCategory = {
   key: string;      // URL-safe slug used inside the ID and DOM
@@ -88,11 +84,10 @@ export const AVATAR_CATEGORIES: AvatarCategory[] = [
 
 const byKey = new Map(AVATAR_CATEGORIES.map((c) => [c.key, c]));
 
-function encodePath(folder: string, file: string): string | null {
-  if (!avatarBaseUrl) return null;
+function encodePath(folder: string, file: string): string {
   // Encode every path segment fully. Some folders contain commas, ampersands, apostrophes,
   // and spaces; partial encoding can make mobile browsers/CDNs miss the real R2 object.
-  return `${avatarBaseUrl}/${encodeURIComponent(folder)}/${encodeURIComponent(file)}.png`;
+  return `${R2_BASE}/${encodeURIComponent(folder)}/${encodeURIComponent(file)}.png`;
 }
 
 /**
@@ -117,7 +112,7 @@ export function buildAvatarId(categoryKey: string, file: string): string {
 export function getAvatarCategoryUrls(categoryKey: string): string[] {
   const category = byKey.get(categoryKey);
   if (!category) return [];
-  return category.files.map((file) => encodePath(category.folder, file)).filter((url): url is string => !!url);
+  return category.files.map((file) => encodePath(category.folder, file));
 }
 
 export const AVATAR_TOTAL = AVATAR_CATEGORIES.reduce((n, c) => n + c.files.length, 0);

@@ -1,15 +1,13 @@
 import { supabase } from "../integrations/supabase/client";
-import { setAvatarBaseUrl } from "./avatars";
-import { sessionGet, sessionSet, sessionRemove, sessionClearAll } from "./session";
 
 const WORKER_URLS_KEY = "cloudflare_worker_urls";
 const BOOTSTRAP_CACHE_KEY = "bootstrap_cache_v1";
 const BOOTSTRAP_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-const BOOTSTRAP_TIMEOUT_MS = 20000;
+const BOOTSTRAP_TIMEOUT_MS = 8000;
 
 export type EmailFilters = { showSignInCodes?: boolean; showPasswordResets?: boolean; showAccountUpdates?: boolean };
 export type MaintenanceInfo = { enabled: boolean; title?: string; message?: string; eta?: string; startsAt?: string | null; endsAt?: string | null; versionFrom?: string; versionTo?: string; updated_at?: string | null };
-export type BootstrapResult = { users: any[]; recaptcha: any; workerUrls: string[]; emailFilters?: EmailFilters; maintenance?: MaintenanceInfo; avatarBaseUrl?: string };
+export type BootstrapResult = { users: any[]; recaptcha: any; workerUrls: string[]; emailFilters?: EmailFilters; maintenance?: MaintenanceInfo };
 
 
 // Module-level filter cache — read synchronously by filterVisibleEmails.
@@ -31,51 +29,41 @@ function storeWorkerUrls(urls: string[]) {
 }
 
 export function markSessionStart() {
-  try { sessionSet("session_started_at" as any, String(Date.now())); } catch {}
+  try { localStorage.setItem("session_started_at", String(Date.now())); } catch {}
 }
 
 export function clearSessionData() {
   // Best-effort: revoke session server-side so the DB row is deleted.
   try {
-    const token = sessionGet("session_token" as any);
+    const token = localStorage.getItem("session_token");
     if (token) {
-      import("./secureTransport")
-        .then(({ invokeEdge }) => invokeEdge("manage-app", { action: "logout" }, { headers: { "X-Session-Token": token } }))
-        .catch(() => {});
+      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/manage-app`;
+      const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+      const body = JSON.stringify({ action: "logout" });
+      // Use keepalive fetch so the request survives navigation/unload.
+      fetch(url, {
+        method: "POST",
+        keepalive: true,
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${key}`,
+          "apikey": key,
+          "X-Session-Token": token,
+        },
+        body,
+      }).catch(() => {});
     }
   } catch {}
   try {
-    // Capture the user id BEFORE clearing so we can purge that profile's OTP cache too.
-    let uid: string | null = null;
-    try {
-      const raw = sessionGet("user" as any);
-      if (raw) uid = JSON.parse(raw)?.id || null;
-    } catch {}
-    sessionRemove("user" as any);
-    sessionRemove("session_token" as any);
-    sessionRemove("session_started_at" as any);
-    sessionRemove("admin_auth" as any);
-    sessionRemove("pending_admin_token" as any);
+    localStorage.removeItem("user");
+    localStorage.removeItem("session_token");
+    localStorage.removeItem("session_started_at");
+    localStorage.removeItem("admin_auth");
+    localStorage.removeItem("admin_backup");
+    localStorage.removeItem("pending_admin_token");
     localStorage.removeItem("pending_admin_user");
-    // F4: impersonation backup is now in sessionStorage; sweep both stores for safety.
-    sessionRemove("admin_backup" as any);
-    try { sessionRemove("admin_backup" as any); } catch {}
-    // F8: purge cached Netflix OTP emails so the next profile on this device
-    // can't read the previous profile's inbox after a timeout/forced logout.
-    if (uid) localStorage.removeItem(`cached_emails_v1:${uid}`);
-    try {
-      // Belt-and-suspenders: sweep any lingering per-profile caches.
-      for (let i = localStorage.length - 1; i >= 0; i--) {
-        const k = localStorage.key(i);
-        if (k && k.startsWith("cached_emails_v1:")) localStorage.removeItem(k);
-      }
-    } catch {}
-    // C.2: clear refresh-token state and cancel scheduler.
-    try { import("./sessionRefresh").then(({ clearRefreshState }) => clearRefreshState()).catch(() => {}); } catch {}
   } catch {}
-
 }
-
 
 export function readBootstrapCache(): BootstrapResult | null {
   try {
@@ -84,9 +72,7 @@ export function readBootstrapCache(): BootstrapResult | null {
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return null;
     if (!parsed.savedAt || Date.now() - parsed.savedAt > BOOTSTRAP_CACHE_TTL_MS) return null;
-    const result = { users: parsed.users || [], recaptcha: parsed.recaptcha, workerUrls: parsed.workerUrls || [], emailFilters: parsed.emailFilters, maintenance: parsed.maintenance, avatarBaseUrl: parsed.avatarBaseUrl || "" };
-    setAvatarBaseUrl(result.avatarBaseUrl);
-    return result;
+    return { users: parsed.users || [], recaptcha: parsed.recaptcha, workerUrls: parsed.workerUrls || [], emailFilters: parsed.emailFilters, maintenance: parsed.maintenance };
   } catch { return null; }
 }
 
@@ -103,40 +89,22 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   });
 }
 
-let bootstrapInFlight: Promise<BootstrapResult> | null = null;
+export async function bootstrapFromSupabase(): Promise<BootstrapResult> {
+  const { data, error } = await withTimeout(
+    supabase.functions.invoke("manage-app", { body: { action: "bootstrap_public" } }),
+    BOOTSTRAP_TIMEOUT_MS,
+  );
+  if (error) throw error;
+  if (!data?.success) throw new Error(data?.error || "Bootstrap failed");
 
-export async function bootstrapFromSupabase(opts?: { force?: boolean }): Promise<BootstrapResult> {
-  if (!opts?.force) {
-    const cached = readBootstrapCache();
-    if (cached) return cached;
-    if (bootstrapInFlight) return bootstrapInFlight;
+  if (Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
+    storeWorkerUrls(data.workerUrls);
   }
 
-  const request = (async () => {
-    const { invokeEdge } = await import("./secureTransport");
-    const data: any = await withTimeout(
-      invokeEdge("manage-app", { action: "bootstrap_public" }),
-      BOOTSTRAP_TIMEOUT_MS,
-    );
-    if (!data?.success) throw new Error(data?.error || "Bootstrap failed");
-
-    if (Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
-      storeWorkerUrls(data.workerUrls);
-    }
-
-    const result: BootstrapResult = { users: data.users || [], recaptcha: data.recaptcha, workerUrls: data.workerUrls || [], emailFilters: data.emailFilters || {}, maintenance: data.maintenance || { enabled: false }, avatarBaseUrl: data.avatarBaseUrl || "" };
-    setAvatarBaseUrl(result.avatarBaseUrl);
-    if (data.emailFilters && typeof data.emailFilters === "object") setEmailFilters(data.emailFilters);
-    writeBootstrapCache(result);
-    return result;
-  })();
-
-  if (!opts?.force) bootstrapInFlight = request;
-  try {
-    return await request;
-  } finally {
-    if (bootstrapInFlight === request) bootstrapInFlight = null;
-  }
+  const result: BootstrapResult = { users: data.users || [], recaptcha: data.recaptcha, workerUrls: data.workerUrls || [], emailFilters: data.emailFilters || {}, maintenance: data.maintenance || { enabled: false } };
+  if (data.emailFilters && typeof data.emailFilters === "object") setEmailFilters(data.emailFilters);
+  writeBootstrapCache(result);
+  return result;
 }
 
 
@@ -150,7 +118,7 @@ export const bootstrapPromise: Promise<BootstrapResult> = bootstrapFromSupabase(
 // Force-refresh: always hits the network, updates cache, returns fresh result.
 export async function refreshBootstrap(): Promise<BootstrapResult> {
   try {
-    return await bootstrapFromSupabase({ force: true });
+    return await bootstrapFromSupabase();
   } catch (err) {
     console.warn("[bootstrap] refresh failed:", err);
     const cached = readBootstrapCache();
@@ -181,38 +149,34 @@ export type AppNotification = {
   title: string;
   body: string;
   description?: string | null;
-  
   image_url?: string | null;
   category?: NotificationCategory | string;
   priority?: NotificationPriority | string;
   icon?: string | null;
-  platform_icon?: string | null;
-  kind?: "flash" | string;
-  sub_kind?: string | null;
-  locked?: boolean;
-  show_frequency?: "once" | "always" | "session" | "daily" | string | null;
-  mode?: "popup" | "silent" | "banner" | string | null;
   action_url?: string | null;
   action_label?: string | null;
   action2_url?: string | null;
   action2_label?: string | null;
-  
+  pinned?: boolean;
   audience: "all" | "user";
   created_at: string;
   expires_at: string | null;
   publish_at?: string | null;
   read: boolean;
   seen?: boolean;
-  
+  archived?: boolean;
   snoozed_until?: string | null;
 };
 
 async function callManage<T = any>(action: string, payload: Record<string, any> = {}): Promise<T> {
-  const token = sessionGet("session_token" as any);
+  const token = localStorage.getItem("session_token");
   const headers: Record<string, string> = {};
   if (token) headers["X-Session-Token"] = token;
-  const { invokeEdge } = await import("./secureTransport");
-  const data: any = await invokeEdge("manage-app", { action, ...payload }, { headers });
+  const { data, error } = await supabase.functions.invoke("manage-app", {
+    body: { action, ...payload },
+    headers,
+  });
+  if (error) throw error;
   if (!data?.success) throw new Error(data?.error || `${action} failed`);
   return data as T;
 }
@@ -237,38 +201,18 @@ export async function markNotificationSeen(ids: string[]): Promise<void> {
   if (!ids?.length) return;
   try { await callManage("mark_notifications_seen", { ids }); } catch {}
 }
-export async function deleteNotificationForMe(id: string): Promise<void> {
-  try { await callManage("user_delete_notification", { notification_id: id }); } catch {}
+export async function archiveNotification(id: string): Promise<void> {
+  try { await callManage("archive_notification", { notification_id: id }); } catch {}
 }
-// snoozeNotification removed — Snooze is no longer a supported user action.
-
+export async function snoozeNotification(id: string, until: string): Promise<void> {
+  try { await callManage("snooze_notification", { notification_id: id, until }); } catch {}
+}
 export async function logNotificationEvent(id: string, event: string, meta?: any): Promise<void> {
   try { await callManage("log_notification_event", { notification_id: id, event, meta }); } catch {}
 }
 
 export async function clearMyInbox(visibleIds: string[]): Promise<any> {
   return await callManage("clear_user_inbox", { visibleIds });
-}
-
-// ---------- Admin: per-notification recipients ----------
-export type NotificationRecipient = {
-  user_id: string;
-  username: string;
-  name: string;
-  profileAvatar?: string | null;
-  seen_at: string | null;
-  read_at: string | null;
-  clicked_at: string | null;
-  deleted_at: string | null;
-};
-
-export async function adminListRecipients(notificationId: string): Promise<NotificationRecipient[]> {
-  const data = await callManage<{ recipients: NotificationRecipient[] }>("admin_notification_recipients", { notification_id: notificationId });
-  return data.recipients || [];
-}
-
-export async function adminDeleteNotificationForUser(notificationId: string, userId: string): Promise<void> {
-  await callManage("admin_delete_notification_for_user", { notification_id: notificationId, user_id: userId });
 }
 
 // Auto-popup dedupe: track which notification IDs the user has already been popped for.

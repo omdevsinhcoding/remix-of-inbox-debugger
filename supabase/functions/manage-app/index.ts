@@ -1,10 +1,9 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { authenticator } from "npm:otplib@12.0.1";
-import { readRequest, maybeEncryptResponse, EncryptedRequestContext, PlaintextRejectedError, plaintextRejectedResponse, TransportError, transportErrorResponse } from "../_shared/crypto.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-session-token, x-pending-token, x-client-ip, x-crypto-session",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-session-token, x-pending-token, x-client-ip",
 };
 
 // --- Crypto helpers ---
@@ -62,35 +61,9 @@ async function verifySessionToken(token: string, secret: string): Promise<Record
   } catch { return null; }
 }
 
-// Verify with the new signing secret first, then fall back to the legacy secret
-// so sessions issued before the rotation still work until they expire naturally.
-async function verifySessionTokenDual(token: string, primary: string, legacy: string): Promise<Record<string, any> | null> {
-  const p = await verifySessionToken(token, primary);
-  if (p) return p;
-  if (legacy && legacy !== primary) return await verifySessionToken(token, legacy);
-  return null;
-}
-
-
 async function sha256Hex(value: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, "0")).join("");
-}
-
-async function verifyRecaptchaToken(secretKey: string, token: string, ip?: string): Promise<boolean> {
-  const body = new URLSearchParams();
-  body.set("secret", secretKey);
-  body.set("response", token);
-  if (ip && ip !== "unknown") body.set("remoteip", ip);
-
-  const res = await fetch("https://www.google.com/recaptcha/api/siteverify", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body,
-  });
-  if (!res.ok) return false;
-  const data = await res.json().catch(() => null) as any;
-  return data?.success === true;
 }
 
 // --- AES-256-GCM encryption for IMAP credentials ---
@@ -126,29 +99,12 @@ async function decryptValue(encrypted: string, secret: string): Promise<string> 
   return new TextDecoder().decode(plain);
 }
 
-// --- Audit logging (D.3: enriched with user_agent + optional result) ---
-async function auditLog(
-  supabase: any,
-  action: string,
-  actorId: string | null,
-  targetId: string | null,
-  details: any,
-  ip: string,
-  extras?: { userAgent?: string | null; result?: string | null },
-) {
+// --- Audit logging ---
+async function auditLog(supabase: any, action: string, actorId: string | null, targetId: string | null, details: any, ip: string) {
   try {
-    await supabase.from("audit_logs").insert({
-      action,
-      actor_id: actorId,
-      target_id: targetId,
-      details,
-      ip,
-      user_agent: extras?.userAgent ?? null,
-      result: extras?.result ?? null,
-    });
+    await supabase.from("audit_logs").insert({ action, actor_id: actorId, target_id: targetId, details, ip });
   } catch (e) { console.error("Audit log error:", e); }
 }
-
 
 function isPrivateIp(ip: string): boolean {
   if (!ip || ip === "unknown") return true;
@@ -270,169 +226,17 @@ function esc(s: string): string {
   return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-function cleanR2Text(value: any): string {
-  return typeof value === "string"
-    ? value.replace(/[\u200B-\u200D\uFEFF]/g, "").trim()
-    : "";
-}
-
-function normalizeR2AccessKeyId(value: any): { value: string; warnings: string[]; error?: string } {
-  const warnings: string[] = [];
-  const raw = cleanR2Text(value);
-  const cleaned = raw.replace(/\s+/g, "");
-  if (raw && raw !== cleaned) {
-    warnings.push("Access Key ID contained whitespace; spaces/newlines were removed.");
-  }
-  if (/[Oo]/.test(cleaned)) {
-    warnings.push("Access Key ID contains the letter O. It is being used exactly as entered — verify Cloudflare shows O, not zero 0.");
-  }
-  if (cleaned && !/^[A-Za-z0-9]{16,128}$/.test(cleaned)) {
-    return {
-      value: cleaned,
-      warnings,
-      error: "Access Key ID looks invalid. Paste the R2 S3 Access Key ID exactly as Cloudflare shows it, without spaces.",
-    };
-  }
-  if (cleaned && cleaned.length !== 32) {
-    warnings.push("R2 Access Key IDs are usually 32 characters. The exact value entered is being used for the test.");
-  }
-  return { value: cleaned, warnings };
-}
-
-function normalizeR2Config(raw: any, previousSecret = "") {
-  const warnings: string[] = [];
-  const errors: string[] = [];
-  const accountId = cleanR2Text(raw?.accountId).replace(/\s+/g, "").toLowerCase();
-  if (accountId && !/^[a-f0-9]{32}$/.test(accountId)) {
-    errors.push("Account ID must be the 32-character Cloudflare Account ID, not a Zone ID.");
-  }
-
-  const access = normalizeR2AccessKeyId(raw?.accessKeyId);
-  warnings.push(...access.warnings);
-  if (access.error) errors.push(access.error);
-
-  const secretAccessKey = (cleanR2Text(raw?.secretAccessKey).replace(/\s+/g, "") || previousSecret || "");
-  if (secretAccessKey && !/^[a-f0-9]{64}$/i.test(secretAccessKey)) {
-    warnings.push("Secret Access Key does not look like Cloudflare's 64-character R2 S3 secret. If test fails, recreate the R2 API token.");
-  }
-
-  const bucket = cleanR2Text(raw?.bucket).replace(/^\/+|\/+$/g, "");
-  if (bucket && !/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(bucket)) {
-    errors.push("Bucket name looks invalid. Use the exact R2 bucket name, case-sensitive, without slashes.");
-  }
-
-  const publicBaseUrl = cleanR2Text(raw?.publicBaseUrl).replace(/\s+/g, "").replace(/\/+$/, "");
-  if (publicBaseUrl && !/^https:\/\//i.test(publicBaseUrl)) {
-    warnings.push("Public Base URL should start with https:// for browser image loading.");
-  }
-
-  let pathPrefix = cleanR2Text(raw?.pathPrefix) || "notifications/";
-  pathPrefix = pathPrefix.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+/g, "/");
-  if (pathPrefix && !pathPrefix.endsWith("/")) pathPrefix += "/";
-
-  return {
-    config: {
-      accountId,
-      accessKeyId: access.value,
-      secretAccessKey,
-      bucket,
-      publicBaseUrl,
-      pathPrefix: pathPrefix || "notifications/",
-      enabled: raw?.enabled === true,
-    },
-    warnings,
-    errors,
-  };
-}
-
-function r2FailureMessage(status: number, body: string, warnings: string[]): string {
-  const compactBody = body.replace(/\s+/g, " ").trim().slice(0, 220);
-  const xmlTag = (tag: string) => {
-    const m = body.match(new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`, "i"));
-    return m?.[1]?.replace(/\s+/g, " ").trim() || "";
-  };
-  const cfCode = xmlTag("Code");
-  const cfMessage = xmlTag("Message");
-  const responseText = cfCode
-    ? `Cloudflare response: ${cfCode}${cfMessage ? ` — ${cfMessage}` : ""}`
-    : compactBody ? `Cloudflare response: ${compactBody}` : "";
-  if (status === 401) {
-    return [
-      `PUT 401 Unauthorized from Cloudflare R2.`,
-      "This means R2 rejected the Access Key ID / Secret Access Key / Account ID combination before upload.",
-      warnings.length ? `Note: ${warnings.join(" ")}` : "",
-      responseText,
-    ].filter(Boolean).join(" ");
-  }
-  if (status === 403) {
-    if (/SignatureDoesNotMatch/i.test(cfCode)) {
-      return [
-        `PUT 403 Forbidden from Cloudflare R2.`,
-        "SignatureDoesNotMatch means the Secret Access Key does not match this Access Key ID, or one value was copied/rotated incorrectly. The app now signs using the exact Access Key ID you entered; recreate one R2 API token and paste both values from the same token.",
-        warnings.length ? `Note: ${warnings.join(" ")}` : "",
-        responseText,
-      ].filter(Boolean).join(" ");
-    }
-    if (/AccessDenied|InvalidAccessKeyId|Unauthorized/i.test(cfCode + " " + cfMessage)) {
-      return [
-        `PUT 403 Forbidden from Cloudflare R2.`,
-        "Cloudflare accepted the request format but rejected access. Check that this token has Object Read & Write permission for this exact bucket.",
-        warnings.length ? `Note: ${warnings.join(" ")}` : "",
-        responseText,
-      ].filter(Boolean).join(" ");
-    }
-    return [
-      `PUT 403 Forbidden from Cloudflare R2.`,
-      "Cloudflare rejected the signed upload request.",
-      warnings.length ? `Note: ${warnings.join(" ")}` : "",
-      responseText,
-    ].filter(Boolean).join(" ");
-  }
-  return `PUT ${status}: ${compactBody}`;
-}
-
-// Cache Telegram config in-memory (per-isolate) for 60s to avoid a DB
-// round-trip on every alert/OTP send.
-let __tgCfgCache: { at: number; cfg: { botToken: string; chatId: string } | null } | null = null;
 async function getTelegramConfig(supabase: any): Promise<{ botToken: string; chatId: string } | null> {
-  if (__tgCfgCache && Date.now() - __tgCfgCache.at < 60_000) return __tgCfgCache.cfg;
-  let cfg: { botToken: string; chatId: string } | null = null;
   try {
     const { data } = await supabase.from("app_settings").select("value").eq("key", "config").single();
-    const c = data?.value as any;
-    if (c?.TELEGRAM_BOT_TOKEN && c?.TELEGRAM_CHAT_ID) {
-      cfg = { botToken: c.TELEGRAM_BOT_TOKEN, chatId: c.TELEGRAM_CHAT_ID };
+    const cfg = data?.value as any;
+    if (cfg?.TELEGRAM_BOT_TOKEN && cfg?.TELEGRAM_CHAT_ID) {
+      return { botToken: cfg.TELEGRAM_BOT_TOKEN, chatId: cfg.TELEGRAM_CHAT_ID };
     }
   } catch {}
-  if (!cfg) {
-    const botToken = Deno.env.get("TELEGRAM_BOT_TOKEN");
-    const chatId = Deno.env.get("TELEGRAM_CHAT_ID");
-    if (botToken && chatId) cfg = { botToken, chatId };
-  }
-  __tgCfgCache = { at: Date.now(), cfg };
-  return cfg;
-}
-
-// Timeout-guarded Telegram sendMessage. Prevents a stalled Telegram edge
-// (occasional 20-30s hangs) from blocking the whole edge-function response.
-async function postTelegram(
-  tg: { botToken: string; chatId: string },
-  payload: Record<string, unknown>,
-  timeoutMs = 6000,
-): Promise<Response> {
-  return await fetch(`https://api.telegram.org/bot${tg.botToken}/sendMessage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: tg.chatId, parse_mode: "HTML", disable_web_page_preview: true, ...payload }),
-    signal: AbortSignal.timeout(timeoutMs),
-  });
-}
-// Fire-and-forget wrapper for non-critical alerts. Uses EdgeRuntime.waitUntil
-// so the response can return immediately while the alert flushes in the bg.
-function postTelegramBg(tg: { botToken: string; chatId: string }, payload: Record<string, unknown>) {
-  const p = postTelegram(tg, payload, 6000).then(() => {}).catch((e) => console.error("[tg bg] failed:", e));
-  const wu = (globalThis as any).EdgeRuntime?.waitUntil;
-  if (typeof wu === "function") wu(p); else void p;
+  const botToken = Deno.env.get("TELEGRAM_BOT_TOKEN");
+  const chatId = Deno.env.get("TELEGRAM_CHAT_ID");
+  return botToken && chatId ? { botToken, chatId } : null;
 }
 
 // --- Multi-provider IP geolocation (parallel, timeout-guarded) with VPN/proxy detection ---
@@ -1110,7 +914,11 @@ async function sendPrimaryLoginAlert(
 
 
   try {
-    const tgRes = await postTelegram(tg, { text });
+    const tgRes = await fetch(`https://api.telegram.org/bot${tg.botToken}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: tg.chatId, text, parse_mode: "HTML", disable_web_page_preview: true }),
+    });
     if (!tgRes.ok) console.error("[tg primary alert] failed:", await tgRes.text());
   } catch (e) { console.error("[tg primary alert] error:", e); }
 }
@@ -1134,7 +942,11 @@ async function sendLegacyIpwhoAlert(
     map ? `<b>Map:</b> <a href="${map}">Open</a>` : "",
   ].filter(Boolean).join("\n");
   try {
-    await postTelegram(tg, { text });
+    await fetch(`https://api.telegram.org/bot${tg.botToken}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: tg.chatId, text, parse_mode: "HTML", disable_web_page_preview: true }),
+    });
   } catch {}
 }
 
@@ -1363,114 +1175,23 @@ async function loadWorkerUrls(supabase: any): Promise<string[]> {
   return workerUrls;
 }
 
-async function reencryptForWorker(value: any, sourceSecret: string, workerSecret: string) {
-  if (!value || typeof value !== "string") return value || "";
-  const plain = value.startsWith("enc:") ? await decryptValue(value, sourceSecret) : value;
-  return await encryptValue(plain, workerSecret);
-}
-
-async function buildInboxWorkerConfig(supabase: any, workerSecret: string, sourceSecret: string) {
-  const keys = ["config", "email_accounts", "email_filters", "email_visibility", "primary_cloudflare_urls"];
-  const { data } = await supabase.from("app_settings").select("key,value").in("key", keys);
-  const settings = new Map<string, any>();
-  for (const row of data || []) settings.set(row.key, row.value);
-  const rawConfig = settings.get("config") || {};
-  const config = { ...rawConfig };
-  if (config.IMAP_PASSWORD) config.IMAP_PASSWORD = await reencryptForWorker(config.IMAP_PASSWORD, sourceSecret, workerSecret);
-  const rawAccounts = Array.isArray(settings.get("email_accounts")) ? settings.get("email_accounts") : [];
-  const emailAccounts = await Promise.all(rawAccounts.map(async (acc: any) => ({
-    ...acc,
-    password: acc?.password ? await reencryptForWorker(acc.password, sourceSecret, workerSecret) : acc?.password,
-  })));
-  return {
-    config,
-    email_accounts: emailAccounts,
-    email_filters: settings.get("email_filters") || {},
-    email_visibility: settings.get("email_visibility") || {},
-    primary_cloudflare_urls: Array.isArray(settings.get("primary_cloudflare_urls")) ? settings.get("primary_cloudflare_urls") : [],
-  };
-}
-
-async function pushInboxConfigToWorkers(supabase: any, signingSecret: string, encryptionSecret: string) {
-  if (!signingSecret) return;
-  const workerUrls = await loadWorkerUrls(supabase);
-  const config = await buildInboxWorkerConfig(supabase, signingSecret, encryptionSecret);
-  const urls = Array.from(new Set(workerUrls.map((u) => String(u || "").trim().replace(/\/+$/, "")).filter(Boolean)));
-  if (urls.length === 0) return;
-  await Promise.allSettled(urls.map(async (base) => {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 2500);
-    try {
-      await fetch(`${base}/api/config/update`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Worker-Config-Secret": signingSecret },
-        body: JSON.stringify(config),
-        signal: controller.signal,
-      });
-    } finally {
-      clearTimeout(timer);
-    }
-  }));
-}
-
-Deno.serve(async (originalReq) => {
-  if (originalReq.method === "OPTIONS") {
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
-
-  // ---- transport encryption boundary ----
-  let __ctx: EncryptedRequestContext | null = null;
-  let __parsedBody: any = null;
-  try {
-    const __r = await readRequest(originalReq);
-    __parsedBody = __r.body ?? {};
-    __ctx = __r.encrypted ? __r.ctx : null;
-  } catch (e) {
-    if (e instanceof PlaintextRejectedError) return plaintextRejectedResponse();
-    if (e instanceof TransportError) return transportErrorResponse(e);
-    return new Response(JSON.stringify({ success: false, error: "bad request" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-  }
-  const req = new Request(originalReq.url, {
-    method: originalReq.method,
-    headers: originalReq.headers,
-    body: JSON.stringify(__parsedBody ?? {}),
-  });
-
-
 
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
   );
 
-  // F5: split signing key (session tokens) from encryption key (IMAP passwords).
-  // ENCRYPTION_SECRET must remain SUPABASE_SERVICE_ROLE_KEY so existing AES-GCM
-  // ciphertexts in app_settings.email_accounts can still be decrypted.
-  const ENCRYPTION_SECRET = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const SIGNING_SECRET = Deno.env.get("SESSION_SIGNING_SECRET") || ENCRYPTION_SECRET;
-  const LEGACY_SIGNING = ENCRYPTION_SECRET;
-
+  const SESSION_SECRET = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const ip = getClientIp(req);
-
-  // C.3 device binding: sha256(ua + accept-language + ip/24). /24 (not /32) so
-  // mobile carrier NAT doesn't invalidate legitimate sessions.
-  async function computeBindingHash(r: Request): Promise<string> {
-    const ua = (r.headers.get("user-agent") || "").trim();
-    const al = (r.headers.get("accept-language") || "").split(",")[0]?.trim() || "";
-    const rawIp = getClientIp(r) || "";
-    let ipPrefix = rawIp;
-    const v4 = rawIp.match(/^(\d+)\.(\d+)\.(\d+)\.\d+$/);
-    if (v4) ipPrefix = `${v4[1]}.${v4[2]}.${v4[3]}.0/24`;
-    // IPv6: keep first 4 groups (/64) as coarse binding
-    else if (rawIp.includes(":")) ipPrefix = rawIp.split(":").slice(0, 4).join(":") + "::/64";
-    return await sha256Hex(`${ua}|${al}|${ipPrefix}`);
-  }
 
   // --- Persist a session row in DB (source of truth for logged-in status) ---
   async function persistSession(userId: string, role: string, token: string, expiresAtMs: number) {
     const tokenHash = await sha256Hex(token);
     const ua = req.headers.get("user-agent") || null;
-    const bindingHash = await computeBindingHash(req);
     await supabase.from("app_sessions").insert({
       user_id: userId,
       role,
@@ -1478,99 +1199,32 @@ Deno.serve(async (originalReq) => {
       expires_at: new Date(expiresAtMs).toISOString(),
       ip,
       user_agent: ua,
-      binding_hash: bindingHash,
     });
     // Best-effort cleanup of expired rows for this user
     supabase.from("app_sessions").delete().lt("expires_at", new Date().toISOString()).eq("user_id", userId).then(() => {});
-  }
-
-  // C.2 refresh-token rotation: mint access+refresh pair inside one session
-  // family. Access TTL 15 min, refresh TTL 12 h. Refresh rotates on every use;
-  // reuse of a rotated refresh token revokes the whole family (see refresh_session action).
-  function b64url(bytes: Uint8Array): string {
-    let s = ""; for (const b of bytes) s += String.fromCharCode(b);
-    return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-  }
-  async function mintSessionPair(
-    userId: string,
-    role: string,
-    accessPayload: Record<string, any>,
-    opts?: { familyId?: string; parentSessionId?: string | null },
-  ): Promise<{ accessToken: string; accessExpMs: number; refreshToken: string; refreshExpMs: number; familyId: string; sessionRowId: string }> {
-    const ACCESS_TTL_MS = 15 * 60 * 1000;
-    const REFRESH_TTL_MS = 12 * 60 * 60 * 1000;
-    const now = Date.now();
-    const accessExpMs = now + ACCESS_TTL_MS;
-    const refreshExpMs = now + REFRESH_TTL_MS;
-    const familyId = opts?.familyId || crypto.randomUUID();
-    const refreshToken = b64url(crypto.getRandomValues(new Uint8Array(32)));
-    const accessToken = await createSessionToken({ ...accessPayload, exp: accessExpMs }, SIGNING_SECRET);
-    const [accessHash, refreshHash, bindingHash] = await Promise.all([
-      sha256Hex(accessToken),
-      sha256Hex(refreshToken),
-      computeBindingHash(req),
-    ]);
-    const { data: row, error } = await supabase.from("app_sessions").insert({
-      user_id: userId,
-      role,
-      token_hash: accessHash,
-      expires_at: new Date(accessExpMs).toISOString(),
-      refresh_token_hash: refreshHash,
-      refresh_expires_at: new Date(refreshExpMs).toISOString(),
-      family_id: familyId,
-      parent_session_id: opts?.parentSessionId ?? null,
-      ip,
-      user_agent: req.headers.get("user-agent") || null,
-      binding_hash: bindingHash,
-    }).select("id").single();
-    if (error || !row) throw new Error(`Failed to persist session: ${error?.message || "insert failed"}`);
-    // Best-effort cleanup of expired rows for this user
-    supabase.from("app_sessions").delete().lt("expires_at", new Date().toISOString()).eq("user_id", userId).then(() => {});
-    return { accessToken, accessExpMs, refreshToken, refreshExpMs, familyId, sessionRowId: row.id };
   }
 
   // Helper to verify session from header AND ensure a live DB row exists
   async function requireSession(req: Request): Promise<Record<string, any>> {
     const token = req.headers.get("x-session-token");
     if (!token) throw new Error("Authentication required");
-    const session = await verifySessionTokenDual(token, SIGNING_SECRET, LEGACY_SIGNING);
+    const session = await verifySessionToken(token, SESSION_SECRET);
     if (!session) throw new Error("Session expired or invalid");
     const tokenHash = await sha256Hex(token);
     const { data: row } = await supabase
       .from("app_sessions")
-      .select("id, expires_at, binding_hash, user_id, revoked_at")
+      .select("id, expires_at")
       .eq("token_hash", tokenHash)
       .maybeSingle();
     if (!row) throw new Error("Session revoked. Please sign in again.");
-    if (row.revoked_at) throw new Error("Session revoked. Please sign in again.");
     if (new Date(row.expires_at).getTime() < Date.now()) {
       await supabase.from("app_sessions").delete().eq("id", row.id);
       throw new Error("Session expired. Please sign in again.");
     }
-    // C.3 device-binding check. Only enforce when a binding is stored (soft
-    // rollout: legacy sessions with null binding_hash pass through).
-    if (row.binding_hash) {
-      const current = await computeBindingHash(req);
-      if (current !== row.binding_hash) {
-        await supabase.from("app_sessions").delete().eq("id", row.id);
-        supabase.from("security_events").insert({
-          type: "session_binding_mismatch",
-          severity: "high",
-          uid: row.user_id,
-          ip,
-          ua: req.headers.get("user-agent") || null,
-          meta: { session_id: row.id },
-        }).then(() => {});
-        throw new Error("Session bound to another device. Please sign in again.");
-      }
-    }
-
     // Fire-and-forget touch
     supabase.from("app_sessions").update({ last_seen_at: new Date().toISOString() }).eq("id", row.id).then(() => {});
     return session;
   }
-
-
 
   async function requireAdmin(req: Request): Promise<Record<string, any>> {
     const session = await requireSession(req);
@@ -1581,7 +1235,7 @@ Deno.serve(async (originalReq) => {
   async function requirePendingAdmin(req: Request, userId?: string): Promise<{ pending: Record<string, any>; token: string; tokenHash: string; state: any }> {
     const token = req.headers.get("x-pending-token") || req.headers.get("x-session-token");
     if (!token) throw new Error("Pending admin verification required");
-    const pending = await verifySessionTokenDual(token, SIGNING_SECRET, LEGACY_SIGNING);
+    const pending = await verifySessionToken(token, SESSION_SECRET);
     if (!pending || pending.role !== "admin" || pending.pending !== true) throw new Error("Invalid or expired pending admin token");
     if (userId && pending.userId !== userId) throw new Error("Pending token does not match this admin");
     const tokenHash = await sha256Hex(token);
@@ -1596,7 +1250,6 @@ Deno.serve(async (originalReq) => {
     return { pending, token, tokenHash, state };
   }
 
-  const __run = async (): Promise<Response> => {
   try {
     const { action, ...params } = await req.json();
 
@@ -1605,41 +1258,40 @@ Deno.serve(async (originalReq) => {
     // Bootstrap: returns profiles, recaptcha config, and worker URLs for fresh browsers
     if (action === "bootstrap_public") {
       // Public profile picker — only non-admin users, minimal fields.
-      const usersP = supabase
+      const { data: users, error: usersErr } = await supabase
         .from("app_users")
         .select("id, username, name, role, profile_prefs")
         .neq("role", "admin")
         .order("created_at", { ascending: true });
-
-      const settingsP = supabase
-        .from("app_settings")
-        .select("key,value")
-        .in("key", ["recaptcha", "primary_cloudflare_urls", "email_filters", "maintenance", "r2_storage"]);
-
-      const [{ data: users, error: usersErr }, { data: settingRows }] = await Promise.all([usersP, settingsP]);
       if (usersErr) throw usersErr;
 
-      const settings = new Map((settingRows || []).map((row: any) => [row.key, row.value]));
-
       let recaptcha = null;
-      const rcData: any = settings.get("recaptcha");
-      if (rcData?.enabled === true && rcData?.siteKey) {
-        recaptcha = { enabled: true, siteKey: rcData.siteKey };
-      }
+      try {
+        const { data: rcData } = await supabase.from("app_settings").select("value").eq("key", "recaptcha").single();
+        if (rcData?.value?.enabled === true && rcData?.value?.siteKey) {
+          recaptcha = { enabled: true, siteKey: rcData.value.siteKey };
+        }
+      } catch {}
 
-      const pcf: any = settings.get("primary_cloudflare_urls");
-      const workerUrls: string[] = Array.isArray(pcf)
-        ? pcf.filter((u: any) => typeof u === "string" && u.length > 0)
-        : [];
+      let workerUrls: string[] = [];
+      try {
+        const { data: pcf } = await supabase.from("app_settings").select("value").eq("key", "primary_cloudflare_urls").single();
+        if (pcf?.value && Array.isArray(pcf.value)) {
+          workerUrls = pcf.value.filter((u: any) => typeof u === "string" && u.length > 0);
+        }
+      } catch {}
 
-      const efData: any = settings.get("email_filters");
-      const emailFilters: any = efData && typeof efData === "object" ? efData : {};
+      let emailFilters: any = {};
+      try {
+        const { data: efData } = await supabase.from("app_settings").select("value").eq("key", "email_filters").single();
+        if (efData?.value && typeof efData.value === "object") emailFilters = efData.value;
+      } catch {}
 
       let maintenance: any = { enabled: false };
       try {
-        const mData: any = settings.get("maintenance");
-        if (mData && typeof mData === "object") {
-          const v: any = mData;
+        const { data: mData } = await supabase.from("app_settings").select("value").eq("key", "maintenance").single();
+        if (mData?.value && typeof mData.value === "object") {
+          const v: any = mData.value;
           const startsAt = typeof v.startsAt === "string" ? v.startsAt : null;
           const endsAt = typeof v.endsAt === "string" ? v.endsAt : null;
           // Auto-expire: if endsAt is in the past, treat as disabled.
@@ -1676,11 +1328,6 @@ Deno.serve(async (originalReq) => {
         }
       } catch {}
 
-      let avatarBaseUrl = "";
-      try {
-        const r2 = normalizeR2Config(settings.get("r2_storage") || {}).config;
-        avatarBaseUrl = r2.publicBaseUrl || "";
-      } catch {}
 
       const mappedUsers = (users || []).map((u: any) => ({
         id: u.id,
@@ -1689,7 +1336,7 @@ Deno.serve(async (originalReq) => {
         role: u.role,
         profileAvatar: u.profile_prefs?.avatarId || null,
       }));
-      return new Response(JSON.stringify({ success: true, users: mappedUsers, recaptcha, workerUrls, emailFilters, maintenance, avatarBaseUrl }), {
+      return new Response(JSON.stringify({ success: true, users: mappedUsers, recaptcha, workerUrls, emailFilters, maintenance }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -1714,22 +1361,8 @@ Deno.serve(async (originalReq) => {
     }
 
     if (action === "login") {
-      const { username, password, clientGeo, captchaToken } = params;
+      const { username, password, clientGeo } = params;
       if (!username || !password) throw new Error("Username and password required");
-
-      const { data: recaptchaSetting } = await supabase
-        .from("app_settings")
-        .select("value")
-        .eq("key", "recaptcha")
-        .maybeSingle();
-      const recaptchaCfg: any = recaptchaSetting?.value || null;
-      if (recaptchaCfg?.enabled === true) {
-        if (!recaptchaCfg?.secretKey) throw new Error("CAPTCHA is misconfigured. Contact admin.");
-        if (!captchaToken || typeof captchaToken !== "string") throw new Error("CAPTCHA required. Refresh and try again.");
-        const captchaOk = await verifyRecaptchaToken(recaptchaCfg.secretKey, captchaToken, ip);
-        if (!captchaOk) throw new Error("CAPTCHA verification failed. Refresh and try again.");
-      }
-
       const verifiedClientGeo = sanitizeClientGeo(clientGeo);
       console.log("[login] incoming clientGeo:", JSON.stringify(clientGeo));
       console.log("[login] verified clientGeo:", JSON.stringify(verifiedClientGeo));
@@ -1771,14 +1404,14 @@ Deno.serve(async (originalReq) => {
       ((globalThis as any).EdgeRuntime?.waitUntil?.(sendLoginNotification(supabase, req, user, "success", verifiedClientGeo)) ?? sendLoginNotification(supabase, req, user, "success", verifiedClientGeo).catch(() => {}));
 
       if (user.role === "admin") {
-        const pendingPayload = { userId: user.id, username: user.username, role: "admin", pending: true, exp: Date.now() + 15 * 60 * 1000 };
-        const pendingToken = await createSessionToken(pendingPayload, SIGNING_SECRET);
+        const pendingPayload = { userId: user.id, username: user.username, role: "admin", pending: true, exp: Date.now() + 5 * 60 * 1000 };
+        const pendingToken = await createSessionToken(pendingPayload, SESSION_SECRET);
         const tokenHash = await sha256Hex(pendingToken);
         await supabase.from("app_admin_2fa_state").delete().eq("user_id", user.id);
         const { error: stateErr } = await supabase.from("app_admin_2fa_state").insert({
           token_hash: tokenHash,
           user_id: user.id,
-          expires_at: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+          expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
         });
         if (stateErr) throw stateErr;
         return new Response(JSON.stringify({
@@ -1795,21 +1428,22 @@ Deno.serve(async (originalReq) => {
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      // C.2: mint access (15 min) + refresh (12 h) rotating pair
-      const pair = await mintSessionPair(user.id, user.role, {
+      // Create normal user session token (30 min expiry)
+      const expMs = Date.now() + 30 * 60 * 1000;
+      const sessionPayload = {
         userId: user.id,
         username: user.username,
         role: user.role,
         assignedAccounts: user.assigned_accounts || null,
-      });
+        exp: expMs,
+      };
+      const sessionToken = await createSessionToken(sessionPayload, SESSION_SECRET);
+      await persistSession(user.id, user.role, sessionToken, expMs);
       const workerUrls = await loadWorkerUrls(supabase);
 
       return new Response(JSON.stringify({
         success: true,
-        sessionToken: pair.accessToken,
-        expiresAt: pair.accessExpMs,
-        refreshToken: pair.refreshToken,
-        refreshExpiresAt: pair.refreshExpMs,
+        sessionToken,
         workerUrls,
         user: {
           id: user.id, username: user.username, name: user.name, role: user.role,
@@ -1821,7 +1455,6 @@ Deno.serve(async (originalReq) => {
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
-
     }
 
     if (action === "create") {
@@ -1879,7 +1512,6 @@ Deno.serve(async (originalReq) => {
         .single();
       if (fetchErr || !user) throw new Error("User not found");
 
-      let isAdminReset = false;
       if (current_password) {
         // Normal self-change: verify current password
         const match = await verifyPassword(current_password, user.password);
@@ -1888,14 +1520,11 @@ Deno.serve(async (originalReq) => {
         // Either admin reset OR forced first-time password set
         const token = req.headers.get("x-session-token");
         if (!token) throw new Error("Authentication required to change password");
-        const session = await verifySessionTokenDual(token, SIGNING_SECRET, LEGACY_SIGNING);
+        const session = await verifySessionToken(token, SESSION_SECRET);
         if (!session) throw new Error("Session expired or invalid");
 
-        if (session.role === "admin" && session.userId !== id) {
-          // Admin resetting another user's password — force them to change on next login
-          isAdminReset = true;
-        } else if (session.role === "admin") {
-          // Admin changing own password — allowed
+        if (session.role === "admin") {
+          // Admin reset — allowed
         } else if (session.userId === id && user.must_change_password) {
           // First-time forced password set — allowed
         } else {
@@ -1904,7 +1533,7 @@ Deno.serve(async (originalReq) => {
       }
 
       const hashed = await hashPassword(new_password);
-      const { error } = await supabase.from("app_users").update({ password: hashed, must_change_password: isAdminReset }).eq("id", id);
+      const { error } = await supabase.from("app_users").update({ password: hashed, must_change_password: false }).eq("id", id);
       if (error) throw error;
       await auditLog(supabase, "password_changed", id, id, {}, ip);
       return new Response(JSON.stringify({ success: true }), {
@@ -1967,31 +1596,46 @@ Deno.serve(async (originalReq) => {
       // Generate OTP
       const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
 
-      // Kick off DB write (delete+insert) and Telegram-config lookup in parallel
-      // so we spend one round-trip on both, not two sequentially.
-      const dbWrite = (async () => {
-        await supabase.from("app_otps").delete().eq("user_id", user_id);
-        const { error } = await supabase.from("app_otps").insert({ user_id, otp: otpCode });
-        if (error) throw error;
-      })();
-      const cfgLookup = getTelegramConfig(supabase);
+      // Save OTP to DB
+      await supabase.from("app_otps").delete().eq("user_id", user_id);
+      const { error: otpErr } = await supabase.from("app_otps").insert({ user_id, otp: otpCode });
+      if (otpErr) throw otpErr;
 
-      const [tgConfig] = await Promise.all([cfgLookup, dbWrite]);
+      // Get Telegram config
+      let tgConfig: { botToken: string; chatId: string } | null = null;
+      try {
+        const { data: settingsData } = await supabase
+          .from("app_settings")
+          .select("value")
+          .eq("key", "config")
+          .single();
+        if (settingsData?.value) {
+          const cfg = settingsData.value as any;
+          if (cfg.TELEGRAM_BOT_TOKEN && cfg.TELEGRAM_CHAT_ID) {
+            tgConfig = { botToken: cfg.TELEGRAM_BOT_TOKEN, chatId: cfg.TELEGRAM_CHAT_ID };
+          }
+        }
+      } catch {}
+      if (!tgConfig) {
+        const bt = Deno.env.get("TELEGRAM_BOT_TOKEN");
+        const ci = Deno.env.get("TELEGRAM_CHAT_ID");
+        if (bt && ci) tgConfig = { botToken: bt, chatId: ci };
+      }
+
       if (!tgConfig) {
         throw new Error("Telegram not configured. Set bot token and chat ID in admin settings.");
       }
 
-      // Send OTP via Telegram with a hard 6s timeout so a slow Telegram edge
-      // can't stall the whole response for 20-30s.
-      let telegramRes: Response;
-      try {
-        telegramRes = await postTelegram(tgConfig, {
+      // Send OTP via Telegram
+      const telegramRes = await fetch(`https://api.telegram.org/bot${tgConfig.botToken}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: tgConfig.chatId,
           text: `🛡 Admin 3FA OTP: <code>${otpCode}</code>\nValid for 5 minutes.`,
-        }, 6000);
-      } catch (e) {
-        console.error("Telegram send timeout/error:", e);
-        throw new Error("Telegram is slow to respond. Try again in a moment.");
-      }
+          parse_mode: "HTML",
+        }),
+      });
 
       if (!telegramRes.ok) {
         const errText = await telegramRes.text();
@@ -2041,26 +1685,27 @@ Deno.serve(async (originalReq) => {
       const now = Date.now();
       const otpAt = state.otp_verified_at ? new Date(state.otp_verified_at).getTime() : 0;
       const totpAt = state.totp_verified_at ? new Date(state.totp_verified_at).getTime() : 0;
-      if (!otpAt || now - otpAt > 15 * 60_000) throw new Error("Telegram OTP proof expired");
-      if (!totpAt || now - totpAt > 15 * 60_000) throw new Error("Authenticator proof expired");
+      if (!otpAt || now - otpAt > 60_000) throw new Error("Telegram OTP proof expired");
+      if (!totpAt || now - totpAt > 60_000) throw new Error("Authenticator proof expired");
 
       const { data: user, error } = await supabase.from("app_users").select("*").eq("id", pending.userId).single();
       if (error || !user || user.role !== "admin") throw new Error("Admin not found");
-      const pair = await mintSessionPair(user.id, "admin", {
+      const expMs = Date.now() + 30 * 60 * 1000;
+      const sessionPayload = {
         userId: user.id,
         username: user.username,
         role: "admin",
         assignedAccounts: user.assigned_accounts || null,
-      });
+        exp: expMs,
+      };
+      const sessionToken = await createSessionToken(sessionPayload, SESSION_SECRET);
+      await persistSession(user.id, "admin", sessionToken, expMs);
       const workerUrls = await loadWorkerUrls(supabase);
       await supabase.from("app_admin_2fa_state").delete().eq("token_hash", tokenHash);
       await auditLog(supabase, "admin_2fa_finalized", user.id, user.id, {}, ip);
       return new Response(JSON.stringify({
         success: true,
-        sessionToken: pair.accessToken,
-        expiresAt: pair.accessExpMs,
-        refreshToken: pair.refreshToken,
-        refreshExpiresAt: pair.refreshExpMs,
+        sessionToken,
         workerUrls,
         user: {
           id: user.id,
@@ -2074,7 +1719,6 @@ Deno.serve(async (originalReq) => {
         },
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
-
 
     if (action === "get_settings") {
       const { key } = params;
@@ -2120,33 +1764,7 @@ Deno.serve(async (originalReq) => {
         value = safeValue;
       }
 
-      if (["primary_cloudflare_urls", "email_accounts"].includes(key)) {
-        await pushInboxConfigToWorkers(supabase, SIGNING_SECRET, ENCRYPTION_SECRET).catch((e) => console.warn("[worker-config] push skipped:", e?.message || e));
-      }
-
       return new Response(JSON.stringify({ success: true, value }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    if (action === "admin_reveal_session_signing_secret") {
-      const session = await requireAdmin(req);
-      const explicitValue = Deno.env.get("SESSION_SIGNING_SECRET") || "";
-      const value = explicitValue || SIGNING_SECRET;
-      const source = explicitValue ? "SESSION_SIGNING_SECRET" : "legacy_fallback";
-      await auditLog(supabase, "session_signing_secret_inspected", session.userId, null, { length: value.length, source }, ip);
-      // SECURITY: never return the raw signing key. Return metadata only.
-      // A leaked signing key allows permanent session-token forgery.
-      return new Response(JSON.stringify({
-        success: true,
-        name: "SESSION_SIGNING_SECRET",
-        present: !!value,
-        length: value.length,
-        source,
-        // Non-reversible fingerprint so admins can confirm rotation without
-        // ever exposing the secret itself.
-        fingerprint: value ? (await sha256Hex(value)).slice(0, 12) : "",
-      }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -2215,7 +1833,7 @@ Deno.serve(async (originalReq) => {
           if (password === "••••••••" && existingAccounts[i]?.password) {
             password = existingAccounts[i].password; // Keep existing encrypted password
           } else if (password && !password.startsWith("enc:")) {
-            password = await encryptValue(password, ENCRYPTION_SECRET); // Encrypt new password
+            password = await encryptValue(password, SESSION_SECRET); // Encrypt new password
           }
           return { ...acc, password };
         }));
@@ -2225,9 +1843,6 @@ Deno.serve(async (originalReq) => {
         .from("app_settings")
         .upsert({ key, value: processedValue }, { onConflict: "key" });
       if (error) throw error;
-      if (["config", "email_accounts", "primary_cloudflare_urls", "email_filters", "email_visibility"].includes(key)) {
-        await pushInboxConfigToWorkers(supabase, SIGNING_SECRET, ENCRYPTION_SECRET).catch((e) => console.warn("[worker-config] push failed:", e?.message || e));
-      }
       await auditLog(supabase, "settings_changed", session.userId, null, { key }, ip);
       return new Response(JSON.stringify({ success: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -2258,23 +1873,24 @@ Deno.serve(async (originalReq) => {
         .single();
       if (error || !targetUser) throw new Error("User not found");
 
-      const pair = await mintSessionPair(targetUser.id, "user", {
+      const expMs = Date.now() + 30 * 60 * 1000;
+      const impersonatePayload = {
         userId: targetUser.id,
         username: targetUser.username,
         role: "user",
         assignedAccounts: targetUser.assigned_accounts || null,
         impersonated: true,
         adminId: session.userId,
-      });
+        exp: expMs,
+      };
+      const token = await createSessionToken(impersonatePayload, SESSION_SECRET);
+      await persistSession(targetUser.id, "user", token, expMs);
 
       await auditLog(supabase, "impersonate", session.userId, targetUser.id, { targetUsername: targetUser.username }, ip);
 
       return new Response(JSON.stringify({
         success: true,
-        sessionToken: pair.accessToken,
-        expiresAt: pair.accessExpMs,
-        refreshToken: pair.refreshToken,
-        refreshExpiresAt: pair.refreshExpMs,
+        sessionToken: token,
         user: {
           id: targetUser.id, username: targetUser.username, name: targetUser.name, role: "user",
           assignedAccounts: targetUser.assigned_accounts, mustChangePassword: false,
@@ -2285,112 +1901,6 @@ Deno.serve(async (originalReq) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-
-    // C.2: refresh access token — rotates refresh token, detects reuse.
-    // Body: { refreshToken: string }
-    if (action === "refresh_session") {
-      const { refreshToken } = params;
-      if (!refreshToken || typeof refreshToken !== "string") throw new Error("refreshToken required");
-      const refreshHash = await sha256Hex(refreshToken);
-      const { data: row } = await supabase
-        .from("app_sessions")
-        .select("id, user_id, role, family_id, refresh_expires_at, revoked_at, revoked_reason, binding_hash")
-        .eq("refresh_token_hash", refreshHash)
-        .maybeSingle();
-      if (!row) throw new Error("Invalid refresh token");
-
-      // REUSE DETECTION: presenting an already-rotated refresh token means
-      // either the legitimate user's browser is racing (rare) or an attacker
-      // stole a refresh token and is trying to use it after we rotated it.
-      // Kill the entire session family and alert.
-      if (row.revoked_at) {
-        await supabase.from("app_sessions").update({
-          revoked_at: new Date().toISOString(),
-          revoked_reason: "refresh_reuse_family_kill",
-        }).eq("family_id", row.family_id).is("revoked_at", null);
-        await supabase.from("app_sessions").delete().eq("family_id", row.family_id);
-
-        supabase.from("security_events").insert({
-          type: "refresh_token_reuse",
-          severity: "critical",
-          uid: row.user_id,
-          ip,
-          ua: req.headers.get("user-agent") || null,
-          meta: { family_id: row.family_id, original_reason: row.revoked_reason },
-        }).then(() => {});
-
-        // Telegram alert — fire-and-forget so we don't block the response
-        // that's about to throw "Session family revoked".
-        try {
-          const tg = await getTelegramConfig(supabase);
-          if (tg) {
-            const text = [
-              `🚨 <b>Refresh-token reuse detected</b>`,
-              `<b>User ID:</b> <code>${row.user_id}</code>`,
-              `<b>IP:</b> <code>${ip}</code>`,
-              `<b>Family:</b> <code>${row.family_id}</code>`,
-              `<i>All sessions in this family have been revoked.</i>`,
-            ].join("\n");
-            postTelegramBg(tg, { text });
-          }
-        } catch {}
-
-        throw new Error("Session family revoked. Please sign in again.");
-      }
-
-      if (!row.refresh_expires_at || new Date(row.refresh_expires_at).getTime() < Date.now()) {
-        await supabase.from("app_sessions").delete().eq("id", row.id);
-        throw new Error("Refresh token expired. Please sign in again.");
-      }
-
-      // Device binding still enforced on refresh
-      if (row.binding_hash) {
-        const current = await computeBindingHash(req);
-        if (current !== row.binding_hash) {
-          await supabase.from("app_sessions").update({
-            revoked_at: new Date().toISOString(),
-            revoked_reason: "binding_mismatch_on_refresh",
-          }).eq("family_id", row.family_id).is("revoked_at", null);
-          supabase.from("security_events").insert({
-            type: "refresh_binding_mismatch",
-            severity: "high",
-            uid: row.user_id,
-            ip,
-            ua: req.headers.get("user-agent") || null,
-            meta: { family_id: row.family_id },
-          }).then(() => {});
-          throw new Error("Session bound to another device. Please sign in again.");
-        }
-      }
-
-      // Load current user data so JWT stays fresh (role changes propagate on refresh)
-      const { data: user, error: uerr } = await supabase.from("app_users").select("*").eq("id", row.user_id).single();
-      if (uerr || !user) throw new Error("User not found");
-
-      // Mint new pair inside the same family, linked to parent row
-      const pair = await mintSessionPair(user.id, row.role, {
-        userId: user.id,
-        username: user.username,
-        role: row.role,
-        assignedAccounts: user.assigned_accounts || null,
-      }, { familyId: row.family_id, parentSessionId: row.id });
-
-      // Mark old row revoked (kept in DB briefly for reuse detection; expires_at cleanup will remove it)
-      await supabase.from("app_sessions").update({
-        revoked_at: new Date().toISOString(),
-        revoked_reason: "rotated",
-      }).eq("id", row.id);
-
-      return new Response(JSON.stringify({
-        success: true,
-        sessionToken: pair.accessToken,
-        expiresAt: pair.accessExpMs,
-        refreshToken: pair.refreshToken,
-        refreshExpiresAt: pair.refreshExpMs,
-      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-
-
 
     // Decrypt IMAP passwords (internal use for fetch-emails)
     if (action === "get_decrypted_accounts") {
@@ -2413,7 +1923,7 @@ Deno.serve(async (originalReq) => {
 
       const decrypted = await Promise.all(data.value.map(async (acc: any) => ({
         ...acc,
-        password: acc.password ? await decryptValue(acc.password, ENCRYPTION_SECRET) : "",
+        password: acc.password ? await decryptValue(acc.password, SESSION_SECRET) : "",
       })));
 
       return new Response(JSON.stringify({ success: true, accounts: decrypted }), {
@@ -2424,7 +1934,7 @@ Deno.serve(async (originalReq) => {
     if (action === "verify_session") {
       const token = params.token || req.headers.get("x-session-token");
       if (!token) throw new Error("No token provided");
-      const session = await verifySessionTokenDual(token, SIGNING_SECRET, LEGACY_SIGNING);
+      const session = await verifySessionToken(token, SESSION_SECRET);
       if (!session) throw new Error("Invalid or expired session");
       return new Response(JSON.stringify({ success: true, session }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -2524,8 +2034,9 @@ Deno.serve(async (originalReq) => {
       const nowIso = new Date().toISOString();
       const { data: notes, error: nErr } = await supabase
         .from("notifications")
-        .select("id, title, body, description, body_markdown, image_url, category, priority, icon, platform_icon, kind, sub_kind, locked, show_frequency, mode, action_url, action_label, action2_url, action2_label, audience, target_user_id, created_at, expires_at, publish_at, group_key")
+        .select("id, title, body, description, image_url, category, priority, icon, action_url, action_label, action2_url, action2_label, pinned, audience, target_user_id, created_at, expires_at, publish_at, group_key")
         .or(`audience.eq.all,target_user_id.eq.${session.userId}`)
+        .order("pinned", { ascending: false })
         .order("created_at", { ascending: false })
         .limit(100);
       if (nErr) throw nErr;
@@ -2537,42 +2048,38 @@ Deno.serve(async (originalReq) => {
       const ids = active.map((n: any) => n.id);
       const readSet = new Set<string>();
       const seenSet = new Set<string>();
-      const deletedSet = new Set<string>();
+      const archivedSet = new Set<string>();
       const snoozeMap = new Map<string, string>();
       if (ids.length) {
         const { data: reads } = await supabase
           .from("notification_reads")
-          .select("notification_id, read_at, seen_at, deleted_at, snoozed_until")
+          .select("notification_id, read_at, seen_at, archived_at, snoozed_until")
           .in("notification_id", ids)
           .eq("user_id", session.userId);
         for (const r of reads || []) {
           if (r.read_at) readSet.add(r.notification_id);
           if (r.seen_at) seenSet.add(r.notification_id);
-          if (r.deleted_at) deletedSet.add(r.notification_id);
+          if (r.archived_at) archivedSet.add(r.notification_id);
           if (r.snoozed_until) snoozeMap.set(r.notification_id, r.snoozed_until);
         }
       }
-      const payload = active
-        .filter((n: any) => !deletedSet.has(n.id))
-        .map((n: any) => ({
-          id: n.id, title: n.title, body: n.body,
-          description: n.description, body_markdown: n.body_markdown, image_url: n.image_url,
-          category: n.category, priority: n.priority, icon: n.icon,
-          platform_icon: n.platform_icon, kind: n.kind, sub_kind: n.sub_kind,
-          locked: !!n.locked, show_frequency: n.show_frequency, mode: n.mode,
-          action_url: n.action_url, action_label: n.action_label,
-          action2_url: n.action2_url, action2_label: n.action2_label,
-          audience: n.audience,
-          created_at: n.created_at, expires_at: n.expires_at, publish_at: n.publish_at,
-          read: readSet.has(n.id),
-          seen: seenSet.has(n.id),
-          snoozed_until: snoozeMap.get(n.id) || null,
-        }));
+      const payload = active.map((n: any) => ({
+        id: n.id, title: n.title, body: n.body,
+        description: n.description, image_url: n.image_url,
+        category: n.category, priority: n.priority, icon: n.icon,
+        action_url: n.action_url, action_label: n.action_label,
+        action2_url: n.action2_url, action2_label: n.action2_label,
+        pinned: !!n.pinned, audience: n.audience,
+        created_at: n.created_at, expires_at: n.expires_at, publish_at: n.publish_at,
+        read: readSet.has(n.id),
+        seen: seenSet.has(n.id),
+        archived: archivedSet.has(n.id),
+        snoozed_until: snoozeMap.get(n.id) || null,
+      }));
       return new Response(JSON.stringify({ success: true, notifications: payload }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-
 
     if (action === "mark_notification_read") {
       const session = await requireSession(req);
@@ -2627,30 +2134,38 @@ Deno.serve(async (originalReq) => {
       });
     }
 
-
-    // snooze_notification removed — Snooze is no longer a supported user action.
-
-
-    if (action === "user_delete_notification") {
+    if (action === "archive_notification") {
       const session = await requireSession(req);
       const { notification_id } = params as { notification_id?: string };
       if (!notification_id) throw new Error("notification_id required");
       const nowIso = new Date().toISOString();
       const { error } = await supabase.from("notification_reads").upsert(
-        { notification_id, user_id: session.userId, deleted_at: nowIso, seen_at: nowIso },
+        { notification_id, user_id: session.userId, archived_at: nowIso, seen_at: nowIso },
         { onConflict: "notification_id,user_id" },
       );
       if (error) throw error;
-      await supabase.from("notification_events").insert({ notification_id, user_id: session.userId, event: "dismissed", meta: { deleted: true } });
+      await supabase.from("notification_events").insert({ notification_id, user_id: session.userId, event: "archived" });
       return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    if (action === "snooze_notification") {
+      const session = await requireSession(req);
+      const { notification_id, until } = params as { notification_id?: string; until?: string };
+      if (!notification_id || !until) throw new Error("notification_id and until required");
+      const { error } = await supabase.from("notification_reads").upsert(
+        { notification_id, user_id: session.userId, snoozed_until: until },
+        { onConflict: "notification_id,user_id" },
+      );
+      if (error) throw error;
+      await supabase.from("notification_events").insert({ notification_id, user_id: session.userId, event: "snoozed", meta: { until } });
+      return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
 
     if (action === "log_notification_event") {
       const session = await requireSession(req);
       const { notification_id, event, meta } = params as { notification_id?: string; event?: string; meta?: any };
       if (!notification_id || !event) throw new Error("notification_id and event required");
-      const allowed = ["delivered", "seen", "read", "clicked", "dismissed"];
+      const allowed = ["delivered", "seen", "read", "clicked", "dismissed", "snoozed", "archived"];
       if (!allowed.includes(event)) throw new Error("invalid event");
       await supabase.from("notification_events").insert({ notification_id, user_id: session.userId, event, meta: meta || null });
       return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -2666,10 +2181,6 @@ Deno.serve(async (originalReq) => {
       if (audience === "user" && !p.target_user_id) throw new Error("target_user_id required for user audience");
       const category = ["announcement","update","security","maintenance","promo","billing"].includes(p.category) ? p.category : "announcement";
       const priority = ["low","normal","high","critical"].includes(p.priority) ? p.priority : "normal";
-      const kind = "flash";
-      const mode = ["popup","silent","banner"].includes(p.mode) ? p.mode : "popup";
-      const show_frequency = ["once","always","session","daily"].includes(p.show_frequency) ? p.show_frequency : "once";
-      const platform_icon = p.platform_icon ? String(p.platform_icon).slice(0, 40) : null;
       const expires_at = p.expiresInDays && Number(p.expiresInDays) > 0
         ? new Date(Date.now() + Number(p.expiresInDays) * 86400_000).toISOString()
         : null;
@@ -2678,17 +2189,14 @@ Deno.serve(async (originalReq) => {
         title: String(p.title).slice(0, 200),
         body: String(p.body).slice(0, 4000),
         description: p.description ? String(p.description).slice(0, 8000) : null,
-        body_markdown: null,
         image_url: p.image_url ? String(p.image_url).slice(0, 2048) : null,
-        category, priority, kind, mode, show_frequency, platform_icon,
-        sub_kind: p.sub_kind ? String(p.sub_kind).slice(0, 40) : null,
-        locked: !!p.locked,
+        category, priority,
         icon: p.icon ? String(p.icon).slice(0, 64) : null,
         action_url: p.action_url ? String(p.action_url).slice(0, 2048) : null,
         action_label: p.action_label ? String(p.action_label).slice(0, 80) : null,
         action2_url: p.action2_url ? String(p.action2_url).slice(0, 2048) : null,
         action2_label: p.action2_label ? String(p.action2_label).slice(0, 80) : null,
-        
+        pinned: !!p.pinned,
         audience,
         target_user_id: audience === "user" ? p.target_user_id : null,
         created_by: session.userId,
@@ -2697,7 +2205,6 @@ Deno.serve(async (originalReq) => {
         dedupe_key: p.dedupe_key ? String(p.dedupe_key).slice(0, 200) : null,
         group_key: p.group_key ? String(p.group_key).slice(0, 200) : null,
       };
-
       const { data, error } = await supabase.from("notifications").insert(row).select("id").single();
       if (error) throw error;
       await auditLog(supabase, "notification_created", session.userId, data?.id || null, { audience, target_user_id: p.target_user_id, category, priority }, ip);
@@ -2718,16 +2225,14 @@ Deno.serve(async (originalReq) => {
       const readCounts = new Map<string, number>();
       const seenCounts = new Map<string, number>();
       const clickCounts = new Map<string, number>();
-      const deletedCounts = new Map<string, number>();
       if (ids.length) {
         const { data: reads } = await supabase
           .from("notification_reads")
-          .select("notification_id, read_at, seen_at, deleted_at")
+          .select("notification_id, read_at, seen_at")
           .in("notification_id", ids);
         for (const r of reads || []) {
           if (r.seen_at) seenCounts.set(r.notification_id, (seenCounts.get(r.notification_id) || 0) + 1);
           if (r.read_at) readCounts.set(r.notification_id, (readCounts.get(r.notification_id) || 0) + 1);
-          if (r.deleted_at) deletedCounts.set(r.notification_id, (deletedCounts.get(r.notification_id) || 0) + 1);
         }
         const { data: evs } = await supabase
           .from("notification_events")
@@ -2742,89 +2247,9 @@ Deno.serve(async (originalReq) => {
         readCount: readCounts.get(n.id) || 0,
         seenCount: seenCounts.get(n.id) || 0,
         clickCount: clickCounts.get(n.id) || 0,
-        deletedCount: deletedCounts.get(n.id) || 0,
         totalRecipients: n.audience === "all" ? (totalUsers || 0) : 1,
       }));
       return new Response(JSON.stringify({ success: true, notifications: payload }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    if (action === "admin_notification_recipients") {
-      await requireAdmin(req);
-      const { notification_id } = params as { notification_id?: string };
-      if (!notification_id) throw new Error("notification_id required");
-      const { data: note, error: nErr } = await supabase
-        .from("notifications")
-        .select("id, audience, target_user_id")
-        .eq("id", notification_id)
-        .maybeSingle();
-      if (nErr) throw nErr;
-      if (!note) throw new Error("Notification not found");
-
-      let usersQ = supabase.from("app_users").select("id, username, name, role, profile_prefs").neq("role", "admin");
-      if (note.audience === "user" && note.target_user_id) {
-        usersQ = supabase.from("app_users").select("id, username, name, role, profile_prefs").eq("id", note.target_user_id);
-      }
-      const { data: recipients, error: uErr } = await usersQ;
-      if (uErr) throw uErr;
-
-      const userIds = (recipients || []).map((u: any) => u.id);
-      const readsMap = new Map<string, any>();
-      const clickedMap = new Map<string, string>();
-      if (userIds.length) {
-        const { data: reads } = await supabase
-          .from("notification_reads")
-          .select("user_id, read_at, seen_at, deleted_at")
-          .eq("notification_id", notification_id)
-          .in("user_id", userIds);
-        for (const r of reads || []) readsMap.set(r.user_id, r);
-        const { data: evs } = await supabase
-          .from("notification_events")
-          .select("user_id, event, created_at")
-          .eq("notification_id", notification_id)
-          .eq("event", "clicked")
-          .in("user_id", userIds)
-          .order("created_at", { ascending: false });
-        for (const e of evs || []) {
-          if (!clickedMap.has(e.user_id)) clickedMap.set(e.user_id, e.created_at);
-        }
-      }
-
-      const rows = (recipients || []).map((u: any) => {
-        const r = readsMap.get(u.id) || {};
-        const prefs = u.profile_prefs || {};
-        return {
-          user_id: u.id,
-          username: u.username,
-          name: u.name,
-          profileAvatar: prefs.avatarId || null,
-          seen_at: r.seen_at || null,
-          read_at: r.read_at || null,
-          deleted_at: r.deleted_at || null,
-          clicked_at: clickedMap.get(u.id) || null,
-        };
-      });
-      return new Response(JSON.stringify({ success: true, recipients: rows }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    if (action === "admin_delete_notification_for_user") {
-      const session = await requireAdmin(req);
-      const { notification_id, user_id } = params as { notification_id?: string; user_id?: string };
-      if (!notification_id || !user_id) throw new Error("notification_id and user_id required");
-      const nowIso = new Date().toISOString();
-      const { error } = await supabase.from("notification_reads").upsert(
-        { notification_id, user_id, deleted_at: nowIso, seen_at: nowIso },
-        { onConflict: "notification_id,user_id" },
-      );
-      if (error) throw error;
-      await supabase.from("notification_events").insert({
-        notification_id, user_id, event: "dismissed", meta: { deleted: true, by_admin: session.userId },
-      });
-      await auditLog(supabase, "notification_deleted_for_user", session.userId, notification_id, { user_id }, ip);
-      return new Response(JSON.stringify({ success: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -2836,39 +2261,6 @@ Deno.serve(async (originalReq) => {
       const { error } = await supabase.from("notifications").delete().eq("id", id);
       if (error) throw error;
       await auditLog(supabase, "notification_deleted", session.userId, id, {}, ip);
-      return new Response(JSON.stringify({ success: true }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    if (action === "admin_update_notification") {
-      const session = await requireAdmin(req);
-      const p = params as any;
-      if (!p?.id) throw new Error("id required");
-      const patch: Record<string, any> = {};
-      if (typeof p.title === "string") patch.title = p.title.slice(0, 200);
-      if (typeof p.body === "string") patch.body = p.body.slice(0, 4000);
-      if ("description" in p) patch.description = p.description ? String(p.description).slice(0, 8000) : null;
-      if ("image_url" in p) patch.image_url = p.image_url ? String(p.image_url).slice(0, 2048) : null;
-      if ("action_url" in p) patch.action_url = p.action_url ? String(p.action_url).slice(0, 2048) : null;
-      if ("action_label" in p) patch.action_label = p.action_label ? String(p.action_label).slice(0, 80) : null;
-      if ("platform_icon" in p) patch.platform_icon = p.platform_icon ? String(p.platform_icon).slice(0, 40) : null;
-      if ("locked" in p) patch.locked = !!p.locked;
-      if (p.category && ["announcement","update","security","maintenance","promo","billing"].includes(p.category)) patch.category = p.category;
-      if (p.priority && ["low","normal","high","critical"].includes(p.priority)) patch.priority = p.priority;
-      if (p.show_frequency && ["once","always","session","daily"].includes(p.show_frequency)) patch.show_frequency = p.show_frequency;
-      if (p.mode && ["popup","silent","banner"].includes(p.mode)) patch.mode = p.mode;
-      if (p.audience && ["all","user"].includes(p.audience)) patch.audience = p.audience;
-      if ("target_user_id" in p) patch.target_user_id = p.target_user_id || null;
-      if ("expiresInDays" in p) {
-        patch.expires_at = p.expiresInDays && Number(p.expiresInDays) > 0
-          ? new Date(Date.now() + Number(p.expiresInDays) * 86400_000).toISOString()
-          : null;
-      }
-      if (Object.keys(patch).length === 0) throw new Error("Nothing to update");
-      const { error } = await supabase.from("notifications").update(patch).eq("id", p.id);
-      if (error) throw error;
-      await auditLog(supabase, "notification_updated", session.userId, p.id, { fields: Object.keys(patch) }, ip);
       return new Response(JSON.stringify({ success: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -2894,341 +2286,6 @@ Deno.serve(async (originalReq) => {
       });
     }
 
-    if (action === "admin_list_emails") {
-      const session = await requireAdmin(req);
-      const { limit, offset, search, accountLabel } = (params || {}) as any;
-      const buildFilters = (q: any) => {
-        if (accountLabel) q = q.eq("account_label", accountLabel);
-        if (search && typeof search === "string" && search.trim()) {
-          const s = search.trim().replace(/[%,]/g, "");
-          q = q.or(`subject.ilike.%${s}%,from_address.ilike.%${s}%,to_address.ilike.%${s}%,preview.ilike.%${s}%,otp.ilike.%${s}%`);
-        }
-        return q;
-      };
-      const lim = Math.min(Number(limit) || 100, 500);
-      const off = Math.max(Number(offset) || 0, 0);
-      // Rows page
-      let dataQ = supabase
-        .from("cached_emails")
-        .select("id, subject, from_address, to_address, date, otp, preview, account_label, cached_at")
-        .order("date", { ascending: false });
-      dataQ = buildFilters(dataQ).range(off, off + lim - 1);
-      // Separate exact head count — reliable even when combined with or()/range().
-      let countQ = supabase.from("cached_emails").select("id", { count: "exact", head: true });
-      countQ = buildFilters(countQ);
-      const [{ data, error }, { count, error: countErr }] = await Promise.all([dataQ, countQ]);
-      if (error) throw error;
-      if (countErr) throw countErr;
-      await auditLog(supabase, "admin_list_emails", session.userId, null, { count: data?.length || 0, total: count || 0, search: search || null, accountLabel: accountLabel || null }, ip);
-      return new Response(JSON.stringify({ success: true, emails: data || [], total: count || 0 }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    if (action === "admin_get_email") {
-      await requireAdmin(req);
-      const { id } = (params || {}) as any;
-      if (!id) throw new Error("id required");
-      const { data, error } = await supabase.from("cached_emails").select("*").eq("id", id).maybeSingle();
-      if (error) throw error;
-      return new Response(JSON.stringify({ success: true, email: data || null }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    if (action === "admin_delete_emails") {
-      const session = await requireAdmin(req);
-      const { ids } = (params || {}) as any;
-      if (!Array.isArray(ids) || ids.length === 0) throw new Error("ids required");
-      const clean = ids.filter((x: any) => typeof x === "string").slice(0, 500);
-      const { error, count } = await supabase.from("cached_emails").delete({ count: "exact" }).in("id", clean);
-      if (error) throw error;
-      await auditLog(supabase, "admin_delete_emails", session.userId, null, { ids: clean, deleted: count || 0 }, ip);
-      return new Response(JSON.stringify({ success: true, deleted: count || 0 }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    // ---------- Email visibility window (users) ----------
-    if (action === "email_visibility_set") {
-      const session = await requireAdmin(req);
-      const { enabled, days } = (params || {}) as any;
-      const clean = {
-        enabled: enabled === true,
-        days: Math.max(1, Math.min(365, Number(days) || 30)),
-      };
-      const { error } = await supabase.from("app_settings").upsert({ key: "email_visibility", value: clean }, { onConflict: "key" });
-      if (error) throw error;
-      await auditLog(supabase, "email_visibility_set", session.userId, null, clean, ip);
-      return new Response(JSON.stringify({ success: true, value: clean }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-
-    // ---------- Email auto-delete cron ----------
-    if (action === "email_cleanup_apply") {
-      const session = await requireAdmin(req);
-      const { enabled, days, hour } = (params || {}) as any;
-      const clean = {
-        enabled: enabled === true,
-        days: Math.max(1, Math.min(365, Number(days) || 30)),
-        hour: Math.max(0, Math.min(23, Number(hour) || 3)),
-      };
-      try {
-        if (clean.enabled) {
-          const { error } = await supabase.rpc("schedule_email_cleanup", { days: clean.days, hour: clean.hour });
-          if (error) throw error;
-        } else {
-          const { error } = await supabase.rpc("unschedule_email_cleanup");
-          if (error) throw error;
-        }
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        return new Response(JSON.stringify({ success: false, error: msg }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
-      await supabase.from("app_settings").upsert({ key: "email_auto_delete", value: clean }, { onConflict: "key" });
-      await auditLog(supabase, "email_cleanup_apply", session.userId, null, clean, ip);
-      return new Response(JSON.stringify({ success: true, value: clean }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-
-    if (action === "email_cleanup_status") {
-      await requireAdmin(req);
-      const { data, error } = await supabase.rpc("get_email_cleanup_status");
-      if (error) throw error;
-      return new Response(JSON.stringify({ success: true, status: data }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-
-    // ---------- D.2: signed short-lived maintenance-bypass token ----------
-    // Replaces client-controlled sessionStorage flag with an HMAC-signed JWS.
-    // 10 min TTL, bound to admin userId. Client cannot extend or forge it.
-    if (action === "admin_issue_maint_bypass") {
-      const session = await requireAdmin(req);
-      const now = Date.now();
-      const exp = now + 10 * 60 * 1000;
-      const token = await createSessionToken(
-        { kind: "maint_bypass", uid: session.userId, iat: now, exp, jti: crypto.randomUUID() },
-        SIGNING_SECRET,
-      );
-      await auditLog(supabase, "maint_bypass_issued", session.userId, null, { exp }, ip);
-      return new Response(JSON.stringify({ success: true, token, exp }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-
-    // ---------- Admin dashboard: ONE composite call (replaces 12 client calls) ----------
-    // Bulk: full mount payload. `refresh` variant skips rarely-changing settings.
-
-    if (action === "admin_dashboard_bootstrap" || action === "admin_dashboard_refresh") {
-      const session = await requireAdmin(req);
-      const includeSettings = action === "admin_dashboard_bootstrap";
-
-      // Kick everything off in PARALLEL server-side. Edge → Postgres latency is
-      // ~1-5ms each, so 12 parallel queries return in ~50-150ms total.
-      const usersP = supabase.from("app_users")
-        .select("id, username, name, role, assigned_accounts, profile_prefs")
-        .order("created_at", { ascending: true });
-
-      const emailsCountP = supabase.from("cached_emails").select("id", { count: "exact", head: true });
-
-      const notesP = supabase.from("notifications").select("*").order("created_at", { ascending: false }).limit(200);
-      const totalUsersP = supabase.from("app_users").select("id", { count: "exact", head: true }).neq("role", "admin");
-
-      const settingsKeys = includeSettings
-        ? ["recaptcha", "config", "primary_cloudflare_urls", "email_filters", "email_accounts", "session_config", "admin_session_config", "ipwho_alert", "maintenance", "r2_storage", "email_visibility", "email_auto_delete", "cron_config"]
-        : [];
-      const settingsP = settingsKeys.length
-        ? supabase.from("app_settings").select("key,value").in("key", settingsKeys)
-        : Promise.resolve({ data: [] as any[] });
-
-      const [usersRes, emailsCountRes, notesRes, totalUsersRes, settingsRes] = await Promise.all([usersP, emailsCountP, notesP, totalUsersP, settingsP]);
-
-      // Users mapping
-      const users = (usersRes.data || []).map((u: any) => ({
-        ...u,
-        assignedAccounts: u.assigned_accounts || null,
-        profileAvatar: u.profile_prefs?.avatarId || null,
-      }));
-
-      // Notification stats — 2 more queries but only if there are notes
-      const noteIds = (notesRes.data || []).map((n: any) => n.id);
-      const readCounts = new Map<string, number>();
-      const seenCounts = new Map<string, number>();
-      const clickCounts = new Map<string, number>();
-      const deletedCounts = new Map<string, number>();
-      if (noteIds.length) {
-        const [readsRes, evsRes] = await Promise.all([
-          supabase.from("notification_reads").select("notification_id, read_at, seen_at, deleted_at").in("notification_id", noteIds),
-          supabase.from("notification_events").select("notification_id, event").in("notification_id", noteIds).eq("event", "clicked"),
-        ]);
-        for (const r of readsRes.data || []) {
-          if (r.seen_at) seenCounts.set(r.notification_id, (seenCounts.get(r.notification_id) || 0) + 1);
-          if (r.read_at) readCounts.set(r.notification_id, (readCounts.get(r.notification_id) || 0) + 1);
-          if (r.deleted_at) deletedCounts.set(r.notification_id, (deletedCounts.get(r.notification_id) || 0) + 1);
-        }
-        for (const e of evsRes.data || []) clickCounts.set(e.notification_id, (clickCounts.get(e.notification_id) || 0) + 1);
-      }
-      const totalUsers = totalUsersRes.count || 0;
-      const notifications = (notesRes.data || []).map((n: any) => ({
-        ...n,
-        readCount: readCounts.get(n.id) || 0,
-        seenCount: seenCounts.get(n.id) || 0,
-        clickCount: clickCounts.get(n.id) || 0,
-        deletedCount: deletedCounts.get(n.id) || 0,
-        totalRecipients: n.audience === "all" ? totalUsers : 1,
-      }));
-
-      // Settings map + R2 normalization
-      const settings: Record<string, any> = {};
-      let r2: any = null;
-      for (const row of (settingsRes as any).data || []) {
-        if (row.key === "r2_storage") {
-          const normalized = normalizeR2Config(row.value || {});
-          const hasSecret = typeof normalized.config.secretAccessKey === "string" && normalized.config.secretAccessKey.length > 0;
-          r2 = {
-            accountId: normalized.config.accountId,
-            accessKeyId: normalized.config.accessKeyId,
-            secretAccessKey: normalized.config.secretAccessKey,
-            bucket: normalized.config.bucket,
-            publicBaseUrl: normalized.config.publicBaseUrl,
-            pathPrefix: normalized.config.pathPrefix,
-            enabled: normalized.config.enabled,
-            secretAccessKeySet: hasSecret,
-          };
-        } else {
-          settings[row.key] = row.value;
-        }
-      }
-
-      return new Response(JSON.stringify({
-        success: true,
-        users,
-        emailsTotal: emailsCountRes.count || 0,
-        notifications,
-        settings: includeSettings ? settings : undefined,
-        r2: includeSettings ? r2 : undefined,
-      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-
-    // ---------- R2 storage: admin-only ----------
-
-    if (action === "admin_get_r2_config") {
-      await requireAdmin(req);
-      const { data } = await supabase.from("app_settings").select("value").eq("key", "r2_storage").maybeSingle();
-      const v: any = data?.value || {};
-      const normalized = normalizeR2Config(v);
-      const hasSecret = typeof normalized.config.secretAccessKey === "string" && normalized.config.secretAccessKey.length > 0;
-      return new Response(JSON.stringify({
-        success: true,
-        config: {
-          accountId: normalized.config.accountId,
-          accessKeyId: normalized.config.accessKeyId,
-          secretAccessKey: normalized.config.secretAccessKey,
-          bucket: normalized.config.bucket,
-          publicBaseUrl: normalized.config.publicBaseUrl,
-          pathPrefix: normalized.config.pathPrefix,
-          enabled: normalized.config.enabled,
-          secretAccessKeySet: hasSecret,
-        },
-        warnings: normalized.warnings,
-      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-
-    if (action === "admin_save_r2_config") {
-      const session = await requireAdmin(req);
-      const p = (params || {}) as any;
-      const { data: existing } = await supabase.from("app_settings").select("value").eq("key", "r2_storage").maybeSingle();
-      const prev: any = existing?.value || {};
-      const normalized = normalizeR2Config(p, prev.secretAccessKey || "");
-      if (normalized.errors.length) throw new Error(normalized.errors.join(" "));
-      const value = normalized.config;
-      const { error } = await supabase.from("app_settings").upsert({ key: "r2_storage", value }, { onConflict: "key" });
-      if (error) throw error;
-      await auditLog(supabase, "r2_config_updated", session.userId, null, { bucket: value.bucket, enabled: value.enabled }, ip);
-      return new Response(JSON.stringify({ success: true, warnings: normalized.warnings, config: value }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-
-    if (action === "admin_r2_test") {
-      await requireAdmin(req);
-      const { data } = await supabase.from("app_settings").select("value").eq("key", "r2_storage").maybeSingle();
-      const saved: any = data?.value || {};
-      const draft: any = params || {};
-      const hasDraftConfig = draft.useSaved !== true && ["accountId", "accessKeyId", "secretAccessKey", "bucket", "publicBaseUrl", "pathPrefix", "enabled"].some((k) => k in draft);
-      const source = hasDraftConfig ? { ...saved, ...draft } : saved;
-      const normalized = normalizeR2Config(source, saved.secretAccessKey || "");
-      const v = normalized.config;
-      const missing: string[] = [];
-      if (!v.accountId) missing.push("Account ID");
-      if (!v.accessKeyId) missing.push("Access Key ID");
-      if (!v.secretAccessKey) missing.push("Secret Access Key");
-      if (!v.bucket) missing.push("Bucket");
-      if (normalized.errors.length) missing.push(...normalized.errors);
-      if (missing.length) {
-        return new Response(JSON.stringify({ success: false, message: `Enter R2 config first — missing: ${missing.join(", ")}` }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
-      const { r2Put, r2Delete } = await import("../_shared/r2Sign.ts");
-      const creds = { accountId: v.accountId, accessKeyId: v.accessKeyId, secretAccessKey: v.secretAccessKey, bucket: v.bucket };
-      const key = `${v.pathPrefix || "notifications/"}_healthcheck-${Date.now()}.txt`;
-      const t0 = Date.now();
-      let putOk = false, putErr = "", publicUrlWorks = false, publicUrl = "";
-      try {
-        const res = await r2Put(creds, key, new TextEncoder().encode("ok"), "text/plain");
-        putOk = res.ok;
-        if (!res.ok) putErr = r2FailureMessage(res.status, await res.text(), normalized.warnings);
-      } catch (e) {
-        putErr = e instanceof Error ? e.message : String(e);
-      }
-      if (putOk && v.publicBaseUrl) {
-        publicUrl = `${v.publicBaseUrl.replace(/\/+$/, "")}/${key}`;
-        try {
-          const h = await fetch(publicUrl, { method: "GET" });
-          publicUrlWorks = h.ok;
-        } catch {}
-      }
-      // Clean up the test object.
-      try { await r2Delete(creds, key); } catch {}
-      return new Response(JSON.stringify({
-        success: putOk,
-        latencyMs: Date.now() - t0,
-        publicUrlWorks,
-        publicUrl,
-        warnings: normalized.warnings,
-        message: putOk ? "R2 upload OK" : putErr || "R2 test failed",
-      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-
-    if (action === "admin_upload_notification_image") {
-      await requireAdmin(req);
-      const p = (params || {}) as any;
-      if (!p?.dataBase64 || !p?.filename) throw new Error("dataBase64 and filename required");
-      const { data } = await supabase.from("app_settings").select("value").eq("key", "r2_storage").maybeSingle();
-      const v: any = data?.value || {};
-      if (!v.enabled) throw new Error("R2 is not enabled — configure it in Settings → Storage");
-      const normalized = normalizeR2Config(v);
-      if (normalized.errors.length) throw new Error(normalized.errors.join(" "));
-      const cfg = normalized.config;
-      if (!cfg.accountId || !cfg.accessKeyId || !cfg.secretAccessKey || !cfg.bucket || !cfg.publicBaseUrl) {
-        throw new Error("R2 credentials incomplete");
-      }
-      const contentType = String(p.contentType || "").slice(0, 100) || "application/octet-stream";
-      if (!/^image\//.test(contentType)) throw new Error("Only image uploads are allowed");
-      // Decode base64
-      const b64 = String(p.dataBase64).replace(/^data:[^;]+;base64,/, "");
-      const bin = atob(b64);
-      const bytes = new Uint8Array(bin.length);
-      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-      if (bytes.length > 8 * 1024 * 1024) throw new Error("Image too large (max 8 MB)");
-      const { r2Put, slugifyFilename } = await import("../_shared/r2Sign.ts");
-      const now = new Date();
-      const yyyy = now.getUTCFullYear();
-      const mm = String(now.getUTCMonth() + 1).padStart(2, "0");
-      const rand = crypto.randomUUID().slice(0, 8);
-      const key = `${cfg.pathPrefix || "notifications/"}${yyyy}/${mm}/${rand}-${slugifyFilename(p.filename)}`;
-      const creds = { accountId: cfg.accountId, accessKeyId: cfg.accessKeyId, secretAccessKey: cfg.secretAccessKey, bucket: cfg.bucket };
-      const res = await r2Put(creds, key, bytes, contentType);
-      if (!res.ok) {
-        const t = await res.text();
-        throw new Error(`R2 upload failed: ${r2FailureMessage(res.status, t, normalized.warnings)}`);
-      }
-      const url = `${cfg.publicBaseUrl.replace(/\/+$/, "")}/${key}`;
-      return new Response(JSON.stringify({ success: true, url, key }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-
     throw new Error("Unknown action: " + action);
 
   } catch (err) {
@@ -3238,7 +2295,4 @@ Deno.serve(async (originalReq) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
-  };
-  const __res = await __run();
-  return await maybeEncryptResponse(__res, __ctx);
 });
