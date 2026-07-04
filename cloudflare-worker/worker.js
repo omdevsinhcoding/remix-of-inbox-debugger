@@ -759,7 +759,27 @@ async function handleInboxHtml(request, env, _session, rawToken, ctx) {
     }
   }
 
-  // ---- Cache miss: fetch full HTML from Supabase ----
+  // ---- Cache miss: try peer workers first (cross-account cache sharing) ----
+  const peerHit = await tryPeerCache(env, id, rawToken);
+  if (peerHit) {
+    // Peer had it. Write to own KV so next request is a local HIT.
+    if (kv) {
+      const payload = { html: peerHit.html, account_label: peerHit.account_label || "", at: Date.now() };
+      const writeWork = (async () => {
+        try {
+          const primaryKV = env.EMAIL_CACHE_V2 || env.EMAIL_CACHE;
+          if (primaryKV) await primaryKV.put(cacheKey, JSON.stringify(payload), { expirationTtl: EMAIL_HTML_TTL_SECONDS });
+        } catch (err) { console.error("[inbox-html] peer-KV write failed:", err.message || err); }
+      })();
+      if (ctx?.waitUntil) ctx.waitUntil(writeWork); else await writeWork;
+    }
+    return new Response(
+      JSON.stringify({ success: true, id, html: peerHit.html, account_label: peerHit.account_label || "" }),
+      { headers: inboxHtmlHeaders({ "X-Cache-Status": "PEER_HIT" }) },
+    );
+  }
+
+  // ---- All peers missed: fetch full HTML from Supabase ----
   try {
     const upstream = await callEmailHtmlFn(env, rawToken, { id });
     if (!upstream.ok) {
@@ -794,5 +814,95 @@ async function handleInboxHtml(request, env, _session, rawToken, ctx) {
     return new Response(JSON.stringify({ success: false, error: "Worker upstream failed: " + (err.message || "Unknown") }), {
       status: 502, headers: inboxHtmlHeaders({ "X-Cache-Status": "MISS_ERR" }),
     });
+  }
+}
+
+// ---------------- Peer cache helpers ----------------
+
+function getPeerUrls(env) {
+  const raw = env.PEER_URLS || "";
+  return raw.split(/[,\s]+/).map((s) => s.trim().replace(/\/+$/, "")).filter(Boolean);
+}
+
+async function handlePeerProbe(request, env) {
+  if (!env.PEER_SECRET) {
+    return new Response(JSON.stringify({ success: false, error: "peer disabled" }), {
+      status: 503, headers: inboxHtmlHeaders(),
+    });
+  }
+  const provided = request.headers.get("X-Peer-Secret") || "";
+  if (provided !== env.PEER_SECRET) {
+    return new Response(JSON.stringify({ success: false, error: "forbidden" }), {
+      status: 403, headers: inboxHtmlHeaders(),
+    });
+  }
+  let body = null;
+  try { body = await request.json(); } catch {}
+  const id = body && typeof body.id === "string" ? body.id.trim() : "";
+  if (!id) {
+    return new Response(JSON.stringify({ success: false, error: "id required" }), {
+      status: 400, headers: inboxHtmlHeaders(),
+    });
+  }
+  const kv = getKV(env);
+  if (!kv) {
+    return new Response(JSON.stringify({ success: false, error: "no kv" }), {
+      status: 404, headers: inboxHtmlHeaders(),
+    });
+  }
+  const raw = await kvGet(env, `${EMAIL_HTML_KEY_PREFIX}${id}`);
+  if (!raw) {
+    return new Response(JSON.stringify({ success: false, hit: false }), {
+      status: 404, headers: inboxHtmlHeaders({ "X-Cache-Status": "PEER_MISS" }),
+    });
+  }
+  let cached = null;
+  try { cached = JSON.parse(raw); } catch {}
+  if (!cached || typeof cached.html !== "string" || cached.html.length === 0) {
+    return new Response(JSON.stringify({ success: false, hit: false }), {
+      status: 404, headers: inboxHtmlHeaders({ "X-Cache-Status": "PEER_MISS" }),
+    });
+  }
+  return new Response(JSON.stringify({
+    success: true,
+    hit: true,
+    id,
+    html: cached.html,
+    account_label: cached.account_label || "",
+  }), { headers: inboxHtmlHeaders({ "X-Cache-Status": "PEER_HIT" }) });
+}
+
+// Race peer workers to find a KV hit anywhere. Returns first hit or null.
+// Also does authz verification via Supabase before returning HTML.
+async function tryPeerCache(env, id, rawToken) {
+  const peers = getPeerUrls(env);
+  if (peers.length === 0 || !env.PEER_SECRET) return null;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 2500);
+
+  const probe = async (baseUrl) => {
+    const res = await fetch(`${baseUrl}/api/inbox/html/peer`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Peer-Secret": env.PEER_SECRET },
+      body: JSON.stringify({ id }),
+      signal: controller.signal,
+    });
+    if (!res.ok) throw new Error(`peer ${res.status}`);
+    const j = await res.json();
+    if (!j?.hit || typeof j?.html !== "string" || j.html.length === 0) throw new Error("peer miss");
+    return { html: j.html, account_label: j.account_label || "" };
+  };
+
+  try {
+    const winner = await Promise.any(peers.map(probe));
+    clearTimeout(timeout);
+    // Verify caller is authorized for this email (Supabase authz_only ping ~80B).
+    const authz = await callEmailHtmlFn(env, rawToken, { id, authz_only: true });
+    if (authz.ok && authz.json?.success && authz.json?.allowed) return winner;
+    return null;
+  } catch {
+    clearTimeout(timeout);
+    return null;
   }
 }
