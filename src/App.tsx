@@ -2116,6 +2116,7 @@ function ProfileSelectPage() {
   const [captchaConfigError, setCaptchaConfigError] = useState(false);
   const [showCaptcha, setShowCaptcha] = useState(false);
   const [pendingLogin, setPendingLogin] = useState(false);
+  const [gpsBlocked, setGpsBlocked] = useState(false);
   const navigate = useNavigate();
   const { checkAuth } = useAuth();
 
@@ -2176,6 +2177,8 @@ function ProfileSelectPage() {
 
   const initiateLogin = (e: React.FormEvent) => {
     e.preventDefault();
+    setGpsBlocked(false);
+    notify.dismiss("gps-permission-blocked");
     setError("");
     if (!captchaReady) {
       // Bootstrap still running — queue the login instead of yelling at user.
@@ -2201,6 +2204,36 @@ function ProfileSelectPage() {
     else void executeLogin();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingLogin, captchaReady, siteKey]);
+
+  useEffect(() => {
+    if (!gpsBlocked || typeof navigator === "undefined" || !navigator.permissions?.query) return;
+    let active = true;
+    let status: PermissionStatus | null = null;
+    navigator.permissions.query({ name: "geolocation" as PermissionName }).then((permission) => {
+      if (!active) return;
+      status = permission;
+      permission.onchange = () => {
+        if (!active) return;
+        if (permission.state !== "denied") {
+          setGpsBlocked(false);
+          notify.dismiss("gps-permission-blocked");
+          notify.info("Location permission ready", { id: "gps-permission-ready", description: "Tap Sign In again to continue.", duration: 3500 });
+        }
+      };
+    }).catch(() => {});
+    return () => {
+      active = false;
+      if (status) status.onchange = null;
+    };
+  }, [gpsBlocked]);
+
+  const retryGpsPermission = async () => {
+    setGpsBlocked(false);
+    notify.dismiss("gps-permission-blocked");
+    setError("");
+    if (siteKey) setShowCaptcha(true);
+    else await executeLogin();
+  };
 
   const executeLogin = async (captchaToken?: string) => {
     if (!selectedProfile) return;
@@ -2236,7 +2269,16 @@ function ProfileSelectPage() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Login failed";
       setError(msg);
-      notify.error(msg);
+      if (isGpsPermissionDeniedMessage(msg)) {
+        setGpsBlocked(true);
+        notify.error("Turn on location permission", {
+          id: "gps-permission-blocked",
+          description: "Open browser site settings, allow Location, then tap Try Again.",
+          duration: Number.POSITIVE_INFINITY,
+        });
+      } else {
+        notify.error(msg);
+      }
     } finally {
       setLoginLoading(false);
     }
