@@ -2390,11 +2390,23 @@ Deno.serve(async (originalReq) => {
 
     if (action === "update_user") {
       const session = await requireAdmin(req);
-      const { id, assigned_accounts } = params;
+      const { id, assigned_accounts, session_limit } = params;
       if (!id) throw new Error("User ID required");
-      const { error } = await supabase.from("app_users").update({ assigned_accounts }).eq("id", id);
+      const patch: Record<string, any> = {};
+      if (assigned_accounts !== undefined) patch.assigned_accounts = assigned_accounts;
+      if (session_limit !== undefined) {
+        // null | "" -> clear (fall back to global). Otherwise clamp to a sane non-negative int.
+        if (session_limit === null || session_limit === "") {
+          patch.session_limit = null;
+        } else {
+          const n = Math.max(0, Math.min(50, Math.floor(Number(session_limit) || 0)));
+          patch.session_limit = n;
+        }
+      }
+      if (Object.keys(patch).length === 0) throw new Error("No fields to update");
+      const { error } = await supabase.from("app_users").update(patch).eq("id", id);
       if (error) throw error;
-      await auditLog(supabase, "user_updated", session.userId, id, { assigned_accounts }, ip);
+      await auditLog(supabase, "user_updated", session.userId, id, patch, ip);
       return new Response(JSON.stringify({ success: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

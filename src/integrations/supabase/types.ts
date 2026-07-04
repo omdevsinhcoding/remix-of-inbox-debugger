@@ -163,6 +163,7 @@ export type Database = {
           password: string
           profile_prefs: Json
           role: string
+          session_limit: number | null
           totp_secret: string | null
           username: string
         }
@@ -175,6 +176,7 @@ export type Database = {
           password: string
           profile_prefs?: Json
           role?: string
+          session_limit?: number | null
           totp_secret?: string | null
           username: string
         }
@@ -187,6 +189,7 @@ export type Database = {
           password?: string
           profile_prefs?: Json
           role?: string
+          session_limit?: number | null
           totp_secret?: string | null
           username?: string
         }
