@@ -498,14 +498,14 @@ function showGpsPermissionToast(message: string) {
   if (mode === "blocked") {
     notify.error("Location blocked", {
       id: GPS_PERMISSION_TOAST_ID,
-      description: "Browser blocked the popup. Allow Location for this site.",
-      duration: 7000,
+      description: "Use Enable Location below.",
+      duration: 4500,
     });
   } else {
     notify.error("Tap Allow for location", {
       id: GPS_PERMISSION_TOAST_ID,
-      description: "Login needs GPS permission.",
-      duration: 6000,
+      description: "Use Enable Location below.",
+      duration: 4500,
     });
   }
 }
