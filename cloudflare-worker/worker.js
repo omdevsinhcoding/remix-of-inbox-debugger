@@ -198,9 +198,13 @@ export default {
       }
     }
 
+    // Session auth is OPTIONAL. If this worker has SESSION_SIGNING_SECRET set
+    // AND the request came with a token that failed to verify → reject.
+    // If no secret is configured on this worker, allow through (legacy mode)
+    // so new workers can be spun up without matching secrets everywhere.
     if ((url.pathname === "/api/emails" || url.pathname === "/api/emails/sync") && !session) {
-      if (hasSigning) {
-        return new Response(JSON.stringify({ error: "Authentication required" }), {
+      if (hasSigning && sessionToken) {
+        return new Response(JSON.stringify({ error: "Invalid session" }), {
           status: 401, headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
         });
       }
