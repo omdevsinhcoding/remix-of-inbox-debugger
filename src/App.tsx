@@ -2243,24 +2243,37 @@ function ProfileSelectPage() {
   }, [pendingLogin, captchaReady, siteKey]);
 
   useEffect(() => {
-    if (!gpsBlocked || typeof navigator === "undefined" || !navigator.permissions?.query) return;
+    if (!gpsBlocked || typeof navigator === "undefined") return;
     let active = true;
     let status: PermissionStatus | null = null;
-    navigator.permissions.query({ name: "geolocation" as PermissionName }).then((permission) => {
-      if (!active) return;
-      status = permission;
-      permission.onchange = () => {
+    const clearBlocked = () => {
+      setGpsPermissionMode(null);
+      setGpsHelpOpen(false);
+      notify.dismiss(GPS_PERMISSION_TOAST_ID);
+      notify.info("Location ready", { id: "gps-permission-ready", description: "Tap Sign In to continue.", duration: 3500 });
+    };
+    const recheck = async () => {
+      if (!active || !navigator.permissions?.query) return;
+      try {
+        const p = await navigator.permissions.query({ name: "geolocation" as PermissionName });
+        if (active && p.state !== "denied") clearBlocked();
+      } catch {}
+    };
+    if (navigator.permissions?.query) {
+      navigator.permissions.query({ name: "geolocation" as PermissionName }).then((permission) => {
         if (!active) return;
-        if (permission.state !== "denied") {
-          setGpsPermissionMode(null);
-          notify.dismiss(GPS_PERMISSION_TOAST_ID);
-          notify.info("Location permission ready", { id: "gps-permission-ready", description: "Tap Sign In again to continue.", duration: 3500 });
-        }
-      };
-    }).catch(() => {});
+        status = permission;
+        permission.onchange = () => { if (active && permission.state !== "denied") clearBlocked(); };
+      }).catch(() => {});
+    }
+    const onVisible = () => { if (document.visibilityState === "visible") recheck(); };
+    window.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", recheck);
     return () => {
       active = false;
       if (status) status.onchange = null;
+      window.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", recheck);
     };
   }, [gpsBlocked]);
 
