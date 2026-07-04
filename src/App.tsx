@@ -2559,6 +2559,10 @@ function ProfileSelectPage() {
                 </motion.div>
               )}
 
+              <AnimatePresence>
+                <GpsPermissionSheet mode={gpsPermissionMode} loading={loginLoading || pendingLogin} onEnable={() => void startLocationThenLogin()} />
+              </AnimatePresence>
+
               <button type="submit" disabled={loginLoading || pendingLogin}
                 className="w-full bg-[#e50914] hover:bg-[#f6121d] text-white font-semibold py-3 rounded-md transition-all active:scale-[0.98] disabled:opacity-50 text-[15px]">
                 {(loginLoading || pendingLogin) ? (
@@ -2781,6 +2785,11 @@ function AdminLoginPage() {
               <AlertCircle className="w-4 h-4" />{error}
             </div>
           )}
+
+          <AnimatePresence>
+            <GpsPermissionSheet mode={gpsPermissionMode} loading={loading} onEnable={() => void startLocationThenLogin()} />
+          </AnimatePresence>
+
           <button type="submit" disabled={loading || !captchaReady}
             className="w-full bg-red-600 text-white font-bold py-4 rounded-2xl hover:bg-red-700 transition-all active:scale-95 disabled:opacity-50">
             {loading ? "Authenticating..." : captchaReady ? "Admin Sign In" : "Loading Security..."}
