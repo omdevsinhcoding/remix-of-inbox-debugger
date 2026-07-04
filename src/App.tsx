@@ -7171,7 +7171,7 @@ function EmailViewer() {
                   </div>
                 ) : (
                   emails.map(email => (
-                    <button key={email.id} onClick={() => setSelectedEmail(email)}
+                    <button key={email.id} onClick={() => { void openEmail(email); }}
                       className={`w-full text-left p-3 rounded-xl border transition-all ${
                         selectedEmail?.id === email.id
                           ? "bg-white border-red-200 shadow-md ring-1 ring-red-100"
