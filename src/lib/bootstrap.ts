@@ -229,8 +229,36 @@ export async function listNotifications(): Promise<AppNotification[]> {
 }
 
 // Etag-aware fetch: send last etag, receive {unchanged:true} + empty list, or fresh list + new etag.
-// Used by the singleton store so 97%+ of polls return ~200 bytes instead of ~6 KB.
+// Prefers the Cloudflare worker (`/api/notifications/list`) when configured —
+// it holds a 60 s per-user KV cache that cuts Supabase invocations ~95%.
 export async function listNotificationsWithEtag(etag: string | null): Promise<NotificationsResult> {
+  const token = sessionGet("session_token" as any);
+  const workerUrls = getWorkerUrlsFromCache();
+  // Try worker first (only if we have both a session token AND a worker URL).
+  if (token && workerUrls.length > 0) {
+    for (const base of workerUrls) {
+      try {
+        const res = await fetch(`${base.replace(/\/+$/, "")}/api/notifications/list`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Session-Token": String(token),
+          },
+          body: JSON.stringify(etag ? { if_etag: etag } : {}),
+        });
+        if (!res.ok) continue;
+        const data = await res.json();
+        if (!data?.success) continue;
+        return {
+          notifications: data.notifications || [],
+          etag: data.etag || null,
+          unchanged: !!data.unchanged,
+        };
+      } catch {
+        // fall through to next worker or Supabase
+      }
+    }
+  }
   try {
     const data = await callManage<{ notifications?: AppNotification[]; etag?: string; unchanged?: boolean }>(
       "list_notifications",
@@ -246,6 +274,29 @@ export async function listNotificationsWithEtag(etag: string | null): Promise<No
     return { notifications: [], etag: null, unchanged: false };
   }
 }
+
+// Fire-and-forget worker cache invalidation (best-effort).
+async function invalidateWorkerNotifsCache(): Promise<void> {
+  const token = sessionGet("session_token" as any);
+  const workerUrls = getWorkerUrlsFromCache();
+  if (!token || workerUrls.length === 0) return;
+  await Promise.allSettled(workerUrls.map((base) =>
+    fetch(`${base.replace(/\/+$/, "")}/api/notifications/invalidate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Session-Token": String(token) },
+    }).catch(() => {})
+  ));
+}
+
+function getWorkerUrlsFromCache(): string[] {
+  try {
+    const raw = typeof localStorage !== "undefined" ? localStorage.getItem(WORKER_URLS_KEY) : null;
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr.filter((s) => typeof s === "string" && s.trim().length > 0) : [];
+  } catch { return []; }
+}
+
 
 
 // Fire-and-forget cache buster shared by every mutation below.
