@@ -113,59 +113,82 @@
   }
 }
 
-/* Global toast system — full-message readable, auto light/dark inversion. */
+/* ============================================================
+   Global Toast System — Classic, theme-inverted, full-message.
+   Dark page -> white card. Light page -> dark card.
+   Text wraps in full, no ellipsis truncation, ever.
+   ============================================================ */
 .gt-toast-viewport {
   position: fixed;
   z-index: 2147483647;
-  right: max(18px, env(safe-area-inset-right));
-  bottom: max(18px, env(safe-area-inset-bottom));
-  width: min(440px, calc(100vw - 28px));
+  right: max(20px, env(safe-area-inset-right));
+  bottom: max(20px, env(safe-area-inset-bottom));
+  width: min(420px, calc(100vw - 28px));
   display: flex;
   flex-direction: column-reverse;
-  gap: 10px;
+  gap: 12px;
   pointer-events: none;
 }
 
 .gt-toast {
-  --gt-fg: hsl(0 0% 100%);
-  --gt-muted: hsl(215 16% 74%);
-  --gt-bg: hsl(224 34% 10% / 0.98);
-  --gt-border: hsl(220 16% 22%);
-  --gt-shadow: 0 20px 50px -20px hsl(224 40% 2% / 0.8), 0 2px 8px hsl(224 40% 2% / 0.35);
-  --gt-chip-bg: hsl(220 16% 20%);
-  --gt-chip-fg: hsl(215 18% 78%);
-  --gt-close-hover: hsl(215 16% 60% / 0.16);
+  /* default: light card (for dark pages) */
+  --gt-fg: hsl(222 30% 11%);
+  --gt-muted: hsl(220 12% 40%);
+  --gt-bg: hsl(0 0% 100%);
+  --gt-border: hsl(220 14% 88%);
+  --gt-shadow:
+    0 24px 60px -22px hsl(224 40% 4% / 0.55),
+    0 4px 14px -6px hsl(224 40% 4% / 0.32),
+    0 0 0 1px hsl(0 0% 100% / 0.06);
+  --gt-chip-bg: hsl(220 16% 95%);
+  --gt-chip-fg: hsl(220 14% 32%);
+  --gt-close-hover: hsl(220 14% 40% / 0.09);
+  --gt-progress-track: hsl(220 14% 92%);
+  --gt-accent: hsl(220 14% 50%);
 
   position: relative;
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) 24px;
+  grid-template-columns: 4px 36px minmax(0, 1fr) 26px;
   align-items: flex-start;
   gap: 12px;
-  padding: 14px 12px 14px 14px;
-  border-radius: 12px;
+  padding: 14px 14px 16px 0;
+  border-radius: 14px;
   color: var(--gt-fg);
   background: var(--gt-bg);
   border: 1px solid var(--gt-border);
   box-shadow: var(--gt-shadow);
   pointer-events: auto;
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  animation: gtToastIn 220ms cubic-bezier(.2, .8, .2, 1) both;
+  overflow: hidden;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  animation: gtToastIn 260ms cubic-bezier(.22, .9, .28, 1) both;
 }
 
+/* dark card variant (for light pages) */
 .gt-toast[data-tone="light"] {
-  --gt-fg: hsl(222 47% 10%);
-  --gt-muted: hsl(215 15% 40%);
-  --gt-bg: hsl(0 0% 100%);
-  --gt-border: hsl(220 16% 87%);
-  --gt-shadow: 0 20px 44px -20px hsl(224 30% 10% / 0.44), 0 2px 8px hsl(224 30% 10% / 0.08);
-  --gt-chip-bg: hsl(220 18% 94%);
-  --gt-chip-fg: hsl(215 15% 38%);
-  --gt-close-hover: hsl(215 16% 40% / 0.10);
+  --gt-fg: hsl(0 0% 100%);
+  --gt-muted: hsl(220 12% 74%);
+  --gt-bg: hsl(224 30% 9%);
+  --gt-border: hsl(220 14% 20%);
+  --gt-shadow:
+    0 24px 60px -22px hsl(224 60% 2% / 0.85),
+    0 4px 14px -6px hsl(224 60% 2% / 0.55),
+    0 0 0 1px hsl(0 0% 100% / 0.04);
+  --gt-chip-bg: hsl(220 14% 18%);
+  --gt-chip-fg: hsl(220 12% 82%);
+  --gt-close-hover: hsl(220 14% 70% / 0.14);
+  --gt-progress-track: hsl(220 14% 18%);
+}
+
+/* left accent stripe (per variant) */
+.gt-toast-accent {
+  align-self: stretch;
+  width: 4px;
+  background: var(--gt-accent);
 }
 
 .gt-toast-icon {
-  width: 34px;
-  height: 34px;
+  width: 36px;
+  height: 36px;
   border-radius: 10px;
   display: inline-flex;
   align-items: center;
@@ -174,25 +197,24 @@
   background: var(--gt-chip-bg);
   flex-shrink: 0;
   margin-top: 1px;
+  margin-left: 4px;
 }
-
-.gt-toast-icon svg { width: 17px; height: 17px; stroke-width: 2.4; }
+.gt-toast-icon svg { width: 18px; height: 18px; stroke-width: 2.4; }
 .gt-toast[data-variant="loading"] .gt-toast-icon svg { animation: gtSpin 900ms linear infinite; }
 
 .gt-toast-copy {
   min-width: 0;
-  padding-right: 2px;
-  padding-top: 2px;
+  padding-top: 3px;
   display: flex;
   flex-direction: column;
   gap: 3px;
 }
 .gt-toast-title {
   color: var(--gt-fg);
-  font-size: 13.5px;
-  font-weight: 700;
+  font-size: 13.75px;
+  font-weight: 650;
   line-height: 1.35;
-  letter-spacing: 0;
+  letter-spacing: -0.005em;
   overflow-wrap: anywhere;
   word-break: break-word;
   white-space: normal;
@@ -200,8 +222,8 @@
 .gt-toast-desc {
   color: var(--gt-muted);
   font-size: 12.25px;
-  font-weight: 500;
-  line-height: 1.45;
+  font-weight: 450;
+  line-height: 1.5;
   letter-spacing: 0;
   overflow-wrap: anywhere;
   word-break: break-word;
@@ -209,8 +231,8 @@
 }
 
 .gt-toast-close {
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
   border: 0;
   border-radius: 8px;
   display: inline-flex;
@@ -219,20 +241,47 @@
   color: var(--gt-muted);
   background: transparent;
   cursor: pointer;
-  opacity: 0.72;
+  opacity: 0.7;
   flex-shrink: 0;
-  margin-top: 2px;
+  margin-top: 3px;
   transition: background 160ms ease, color 160ms ease, opacity 160ms ease;
 }
-.gt-toast-close svg { width: 13px; height: 13px; stroke-width: 2.5; }
+.gt-toast-close svg { width: 14px; height: 14px; stroke-width: 2.4; }
 .gt-toast-close:hover { opacity: 1; color: var(--gt-fg); background: var(--gt-close-hover); }
 
-.gt-toast[data-variant="success"] .gt-toast-icon { color: hsl(158 74% 37%); background: hsl(158 74% 44% / 0.14); }
-.gt-toast[data-variant="error"]   .gt-toast-icon { color: hsl(0 74% 57%);   background: hsl(0 84% 60% / 0.14); }
-.gt-toast[data-variant="warning"] .gt-toast-icon { color: hsl(35 92% 47%);  background: hsl(40 96% 52% / 0.16); }
-.gt-toast[data-variant="info"]    .gt-toast-icon { color: hsl(207 84% 52%); background: hsl(207 92% 56% / 0.14); }
-.gt-toast[data-variant="loading"] .gt-toast-icon { color: var(--gt-chip-fg); background: var(--gt-chip-bg); }
+/* accent + chip colors per variant */
+.gt-toast[data-variant="success"] { --gt-accent: hsl(158 74% 42%); }
+.gt-toast[data-variant="success"] .gt-toast-icon { color: hsl(158 74% 38%); background: hsl(158 74% 44% / 0.14); }
+.gt-toast[data-tone="light"][data-variant="success"] .gt-toast-icon { color: hsl(158 70% 62%); background: hsl(158 74% 44% / 0.18); }
 
+.gt-toast[data-variant="error"] { --gt-accent: hsl(0 78% 58%); }
+.gt-toast[data-variant="error"] .gt-toast-icon { color: hsl(0 74% 55%); background: hsl(0 84% 60% / 0.14); }
+.gt-toast[data-tone="light"][data-variant="error"] .gt-toast-icon { color: hsl(0 84% 72%); background: hsl(0 84% 60% / 0.18); }
+
+.gt-toast[data-variant="warning"] { --gt-accent: hsl(35 92% 50%); }
+.gt-toast[data-variant="warning"] .gt-toast-icon { color: hsl(35 92% 45%); background: hsl(40 96% 52% / 0.16); }
+.gt-toast[data-tone="light"][data-variant="warning"] .gt-toast-icon { color: hsl(40 96% 68%); background: hsl(40 96% 52% / 0.2); }
+
+.gt-toast[data-variant="info"] { --gt-accent: hsl(207 84% 54%); }
+.gt-toast[data-variant="info"] .gt-toast-icon { color: hsl(207 84% 50%); background: hsl(207 92% 56% / 0.14); }
+.gt-toast[data-tone="light"][data-variant="info"] .gt-toast-icon { color: hsl(207 92% 72%); background: hsl(207 92% 56% / 0.18); }
+
+.gt-toast[data-variant="loading"] { --gt-accent: hsl(220 14% 55%); }
+
+/* auto-dismiss progress bar */
+.gt-toast-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--gt-accent);
+  transform-origin: left center;
+  animation: gtProgress linear forwards;
+  opacity: 0.55;
+}
+
+/* mobile: top-center full width */
 @media (max-width: 767px) {
   .gt-toast-viewport {
     top: max(12px, env(safe-area-inset-top));
@@ -242,12 +291,21 @@
     width: auto;
     flex-direction: column;
   }
+  .gt-toast { border-radius: 12px; }
 }
 
 @keyframes gtToastIn {
-  from { opacity: 0; transform: translateY(10px) scale(0.985); }
+  from { opacity: 0; transform: translateY(10px) scale(0.98); }
   to   { opacity: 1; transform: translateY(0) scale(1); }
 }
+@keyframes gtSpin { to { transform: rotate(360deg); } }
+@keyframes gtProgress { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+@media (prefers-reduced-motion: reduce) {
+  .gt-toast,
+  .gt-toast[data-variant="loading"] .gt-toast-icon svg,
+  .gt-toast-progress { animation: none; }
+}
+
 @keyframes gtSpin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
   .gt-toast, .gt-toast[data-variant="loading"] .gt-toast-icon svg { animation: none; }
