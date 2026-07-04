@@ -79,7 +79,7 @@ function getCardTone(): CardTone {
 function ToastCard({ toast, tone }: { toast: GlobalToast; tone: CardTone }) {
   const Icon = ICONS[toast.variant];
   return (
-    <div className="gt-toast" data-card={tone} data-variant={toast.variant} role={toast.variant === "error" ? "alert" : "status"} aria-live={toast.variant === "error" ? "assertive" : "polite"}>
+    <div className="gt-toast" data-card={tone} data-variant={toast.variant} data-has-action={toast.action ? "true" : "false"} role={toast.variant === "error" ? "alert" : "status"} aria-live={toast.variant === "error" ? "assertive" : "polite"}>
       <div className="gt-toast-icon" aria-hidden="true">
         <Icon />
       </div>
@@ -87,6 +87,17 @@ function ToastCard({ toast, tone }: { toast: GlobalToast; tone: CardTone }) {
         {toast.title ? <div className="gt-toast-title">{toast.title}</div> : null}
         {toast.description ? <div className="gt-toast-desc">{toast.description}</div> : null}
       </div>
+      {toast.action ? (
+        <button
+          className="gt-toast-action"
+          type="button"
+          onClick={() => {
+            try { toast.action?.onClick(); } finally { notify.dismiss(toast.id); }
+          }}
+        >
+          {toast.action.label}
+        </button>
+      ) : null}
       <button
         className="gt-toast-close"
         type="button"
