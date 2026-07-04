@@ -37,11 +37,8 @@
   opacity: 1 !important;
 }
 
-/* Sonner: ensure toasts never sit on top of the sticky app header on mobile
-   and never occupy the entire viewport width. */
-[data-sonner-toaster][data-mobile="true"] {
-  max-width: min(92vw, 420px);
-}
+
+
 
 /* Profile grid entrance + skeleton — matches maintenance-mode reveal cadence */
 @keyframes profileTileIn {
