@@ -364,13 +364,10 @@ async function fetchFromAccount(
           const bodyText = (parsed.text || "").trim();
           const subjectText = (parsed.subject || fullMsg.envelope?.subject || "").toString();
           const fromText = parsed.from?.text || "";
-          // Final gate — even if a UID slipped through, drop non-netflix senders and promo mail.
+          // Final gate — drop non-netflix senders. Promo/marketing mail is kept in cache
+          // and filtered at read-time based on the admin toggle.
           if (!isNetflixFrom(fromText)) {
             console.log(`[${accountLabel}] Skipping UID ${uid}: sender not @netflix.com (${fromText})`);
-            continue;
-          }
-          if (isNetflixPromo(subjectText)) {
-            console.log(`[${accountLabel}] Skipping UID ${uid}: promo subject (${subjectText})`);
             continue;
           }
           const otpCode = extractOtpCode(subjectText, bodyText);
