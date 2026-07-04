@@ -589,7 +589,7 @@ async function collectLoginLocation(): Promise<LoginLocationPayload> {
       if (err.code === err.PERMISSION_DENIED) status = "denied";
       else if (err.code === err.POSITION_UNAVAILABLE) status = "unavailable";
       else if (err.code === err.TIMEOUT) status = "timeout";
-      let nextPermissionState = permissionState;
+      let nextPermissionState: LoginLocationPayload["permissionState"] = permissionState;
       try {
         if (navigator.permissions?.query) {
           const permission = await navigator.permissions.query({ name: "geolocation" as PermissionName });
