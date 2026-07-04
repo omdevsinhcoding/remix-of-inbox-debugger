@@ -148,6 +148,28 @@ function escapeHtml(input: string) {
   return input.replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch] || ch));
 }
 
+// Strict Netflix sender check — only emails FROM a netflix.com address (or subdomain)
+// count as Netflix mail. Prevents third-party mails (e.g. Reddit threads that mention
+// "netflix" in the subject) from ever entering the cache.
+function isNetflixFrom(fromRaw: string | null | undefined): boolean {
+  if (!fromRaw) return false;
+  const s = String(fromRaw).toLowerCase();
+  return /@([a-z0-9-]+\.)*netflix\.com\b/.test(s);
+}
+
+// Reject Netflix marketing/promo mail — users only want transactional
+// (sign-in codes, household verification, password resets, billing).
+const NETFLIX_PROMO_SUBJECTS = [
+  "unlimited series", "ready to watch", "finish signing up", "welcome to netflix",
+  "new on netflix", "recommended for you", "top 10", "trending now",
+  "coming soon", "start watching", "new releases", "we think you'll love",
+  "don't miss", "back on netflix",
+];
+function isNetflixPromo(subject: string | null | undefined): boolean {
+  const s = (subject || "").toLowerCase();
+  return NETFLIX_PROMO_SUBJECTS.some((kw) => s.includes(kw));
+}
+
 function decodeQuotedPrintable(input: string) {
   return input
     .replace(/=\r?\n/g, "")
