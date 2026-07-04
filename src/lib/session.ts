@@ -3,20 +3,25 @@
 // persists across tab close, and no other tab can read it.
 //
 // Session keys owned by this module:
-//   session_token, user, admin_auth, admin_backup, pending_admin_token,
-//   pending_admin_token_at, session_started_at
+//   session_token, refresh_token, session_expires_at, refresh_expires_at,
+//   user, admin_auth, admin_backup, pending_admin_token,
+//   pending_admin_token_at, session_started_at, cloudflare_worker_urls
 //
 // Everything else (worker URL cache, stats cache, email cache) still uses
 // localStorage — those are non-secret UX caches.
 
 const KEYS = [
   "session_token",
+  "refresh_token",
+  "session_expires_at",
+  "refresh_expires_at",
   "user",
   "admin_auth",
   "admin_backup",
   "pending_admin_token",
   "pending_admin_token_at",
   "session_started_at",
+  "cloudflare_worker_urls",
 ] as const;
 
 type SessionKey = typeof KEYS[number];
