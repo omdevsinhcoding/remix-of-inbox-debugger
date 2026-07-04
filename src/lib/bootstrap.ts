@@ -300,10 +300,14 @@ function getWorkerUrlsFromCache(): string[] {
 
 
 // Fire-and-forget cache buster shared by every mutation below.
-// Ensures the singleton store re-fetches with a fresh etag after any write.
+// Ensures the singleton store re-fetches with a fresh etag after any write,
+// and the Cloudflare worker's per-user KV entry is dropped so the next poll
+// isn't served stale.
 function bustNotifStore() {
   import("./notificationsStore").then(({ invalidateNotifications }) => invalidateNotifications()).catch(() => {});
+  invalidateWorkerNotifsCache().catch(() => {});
 }
+
 
 export async function markNotificationRead(id: string): Promise<void> {
   try { await callManage("mark_notification_read", { notification_id: id }); } finally { bustNotifStore(); }
