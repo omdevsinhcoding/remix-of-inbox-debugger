@@ -2147,7 +2147,8 @@ function ProfileSelectPage() {
   const [captchaConfigError, setCaptchaConfigError] = useState(false);
   const [showCaptcha, setShowCaptcha] = useState(false);
   const [pendingLogin, setPendingLogin] = useState(false);
-  const [gpsBlocked, setGpsBlocked] = useState(false);
+  const [gpsPermissionMode, setGpsPermissionMode] = useState<GpsPermissionMode | null>(null);
+  const gpsBlocked = gpsPermissionMode !== null;
   const navigate = useNavigate();
   const { checkAuth } = useAuth();
 
@@ -2208,8 +2209,8 @@ function ProfileSelectPage() {
 
   const initiateLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    setGpsBlocked(false);
-    notify.dismiss("gps-permission-blocked");
+    setGpsPermissionMode(null);
+    notify.dismiss(GPS_PERMISSION_TOAST_ID);
     setError("");
     if (!captchaReady) {
       // Bootstrap still running — queue the login instead of yelling at user.
@@ -2246,8 +2247,8 @@ function ProfileSelectPage() {
       permission.onchange = () => {
         if (!active) return;
         if (permission.state !== "denied") {
-          setGpsBlocked(false);
-          notify.dismiss("gps-permission-blocked");
+          setGpsPermissionMode(null);
+          notify.dismiss(GPS_PERMISSION_TOAST_ID);
           notify.info("Location permission ready", { id: "gps-permission-ready", description: "Tap Sign In again to continue.", duration: 3500 });
         }
       };
@@ -2259,8 +2260,8 @@ function ProfileSelectPage() {
   }, [gpsBlocked]);
 
   const retryGpsPermission = async () => {
-    setGpsBlocked(false);
-    notify.dismiss("gps-permission-blocked");
+    setGpsPermissionMode(null);
+    notify.dismiss(GPS_PERMISSION_TOAST_ID);
     setError("");
     if (siteKey) setShowCaptcha(true);
     else await executeLogin();
@@ -2301,12 +2302,8 @@ function ProfileSelectPage() {
       const msg = err instanceof Error ? err.message : "Login failed";
       setError(msg);
       if (isGpsPermissionDeniedMessage(msg)) {
-        setGpsBlocked(true);
-        notify.error("Turn on location permission", {
-          id: "gps-permission-blocked",
-          description: "Open browser site settings, allow Location, then tap Try Again.",
-          duration: Number.POSITIVE_INFINITY,
-        });
+        setGpsPermissionMode(getGpsPermissionMode(msg));
+        showGpsPermissionToast(msg);
       } else {
         notify.error(msg);
       }
@@ -2459,7 +2456,7 @@ function ProfileSelectPage() {
           <motion.div key="password" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.3 }}
             className="relative z-10 w-full max-w-sm px-2 mt-16 sm:mt-24">
-            <button onClick={() => { setSelectedProfile(null); setPassword(""); setError(""); setGpsBlocked(false); notify.dismiss("gps-permission-blocked"); }}
+            <button onClick={() => { setSelectedProfile(null); setPassword(""); setError(""); setGpsPermissionMode(null); notify.dismiss(GPS_PERMISSION_TOAST_ID); }}
               className="text-neutral-400 hover:text-white text-sm font-normal mb-8 flex items-center gap-1.5 transition-colors group">
               <ArrowLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" /> Back
             </button>
@@ -2489,8 +2486,14 @@ function ProfileSelectPage() {
                       <AlertCircle className="h-4 w-4" />
                     </span>
                     <div className="min-w-0 flex-1">
-                      <p className="text-[13px] font-semibold leading-snug text-white">Location permission is blocked</p>
-                      <p className="mt-1 text-[12px] leading-relaxed text-[#f5c9cc]">Allow Location for this site in browser settings, then try again.</p>
+                      <p className="text-[13px] font-semibold leading-snug text-white">
+                        {gpsPermissionMode === "blocked" ? "Location permission is blocked" : "Location permission needed"}
+                      </p>
+                      <p className="mt-1 text-[12px] leading-relaxed text-[#f5c9cc]">
+                        {gpsPermissionMode === "blocked"
+                          ? "Set Location to Allow in browser site settings, then try again."
+                          : "Tap Try Again and press Allow in the browser location popup. Login will not continue without Location."}
+                      </p>
                       <button
                         type="button"
                         onClick={retryGpsPermission}
