@@ -498,14 +498,13 @@ function showGpsPermissionToast(message: string, onOpenHelp?: () => void) {
   if (mode === "blocked") {
     notify.error("Location blocked", {
       id: GPS_PERMISSION_TOAST_ID,
-      description: "Enable it in site settings.",
-      duration: 8000,
-      action: onOpenHelp ? { label: "How to enable", onClick: onOpenHelp } : undefined,
+      description: "Browser blocked the popup. Allow Location for this site.",
+      duration: 7000,
     });
   } else {
-    notify.error("Allow location to sign in", {
+    notify.error("Tap Allow for location", {
       id: GPS_PERMISSION_TOAST_ID,
-      description: "Tap Allow in the location popup.",
+      description: "Login needs GPS permission.",
       duration: 6000,
     });
   }
@@ -559,9 +558,9 @@ async function collectLoginLocation(): Promise<LoginLocationPayload> {
       const permission = await navigator.permissions.query({ name: "geolocation" as PermissionName });
       permissionState = permission.state;
       console.log("[GPS] Permission state:", permission.state);
-      if (permission.state === "denied") {
-        return { status: "denied", permissionState, error: "Location permission is blocked in the browser." };
-      }
+      // Always call getCurrentPosition after a user click. If the browser is still
+      // allowed to show the native permission prompt, this is the only API that
+      // can show it again; a permissions.query() pre-check must not stop it.
     } else {
       console.log("[GPS] navigator.permissions.query not available — proceeding anyway.");
     }
