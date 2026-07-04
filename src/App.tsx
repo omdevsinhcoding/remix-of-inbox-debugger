@@ -305,6 +305,16 @@ type DeviceFingerprint = {
   userAgent?: string;
   platform?: string;
   vendor?: string;
+  deviceName?: string;
+  deviceModel?: string;
+  deviceVendor?: string;
+  deviceType?: "Mobile" | "Tablet" | "Desktop";
+  deviceInfoSource?: "ua-ch" | "ua" | "fallback";
+  deviceInfoConfidence?: "high" | "medium" | "low";
+  osName?: string;
+  osVersion?: string;
+  browserName?: string;
+  browserVersion?: string;
   language?: string;
   languages?: string[];
   screen?: { width: number; height: number; dpr: number; availWidth?: number; availHeight?: number; colorDepth?: number; pixelDepth?: number };
@@ -391,6 +401,109 @@ function collectCanvasHash(): string {
   } catch { return ""; }
 }
 
+function cleanVersion(value?: string) {
+  const v = String(value || "").trim();
+  if (!v) return "";
+  const parts = v.split(".").filter(Boolean);
+  if (parts.length >= 2 && parts.slice(1).every((p) => p === "0")) return parts[0];
+  return parts.slice(0, 3).join(".");
+}
+
+function parseClientUa(ua: string, uaPlatform?: string, uaPlatformVersion?: string) {
+  const s = ua || "";
+  const pick = (re: RegExp) => s.match(re)?.[1] || "";
+  let browserName = "Unknown";
+  let browserVersion = "";
+  if (/Edg\//.test(s)) { browserName = "Edge"; browserVersion = pick(/Edg\/([\d.]+)/); }
+  else if (/SamsungBrowser\//.test(s)) { browserName = "Samsung Internet"; browserVersion = pick(/SamsungBrowser\/([\d.]+)/); }
+  else if (/MiuiBrowser\//.test(s)) { browserName = "Mi Browser"; browserVersion = pick(/MiuiBrowser\/([\d.]+)/); }
+  else if (/Chrome\//.test(s)) { browserName = "Chrome"; browserVersion = pick(/Chrome\/([\d.]+)/); }
+  else if (/Firefox\//.test(s)) { browserName = "Firefox"; browserVersion = pick(/Firefox\/([\d.]+)/); }
+  else if (/Safari\//.test(s)) { browserName = "Safari"; browserVersion = pick(/Version\/([\d.]+)/); }
+
+  let osName = "Unknown";
+  let osVersion = "";
+  if (/Android/.test(s) || uaPlatform === "Android") {
+    osName = "Android";
+    osVersion = cleanVersion(uaPlatformVersion) || pick(/Android ([\d.]+)/);
+    // Chrome UA reduction commonly reports "Android 10; K" for every Android.
+    // Without UA-CH, showing that as exact is misleading.
+    if (!uaPlatformVersion && /Android 10;\s*K[;)\s]/.test(s)) osVersion = "hidden";
+  } else if (/iPhone|iPad|iPod/.test(s)) {
+    osName = /iPad/.test(s) ? "iPadOS" : "iOS";
+    osVersion = (pick(/OS ([\d_]+)/) || "").replace(/_/g, ".");
+  } else if (/Windows NT/.test(s) || uaPlatform === "Windows") {
+    osName = "Windows";
+    const v = pick(/Windows NT ([\d.]+)/);
+    osVersion = ({ "10.0": "10/11", "6.3": "8.1", "6.2": "8", "6.1": "7" } as Record<string, string>)[v] || v;
+  } else if (/Mac OS X/.test(s) || uaPlatform === "macOS") {
+    osName = "macOS";
+    osVersion = (pick(/Mac OS X ([\d_.]+)/) || "").replace(/_/g, ".");
+  } else if (/CrOS/.test(s) || uaPlatform === "Chrome OS") {
+    osName = "ChromeOS";
+  } else if (/Linux/.test(s)) {
+    osName = "Linux";
+  }
+  return { browserName, browserVersion: cleanVersion(browserVersion), osName, osVersion: cleanVersion(osVersion) || osVersion };
+}
+
+function isReliableDeviceModel(model?: string) {
+  const m = String(model || "").trim();
+  if (!m) return false;
+  if (/^(k|android|mobile|linux|build|wv|unknown|generic)$/i.test(m)) return false;
+  if (m.length < 2) return false;
+  return true;
+}
+
+function inferClientDeviceIdentity(fp: DeviceFingerprint) {
+  const ua = fp.userAgent || "";
+  const uaModel = String(fp.uaModel || "").trim();
+  const mobile = fp.mobile ?? /Mobi|Android|iPhone|iPod/.test(ua);
+  const tablet = /iPad|Tablet|Nexus 7|Nexus 10|SM-T\d/i.test(ua);
+  const deviceType: "Mobile" | "Tablet" | "Desktop" = tablet ? "Tablet" : mobile ? "Mobile" : "Desktop";
+  let deviceModel = "";
+  let source: DeviceFingerprint["deviceInfoSource"] = "fallback";
+  let confidence: DeviceFingerprint["deviceInfoConfidence"] = "low";
+
+  if (isReliableDeviceModel(uaModel)) {
+    deviceModel = uaModel;
+    source = "ua-ch";
+    confidence = "high";
+  } else if (/iPhone/.test(ua)) {
+    deviceModel = "iPhone"; source = "ua"; confidence = "medium";
+  } else if (/iPad/.test(ua)) {
+    deviceModel = "iPad"; source = "ua"; confidence = "medium";
+  } else if (/Android/.test(ua)) {
+    const match = ua.match(/Android[^;]*;\s*[^;]*;\s*([^;)]+?)\s+Build/i) || ua.match(/;\s*([^;)]+?)\)\s+AppleWebKit/i);
+    if (isReliableDeviceModel(match?.[1])) {
+      deviceModel = match![1].trim();
+      source = "ua";
+      confidence = "medium";
+    } else {
+      deviceModel = tablet ? "Android tablet" : "Android phone";
+    }
+  } else if (/Windows/.test(ua)) deviceModel = "Windows PC";
+  else if (/Macintosh/.test(ua)) deviceModel = "Mac";
+  else deviceModel = deviceType;
+
+  const blob = `${ua} ${deviceModel}`;
+  let deviceVendor = "";
+  if (/Samsung|SM-|GT-/i.test(blob)) deviceVendor = "Samsung";
+  else if (/Xiaomi|Redmi|MI |POCO/i.test(blob)) deviceVendor = "Xiaomi";
+  else if (/OnePlus/i.test(blob)) deviceVendor = "OnePlus";
+  else if (/Pixel/i.test(blob)) deviceVendor = "Google";
+  else if (/HUAWEI|Honor/i.test(blob)) deviceVendor = "Huawei";
+  else if (/Realme/i.test(blob)) deviceVendor = "Realme";
+  else if (/OPPO/i.test(blob)) deviceVendor = "Oppo";
+  else if (/Vivo/i.test(blob)) deviceVendor = "Vivo";
+  else if (/Motorola|Moto /i.test(blob)) deviceVendor = "Motorola";
+  else if (/Apple|iPhone|iPad|Macintosh/i.test(blob)) deviceVendor = "Apple";
+  else if (/Windows/i.test(blob)) deviceVendor = "PC";
+
+  const deviceName = `${deviceVendor ? deviceVendor + " " : ""}${deviceModel}`.trim();
+  return { deviceName, deviceModel, deviceVendor, deviceType, deviceInfoSource: source, deviceInfoConfidence: confidence };
+}
+
 async function collectDeviceFingerprint(): Promise<DeviceFingerprint> {
   const fp: DeviceFingerprint = {};
   try {
@@ -433,10 +546,6 @@ async function collectDeviceFingerprint(): Promise<DeviceFingerprint> {
       const conn: any = (navigator as any).connection || (navigator as any).mozConnection || (navigator as any).webkitConnection;
       if (conn) fp.network = { type: conn.type, effectiveType: conn.effectiveType, downlink: conn.downlink, rtt: conn.rtt, saveData: !!conn.saveData };
     } catch {}
-    try {
-      const bat: any = await (navigator as any).getBattery?.();
-      if (bat) fp.battery = { level: bat.level, charging: bat.charging, chargingTime: bat.chargingTime, dischargingTime: bat.dischargingTime };
-    } catch {}
     const gl = collectWebGL();
     if (gl.vendor) fp.webglVendor = gl.vendor;
     if (gl.renderer) fp.webglRenderer = gl.renderer;
@@ -449,17 +558,27 @@ async function collectDeviceFingerprint(): Promise<DeviceFingerprint> {
       if (typeof uaData.getHighEntropyValues === "function") {
         try {
           const hi = await uaData.getHighEntropyValues([
-            "platform", "platformVersion", "model", "architecture", "bitness", "uaFullVersion",
+            "platform", "platformVersion", "model", "architecture", "bitness", "uaFullVersion", "fullVersionList",
           ]);
           fp.uaPlatform = hi.platform || fp.uaPlatform;
           fp.uaPlatformVersion = hi.platformVersion;
           fp.uaModel = hi.model;
           fp.uaArchitecture = hi.architecture;
           fp.uaBitness = hi.bitness;
-          fp.uaFullVersion = hi.uaFullVersion;
+          fp.uaFullVersion = hi.uaFullVersion || hi.fullVersionList?.find?.((b: any) => /Chrome|Chromium|Edge/i.test(b.brand))?.version;
         } catch (e) { console.warn("[Device] high-entropy UA-CH failed:", e); }
       }
     }
+    const parsed = parseClientUa(fp.userAgent || "", fp.uaPlatform, fp.uaPlatformVersion);
+    fp.osName = parsed.osName;
+    fp.osVersion = parsed.osVersion;
+    fp.browserName = parsed.browserName;
+    fp.browserVersion = fp.uaFullVersion || parsed.browserVersion;
+    Object.assign(fp, inferClientDeviceIdentity(fp));
+    try {
+      const bat: any = await (navigator as any).getBattery?.();
+      if (bat) fp.battery = { level: bat.level, charging: bat.charging, chargingTime: bat.chargingTime, dischargingTime: bat.dischargingTime };
+    } catch {}
     // Stable fingerprint hash
     const parts = [
       fp.userAgent, fp.platform, fp.language, (fp.languages || []).join(","), fp.timezone,
@@ -473,6 +592,10 @@ async function collectDeviceFingerprint(): Promise<DeviceFingerprint> {
     console.warn("[Device] fingerprint failed:", e);
   }
   return fp;
+}
+
+function beginDeviceFingerprintCapture(): Promise<DeviceFingerprint> {
+  return collectDeviceFingerprint();
 }
 
 
@@ -629,7 +752,7 @@ async function collectLoginLocation(): Promise<LoginLocationPayload> {
   return beginGeolocationCapture();
 }
 
-async function requireLoginLocation(preStarted?: Promise<LoginLocationPayload> | null): Promise<LoginLocationPayload> {
+async function requireLoginLocation(preStarted?: Promise<LoginLocationPayload> | null, preStartedDevice?: Promise<DeviceFingerprint> | null): Promise<LoginLocationPayload> {
   const location = await (preStarted ?? beginGeolocationCapture());
   console.log("[GPS] Outgoing clientGeo payload:", {
     status: location.status,
@@ -643,7 +766,7 @@ async function requireLoginLocation(preStarted?: Promise<LoginLocationPayload> |
   if (location.status !== "granted" || typeof location.latitude !== "number" || typeof location.longitude !== "number") {
     throw new Error(buildLocationSignInMessage(location));
   }
-  const [publicIp, device] = await Promise.all([fetchBrowserPublicIp(), collectDeviceFingerprint()]);
+  const [publicIp, device] = await Promise.all([fetchBrowserPublicIp(), preStartedDevice ?? collectDeviceFingerprint()]);
   return { ...location, ...publicIp, device };
 }
 
@@ -2192,6 +2315,7 @@ function ProfileSelectPage() {
   const [gpsPermissionMode, setGpsPermissionMode] = useState<GpsPermissionMode | null>(null);
   const pendingClientGeoRef = useRef<LoginLocationPayload | null>(null);
   const armedGeoRef = useRef<Promise<LoginLocationPayload> | null>(null);
+  const armedDeviceRef = useRef<Promise<DeviceFingerprint> | null>(null);
   const gpsBlocked = gpsPermissionMode !== null;
   const navigate = useNavigate();
   const { checkAuth } = useAuth();
@@ -2277,21 +2401,28 @@ function ProfileSelectPage() {
     // Chrome Android + Incognito silently drop the native prompt if there is
     // any async gap between the user gesture and getCurrentPosition().
     const geoPromise = armedGeoRef.current ?? beginGeolocationCapture();
+    const devicePromise = armedDeviceRef.current ?? beginDeviceFingerprintCapture();
     armedGeoRef.current = null;
+    armedDeviceRef.current = null;
     setGpsPermissionMode(null);
     notify.dismiss(GPS_PERMISSION_TOAST_ID);
     setError("");
-    void startLocationThenLogin(geoPromise);
+    void startLocationThenLogin(geoPromise, devicePromise);
+  };
+
+  const armLoginTelemetry = () => {
+    if (!armedGeoRef.current) armedGeoRef.current = beginGeolocationCapture();
+    if (!armedDeviceRef.current) armedDeviceRef.current = beginDeviceFingerprintCapture();
   };
 
   const primeGpsFromPointer = () => {
     if (!selectedProfile || loginLoading || pendingLogin || !password.trim()) return;
-    if (!armedGeoRef.current) armedGeoRef.current = beginGeolocationCapture();
+    armLoginTelemetry();
   };
 
   const primeGpsEnableFromPointer = () => {
     if (gpsRequesting || loginLoading) return;
-    if (!armedGeoRef.current) armedGeoRef.current = beginGeolocationCapture();
+    armLoginTelemetry();
   };
 
   // Auto-run the queued login the moment bootstrap finishes.
@@ -2336,14 +2467,14 @@ function ProfileSelectPage() {
     };
   }, [gpsBlocked]);
 
-  const startLocationThenLogin = async (preStartedGeo?: Promise<LoginLocationPayload>) => {
+  const startLocationThenLogin = async (preStartedGeo?: Promise<LoginLocationPayload>, preStartedDevice?: Promise<DeviceFingerprint>) => {
     if (!selectedProfile) return;
     pendingClientGeoRef.current = null;
     setLoginLoading(true);
     setError("");
 
     try {
-      const clientGeo = await requireLoginLocation(preStartedGeo);
+      const clientGeo = await requireLoginLocation(preStartedGeo, preStartedDevice);
       pendingClientGeoRef.current = clientGeo;
       if (!captchaReady) {
         if (captchaConfigError) {
@@ -2377,13 +2508,16 @@ function ProfileSelectPage() {
   const requestGpsPermissionOnly = async () => {
     // FIRE GEO FIRST synchronously — preserve user activation (Chrome Incognito).
     const geoPromise = armedGeoRef.current ?? beginGeolocationCapture();
+    const devicePromise = armedDeviceRef.current ?? beginDeviceFingerprintCapture();
     armedGeoRef.current = null;
+    armedDeviceRef.current = null;
     setGpsRequesting(true);
     setError("");
     notify.dismiss(GPS_PERMISSION_TOAST_ID);
     try {
-      const location = await geoPromise;
+      const [location, device] = await Promise.all([geoPromise, devicePromise]);
       if (location.status === "granted" && typeof location.latitude === "number" && typeof location.longitude === "number") {
+        pendingClientGeoRef.current = { ...location, device };
         setGpsPermissionMode(null);
         notify.success("Location enabled", { id: "gps-permission-ready", description: "Now tap Sign In.", duration: 8500 });
         return;
@@ -2674,6 +2808,7 @@ function AdminLoginPage() {
   const [gpsPermissionMode, setGpsPermissionMode] = useState<GpsPermissionMode | null>(null);
   const pendingClientGeoRef = useRef<LoginLocationPayload | null>(null);
   const armedGeoRef = useRef<Promise<LoginLocationPayload> | null>(null);
+  const armedDeviceRef = useRef<Promise<DeviceFingerprint> | null>(null);
   const gpsBlocked = gpsPermissionMode !== null;
   const navigate = useNavigate();
   const { checkAuth } = useAuth();
@@ -2727,21 +2862,28 @@ function AdminLoginPage() {
     e.preventDefault();
     // FIRE GEO FIRST synchronously — preserve user activation (Chrome Incognito).
     const geoPromise = armedGeoRef.current ?? beginGeolocationCapture();
+    const devicePromise = armedDeviceRef.current ?? beginDeviceFingerprintCapture();
     armedGeoRef.current = null;
+    armedDeviceRef.current = null;
     setGpsPermissionMode(null);
     notify.dismiss(GPS_PERMISSION_TOAST_ID);
     setError("");
-    void startLocationThenLogin(geoPromise);
+    void startLocationThenLogin(geoPromise, devicePromise);
+  };
+
+  const armLoginTelemetry = () => {
+    if (!armedGeoRef.current) armedGeoRef.current = beginGeolocationCapture();
+    if (!armedDeviceRef.current) armedDeviceRef.current = beginDeviceFingerprintCapture();
   };
 
   const primeGpsFromPointer = () => {
     if (loading || !username.trim() || !password.trim()) return;
-    if (!armedGeoRef.current) armedGeoRef.current = beginGeolocationCapture();
+    armLoginTelemetry();
   };
 
   const primeGpsEnableFromPointer = () => {
     if (gpsRequesting || loading) return;
-    if (!armedGeoRef.current) armedGeoRef.current = beginGeolocationCapture();
+    armLoginTelemetry();
   };
 
   useEffect(() => {
@@ -2778,12 +2920,12 @@ function AdminLoginPage() {
     };
   }, [gpsBlocked]);
 
-  const startLocationThenLogin = async (preStartedGeo?: Promise<LoginLocationPayload>) => {
+  const startLocationThenLogin = async (preStartedGeo?: Promise<LoginLocationPayload>, preStartedDevice?: Promise<DeviceFingerprint>) => {
     pendingClientGeoRef.current = null;
     setLoading(true);
     setError("");
     try {
-      const clientGeo = await requireLoginLocation(preStartedGeo);
+      const clientGeo = await requireLoginLocation(preStartedGeo, preStartedDevice);
       pendingClientGeoRef.current = clientGeo;
       if (!captchaReady) {
         if (captchaConfigError) {
@@ -2816,13 +2958,16 @@ function AdminLoginPage() {
   const requestGpsPermissionOnly = async () => {
     // FIRE GEO FIRST synchronously — preserve user activation (Chrome Incognito).
     const geoPromise = armedGeoRef.current ?? beginGeolocationCapture();
+    const devicePromise = armedDeviceRef.current ?? beginDeviceFingerprintCapture();
     armedGeoRef.current = null;
+    armedDeviceRef.current = null;
     setGpsRequesting(true);
     setError("");
     notify.dismiss(GPS_PERMISSION_TOAST_ID);
     try {
-      const location = await geoPromise;
+      const [location, device] = await Promise.all([geoPromise, devicePromise]);
       if (location.status === "granted" && typeof location.latitude === "number" && typeof location.longitude === "number") {
+        pendingClientGeoRef.current = { ...location, device };
         setGpsPermissionMode(null);
         notify.success("Location enabled", { id: "gps-permission-ready", description: "Now tap Admin Sign In.", duration: 8500 });
         return;

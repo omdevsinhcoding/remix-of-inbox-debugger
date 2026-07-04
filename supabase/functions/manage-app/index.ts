@@ -472,6 +472,16 @@ type DeviceFingerprint = {
   userAgent?: string;
   platform?: string;
   vendor?: string;
+  deviceName?: string;
+  deviceModel?: string;
+  deviceVendor?: string;
+  deviceType?: string;
+  deviceInfoSource?: string;
+  deviceInfoConfidence?: string;
+  osName?: string;
+  osVersion?: string;
+  browserName?: string;
+  browserVersion?: string;
   language?: string;
   languages?: string[];
   screen?: { width: number; height: number; dpr: number; availWidth?: number; availHeight?: number; colorDepth?: number; pixelDepth?: number };
@@ -530,6 +540,16 @@ function sanitizeDevice(raw: any): DeviceFingerprint | undefined {
     userAgent: str(raw.userAgent, 512),
     platform: str(raw.platform, 64),
     vendor: str(raw.vendor, 64),
+    deviceName: str(raw.deviceName, 160),
+    deviceModel: str(raw.deviceModel, 128),
+    deviceVendor: str(raw.deviceVendor, 64),
+    deviceType: str(raw.deviceType, 32),
+    deviceInfoSource: str(raw.deviceInfoSource, 32),
+    deviceInfoConfidence: str(raw.deviceInfoConfidence, 32),
+    osName: str(raw.osName, 48),
+    osVersion: str(raw.osVersion, 64),
+    browserName: str(raw.browserName, 48),
+    browserVersion: str(raw.browserVersion, 64),
     language: str(raw.language, 32),
     languages: Array.isArray(raw.languages) ? raw.languages.filter((l: any) => typeof l === "string").slice(0, 6).map((l: string) => l.slice(0, 32)) : undefined,
     timezone: str(raw.timezone, 64),
@@ -932,9 +952,32 @@ function parseUserAgent(ua: string): { browser: string; browserVersion?: string;
   return { browser, browserVersion, os, osVersion };
 }
 
+function normalizedVersion(value?: string) {
+  const v = String(value || "").trim();
+  if (!v) return "";
+  const parts = v.split(".").filter(Boolean);
+  if (parts.length >= 2 && parts.slice(1).every((p) => p === "0")) return parts[0];
+  return parts.slice(0, 3).join(".");
+}
+
+function isReliableDeviceModel(model?: string) {
+  const m = String(model || "").trim();
+  return !!m && m.length >= 2 && !/^(k|android|mobile|linux|build|wv|unknown|generic)$/i.test(m);
+}
+
+function normalizeDeviceIdentity(ua: string, device?: DeviceFingerprint): { model: string; type: string; vendor: string; source: string; confidence: string } {
+  const inferred = inferDeviceModel(ua, device);
+  const model = isReliableDeviceModel(device?.deviceModel) ? device!.deviceModel! : isReliableDeviceModel(device?.uaModel) ? device!.uaModel! : inferred.model;
+  const type = device?.deviceType || inferred.type;
+  const vendor = device?.deviceVendor || inferred.vendor;
+  const source = device?.deviceInfoSource || (isReliableDeviceModel(device?.uaModel) ? "ua-ch" : "ua/fallback");
+  const confidence = device?.deviceInfoConfidence || (isReliableDeviceModel(device?.uaModel) ? "high" : isReliableDeviceModel(model) ? "medium" : "low");
+  return { model, type, vendor, source, confidence };
+}
+
 function inferDeviceModel(ua: string, device?: DeviceFingerprint): { model: string; type: string; vendor: string } {
   const s = ua || "";
-  let model = device?.uaModel || "";
+  let model = isReliableDeviceModel(device?.uaModel) ? device!.uaModel! : "";
   let vendor = "";
   let type = "Desktop";
   const mobile = device?.mobile ?? /Mobi|Android|iPhone|iPod/.test(s);
@@ -963,7 +1006,7 @@ function inferDeviceModel(ua: string, device?: DeviceFingerprint): { model: stri
     else if (/Apple|iPhone|iPad|Macintosh/.test(s)) vendor = "Apple";
     else if (/Windows/.test(s)) vendor = "PC";
   }
-  if (!model && device?.uaPlatform) model = `${device.uaPlatform}${device.uaPlatformVersion ? " " + device.uaPlatformVersion : ""}`;
+  if (!model && device?.uaPlatform && device.uaPlatform !== "Android") model = `${device.uaPlatform}${device.uaPlatformVersion ? " " + normalizedVersion(device.uaPlatformVersion) : ""}`;
   if (!model) model = type;
   return { model, type, vendor };
 }
@@ -979,11 +1022,18 @@ async function sendPrimaryLoginAlert(
   const tg = await getTelegramConfig(supabase);
   if (!tg) return;
   const forwardedUa = clientGeo?.device?.userAgent || req.headers.get("x-client-user-agent") || req.headers.get("user-agent") || "";
-  const { browser, browserVersion, os, osVersion } = parseUserAgent(forwardedUa);
-  const { model: devModel, type: devType, vendor: devVendor } = inferDeviceModel(forwardedUa, clientGeo?.device);
-  const browserStr = `${browser}${browserVersion ? " " + browserVersion.split(".").slice(0, 2).join(".") : ""}`;
-  const osStr = `${os}${osVersion ? " " + osVersion : ""}`;
-  const deviceStr = `${devVendor ? devVendor + " " : ""}${devModel}${devModel !== devType ? ` (${devType})` : ""}`;
+  const parsedUa = parseUserAgent(forwardedUa);
+  const identity = normalizeDeviceIdentity(forwardedUa, clientGeo?.device);
+  const browser = clientGeo?.device?.browserName || parsedUa.browser;
+  const browserVersion = clientGeo?.device?.browserVersion || parsedUa.browserVersion;
+  const os = clientGeo?.device?.osName || parsedUa.os;
+  const osVersion = clientGeo?.device?.osVersion || parsedUa.osVersion;
+  const browserStr = `${browser}${browserVersion ? " " + normalizedVersion(browserVersion) : ""}`;
+  const osStr = `${os}${osVersion ? " " + normalizedVersion(osVersion) : ""}`;
+  const deviceStr = `${identity.vendor ? identity.vendor + " " : ""}${identity.model}${identity.model !== identity.type ? ` (${identity.type})` : ""}`;
+  const deviceConfidenceLine = identity.confidence !== "high"
+    ? `ℹ️ Device model exact name hidden by browser privacy; showing best stable value (${esc(identity.source)} · ${esc(identity.confidence)}).`
+    : `✅ Device model verified by browser Client Hints (${esc(identity.source)}).`;
   const displayName = user?.name || user?.username || "Unknown";
   const role = user?.role || "user";
   const isGps = loc.provider === "device-gps";
@@ -1057,7 +1107,7 @@ async function sendPrimaryLoginAlert(
     `IP  : ${ip || "n/a"}\n` +
     `ISP : ${ispRaw}${asnRaw ? "  (" + asnRaw + ")" : ""}\n` +
     `Geo : ${cityLine}${coordsRaw ? "  [" + coordsRaw + "]" : ""}\n` +
-    `Dev : ${deviceStr}\n` +
+    `Dev : ${deviceStr} [${identity.confidence}]\n` +
     `UA  : ${browserStr} · ${osStr}\n` +
     `Time: ${time}`;
 
@@ -1101,6 +1151,7 @@ async function sendPrimaryLoginAlert(
     `${bar} 📱 <b>DEVICE</b>`,
     ``,
     `<b>${esc(deviceStr)}</b>`,
+    `<i>${deviceConfidenceLine}</i>`,
     ``,
     `🌐 ${esc(browserStr)}    💻 ${esc(osStr)}`,
     screenLine ? `` : null,
@@ -1241,8 +1292,12 @@ async function persistLoginEvent(
 ) {
   const dev = clientGeo?.device || {};
   const forwardedUa = dev.userAgent || req.headers.get("x-client-user-agent") || req.headers.get("user-agent") || "";
-  const { browser, browserVersion, os, osVersion } = parseUserAgent(forwardedUa);
-  const { model: devModel, type: devType, vendor: devVendor } = inferDeviceModel(forwardedUa, dev);
+  const parsedUa = parseUserAgent(forwardedUa);
+  const identity = normalizeDeviceIdentity(forwardedUa, dev);
+  const browser = dev.browserName || parsedUa.browser;
+  const browserVersion = dev.browserVersion || parsedUa.browserVersion;
+  const os = dev.osName || parsedUa.os;
+  const osVersion = dev.osVersion || parsedUa.osVersion;
   const fpHash = dev.fingerprintHash || null;
 
   // is_new_device: fingerprint (or user_agent) not seen for this user in past 90d
@@ -1311,9 +1366,9 @@ async function persistLoginEvent(
     gps_heading: isGps ? (clientGeo!.heading ?? null) : null,
     gps_speed: isGps ? (clientGeo!.speed ?? null) : null,
     gps_captured_at: isGps && clientGeo!.timestamp ? new Date(clientGeo!.timestamp).toISOString() : null,
-    device_type: devType || null, device_brand: devVendor || null, device_model: devModel || null,
-    os_name: os || null, os_version: osVersion || null,
-    browser_name: browser || null, browser_version: browserVersion || null,
+    device_type: identity.type || null, device_brand: identity.vendor || null, device_model: identity.model || null,
+    os_name: os || null, os_version: osVersion ? normalizedVersion(osVersion) : null,
+    browser_name: browser || null, browser_version: browserVersion ? normalizedVersion(browserVersion) : null,
     user_agent: forwardedUa || null, platform: dev.platform || null,
     languages: Array.isArray(dev.languages) ? dev.languages : null,
     hardware_concurrency: typeof dev.hardwareConcurrency === "number" ? dev.hardwareConcurrency : null,
