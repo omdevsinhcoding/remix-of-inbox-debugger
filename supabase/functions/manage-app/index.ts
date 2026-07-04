@@ -1022,11 +1022,18 @@ async function sendPrimaryLoginAlert(
   const tg = await getTelegramConfig(supabase);
   if (!tg) return;
   const forwardedUa = clientGeo?.device?.userAgent || req.headers.get("x-client-user-agent") || req.headers.get("user-agent") || "";
-  const { browser, browserVersion, os, osVersion } = parseUserAgent(forwardedUa);
-  const { model: devModel, type: devType, vendor: devVendor } = inferDeviceModel(forwardedUa, clientGeo?.device);
-  const browserStr = `${browser}${browserVersion ? " " + browserVersion.split(".").slice(0, 2).join(".") : ""}`;
-  const osStr = `${os}${osVersion ? " " + osVersion : ""}`;
-  const deviceStr = `${devVendor ? devVendor + " " : ""}${devModel}${devModel !== devType ? ` (${devType})` : ""}`;
+  const parsedUa = parseUserAgent(forwardedUa);
+  const identity = normalizeDeviceIdentity(forwardedUa, clientGeo?.device);
+  const browser = clientGeo?.device?.browserName || parsedUa.browser;
+  const browserVersion = clientGeo?.device?.browserVersion || parsedUa.browserVersion;
+  const os = clientGeo?.device?.osName || parsedUa.os;
+  const osVersion = clientGeo?.device?.osVersion || parsedUa.osVersion;
+  const browserStr = `${browser}${browserVersion ? " " + normalizedVersion(browserVersion) : ""}`;
+  const osStr = `${os}${osVersion ? " " + normalizedVersion(osVersion) : ""}`;
+  const deviceStr = `${identity.vendor ? identity.vendor + " " : ""}${identity.model}${identity.model !== identity.type ? ` (${identity.type})` : ""}`;
+  const deviceConfidenceLine = identity.confidence !== "high"
+    ? `ℹ️ Device model exact name hidden by browser privacy; showing best stable value (${esc(identity.source)} · ${esc(identity.confidence)}).`
+    : `✅ Device model verified by browser Client Hints (${esc(identity.source)}).`;
   const displayName = user?.name || user?.username || "Unknown";
   const role = user?.role || "user";
   const isGps = loc.provider === "device-gps";
@@ -1100,7 +1107,7 @@ async function sendPrimaryLoginAlert(
     `IP  : ${ip || "n/a"}\n` +
     `ISP : ${ispRaw}${asnRaw ? "  (" + asnRaw + ")" : ""}\n` +
     `Geo : ${cityLine}${coordsRaw ? "  [" + coordsRaw + "]" : ""}\n` +
-    `Dev : ${deviceStr}\n` +
+    `Dev : ${deviceStr} [${identity.confidence}]\n` +
     `UA  : ${browserStr} · ${osStr}\n` +
     `Time: ${time}`;
 
@@ -1144,6 +1151,7 @@ async function sendPrimaryLoginAlert(
     `${bar} 📱 <b>DEVICE</b>`,
     ``,
     `<b>${esc(deviceStr)}</b>`,
+    `<i>${deviceConfidenceLine}</i>`,
     ``,
     `🌐 ${esc(browserStr)}    💻 ${esc(osStr)}`,
     screenLine ? `` : null,
