@@ -112,7 +112,7 @@ async function getAssignedAccountFilter(supabase: any, session: Session | null):
   return Array.isArray(userData?.assigned_accounts) ? userData.assigned_accounts : [];
 }
 
-function applyEmailFilters(emails: any[], filterSignInCodes: boolean, filterPasswordResets: boolean) {
+function applyEmailFilters(emails: any[], filterSignInCodes: boolean, filterPasswordResets: boolean, blockPromo = false) {
   let output = emails;
   if (filterSignInCodes) {
     output = output.filter((e: any) => {
@@ -125,6 +125,9 @@ function applyEmailFilters(emails: any[], filterSignInCodes: boolean, filterPass
       const sub = (e.subject || "").toLowerCase();
       return !PASSWORD_RESET_SUBJECTS.some(kw => sub.includes(kw));
     });
+  }
+  if (blockPromo) {
+    output = output.filter((e: any) => !isNetflixPromo(e.subject));
   }
   return output;
 }
