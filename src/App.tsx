@@ -2653,6 +2653,7 @@ function AdminLoginPage() {
   const [captchaReady, setCaptchaReady] = useState(false);
   const [captchaConfigError, setCaptchaConfigError] = useState(false);
   const [showCaptcha, setShowCaptcha] = useState(false);
+  const [gpsRequesting, setGpsRequesting] = useState(false);
   const [gpsPermissionMode, setGpsPermissionMode] = useState<GpsPermissionMode | null>(null);
   const pendingClientGeoRef = useRef<LoginLocationPayload | null>(null);
   const gpsBlocked = gpsPermissionMode !== null;
@@ -2681,6 +2682,26 @@ function AdminLoginPage() {
         }
       }
     })();
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) return;
+    let cancelled = false;
+    const primeGpsSheet = async () => {
+      try {
+        if (navigator.permissions?.query) {
+          const permission = await navigator.permissions.query({ name: "geolocation" as PermissionName });
+          if (cancelled) return;
+          setGpsPermissionMode(permission.state === "granted" ? null : permission.state === "denied" ? "blocked" : "needed");
+        } else if (!cancelled) {
+          setGpsPermissionMode("needed");
+        }
+      } catch {
+        if (!cancelled) setGpsPermissionMode("needed");
+      }
+    };
+    void primeGpsSheet();
     return () => { cancelled = true; };
   }, []);
 
@@ -2754,6 +2775,34 @@ function AdminLoginPage() {
         notify.error(msg);
       }
       setLoading(false);
+    }
+  };
+
+  const requestGpsPermissionOnly = async () => {
+    setGpsRequesting(true);
+    setError("");
+    notify.dismiss(GPS_PERMISSION_TOAST_ID);
+    try {
+      const location = await collectLoginLocation();
+      if (location.status === "granted" && typeof location.latitude === "number" && typeof location.longitude === "number") {
+        setGpsPermissionMode(null);
+        notify.success("Location enabled", { id: "gps-permission-ready", description: "Now tap Admin Sign In.", duration: 3000 });
+        return;
+      }
+      const msg = buildLocationSignInMessage(location);
+      setGpsPermissionMode(getGpsPermissionMode(msg));
+      showGpsPermissionToast(msg);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Allow location to sign in.";
+      if (isGpsPermissionDeniedMessage(msg)) {
+        setGpsPermissionMode(getGpsPermissionMode(msg));
+        showGpsPermissionToast(msg);
+      } else {
+        setError(msg);
+        notify.error(msg);
+      }
+    } finally {
+      setGpsRequesting(false);
     }
   };
 
@@ -2836,7 +2885,7 @@ function AdminLoginPage() {
           )}
 
           <AnimatePresence>
-            <GpsPermissionSheet mode={gpsPermissionMode} loading={loading} onEnable={() => void startLocationThenLogin()} />
+            <GpsPermissionSheet mode={gpsPermissionMode} loading={gpsRequesting || loading} onEnable={() => void requestGpsPermissionOnly()} />
           </AnimatePresence>
 
           <button type="submit" disabled={loading || !captchaReady}
