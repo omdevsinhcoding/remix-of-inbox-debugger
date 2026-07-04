@@ -1667,7 +1667,7 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
         notify.warning("Session ending in 1 minute", {
           id: "session-1min-warning",
           description: "Finish what you're doing — sign in again soon.",
-          duration: 5000,
+          duration: 9000,
         });
 
       }
@@ -1703,10 +1703,10 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
     ? "bg-amber-500 text-white"
     : "bg-slate-900/90 text-white";
 
-  // Mobile: top-right (toasts render bottom on mobile). Desktop: bottom-right (toasts render top-right on desktop). No overlap either way.
+  // Keep the session pill bottom-right on both mobile and desktop.
   return (
     <div
-      className={`fixed z-40 right-3 sm:right-4 top-[calc(env(safe-area-inset-top)+0.5rem)] sm:top-auto sm:bottom-4 h-6 sm:h-7 px-2.5 sm:px-3 rounded-full text-[10px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1 sm:gap-1.5 pointer-events-none select-none`}
+      className={`fixed z-40 right-3 sm:right-4 bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:bottom-4 h-7 sm:h-8 px-3 sm:px-3.5 rounded-full text-[11px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1.5 pointer-events-none select-none`}
     >
       <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" />
       {role === "admin" ? "Admin" : "Session"}: {pad(mm)}:{pad(ss)}
