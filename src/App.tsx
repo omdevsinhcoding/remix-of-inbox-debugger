@@ -2130,6 +2130,7 @@ function ProfileSelectPage() {
   const [captchaReady, setCaptchaReady] = useState(false);
   const [captchaConfigError, setCaptchaConfigError] = useState(false);
   const [showCaptcha, setShowCaptcha] = useState(false);
+  const [pendingLogin, setPendingLogin] = useState(false);
   const navigate = useNavigate();
   const { checkAuth } = useAuth();
 
