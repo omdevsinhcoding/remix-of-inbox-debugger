@@ -29,7 +29,7 @@ export function setEmailFilters(next: EmailFilters) {
   // may have `showAccountUpdates:true`; if the server setting omits that key,
   // account-update / verify-phone / verify-email messages must fail closed.
   currentEmailFilters = normalizeEmailFilters(next);
-  try { localStorage.setItem("email_filters_cache_v1", JSON.stringify(currentEmailFilters)); } catch {}
+  try { localStorage.removeItem("email_filters_cache_v1"); } catch {}
 }
 
 function sanitizeBootstrapUsers(users: any[]): any[] {
@@ -108,9 +108,8 @@ export function readBootstrapCache(): BootstrapResult | null {
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return null;
     if (!parsed.savedAt || Date.now() - parsed.savedAt > BOOTSTRAP_CACHE_TTL_MS) return null;
-    const result = { users: sanitizeBootstrapUsers(parsed.users || []), recaptcha: parsed.recaptcha, workerUrls: parsed.workerUrls || [], emailFilters: normalizeEmailFilters(parsed.emailFilters), maintenance: parsed.maintenance, avatarBaseUrl: parsed.avatarBaseUrl || "", locationRequired: parsed.locationRequired !== false };
+    const result = { users: sanitizeBootstrapUsers(parsed.users || []), recaptcha: parsed.recaptcha, workerUrls: parsed.workerUrls || [], emailFilters: DEFAULT_EMAIL_FILTERS, maintenance: parsed.maintenance, avatarBaseUrl: parsed.avatarBaseUrl || "", locationRequired: parsed.locationRequired !== false };
     setAvatarBaseUrl(result.avatarBaseUrl);
-    setEmailFilters(result.emailFilters);
     return result;
   } catch { return null; }
 }
