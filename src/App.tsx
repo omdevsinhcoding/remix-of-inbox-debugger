@@ -879,7 +879,7 @@ async function apiCall(functionName: string, body: any) {
   const { invokeEdge } = await import("./lib/secureTransport");
   const { storeSessionPair, refreshNow, ensureFreshAccess, hasRefreshToken } = await import("./lib/sessionRefresh");
 
-  const skipRefreshActions = new Set(["refresh_session", "back_to_admin"]);
+  const skipRefreshActions = new Set(["refresh_session"]);
 
   // C.2: proactively refresh if access token is within 30s of expiry before
   // ANY authenticated edge call, including fetch-emails. Previously this only
@@ -981,8 +981,17 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const hydrateFromServer = async () => {
-    const token = getSessionToken();
+    let token = getSessionToken();
     const cachedBeforeHydrate = readCached();
+    if (!token) {
+      try {
+        const { hasRefreshToken, refreshNow } = await import("./lib/sessionRefresh");
+        if (hasRefreshToken()) {
+          await refreshNow();
+          token = getSessionToken();
+        }
+      } catch {}
+    }
     if (!token) {
       try { sessionRemove("user" as any); } catch {}
       setUser(null);
