@@ -8032,7 +8032,7 @@ function EmailViewer() {
         setEmails([]);
         setError(null);
         setLastUpdated(new Date());
-        cachedEmailsLoadedRef.current = true;
+        // NOTE: do NOT mark inbox ready here — no emails means no timer yet.
         return 0;
       }
       const groups = buildWorkerRequestGroups(labels, workerUrlMap, resolvedWorkerUrls);
@@ -8077,14 +8077,16 @@ function EmailViewer() {
       }
       const emailList = mergeEmailsById(lists.map((item) => item.emails));
       if (emailList.length === 0 && emails.length > 0) {
-        cachedEmailsLoadedRef.current = true;
+        // Keep already-shown emails; timer stays as-is (already started if paint happened).
         return filterVisibleEmails(emails, profilePrefs, user).length;
       }
       setEmails(emailList);
       setError(null);
       setLastUpdated(new Date());
-      cachedEmailsLoadedRef.current = true;
-      return filterVisibleEmails(emailList, profilePrefs, user).length;
+      const visibleCount = filterVisibleEmails(emailList, profilePrefs, user).length;
+      // Only start the session timer once we actually have emails to show.
+      if (visibleCount > 0) cachedEmailsLoadedRef.current = true;
+      return visibleCount;
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to load emails";
       pushDiag({ ts: Date.now(), kind: "cache", endpoint: "loadCachedEmails", error: msg });
