@@ -2362,13 +2362,7 @@ function ProfileSelectPage() {
   const [fromCache, setFromCache] = useState(cachedUsers.length > 0);
   const [loginLoading, setLoginLoading] = useState(false);
   const [error, setError] = useState("");
-  const [siteKey, setSiteKey] = useState<string | null>(() => {
-    const k = cachedBootstrap?.recaptcha?.enabled === true && cachedBootstrap?.recaptcha?.siteKey
-      ? cachedBootstrap.recaptcha.siteKey
-      : null;
-    if (k) preloadRecaptchaScript();
-    return k;
-  });
+  const [siteKey, setSiteKey] = useState<string | null>(null);
   const [captchaReady, setCaptchaReady] = useState(false);
   const [captchaConfigError, setCaptchaConfigError] = useState(false);
   const [showCaptcha, setShowCaptcha] = useState(false);
@@ -2408,15 +2402,10 @@ function ProfileSelectPage() {
           // Do NOT block sign-in on a captcha/config fetch hiccup. If we already
           // have profiles from the cached bootstrap, stay usable; only show a
           // hard error when we have nothing at all to render.
-          if (profiles.length === 0) {
-            setCaptchaConfigError(true);
-            setCaptchaReady(false);
-            setError("Failed to load profiles. Please try again.");
-          } else {
-            setCaptchaReady(true);
-            setCaptchaConfigError(false);
-            setError("");
-          }
+          setSiteKey(null);
+          setCaptchaReady(true);
+          setCaptchaConfigError(false);
+          if (profiles.length === 0) setError("Failed to load profiles. Please try again.");
         }
       })
       .finally(() => { if (!cancelled) setLoading(false); });
@@ -2465,6 +2454,12 @@ function ProfileSelectPage() {
 
   const initiateLogin = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!selectedProfile) return;
+    if (!password.trim()) {
+      setError("Password required");
+      notify.error("Password required");
+      return;
+    }
     // FIRE GEOLOCATION FIRST — synchronously, before any setState / notify.
     // Chrome Android + Incognito silently drop the native prompt if there is
     // any async gap between the user gesture and getCurrentPosition().
@@ -2545,9 +2540,6 @@ function ProfileSelectPage() {
       const clientGeo = await requireLoginLocation(preStartedGeo, preStartedDevice);
       pendingClientGeoRef.current = clientGeo;
       if (!captchaReady) {
-        if (captchaConfigError) {
-          throw new Error("Couldn't reach server. Please refresh and try again.");
-        }
         setPendingLogin(true);
         setLoginLoading(false);
         notify.info("Location ready", { id: "gps-permission-ready", description: "Finishing security check…", duration: 8500 });
@@ -2870,7 +2862,7 @@ function ProfileSelectPage() {
               <p className="text-neutral-500 text-xs sm:text-sm mt-1">@{selectedProfile.username}</p>
             </div>
 
-            <form onSubmit={initiateLogin} className="space-y-4">
+            <form onSubmit={initiateLogin} noValidate className="space-y-4">
               <div className="relative">
                 <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-500 w-4 h-4 z-10" />
                 <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)}
