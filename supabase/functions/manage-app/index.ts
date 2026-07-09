@@ -16,6 +16,34 @@ let __bootstrapCache: { at: number; payload: any } | null = null;
 const BOOTSTRAP_TTL_MS = 10_000;
 function invalidateBootstrapCache() { __bootstrapCache = null; }
 
+type EmailVisibilityFilters = { showSignInCodes?: boolean; showPasswordResets?: boolean; showAccountUpdates?: boolean };
+const VIS_PASSWORD_RESET_RE = /(password (was |has been )?(changed|reset|updated)|reset your password|forgot password|password reset|new password|account recovery)/i;
+const VIS_SIGNIN_RE = /(sign[\s-]?in code|new sign[\s-]?in|new device|temporary access code|is using your account|access your account|verification code|login code|enter this code|otp)/i;
+const VIS_ACCOUNT_UPDATE_RE = /(account (information|info|details) (was |has been )?(changed|updated)|changes? to your account|email (address )?(was |has been )?(changed|updated)|new email address|membership (was |has been )?(cancell?ed|updated|paused)|account (was |has been )?(cancell?ed|deleted|closed|paused|on hold)|we[’']re sorry to see you go|payment (received|method|was|has been|declined|failed|updated|changed)|mobile (number )?(confirm|confirmed|verify|verified|update|updated)|phone (number )?(confirm|confirmed|verify|verified|update|updated)|verify (your )?(phone|mobile|email)|confirm (your )?(phone|mobile|email|account change)|request to make a change|update your account|make (a |any )?(change|changes) to your account)/i;
+
+function emailVisibilityCategory(row: any): "signin" | "password_reset" | "account_update" | "other" {
+  const subject = String(row?.subject || "");
+  const preview = String(row?.preview || "");
+  const combined = `${subject} ${preview}`;
+  if (VIS_ACCOUNT_UPDATE_RE.test(combined)) return "account_update";
+  if (VIS_PASSWORD_RESET_RE.test(combined)) return "password_reset";
+  if (row?.otp || VIS_SIGNIN_RE.test(combined)) return "signin";
+  return "other";
+}
+
+function shouldExposeEmailToUser(row: any, filters: EmailVisibilityFilters, isFree: boolean) {
+  const hideSignin = filters.showSignInCodes === false;
+  const hideReset = filters.showPasswordResets !== true;
+  const hideAccountUpdate = filters.showAccountUpdates !== true;
+  const category = emailVisibilityCategory(row);
+  if (isFree && category !== "signin") return false;
+  if (hideSignin && category === "signin") return false;
+  if (hideReset && category === "password_reset") return false;
+  if (hideAccountUpdate && category === "account_update") return false;
+  if (hideReset && hideAccountUpdate && category === "other") return false;
+  return true;
+}
+
 // --- Crypto helpers ---
 async function hashPassword(password: string): Promise<string> {
   const encoder = new TextEncoder();
@@ -2906,7 +2934,7 @@ Deno.serve(async (originalReq) => {
 
       const { data: u, error: uErr } = await supabase
         .from("app_users")
-        .select("assigned_accounts, role")
+        .select("assigned_accounts, role, is_free")
         .eq("id", session.userId)
         .single();
       if (uErr || !u) throw new Error("User not found");
@@ -2920,6 +2948,14 @@ Deno.serve(async (originalReq) => {
         return new Response(JSON.stringify({ success: true, rows: [], removedIds: [], newCursor: cursor, hasMore: false }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
+      }
+
+      let visibilityFilters: EmailVisibilityFilters = { showSignInCodes: true, showPasswordResets: false, showAccountUpdates: false };
+      if (!isAdmin) {
+        try {
+          const { data: filterRow } = await supabase.from("app_settings").select("value").eq("key", "email_filters").maybeSingle();
+          if (filterRow?.value && typeof filterRow.value === "object") visibilityFilters = { ...visibilityFilters, ...(filterRow.value as any) };
+        } catch {}
       }
 
       let dateCutoff: string | null = null;
@@ -2952,7 +2988,7 @@ Deno.serve(async (originalReq) => {
         if (Number(r.modseq) > maxModseq) maxModseq = Number(r.modseq);
         if (r.destroyed) {
           removedIds.push(r.id);
-        } else {
+        } else if (isAdmin || shouldExposeEmailToUser(r, visibilityFilters, !!u.is_free)) {
           rows.push({
             id: r.id,
             subject: r.subject,

@@ -143,6 +143,12 @@ function enforceScopeOnRaw(raw, session) {
     if (!label) return false;
     return allowSet.has(label);
   });
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && Array.isArray(parsed.emails)) {
+      return JSON.stringify({ ...parsed, emails: filtered, totalFetched: filtered.length });
+    }
+  } catch {}
   return JSON.stringify(filtered);
 }
 
@@ -464,8 +470,18 @@ async function handleCachePurge(env, session) {
 
 async function handleSync(env, session, rawToken, requestBody, ctx) {
   try {
+    if (!session) {
+      return new Response(JSON.stringify({ success: false, error: "auth required" }), {
+        status: 401, headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+      });
+    }
     const limit = clampLimit(requestBody?.limit, 3, 50);
     const requestedLabels = Array.isArray(requestBody?.accountLabels) ? requestBody.accountLabels : [];
+    if (session.role !== "admin" && (!Array.isArray(session.assignedAccounts) || session.assignedAccounts.length === 0)) {
+      return new Response(JSON.stringify({ success: true, accepted: true, emails: [], message: "No accounts assigned" }), {
+        headers: { ...CORS_HEADERS, "Content-Type": "application/json", "Cache-Control": "no-store" },
+      });
+    }
     const headers = {
       "Content-Type": "application/json",
       "Authorization": `Bearer ${env.SUPABASE_KEY}`,
@@ -511,7 +527,8 @@ async function handleSync(env, session, rawToken, requestBody, ctx) {
       if (ctx?.waitUntil) ctx.waitUntil(cacheWork);
     }
 
-    return new Response(responseText, {
+    const safeResponseText = enforceScopeOnRaw(responseText, session);
+    return new Response(safeResponseText, {
       headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
     });
   } catch (err) {
@@ -564,7 +581,7 @@ async function refreshFromSupabase(env, session, rawToken, cacheKey, tsKey, opts
       console.error("Supabase cache fetch failed:", result.status);
       return;
     }
-    const data = await result.text();
+    const data = enforceScopeOnRaw(await result.text(), session);
     await Promise.all([
       kvPut(env, cacheKey, data),
       kvPut(env, tsKey, Date.now().toString()),

@@ -14,6 +14,8 @@ const PASSWORD_RESET_SUBJECTS = [
   "account recovery", "reset password",
 ];
 
+const ACCOUNT_UPDATE_RE = /(account (information|info|details) (was |has been )?(changed|updated)|changes? to your account|email (address )?(was |has been )?(changed|updated)|new email address|membership (was |has been )?(cancell?ed|updated|paused)|account (was |has been )?(cancell?ed|deleted|closed|paused|on hold)|we[’']re sorry to see you go|payment (received|method|was|has been|declined|failed|updated|changed)|mobile (number )?(confirm|confirmed|verify|verified|update|updated)|phone (number )?(confirm|confirmed|verify|verified|update|updated)|verify (your )?(phone|mobile|email)|confirm (your )?(phone|mobile|email|account change)|request to make a change|update your account|make (a |any )?(change|changes) to your account)/i;
+
 const SIGN_IN_CODE_SUBJECTS = [
   "enter this code", "sign-in code", "sign in to", "sign-in activity",
   "verification code", "login code", "sign in code",
@@ -134,7 +136,17 @@ async function getAssignedAccountFilter(supabase: any, session: Session | null):
   return Array.isArray(userData?.assigned_accounts) ? userData.assigned_accounts : [];
 }
 
-function applyEmailFilters(emails: any[], filterSignInCodes: boolean, filterPasswordResets: boolean, blockPromo = false) {
+function classifyEmailForVisibility(e: any): "signin" | "password_reset" | "account_update" | "other" {
+  const subject = String(e?.subject || "");
+  const preview = String(e?.preview || "");
+  const combined = `${subject} ${preview}`;
+  if (ACCOUNT_UPDATE_RE.test(combined)) return "account_update";
+  if (PASSWORD_RESET_SUBJECTS.some(kw => combined.toLowerCase().includes(kw))) return "password_reset";
+  if (e?.otp || SIGN_IN_CODE_SUBJECTS.some(kw => combined.toLowerCase().includes(kw)) || OTP_SUBJECT_HINT.test(subject) || OTP_BODY_CONTEXT.test(preview)) return "signin";
+  return "other";
+}
+
+function applyEmailFilters(emails: any[], filterSignInCodes: boolean, filterPasswordResets: boolean, filterAccountUpdates = true, blockPromo = false) {
   let output = emails;
   if (filterSignInCodes) {
     output = output.filter((e: any) => {
@@ -147,6 +159,12 @@ function applyEmailFilters(emails: any[], filterSignInCodes: boolean, filterPass
       const sub = (e.subject || "").toLowerCase();
       return !PASSWORD_RESET_SUBJECTS.some(kw => sub.includes(kw));
     });
+  }
+  if (filterAccountUpdates) {
+    output = output.filter((e: any) => classifyEmailForVisibility(e) !== "account_update");
+  }
+  if (filterPasswordResets && filterAccountUpdates) {
+    output = output.filter((e: any) => classifyEmailForVisibility(e) === "signin");
   }
   if (blockPromo) {
     output = output.filter((e: any) => !isNetflixPromo(e.subject));
@@ -280,7 +298,7 @@ function parseFastEmail(rawSource: Uint8Array, envelope: any, accountLabel: stri
   };
 }
 
-async function readCache(supabase: any, accountFilter: string[] | null, filterSignInCodes: boolean, filterPasswordResets: boolean, session: Session | null, limit = 500) {
+async function readCache(supabase: any, accountFilter: string[] | null, filterSignInCodes: boolean, filterPasswordResets: boolean, filterAccountUpdates: boolean, session: Session | null, limit = 500) {
   const safeLimit = clampLimit(limit, 500, session?.role === "admin" ? 500 : 200);
   // Non-admin with zero assigned accounts -> nothing visible.
   if (accountFilter && accountFilter.length === 0 && session && session.role !== "admin") return [];
@@ -310,7 +328,7 @@ async function readCache(supabase: any, accountFilter: string[] | null, filterSi
   }));
   // Apply promo block for everyone when admin turned it on. Default = OFF (all Netflix mail shows).
   const blockPromo = await shouldBlockPromo(supabase);
-  return applyEmailFilters(emails, filterSignInCodes, filterPasswordResets, blockPromo);
+  return applyEmailFilters(emails, filterSignInCodes, filterPasswordResets, filterAccountUpdates, blockPromo);
 }
 
 async function fetchFromAccount(
@@ -685,11 +703,13 @@ Deno.serve(async (originalReq) => {
 
     let filterSignInCodes = false;
     let filterPasswordResets = true;
+    let filterAccountUpdates = true;
     try {
       const { data: filterData } = await supabase.from("app_settings").select("value").eq("key", "email_filters").single();
       if (filterData?.value) {
         if (filterData.value.showSignInCodes === false) filterSignInCodes = true;
         if (filterData.value.showPasswordResets === true) filterPasswordResets = false;
+        if (filterData.value.showAccountUpdates === true) filterAccountUpdates = false;
       }
     } catch {}
 
@@ -737,7 +757,7 @@ Deno.serve(async (originalReq) => {
     if (mode === "cache") {
       if (!session) return json({ success: false, error: "Authentication required" }, 401);
       const accountFilter = await getAssignedAccountFilter(supabase, session);
-      const emails = await readCache(supabase, accountFilter, filterSignInCodes, filterPasswordResets, session, body.limit);
+      const emails = await readCache(supabase, accountFilter, filterSignInCodes, filterPasswordResets, filterAccountUpdates, session, body.limit);
       return json(emails);
     }
 
@@ -781,7 +801,7 @@ Deno.serve(async (originalReq) => {
       if (mode === "sync_async" && source !== "user_refresh") {
         const last = userSyncHits.get(session.userId) || 0;
         if (Date.now() - last < USER_SYNC_WINDOW_MS) {
-          const cache = await readCache(supabase, assigned, filterSignInCodes, filterPasswordResets, session, body.limit);
+          const cache = await readCache(supabase, assigned, filterSignInCodes, filterPasswordResets, filterAccountUpdates, session, body.limit);
           return json({ success: true, rateLimited: true, message: "Please wait before refreshing again", emails: cache }, 202);
         }
         userSyncHits.set(session.userId, Date.now());
@@ -790,7 +810,7 @@ Deno.serve(async (originalReq) => {
 
     if (mode === "sync_async" && source !== "user_refresh") {
       const accountFilterForCache = session ? await getAssignedAccountFilter(supabase, session) : null;
-      const cache = session ? await readCache(supabase, accountFilterForCache, filterSignInCodes, filterPasswordResets, session, body.limit).catch(() => []) : [];
+      const cache = session ? await readCache(supabase, accountFilterForCache, filterSignInCodes, filterPasswordResets, filterAccountUpdates, session, body.limit).catch(() => []) : [];
       const maxMessages = clampLimit(body.limit, USER_REFRESH_MAX_UIDS, FULL_SYNC_MAX_UIDS);
       const work = runSync(supabase, ENCRYPTION_SECRET, source || "async", accountLabels, maxMessages).catch(err => console.error("[sync_async] background failed:", err));
       ((globalThis as any).EdgeRuntime?.waitUntil?.(work) ?? work);
@@ -798,6 +818,11 @@ Deno.serve(async (originalReq) => {
     }
 
     const result = await runSync(supabase, ENCRYPTION_SECRET, source, accountLabels, clampLimit(body.limit, FULL_SYNC_MAX_UIDS, FULL_SYNC_MAX_UIDS));
+    if (session && session.role !== "admin" && result?.success !== false) {
+      const accountFilterForCache = await getAssignedAccountFilter(supabase, session);
+      result.emails = await readCache(supabase, accountFilterForCache, filterSignInCodes, filterPasswordResets, filterAccountUpdates, session, body.limit).catch(() => []);
+      result.totalFetched = Array.isArray(result.emails) ? result.emails.length : 0;
+    }
     return json(result, result.success === false ? 502 : 200);
   } catch (err) {
     console.error("[sync] Fatal error:", err);
