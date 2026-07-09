@@ -8094,6 +8094,44 @@ function EmailViewer() {
     const labels = refreshAccountLabels;
     if (labels && labels.length === 0) return null;
     const started = performance.now();
+    const token = getSessionToken();
+
+    // Prefer the Cloudflare Worker's /api/emails/sync endpoint. Falls back to
+    // the Supabase edge function only if no worker URL is known yet.
+    const workerBases = (resolvedWorkerUrls && resolvedWorkerUrls.length > 0)
+      ? resolvedWorkerUrls
+      : getStoredWorkerUrls();
+
+    if (workerBases.length > 0 && token) {
+      for (const base of workerBases) {
+        try {
+          const res = await fetchWithTimeout(`${base.replace(/\/+$/, "")}/api/emails/sync`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-Session-Token": token },
+            body: JSON.stringify({
+              mode: "user_sync",
+              source: "user_refresh",
+              limit: 200,
+              accountLabels: labels || undefined,
+            }),
+          }, 15000);
+          if (!res.ok) continue;
+          const data = await res.json();
+          pushDiag({
+            ts: Date.now(), kind: "sync",
+            endpoint: `${base}/api/emails/sync`,
+            ms: Math.round(performance.now() - started),
+            note: labels ? labels.join(", ") : "all accounts",
+          });
+          if (data?.success === false) return null;
+          return Array.isArray(data?.emails) ? mergeEmailsById([data.emails as Email[]]) : null;
+        } catch {
+          // try next worker base
+        }
+      }
+    }
+
+    // Fallback (no worker configured yet): Supabase edge function.
     const data = await apiCall("fetch-emails", {
       mode: "user_sync",
       source: "user_refresh",
@@ -8103,13 +8141,14 @@ function EmailViewer() {
     pushDiag({
       ts: Date.now(),
       kind: "sync",
-      endpoint: "fetch-emails:user_sync",
+      endpoint: "fetch-emails:user_sync (fallback)",
       ms: Math.round(performance.now() - started),
       note: labels ? labels.join(", ") : "all accounts",
     });
     if (data?.success === false) return null;
     return Array.isArray(data?.emails) ? mergeEmailsById([data.emails as Email[]]) : null;
-  }, [pushDiag, refreshAccountLabels]);
+  }, [pushDiag, refreshAccountLabels, resolvedWorkerUrls]);
+
 
   const fetchEmails = async () => {
     if (refreshingRef.current) {
@@ -8191,13 +8230,19 @@ function EmailViewer() {
   useEffect(() => {
     setLoading(false);
 
-    // Fire ONE silent auto-refresh once worker URLs are known — per component mount/login.
-    if (workerUrlsLoading) return;
+    // Start the session countdown immediately on inbox mount — do NOT wait
+    // for the worker/IDB paint. Otherwise the timer never starts if either
+    // path stalls or the account has zero cached emails.
+    markInboxReady();
+
     if (didAutoRefreshRef.current) return;
     didAutoRefreshRef.current = true;
 
     (async () => {
       try {
+        // Kick off the cached (KV) preload immediately using whatever worker
+        // URLs are already known (stored in session). Do not gate on the
+        // async URL-resolver — that adds ~2-4 s of dead time on first paint.
         await refreshEmailFiltersForViewer();
         await loadCachedEmails({ limit: 200 });
         const synced = await syncViaWorker();
@@ -8213,7 +8258,8 @@ function EmailViewer() {
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workerUrlsLoading]);
+  }, []);
+
 
   // F7: listen for iframe self-report messages verifying that the link/button
   // click hijack is actually attached inside the sandboxed email preview.
