@@ -8123,70 +8123,66 @@ function EmailViewer() {
     setRefreshing(true);
     const beforeIds = new Set(emails.map((e) => e.id));
     const toastId = "nf-refresh";
-    notify.loading("Checking Netflix mail…", { id: toastId });
-    const runRefresh = async () => {
-      await refreshEmailFiltersForViewer();
-      await loadCachedEmails({ limit: 200 });
-      // Fast path: worker sync returns fresh emails directly — no second round-trip.
-      return await syncViaWorker();
-    };
+    notify.loading("Checking mail…", { id: toastId });
+
+    // PHASE 1 (fast, ~200-500ms): repaint from Supabase cache instantly.
+    // PHASE 2 (background, ~5-8s): IMAP sync — updates UI silently when done.
     try {
-      let synced: Email[] | null = null;
-      try {
-        synced = await runRefresh();
-      } catch (transient) {
-        const tmsg = transient instanceof Error ? transient.message : String(transient);
-        // Silent one-shot retry on transient secure-transport / handshake failures
-        // so admins never see a scary "Secure connection failed" toast for a
-        // blip that would resolve itself on the next try.
-        if (/Secure connection|handshake|Failed to fetch|NetworkError|busy/i.test(tmsg)) {
-          await new Promise((r) => setTimeout(r, 700));
-          synced = await runRefresh();
-        } else {
-          throw transient;
-        }
-      }
-      let merged: Email[] = emails;
-      if (synced) {
-        merged = synced;
-        setEmails(merged);
-        setError(null);
-        setLastUpdated(new Date());
-      }
-      const visible = filterVisibleEmails(merged, profilePrefs, user);
-      const newCount = visible.filter((e) => !beforeIds.has(e.id)).length;
+      await Promise.all([
+        refreshEmailFiltersForViewer(),
+        loadCachedEmails({ limit: 200 }),
+      ]);
       notify.dismiss(toastId);
-      if (newCount > 0) {
-        notify.info(`${newCount} new email${newCount === 1 ? "" : "s"} arrived`, {
-          description: "Freshly delivered to your inbox",
-          duration: 2600,
-        });
-      } else {
-        notify.success(visible.length > 0 ? "Inbox is up to date" : "No Netflix emails yet", {
-          duration: 2000,
-        });
-      }
+      notify.success("Inbox updated", { duration: 1400 });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to load";
       notify.dismiss(toastId);
-      if (/Secure connection|handshake|Failed to fetch|NetworkError|busy|timeout|temporar/i.test(msg)) {
-        await loadCachedEmails({ limit: 200 });
-        notify.info("Inbox is still available", { description: "Mail check is retrying in the background.", duration: 2600 });
-      } else {
-        notify.error("Mail check needs attention", { description: msg, duration: 3200 });
-      }
-
-
-
+      notify.error("Inbox load failed", { description: msg, duration: 2600 });
     } finally {
-      if (refreshPollRef.current) {
-        clearTimeout(refreshPollRef.current);
-        refreshPollRef.current = null;
-      }
-      refreshingRef.current = false;
-      setRefreshing(false);
+      setRefreshing(false); // release UI immediately — button re-enabled
     }
+
+    // Background IMAP sync — no spinner, only toast if new mail actually arrived.
+    (async () => {
+      try {
+        let synced: Email[] | null = null;
+        try {
+          synced = await syncViaWorker();
+        } catch (transient) {
+          const tmsg = transient instanceof Error ? transient.message : String(transient);
+          if (/Secure connection|handshake|Failed to fetch|NetworkError|busy/i.test(tmsg)) {
+            await new Promise((r) => setTimeout(r, 700));
+            synced = await syncViaWorker();
+          } else {
+            throw transient;
+          }
+        }
+        if (synced) {
+          setEmails(synced);
+          setError(null);
+          setLastUpdated(new Date());
+          const visible = filterVisibleEmails(synced, profilePrefs, user);
+          const newCount = visible.filter((e) => !beforeIds.has(e.id)).length;
+          if (newCount > 0) {
+            notify.info(`${newCount} new email${newCount === 1 ? "" : "s"} arrived`, {
+              duration: 2600,
+            });
+          }
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err || "");
+        pushDiag({ ts: Date.now(), kind: "sync", endpoint: "background sync", error: msg });
+      } finally {
+        if (refreshPollRef.current) {
+          clearTimeout(refreshPollRef.current);
+          refreshPollRef.current = null;
+        }
+        refreshingRef.current = false;
+      }
+    })();
   };
+
+
 
 
   // On mount/login: ONE silent auto-refresh via the worker POST sync path.
