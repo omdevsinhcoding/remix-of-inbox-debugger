@@ -1592,10 +1592,16 @@ Deno.serve(async (originalReq) => {
   }
 
   // ---- transport encryption boundary ----
+  // Browser callers must use encrypted transport. Server-to-server callers
+  // (Cloudflare worker with a verified app session token) may POST plaintext
+  // for narrow internal reads like email_filters.
+  const SESSION_TOKEN_FOR_TRANSPORT = originalReq.headers.get("x-session-token") || "";
+  const SEC_FETCH_SITE_FOR_TRANSPORT = originalReq.headers.get("sec-fetch-site") || "";
+  const allowServerPlaintext = !!SESSION_TOKEN_FOR_TRANSPORT && !SEC_FETCH_SITE_FOR_TRANSPORT;
   let __ctx: EncryptedRequestContext | null = null;
   let __parsedBody: any = null;
   try {
-    const __r = await readRequest(originalReq);
+    const __r = await readRequest(originalReq, { allowPlaintext: allowServerPlaintext });
     __parsedBody = __r.body ?? {};
     __ctx = __r.encrypted ? __r.ctx : null;
   } catch (e) {

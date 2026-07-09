@@ -7837,6 +7837,16 @@ function EmailViewer() {
     if (!sessionGet("session_started_at" as any)) markSessionStart();
   }, []);
 
+  const refreshEmailFiltersForViewer = useCallback(async () => {
+    try {
+      const fresh = await apiCall("manage-app", { action: "get_settings", key: "email_filters" });
+      if (fresh?.value && typeof fresh.value === "object") setEmailFiltersCache(fresh.value);
+      else setEmailFiltersCache({ showSignInCodes: true, showPasswordResets: false, showAccountUpdates: false });
+    } catch {
+      setEmailFiltersCache({ showSignInCodes: true, showPasswordResets: false, showAccountUpdates: false });
+    }
+  }, []);
+
   // F7: refresh diagnostics — records each worker hit while the
   // spinner is running so we can tell WHY it never stops.
   type DiagEntry = {
@@ -8046,6 +8056,7 @@ function EmailViewer() {
     const toastId = "nf-refresh";
     notify.loading("Checking Netflix mail…", { id: toastId });
     try {
+      await refreshEmailFiltersForViewer();
       await loadCachedEmails({ limit: 200 });
       // Fast path: worker sync returns fresh emails directly — no second round-trip.
       const synced = await syncViaWorker();
@@ -8101,13 +8112,7 @@ function EmailViewer() {
 
     (async () => {
       try {
-        try {
-          const fresh = await apiCall("manage-app", { action: "get_settings", key: "email_filters" });
-          if (fresh?.value && typeof fresh.value === "object") setEmailFiltersCache(fresh.value);
-          else setEmailFiltersCache({ showSignInCodes: true, showPasswordResets: false, showAccountUpdates: false });
-        } catch {
-          setEmailFiltersCache({ showSignInCodes: true, showPasswordResets: false, showAccountUpdates: false });
-        }
+        await refreshEmailFiltersForViewer();
         await loadCachedEmails({ limit: 200 });
         const synced = await syncViaWorker();
         if (synced) {
@@ -8168,13 +8173,7 @@ function EmailViewer() {
         idbRef.current = db;
         console.log("[inbox] IDB opened for user", user.id);
         await purgeEmailsOutsideScope(db, refreshAccountLabels);
-        try {
-          const fresh = await apiCall("manage-app", { action: "get_settings", key: "email_filters" });
-          if (fresh?.value && typeof fresh.value === "object") setEmailFiltersCache(fresh.value);
-          else setEmailFiltersCache({ showSignInCodes: true, showPasswordResets: false, showAccountUpdates: false });
-        } catch {
-          setEmailFiltersCache({ showSignInCodes: true, showPasswordResets: false, showAccountUpdates: false });
-        }
+        await refreshEmailFiltersForViewer();
 
         // ---- (1) Instant paint from IDB ----
         const cached = await readLatestEmails(db, 200, refreshAccountLabels);

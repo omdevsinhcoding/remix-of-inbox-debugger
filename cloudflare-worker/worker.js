@@ -142,7 +142,25 @@ function normalizeEmailFilters(value) {
   };
 }
 
-async function readWorkerEmailFilters(env) {
+async function readWorkerEmailFilters(env, rawToken = "") {
+  if (rawToken && env.SUPABASE_URL && env.SUPABASE_KEY) {
+    try {
+      const res = await fetch(`${env.SUPABASE_URL}/functions/v1/manage-app`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${env.SUPABASE_KEY}`,
+          "apikey": env.SUPABASE_KEY,
+          "X-Session-Token": rawToken,
+        },
+        body: JSON.stringify({ action: "get_settings", key: "email_filters" }),
+      });
+      if (res.ok) {
+        const data = await res.json().catch(() => null);
+        return normalizeEmailFilters(data?.value);
+      }
+    } catch {}
+  }
   try {
     const raw = await kvGet(env, WORKER_CONFIG_KEY);
     if (!raw) return DEFAULT_EMAIL_FILTERS;
@@ -417,7 +435,7 @@ async function handleGetEmails(env, session, rawToken, opts = {}) {
   const bust = !!opts.bust;
   const limit = clampLimit(opts.limit, 3, 200);
   const accountLabels = Array.isArray(opts.accountLabels) ? opts.accountLabels : [];
-  const filters = await readWorkerEmailFilters(env);
+  const filters = await readWorkerEmailFilters(env, rawToken);
 
   if (!hasKV) {
     return fetchDirectFromSupabase(env, session, rawToken, { accountLabels, limit });
@@ -578,7 +596,7 @@ async function handleSync(env, session, rawToken, requestBody, ctx) {
       if (ctx?.waitUntil) ctx.waitUntil(cacheWork);
     }
 
-    const filters = await readWorkerEmailFilters(env);
+    const filters = await readWorkerEmailFilters(env, rawToken);
     const safeResponseText = enforceScopeOnRaw(responseText, session, filters);
     return new Response(safeResponseText, {
       headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
@@ -633,7 +651,7 @@ async function refreshFromSupabase(env, session, rawToken, cacheKey, tsKey, opts
       console.error("Supabase cache fetch failed:", result.status);
       return;
     }
-    const filters = await readWorkerEmailFilters(env);
+    const filters = await readWorkerEmailFilters(env, rawToken);
     const data = enforceScopeOnRaw(await result.text(), session, filters);
     await Promise.all([
       kvPut(env, cacheKey, data),
