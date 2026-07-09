@@ -158,12 +158,15 @@ export type Database = {
           assigned_accounts: Json | null
           created_at: string
           id: string
+          is_free: boolean
           must_change_password: boolean
           name: string
           password: string
+          pinned: boolean
           profile_prefs: Json
           role: string
           session_limit: number | null
+          sort_order: number | null
           totp_secret: string | null
           username: string
         }
@@ -171,12 +174,15 @@ export type Database = {
           assigned_accounts?: Json | null
           created_at?: string
           id?: string
+          is_free?: boolean
           must_change_password?: boolean
           name: string
           password: string
+          pinned?: boolean
           profile_prefs?: Json
           role?: string
           session_limit?: number | null
+          sort_order?: number | null
           totp_secret?: string | null
           username: string
         }
@@ -184,12 +190,15 @@ export type Database = {
           assigned_accounts?: Json | null
           created_at?: string
           id?: string
+          is_free?: boolean
           must_change_password?: boolean
           name?: string
           password?: string
+          pinned?: boolean
           profile_prefs?: Json
           role?: string
           session_limit?: number | null
+          sort_order?: number | null
           totp_secret?: string | null
           username?: string
         }

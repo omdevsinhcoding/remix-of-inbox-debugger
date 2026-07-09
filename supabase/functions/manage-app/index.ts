@@ -1703,10 +1703,13 @@ Deno.serve(async (originalReq) => {
         });
       }
       // Public profile picker — only non-admin users, minimal fields.
+      // Order: pinned first, then admin-defined sort_order, then creation time.
       const usersP = supabase
         .from("app_users")
-        .select("id, username, name, role, profile_prefs")
+        .select("id, username, name, role, profile_prefs, is_free, pinned, sort_order")
         .neq("role", "admin")
+        .order("pinned", { ascending: false })
+        .order("sort_order", { ascending: true, nullsFirst: false })
         .order("created_at", { ascending: true });
 
       const settingsP = supabase
