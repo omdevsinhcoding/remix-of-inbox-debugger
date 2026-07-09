@@ -262,7 +262,7 @@ async function readCache(supabase: any, accountFilter: string[] | null, filterSi
   const safeLimit = clampLimit(limit, 500, session?.role === "admin" ? 500 : 200);
   // Non-admin with zero assigned accounts -> nothing visible.
   if (accountFilter && accountFilter.length === 0 && session && session.role !== "admin") return [];
-  let query = supabase.from("cached_emails").select("*").order("date", { ascending: false }).limit(safeLimit);
+  let query = supabase.from("cached_emails").select("*").eq("destroyed", false).order("date", { ascending: false }).limit(safeLimit);
   if (accountFilter && accountFilter.length > 0) query = query.in("account_label", accountFilter);
   if (session && session.role !== "admin") {
     const vis = await getEmailVisibility(supabase);
@@ -574,9 +574,10 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
       account_label: e.account_label || "Primary",
       cached_at: new Date().toISOString(),
       message_id: e.message_id || null,
+      destroyed: false,
     }));
 
-    const persistWork = supabase.from("cached_emails").upsert(rows, { onConflict: "id" })
+    const persistWork = supabase.from("cached_emails").upsert(rows, { onConflict: "id", ignoreDuplicates: true })
       .then(({ error: upsertErr }: any) => {
         if (upsertErr) console.error("[sync] Cache upsert error:", upsertErr);
       });
@@ -592,7 +593,7 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
   const cleanupWork = (async () => {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - STALE_DAYS);
-    await supabase.from("cached_emails").delete().lt("date", cutoff.toISOString());
+    await supabase.from("cached_emails").delete().lt("date", cutoff.toISOString()).eq("destroyed", false);
   })().catch((e) => console.error("[sync] Stale cleanup error:", e));
   if (quickRefresh) ((globalThis as any).EdgeRuntime?.waitUntil?.(cleanupWork) ?? cleanupWork);
   else await cleanupWork;
@@ -724,7 +725,7 @@ Deno.serve(async (originalReq) => {
       if (session.role !== "admin" && accountFilter && accountFilter.length === 0) {
         return json({ total: 0, error: null });
       }
-      let query = supabase.from("cached_emails").select("id", { count: "exact", head: true });
+      let query = supabase.from("cached_emails").select("id", { count: "exact", head: true }).eq("destroyed", false);
       if (accountFilter && accountFilter.length > 0) query = query.in("account_label", accountFilter);
       if (session.role !== "admin") {
         const vis = await getEmailVisibility(supabase);
