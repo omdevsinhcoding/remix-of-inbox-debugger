@@ -128,8 +128,8 @@ async function readBestCachedRaw(env, userAccountsKey, limit, skipKey = "") {
   return null;
 }
 
-const DEFAULT_EMAIL_FILTERS = { showSignInCodes: true, showPasswordResets: false, showAccountUpdates: false };
-const WORKER_ACCOUNT_UPDATE_RE = /(account (information|info|details) (was |has been )?(changed|updated)|changes? to your account|email (address )?(was |has been )?(changed|updated)|new email address|membership (was |has been )?(cancell?ed|updated|paused)|account (was |has been )?(cancell?ed|deleted|closed|paused|on hold)|we[’']re sorry to see you go|payment (received|method|was|has been|declined|failed|updated|changed)|mobile (number )?(confirm|confirmed|verify|verified|update|updated)|phone (number )?(confirm|confirmed|verify|verified|update|updated)|verify (your )?(phone|mobile|email)|verify your email address|action needed: verify|confirm (your )?(phone|mobile|email|account change)|request to make a change|update your account|make (a |any )?(change|changes) to your account)/i;
+const DEFAULT_EMAIL_FILTERS = { showSignInCodes: true, showPasswordResets: true, showAccountUpdates: true };
+const WORKER_ACCOUNT_UPDATE_RE = /(attention|action (needed|required)|account (information|info|details) (was |has been )?(changed|updated)|changes? to your account|email (address )?(was |has been )?(changed|updated)|new email address|email verification|verification email|verify (your )?(email address|phone number|mobile number|account)|confirm (your )?(email address|phone number|mobile number|account change|account)|membership (was |has been )?(cancell?ed|updated|paused)|account (was |has been )?(cancell?ed|deleted|closed|paused|on hold)|we[’']re sorry to see you go|payment (received|method|was|has been|declined|failed|updated|changed)|mobile (number )?(confirm|confirmed|verify|verified|update|updated)|phone (number )?(confirm|confirmed|verify|verified|update|updated)|verify (your )?(phone|mobile|email)|verify your email address|action needed: verify|request to make a change|update your account|make (a |any )?(change|changes) to your account)/i;
 const WORKER_PASSWORD_RESET_RE = /(password (was |has been )?(changed|reset|updated)|reset your password|forgot password|password reset|new password|account recovery)/i;
 const WORKER_SIGNIN_RE = /(sign[\s-]?in code|new sign[\s-]?in|new device|temporary access code|is using your account|access your account|verification code|login code|enter this code|otp)/i;
 
@@ -137,8 +137,8 @@ function normalizeEmailFilters(value) {
   const v = value && typeof value === "object" ? value : {};
   return {
     showSignInCodes: v.showSignInCodes === false ? false : true,
-    showPasswordResets: v.showPasswordResets === true,
-    showAccountUpdates: v.showAccountUpdates === true,
+    showPasswordResets: v.showPasswordResets === false ? false : true,
+    showAccountUpdates: v.showAccountUpdates === false ? false : true,
   };
 }
 

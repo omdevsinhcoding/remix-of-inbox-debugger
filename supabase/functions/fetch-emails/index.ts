@@ -14,7 +14,7 @@ const PASSWORD_RESET_SUBJECTS = [
   "account recovery", "reset password",
 ];
 
-const ACCOUNT_UPDATE_RE = /(account (information|info|details) (was |has been )?(changed|updated)|changes? to your account|email (address )?(was |has been )?(changed|updated)|new email address|membership (was |has been )?(cancell?ed|updated|paused)|account (was |has been )?(cancell?ed|deleted|closed|paused|on hold)|we[’']re sorry to see you go|payment (received|method|was|has been|declined|failed|updated|changed)|mobile (number )?(confirm|confirmed|verify|verified|update|updated)|phone (number )?(confirm|confirmed|verify|verified|update|updated)|verify (your )?(phone|mobile|email)|verify your email address|action needed: verify|confirm (your )?(phone|mobile|email|account change)|request to make a change|update your account|make (a |any )?(change|changes) to your account)/i;
+const ACCOUNT_UPDATE_RE = /(attention|action (needed|required)|account (information|info|details) (was |has been )?(changed|updated)|changes? to your account|email (address )?(was |has been )?(changed|updated)|new email address|email verification|verification email|verify (your )?(email address|phone number|mobile number|account)|confirm (your )?(email address|phone number|mobile number|account change|account)|membership (was |has been )?(cancell?ed|updated|paused)|account (was |has been )?(cancell?ed|deleted|closed|paused|on hold)|we[’']re sorry to see you go|payment (received|method|was|has been|declined|failed|updated|changed)|mobile (number )?(confirm|confirmed|verify|verified|update|updated)|phone (number )?(confirm|confirmed|verify|verified|update|updated)|verify (your )?(phone|mobile|email)|verify your email address|action needed: verify|request to make a change|update your account|make (a |any )?(change|changes) to your account)/i;
 
 const SIGN_IN_CODE_SUBJECTS = [
   "enter this code", "sign-in code", "sign in to", "sign-in activity",
@@ -702,14 +702,14 @@ Deno.serve(async (originalReq) => {
 
 
     let filterSignInCodes = false;
-    let filterPasswordResets = true;
-    let filterAccountUpdates = true;
+    let filterPasswordResets = false;
+    let filterAccountUpdates = false;
     try {
       const { data: filterData } = await supabase.from("app_settings").select("value").eq("key", "email_filters").single();
       if (filterData?.value) {
         if (filterData.value.showSignInCodes === false) filterSignInCodes = true;
-        if (filterData.value.showPasswordResets === true) filterPasswordResets = false;
-        if (filterData.value.showAccountUpdates === true) filterAccountUpdates = false;
+        if (filterData.value.showPasswordResets === false) filterPasswordResets = true;
+        if (filterData.value.showAccountUpdates === false) filterAccountUpdates = true;
       }
     } catch {}
 

@@ -2331,7 +2331,7 @@ function emailIdentity(email: Pick<Email, "id" | "account_label">) {
 type EmailCategory = "signin" | "password_reset" | "account_update" | "other";
 const RE_SIGNIN = /(sign[\s-]?in code|new sign[\s-]?in|new device|temporary access code|is using your account|access your account|otp)/i;
 const RE_PASSWORD_RESET = /(password (was |has been )?(changed|reset|updated)|reset your password|new password)/i;
-const RE_ACCOUNT_UPDATE = /(account (information|info|details) (was |has been )?(changed|updated)|changes? to your account|email (address )?(was |has been )?(changed|updated)|new email address|membership (was |has been )?(cancell?ed|updated|paused)|account (was |has been )?(cancell?ed|deleted|closed|paused|on hold)|we[’']re sorry to see you go|payment (received|method|was|has been|declined|failed|updated|changed)|mobile (number )?(confirm|confirmed|verify|verified|update|updated)|phone (number )?(confirm|confirmed|verify|verified|update|updated)|verify (your )?(phone|mobile|email)|verify your email address|action needed: verify|confirm (your )?(phone|mobile|email|account change)|request to make a change|update your account|make (a |any )?(change|changes) to your account)/i;
+const RE_ACCOUNT_UPDATE = /(attention|action (needed|required)|account (information|info|details) (was |has been )?(changed|updated)|changes? to your account|email (address )?(was |has been )?(changed|updated)|new email address|email verification|verification email|verify (your )?(email address|phone number|mobile number|account)|confirm (your )?(email address|phone number|mobile number|account change|account)|membership (was |has been )?(cancell?ed|updated|paused)|account (was |has been )?(cancell?ed|deleted|closed|paused|on hold)|we[’']re sorry to see you go|payment (received|method|was|has been|declined|failed|updated|changed)|mobile (number )?(confirm|confirmed|verify|verified|update|updated)|phone (number )?(confirm|confirmed|verify|verified|update|updated)|verify (your )?(phone|mobile|email)|verify your email address|action needed: verify|request to make a change|update your account|make (a |any )?(change|changes) to your account)/i;
 
 function classifyEmail(e: Email): EmailCategory {
   const subject = (e.subject || "").toLowerCase();
@@ -4152,8 +4152,8 @@ function AdminPanel() {
   const [changingUserPass, setChangingUserPass] = useState<string | null>(null);
   const [userNewPass, setUserNewPass] = useState("");
   const [showSignInCodes, setShowSignInCodes] = useState(true);
-  const [showPasswordResets, setShowPasswordResets] = useState(false);
-  const [showAccountUpdates, setShowAccountUpdates] = useState(false);
+  const [showPasswordResets, setShowPasswordResets] = useState(true);
+  const [showAccountUpdates, setShowAccountUpdates] = useState(true);
   const [editingUserAccounts, setEditingUserAccounts] = useState<string | null>(null);
   const [editAccountsList, setEditAccountsList] = useState<string[]>([]);
   const [editUsername, setEditUsername] = useState<string>("");
@@ -7837,9 +7837,9 @@ function EmailViewer() {
     try {
       const fresh = await apiCall("manage-app", { action: "get_settings", key: "email_filters" });
       if (fresh?.value && typeof fresh.value === "object") setEmailFiltersCache(fresh.value);
-      else setEmailFiltersCache({ showSignInCodes: true, showPasswordResets: false, showAccountUpdates: false });
+      else setEmailFiltersCache({ showSignInCodes: true, showPasswordResets: true, showAccountUpdates: true });
     } catch {
-      setEmailFiltersCache({ showSignInCodes: true, showPasswordResets: false, showAccountUpdates: false });
+      setEmailFiltersCache({ showSignInCodes: true, showPasswordResets: true, showAccountUpdates: true });
     }
   }, []);
 
