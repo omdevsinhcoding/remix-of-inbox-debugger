@@ -138,6 +138,41 @@ async function sha256Hex(value: string): Promise<string> {
   return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
+function normalizeAccountLabels(raw: any, available: string[] = []): string[] {
+  const allowed = Array.from(new Set(available.map((s) => String(s || "").trim()).filter(Boolean)));
+  const out: string[] = [];
+  const add = (label: string) => {
+    const clean = String(label || "").trim();
+    if (clean && (!allowed.length || allowed.includes(clean)) && !out.includes(clean)) out.push(clean);
+  };
+  const values = Array.isArray(raw) ? raw : raw ? [raw] : [];
+  for (const value of values) {
+    const clean = String(value || "").trim();
+    if (!clean) continue;
+    if (!allowed.length || allowed.includes(clean)) {
+      add(clean);
+      continue;
+    }
+    for (const label of allowed) {
+      const re = new RegExp(`(^|\\s)${label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=\\s|$)`, "i");
+      if (re.test(clean)) add(label);
+    }
+  }
+  return out;
+}
+
+async function normalizeAssignedAccounts(supabase: any, raw: any): Promise<string[] | null> {
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  const labels = await loadAvailableAccountLabels(supabase);
+  const normalized = normalizeAccountLabels(raw, labels);
+  return normalized.length > 0 ? normalized : null;
+}
+
+async function loadAvailableAccountLabels(supabase: any): Promise<string[]> {
+  const { data } = await supabase.from("app_settings").select("value").eq("key", "email_accounts").maybeSingle();
+  return ["Primary", ...((Array.isArray(data?.value) ? data.value : []).map((acc: any) => String(acc?.label || acc?.user || "").trim()).filter(Boolean))];
+}
+
 async function verifyRecaptchaToken(secretKey: string, token: string, ip?: string): Promise<boolean> {
   const body = new URLSearchParams();
   body.set("secret", secretKey);
@@ -1951,9 +1986,10 @@ Deno.serve(async (originalReq) => {
         .order("sort_order", { ascending: true, nullsFirst: false })
         .order("created_at", { ascending: true });
       if (error) throw error;
+      const availableAccountLabelsForList = await loadAvailableAccountLabels(supabase);
       const mappedData = (data || []).map((u: any) => ({
         ...u,
-        assignedAccounts: u.assigned_accounts || null,
+        assignedAccounts: normalizeAccountLabels(u.assigned_accounts || [], availableAccountLabelsForList).length > 0 ? normalizeAccountLabels(u.assigned_accounts || [], availableAccountLabelsForList) : null,
         profileAvatar: u.profile_prefs?.avatarId || null,
         profilePrefs: publicProfilePrefs(u.profile_prefs),
         locationRequired: isProfileLocationRequired(u),
@@ -2098,12 +2134,13 @@ Deno.serve(async (originalReq) => {
         console.warn("[login] session-limit enforcement skipped:", (e as any)?.message || e);
       }
 
+      const normalizedAssignedAccounts = await normalizeAssignedAccounts(supabase, user.assigned_accounts);
       // C.2: mint access (15 min) + refresh (12 h) rotating pair
       const pair = await mintSessionPair(user.id, user.role, {
         userId: user.id,
         username: user.username,
         role: user.role,
-        assignedAccounts: user.assigned_accounts || null,
+        assignedAccounts: normalizedAssignedAccounts,
       });
 
       const workerUrls = await loadWorkerUrls(supabase);
@@ -2119,7 +2156,7 @@ Deno.serve(async (originalReq) => {
         user: {
           id: user.id, username: user.username, name: user.name, role: user.role,
           mustChangePassword: user.must_change_password,
-          assignedAccounts: user.assigned_accounts,
+          assignedAccounts: normalizedAssignedAccounts,
           profilePrefs: publicProfilePrefs(user.profile_prefs),
           profileAvatar: user.profile_prefs?.avatarId || null,
           isFree: !!user.is_free,
@@ -2169,12 +2206,13 @@ Deno.serve(async (originalReq) => {
       const cleanedUsername = typeof username === "string" && username.trim() ? username.trim() : null;
       const finalUsername = isFree ? cleanedUsername : username;
       const finalRole = isFree ? "user" : (role || "user");
+      const normalizedAssignedAccounts = await normalizeAssignedAccounts(supabase, assigned_accounts);
       const insertPayload: any = {
         username: finalUsername,
         password: isFree ? null : await hashPassword(password),
         name,
         role: finalRole,
-        assigned_accounts: assigned_accounts || null,
+        assigned_accounts: normalizedAssignedAccounts,
         is_free: isFree,
         expires_at: expiresAtIso,
         // Force password reset on first login for regular (non-free, non-bootstrap-admin) users.
@@ -2196,7 +2234,7 @@ Deno.serve(async (originalReq) => {
         success: true,
         user: {
           ...data,
-          assignedAccounts: data.assigned_accounts || null,
+          assignedAccounts: normalizeAccountLabels(data.assigned_accounts || [], normalizedAssignedAccounts || []),
           profileAvatar: data.profile_prefs?.avatarId || null,
           profilePrefs: publicProfilePrefs(data.profile_prefs),
           locationRequired: isProfileLocationRequired(data),
@@ -2412,11 +2450,12 @@ Deno.serve(async (originalReq) => {
 
       const { data: user, error } = await supabase.from("app_users").select("*").eq("id", pending.userId).single();
       if (error || !user || user.role !== "admin") throw new Error("Admin not found");
+      const normalizedAssignedAccounts = await normalizeAssignedAccounts(supabase, user.assigned_accounts);
       const pair = await mintSessionPair(user.id, "admin", {
         userId: user.id,
         username: user.username,
         role: "admin",
-        assignedAccounts: user.assigned_accounts || null,
+        assignedAccounts: normalizedAssignedAccounts,
       });
       const workerUrls = await loadWorkerUrls(supabase);
       await supabase.from("app_admin_2fa_state").delete().eq("token_hash", tokenHash);
@@ -2434,7 +2473,7 @@ Deno.serve(async (originalReq) => {
           name: user.name,
           role: user.role,
           mustChangePassword: user.must_change_password,
-          assignedAccounts: user.assigned_accounts,
+          assignedAccounts: normalizedAssignedAccounts,
           profilePrefs: publicProfilePrefs(user.profile_prefs),
           profileAvatar: user.profile_prefs?.avatarId || null,
           locationRequired: isProfileLocationRequired(user),
@@ -2613,7 +2652,7 @@ Deno.serve(async (originalReq) => {
       const { id, assigned_accounts, session_limit, pinned, is_free, name, username, expires_at, location_required } = params;
       if (!id) throw new Error("User ID required");
       const patch: Record<string, any> = {};
-      if (assigned_accounts !== undefined) patch.assigned_accounts = assigned_accounts;
+      if (assigned_accounts !== undefined) patch.assigned_accounts = await normalizeAssignedAccounts(supabase, assigned_accounts);
       if (typeof name === "string" && name.trim()) patch.name = name.trim();
       if (username !== undefined) {
         const cleanUsername = typeof username === "string" && username.trim() ? username.trim() : null;
@@ -2727,11 +2766,12 @@ Deno.serve(async (originalReq) => {
         if (Number.isFinite(m) && m > 0) freeMinutes = Math.floor(m);
       } catch {}
 
+      const normalizedAssignedAccounts = await normalizeAssignedAccounts(supabase, user.assigned_accounts);
       const pair = await mintSessionPair(user.id, user.role, {
         userId: user.id,
         username: user.username,
         role: user.role,
-        assignedAccounts: user.assigned_accounts || null,
+        assignedAccounts: normalizedAssignedAccounts,
       }, freeMinutes > 0 ? { ttlOverrideMs: freeMinutes * 60_000 } : undefined);
 
       // Best-effort Telegram alert so admin still knows who logged into a free
@@ -2750,7 +2790,7 @@ Deno.serve(async (originalReq) => {
         user: {
           id: user.id, username: user.username, name: user.name, role: user.role,
           mustChangePassword: false,
-          assignedAccounts: user.assigned_accounts,
+          assignedAccounts: normalizedAssignedAccounts,
           profilePrefs: publicProfilePrefs(user.profile_prefs),
           profileAvatar: user.profile_prefs?.avatarId || null,
           isFree: true,
@@ -2772,11 +2812,12 @@ Deno.serve(async (originalReq) => {
         .single();
       if (error || !targetUser) throw new Error("User not found");
 
+      const normalizedAssignedAccounts = await normalizeAssignedAccounts(supabase, targetUser.assigned_accounts);
       const pair = await mintSessionPair(targetUser.id, "user", {
         userId: targetUser.id,
         username: targetUser.username,
         role: "user",
-        assignedAccounts: targetUser.assigned_accounts || null,
+        assignedAccounts: normalizedAssignedAccounts,
         impersonated: true,
         adminId: session.userId,
       });
@@ -2791,7 +2832,7 @@ Deno.serve(async (originalReq) => {
         refreshExpiresAt: pair.refreshExpMs,
         user: {
           id: targetUser.id, username: targetUser.username, name: targetUser.name, role: "user",
-          assignedAccounts: targetUser.assigned_accounts, mustChangePassword: false,
+          assignedAccounts: normalizedAssignedAccounts, mustChangePassword: false,
           profilePrefs: publicProfilePrefs(targetUser.profile_prefs),
           profileAvatar: targetUser.profile_prefs?.avatarId || null,
           isFree: !!targetUser.is_free,
@@ -2883,12 +2924,13 @@ Deno.serve(async (originalReq) => {
       const { data: user, error: uerr } = await supabase.from("app_users").select("*").eq("id", row.user_id).single();
       if (uerr || !user) throw new Error("User not found");
 
+      const normalizedAssignedAccounts = await normalizeAssignedAccounts(supabase, user.assigned_accounts);
       // Mint new pair inside the same family, linked to parent row
       const pair = await mintSessionPair(user.id, row.role, {
         userId: user.id,
         username: user.username,
         role: row.role,
-        assignedAccounts: user.assigned_accounts || null,
+        assignedAccounts: normalizedAssignedAccounts,
       }, { familyId: row.family_id, parentSessionId: row.id });
 
       // Mark old row revoked (kept in DB briefly for reuse detection; expires_at cleanup will remove it)
@@ -2967,7 +3009,7 @@ Deno.serve(async (originalReq) => {
           name: user.name,
           role: user.role,
           mustChangePassword: user.must_change_password,
-          assignedAccounts: user.assigned_accounts,
+          assignedAccounts: await normalizeAssignedAccounts(supabase, user.assigned_accounts),
           profilePrefs: publicProfilePrefs(user.profile_prefs),
           profileAvatar: user.profile_prefs?.avatarId || null,
           isFree: !!user.is_free,
@@ -3004,7 +3046,7 @@ Deno.serve(async (originalReq) => {
 
       const isAdmin = u.role === "admin";
       const labels: string[] | null = Array.isArray(u.assigned_accounts) && u.assigned_accounts.length > 0
-        ? Array.from(new Set(u.assigned_accounts.map((s: any) => String(s).trim()).filter(Boolean)))
+        ? ((await normalizeAssignedAccounts(supabase, u.assigned_accounts)) || [])
         : (isAdmin ? null : []);
 
       if (labels && labels.length === 0) {
@@ -3085,7 +3127,7 @@ Deno.serve(async (originalReq) => {
         .from("app_users").select("assigned_accounts, role").eq("id", session.userId).single();
       const isAdmin = u?.role === "admin";
       const labels: string[] | null = Array.isArray(u?.assigned_accounts) && u.assigned_accounts.length > 0
-        ? u.assigned_accounts.map((s: any) => String(s).trim()).filter(Boolean)
+        ? ((await normalizeAssignedAccounts(supabase, u.assigned_accounts)) || [])
         : (isAdmin ? null : []);
 
       const { data: row, error } = await supabase
@@ -3710,11 +3752,12 @@ Deno.serve(async (originalReq) => {
         : Promise.resolve({ data: [] as any[] });
 
       const [usersRes, emailsCountRes, notesRes, totalUsersRes, settingsRes] = await Promise.all([usersP, emailsCountP, notesP, totalUsersP, settingsP]);
+      const availableAccountLabelsForList = await loadAvailableAccountLabels(supabase);
 
       // Users mapping
       const users = (usersRes.data || []).map((u: any) => ({
         ...u,
-        assignedAccounts: u.assigned_accounts || null,
+        assignedAccounts: normalizeAccountLabels(u.assigned_accounts || [], availableAccountLabelsForList).length > 0 ? normalizeAccountLabels(u.assigned_accounts || [], availableAccountLabelsForList) : null,
         profileAvatar: u.profile_prefs?.avatarId || null,
         profilePrefs: publicProfilePrefs(u.profile_prefs),
         locationRequired: isProfileLocationRequired(u),

@@ -1981,6 +1981,29 @@ interface Email {
 
 type EmailAccountConfig = { label: string; host: string; port: string; user: string; password: string; cloudflareUrls: string[]; recipientFilters?: string[] };
 
+function normalizeAccountLabels(raw: unknown, available: string[] = []): string[] {
+  const allowed = Array.from(new Set(available.map((s) => String(s || "").trim()).filter(Boolean)));
+  const out: string[] = [];
+  const add = (label: string) => {
+    const clean = String(label || "").trim();
+    if (clean && (!allowed.length || allowed.includes(clean)) && !out.includes(clean)) out.push(clean);
+  };
+  const values = Array.isArray(raw) ? raw : raw ? [raw] : [];
+  for (const value of values) {
+    const clean = String(value || "").trim();
+    if (!clean) continue;
+    if (!allowed.length || allowed.includes(clean)) {
+      add(clean);
+      continue;
+    }
+    for (const label of allowed) {
+      const re = new RegExp(`(^|\\s)${label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=\\s|$)`, "i");
+      if (re.test(clean)) add(label);
+    }
+  }
+  return out;
+}
+
 function escapeEmailHtml(value = "") {
   return String(value).replace(/[&<>"]/g, (ch) => {
     if (ch === "&") return "&amp;";
@@ -2098,7 +2121,7 @@ function isLocationRequiredForProfile(profile?: Partial<UserData> | null) {
 
 function getUserRefreshAccountLabels(user: Partial<UserData>): string[] | null {
   if (Array.isArray(user.assignedAccounts)) {
-    return Array.from(new Set(user.assignedAccounts.map(String).map((s) => s.trim()).filter(Boolean)));
+    return normalizeAccountLabels(user.assignedAccounts);
   }
   return user.role === "admin" ? null : [];
 }
@@ -4349,6 +4372,7 @@ function AdminPanel() {
     });
     return labels;
   };
+  const normalizeSelectedAccounts = (raw: unknown) => normalizeAccountLabels(raw, getAvailableAccounts());
 
   const parseRecipientFilters = (value: string): string[] => Array.from(new Set(
     value
@@ -5091,7 +5115,7 @@ function AdminPanel() {
             name: displayName,
             role: "user",
             is_free: true,
-            assigned_accounts: newUserAccounts.length > 0 ? newUserAccounts : null,
+            assigned_accounts: normalizeSelectedAccounts(newUserAccounts).length > 0 ? normalizeSelectedAccounts(newUserAccounts) : null,
             expires_at: expiresIso,
           }
         : {
@@ -5100,7 +5124,7 @@ function AdminPanel() {
             password,
             name: displayName,
             role: "user",
-            assigned_accounts: newUserAccounts.length > 0 ? newUserAccounts : null,
+            assigned_accounts: normalizeSelectedAccounts(newUserAccounts).length > 0 ? normalizeSelectedAccounts(newUserAccounts) : null,
             is_free: false,
           };
       const res: any = await apiCall("manage-app", body);
@@ -5264,11 +5288,11 @@ function AdminPanel() {
         action: "update_user",
         id: userId,
         username: editUsername.trim() || null,
-        assigned_accounts: editAccountsList.length > 0 ? editAccountsList : null,
+        assigned_accounts: normalizeSelectedAccounts(editAccountsList).length > 0 ? normalizeSelectedAccounts(editAccountsList) : null,
         session_limit,
         ...(expires_at !== undefined ? { expires_at } : {}),
       });
-      const nextAccounts = editAccountsList.length > 0 ? editAccountsList : null;
+      const nextAccounts = normalizeSelectedAccounts(editAccountsList).length > 0 ? normalizeSelectedAccounts(editAccountsList) : null;
       const nextUsername = editUsername.trim() || null;
       setEditingUserAccounts(null);
       setUsers(prev => prev.map(u => u.id === userId ? { ...u, username: nextUsername as any, assignedAccounts: nextAccounts, session_limit, ...(expires_at !== undefined ? { expiresAt: expires_at } as any : {}) } : u));
@@ -5491,7 +5515,7 @@ function AdminPanel() {
                               const opening = editingUserAccounts !== u.id;
                               setEditingUserAccounts(opening ? u.id : null);
                               setEditUsername(u.username || "");
-                              setEditAccountsList((u as any).assignedAccounts || []);
+                              setEditAccountsList(normalizeSelectedAccounts((u as any).assignedAccounts || []));
                               const cur = (u as any).session_limit;
                               setEditSessionLimit(cur === null || cur === undefined ? "" : String(cur));
                               const exp = (u as any).expiresAt as string | null | undefined;

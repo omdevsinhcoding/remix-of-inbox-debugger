@@ -59,6 +59,29 @@ let cronRepairLastAttempt = 0;
 type Session = { userId: string; username: string; role: "admin" | "user"; assignedAccounts?: string[] | null; exp?: number };
 type Account = { label: string; host: string; port: number; user: string; password: string; recipientFilters?: string[] };
 
+function normalizeAccountLabels(raw: any, available: string[] = []): string[] {
+  const allowed = Array.from(new Set(available.map((s) => String(s || "").trim()).filter(Boolean)));
+  const out: string[] = [];
+  const add = (label: string) => {
+    const clean = String(label || "").trim();
+    if (clean && (!allowed.length || allowed.includes(clean)) && !out.includes(clean)) out.push(clean);
+  };
+  const values = Array.isArray(raw) ? raw : raw ? [raw] : [];
+  for (const value of values) {
+    const clean = String(value || "").trim();
+    if (!clean) continue;
+    if (!allowed.length || allowed.includes(clean)) {
+      add(clean);
+      continue;
+    }
+    for (const label of allowed) {
+      const re = new RegExp(`(^|\\s)${label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=\\s|$)`, "i");
+      if (re.test(clean)) add(label);
+    }
+  }
+  return out;
+}
+
 function json(body: any, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 }
@@ -131,10 +154,14 @@ async function decryptValue(encrypted: string, secret: string): Promise<string> 
 
 async function getAssignedAccountFilter(supabase: any, session: Session | null): Promise<string[] | null> {
   if (!session || session.role === "admin") return null;
-  const { data: userData } = await supabase.from("app_users").select("assigned_accounts").eq("id", session.userId).single();
+  const [{ data: userData }, { data: accountsData }] = await Promise.all([
+    supabase.from("app_users").select("assigned_accounts").eq("id", session.userId).single(),
+    supabase.from("app_settings").select("value").eq("key", "email_accounts").maybeSingle(),
+  ]);
   // For non-admin users: return the assigned list (possibly empty).
   // An empty array means "no accounts ticked" -> show nothing.
-  return Array.isArray(userData?.assigned_accounts) ? userData.assigned_accounts : [];
+  const labels = ["Primary", ...((Array.isArray(accountsData?.value) ? accountsData.value : []).map((acc: any) => String(acc?.label || acc?.user || "").trim()).filter(Boolean))];
+  return Array.isArray(userData?.assigned_accounts) ? normalizeAccountLabels(userData.assigned_accounts, labels) : [];
 }
 
 function classifyEmailForVisibility(e: any): "signin" | "password_reset" | "account_update" | "other" {
@@ -485,7 +512,7 @@ async function fetchFromAccount(
 
 async function loadAccounts(supabase: any, secret: string, accountLabels: string[] | null): Promise<Account[]> {
   let accounts: Account[] = [];
-  const requested = accountLabels && accountLabels.length > 0
+  let requested = accountLabels && accountLabels.length > 0
     ? new Set(accountLabels.map((label) => String(label).trim()).filter(Boolean))
     : null;
   const onlyPrimaryRequested = !!requested && requested.size === 1 && requested.has("Primary");
@@ -494,6 +521,10 @@ async function loadAccounts(supabase: any, secret: string, accountLabels: string
     try {
       const { data: accountsData } = await supabase.from("app_settings").select("value").eq("key", "email_accounts").single();
       if (Array.isArray(accountsData?.value)) {
+        const availableLabels = ["Primary", ...accountsData.value.map((acc: any) => String(acc.label || acc.user || "").trim()).filter(Boolean)];
+        if (accountLabels && accountLabels.length > 0) {
+          requested = new Set(normalizeAccountLabels(accountLabels, availableLabels));
+        }
         const accountRows = requested
           ? accountsData.value.filter((acc: any) => requested.has(String(acc.label || acc.user || "").trim()))
           : accountsData.value;
@@ -541,7 +572,8 @@ async function loadAccounts(supabase: any, secret: string, accountLabels: string
   }
 
   if (accountLabels && accountLabels.length > 0) {
-    accounts = accounts.filter(a => accountLabels.includes(a.label));
+    const normalized = normalizeAccountLabels(accountLabels, accounts.map((a) => a.label));
+    accounts = accounts.filter(a => normalized.includes(a.label));
   }
 
   return accounts;
