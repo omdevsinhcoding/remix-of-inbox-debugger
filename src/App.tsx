@@ -7764,12 +7764,19 @@ function UserProfileModal({
 // ==================== EMAIL VIEWER ====================
 function EmailViewer() {
   usePageHead("Email Inbox — Netflix Mail", "Secure viewer for Netflix sign-in codes, OTPs, and household verification emails.", "/viewer");
+  const { user: authUser, checkAuth } = useAuth();
   const user = useMemo<UserData>(() => {
-    try { return JSON.parse(sessionGet("user" as any) || "{}"); }
-    catch { return {} as UserData; }
-  }, []);
+    let stored: UserData | null = null;
+    try { stored = JSON.parse(sessionGet("user" as any) || "{}"); }
+    catch { stored = null; }
+    try {
+      const impersonating = !!sessionGet("admin_backup" as any) || (stored as any)?.impersonated === true;
+      if (impersonating && stored?.id) return stored;
+    } catch {}
+    if (authUser?.id) return authUser as UserData;
+    return stored || ({} as UserData);
+  }, [authUser]);
   const refreshAccountLabels = useMemo(() => getUserRefreshAccountLabels(user), [user]);
-  const { checkAuth } = useAuth();
   const [profilePrefs, setProfilePrefs] = useState<UserProfilePrefs>(() => user.profilePrefs || {});
   const viewerAvatarId = profilePrefs.avatarId || getStableProfileAvatar(user);
   const saveProfilePrefsLocally = useCallback((nextPrefs: UserProfilePrefs) => {
@@ -7991,6 +7998,9 @@ function EmailViewer() {
         return filterVisibleEmails(emails, profilePrefs, user).length;
       }
       const emailList = mergeEmailsById(lists.map((item) => item.emails));
+      if (emailList.length === 0 && emails.length > 0) {
+        return filterVisibleEmails(emails, profilePrefs, user).length;
+      }
       setEmails(emailList);
       setError(null);
       setLastUpdated(new Date());
@@ -8005,43 +8015,25 @@ function EmailViewer() {
 
 
   const syncViaWorker = useCallback(async (): Promise<Email[] | null> => {
-    const token = getSessionToken();
-    const headers: Record<string, string> = {};
-    if (token) headers["X-Session-Token"] = token;
     const labels = refreshAccountLabels;
     if (labels && labels.length === 0) return null;
-    const groups = buildWorkerRequestGroups(labels, workerUrlMap, resolvedWorkerUrls);
-
-    if (groups.length === 0) {
-      throw new Error("Cloudflare worker URL is not configured for this inbox");
-    }
-
-    const collected: Email[][] = [];
-    let okCount = 0;
-    await Promise.all(groups.map(async (group) => {
-      const endpoint = `${group.url}/api/emails/sync`;
-      const started = performance.now();
-      const res = await fetchWithTimeout(endpoint, {
-        method: "POST",
-        headers: { ...headers, "Content-Type": "application/json" },
-          body: JSON.stringify({ mode: "user_sync", source: "user_refresh", limit: 200, accountLabels: group.labels || undefined }),
-      }, 18000);
-      const text = await res.text();
-      pushDiag({ ts: Date.now(), kind: "worker", endpoint, status: res.status, ms: Math.round(performance.now() - started), note: `user_sync${group.labels ? ` · ${group.labels.join(", ")}` : ""}` });
-      if (!res.ok) {
-        // Swallow transport-shaped errors — keep KV cache visible instead.
-        return;
-      }
-      let data: any = null;
-      try { data = text ? JSON.parse(text) : null; } catch { data = null; }
-      if (data && data.success === false) return;
-      okCount++;
-      if (data && Array.isArray(data.emails)) collected.push(data.emails as Email[]);
-    }));
-
-    if (okCount === 0) return null;
-    return mergeEmailsById(collected);
-  }, [pushDiag, resolvedWorkerUrls, workerUrlMap, refreshAccountLabels]);
+    const started = performance.now();
+    const data = await apiCall("fetch-emails", {
+      mode: "user_sync",
+      source: "user_refresh",
+      limit: 200,
+      accountLabels: labels || undefined,
+    });
+    pushDiag({
+      ts: Date.now(),
+      kind: "sync",
+      endpoint: "fetch-emails:user_sync",
+      ms: Math.round(performance.now() - started),
+      note: labels ? labels.join(", ") : "all accounts",
+    });
+    if (data?.success === false) return null;
+    return Array.isArray(data?.emails) ? mergeEmailsById([data.emails as Email[]]) : null;
+  }, [pushDiag, refreshAccountLabels]);
 
   const fetchEmails = async () => {
     if (refreshingRef.current) return;
@@ -8152,13 +8144,18 @@ function EmailViewer() {
   // a redundant sync). Falls back silently on any error — no user-visible break.
   // ============================================================================
   const idbRef = useRef<Awaited<ReturnType<typeof openInboxDB>> | null>(null);
-  const instantInboxRanRef = useRef(false);
+  const instantInboxRunKeyRef = useRef("");
+  const instantInboxAccountKey = useMemo(
+    () => JSON.stringify(refreshAccountLabels === null ? null : [...(refreshAccountLabels || [])].sort()),
+    [refreshAccountLabels],
+  );
   useEffect(() => {
     // eslint-disable-next-line no-console
-    console.log("[inbox] effect fired", { userId: user?.id, alreadyRan: instantInboxRanRef.current });
-    if (instantInboxRanRef.current) return;
+    const runKey = `${user?.id || ""}:${instantInboxAccountKey}`;
+    console.log("[inbox] effect fired", { userId: user?.id, runKey, alreadyRan: instantInboxRunKeyRef.current === runKey });
+    if (instantInboxRunKeyRef.current === runKey) return;
     if (!user?.id) { console.log("[inbox] no user.id, skipping"); return; }
-    instantInboxRanRef.current = true;
+    instantInboxRunKeyRef.current = runKey;
 
     const t0 = performance.now();
     (async () => {
@@ -8230,7 +8227,7 @@ function EmailViewer() {
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, markInboxReady]);
+  }, [user?.id, instantInboxAccountKey, markInboxReady]);
 
 
   // Wrap email selection so full HTML is lazy-fetched on first click.
