@@ -8690,6 +8690,10 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
     if (!maint.enabled) return;
     if (!user) return;
     if (user.role === "admin") return;
+    // Admin impersonating a user: keep the session alive so they can QA the
+    // real user experience during maintenance. Source of truth is the
+    // server-signed `impersonated` flag on the session; sessionStorage backup
+    // is only a legacy fast-path fallback.
     if (user.impersonated === true || hasActiveAdminImpersonationBackup()) return;
     const path = typeof window !== "undefined" ? window.location.pathname : "/";
     if (path.startsWith("/admin")) return;
@@ -8701,7 +8705,7 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
       duration: 4000,
     });
     navigate("/", { replace: true });
-  }, [maint.enabled, user?.id, user?.role]);
+  }, [maint.enabled, user?.id, user?.role, user?.impersonated]);
 
 
   useEffect(() => {
