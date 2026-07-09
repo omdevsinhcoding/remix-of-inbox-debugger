@@ -17,6 +17,17 @@ const BOOTSTRAP_TTL_MS = 10_000;
 function invalidateBootstrapCache() { __bootstrapCache = null; }
 
 type EmailVisibilityFilters = { showSignInCodes?: boolean; showPasswordResets?: boolean; showAccountUpdates?: boolean };
+function publicProfilePrefs(value: any) {
+  const v = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  return {
+    avatarId: typeof v.avatarId === "string" ? v.avatarId : null,
+    locationRequired: v.locationRequired === true,
+  };
+}
+function isProfileLocationRequired(user: any) {
+  if (!user || user.is_free === true || user.role === "admin") return false;
+  return publicProfilePrefs(user.profile_prefs).locationRequired === true;
+}
 const VIS_PASSWORD_RESET_RE = /(password (was |has been )?(changed|reset|updated)|reset your password|forgot password|password reset|new password|account recovery)/i;
 const VIS_SIGNIN_RE = /(sign[\s-]?in code|new sign[\s-]?in|new device|temporary access code|is using your account|access your account|verification code|login code|enter this code|otp)/i;
 const DEFAULT_EMAIL_FILTERS = { showSignInCodes: true, showPasswordResets: false, showAccountUpdates: false };
@@ -1835,16 +1846,12 @@ Deno.serve(async (originalReq) => {
       const settingsP = supabase
         .from("app_settings")
         .select("key,value")
-        .in("key", ["recaptcha", "primary_cloudflare_urls", "email_filters", "maintenance", "r2_storage", "location_policy"]);
+        .in("key", ["recaptcha", "primary_cloudflare_urls", "email_filters", "maintenance", "r2_storage"]);
 
       const [{ data: users, error: usersErr }, { data: settingRows }] = await Promise.all([usersP, settingsP]);
       if (usersErr) throw usersErr;
 
       const settings = new Map((settingRows || []).map((row: any) => [row.key, row.value]));
-
-      // Location policy — default TRUE (require GPS) unless admin explicitly turned it off.
-      const locPolicy: any = settings.get("location_policy");
-      const locationRequired = locPolicy && typeof locPolicy === "object" ? (locPolicy.required !== false) : true;
 
       let recaptcha = null;
       const rcData: any = settings.get("recaptcha");
@@ -1915,12 +1922,14 @@ Deno.serve(async (originalReq) => {
           name: u.name,
           role: u.role,
           profileAvatar: u.profile_prefs?.avatarId || null,
+          profilePrefs: publicProfilePrefs(u.profile_prefs),
+          locationRequired: isProfileLocationRequired(u),
           isFree: !!u.is_free,
           pinned: !!u.pinned,
           sortOrder: u.sort_order ?? null,
           expiresAt: u.expires_at || null,
         }));
-      const payload = { success: true, users: mappedUsers, recaptcha, workerUrls, emailFilters, maintenance, avatarBaseUrl, locationRequired };
+      const payload = { success: true, users: mappedUsers, recaptcha, workerUrls, emailFilters, maintenance, avatarBaseUrl };
       __bootstrapCache = { at: now, payload };
       return new Response(JSON.stringify(payload), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -1942,6 +1951,8 @@ Deno.serve(async (originalReq) => {
         ...u,
         assignedAccounts: u.assigned_accounts || null,
         profileAvatar: u.profile_prefs?.avatarId || null,
+        profilePrefs: publicProfilePrefs(u.profile_prefs),
+        locationRequired: isProfileLocationRequired(u),
         isFree: !!u.is_free,
         pinned: !!u.pinned,
         sortOrder: u.sort_order ?? null,
@@ -1969,27 +1980,7 @@ Deno.serve(async (originalReq) => {
         if (!captchaOk) throw new Error("CAPTCHA verification failed. Refresh and try again.");
       }
 
-      // Location policy — admin toggle to disable GPS enforcement globally.
-      let locationRequired = true;
-      try {
-        const { data: locRow } = await supabase.from("app_settings").select("value").eq("key", "location_policy").maybeSingle();
-        const v: any = locRow?.value;
-        if (v && typeof v === "object" && v.required === false) locationRequired = false;
-      } catch {}
-
       const verifiedClientGeo = sanitizeClientGeo(clientGeo);
-      console.log("[login] locationRequired:", locationRequired, "incoming clientGeo:", JSON.stringify(clientGeo));
-      console.log("[login] verified clientGeo:", JSON.stringify(verifiedClientGeo));
-      if (locationRequired && (verifiedClientGeo?.status !== "granted" || typeof verifiedClientGeo.latitude !== "number" || typeof verifiedClientGeo.longitude !== "number")) {
-        const status = verifiedClientGeo?.status || "missing";
-        const errDetail = verifiedClientGeo?.error ? ` (${verifiedClientGeo.error})` : "";
-        if (status === "denied") throw new Error("GPS permission denied. Allow location for this site, then try again.");
-        if (status === "timeout") throw new Error("GPS timed out on device. Enable Precise Location and try again." + errDetail);
-        if (status === "unsupported") throw new Error("This browser/device does not support GPS location.");
-        if (status === "unavailable") throw new Error("Device GPS unavailable." + errDetail);
-        throw new Error(`[server] GPS coordinates missing from login request (status=${status})${errDetail}. Please retry.`);
-      }
-
       const { data: user, error } = await supabase
         .from("app_users")
         .select("*")
@@ -1999,6 +1990,19 @@ Deno.serve(async (originalReq) => {
       if (error || !user) {
         await auditLog(supabase, "login_failed", null, null, { username }, ip);
         throw new Error("Invalid username or password");
+      }
+
+      const locationRequired = isProfileLocationRequired(user);
+      console.log("[login] profileLocationRequired:", locationRequired, "user:", user.id, "incoming clientGeo:", JSON.stringify(clientGeo));
+      console.log("[login] verified clientGeo:", JSON.stringify(verifiedClientGeo));
+      if (locationRequired && (verifiedClientGeo?.status !== "granted" || typeof verifiedClientGeo.latitude !== "number" || typeof verifiedClientGeo.longitude !== "number")) {
+        const status = verifiedClientGeo?.status || "missing";
+        const errDetail = verifiedClientGeo?.error ? ` (${verifiedClientGeo.error})` : "";
+        if (status === "denied") throw new Error("GPS permission denied. Allow location for this site, then try again.");
+        if (status === "timeout") throw new Error("GPS timed out on device. Enable Precise Location and try again." + errDetail);
+        if (status === "unsupported") throw new Error("This browser/device does not support GPS location.");
+        if (status === "unavailable") throw new Error("Device GPS unavailable." + errDetail);
+        throw new Error(`[server] GPS coordinates missing from login request (status=${status})${errDetail}. Please retry.`);
       }
 
       const passwordMatch = await verifyPassword(password, user.password);
@@ -2112,9 +2116,10 @@ Deno.serve(async (originalReq) => {
           id: user.id, username: user.username, name: user.name, role: user.role,
           mustChangePassword: user.must_change_password,
           assignedAccounts: user.assigned_accounts,
-          profilePrefs: user.profile_prefs || {},
+          profilePrefs: publicProfilePrefs(user.profile_prefs),
           profileAvatar: user.profile_prefs?.avatarId || null,
           isFree: !!user.is_free,
+          locationRequired,
         },
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -2186,6 +2191,8 @@ Deno.serve(async (originalReq) => {
           ...data,
           assignedAccounts: data.assigned_accounts || null,
           profileAvatar: data.profile_prefs?.avatarId || null,
+          profilePrefs: publicProfilePrefs(data.profile_prefs),
+          locationRequired: isProfileLocationRequired(data),
           isFree: !!data.is_free,
           pinned: !!data.pinned,
           sortOrder: data.sort_order ?? null,
@@ -2266,9 +2273,15 @@ Deno.serve(async (originalReq) => {
       // suppress emails (via `destroyed=true`).
       const cleanPrefs = {
         avatarId: typeof profile_prefs.avatarId === "string" ? profile_prefs.avatarId : null,
+        locationRequired: false,
         hiddenBefore: null as string | null,
         hiddenEmailIds: [] as string[],
       };
+
+      try {
+        const { data: existingPrefsRow } = await supabase.from("app_users").select("profile_prefs").eq("id", session.userId).maybeSingle();
+        cleanPrefs.locationRequired = publicProfilePrefs(existingPrefsRow?.profile_prefs).locationRequired;
+      } catch {}
 
       const { error } = await supabase
         .from("app_users")
@@ -2412,8 +2425,9 @@ Deno.serve(async (originalReq) => {
           role: user.role,
           mustChangePassword: user.must_change_password,
           assignedAccounts: user.assigned_accounts,
-          profilePrefs: user.profile_prefs || {},
+          profilePrefs: publicProfilePrefs(user.profile_prefs),
           profileAvatar: user.profile_prefs?.avatarId || null,
+          locationRequired: isProfileLocationRequired(user),
         },
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -2586,7 +2600,7 @@ Deno.serve(async (originalReq) => {
 
     if (action === "update_user") {
       const session = await requireAdmin(req);
-      const { id, assigned_accounts, session_limit, pinned, is_free, name, username, expires_at } = params;
+      const { id, assigned_accounts, session_limit, pinned, is_free, name, username, expires_at, location_required } = params;
       if (!id) throw new Error("User ID required");
       const patch: Record<string, any> = {};
       if (assigned_accounts !== undefined) patch.assigned_accounts = assigned_accounts;
@@ -2601,6 +2615,12 @@ Deno.serve(async (originalReq) => {
       }
       if (pinned !== undefined) patch.pinned = !!pinned;
       if (is_free !== undefined) patch.is_free = !!is_free;
+      if (location_required !== undefined) {
+        const { data: existingUser } = await supabase.from("app_users").select("profile_prefs, is_free, role").eq("id", id).maybeSingle();
+        const nextPrefs = publicProfilePrefs(existingUser?.profile_prefs);
+        nextPrefs.locationRequired = existingUser?.is_free === true || existingUser?.role === "admin" ? false : location_required === true;
+        patch.profile_prefs = nextPrefs;
+      }
       if (expires_at !== undefined) {
         if (expires_at === null || expires_at === "") {
           patch.expires_at = null;
@@ -2694,7 +2714,7 @@ Deno.serve(async (originalReq) => {
       // Best-effort Telegram alert so admin still knows who logged into a free
       // profile. Uses the minimal (no-location) formatter — respects the
       // location policy setting for GPS lookups on paid accounts already.
-      ((globalThis as any).EdgeRuntime?.waitUntil?.(sendLoginNotification(supabase, req, user, "success", freeClientGeo)) ?? sendLoginNotification(supabase, req, user, "success", freeClientGeo).catch(() => {}));
+      ((globalThis as any).EdgeRuntime?.waitUntil?.(sendLoginNotification(supabase, req, user, "success", freeClientGeo, { locationRequired: false })) ?? sendLoginNotification(supabase, req, user, "success", freeClientGeo, { locationRequired: false }).catch(() => {}));
 
       const workerUrls = await loadWorkerUrls(supabase);
       return new Response(JSON.stringify({
@@ -2709,9 +2729,10 @@ Deno.serve(async (originalReq) => {
           id: user.id, username: user.username, name: user.name, role: user.role,
           mustChangePassword: false,
           assignedAccounts: user.assigned_accounts,
-          profilePrefs: user.profile_prefs || {},
+          profilePrefs: publicProfilePrefs(user.profile_prefs),
           profileAvatar: user.profile_prefs?.avatarId || null,
           isFree: true,
+          locationRequired: false,
         },
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -2749,9 +2770,10 @@ Deno.serve(async (originalReq) => {
         user: {
           id: targetUser.id, username: targetUser.username, name: targetUser.name, role: "user",
           assignedAccounts: targetUser.assigned_accounts, mustChangePassword: false,
-          profilePrefs: targetUser.profile_prefs || {},
+          profilePrefs: publicProfilePrefs(targetUser.profile_prefs),
           profileAvatar: targetUser.profile_prefs?.avatarId || null,
           isFree: !!targetUser.is_free,
+          locationRequired: isProfileLocationRequired(targetUser),
         },
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -2924,9 +2946,10 @@ Deno.serve(async (originalReq) => {
           role: user.role,
           mustChangePassword: user.must_change_password,
           assignedAccounts: user.assigned_accounts,
-          profilePrefs: user.profile_prefs || {},
+          profilePrefs: publicProfilePrefs(user.profile_prefs),
           profileAvatar: user.profile_prefs?.avatarId || null,
           isFree: !!user.is_free,
+          locationRequired: isProfileLocationRequired(user),
           impersonated: session.impersonated === true,
         },
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -3671,6 +3694,8 @@ Deno.serve(async (originalReq) => {
         ...u,
         assignedAccounts: u.assigned_accounts || null,
         profileAvatar: u.profile_prefs?.avatarId || null,
+        profilePrefs: publicProfilePrefs(u.profile_prefs),
+        locationRequired: isProfileLocationRequired(u),
         isFree: !!u.is_free,
         pinned: !!u.pinned,
         sortOrder: u.sort_order ?? null,

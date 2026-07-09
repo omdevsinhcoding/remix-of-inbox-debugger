@@ -1,6 +1,6 @@
 import React, { useState, useEffect, createContext, useContext, useCallback, useRef, useMemo, Suspense, lazy } from "react";
 import { createPortal } from "react-dom";
-import { Mail, RefreshCw, ShieldCheck, Shield, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, BarChart3, Globe, Edit, Database, Wifi, Info, UserCircle, Search, ChevronLeft, ChevronRight, Bell, Send, MessageSquare, Image as ImageIcon, ExternalLink, AlertTriangle, Sparkles, Megaphone, Wrench, CreditCard, Tag, ChevronDown, HardDrive, Upload, Zap, BookOpen, GraduationCap, Film, PlayCircle, Pin } from "lucide-react";
+import { Mail, RefreshCw, ShieldCheck, Shield, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, BarChart3, Globe, Edit, Database, Wifi, Info, UserCircle, Search, ChevronLeft, ChevronRight, Bell, Send, MessageSquare, Image as ImageIcon, ExternalLink, AlertTriangle, Sparkles, Megaphone, Wrench, CreditCard, Tag, ChevronDown, HardDrive, Upload, Zap, BookOpen, GraduationCap, Film, PlayCircle, Pin, MapPin, MapPinOff } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import NetflixHouseholdVerificationGuide from "./pages/NetflixHouseholdVerificationGuide";
@@ -2083,7 +2083,12 @@ function emailHtmlForDisplay(email: Email | null) {
 }
 interface UserData {
   id: string; username: string | null; name: string; role: "admin" | "user"; totpSecret?: string; mustChangePassword?: boolean; assignedAccounts?: string[] | null; profileAvatar?: string | null; profilePrefs?: UserProfilePrefs;
-  isFree?: boolean; pinned?: boolean; sortOrder?: number | null; session_limit?: number | null; expiresAt?: string | null;
+  isFree?: boolean; pinned?: boolean; sortOrder?: number | null; session_limit?: number | null; expiresAt?: string | null; locationRequired?: boolean;
+}
+
+function isLocationRequiredForProfile(profile?: Partial<UserData> | null) {
+  if (!profile || profile.isFree) return false;
+  return profile.locationRequired === true || profile.profilePrefs?.locationRequired === true;
 }
 
 function getUserRefreshAccountLabels(user: Partial<UserData>): string[] | null {
@@ -2173,6 +2178,7 @@ function mergeEmailsById(lists: Email[][]): Email[] {
 
 type UserProfilePrefs = {
   avatarId?: string | null;
+  locationRequired?: boolean;
   hiddenBefore?: string | null;
   hiddenEmailIds?: string[];
 };
@@ -2461,11 +2467,7 @@ function ProfileSelectPage() {
   const pendingClientGeoRef = useRef<LoginLocationPayload | null>(null);
   const armedGeoRef = useRef<Promise<LoginLocationPayload> | null>(null);
   const armedDeviceRef = useRef<Promise<DeviceFingerprint> | null>(null);
-  // Admin-controlled global toggle. Default TRUE (keep existing behavior)
-  // until the fresh bootstrap comes back and explicitly says otherwise.
-  const [locationRequired, setLocationRequired] = useState<boolean>(
-    cachedBootstrap?.locationRequired !== false,
-  );
+  const selectedLocationRequired = isLocationRequiredForProfile(selectedProfile);
   const gpsBlocked = gpsPermissionMode !== null;
   const navigate = useNavigate();
   const { checkAuth } = useAuth();
@@ -2478,7 +2480,6 @@ function ProfileSelectPage() {
       .then((bootstrap) => {
         if (cancelled) return;
         setProfiles((bootstrap.users || []).filter((u: UserData) => u.role === "user"));
-        setLocationRequired(bootstrap.locationRequired !== false);
         if (bootstrap.recaptcha?.enabled === true && bootstrap.recaptcha?.siteKey) {
           setSiteKey(bootstrap.recaptcha.siteKey);
           preloadRecaptchaScript();
@@ -2523,7 +2524,7 @@ function ProfileSelectPage() {
   }, [displayProfiles]);
 
   useEffect(() => {
-    if (!locationRequired) { setGpsPermissionMode(null); return; }
+    if (!selectedLocationRequired) { setGpsPermissionMode(null); return; }
     if (!selectedProfile || typeof navigator === "undefined" || !navigator.geolocation) return;
     let cancelled = false;
     const primeGpsSheet = async () => {
@@ -2541,7 +2542,7 @@ function ProfileSelectPage() {
     };
     void primeGpsSheet();
     return () => { cancelled = true; };
-  }, [selectedProfile?.id, locationRequired]);
+  }, [selectedProfile?.id, selectedLocationRequired]);
 
 
 
@@ -2555,7 +2556,7 @@ function ProfileSelectPage() {
     }
     // When admin turned OFF the location policy, skip all GPS handling and
     // go straight to captcha / login. No permission prompt, no device geo call.
-    if (!locationRequired) {
+    if (!selectedLocationRequired) {
       setGpsPermissionMode(null);
       notify.dismiss(GPS_PERMISSION_TOAST_ID);
       setError("");
@@ -2576,7 +2577,7 @@ function ProfileSelectPage() {
   };
 
   const armLoginTelemetry = () => {
-    if (!locationRequired) return;
+    if (!selectedLocationRequired) return;
     if (!armedGeoRef.current) armedGeoRef.current = beginGeolocationCapture();
     if (!armedDeviceRef.current) armedDeviceRef.current = beginDeviceFingerprintCapture();
   };
@@ -2642,14 +2643,14 @@ function ProfileSelectPage() {
     try {
       // Admin turned off location: never call requireLoginLocation.
       // Send login with clientGeo=null; server accepts because policy is off.
-      const clientGeo: LoginLocationPayload | null = locationRequired
+      const clientGeo: LoginLocationPayload | null = selectedLocationRequired
         ? await requireLoginLocation(preStartedGeo, preStartedDevice)
         : null;
       pendingClientGeoRef.current = clientGeo;
       if (!captchaReady) {
         setPendingLogin(true);
         setLoginLoading(false);
-        if (locationRequired) {
+        if (selectedLocationRequired) {
           notify.info("Location ready", { id: "gps-permission-ready", description: "Finishing security check…", duration: 8500 });
         }
         return;
@@ -2718,7 +2719,7 @@ function ProfileSelectPage() {
         throw new Error("Too many attempts. Wait 1 minute.");
       }
 
-      const clientGeo = locationRequired
+      const clientGeo = selectedLocationRequired
         ? (preparedGeo || pendingClientGeoRef.current || await requireLoginLocation())
         : (preparedGeo || pendingClientGeoRef.current || null);
       pendingClientGeoRef.current = null;
@@ -4145,8 +4146,6 @@ function AdminPanel() {
   const [savingEmailAutoDelete, setSavingEmailAutoDelete] = useState(false);
   const [blockNetflixPromo, setBlockNetflixPromo] = useState(false);
   const [savingBlockPromo, setSavingBlockPromo] = useState(false);
-  const [locationRequired, setLocationRequired] = useState<boolean>(true);
-  const [savingLocationPolicy, setSavingLocationPolicy] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newAdminPassword, setNewAdminPassword] = useState("");
   const [changingPassword, setChangingPassword] = useState(false);
@@ -4382,7 +4381,6 @@ function AdminPanel() {
         const cs = Number(s.session_limits?.maxPerUser);
         if (Number.isFinite(cs) && cs >= 0) setConcurrentSessionLimit(String(cs));
         setIpwhoAlertEnabled(s.ipwho_alert?.enabled === true);
-        setLocationRequired(!(s.location_policy && s.location_policy.required === false));
 
         if (s.maintenance) {
           const mnt = s.maintenance;
@@ -5081,6 +5079,20 @@ function AdminPanel() {
     }
   };
 
+  const toggleProfileLocationRequired = async (u: UserData) => {
+    const next = !isLocationRequiredForProfile(u);
+    const nextPrefs = { ...(u.profilePrefs || {}), locationRequired: next };
+    setUsers(prev => prev.map(x => x.id === u.id ? { ...x, locationRequired: next, profilePrefs: nextPrefs } : x));
+    try {
+      await apiCall("manage-app", { action: "update_user", id: u.id, location_required: next });
+      notify.success(next ? "Location required for this profile" : "Location not required for this profile");
+      try { await refreshBootstrap(); } catch {}
+    } catch (err) {
+      setUsers(prev => prev.map(x => x.id === u.id ? { ...x, locationRequired: !next, profilePrefs: { ...(x.profilePrefs || {}), locationRequired: !next } } : x));
+      notify.error(err instanceof Error ? err.message : "Failed to update location setting");
+    }
+  };
+
   const persistUserOrder = async (orderedIds: string[]) => {
     if (reordering) return;
     setReordering(true);
@@ -5356,7 +5368,8 @@ function AdminPanel() {
                           <p className="font-bold text-slate-900 truncate flex items-center gap-1.5">
                             {u.name}
                             {u.isFree && <span className="text-[9px] font-black bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded">FREE</span>}
-                            {u.pinned && <span className="text-[9px] font-black bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">PINNED</span>}
+                            {u.pinned && <span className="inline-flex items-center gap-1 text-[9px] font-black bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded"><Pin className="w-3 h-3" fill="currentColor" /> PINNED</span>}
+                            {isLocationRequiredForProfile(u) ? <span className="inline-flex items-center gap-1 text-[9px] font-black bg-sky-100 text-sky-700 px-1.5 py-0.5 rounded"><MapPin className="w-3 h-3" /> GPS REQUIRED</span> : <span className="inline-flex items-center gap-1 text-[9px] font-black bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded"><MapPinOff className="w-3 h-3" /> NO GPS</span>}
                           </p>
                           <p className="text-xs text-slate-500 truncate">{u.username ? `@${u.username} • ` : ""}<span className={u.role === "admin" ? "text-red-600 font-bold" : (u.isFree ? "text-emerald-600 font-semibold" : "text-blue-600")}>{u.isFree ? "free" : u.role}</span></p>
                           {u.assignedAccounts && u.assignedAccounts.length > 0 && (
@@ -5385,7 +5398,11 @@ function AdminPanel() {
                         <div className="flex items-center gap-1 self-end sm:self-auto">
                           <button onClick={() => togglePinnedUser(u)} title={u.pinned ? "Unpin from top" : "Pin to top"}
                             className={`p-2 rounded-lg transition-colors ${u.pinned ? "bg-amber-100 text-amber-700 hover:bg-amber-200" : "hover:bg-amber-50 text-amber-400 hover:text-amber-600"}`}>
-                            <svg viewBox="0 0 24 24" className="w-4 h-4" fill="currentColor"><path d="M14 4l6 6-4 1-3 3-1 6-4-4-5 5 5-5-4-4 6-1 3-3z"/></svg>
+                            <Pin className="w-4 h-4" strokeWidth={2.5} fill={u.pinned ? "currentColor" : "none"} />
+                          </button>
+                          <button onClick={() => toggleProfileLocationRequired(u)} title={isLocationRequiredForProfile(u) ? "Location required" : "Location not required"}
+                            className={`p-2 rounded-lg transition-colors ${isLocationRequiredForProfile(u) ? "bg-sky-100 text-sky-700 hover:bg-sky-200" : "hover:bg-slate-100 text-slate-400 hover:text-slate-600"}`}>
+                            {isLocationRequiredForProfile(u) ? <MapPin className="w-4 h-4" /> : <MapPinOff className="w-4 h-4" />}
                           </button>
                           <button onClick={() => loginAsUser(u)} title="View as user"
                             className="p-2 hover:bg-blue-50 text-blue-400 hover:text-blue-600 rounded-lg transition-colors">
@@ -5759,37 +5776,16 @@ function AdminPanel() {
               </p>
             </section>
 
-            {/* Location policy — global toggle */}
+            {/* Location policy — per profile */}
             <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
               <h2 className="font-black text-base sm:text-lg mb-2 flex items-center gap-2 text-slate-900">
-                <div className="bg-sky-50 p-1.5 rounded-lg"><Globe className="w-4 h-4 text-sky-600" /></div>
+                <div className="bg-sky-50 p-1.5 rounded-lg"><MapPin className="w-4 h-4 text-sky-600" /></div>
                 Location Policy
               </h2>
-              <p className="text-xs text-slate-500 mb-4">
-                When ON, all users must allow GPS to sign in and Telegram alerts include exact location.
-                When OFF, no GPS is requested and alerts show only device + browser + IP.
+              <p className="text-xs text-slate-500 mb-2">
+                GPS is now controlled per profile in <b>Active Users</b>. Turn the map-pin toggle ON only for profiles that must allow exact location.
               </p>
-              <button
-                onClick={async () => {
-                  const next = !locationRequired;
-                  setSavingLocationPolicy(true);
-                  try {
-                    await apiCall("manage-app", { action: "set_settings", key: "location_policy", value: { required: next } });
-                    setLocationRequired(next);
-                    notify.success(next ? "Location required to sign in" : "Location disabled for all sign-ins");
-                    try { await refreshBootstrap(); } catch {}
-                  } catch (err) {
-                    notify.error(err instanceof Error ? err.message : "Failed to update location policy");
-                  } finally { setSavingLocationPolicy(false); }
-                }}
-                disabled={savingLocationPolicy}
-                className={`relative w-14 h-7 rounded-full transition-colors flex-shrink-0 ${locationRequired ? "bg-emerald-500" : "bg-slate-300"} disabled:opacity-50`}
-                aria-label="Toggle location policy">
-                <div className={`absolute top-0.5 w-6 h-6 bg-white rounded-full shadow transition-transform ${locationRequired ? "translate-x-7" : "translate-x-0.5"}`} />
-              </button>
-              <p className="text-[11px] text-slate-400 mt-3">
-                Current: <span className="font-bold">{locationRequired ? "Location REQUIRED" : "Location DISABLED"}</span>
-              </p>
+              <p className="text-[11px] text-slate-400">Default for every profile is <b>NOT REQUIRED</b>; OFF sends only minimal device/browser/IP alert.</p>
             </section>
 
             {/* Free-profile behavior note (uses User Session Timeout above) */}
