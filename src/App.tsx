@@ -2558,16 +2558,11 @@ function ProfileSelectPage() {
       .catch((err) => {
         console.warn("Bootstrap refresh failed (using cache/fallback):", err);
         if (!cancelled) {
-          // Do NOT block sign-in on a captcha/config fetch hiccup. If we already
-          // have profiles from the cached bootstrap, stay usable; only show a
-          // hard error when we have nothing at all to render.
+          // Silent fallback — never show a scary "connection busy" banner on
+          // first load. If profiles are empty, the normal empty state renders.
           setSiteKey(null);
           setCaptchaReady(true);
-          if (profiles.length === 0) {
-            setError("Connection is busy. Please refresh or try again in a few seconds.");
-          } else {
-            setError("");
-          }
+          setError("");
         }
       })
       .finally(() => { if (!cancelled) setLoading(false); });
