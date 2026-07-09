@@ -1783,16 +1783,20 @@ Deno.serve(async (originalReq) => {
         avatarBaseUrl = r2.publicBaseUrl || "";
       } catch {}
 
-      const mappedUsers = (users || []).map((u: any) => ({
-        id: u.id,
-        username: u.username,
-        name: u.name,
-        role: u.role,
-        profileAvatar: u.profile_prefs?.avatarId || null,
-        isFree: !!u.is_free,
-        pinned: !!u.pinned,
-        sortOrder: u.sort_order ?? null,
-      }));
+      const nowMs = Date.now();
+      const mappedUsers = (users || [])
+        .filter((u: any) => !(u.is_free && u.expires_at && Date.parse(u.expires_at) <= nowMs))
+        .map((u: any) => ({
+          id: u.id,
+          username: u.username,
+          name: u.name,
+          role: u.role,
+          profileAvatar: u.profile_prefs?.avatarId || null,
+          isFree: !!u.is_free,
+          pinned: !!u.pinned,
+          sortOrder: u.sort_order ?? null,
+          expiresAt: u.expires_at || null,
+        }));
       const payload = { success: true, users: mappedUsers, recaptcha, workerUrls, emailFilters, maintenance, avatarBaseUrl };
       __bootstrapCache = { at: now, payload };
       return new Response(JSON.stringify(payload), {
