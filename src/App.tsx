@@ -13,7 +13,7 @@ import { bootstrapFromSupabase, clearSessionData, markSessionStart, readBootstra
 import MaintenanceScreen from "./components/MaintenanceScreen";
 import DateTimePicker from "./components/DateTimePicker";
 import { sessionGet, sessionSet, sessionRemove, sessionClearAll } from "./lib/session";
-import { openInboxDB, readLatestEmails, writeDelta, getSyncCursor, cacheEmailHtml, getEmailHtml, purgeEmailsOutsideScope, type CachedEmail } from "./lib/inboxCache";
+import { openInboxDB, readLatestEmails, writeDelta, cacheEmailHtml, getEmailHtml, purgeEmailsOutsideScope, type CachedEmail } from "./lib/inboxCache";
 
 
 // Lazy-loaded heavy auth-only libs — kept out of the public first-load chunk.
@@ -7932,7 +7932,6 @@ function EmailViewer() {
 
   const [refreshing, setRefreshing] = useState(false);
   const refreshingRef = useRef(false);
-  const refreshPollRef = useRef<number | null>(null);
 
   // Emails filtered for the currently selected admin pill.
   const displayedEmails = useMemo(() => {
@@ -8160,7 +8159,7 @@ function EmailViewer() {
       ms: Math.round(performance.now() - started),
       note: labels ? labels.join(", ") : "all accounts",
     });
-    if (data?.success === false) return null;
+    if (data?.success === false) throw new Error(data?.error || "Refresh did not complete");
     return Array.isArray(data?.emails) ? mergeEmailsById([data.emails as Email[]]) : null;
   }, [pushDiag, activeRefreshLabels]);
 
@@ -8206,12 +8205,10 @@ function EmailViewer() {
   }, [activeCacheLabels, markInboxReady, pushDiag, setEmails, user]);
 
   const fetchEmails = async (labelsOverride?: string[] | null) => {
+    if (refreshingRef.current) return;
     const syncLabels = labelsOverride !== undefined ? labelsOverride : activeRefreshLabels;
     const cacheLabels = labelsOverride !== undefined ? labelsOverride : activeCacheLabels;
     const skipSync = Array.isArray(syncLabels) && syncLabels.length === 0;
-    // If another refresh is already running, let this click still proceed — user
-    // explicitly asked for no "already refreshing" gate. We just don't stack toasts.
-    const alreadyRunning = refreshingRef.current;
     refreshingRef.current = true;
     setRefreshing(true);
     const beforeIds = new Set(
@@ -8221,38 +8218,30 @@ function EmailViewer() {
       ).map((e) => e.id),
     );
     const toastId = "nf-refresh";
-    if (!skipSync && !alreadyRunning) notify.loading("Checking for new mail…", { id: toastId });
+    if (!skipSync) notify.loading("Checking for new mail…", { id: toastId });
 
     try {
-      void refreshEmailFiltersForViewer();
-
       if (skipSync) {
-        await Promise.all([
-          loadServerSnapshot(cacheLabels).catch(() => null),
-          loadCachedEmails({ limit: 200, labels: cacheLabels }),
-        ]);
+        notify.info("Select an account, then press Refresh", { duration: 1800 });
         return;
       }
 
-      // Kick off IMAP sync + server snapshot in parallel so the UI reflects
-      // the freshest state as soon as either resolves.
-      const [synced, snapshot] = await Promise.all([
-        syncViaWorker(syncLabels).catch((err) => {
-          const smsg = err instanceof Error ? err.message : String(err || "");
-          pushDiag({ ts: Date.now(), kind: "sync", endpoint: "fetch-emails:user_sync", error: smsg });
-          return null;
-        }),
-        loadServerSnapshot(cacheLabels).catch((snapshotErr) => {
-          const smsg = snapshotErr instanceof Error ? snapshotErr.message : String(snapshotErr || "");
-          pushDiag({ ts: Date.now(), kind: "sync", endpoint: "list_delta:snapshot", error: smsg });
-          return null;
-        }),
-      ]);
+      await refreshEmailFiltersForViewer();
+
+      // Manual refresh is fully foreground: wait for IMAP sync to finish, then
+      // reload the persisted server snapshot. No hidden background success.
+      const synced = await syncViaWorker(syncLabels);
+      if (!synced) throw new Error("Refresh did not complete");
       if (synced && synced.length > 0) {
         mergeEmailsIntoState(synced);
         setError(null);
         setLastUpdated(new Date());
       }
+      const snapshot = await loadServerSnapshot(cacheLabels).catch((snapshotErr) => {
+        const smsg = snapshotErr instanceof Error ? snapshotErr.message : String(snapshotErr || "");
+        pushDiag({ ts: Date.now(), kind: "sync", endpoint: "list_delta:snapshot", error: smsg });
+        return null;
+      });
       const combinedRefreshRows = mergeEmailsById([snapshot || [], synced || []]);
       const scopedSnapshot = Array.isArray(cacheLabels) && cacheLabels.length === 1
         ? combinedRefreshRows.filter((e) => String(e.account_label || "").trim() === cacheLabels[0])
@@ -8270,10 +8259,6 @@ function EmailViewer() {
       notify.dismiss(toastId);
       notify.error("Refresh failed", { description: msg, duration: 3000 });
     } finally {
-      if (refreshPollRef.current) {
-        clearTimeout(refreshPollRef.current);
-        refreshPollRef.current = null;
-      }
       refreshingRef.current = false;
       setRefreshing(false);
     }
@@ -8281,34 +8266,6 @@ function EmailViewer() {
 
 
 
-
-  // On mount/login: paint cache/server snapshot only. Never touch IMAP until the
-  // user explicitly presses Refresh or an admin picks a specific account pill.
-  const didAutoRefreshRef = useRef(false);
-  useEffect(() => {
-    setLoading(false);
-
-    // Fire ONE silent auto-refresh once worker URLs are known — per component mount/login.
-    if (workerUrlsLoading) return;
-    if (didAutoRefreshRef.current) return;
-    didAutoRefreshRef.current = true;
-
-    (async () => {
-      try {
-        if (user.role !== "admin") await loadServerSnapshot();
-        await Promise.all([
-          refreshEmailFiltersForViewer(),
-          loadCachedEmails({ limit: 200 }),
-        ]);
-        await loadServerSnapshot();
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err || "");
-        pushDiag({ ts: Date.now(), kind: "sync", endpoint: "login auto-refresh", error: msg });
-        await loadCachedEmails({ limit: 200 });
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workerUrlsLoading]);
 
   // F7: listen for iframe self-report messages verifying that the link/button
   // click hijack is actually attached inside the sandboxed email preview.
@@ -8331,11 +8288,8 @@ function EmailViewer() {
 
 
   // ============================================================================
-  // INSTANT INBOX — Gmail-style stale-while-revalidate via IndexedDB + delta sync
-  //  1) Open per-user IDB, read latest 50 rows → paint (target < 50ms)
-  //  2) Fire /list_delta with last cursor → merge new/updated/removed → repaint
-  // Runs in parallel with the existing worker refresh path (which stays as
-  // a redundant sync). Falls back silently on any error — no user-visible break.
+  // INSTANT INBOX — local-only first paint.
+  // No server delta or IMAP work runs on load; every live refresh is manual.
   // ============================================================================
   const idbRef = useRef<Awaited<ReturnType<typeof openInboxDB>> | null>(null);
   const instantInboxRunKeyRef = useRef("");
@@ -8373,47 +8327,6 @@ function EmailViewer() {
           console.log(`[inbox] instant paint in ${dt.toFixed(1)}ms (${cached.length} rows from IDB)`);
         }
 
-        void refreshEmailFiltersForViewer();
-
-        // ---- (2) Delta sync via Supabase edge function ----
-        const storedCursor = await getSyncCursor(db);
-        // If the cache is empty but a cursor exists (stale/corrupt IDB, profile/account switch,
-        // or an older failed rollout), force a baseline snapshot instead of asking only for
-        // changes after that cursor. Otherwise old emails can never backfill.
-        const cursor = cached.length === 0 ? 0 : storedCursor;
-        const started = performance.now();
-        console.log(`[inbox] calling list_delta since=${cursor}${storedCursor && cursor === 0 ? ` (reset stale cursor ${storedCursor})` : ""}`);
-        const delta = await apiCall("manage-app", { action: "list_delta", since: cursor, limit: cursor === 0 ? 1000 : 500, accountLabels: activeCacheLabels || undefined });
-        console.log("[inbox] list_delta response", {
-          success: delta?.success,
-          mode: delta?.mode,
-          rows: delta?.rows?.length || 0,
-          removed: delta?.removedIds?.length || 0,
-          newCursor: delta?.newCursor,
-          accountLabels: delta?.accountLabels,
-          sample: delta?.rows?.[0],
-        });
-        pushDiag({
-          ts: Date.now(),
-          kind: "sync",
-          endpoint: "list_delta",
-          ms: Math.round(performance.now() - started),
-          note: `since=${cursor} +${delta?.rows?.length || 0}/-${delta?.removedIds?.length || 0} → ${delta?.newCursor || 0}`,
-        });
-
-        const rows: CachedEmail[] = Array.isArray(delta?.rows) ? delta.rows : [];
-        const removedIds: string[] = Array.isArray(delta?.removedIds) ? delta.removedIds : [];
-        const newCursor = Number(delta?.newCursor || 0);
-        const serverLabels: string[] | null = Array.isArray(delta?.accountLabels) ? delta.accountLabels : activeCacheLabels;
-
-        if (rows.length > 0 || removedIds.length > 0 || newCursor > cursor) {
-          await writeDelta(db, { rows, removedIds, newCursor });
-          const fresh = await readLatestEmails(db, 200, serverLabels);
-          console.log(`[inbox] after writeDelta, IDB has ${fresh.length} rows → repaint`);
-          setEmails(fresh as unknown as Email[]);
-          setLastUpdated(new Date());
-          if (fresh.length > 0) markInboxReady();
-        }
         setError(null);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err || "");
@@ -8699,15 +8612,13 @@ function EmailViewer() {
                       type="button"
                       onClick={() => {
                         setSelectedAccountLabel(label);
-                        // Trigger a scoped refresh immediately when admin picks a pill.
-                        setTimeout(() => { void fetchEmails([label]); }, 0);
                       }}
                       className={`px-3 py-1 rounded-full text-[11px] font-bold transition-all ${
                         selectedAccountLabel === label
                           ? "bg-red-600 text-white shadow-sm"
                           : "bg-slate-100 text-slate-700 hover:bg-slate-200"
                       }`}
-                      title={`Refresh only ${label}`}
+                      title={`Show ${label}. Press Refresh to sync.`}
                     >
                       {label}
                     </button>

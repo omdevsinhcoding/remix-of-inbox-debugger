@@ -52,8 +52,6 @@ const PER_ACCOUNT_TIMEOUT_MS = 6500;
 const FAST_REFRESH_TIMEOUT_MS = 4500;
 const FAST_REFRESH_SCAN_COUNT = 25;
 const STALE_DAYS = 60;
-const USER_SYNC_WINDOW_MS = 5_000;
-const userSyncHits = new Map<string, number>();
 let cronRepairLastAttempt = 0;
 
 type Session = { userId: string; username: string; role: "admin" | "user"; assignedAccounts?: string[] | null; exp?: number; impersonated?: boolean; adminId?: string | null };
@@ -705,26 +703,18 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
       destroyed: false,
     }));
 
-    const persistWork = supabase.from("cached_emails").upsert(rows, { onConflict: "id", ignoreDuplicates: true })
-      .then(({ error: upsertErr }: any) => {
-        if (upsertErr) console.error("[sync] Cache upsert error:", upsertErr);
-      });
-    if (quickRefresh) {
-      inserted = rows.length;
-      ((globalThis as any).EdgeRuntime?.waitUntil?.(persistWork) ?? persistWork.catch((err: any) => console.error("[sync] Background upsert error:", err)));
-    } else {
-      await persistWork;
-      inserted = rows.length;
-    }
+    const { error: upsertErr } = await supabase.from("cached_emails").upsert(rows, { onConflict: "id", ignoreDuplicates: true });
+    if (upsertErr) console.error("[sync] Cache upsert error:", upsertErr);
+    inserted = rows.length;
   }
 
-  const cleanupWork = (async () => {
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - STALE_DAYS);
-    await supabase.from("cached_emails").delete().lt("date", cutoff.toISOString()).eq("destroyed", false);
-  })().catch((e) => console.error("[sync] Stale cleanup error:", e));
-  if (quickRefresh) ((globalThis as any).EdgeRuntime?.waitUntil?.(cleanupWork) ?? cleanupWork);
-  else await cleanupWork;
+  if (!quickRefresh) {
+    await (async () => {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - STALE_DAYS);
+      await supabase.from("cached_emails").delete().lt("date", cutoff.toISOString()).eq("destroyed", false);
+    })().catch((e) => console.error("[sync] Stale cleanup error:", e));
+  }
 
   const response: any = {
     success: true,
@@ -913,26 +903,9 @@ Deno.serve(async (originalReq) => {
       // Non-admin user: restrict sync scope to their assigned accounts.
       // Empty assignment -> nothing to sync/display.
       if (assigned && assigned.length === 0) {
-        return json({ success: true, accepted: true, emails: [], message: "No accounts assigned" }, mode === "sync_async" ? 202 : 200);
+        return json({ success: true, emails: [], message: "No accounts assigned" }, 200);
       }
       if (assigned && assigned.length > 0) accountLabels = accountLabels ? accountLabels.filter(l => assigned.includes(l)) : assigned;
-      if (mode === "sync_async") {
-        const last = userSyncHits.get(session.userId) || 0;
-        if (Date.now() - last < USER_SYNC_WINDOW_MS) {
-          const cache = await readCache(supabase, assigned, filterSignInCodes, filterPasswordResets, filterAccountUpdates, session, body.limit);
-          return json({ success: true, rateLimited: true, message: "Please wait before refreshing again", emails: cache }, 202);
-        }
-        userSyncHits.set(session.userId, Date.now());
-      }
-    }
-
-    if (mode === "sync_async") {
-      const accountFilterForCache = session ? await getAssignedAccountFilter(supabase, session) : null;
-      const cache = session ? await readCache(supabase, accountFilterForCache, filterSignInCodes, filterPasswordResets, filterAccountUpdates, session, body.limit).catch(() => []) : [];
-      const maxMessages = USER_REFRESH_MAX_UIDS;
-      const work = runSync(supabase, ENCRYPTION_SECRET, source || "async", accountLabels, maxMessages).catch(err => console.error("[sync_async] background failed:", err));
-      ((globalThis as any).EdgeRuntime?.waitUntil?.(work) ?? work);
-      return json({ success: true, accepted: true, emails: cache }, 202);
     }
 
     const result = await runSync(supabase, ENCRYPTION_SECRET, source, accountLabels, clampLimit(body.limit, FULL_SYNC_MAX_UIDS, FULL_SYNC_MAX_UIDS));
