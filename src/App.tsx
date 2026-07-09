@@ -8223,6 +8223,10 @@ function EmailViewer() {
       try {
         await refreshEmailFiltersForViewer();
         await loadCachedEmails({ limit: 200 });
+        // Admin with "All" selected → skip IMAP sync entirely. Admin must
+        // pick a specific account pill to trigger a sync (option B).
+        const skipSync = user.role === "admin" && !selectedAccountLabel;
+        if (skipSync) return;
         const synced = await syncViaWorker();
         if (synced) {
           setEmails(synced);
