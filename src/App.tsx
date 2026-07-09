@@ -3722,10 +3722,10 @@ function AllEmailsPanel() {
 
   const deleteIds = async (ids: string[]) => {
     if (!ids.length) return;
-    if (!confirm(`Delete ${ids.length} email${ids.length === 1 ? "" : "s"} from the database? This removes them for every user and cannot be undone.`)) return;
+    if (!confirm(`Suppress ${ids.length} email${ids.length === 1 ? "" : "s"} for every user? Future syncs will not bring them back.`)) return;
     try {
       const res: any = await apiCall("manage-app", { action: "admin_delete_emails", ids });
-      notify.success(`Deleted ${res?.deleted ?? ids.length} email${(res?.deleted ?? ids.length) === 1 ? "" : "s"}`);
+      notify.success(`Suppressed ${res?.deleted ?? ids.length} email${(res?.deleted ?? ids.length) === 1 ? "" : "s"}`);
       if (viewing && ids.includes(viewing.id)) setViewing(null);
       await load(offset);
     } catch (e: any) { notify.error(e?.message || "Delete failed"); }
@@ -4069,6 +4069,7 @@ function AdminPanel() {
   const [showAccountUpdates, setShowAccountUpdates] = useState(false);
   const [editingUserAccounts, setEditingUserAccounts] = useState<string | null>(null);
   const [editAccountsList, setEditAccountsList] = useState<string[]>([]);
+  const [editUsername, setEditUsername] = useState<string>("");
   const [editSessionLimit, setEditSessionLimit] = useState<string>("");
   const [editExpiresAt, setEditExpiresAt] = useState<string>(""); // "YYYY-MM-DDTHH:mm" for free users only
   const [newIsFree, setNewIsFree] = useState(false);
@@ -4840,7 +4841,7 @@ function AdminPanel() {
     }
     if (inboxMode === "label" && !inboxLabel) { notify.error("Choose an account label"); return; }
     if (inboxMode === "days" && !inboxDays) { notify.error("Enter days"); return; }
-    if (!confirm("This permanently deletes emails from the database. Continue?")) return;
+    if (!confirm("This suppresses matching emails for every user forever. Future syncs will not bring them back. Continue?")) return;
     setClearingInbox(true);
     try {
       const res = await apiCall("manage-app", {
@@ -4850,7 +4851,7 @@ function AdminPanel() {
         days: inboxMode === "days" ? Number(inboxDays) : undefined,
         confirm: inboxMode === "all" ? inboxConfirm : undefined,
       });
-      notify.success(`Deleted ${res.deleted || 0} email(s)`);
+      notify.success(`Suppressed ${res.deleted || 0} email(s)`);
       setInboxConfirm("");
     } catch (err) {
       notify.error(err instanceof Error ? err.message : "Failed");
@@ -4945,11 +4946,12 @@ function AdminPanel() {
         if (t <= Date.now()) { notify.error("Expiry must be in the future"); setCreatingUser(false); return; }
         expiresIso = new Date(t).toISOString();
       }
-      // Free profile: send ONLY name + is_free. No username, no password —
-      // free profiles are entered with a single tap from the profile picker.
+      // Free profile: passwordless one-tap entry. Username is optional/manual only
+      // (never generated); password is never sent for free profiles.
       const body: any = newIsFree
         ? {
             action: "create",
+            username: username || undefined,
             name: displayName,
             role: "user",
             is_free: true,
@@ -5082,13 +5084,15 @@ function AdminPanel() {
       await apiCall("manage-app", {
         action: "update_user",
         id: userId,
+        username: editUsername.trim() || null,
         assigned_accounts: editAccountsList.length > 0 ? editAccountsList : null,
         session_limit,
         ...(expires_at !== undefined ? { expires_at } : {}),
       });
       const nextAccounts = editAccountsList.length > 0 ? editAccountsList : null;
+      const nextUsername = editUsername.trim() || null;
       setEditingUserAccounts(null);
-      setUsers(prev => prev.map(u => u.id === userId ? { ...u, assignedAccounts: nextAccounts, session_limit, ...(expires_at !== undefined ? { expiresAt: expires_at } as any : {}) } : u));
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, username: nextUsername as any, assignedAccounts: nextAccounts, session_limit, ...(expires_at !== undefined ? { expiresAt: expires_at } as any : {}) } : u));
       notify.success("User settings updated!");
     } catch (err) {
       notify.error(err instanceof Error ? err.message : "Failed to update");
@@ -5174,13 +5178,16 @@ function AdminPanel() {
                     className="w-4 h-4 mt-0.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500" />
                   <div className="min-w-0">
                     <p className="text-sm font-bold text-emerald-900">Free profile (no password)</p>
-                    <p className="text-[11px] text-emerald-700/80 leading-snug">Anyone can enter this profile with one tap. No username or password is stored.</p>
+                    <p className="text-[11px] text-emerald-700/80 leading-snug">Anyone can enter this profile with one tap. Username is optional and admin-controlled.</p>
                   </div>
                 </label>
 
                 <input type="text" placeholder="Display Name" value={newName} onChange={(e) => setNewName(e.target.value)}
                   className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
-                {!newIsFree && (
+                {newIsFree ? (
+                  <input type="text" placeholder="Username (optional)" value={newUsername} onChange={(e) => setNewUsername(e.target.value)}
+                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-emerald-500 text-sm" />
+                ) : (
                   <>
                     <input type="text" placeholder="Username" value={newUsername} onChange={(e) => setNewUsername(e.target.value)}
                       className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
@@ -5263,7 +5270,7 @@ function AdminPanel() {
                             {u.isFree && <span className="text-[9px] font-black bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded">FREE</span>}
                             {u.pinned && <span className="text-[9px] font-black bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">PINNED</span>}
                           </p>
-                          <p className="text-xs text-slate-500 truncate">@{u.username} • <span className={u.role === "admin" ? "text-red-600 font-bold" : (u.isFree ? "text-emerald-600 font-semibold" : "text-blue-600")}>{u.isFree ? "free" : u.role}</span></p>
+                          <p className="text-xs text-slate-500 truncate">{u.username ? `@${u.username} • ` : ""}<span className={u.role === "admin" ? "text-red-600 font-bold" : (u.isFree ? "text-emerald-600 font-semibold" : "text-blue-600")}>{u.isFree ? "free" : u.role}</span></p>
                           {u.assignedAccounts && u.assignedAccounts.length > 0 && (
                             <div className="flex flex-wrap gap-1 mt-1">
                               {u.assignedAccounts.map((a: string) => (
@@ -5299,6 +5306,7 @@ function AdminPanel() {
                           <button onClick={() => {
                               const opening = editingUserAccounts !== u.id;
                               setEditingUserAccounts(opening ? u.id : null);
+                              setEditUsername(u.username || "");
                               setEditAccountsList((u as any).assignedAccounts || []);
                               const cur = (u as any).session_limit;
                               setEditSessionLimit(cur === null || cur === undefined ? "" : String(cur));
@@ -5331,6 +5339,16 @@ function AdminPanel() {
 
                     {editingUserAccounts === u.id && u.role !== "admin" && (
                       <div className="mt-3 p-3 bg-white rounded-xl border">
+                        <div className="mb-2">
+                          <label className="block text-xs font-bold text-slate-500 mb-1">Username {u.isFree ? "(optional)" : ""}</label>
+                          <input
+                            type="text"
+                            value={editUsername}
+                            onChange={(e) => setEditUsername(e.target.value)}
+                            placeholder={u.isFree ? "No username" : "Username"}
+                            className="w-full bg-slate-50 border rounded-lg p-2 outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
+                          />
+                        </div>
                         <p className="text-xs font-bold text-slate-500 mb-2">Assign IMAP Accounts</p>
                         <div className="space-y-1.5 mb-2">
                           {getAvailableAccounts().map(label => (
@@ -6294,7 +6312,7 @@ function AdminPanel() {
                 <div className="bg-red-50 p-1.5 rounded-lg"><Trash2 className="w-4 h-4 text-red-600" /></div>
                 Clear Cached Inbox
               </h2>
-              <p className="text-xs text-slate-500 mb-4">Permanently deletes from <code>cached_emails</code>. This affects every user.</p>
+              <p className="text-xs text-slate-500 mb-4">Suppresses emails in <code>cached_emails</code> forever. This affects every user and future syncs will not bring them back.</p>
               <div className="space-y-3">
                 <div className="flex flex-wrap gap-3 text-sm">
                   <label className="flex items-center gap-2 text-slate-800">

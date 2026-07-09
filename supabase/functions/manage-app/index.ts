@@ -2112,9 +2112,10 @@ Deno.serve(async (originalReq) => {
       // Bootstrap (first user) can never be a free profile — must be admin.
       if (bootstrapCreate && isFree) throw new Error("First user must be admin");
 
-      // Free profile: no username or password at all — one-tap entry.
-      // Paid/admin profile: username + password required (checked above).
-      const finalUsername = isFree ? null : username;
+      // Free profile: passwordless one-tap entry. Username is optional/manual only
+      // (never generated); paid/admin profile still requires username + password.
+      const cleanedUsername = typeof username === "string" && username.trim() ? username.trim() : null;
+      const finalUsername = isFree ? cleanedUsername : username;
       const finalRole = isFree ? "user" : (role || "user");
       const insertPayload: any = {
         username: finalUsername,
@@ -2537,11 +2538,19 @@ Deno.serve(async (originalReq) => {
 
     if (action === "update_user") {
       const session = await requireAdmin(req);
-      const { id, assigned_accounts, session_limit, pinned, is_free, name, expires_at } = params;
+      const { id, assigned_accounts, session_limit, pinned, is_free, name, username, expires_at } = params;
       if (!id) throw new Error("User ID required");
       const patch: Record<string, any> = {};
       if (assigned_accounts !== undefined) patch.assigned_accounts = assigned_accounts;
       if (typeof name === "string" && name.trim()) patch.name = name.trim();
+      if (username !== undefined) {
+        const cleanUsername = typeof username === "string" && username.trim() ? username.trim() : null;
+        if (!cleanUsername) {
+          const { data: existingUser } = await supabase.from("app_users").select("is_free").eq("id", id).maybeSingle();
+          if (!existingUser?.is_free) throw new Error("Username required");
+        }
+        patch.username = cleanUsername;
+      }
       if (pinned !== undefined) patch.pinned = !!pinned;
       if (is_free !== undefined) patch.is_free = !!is_free;
       if (expires_at !== undefined) {
@@ -3015,11 +3024,11 @@ Deno.serve(async (originalReq) => {
       });
     }
 
-    // ---------- Admin: destructive DB clear ----------
+    // ---------- Admin: suppress inbox rows globally ----------
     if (action === "admin_clear_inbox") {
       const session = await requireAdmin(req);
       const { mode, accountLabel, days, confirm } = params as any;
-      let q = supabase.from("cached_emails").delete();
+      let q = supabase.from("cached_emails").update({ destroyed: true, html: null, preview: null, otp: null, cached_at: new Date().toISOString() }, { count: "exact" });
       let details: any = { mode };
       if (mode === "all") {
         if (confirm !== "DELETE ALL") throw new Error("Confirmation phrase required");
@@ -3037,7 +3046,8 @@ Deno.serve(async (originalReq) => {
       } else {
         throw new Error("Invalid mode");
       }
-      const { error, count } = await q.select("id", { count: "exact", head: true });
+      q = q.eq("destroyed", false);
+      const { error, count } = await q.select("id", { count: "exact" });
       if (error) throw error;
       details.deleted = count || 0;
       await auditLog(supabase, "admin_clear_inbox", session.userId, null, details, ip);
@@ -3483,10 +3493,11 @@ Deno.serve(async (originalReq) => {
       let dataQ = supabase
         .from("cached_emails")
         .select("id, subject, from_address, to_address, date, otp, preview, account_label, cached_at")
+        .eq("destroyed", false)
         .order("date", { ascending: false });
       dataQ = buildFilters(dataQ).range(off, off + lim - 1);
       // Separate exact head count — reliable even when combined with or()/range().
-      let countQ = supabase.from("cached_emails").select("id", { count: "exact", head: true });
+      let countQ = supabase.from("cached_emails").select("id", { count: "exact", head: true }).eq("destroyed", false);
       countQ = buildFilters(countQ);
       const [{ data, error }, { count, error: countErr }] = await Promise.all([dataQ, countQ]);
       if (error) throw error;
@@ -3501,7 +3512,7 @@ Deno.serve(async (originalReq) => {
       await requireAdmin(req);
       const { id } = (params || {}) as any;
       if (!id) throw new Error("id required");
-      const { data, error } = await supabase.from("cached_emails").select("*").eq("id", id).maybeSingle();
+      const { data, error } = await supabase.from("cached_emails").select("*").eq("id", id).eq("destroyed", false).maybeSingle();
       if (error) throw error;
       return new Response(JSON.stringify({ success: true, email: data || null }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -3513,7 +3524,11 @@ Deno.serve(async (originalReq) => {
       const { ids } = (params || {}) as any;
       if (!Array.isArray(ids) || ids.length === 0) throw new Error("ids required");
       const clean = ids.filter((x: any) => typeof x === "string").slice(0, 500);
-      const { error, count } = await supabase.from("cached_emails").delete({ count: "exact" }).in("id", clean);
+      const { error, count } = await supabase
+        .from("cached_emails")
+        .update({ destroyed: true, html: null, preview: null, otp: null, cached_at: new Date().toISOString() }, { count: "exact" })
+        .in("id", clean)
+        .eq("destroyed", false);
       if (error) throw error;
       await auditLog(supabase, "admin_delete_emails", session.userId, null, { ids: clean, deleted: count || 0 }, ip);
       return new Response(JSON.stringify({ success: true, deleted: count || 0 }), {
@@ -3584,10 +3599,10 @@ Deno.serve(async (originalReq) => {
       // Kick everything off in PARALLEL server-side. Edge → Postgres latency is
       // ~1-5ms each, so 12 parallel queries return in ~50-150ms total.
       const usersP = supabase.from("app_users")
-        .select("id, username, name, role, assigned_accounts, profile_prefs, session_limit")
+        .select("id, username, name, role, assigned_accounts, profile_prefs, session_limit, is_free, pinned, sort_order, expires_at")
         .order("created_at", { ascending: true });
 
-      const emailsCountP = supabase.from("cached_emails").select("id", { count: "exact", head: true });
+      const emailsCountP = supabase.from("cached_emails").select("id", { count: "exact", head: true }).eq("destroyed", false);
 
       const notesP = supabase.from("notifications").select("*").order("created_at", { ascending: false }).limit(200);
       const totalUsersP = supabase.from("app_users").select("id", { count: "exact", head: true }).neq("role", "admin");
@@ -3607,6 +3622,10 @@ Deno.serve(async (originalReq) => {
         ...u,
         assignedAccounts: u.assigned_accounts || null,
         profileAvatar: u.profile_prefs?.avatarId || null,
+        isFree: !!u.is_free,
+        pinned: !!u.pinned,
+        sortOrder: u.sort_order ?? null,
+        expiresAt: u.expires_at || null,
       }));
 
       // Notification stats — 2 more queries but only if there are notes
