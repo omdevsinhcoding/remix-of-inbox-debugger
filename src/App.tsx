@@ -6315,53 +6315,55 @@ function AdminPanel() {
                   <Eye className={`w-4 h-4 transition-transform ${expandedAccount === -1 ? "text-green-700" : "text-green-400"}`} />
                 </div>
                 {expandedAccount === -1 && (
-                  <div className="mt-4 pt-3 border-t border-green-200 space-y-2">
+                  <div className="mt-4 pt-3 border-t border-green-200 space-y-2.5">
                     <div className="grid grid-cols-2 gap-3">
-                      <div>
+                      <div className="bg-white/60 rounded-lg p-2">
                         <p className="text-[10px] font-bold text-green-600 uppercase">Host</p>
-                        <p className="text-sm text-green-900 font-medium">{serverConfig.IMAP_HOST || "Not set"}</p>
+                        <p className="text-sm text-green-900 font-medium break-all">{serverConfig.IMAP_HOST || "Not set"}</p>
                       </div>
-                      <div>
+                      <div className="bg-white/60 rounded-lg p-2">
                         <p className="text-[10px] font-bold text-green-600 uppercase">Port</p>
                         <p className="text-sm text-green-900 font-medium">{serverConfig.IMAP_PORT || "Not set"}</p>
                       </div>
-                      <div>
-                        <p className="text-[10px] font-bold text-green-600 uppercase">Email</p>
-                        <p className="text-sm text-green-900 font-medium">{serverConfig.IMAP_USER || "Not set"}</p>
-                      </div>
-                      <div>
+                    </div>
+                    <div className="bg-white/60 rounded-lg p-2">
+                      <p className="text-[10px] font-bold text-green-600 uppercase">Email</p>
+                      <p className="text-sm text-green-900 font-medium break-all">{serverConfig.IMAP_USER || "Not set"}</p>
+                    </div>
+                    <div className="bg-white/60 rounded-lg p-2">
+                      <div className="flex items-center justify-between gap-2 mb-1">
                         <p className="text-[10px] font-bold text-green-600 uppercase">Password</p>
-                        {serverConfig.IMAP_PASSWORD ? (
-                          <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                            <p className="text-sm text-green-900 font-medium font-mono break-all flex-1 min-w-0">
-                              {revealedPasswords.has("primary") ? serverConfig.IMAP_PASSWORD : "••••••••••••"}
-                            </p>
+                        {serverConfig.IMAP_PASSWORD && (
+                          <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                             <button
                               type="button"
                               onClick={(e) => { e.stopPropagation(); togglePasswordReveal("primary"); }}
-                              className="p-1.5 rounded-lg hover:bg-green-200 text-green-700 flex-shrink-0"
+                              className="p-1.5 rounded-lg hover:bg-green-200 text-green-700"
                               aria-label={revealedPasswords.has("primary") ? "Hide password" : "Show password"}
                             >
-                              {revealedPasswords.has("primary") ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                              {revealedPasswords.has("primary") ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                             </button>
-                            {revealedPasswords.has("primary") && (
-                              <button
-                                type="button"
-                                onClick={async (e) => {
-                                  e.stopPropagation();
-                                  try { await navigator.clipboard.writeText(serverConfig.IMAP_PASSWORD || ""); notify.success("Password copied"); } catch { notify.error("Copy failed"); }
-                                }}
-                                className="p-1.5 rounded-lg hover:bg-green-200 text-green-700 flex-shrink-0"
-                                aria-label="Copy password"
-                              >
-                                <Copy className="w-4 h-4" />
-                              </button>
-                            )}
+                            <button
+                              type="button"
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                try { await navigator.clipboard.writeText(serverConfig.IMAP_PASSWORD || ""); notify.success("Password copied"); } catch { notify.error("Copy failed"); }
+                              }}
+                              className="p-1.5 rounded-lg hover:bg-green-200 text-green-700"
+                              aria-label="Copy password"
+                            >
+                              <Copy className="w-3.5 h-3.5" />
+                            </button>
                           </div>
-                        ) : (
-                          <p className="text-sm text-green-900 font-medium">Not set</p>
                         )}
                       </div>
+                      {serverConfig.IMAP_PASSWORD ? (
+                        <p className="text-sm text-green-900 font-mono font-medium break-all tracking-wider">
+                          {revealedPasswords.has("primary") ? serverConfig.IMAP_PASSWORD : "••••••••••••••••"}
+                        </p>
+                      ) : (
+                        <p className="text-sm text-green-900 font-medium">Not set</p>
+                      )}
                     </div>
                     <div>
                       <p className="text-[10px] font-bold text-green-600 uppercase">Cloudflare Worker URLs</p>
@@ -6412,53 +6414,55 @@ function AdminPanel() {
                         </button>
                       </div>
                       {expandedAccount === i && (
-                        <div className="mt-4 pt-3 border-t border-blue-200 space-y-2">
+                        <div className="mt-4 pt-3 border-t border-blue-200 space-y-2.5">
                           <div className="grid grid-cols-2 gap-3">
-                            <div>
+                            <div className="bg-white rounded-lg p-2 border border-slate-100">
                               <p className="text-[10px] font-bold text-blue-500 uppercase">Host</p>
-                              <p className="text-sm text-slate-800 font-medium">{acc.host}</p>
+                              <p className="text-sm text-slate-800 font-medium break-all">{acc.host}</p>
                             </div>
-                            <div>
+                            <div className="bg-white rounded-lg p-2 border border-slate-100">
                               <p className="text-[10px] font-bold text-blue-500 uppercase">Port</p>
                               <p className="text-sm text-slate-800 font-medium">{acc.port}</p>
                             </div>
-                            <div>
-                              <p className="text-[10px] font-bold text-blue-500 uppercase">Email</p>
-                              <p className="text-sm text-slate-800 font-medium">{acc.user}</p>
-                            </div>
-                            <div>
+                          </div>
+                          <div className="bg-white rounded-lg p-2 border border-slate-100">
+                            <p className="text-[10px] font-bold text-blue-500 uppercase">Email</p>
+                            <p className="text-sm text-slate-800 font-medium break-all">{acc.user}</p>
+                          </div>
+                          <div className="bg-white rounded-lg p-2 border border-slate-100">
+                            <div className="flex items-center justify-between gap-2 mb-1">
                               <p className="text-[10px] font-bold text-blue-500 uppercase">Password</p>
-                              {acc.password ? (
-                                <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                                  <p className="text-sm text-slate-800 font-medium font-mono break-all flex-1 min-w-0">
-                                    {revealedPasswords.has(`acc-${i}`) ? acc.password : "••••••••••••"}
-                                  </p>
+                              {acc.password && (
+                                <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                                   <button
                                     type="button"
                                     onClick={(e) => { e.stopPropagation(); togglePasswordReveal(`acc-${i}`); }}
-                                    className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-600 flex-shrink-0"
+                                    className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-600"
                                     aria-label={revealedPasswords.has(`acc-${i}`) ? "Hide password" : "Show password"}
                                   >
-                                    {revealedPasswords.has(`acc-${i}`) ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                    {revealedPasswords.has(`acc-${i}`) ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                                   </button>
-                                  {revealedPasswords.has(`acc-${i}`) && (
-                                    <button
-                                      type="button"
-                                      onClick={async (e) => {
-                                        e.stopPropagation();
-                                        try { await navigator.clipboard.writeText(acc.password || ""); notify.success("Password copied"); } catch { notify.error("Copy failed"); }
-                                      }}
-                                      className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-600 flex-shrink-0"
-                                      aria-label="Copy password"
-                                    >
-                                      <Copy className="w-4 h-4" />
-                                    </button>
-                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={async (e) => {
+                                      e.stopPropagation();
+                                      try { await navigator.clipboard.writeText(acc.password || ""); notify.success("Password copied"); } catch { notify.error("Copy failed"); }
+                                    }}
+                                    className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-600"
+                                    aria-label="Copy password"
+                                  >
+                                    <Copy className="w-3.5 h-3.5" />
+                                  </button>
                                 </div>
-                              ) : (
-                                <p className="text-sm text-slate-800 font-medium">Not set</p>
                               )}
                             </div>
+                            {acc.password ? (
+                              <p className="text-sm text-slate-800 font-mono font-medium break-all tracking-wider">
+                                {revealedPasswords.has(`acc-${i}`) ? acc.password : "••••••••••••••••"}
+                              </p>
+                            ) : (
+                              <p className="text-sm text-slate-800 font-medium">Not set</p>
+                            )}
                           </div>
                           <div>
                             <div className="flex items-center justify-between">
