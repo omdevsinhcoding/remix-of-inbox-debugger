@@ -1296,6 +1296,8 @@ function AutoPopupNotification() {
       const fresh = list.filter((n) =>
         !seenRef.current.has(n.id) &&
         !n.read &&
+        (n.mode || "popup") === "popup" &&
+        (n.priority === "normal" || n.priority === "high" || n.priority === "critical" || n.category === "security") &&
         (!n.snoozed_until || new Date(n.snoozed_until) < new Date())
       );
       if (fresh.length) {
@@ -1307,9 +1309,10 @@ function AutoPopupNotification() {
         const rank = (n: AppNotification): number => {
           const cat = (n.category || "").toLowerCase();
           const sub = (n.sub_kind || "").toLowerCase();
-          if (cat === "security" || sub.includes("password") || sub.includes("reset")) return 0;
-          if (cat === "announcement" || cat === "update" || cat === "maintenance") return 1;
-          return 2;
+          if (cat === "security" || sub.includes("password") || sub.includes("reset") || n.priority === "critical") return 0;
+          if (n.priority === "high") return 1;
+          if (cat === "announcement" || cat === "update" || cat === "maintenance") return 2;
+          return 3;
         };
         fresh.sort((a, b) => {
           const ra = rank(a), rb = rank(b);
@@ -1317,7 +1320,7 @@ function AutoPopupNotification() {
           const cra = a.priority === "critical" ? 1 : 0, crb = b.priority === "critical" ? 1 : 0;
           if (cra !== crb) return crb - cra;
           const ta = new Date(a.created_at).getTime(), tb = new Date(b.created_at).getTime();
-          return ra === 1 ? ta - tb : tb - ta;
+          return ra === 2 ? ta - tb : tb - ta;
         });
         setQueue((prev) => (prev.length ? prev : fresh.slice(0, 3)));
       }
@@ -8204,10 +8207,6 @@ function EmailViewer() {
 
   const fetchEmails = async (labelsOverride?: string[] | null) => {
     if (refreshingRef.current) {
-      notify.info("Refresh in progress…", {
-        id: "nf-refresh-busy",
-        duration: 1800,
-      });
       return;
     }
     const syncLabels = labelsOverride !== undefined ? labelsOverride : activeRefreshLabels;
@@ -8222,7 +8221,7 @@ function EmailViewer() {
       ).map((e) => e.id),
     );
     const toastId = "nf-refresh";
-    notify.loading(skipSync ? "Loading inbox…" : "Refreshing mail…", { id: toastId });
+    if (!skipSync) notify.loading("Refreshing mail…", { id: toastId });
 
     try {
       await Promise.all([
@@ -8231,38 +8230,26 @@ function EmailViewer() {
       ]);
 
       if (skipSync) {
-        notify.dismiss(toastId);
-        notify.info(user.role === "admin" ? "Pick an account to refresh" : "Inbox updated", { duration: 1600 });
         return;
       }
 
+      const synced = await syncViaWorker(syncLabels);
+      if (synced && synced.length > 0) {
+        mergeEmailsIntoState(synced);
+        setError(null);
+        setLastUpdated(new Date());
+      }
       const snapshot = await loadServerSnapshot(cacheLabels).catch((snapshotErr) => {
         const smsg = snapshotErr instanceof Error ? snapshotErr.message : String(snapshotErr || "");
         pushDiag({ ts: Date.now(), kind: "sync", endpoint: "list_delta:snapshot", error: smsg });
-        return null;
+        return synced || null;
       });
       const scopedSnapshot = Array.isArray(cacheLabels) && cacheLabels.length === 1
-        ? (snapshot || []).filter((e) => String(e.account_label || "").trim() === cacheLabels[0])
-        : (snapshot || []);
+        ? (snapshot || synced || []).filter((e) => String(e.account_label || "").trim() === cacheLabels[0])
+        : (snapshot || synced || []);
       const newCount = scopedSnapshot.filter((e) => !beforeIds.has(e.id)).length;
       notify.dismiss(toastId);
-      notify.success(newCount > 0 ? `${newCount} new email${newCount === 1 ? "" : "s"} arrived` : "Inbox updated", { duration: 1800 });
-
-      void (async () => {
-        try {
-          const synced = await syncViaWorker(syncLabels);
-          if (synced && synced.length > 0) {
-            mergeEmailsIntoState(synced);
-            setError(null);
-            setLastUpdated(new Date());
-          }
-          await new Promise((r) => setTimeout(r, 900));
-          await loadServerSnapshot(cacheLabels);
-        } catch (bgErr) {
-          const bmsg = bgErr instanceof Error ? bgErr.message : String(bgErr || "");
-          pushDiag({ ts: Date.now(), kind: "sync", endpoint: "background refresh", error: bmsg });
-        }
-      })();
+      if (newCount > 0) notify.success(`${newCount} new email${newCount === 1 ? "" : "s"} arrived`, { duration: 1800 });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err || "Failed to refresh");
       pushDiag({ ts: Date.now(), kind: "sync", endpoint: "manual refresh", error: msg });
@@ -8281,8 +8268,8 @@ function EmailViewer() {
 
 
 
-  // On mount/login: ONE silent auto-refresh via the worker POST sync path.
-  // No browser-persistent email cache, no background polling, no GET /api/emails.
+  // On mount/login: paint cache/server snapshot only. Never touch IMAP until the
+  // user explicitly presses Refresh or an admin picks a specific account pill.
   const didAutoRefreshRef = useRef(false);
   useEffect(() => {
     setLoading(false);
@@ -8299,16 +8286,6 @@ function EmailViewer() {
           refreshEmailFiltersForViewer(),
           loadCachedEmails({ limit: 200 }),
         ]);
-        // Admin with "All" selected → skip IMAP sync entirely. Admin must
-        // pick a specific account pill to trigger a sync (option B).
-        const skipSync = user.role === "admin" && !selectedAccountLabel;
-        if (skipSync) return;
-        const synced = await syncViaWorker();
-        if (synced) {
-          setEmails(synced);
-          setError(null);
-          setLastUpdated(new Date());
-        }
         await loadServerSnapshot();
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err || "");
