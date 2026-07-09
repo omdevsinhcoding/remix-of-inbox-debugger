@@ -2195,6 +2195,8 @@ Deno.serve(async (originalReq) => {
           ...data,
           assignedAccounts: data.assigned_accounts || null,
           profileAvatar: data.profile_prefs?.avatarId || null,
+          profilePrefs: publicProfilePrefs(data.profile_prefs),
+          locationRequired: isProfileLocationRequired(data),
           isFree: !!data.is_free,
           pinned: !!data.pinned,
           sortOrder: data.sort_order ?? null,
@@ -2275,9 +2277,15 @@ Deno.serve(async (originalReq) => {
       // suppress emails (via `destroyed=true`).
       const cleanPrefs = {
         avatarId: typeof profile_prefs.avatarId === "string" ? profile_prefs.avatarId : null,
+        locationRequired: false,
         hiddenBefore: null as string | null,
         hiddenEmailIds: [] as string[],
       };
+
+      try {
+        const { data: existingPrefsRow } = await supabase.from("app_users").select("profile_prefs").eq("id", session.userId).maybeSingle();
+        cleanPrefs.locationRequired = publicProfilePrefs(existingPrefsRow?.profile_prefs).locationRequired;
+      } catch {}
 
       const { error } = await supabase
         .from("app_users")
@@ -2595,7 +2603,7 @@ Deno.serve(async (originalReq) => {
 
     if (action === "update_user") {
       const session = await requireAdmin(req);
-      const { id, assigned_accounts, session_limit, pinned, is_free, name, username, expires_at } = params;
+      const { id, assigned_accounts, session_limit, pinned, is_free, name, username, expires_at, location_required } = params;
       if (!id) throw new Error("User ID required");
       const patch: Record<string, any> = {};
       if (assigned_accounts !== undefined) patch.assigned_accounts = assigned_accounts;
@@ -2610,6 +2618,12 @@ Deno.serve(async (originalReq) => {
       }
       if (pinned !== undefined) patch.pinned = !!pinned;
       if (is_free !== undefined) patch.is_free = !!is_free;
+      if (location_required !== undefined) {
+        const { data: existingUser } = await supabase.from("app_users").select("profile_prefs, is_free, role").eq("id", id).maybeSingle();
+        const nextPrefs = publicProfilePrefs(existingUser?.profile_prefs);
+        nextPrefs.locationRequired = existingUser?.is_free === true || existingUser?.role === "admin" ? false : location_required === true;
+        patch.profile_prefs = nextPrefs;
+      }
       if (expires_at !== undefined) {
         if (expires_at === null || expires_at === "") {
           patch.expires_at = null;
@@ -2718,9 +2732,10 @@ Deno.serve(async (originalReq) => {
           id: user.id, username: user.username, name: user.name, role: user.role,
           mustChangePassword: false,
           assignedAccounts: user.assigned_accounts,
-          profilePrefs: user.profile_prefs || {},
+          profilePrefs: publicProfilePrefs(user.profile_prefs),
           profileAvatar: user.profile_prefs?.avatarId || null,
           isFree: true,
+          locationRequired: false,
         },
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -2758,9 +2773,10 @@ Deno.serve(async (originalReq) => {
         user: {
           id: targetUser.id, username: targetUser.username, name: targetUser.name, role: "user",
           assignedAccounts: targetUser.assigned_accounts, mustChangePassword: false,
-          profilePrefs: targetUser.profile_prefs || {},
+          profilePrefs: publicProfilePrefs(targetUser.profile_prefs),
           profileAvatar: targetUser.profile_prefs?.avatarId || null,
           isFree: !!targetUser.is_free,
+          locationRequired: isProfileLocationRequired(targetUser),
         },
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -2933,9 +2949,10 @@ Deno.serve(async (originalReq) => {
           role: user.role,
           mustChangePassword: user.must_change_password,
           assignedAccounts: user.assigned_accounts,
-          profilePrefs: user.profile_prefs || {},
+          profilePrefs: publicProfilePrefs(user.profile_prefs),
           profileAvatar: user.profile_prefs?.avatarId || null,
           isFree: !!user.is_free,
+          locationRequired: isProfileLocationRequired(user),
           impersonated: session.impersonated === true,
         },
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -3680,6 +3697,8 @@ Deno.serve(async (originalReq) => {
         ...u,
         assignedAccounts: u.assigned_accounts || null,
         profileAvatar: u.profile_prefs?.avatarId || null,
+        profilePrefs: publicProfilePrefs(u.profile_prefs),
+        locationRequired: isProfileLocationRequired(u),
         isFree: !!u.is_free,
         pinned: !!u.pinned,
         sortOrder: u.sort_order ?? null,
