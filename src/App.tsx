@@ -8032,7 +8032,7 @@ function EmailViewer() {
         setEmails([]);
         setError(null);
         setLastUpdated(new Date());
-        cachedEmailsLoadedRef.current = true;
+        // NOTE: do NOT mark inbox ready here — no emails means no timer yet.
         return 0;
       }
       const groups = buildWorkerRequestGroups(labels, workerUrlMap, resolvedWorkerUrls);
@@ -8077,14 +8077,16 @@ function EmailViewer() {
       }
       const emailList = mergeEmailsById(lists.map((item) => item.emails));
       if (emailList.length === 0 && emails.length > 0) {
-        cachedEmailsLoadedRef.current = true;
+        // Keep already-shown emails; timer stays as-is (already started if paint happened).
         return filterVisibleEmails(emails, profilePrefs, user).length;
       }
       setEmails(emailList);
       setError(null);
       setLastUpdated(new Date());
-      cachedEmailsLoadedRef.current = true;
-      return filterVisibleEmails(emailList, profilePrefs, user).length;
+      const visibleCount = filterVisibleEmails(emailList, profilePrefs, user).length;
+      // Only start the session timer once we actually have emails to show.
+      if (visibleCount > 0) cachedEmailsLoadedRef.current = true;
+      return visibleCount;
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to load emails";
       pushDiag({ ts: Date.now(), kind: "cache", endpoint: "loadCachedEmails", error: msg });
@@ -8171,11 +8173,11 @@ function EmailViewer() {
     // PHASE 1 (fast, ~200-500ms): repaint from Supabase cache instantly.
     // PHASE 2 (background, ~5-8s): IMAP sync — updates UI silently when done.
     try {
-      await Promise.all([
+      const [, cachedCount] = await Promise.all([
         refreshEmailFiltersForViewer(),
         loadCachedEmails({ limit: 200 }),
       ]);
-      markInboxReady();
+      if ((cachedCount || 0) > 0) markInboxReady();
       notify.dismiss(toastId);
       notify.success("Inbox updated", { duration: 1400 });
     } catch (err) {
@@ -8205,9 +8207,11 @@ function EmailViewer() {
           setEmails(synced);
           setError(null);
           setLastUpdated(new Date());
-          if (synced.length > 0) cachedEmailsLoadedRef.current = true;
-          markInboxReady();
           const visible = filterVisibleEmails(synced, profilePrefs, user);
+          if (visible.length > 0) {
+            cachedEmailsLoadedRef.current = true;
+            markInboxReady();
+          }
           const newCount = visible.filter((e) => !beforeIds.has(e.id)).length;
           if (newCount > 0) {
             notify.info(`${newCount} new email${newCount === 1 ? "" : "s"} arrived`, {
@@ -8242,24 +8246,27 @@ function EmailViewer() {
 
     (async () => {
       try {
-        await Promise.all([
+        const [, cachedCount] = await Promise.all([
           refreshEmailFiltersForViewer(),
           loadCachedEmails({ limit: 200 }),
         ]);
-        markInboxReady();
+        if ((cachedCount || 0) > 0) markInboxReady();
         const synced = await syncViaWorker();
         if (synced) {
           setEmails(synced);
           setError(null);
           setLastUpdated(new Date());
-          if (synced.length > 0) cachedEmailsLoadedRef.current = true;
-          markInboxReady();
+          const visible = filterVisibleEmails(synced, profilePrefs, user);
+          if (visible.length > 0) {
+            cachedEmailsLoadedRef.current = true;
+            markInboxReady();
+          }
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err || "");
         pushDiag({ ts: Date.now(), kind: "sync", endpoint: "login auto-refresh", error: msg });
-        await loadCachedEmails({ limit: 200 });
-        markInboxReady();
+        const cachedCount = await loadCachedEmails({ limit: 200 });
+        if ((cachedCount || 0) > 0) markInboxReady();
       } finally {
         setLoading(false);
       }
@@ -8366,7 +8373,7 @@ function EmailViewer() {
           console.log(`[inbox] after writeDelta, IDB has ${fresh.length} rows → repaint`);
           setEmails(fresh as unknown as Email[]);
           setLastUpdated(new Date());
-          markInboxReady();
+          if (fresh.length > 0) markInboxReady();
         }
         setError(null);
       } catch (err) {
