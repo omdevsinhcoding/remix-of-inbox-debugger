@@ -708,12 +708,13 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
     inserted = rows.length;
   }
 
-  const cleanupWork = (async () => {
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - STALE_DAYS);
-    await supabase.from("cached_emails").delete().lt("date", cutoff.toISOString()).eq("destroyed", false);
-  })().catch((e) => console.error("[sync] Stale cleanup error:", e));
-  await cleanupWork;
+  if (!quickRefresh) {
+    await (async () => {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - STALE_DAYS);
+      await supabase.from("cached_emails").delete().lt("date", cutoff.toISOString()).eq("destroyed", false);
+    })().catch((e) => console.error("[sync] Stale cleanup error:", e));
+  }
 
   const response: any = {
     success: true,
