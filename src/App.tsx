@@ -4942,19 +4942,27 @@ function AdminPanel() {
         if (t <= Date.now()) { notify.error("Expiry must be in the future"); setCreatingUser(false); return; }
         expiresIso = new Date(t).toISOString();
       }
-      const generatedFreeUsername = `free_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-      const generatedFreePassword = typeof crypto !== "undefined" && "randomUUID" in crypto
-        ? `${crypto.randomUUID()}${crypto.randomUUID()}`
-        : `${Date.now()}_${Math.random().toString(36).slice(2)}_${Math.random().toString(36).slice(2)}`;
-      const res: any = await apiCall("manage-app", {
-        action: "create",
-        username: newIsFree ? (username || generatedFreeUsername) : username,
-        password: newIsFree ? generatedFreePassword : password,
-        name: displayName, role: "user",
-        assigned_accounts: newUserAccounts.length > 0 ? newUserAccounts : null,
-        is_free: newIsFree,
-        expires_at: expiresIso,
-      });
+      // Free profile: send ONLY name + is_free. No username, no password —
+      // free profiles are entered with a single tap from the profile picker.
+      const body: any = newIsFree
+        ? {
+            action: "create",
+            name: displayName,
+            role: "user",
+            is_free: true,
+            assigned_accounts: newUserAccounts.length > 0 ? newUserAccounts : null,
+            expires_at: expiresIso,
+          }
+        : {
+            action: "create",
+            username,
+            password,
+            name: displayName,
+            role: "user",
+            assigned_accounts: newUserAccounts.length > 0 ? newUserAccounts : null,
+            is_free: false,
+          };
+      const res: any = await apiCall("manage-app", body);
       setNewUsername(""); setNewPassword(""); setNewName(""); setNewUserAccounts([]); setNewIsFree(false); setNewFreeExpiresAt("");
       if (!res?.user) throw new Error("Server did not return the created user");
       setUsers(prev => [...prev, res.user]);
