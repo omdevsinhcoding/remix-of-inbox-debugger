@@ -47,11 +47,13 @@ function extractOtpCode(subject: string, body: string): string | null {
 }
 
 const FULL_SYNC_MAX_UIDS = 50;
-const USER_REFRESH_MAX_UIDS = 15;
+const USER_REFRESH_MAX_UIDS = 12;
 const PER_ACCOUNT_TIMEOUT_MS = 6500;
-const FAST_REFRESH_TIMEOUT_MS = 4500;
-const FAST_REFRESH_SCAN_COUNT = 25;
+const FAST_REFRESH_TIMEOUT_MS = 1800;
+const FAST_REFRESH_SCAN_COUNT = 4;
 const STALE_DAYS = 60;
+const USER_SYNC_WINDOW_MS = 5_000;
+const userSyncHits = new Map<string, number>();
 let cronRepairLastAttempt = 0;
 
 type Session = { userId: string; username: string; role: "admin" | "user"; assignedAccounts?: string[] | null; exp?: number; impersonated?: boolean; adminId?: string | null };
@@ -294,55 +296,9 @@ async function shouldBlockPromo(supabase: any): Promise<boolean> {
 }
 
 function decodeQuotedPrintable(input: string) {
-  const bytes: number[] = [];
-  const normalized = input.replace(/=\r?\n/g, "");
-  if (!/=([0-9A-Fa-f]{2})/.test(normalized)) return normalized;
-  for (let i = 0; i < normalized.length; i++) {
-    if (normalized[i] === "=" && /^[0-9A-Fa-f]{2}$/.test(normalized.slice(i + 1, i + 3))) {
-      bytes.push(parseInt(normalized.slice(i + 1, i + 3), 16));
-      i += 2;
-    } else {
-      bytes.push(normalized.charCodeAt(i));
-    }
-  }
-  try {
-    return new TextDecoder("utf-8", { fatal: false }).decode(new Uint8Array(bytes));
-  } catch {
-    return normalized
+  return input
     .replace(/=\r?\n/g, "")
     .replace(/=([0-9A-F]{2})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
-  }
-}
-
-function decodeHtmlEntities(input: string) {
-  return String(input || "")
-    .replace(/&#(\d+);/g, (_, code) => {
-      const n = Number(code);
-      return Number.isFinite(n) ? String.fromCodePoint(n) : "";
-    })
-    .replace(/&#x([0-9a-f]+);/gi, (_, code) => {
-      const n = parseInt(code, 16);
-      return Number.isFinite(n) ? String.fromCodePoint(n) : "";
-    })
-    .replace(/&shy;/gi, "")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'");
-}
-
-function cleanDisplayText(input: string) {
-  return decodeHtmlEntities(input)
-    .replace(/[\u200B-\u200D\uFEFF]/g, "")
-    .replace(/[\u2000-\u200A\u202F\u205F\u3000]/g, " ")
-    .replace(/\u00ad/g, "")
-    .replace(/Â\s*/g, "")
-    .replace(/[ \t]{2,}/g, " ")
-    .replace(/\n[ \t]+/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
 }
 
 function formatAddress(addr: any) {
@@ -376,12 +332,21 @@ function recipientMatches(toRaw: string | null | undefined, filters?: string[]):
   return recipients.some((email) => allowed.has(email));
 }
 
-async function parseFastEmail(rawSource: Uint8Array, envelope: any, accountLabel: string, uid: number) {
-  const parsed = await simpleParser(rawSource, { skipImageLinks: true, skipTextLinks: true });
-  const subject = (parsed.subject || envelope?.subject || "").toString();
-  const from = parsed.from?.text || (envelope?.from || []).map(formatAddress).filter(Boolean).join(", ") || "Netflix";
-  const to = parsed.to?.text || (envelope?.to || []).map(formatAddress).filter(Boolean).join(", ") || undefined;
-  const bodyText = cleanDisplayText(parsed.text || "").slice(0, 20_000);
+function parseFastEmail(rawSource: Uint8Array, envelope: any, accountLabel: string, uid: number) {
+  const raw = new TextDecoder().decode(rawSource);
+  const splitAt = raw.search(/\r?\n\r?\n/);
+  const rawBody = splitAt >= 0 ? raw.slice(splitAt) : raw;
+  const bodyText = decodeQuotedPrintable(rawBody)
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
+    .slice(0, 20_000);
+  const subject = (envelope?.subject || "").toString();
+  const from = (envelope?.from || []).map(formatAddress).filter(Boolean).join(", ") || "Netflix";
+  const to = (envelope?.to || []).map(formatAddress).filter(Boolean).join(", ") || undefined;
   // Strict: sender must be a real @netflix.com address. Promo filtering happens
   // at read-time (respecting the admin toggle), not at ingest — so all official
   // Netflix mail (marketing/new-release announcements included) enters the cache.
@@ -393,10 +358,10 @@ async function parseFastEmail(rawSource: Uint8Array, envelope: any, accountLabel
     subject,
     from,
     to,
-    date: parsed.date || envelope?.date || new Date(),
+    date: envelope?.date || new Date(),
     otp: extractOtpCode(subject, bodyText),
     preview,
-    html: parsed.html || parsed.textAsHtml || `<pre>${escapeHtml(bodyText)}</pre>`,
+    html: `<pre>${escapeHtml(bodyText)}</pre>`,
     account_label: accountLabel,
   };
 }
@@ -434,11 +399,6 @@ async function readCache(supabase: any, accountFilter: string[] | null, filterSi
   return applyEmailFilters(emails, filterSignInCodes, filterPasswordResets, filterAccountUpdates, blockPromo);
 }
 
-function isDirtyCachedEmail(row: any): boolean {
-  const value = `${row?.preview || ""}\n${row?.html || ""}`;
-  return /Content-Transfer-Encoding|MIME-Version:|Content-Type:|------=_Part_|&(?:shy|#8199|#847|#8201|#8202);|â|Â/.test(value);
-}
-
 async function fetchFromAccount(
   imapHost: string,
   imapPort: number,
@@ -469,10 +429,7 @@ async function fetchFromAccount(
   });
 
   try {
-    await Promise.race([
-      client.connect(),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("IMAP quick refresh timed out")), budgetMs)),
-    ]);
+    await client.connect();
     console.log(`[${accountLabel}] IMAP connected to ${imapHost}`);
     const lock = await client.getMailboxLock("INBOX");
 
@@ -490,10 +447,9 @@ async function fetchFromAccount(
           if (!hasBudget()) break;
           newestUids.push(message.uid);
           const fromAddr = message.envelope?.from?.[0]?.address?.toLowerCase() || "";
-          const toText = (message.envelope?.to || []).map(formatAddress).filter(Boolean).join(", ") || undefined;
           // STRICT: only accept @netflix.com senders (or subdomains). No subject/to matching —
           // that let third-party threads like "Netflix wtf??" from Reddit slip through.
-          if (/@([a-z0-9-]+\.)*netflix\.com$/.test(fromAddr) && recipientMatches(toText, recipientFilters)) {
+          if (/@([a-z0-9-]+\.)*netflix\.com$/.test(fromAddr)) {
             netflixUids.push(message.uid);
           }
         }
@@ -502,14 +458,14 @@ async function fetchFromAccount(
 
       if (!quickRefresh && netflixUids.length === 0 && hasBudget()) {
         const since = new Date();
-        since.setDate(since.getDate() - (quickRefresh ? 2 : 7));
+        since.setDate(since.getDate() - 7);
         for (const term of ["netflix.com", "netflix"]) {
           if (netflixUids.length > 0 || !hasBudget()) break;
           try {
             const searchResults = await client.search({ from: term, since }, { uid: true });
             if (searchResults?.length > 0) {
               netflixUids = searchResults as number[];
-              console.log(`[${accountLabel}] ${quickRefresh ? "Quick " : ""}Search "${term}" found ${netflixUids.length}`);
+              console.log(`[${accountLabel}] Search "${term}" found ${netflixUids.length}`);
             }
           } catch (searchErr) {
             console.log(`[${accountLabel}] Search "${term}" failed:`, searchErr);
@@ -541,17 +497,6 @@ async function fetchFromAccount(
         try {
           const fullMsg = await client.fetchOne(uid, { source: true, envelope: true }, { uid: true });
           if (!fullMsg?.source) continue;
-
-          if (quickRefresh) {
-            const fast = await parseFastEmail(fullMsg.source, fullMsg.envelope, accountLabel, uid);
-            if (!fast) continue;
-            if (!recipientMatches(fast.to, recipientFilters)) {
-              console.log(`[${accountLabel}] Skipping UID ${uid}: recipient not allowed (${fast.to || "none"})`);
-              continue;
-            }
-            emails.push(fast);
-            continue;
-          }
 
           const parsed = await simpleParser(fullMsg.source, { skipImageLinks: true, skipTextLinks: true });
           const bodyText = (parsed.text || "").trim();
@@ -678,7 +623,7 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
   console.log(`[sync] Starting parallel IMAP sync (source: ${source})`);
   // Keep output identical to the old working fetch-emails implementation:
   // every refresh uses mailparser/simpleParser so Netflix HTML is cached and displayed as-is.
-  const quickRefresh = source === "user_refresh";
+  const quickRefresh = false;
   const accounts = await loadAccounts(supabase, secret, accountLabels);
 
   if (accounts.length === 0) {
@@ -693,11 +638,8 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
     }
   }
 
-  let cachedQuery = supabase.from("cached_emails").select("id, preview, html");
-  const loadedLabels = accounts.map((a) => a.label).filter(Boolean);
-  if (loadedLabels.length > 0) cachedQuery = cachedQuery.in("account_label", loadedLabels);
-  const { data: cachedRows } = await cachedQuery;
-  const cachedIds = new Set((cachedRows || []).filter((r: any) => !isDirtyCachedEmail(r)).map((r: any) => String(r.id)));
+  const { data: cachedRows } = await supabase.from("cached_emails").select("id");
+  const cachedIds = new Set((cachedRows || []).map((r: any) => String(r.id)));
 
   const settled = await Promise.allSettled(accounts.map(async (acc) => {
     console.log(`[sync] Fetching ${acc.label} (${acc.user})`);
@@ -748,18 +690,26 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
       destroyed: false,
     }));
 
-    const { error: upsertErr } = await supabase.from("cached_emails").upsert(rows, { onConflict: "id" });
-    if (upsertErr) console.error("[sync] Cache upsert error:", upsertErr);
-    inserted = rows.length;
+    const persistWork = supabase.from("cached_emails").upsert(rows, { onConflict: "id", ignoreDuplicates: true })
+      .then(({ error: upsertErr }: any) => {
+        if (upsertErr) console.error("[sync] Cache upsert error:", upsertErr);
+      });
+    if (quickRefresh) {
+      inserted = rows.length;
+      ((globalThis as any).EdgeRuntime?.waitUntil?.(persistWork) ?? persistWork.catch((err: any) => console.error("[sync] Background upsert error:", err)));
+    } else {
+      await persistWork;
+      inserted = rows.length;
+    }
   }
 
-  if (!quickRefresh) {
-    await (async () => {
-      const cutoff = new Date();
-      cutoff.setDate(cutoff.getDate() - STALE_DAYS);
-      await supabase.from("cached_emails").delete().lt("date", cutoff.toISOString()).eq("destroyed", false);
-    })().catch((e) => console.error("[sync] Stale cleanup error:", e));
-  }
+  const cleanupWork = (async () => {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - STALE_DAYS);
+    await supabase.from("cached_emails").delete().lt("date", cutoff.toISOString()).eq("destroyed", false);
+  })().catch((e) => console.error("[sync] Stale cleanup error:", e));
+  if (quickRefresh) ((globalThis as any).EdgeRuntime?.waitUntil?.(cleanupWork) ?? cleanupWork);
+  else await cleanupWork;
 
   const response: any = {
     success: true,
@@ -948,9 +898,26 @@ Deno.serve(async (originalReq) => {
       // Non-admin user: restrict sync scope to their assigned accounts.
       // Empty assignment -> nothing to sync/display.
       if (assigned && assigned.length === 0) {
-        return json({ success: true, emails: [], message: "No accounts assigned" }, 200);
+        return json({ success: true, accepted: true, emails: [], message: "No accounts assigned" }, mode === "sync_async" ? 202 : 200);
       }
       if (assigned && assigned.length > 0) accountLabels = accountLabels ? accountLabels.filter(l => assigned.includes(l)) : assigned;
+      if (mode === "sync_async" && source !== "user_refresh") {
+        const last = userSyncHits.get(session.userId) || 0;
+        if (Date.now() - last < USER_SYNC_WINDOW_MS) {
+          const cache = await readCache(supabase, assigned, filterSignInCodes, filterPasswordResets, filterAccountUpdates, session, body.limit);
+          return json({ success: true, rateLimited: true, message: "Please wait before refreshing again", emails: cache }, 202);
+        }
+        userSyncHits.set(session.userId, Date.now());
+      }
+    }
+
+    if (mode === "sync_async" && source !== "user_refresh") {
+      const accountFilterForCache = session ? await getAssignedAccountFilter(supabase, session) : null;
+      const cache = session ? await readCache(supabase, accountFilterForCache, filterSignInCodes, filterPasswordResets, filterAccountUpdates, session, body.limit).catch(() => []) : [];
+      const maxMessages = clampLimit(body.limit, USER_REFRESH_MAX_UIDS, FULL_SYNC_MAX_UIDS);
+      const work = runSync(supabase, ENCRYPTION_SECRET, source || "async", accountLabels, maxMessages).catch(err => console.error("[sync_async] background failed:", err));
+      ((globalThis as any).EdgeRuntime?.waitUntil?.(work) ?? work);
+      return json({ success: true, accepted: true, emails: cache }, 202);
     }
 
     const result = await runSync(supabase, ENCRYPTION_SECRET, source, accountLabels, clampLimit(body.limit, FULL_SYNC_MAX_UIDS, FULL_SYNC_MAX_UIDS));

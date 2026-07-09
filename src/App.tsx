@@ -13,7 +13,7 @@ import { bootstrapFromSupabase, clearSessionData, markSessionStart, readBootstra
 import MaintenanceScreen from "./components/MaintenanceScreen";
 import DateTimePicker from "./components/DateTimePicker";
 import { sessionGet, sessionSet, sessionRemove, sessionClearAll } from "./lib/session";
-import { openInboxDB, readLatestEmails, writeDelta, cacheEmailHtml, getEmailHtml, purgeEmailsOutsideScope, type CachedEmail } from "./lib/inboxCache";
+import { openInboxDB, readLatestEmails, writeDelta, getSyncCursor, cacheEmailHtml, getEmailHtml, purgeEmailsOutsideScope, type CachedEmail } from "./lib/inboxCache";
 
 
 // Lazy-loaded heavy auth-only libs — kept out of the public first-load chunk.
@@ -1296,8 +1296,6 @@ function AutoPopupNotification() {
       const fresh = list.filter((n) =>
         !seenRef.current.has(n.id) &&
         !n.read &&
-        (n.mode || "popup") === "popup" &&
-        (n.priority === "normal" || n.priority === "high" || n.priority === "critical" || n.category === "security") &&
         (!n.snoozed_until || new Date(n.snoozed_until) < new Date())
       );
       if (fresh.length) {
@@ -1309,10 +1307,9 @@ function AutoPopupNotification() {
         const rank = (n: AppNotification): number => {
           const cat = (n.category || "").toLowerCase();
           const sub = (n.sub_kind || "").toLowerCase();
-          if (cat === "security" || sub.includes("password") || sub.includes("reset") || n.priority === "critical") return 0;
-          if (n.priority === "high") return 1;
-          if (cat === "announcement" || cat === "update" || cat === "maintenance") return 2;
-          return 3;
+          if (cat === "security" || sub.includes("password") || sub.includes("reset")) return 0;
+          if (cat === "announcement" || cat === "update" || cat === "maintenance") return 1;
+          return 2;
         };
         fresh.sort((a, b) => {
           const ra = rank(a), rb = rank(b);
@@ -1320,7 +1317,7 @@ function AutoPopupNotification() {
           const cra = a.priority === "critical" ? 1 : 0, crb = b.priority === "critical" ? 1 : 0;
           if (cra !== crb) return crb - cra;
           const ta = new Date(a.created_at).getTime(), tb = new Date(b.created_at).getTime();
-          return ra === 2 ? ta - tb : tb - ta;
+          return ra === 1 ? ta - tb : tb - ta;
         });
         setQueue((prev) => (prev.length ? prev : fresh.slice(0, 3)));
       }
@@ -2064,21 +2061,12 @@ function stripRawMimeNoise(value = "") {
     .replace(/^Content-(Type|Transfer-Encoding|Disposition|ID|Description):.*$/gim, "")
     .replace(/^MIME-Version:.*$/gim, "")
     .replace(/^charset=.*$/gim, "")
-    .replace(/&shy;|\u00ad/gi, "")
-    .replace(/&#(?:8199|8201|8202|8239);/gi, " ")
     .replace(/&nbsp;/gi, " ")
     .replace(/&amp;/gi, "&")
     .replace(/&lt;/gi, "<")
     .replace(/&gt;/gi, ">")
-    .replace(/[\u200B-\u200D\uFEFF]/g, "")
-    .replace(/[\u2000-\u200A\u202F\u205F\u3000]/g, " ")
-    .replace(/â/g, "’")
-    .replace(/â/g, "“")
-    .replace(/â/g, "”")
-    .replace(/â/g, "–")
-    .replace(/Â\s*/g, "")
     .replace(/\r/g, "")
-    .replace(/[ \t]{2,}/g, " ")
+    .replace(/[ \t]+/g, " ")
     .replace(/\n[ \t]+/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
@@ -2089,28 +2077,13 @@ function looksLikeRawMime(value = "") {
 }
 
 function decodeQuotedPrintableText(input = "") {
-  const normalized = String(input || "").replace(/=\r?\n/g, "");
-  if (!/=([0-9A-Fa-f]{2})/.test(normalized)) return normalized;
-  const bytes: number[] = [];
-  for (let i = 0; i < normalized.length; i++) {
-    if (normalized[i] === "=" && /^[0-9A-Fa-f]{2}$/.test(normalized.slice(i + 1, i + 3))) {
-      bytes.push(parseInt(normalized.slice(i + 1, i + 3), 16));
-      i += 2;
-    } else {
-      bytes.push(normalized.charCodeAt(i));
-    }
+  try {
+    return String(input || "")
+      .replace(/=\r?\n/g, "")
+      .replace(/=([0-9A-F]{2})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+  } catch {
+    return String(input || "");
   }
-  try { return new TextDecoder("utf-8", { fatal: false }).decode(new Uint8Array(bytes)); }
-  catch { return normalized; }
-}
-
-function cleanEmailSnippet(value = "") {
-  return stripRawMimeNoise(decodeHtmlEntities(decodeQuotedPrintableText(String(value || ""))))
-    .replace(/^[-=_A-Za-z0-9.'+\/]{12,}.*$/gm, "")
-    .replace(/\[[^\]]*https?:\/\/[^\]]+\]/g, "")
-    .replace(/https?:\/\/\S+/g, "")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
 }
 
 function extractDisplayableMimePart(raw = "") {
@@ -2118,7 +2091,7 @@ function extractDisplayableMimePart(raw = "") {
   const parts = source.split(/\n--[^\n]+/g).map((part) => part.trim()).filter(Boolean);
   const htmlPart = parts.find((part) => /Content-Type:\s*text\/html/i.test(part)) || "";
   const textPart = parts.find((part) => /Content-Type:\s*text\/plain/i.test(part)) || "";
-  const chosen = textPart || htmlPart || source;
+  const chosen = htmlPart || textPart || source;
   const bodyStart = chosen.search(/\n\n/);
   const body = bodyStart >= 0 ? chosen.slice(bodyStart + 2) : chosen;
   return decodeQuotedPrintableText(body)
@@ -2129,15 +2102,6 @@ function extractDisplayableMimePart(raw = "") {
 
 function decodeHtmlEntities(input = "") {
   return String(input || "")
-    .replace(/&#(\d+);/g, (_, code) => {
-      const n = Number(code);
-      return Number.isFinite(n) ? String.fromCodePoint(n) : "";
-    })
-    .replace(/&#x([0-9a-f]+);/gi, (_, code) => {
-      const n = parseInt(code, 16);
-      return Number.isFinite(n) ? String.fromCodePoint(n) : "";
-    })
-    .replace(/&shy;/gi, "")
     .replace(/&lt;/gi, "<")
     .replace(/&gt;/gi, ">")
     .replace(/&quot;/gi, '"')
@@ -2162,28 +2126,19 @@ function normalizeEmailHtmlForDisplay(rawHtml = "", preview = "") {
   const unwrapped = unwrapPreWrapper(raw);
   if (unwrapped !== raw) raw = unwrapped;
 
-  if (!looksLikeRawMime(raw)) {
-    const textOnly = !/<\s*(html|body|table|div|p|span|a|img|style)\b/i.test(raw);
-    return textOnly ? `<pre style="white-space:pre-wrap;font-family:ui-sans-serif,system-ui,sans-serif;line-height:1.45">${escapeEmailHtml(cleanEmailSnippet(raw))}</pre>` : raw;
-  }
+  if (!looksLikeRawMime(raw)) return raw;
 
   const extracted = extractDisplayableMimePart(raw);
   if (/<\s*(html|body|table|div|p|span|a|img)\b/i.test(extracted) && !looksLikeRawMime(extracted.replace(/<[^>]+>/g, " "))) {
     return extracted;
   }
-  const cleaned = cleanEmailSnippet(extracted || raw);
-  return `<pre style="white-space:pre-wrap;font-family:ui-sans-serif,system-ui,sans-serif;line-height:1.45">${escapeEmailHtml(cleaned || cleanEmailSnippet(String(preview || "")))}</pre>`;
+  const cleaned = stripRawMimeNoise(decodeQuotedPrintableText(extracted || raw));
+  return `<pre style="white-space:pre-wrap;font-family:ui-sans-serif,system-ui,sans-serif;line-height:1.45">${escapeEmailHtml(cleaned || String(preview || ""))}</pre>`;
 }
 
 function emailHtmlForDisplay(email: Email | null) {
   if (!email) return "";
   return normalizeEmailHtmlForDisplay(email.html, email.preview);
-}
-
-function normalizeEmailForDisplay(email: Email): Email {
-  const preview = String(email.preview || "");
-  const dirtyPreview = looksLikeRawMime(preview) || /&(?:shy|nbsp|#\d+);|â|Â/.test(preview);
-  return dirtyPreview ? { ...email, preview: cleanEmailSnippet(preview).slice(0, 280) } : email;
 }
 interface UserData {
   id: string; username: string | null; name: string; role: "admin" | "user"; totpSecret?: string; mustChangePassword?: boolean; assignedAccounts?: string[] | null; profileAvatar?: string | null; profilePrefs?: UserProfilePrefs;
@@ -2201,13 +2156,10 @@ function isLocationRequiredForProfile(profile?: Partial<UserData> | null) {
 }
 
 function getUserRefreshAccountLabels(user: Partial<UserData>): string[] | null {
-  if (user.role === "admin") return null;
   if (Array.isArray(user.assignedAccounts)) {
     return normalizeAccountLabels(user.assignedAccounts);
   }
-  // Treat missing/stale client assignment data as unknown, not as "no accounts".
-  // The edge functions re-read the user from the DB and enforce the real scope.
-  return null;
+  return user.role === "admin" ? null : [];
 }
 
 function buildWorkerRequestGroups(labels: string[] | null, map: WorkerUrlMap, primaryUrls: string[]) {
@@ -2470,7 +2422,13 @@ function filterVisibleEmails(list: Email[], _prefs?: UserProfilePrefs | null, vi
   // ready to watch", etc. Only OTP/sign-in mail should reach the user.
   const strictSigninOnly = hideReset && hideAccountUpdate;
   const nonAdmin = viewer?.role !== "admin";
+  const allowedLabels = nonAdmin ? getUserRefreshAccountLabels(viewer || {}) : null;
+  const allowedSet = Array.isArray(allowedLabels) ? new Set(allowedLabels) : null;
   return list.filter((email) => {
+    if (allowedSet) {
+      const label = String(email.account_label || "").trim();
+      if (!label || !allowedSet.has(label)) return false;
+    }
     const cat = classifyEmail(email);
     if (nonAdmin && viewer?.isFree && cat !== "signin") return false;
     if (hideSignin && cat === "signin") return false;
@@ -7906,37 +7864,6 @@ function EmailViewer() {
     return stored || ({} as UserData);
   }, [authUser]);
   const refreshAccountLabels = useMemo(() => getUserRefreshAccountLabels(user), [user]);
-
-  // Admin-only: which account pill is picked. null = All (no auto-sync on login).
-  const [selectedAccountLabel, setSelectedAccountLabel] = useState<string | null>(() => {
-    if (typeof window === "undefined") return null;
-    try { return sessionStorage.getItem("nf-admin-selected-account") || null; } catch { return null; }
-  });
-  useEffect(() => {
-    try {
-      if (selectedAccountLabel) sessionStorage.setItem("nf-admin-selected-account", selectedAccountLabel);
-      else sessionStorage.removeItem("nf-admin-selected-account");
-    } catch {}
-  }, [selectedAccountLabel]);
-
-  // Admin-only: full list of configured account labels for the pill row.
-  const [allAccountLabels, setAllAccountLabels] = useState<string[]>([]);
-
-  // Refresh scope actually used by sync — admin "All" means display cache only,
-  // never sync every configured inbox.
-  const activeRefreshLabels = useMemo<string[] | null>(() => {
-    if (user.role !== "admin") return refreshAccountLabels;
-    if (selectedAccountLabel) return [selectedAccountLabel];
-    return [];
-  }, [user.role, refreshAccountLabels, selectedAccountLabel]);
-
-  // Cache/display scope. Admin "All" may read cached rows from all accounts,
-  // but selected pills read only that account.
-  const activeCacheLabels = useMemo<string[] | null>(() => {
-    if (user.role !== "admin") return refreshAccountLabels;
-    return selectedAccountLabel ? [selectedAccountLabel] : null;
-  }, [user.role, refreshAccountLabels, selectedAccountLabel]);
-
   const [profilePrefs, setProfilePrefs] = useState<UserProfilePrefs>(() => user.profilePrefs || {});
   const viewerAvatarId = profilePrefs.avatarId || getStableProfileAvatar(user);
   const saveProfilePrefsLocally = useCallback((nextPrefs: UserProfilePrefs) => {
@@ -7950,14 +7877,9 @@ function EmailViewer() {
   }, []);
   const [emails, setEmailsRaw] = useState<Email[]>([]);
   const setEmails = useCallback((next: Email[]) => {
-    const visible = filterVisibleEmails(next.map(normalizeEmailForDisplay), profilePrefs, user)
+    const visible = filterVisibleEmails(next, profilePrefs, user)
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     setEmailsRaw(visible);
-  }, [profilePrefs, user]);
-  const mergeEmailsIntoState = useCallback((incoming: Email[]) => {
-    if (!incoming.length) return;
-    setEmailsRaw((prev) => filterVisibleEmails(mergeEmailsById([prev, incoming.map(normalizeEmailForDisplay)]), profilePrefs, user)
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
   }, [profilePrefs, user]);
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
   const [loadingEmailHtmlId, setLoadingEmailHtmlId] = useState<string | null>(null);
@@ -7974,13 +7896,7 @@ function EmailViewer() {
 
   const [refreshing, setRefreshing] = useState(false);
   const refreshingRef = useRef(false);
-
-  // Emails filtered for the currently selected admin pill.
-  const displayedEmails = useMemo(() => {
-    if (user.role !== "admin" || !selectedAccountLabel) return emails;
-    return emails.filter((e) => String(e.account_label || "").trim() === selectedAccountLabel);
-  }, [emails, user.role, selectedAccountLabel]);
-
+  const refreshPollRef = useRef<number | null>(null);
   const [resolvedWorkerUrls, setResolvedWorkerUrls] = useState<string[]>(() => getStoredWorkerUrls());
   const [workerUrlMap, setWorkerUrlMap] = useState<WorkerUrlMap>({ primary: [], byAccount: {} });
   const [workerUrlsLoading, setWorkerUrlsLoading] = useState(true);
@@ -8059,7 +7975,6 @@ function EmailViewer() {
       try {
         const data = await apiCall("manage-app", { action: "get_settings", key: "email_accounts" });
         if (data.value && Array.isArray(data.value)) {
-          const labels: string[] = [];
           for (const acc of data.value) {
             const label = acc.label || acc.user;
             const accUrls: string[] = [];
@@ -8076,12 +7991,9 @@ function EmailViewer() {
             if (accUrls.length > 0 && label) {
               accountUrls[label] = accUrls;
             }
-            if (label && !labels.includes(String(label))) labels.push(String(label));
           }
-          setAllAccountLabels(labels);
         }
       } catch { }
-
 
       // Only primary URLs go into the general pool (used by apiCall)
       const normalizedPrimaryRaw = primaryUrls
@@ -8107,7 +8019,7 @@ function EmailViewer() {
     })();
   }, []);
 
-  const loadCachedEmails = useCallback(async (opts?: { bust?: boolean; limit?: number; labels?: string[] | null }) => {
+  const loadCachedEmails = useCallback(async (opts?: { bust?: boolean; limit?: number }) => {
     const bust = !!opts?.bust;
     const limit = opts?.limit || 3;
     try {
@@ -8115,10 +8027,7 @@ function EmailViewer() {
       const headers: Record<string, string> = {};
       if (token) headers["X-Session-Token"] = token;
 
-      const labels = opts && "labels" in opts ? opts.labels! : activeCacheLabels;
-      if (user.role !== "admin" && labels === null && !Array.isArray(user.assignedAccounts)) {
-        return filterVisibleEmails(emails, profilePrefs, user).length;
-      }
+      const labels = refreshAccountLabels;
       if (labels && labels.length === 0) {
         setEmails([]);
         setError(null);
@@ -8178,20 +8087,17 @@ function EmailViewer() {
       // Preserve currently-shown emails; do not blank the inbox on transient error.
       return filterVisibleEmails(emails, profilePrefs, user).length;
     }
-  }, [profilePrefs, setEmails, pushDiag, resolvedWorkerUrls, workerUrlMap, activeCacheLabels, emails, user]);
+  }, [profilePrefs, setEmails, pushDiag, resolvedWorkerUrls, workerUrlMap, refreshAccountLabels, emails, user]);
 
 
-  const syncViaWorker = useCallback(async (labelsOverride?: string[] | null): Promise<Email[] | null> => {
-    const labels = labelsOverride !== undefined ? labelsOverride : activeRefreshLabels;
-    if (Array.isArray(labels) && labels.length === 0) {
-      pushDiag({ ts: Date.now(), kind: "sync", endpoint: "fetch-emails:user_sync", note: "skipped: no account selected" });
-      return null;
-    }
+  const syncViaWorker = useCallback(async (): Promise<Email[] | null> => {
+    const labels = refreshAccountLabels;
+    if (labels && labels.length === 0) return null;
     const started = performance.now();
     const data = await apiCall("fetch-emails", {
       mode: "user_sync",
       source: "user_refresh",
-      limit: 15,
+      limit: 200,
       accountLabels: labels || undefined,
     });
     pushDiag({
@@ -8201,108 +8107,113 @@ function EmailViewer() {
       ms: Math.round(performance.now() - started),
       note: labels ? labels.join(", ") : "all accounts",
     });
-    if (data?.success === false) throw new Error(data?.error || "Refresh did not complete");
+    if (data?.success === false) return null;
     return Array.isArray(data?.emails) ? mergeEmailsById([data.emails as Email[]]) : null;
-  }, [pushDiag, activeRefreshLabels]);
+  }, [pushDiag, refreshAccountLabels]);
 
-  const loadServerSnapshot = useCallback(async (labelsOverride?: string[] | null): Promise<Email[] | null> => {
-    const labels = labelsOverride !== undefined ? labelsOverride : activeCacheLabels;
-    const started = performance.now();
-    const delta = await apiCall("manage-app", {
-      action: "list_delta",
-      since: 0,
-      limit: 1000,
-      accountLabels: labels || undefined,
-    });
-    const rows: CachedEmail[] = Array.isArray(delta?.rows) ? delta.rows : [];
-    const removedIds: string[] = Array.isArray(delta?.removedIds) ? delta.removedIds : [];
-    const newCursor = Number(delta?.newCursor || 0);
-    const serverLabels: string[] | null = Array.isArray(delta?.accountLabels) ? delta.accountLabels : labels;
-    pushDiag({
-      ts: Date.now(),
-      kind: "sync",
-      endpoint: "list_delta:snapshot",
-      ms: Math.round(performance.now() - started),
-      note: `${serverLabels ? serverLabels.join(", ") || "no accounts" : "server scoped"} · ${rows.length} rows`,
-    });
-
-    try {
-      if (user?.id) {
-        const db = idbRef.current || await openInboxDB(user.id);
-        idbRef.current = db;
-        if (rows.length > 0 || removedIds.length > 0 || newCursor > 0) {
-          await writeDelta(db, { rows, removedIds, newCursor });
-        }
-      }
-    } catch {}
-
-    const snapshot = rows.filter((row) => !row.destroyed) as unknown as Email[];
-    if (snapshot.length > 0 || (Array.isArray(serverLabels) && serverLabels.length === 0)) {
-      setEmails(snapshot);
-      setError(null);
-      setLastUpdated(new Date());
-      if (snapshot.length > 0) markInboxReady();
+  const fetchEmails = async () => {
+    if (refreshingRef.current) {
+      notify.info("Refresh in progress…", {
+        id: "nf-refresh-busy",
+        duration: 1800,
+      });
+      return;
     }
-    return snapshot;
-  }, [activeCacheLabels, markInboxReady, pushDiag, setEmails, user]);
-
-  const fetchEmails = async (labelsOverride?: string[] | null) => {
-    if (refreshingRef.current) return;
-    const syncLabels = labelsOverride !== undefined ? labelsOverride : activeRefreshLabels;
-    const cacheLabels = labelsOverride !== undefined ? labelsOverride : activeCacheLabels;
-    const skipSync = Array.isArray(syncLabels) && syncLabels.length === 0;
     refreshingRef.current = true;
     setRefreshing(true);
-    const beforeIds = new Set(
-      (Array.isArray(cacheLabels) && cacheLabels.length === 1
-        ? emails.filter((e) => String(e.account_label || "").trim() === cacheLabels[0])
-        : emails
-      ).map((e) => e.id),
-    );
+    const beforeIds = new Set(emails.map((e) => e.id));
     const toastId = "nf-refresh";
-    notify.dismiss(toastId);
+    notify.loading("Checking mail…", { id: toastId });
 
+    // PHASE 1 (fast, ~200-500ms): repaint from Supabase cache instantly.
+    // PHASE 2 (background, ~5-8s): IMAP sync — updates UI silently when done.
     try {
-      if (skipSync) {
-        notify.info("Select an account, then press Refresh", { duration: 1800 });
-        return;
-      }
-
-      await refreshEmailFiltersForViewer();
-
-      // Manual refresh is fully foreground: wait for IMAP sync to finish, then
-      // reload the persisted server snapshot. No hidden background success.
-      const synced = await syncViaWorker(syncLabels);
-      if (!synced) throw new Error("Refresh did not complete");
-      if (synced && synced.length > 0) {
-        mergeEmailsIntoState(synced);
-        setError(null);
-        setLastUpdated(new Date());
-      }
-      const combinedRefreshRows = mergeEmailsById([synced || []]);
-      const scopedSnapshot = Array.isArray(cacheLabels) && cacheLabels.length === 1
-        ? combinedRefreshRows.filter((e) => String(e.account_label || "").trim() === cacheLabels[0])
-        : combinedRefreshRows;
-      const newCount = scopedSnapshot.filter((e) => !beforeIds.has(e.id)).length;
+      await Promise.all([
+        refreshEmailFiltersForViewer(),
+        loadCachedEmails({ limit: 200 }),
+      ]);
       notify.dismiss(toastId);
-      if (newCount > 0) {
-        notify.success(`${newCount} new email${newCount === 1 ? "" : "s"}`, { duration: 1800 });
-      } else {
-        notify.success("No new mail", { duration: 1400 });
-      }
+      notify.success("Inbox updated", { duration: 1400 });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err || "Failed to refresh");
-      pushDiag({ ts: Date.now(), kind: "sync", endpoint: "manual refresh", error: msg });
+      const msg = err instanceof Error ? err.message : "Failed to load";
       notify.dismiss(toastId);
-      notify.error("Refresh failed", { description: msg, duration: 3000 });
+      notify.error("Inbox load failed", { description: msg, duration: 2600 });
     } finally {
-      refreshingRef.current = false;
-      setRefreshing(false);
+      setRefreshing(false); // release UI immediately — button re-enabled
     }
+
+    // Background IMAP sync — no spinner, only toast if new mail actually arrived.
+    (async () => {
+      try {
+        let synced: Email[] | null = null;
+        try {
+          synced = await syncViaWorker();
+        } catch (transient) {
+          const tmsg = transient instanceof Error ? transient.message : String(transient);
+          if (/Secure connection|handshake|Failed to fetch|NetworkError|busy/i.test(tmsg)) {
+            await new Promise((r) => setTimeout(r, 700));
+            synced = await syncViaWorker();
+          } else {
+            throw transient;
+          }
+        }
+        if (synced) {
+          setEmails(synced);
+          setError(null);
+          setLastUpdated(new Date());
+          const visible = filterVisibleEmails(synced, profilePrefs, user);
+          const newCount = visible.filter((e) => !beforeIds.has(e.id)).length;
+          if (newCount > 0) {
+            notify.info(`${newCount} new email${newCount === 1 ? "" : "s"} arrived`, {
+              duration: 2600,
+            });
+          }
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err || "");
+        pushDiag({ ts: Date.now(), kind: "sync", endpoint: "background sync", error: msg });
+      } finally {
+        if (refreshPollRef.current) {
+          clearTimeout(refreshPollRef.current);
+          refreshPollRef.current = null;
+        }
+        refreshingRef.current = false;
+      }
+    })();
   };
 
 
 
+
+  // On mount/login: ONE silent auto-refresh via the worker POST sync path.
+  // No browser-persistent email cache, no background polling, no GET /api/emails.
+  const didAutoRefreshRef = useRef(false);
+  useEffect(() => {
+    setLoading(false);
+
+    // Fire ONE silent auto-refresh once worker URLs are known — per component mount/login.
+    if (workerUrlsLoading) return;
+    if (didAutoRefreshRef.current) return;
+    didAutoRefreshRef.current = true;
+
+    (async () => {
+      try {
+        await refreshEmailFiltersForViewer();
+        await loadCachedEmails({ limit: 200 });
+        const synced = await syncViaWorker();
+        if (synced) {
+          setEmails(synced);
+          setError(null);
+          setLastUpdated(new Date());
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err || "");
+        pushDiag({ ts: Date.now(), kind: "sync", endpoint: "login auto-refresh", error: msg });
+        await loadCachedEmails({ limit: 200 });
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workerUrlsLoading]);
 
   // F7: listen for iframe self-report messages verifying that the link/button
   // click hijack is actually attached inside the sandboxed email preview.
@@ -8325,15 +8236,17 @@ function EmailViewer() {
 
 
   // ============================================================================
-  // INSTANT INBOX — local-only first paint.
-  // No server delta or IMAP work runs on load; every live refresh is manual.
+  // INSTANT INBOX — Gmail-style stale-while-revalidate via IndexedDB + delta sync
+  //  1) Open per-user IDB, read latest 50 rows → paint (target < 50ms)
+  //  2) Fire /list_delta with last cursor → merge new/updated/removed → repaint
+  // Runs in parallel with the existing worker refresh path (which stays as
+  // a redundant sync). Falls back silently on any error — no user-visible break.
   // ============================================================================
   const idbRef = useRef<Awaited<ReturnType<typeof openInboxDB>> | null>(null);
   const instantInboxRunKeyRef = useRef("");
-  const serverSnapshotRunKeyRef = useRef("");
   const instantInboxAccountKey = useMemo(
-    () => JSON.stringify(activeCacheLabels === null ? null : [...(activeCacheLabels || [])].sort()),
-    [activeCacheLabels],
+    () => JSON.stringify(refreshAccountLabels === null ? null : [...(refreshAccountLabels || [])].sort()),
+    [refreshAccountLabels],
   );
   useEffect(() => {
     // eslint-disable-next-line no-console
@@ -8351,10 +8264,10 @@ function EmailViewer() {
         idbRef.current = db;
         console.log("[inbox] IDB opened for user", user.id);
         await purgeEmailsOutsideScope(db, refreshAccountLabels);
+        await refreshEmailFiltersForViewer();
 
         // ---- (1) Instant paint from IDB ----
-        const canReadLocalScope = user.role === "admin" || Array.isArray(user.assignedAccounts);
-        const cached = canReadLocalScope ? await readLatestEmails(db, 200, activeCacheLabels) : [];
+        const cached = await readLatestEmails(db, 200, refreshAccountLabels);
         console.log(`[inbox] IDB has ${cached.length} cached rows`);
         if (cached.length > 0) {
           setEmails(cached as unknown as Email[]);
@@ -8365,6 +8278,43 @@ function EmailViewer() {
           console.log(`[inbox] instant paint in ${dt.toFixed(1)}ms (${cached.length} rows from IDB)`);
         }
 
+        // ---- (2) Delta sync via Supabase edge function ----
+        const storedCursor = await getSyncCursor(db);
+        // If the cache is empty but a cursor exists (stale/corrupt IDB, profile/account switch,
+        // or an older failed rollout), force a baseline snapshot instead of asking only for
+        // changes after that cursor. Otherwise old emails can never backfill.
+        const cursor = cached.length === 0 ? 0 : storedCursor;
+        const started = performance.now();
+        console.log(`[inbox] calling list_delta since=${cursor}${storedCursor && cursor === 0 ? ` (reset stale cursor ${storedCursor})` : ""}`);
+        const delta = await apiCall("manage-app", { action: "list_delta", since: cursor, limit: cursor === 0 ? 1000 : 500 });
+        console.log("[inbox] list_delta response", {
+          success: delta?.success,
+          mode: delta?.mode,
+          rows: delta?.rows?.length || 0,
+          removed: delta?.removedIds?.length || 0,
+          newCursor: delta?.newCursor,
+          sample: delta?.rows?.[0],
+        });
+        pushDiag({
+          ts: Date.now(),
+          kind: "sync",
+          endpoint: "list_delta",
+          ms: Math.round(performance.now() - started),
+          note: `since=${cursor} +${delta?.rows?.length || 0}/-${delta?.removedIds?.length || 0} → ${delta?.newCursor || 0}`,
+        });
+
+        const rows: CachedEmail[] = Array.isArray(delta?.rows) ? delta.rows : [];
+        const removedIds: string[] = Array.isArray(delta?.removedIds) ? delta.removedIds : [];
+        const newCursor = Number(delta?.newCursor || 0);
+
+        if (rows.length > 0 || removedIds.length > 0 || newCursor > cursor) {
+          await writeDelta(db, { rows, removedIds, newCursor });
+          const fresh = await readLatestEmails(db, 200, refreshAccountLabels);
+          console.log(`[inbox] after writeDelta, IDB has ${fresh.length} rows → repaint`);
+          setEmails(fresh as unknown as Email[]);
+          setLastUpdated(new Date());
+          if (fresh.length > 0) markInboxReady();
+        }
         setError(null);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err || "");
@@ -8377,23 +8327,6 @@ function EmailViewer() {
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, instantInboxAccountKey, markInboxReady]);
-
-  // Cache-only server snapshot for first paint on fresh devices/browsers.
-  // This does NOT touch IMAP; only the Refresh button performs live mail sync.
-  useEffect(() => {
-    const runKey = `${user?.id || ""}:${instantInboxAccountKey}`;
-    if (!user?.id || serverSnapshotRunKeyRef.current === runKey) return;
-    serverSnapshotRunKeyRef.current = runKey;
-    (async () => {
-      try {
-        await refreshEmailFiltersForViewer();
-        await loadServerSnapshot(activeCacheLabels);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err || "");
-        pushDiag({ ts: Date.now(), kind: "cache", endpoint: "cache-only snapshot", error: msg });
-      }
-    })();
-  }, [user?.id, instantInboxAccountKey, activeCacheLabels, loadServerSnapshot, refreshEmailFiltersForViewer, pushDiag]);
 
 
   // Wrap email selection so full HTML is lazy-fetched on first click.
@@ -8602,11 +8535,9 @@ function EmailViewer() {
             <NotificationBell />
             <button onClick={() => fetchEmails()}
               disabled={refreshing}
-              aria-busy={refreshing}
-              title={refreshing ? "Refreshing emails" : "Refresh emails"}
-              className="flex items-center min-w-10 justify-center p-2.5 sm:px-4 sm:py-2 bg-slate-900 text-white rounded-full text-sm font-bold hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-80">
+              className="flex items-center p-2.5 sm:px-4 sm:py-2 bg-slate-900 text-white rounded-full text-sm font-bold hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-60">
               <RefreshCw className={`w-4 h-4 sm:w-5 sm:h-5 ${refreshing ? "animate-spin" : ""}`} />
-              <span className={`${refreshing ? "inline" : "hidden sm:inline"} ml-1.5`}>{refreshing ? "Syncing" : "Refresh"}</span>
+              <span className="hidden sm:inline ml-1.5">Refresh</span>
             </button>
 
 
@@ -8645,43 +8576,9 @@ function EmailViewer() {
               <div className="flex items-center justify-between mb-2">
                 <h3 className="font-bold text-slate-800 flex items-center gap-2">
                   Inbox
-                  <span className="bg-slate-200 text-slate-600 text-[10px] px-2 py-0.5 rounded-full">{displayedEmails.length}</span>
+                  <span className="bg-slate-200 text-slate-600 text-[10px] px-2 py-0.5 rounded-full">{emails.length}</span>
                 </h3>
               </div>
-
-              {user.role === "admin" && allAccountLabels.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 mb-3">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedAccountLabel(null)}
-                    className={`px-3 py-1 rounded-full text-[11px] font-bold transition-all ${
-                      !selectedAccountLabel
-                        ? "bg-slate-900 text-white shadow-sm"
-                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                    }`}
-                    title="Show cached emails from every account (no sync)"
-                  >
-                    All
-                  </button>
-                  {allAccountLabels.map((label) => (
-                    <button
-                      key={label}
-                      type="button"
-                      onClick={() => {
-                        setSelectedAccountLabel(label);
-                      }}
-                      className={`px-3 py-1 rounded-full text-[11px] font-bold transition-all ${
-                        selectedAccountLabel === label
-                          ? "bg-red-600 text-white shadow-sm"
-                          : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                      }`}
-                      title={`Show ${label}. Press Refresh to sync.`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              )}
 
               {error && (
                 <div className="bg-red-50 border border-red-100 rounded-xl p-3 mb-2">
@@ -8690,19 +8587,17 @@ function EmailViewer() {
               )}
 
               <div className="space-y-2 flex-1 overflow-y-auto min-h-0">
-                {displayedEmails.length === 0 && !error ? (
+                {emails.length === 0 && !error ? (
                   <div className="bg-white border border-dashed border-slate-200 rounded-xl p-12 text-center">
                     <div className="bg-slate-50 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3">
                       <Mail className="text-slate-200 w-6 h-6" />
                     </div>
                     <p className="text-[10px] sm:text-xs text-slate-400 font-medium">
-                      {user.role === "admin" && !selectedAccountLabel && allAccountLabels.length > 0
-                        ? "Pick an account above to load emails"
-                        : "No Netflix emails found"}
+                      No Netflix emails found
                     </p>
                   </div>
                 ) : (
-                  displayedEmails.map(email => (
+                  emails.map(email => (
                     <button key={email.id} onClick={() => { void openEmail(email); }}
                       className={`w-full text-left p-3 rounded-xl border transition-all ${
                         selectedEmail?.id === email.id

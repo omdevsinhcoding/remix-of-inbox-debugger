@@ -65,11 +65,9 @@ Deno.serve(async (req) => {
     return json({ error: "Missing X-CF-Token header" }, 401);
   }
 
-  const bootstrapSecret = (req.headers.get("x-bootstrap-secret") || "").trim();
-  const expectedSecret = Deno.env.get("WORKER_BOOTSTRAP_SECRET") || "";
-  if (!expectedSecret || !timingSafeEqual(bootstrapSecret, expectedSecret)) {
-    return json({ error: "Unauthorized" }, 401);
-  }
+
+
+
 
   // 1. Verify the CF token is valid & active
   let verifyRes: any = null;
