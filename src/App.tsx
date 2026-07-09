@@ -8598,16 +8598,7 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
 
   return <>{children}</>;
 }
-          setBypass(true);
-        }}
-      />
-    );
-  }
 
-
-
-  return <>{children}</>;
-}
 
 // ==================== MAIN APP ====================
 export default function App() {
