@@ -47,10 +47,10 @@ function extractOtpCode(subject: string, body: string): string | null {
 }
 
 const FULL_SYNC_MAX_UIDS = 50;
-const USER_REFRESH_MAX_UIDS = 12;
+const USER_REFRESH_MAX_UIDS = 6;
 const PER_ACCOUNT_TIMEOUT_MS = 6500;
-const FAST_REFRESH_TIMEOUT_MS = 3200;
-const FAST_REFRESH_SCAN_COUNT = 30;
+const FAST_REFRESH_TIMEOUT_MS = 2600;
+const FAST_REFRESH_SCAN_COUNT = 12;
 const STALE_DAYS = 60;
 const USER_SYNC_WINDOW_MS = 5_000;
 const userSyncHits = new Map<string, number>();
@@ -429,7 +429,10 @@ async function fetchFromAccount(
   });
 
   try {
-    await client.connect();
+    await Promise.race([
+      client.connect(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("IMAP quick refresh timed out")), budgetMs)),
+    ]);
     console.log(`[${accountLabel}] IMAP connected to ${imapHost}`);
     const lock = await client.getMailboxLock("INBOX");
 
@@ -457,7 +460,7 @@ async function fetchFromAccount(
         if (netflixUids.length > 0) console.log(`[${accountLabel}] Latest inbox scan found ${netflixUids.length}`);
       }
 
-      if (netflixUids.length === 0 && hasBudget()) {
+      if (!quickRefresh && netflixUids.length === 0 && hasBudget()) {
         const since = new Date();
         since.setDate(since.getDate() - (quickRefresh ? 2 : 7));
         for (const term of ["netflix.com", "netflix"]) {
@@ -926,7 +929,7 @@ Deno.serve(async (originalReq) => {
     if (mode === "sync_async") {
       const accountFilterForCache = session ? await getAssignedAccountFilter(supabase, session) : null;
       const cache = session ? await readCache(supabase, accountFilterForCache, filterSignInCodes, filterPasswordResets, filterAccountUpdates, session, body.limit).catch(() => []) : [];
-      const maxMessages = clampLimit(body.limit, USER_REFRESH_MAX_UIDS, FULL_SYNC_MAX_UIDS);
+      const maxMessages = USER_REFRESH_MAX_UIDS;
       const work = runSync(supabase, ENCRYPTION_SECRET, source || "async", accountLabels, maxMessages).catch(err => console.error("[sync_async] background failed:", err));
       ((globalThis as any).EdgeRuntime?.waitUntil?.(work) ?? work);
       return json({ success: true, accepted: true, emails: cache }, 202);
