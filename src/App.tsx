@@ -8033,16 +8033,30 @@ function EmailViewer() {
     const beforeIds = new Set(emails.map((e) => e.id));
     const toastId = "nf-refresh";
     notify.loading("Checking Netflix mail…", { id: toastId });
-    try {
+    const runRefresh = async () => {
       await refreshEmailFiltersForViewer();
       await loadCachedEmails({ limit: 200 });
       // Fast path: worker sync returns fresh emails directly — no second round-trip.
-      const synced = await syncViaWorker();
+      return await syncViaWorker();
+    };
+    try {
+      let synced: Email[] | null = null;
+      try {
+        synced = await runRefresh();
+      } catch (transient) {
+        const tmsg = transient instanceof Error ? transient.message : String(transient);
+        // Silent one-shot retry on transient secure-transport / handshake failures
+        // so admins never see a scary "Secure connection failed" toast for a
+        // blip that would resolve itself on the next try.
+        if (/Secure connection|handshake|Failed to fetch|NetworkError|busy/i.test(tmsg)) {
+          await new Promise((r) => setTimeout(r, 700));
+          synced = await runRefresh();
+        } else {
+          throw transient;
+        }
+      }
       let merged: Email[] = emails;
       if (synced) {
-        // Server sync returns the currently-authorized visible cache for users.
-        // Do not merge the previous browser state back in, or hidden/stale rows
-        // can reappear on every refresh.
         merged = synced;
         setEmails(merged);
         setError(null);
@@ -8065,6 +8079,8 @@ function EmailViewer() {
       const msg = err instanceof Error ? err.message : "Failed to load";
       notify.dismiss(toastId);
       notify.error("Refresh could not complete", { description: msg, duration: 3200 });
+
+
 
     } finally {
       if (refreshPollRef.current) {
