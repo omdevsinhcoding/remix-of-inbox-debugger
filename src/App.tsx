@@ -8175,6 +8175,7 @@ function EmailViewer() {
         refreshEmailFiltersForViewer(),
         loadCachedEmails({ limit: 200 }),
       ]);
+      markInboxReady();
       notify.dismiss(toastId);
       notify.success("Inbox updated", { duration: 1400 });
     } catch (err) {
@@ -8204,6 +8205,8 @@ function EmailViewer() {
           setEmails(synced);
           setError(null);
           setLastUpdated(new Date());
+          if (synced.length > 0) cachedEmailsLoadedRef.current = true;
+          markInboxReady();
           const visible = filterVisibleEmails(synced, profilePrefs, user);
           const newCount = visible.filter((e) => !beforeIds.has(e.id)).length;
           if (newCount > 0) {
