@@ -7899,12 +7899,11 @@ function EmailViewer() {
   const refreshPollRef = useRef<number | null>(null);
   const [resolvedWorkerUrls, setResolvedWorkerUrls] = useState<string[]>(() => getStoredWorkerUrls());
   const [workerUrlMap, setWorkerUrlMap] = useState<WorkerUrlMap>({ primary: [], byAccount: {} });
+  const [workerUrlsLoading, setWorkerUrlsLoading] = useState(true);
   const workerUrlLoaded = React.useRef(false);
   const inboxSessionStartedRef = useRef(false);
-  const cachedEmailsLoadedRef = useRef(false);
   const markInboxReady = useCallback(() => {
     if (inboxSessionStartedRef.current) return;
-    if (!cachedEmailsLoadedRef.current) return;
     inboxSessionStartedRef.current = true;
     if (!sessionGet("session_started_at" as any)) markSessionStart();
   }, []);
@@ -8016,6 +8015,7 @@ function EmailViewer() {
       setResolvedWorkerUrls(normalizedPrimary);
       setWorkerUrlMap({ primary: normalizedPrimary, byAccount: usableAccountUrls });
       if (normalizedPrimary.length > 0) storeWorkerUrls(normalizedPrimary);
+      setWorkerUrlsLoading(false);
     })();
   }, []);
 
@@ -8032,14 +8032,12 @@ function EmailViewer() {
         setEmails([]);
         setError(null);
         setLastUpdated(new Date());
-        // NOTE: do NOT mark inbox ready here — no emails means no timer yet.
         return 0;
       }
       const groups = buildWorkerRequestGroups(labels, workerUrlMap, resolvedWorkerUrls);
       if (groups.length === 0) {
-        const storedWorkerUrls = getStoredWorkerUrls();
-        if (storedWorkerUrls.length === 0) return filterVisibleEmails(emails, profilePrefs, user).length;
-        groups.push({ url: storedWorkerUrls[0], labels });
+        // No worker configured — keep whatever we already show, don't nuke inbox.
+        return filterVisibleEmails(emails, profilePrefs, user).length;
       }
 
       const lists = await Promise.all(groups.map(async (group) => {
@@ -8077,16 +8075,12 @@ function EmailViewer() {
       }
       const emailList = mergeEmailsById(lists.map((item) => item.emails));
       if (emailList.length === 0 && emails.length > 0) {
-        // Keep already-shown emails; timer stays as-is (already started if paint happened).
         return filterVisibleEmails(emails, profilePrefs, user).length;
       }
       setEmails(emailList);
       setError(null);
       setLastUpdated(new Date());
-      const visibleCount = filterVisibleEmails(emailList, profilePrefs, user).length;
-      // Only start the session timer once we actually have emails to show.
-      if (visibleCount > 0) cachedEmailsLoadedRef.current = true;
-      return visibleCount;
+      return filterVisibleEmails(emailList, profilePrefs, user).length;
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to load emails";
       pushDiag({ ts: Date.now(), kind: "cache", endpoint: "loadCachedEmails", error: msg });
@@ -8100,44 +8094,6 @@ function EmailViewer() {
     const labels = refreshAccountLabels;
     if (labels && labels.length === 0) return null;
     const started = performance.now();
-    const token = getSessionToken();
-
-    // Prefer the Cloudflare Worker's /api/emails/sync endpoint. Falls back to
-    // the Supabase edge function only if no worker URL is known yet.
-    const workerBases = (resolvedWorkerUrls && resolvedWorkerUrls.length > 0)
-      ? resolvedWorkerUrls
-      : getStoredWorkerUrls();
-
-    if (workerBases.length > 0 && token) {
-      for (const base of workerBases) {
-        try {
-          const res = await fetchWithTimeout(`${base.replace(/\/+$/, "")}/api/emails/sync`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "X-Session-Token": token },
-            body: JSON.stringify({
-              mode: "user_sync",
-              source: "user_refresh",
-              limit: 200,
-              accountLabels: labels || undefined,
-            }),
-          }, 15000);
-          if (!res.ok) continue;
-          const data = await res.json();
-          pushDiag({
-            ts: Date.now(), kind: "sync",
-            endpoint: `${base}/api/emails/sync`,
-            ms: Math.round(performance.now() - started),
-            note: labels ? labels.join(", ") : "all accounts",
-          });
-          if (data?.success === false) return null;
-          return Array.isArray(data?.emails) ? mergeEmailsById([data.emails as Email[]]) : null;
-        } catch {
-          // try next worker base
-        }
-      }
-    }
-
-    // Fallback (no worker configured yet): Supabase edge function.
     const data = await apiCall("fetch-emails", {
       mode: "user_sync",
       source: "user_refresh",
@@ -8147,14 +8103,13 @@ function EmailViewer() {
     pushDiag({
       ts: Date.now(),
       kind: "sync",
-      endpoint: "fetch-emails:user_sync (fallback)",
+      endpoint: "fetch-emails:user_sync",
       ms: Math.round(performance.now() - started),
       note: labels ? labels.join(", ") : "all accounts",
     });
     if (data?.success === false) return null;
     return Array.isArray(data?.emails) ? mergeEmailsById([data.emails as Email[]]) : null;
-  }, [pushDiag, refreshAccountLabels, resolvedWorkerUrls]);
-
+  }, [pushDiag, refreshAccountLabels]);
 
   const fetchEmails = async () => {
     if (refreshingRef.current) {
@@ -8173,11 +8128,10 @@ function EmailViewer() {
     // PHASE 1 (fast, ~200-500ms): repaint from Supabase cache instantly.
     // PHASE 2 (background, ~5-8s): IMAP sync — updates UI silently when done.
     try {
-      const [, cachedCount] = await Promise.all([
+      await Promise.all([
         refreshEmailFiltersForViewer(),
         loadCachedEmails({ limit: 200 }),
       ]);
-      if ((cachedCount || 0) > 0) markInboxReady();
       notify.dismiss(toastId);
       notify.success("Inbox updated", { duration: 1400 });
     } catch (err) {
@@ -8208,10 +8162,6 @@ function EmailViewer() {
           setError(null);
           setLastUpdated(new Date());
           const visible = filterVisibleEmails(synced, profilePrefs, user);
-          if (visible.length > 0) {
-            cachedEmailsLoadedRef.current = true;
-            markInboxReady();
-          }
           const newCount = visible.filter((e) => !beforeIds.has(e.id)).length;
           if (newCount > 0) {
             notify.info(`${newCount} new email${newCount === 1 ? "" : "s"} arrived`, {
@@ -8235,45 +8185,35 @@ function EmailViewer() {
 
 
 
-  // On mount/login: load cached emails from the Cloudflare Worker first. The
-  // session countdown starts only after cached rows are actually painted.
+  // On mount/login: ONE silent auto-refresh via the worker POST sync path.
+  // No browser-persistent email cache, no background polling, no GET /api/emails.
   const didAutoRefreshRef = useRef(false);
   useEffect(() => {
-    setLoading(true);
+    setLoading(false);
 
+    // Fire ONE silent auto-refresh once worker URLs are known — per component mount/login.
+    if (workerUrlsLoading) return;
     if (didAutoRefreshRef.current) return;
     didAutoRefreshRef.current = true;
 
     (async () => {
       try {
-        const [, cachedCount] = await Promise.all([
-          refreshEmailFiltersForViewer(),
-          loadCachedEmails({ limit: 200 }),
-        ]);
-        if ((cachedCount || 0) > 0) markInboxReady();
+        await refreshEmailFiltersForViewer();
+        await loadCachedEmails({ limit: 200 });
         const synced = await syncViaWorker();
         if (synced) {
           setEmails(synced);
           setError(null);
           setLastUpdated(new Date());
-          const visible = filterVisibleEmails(synced, profilePrefs, user);
-          if (visible.length > 0) {
-            cachedEmailsLoadedRef.current = true;
-            markInboxReady();
-          }
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err || "");
         pushDiag({ ts: Date.now(), kind: "sync", endpoint: "login auto-refresh", error: msg });
-        const cachedCount = await loadCachedEmails({ limit: 200 });
-        if ((cachedCount || 0) > 0) markInboxReady();
-      } finally {
-        setLoading(false);
+        await loadCachedEmails({ limit: 200 });
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
+  }, [workerUrlsLoading]);
 
   // F7: listen for iframe self-report messages verifying that the link/button
   // click hijack is actually attached inside the sandboxed email preview.
@@ -8381,8 +8321,8 @@ function EmailViewer() {
         console.error("[inbox] instant-inbox error:", msg, err);
         pushDiag({ ts: Date.now(), kind: "cache", endpoint: "instant-inbox", error: msg });
       } finally {
-        // Never start the countdown from IDB/Supabase delta alone; the rule is
-        // Cloudflare Worker cached emails first, then timer.
+        // Start the countdown only after the instant cache/delta load has had a chance to paint.
+        markInboxReady();
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
