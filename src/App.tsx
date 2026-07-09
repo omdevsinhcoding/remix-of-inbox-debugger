@@ -8614,9 +8614,45 @@ function EmailViewer() {
               <div className="flex items-center justify-between mb-2">
                 <h3 className="font-bold text-slate-800 flex items-center gap-2">
                   Inbox
-                  <span className="bg-slate-200 text-slate-600 text-[10px] px-2 py-0.5 rounded-full">{emails.length}</span>
+                  <span className="bg-slate-200 text-slate-600 text-[10px] px-2 py-0.5 rounded-full">{displayedEmails.length}</span>
                 </h3>
               </div>
+
+              {user.role === "admin" && allAccountLabels.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-3">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedAccountLabel(null)}
+                    className={`px-3 py-1 rounded-full text-[11px] font-bold transition-all ${
+                      !selectedAccountLabel
+                        ? "bg-slate-900 text-white shadow-sm"
+                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    }`}
+                    title="Show cached emails from every account (no sync)"
+                  >
+                    All
+                  </button>
+                  {allAccountLabels.map((label) => (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={() => {
+                        setSelectedAccountLabel(label);
+                        // Trigger a scoped refresh immediately when admin picks a pill.
+                        setTimeout(() => { void fetchEmails(); }, 0);
+                      }}
+                      className={`px-3 py-1 rounded-full text-[11px] font-bold transition-all ${
+                        selectedAccountLabel === label
+                          ? "bg-red-600 text-white shadow-sm"
+                          : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                      }`}
+                      title={`Refresh only ${label}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
 
               {error && (
                 <div className="bg-red-50 border border-red-100 rounded-xl p-3 mb-2">
@@ -8625,17 +8661,19 @@ function EmailViewer() {
               )}
 
               <div className="space-y-2 flex-1 overflow-y-auto min-h-0">
-                {emails.length === 0 && !error ? (
+                {displayedEmails.length === 0 && !error ? (
                   <div className="bg-white border border-dashed border-slate-200 rounded-xl p-12 text-center">
                     <div className="bg-slate-50 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3">
                       <Mail className="text-slate-200 w-6 h-6" />
                     </div>
                     <p className="text-[10px] sm:text-xs text-slate-400 font-medium">
-                      No Netflix emails found
+                      {user.role === "admin" && !selectedAccountLabel && allAccountLabels.length > 0
+                        ? "Pick an account above to load emails"
+                        : "No Netflix emails found"}
                     </p>
                   </div>
                 ) : (
-                  emails.map(email => (
+                  displayedEmails.map(email => (
                     <button key={email.id} onClick={() => { void openEmail(email); }}
                       className={`w-full text-left p-3 rounded-xl border transition-all ${
                         selectedEmail?.id === email.id
