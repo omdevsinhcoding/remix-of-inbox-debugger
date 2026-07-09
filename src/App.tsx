@@ -8150,7 +8150,7 @@ function EmailViewer() {
     const data = await apiCall("fetch-emails", {
       mode: "user_sync",
       source: "user_refresh",
-      limit: 6,
+      limit: 15,
       accountLabels: labels || undefined,
     });
     pushDiag({
