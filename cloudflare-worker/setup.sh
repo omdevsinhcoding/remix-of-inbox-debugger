@@ -35,8 +35,10 @@ if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
   exit 1
 fi
 
-# ─── 1. KV namespace: find or create ─────────────────────────
-echo "→ Checking KV namespace '$KV_TITLE'..."
+# ─── 1. KV namespace: find or create (SHARED across workers in this account) ─
+# Agar is CF account me pehle se koi worker ne EMAIL_CACHE bana rakha hai,
+# to wahi KV reuse hoga — dono workers same cache/data share karenge.
+echo "→ Checking KV namespace '$KV_TITLE' in this Cloudflare account..."
 LIST_JSON="$($WRANGLER kv namespace list 2>/dev/null || echo '[]')"
 KV_ID="$(node -e "
   const list = JSON.parse(process.argv[1] || '[]');
@@ -44,21 +46,29 @@ KV_ID="$(node -e "
   process.stdout.write(hit ? hit.id : '');
 " "$LIST_JSON")"
 
-if [ -z "$KV_ID" ]; then
-  echo "→ Creating KV namespace '$KV_TITLE'..."
+if [ -n "$KV_ID" ]; then
+  echo "→ Reusing existing KV namespace (id: $KV_ID) — shared with other workers on this account."
+else
+  echo "→ Creating new KV namespace '$KV_TITLE'..."
   CREATE_OUT="$($WRANGLER kv namespace create "$KV_TITLE" 2>&1 || true)"
   echo "$CREATE_OUT"
   KV_ID="$(echo "$CREATE_OUT" | grep -oE 'id = "[a-f0-9]+"' | head -1 | sed -E 's/id = "([a-f0-9]+)"/\1/')"
+  [ -n "$KV_ID" ] && echo "→ Created KV id: $KV_ID"
 fi
 
 if [ -n "$KV_ID" ]; then
-  echo "→ KV id: $KV_ID"
-  cat >> wrangler.toml <<EOF
+  # Prevent duplicate [[kv_namespaces]] block if script re-runs on same checkout
+  if ! grep -q "^\[\[kv_namespaces\]\]" wrangler.toml; then
+    cat >> wrangler.toml <<EOF
 
 [[kv_namespaces]]
 binding = "EMAIL_CACHE"
 id = "$KV_ID"
 EOF
+    echo "→ Bound KV to this worker (binding: EMAIL_CACHE)"
+  else
+    echo "→ KV binding already present in wrangler.toml, skipping append."
+  fi
 else
   echo "⚠  KV setup skipped (token may lack 'Workers KV Storage:Edit'). Worker will run without cache."
 fi
