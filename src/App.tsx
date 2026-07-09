@@ -2648,6 +2648,35 @@ function ProfileSelectPage() {
     }
   };
 
+  const loginFreeProfile = async (profile: UserData) => {
+    if (freeLoginId) return;
+    setFreeLoginId(profile.id);
+    setError("");
+    try {
+      const data: any = await apiCall("manage-app", { action: "login_free", user_id: profile.id });
+      if (!data?.success) throw new Error(data?.error || "Failed to enter profile");
+      if (data.workerUrls && Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
+        storeWorkerUrls(data.workerUrls);
+      }
+      sessionSet("user" as any, JSON.stringify(data.user));
+      if (data.sessionToken) sessionSet("session_token" as any, data.sessionToken);
+      try {
+        const { storeSessionPair } = await import("./lib/sessionRefresh");
+        storeSessionPair(data);
+      } catch {}
+      try { sessionRemove("session_started_at" as any); } catch {}
+      checkAuth();
+      navigate("/viewer");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to enter profile";
+      setError(msg);
+      notify.error(msg);
+    } finally {
+      setFreeLoginId(null);
+    }
+  };
+
+
   return (
     <div className="min-h-screen bg-[#141414] flex flex-col items-center px-4 pt-10 sm:pt-14 pb-12 relative overflow-hidden">
       {/* Official Netflix wordmark + premium OTP badge (baseline-aligned) */}
