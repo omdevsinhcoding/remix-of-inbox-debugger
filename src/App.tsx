@@ -7862,23 +7862,37 @@ function EmailViewer() {
   }, []);
   const clearDiag = useCallback(() => setDiag([]), []);
 
-  const backToAdmin = () => {
+  const backToAdmin = async () => {
+    // Preferred path: server swaps the impersonated session for a fresh admin
+    // session via the adminId captured at impersonate time. Survives refresh
+    // because no client-side backup is required.
     try {
-      const backup = readImpersonationBackup();
-      if (!backup) {
-        notify.error("Impersonation session expired — please sign in again as admin.");
-        try { sessionRemove("admin_backup" as any); } catch {}
-        navigate("/admin");
-        return;
-      }
-      if (backup.user) sessionSet("user" as any, backup.user);
-      if (backup.token) sessionSet("session_token" as any, backup.token);
-      if (backup.adminAuth) sessionSet("admin_auth" as any, backup.adminAuth);
+      notify.loading("Returning to admin…", { id: "back-to-admin" });
+      const data = await apiCall("manage-app", { action: "back_to_admin" });
+      notify.dismiss("back-to-admin");
+      if (data?.sessionToken) sessionSet("session_token" as any, data.sessionToken);
+      if (data?.user) sessionSet("user" as any, JSON.stringify(data.user));
       try { sessionRemove("admin_backup" as any); } catch {}
-      try { sessionRemove("admin_backup" as any); } catch {}
+      try { sessionRemove("session_started_at" as any); } catch {}
       checkAuth();
       navigate("/admin/dashboard");
-    } catch {
+      return;
+    } catch (err) {
+      notify.dismiss("back-to-admin");
+      // Fallback to legacy client-side backup if server swap failed.
+      try {
+        const backup = readImpersonationBackup();
+        if (backup) {
+          if (backup.user) sessionSet("user" as any, backup.user);
+          if (backup.token) sessionSet("session_token" as any, backup.token);
+          if (backup.adminAuth) sessionSet("admin_auth" as any, backup.adminAuth);
+          try { sessionRemove("admin_backup" as any); } catch {}
+          checkAuth();
+          navigate("/admin/dashboard");
+          return;
+        }
+      } catch {}
+      notify.error(err instanceof Error ? err.message : "Failed to return to admin");
       navigate("/admin");
     }
   };
