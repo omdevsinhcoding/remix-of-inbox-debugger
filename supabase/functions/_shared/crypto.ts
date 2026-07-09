@@ -287,7 +287,11 @@ async function rateLimitHandshake(ip: string): Promise<boolean> {
   const nextCount = ((existing as any)?.count ?? 0) + 1;
   await sb.from("handshake_rate")
     .upsert({ ip, minute_bucket: bucket, count: nextCount }, { onConflict: "ip,minute_bucket" });
-  if (nextCount > 10) return false;
+  // Mobile carriers, campus Wi‑Fi, office networks, and preview deployments can
+  // put many legitimate users behind one NAT IP. 10/minute caused normal page
+  // loads to fail with a visible "handshake 429". Keep abuse protection, but
+  // allow production-level bursts from shared IPs.
+  if (nextCount > 180) return false;
   // hourly total
   const hourAgo = new Date(now.getTime() - 60 * 60_000).toISOString();
   const { data: rows } = await sb
@@ -296,7 +300,7 @@ async function rateLimitHandshake(ip: string): Promise<boolean> {
     .eq("ip", ip)
     .gte("minute_bucket", hourAgo);
   const total = (rows ?? []).reduce((s: number, r: any) => s + (r.count ?? 0), 0);
-  return total <= 100;
+  return total <= 1800;
 }
 
 export async function handleHandshake(req: Request): Promise<Response> {
