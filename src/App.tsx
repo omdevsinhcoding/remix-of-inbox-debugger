@@ -7899,11 +7899,12 @@ function EmailViewer() {
   const refreshPollRef = useRef<number | null>(null);
   const [resolvedWorkerUrls, setResolvedWorkerUrls] = useState<string[]>(() => getStoredWorkerUrls());
   const [workerUrlMap, setWorkerUrlMap] = useState<WorkerUrlMap>({ primary: [], byAccount: {} });
-  const [workerUrlsLoading, setWorkerUrlsLoading] = useState(true);
   const workerUrlLoaded = React.useRef(false);
   const inboxSessionStartedRef = useRef(false);
+  const cachedEmailsLoadedRef = useRef(false);
   const markInboxReady = useCallback(() => {
     if (inboxSessionStartedRef.current) return;
+    if (!cachedEmailsLoadedRef.current) return;
     inboxSessionStartedRef.current = true;
     if (!sessionGet("session_started_at" as any)) markSessionStart();
   }, []);
@@ -8015,7 +8016,6 @@ function EmailViewer() {
       setResolvedWorkerUrls(normalizedPrimary);
       setWorkerUrlMap({ primary: normalizedPrimary, byAccount: usableAccountUrls });
       if (normalizedPrimary.length > 0) storeWorkerUrls(normalizedPrimary);
-      setWorkerUrlsLoading(false);
     })();
   }, []);
 
@@ -8032,12 +8032,14 @@ function EmailViewer() {
         setEmails([]);
         setError(null);
         setLastUpdated(new Date());
+        cachedEmailsLoadedRef.current = true;
         return 0;
       }
       const groups = buildWorkerRequestGroups(labels, workerUrlMap, resolvedWorkerUrls);
       if (groups.length === 0) {
-        // No worker configured — keep whatever we already show, don't nuke inbox.
-        return filterVisibleEmails(emails, profilePrefs, user).length;
+        const storedWorkerUrls = getStoredWorkerUrls();
+        if (storedWorkerUrls.length === 0) return filterVisibleEmails(emails, profilePrefs, user).length;
+        groups.push({ url: storedWorkerUrls[0], labels });
       }
 
       const lists = await Promise.all(groups.map(async (group) => {
@@ -8075,11 +8077,13 @@ function EmailViewer() {
       }
       const emailList = mergeEmailsById(lists.map((item) => item.emails));
       if (emailList.length === 0 && emails.length > 0) {
+        cachedEmailsLoadedRef.current = true;
         return filterVisibleEmails(emails, profilePrefs, user).length;
       }
       setEmails(emailList);
       setError(null);
       setLastUpdated(new Date());
+      cachedEmailsLoadedRef.current = true;
       return filterVisibleEmails(emailList, profilePrefs, user).length;
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to load emails";
@@ -8171,6 +8175,7 @@ function EmailViewer() {
         refreshEmailFiltersForViewer(),
         loadCachedEmails({ limit: 200 }),
       ]);
+      markInboxReady();
       notify.dismiss(toastId);
       notify.success("Inbox updated", { duration: 1400 });
     } catch (err) {
@@ -8200,6 +8205,8 @@ function EmailViewer() {
           setEmails(synced);
           setError(null);
           setLastUpdated(new Date());
+          if (synced.length > 0) cachedEmailsLoadedRef.current = true;
+          markInboxReady();
           const visible = filterVisibleEmails(synced, profilePrefs, user);
           const newCount = visible.filter((e) => !beforeIds.has(e.id)).length;
           if (newCount > 0) {
@@ -8224,37 +8231,37 @@ function EmailViewer() {
 
 
 
-  // On mount/login: ONE silent auto-refresh via the worker POST sync path.
-  // No browser-persistent email cache, no background polling, no GET /api/emails.
+  // On mount/login: load cached emails from the Cloudflare Worker first. The
+  // session countdown starts only after cached rows are actually painted.
   const didAutoRefreshRef = useRef(false);
   useEffect(() => {
-    setLoading(false);
-
-    // Start the session countdown immediately on inbox mount — do NOT wait
-    // for the worker/IDB paint. Otherwise the timer never starts if either
-    // path stalls or the account has zero cached emails.
-    markInboxReady();
+    setLoading(true);
 
     if (didAutoRefreshRef.current) return;
     didAutoRefreshRef.current = true;
 
     (async () => {
       try {
-        // Kick off the cached (KV) preload immediately using whatever worker
-        // URLs are already known (stored in session). Do not gate on the
-        // async URL-resolver — that adds ~2-4 s of dead time on first paint.
-        await refreshEmailFiltersForViewer();
-        await loadCachedEmails({ limit: 200 });
+        await Promise.all([
+          refreshEmailFiltersForViewer(),
+          loadCachedEmails({ limit: 200 }),
+        ]);
+        markInboxReady();
         const synced = await syncViaWorker();
         if (synced) {
           setEmails(synced);
           setError(null);
           setLastUpdated(new Date());
+          if (synced.length > 0) cachedEmailsLoadedRef.current = true;
+          markInboxReady();
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err || "");
         pushDiag({ ts: Date.now(), kind: "sync", endpoint: "login auto-refresh", error: msg });
         await loadCachedEmails({ limit: 200 });
+        markInboxReady();
+      } finally {
+        setLoading(false);
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -8359,7 +8366,7 @@ function EmailViewer() {
           console.log(`[inbox] after writeDelta, IDB has ${fresh.length} rows → repaint`);
           setEmails(fresh as unknown as Email[]);
           setLastUpdated(new Date());
-          if (fresh.length > 0) markInboxReady();
+          markInboxReady();
         }
         setError(null);
       } catch (err) {
@@ -8367,8 +8374,8 @@ function EmailViewer() {
         console.error("[inbox] instant-inbox error:", msg, err);
         pushDiag({ ts: Date.now(), kind: "cache", endpoint: "instant-inbox", error: msg });
       } finally {
-        // Start the countdown only after the instant cache/delta load has had a chance to paint.
-        markInboxReady();
+        // Never start the countdown from IDB/Supabase delta alone; the rule is
+        // Cloudflare Worker cached emails first, then timer.
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
