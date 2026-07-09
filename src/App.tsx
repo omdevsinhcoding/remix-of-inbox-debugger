@@ -1,6 +1,6 @@
 import React, { useState, useEffect, createContext, useContext, useCallback, useRef, useMemo, Suspense, lazy } from "react";
 import { createPortal } from "react-dom";
-import { Mail, RefreshCw, ShieldCheck, Shield, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, BarChart3, Globe, Edit, Database, Wifi, Info, UserCircle, Search, ChevronLeft, ChevronRight, Bell, Send, MessageSquare, Image as ImageIcon, ExternalLink, AlertTriangle, Sparkles, Megaphone, Wrench, CreditCard, Tag, ChevronDown, HardDrive, Upload, Zap, BookOpen, GraduationCap, Film, PlayCircle } from "lucide-react";
+import { Mail, RefreshCw, ShieldCheck, Shield, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, BarChart3, Globe, Edit, Database, Wifi, Info, UserCircle, Search, ChevronLeft, ChevronRight, Bell, Send, MessageSquare, Image as ImageIcon, ExternalLink, AlertTriangle, Sparkles, Megaphone, Wrench, CreditCard, Tag, ChevronDown, HardDrive, Upload, Zap, BookOpen, GraduationCap, Film, PlayCircle, Pin } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import NetflixHouseholdVerificationGuide from "./pages/NetflixHouseholdVerificationGuide";
@@ -2345,13 +2345,17 @@ function filterVisibleEmails(list: Email[], _prefs?: UserProfilePrefs | null) {
   const hideSignin = filters.showSignInCodes === false;
   const hideReset = filters.showPasswordResets === false;
   const hideAccountUpdate = filters.showAccountUpdates === false;
+  // Strict mode: when BOTH password-reset and account-update are hidden
+  // (default for free profiles), also hide anything that isn't clearly a
+  // sign-in code — payment receipts, "verify your phone/email", "you're
+  // ready to watch", etc. Only OTP/sign-in mail should reach the user.
+  const strictSigninOnly = hideReset && hideAccountUpdate;
   return list.filter((email) => {
-    if (hideSignin || hideReset || hideAccountUpdate) {
-      const cat = classifyEmail(email);
-      if (hideSignin && cat === "signin") return false;
-      if (hideReset && cat === "password_reset") return false;
-      if (hideAccountUpdate && cat === "account_update") return false;
-    }
+    const cat = classifyEmail(email);
+    if (hideSignin && cat === "signin") return false;
+    if (hideReset && cat === "password_reset") return false;
+    if (hideAccountUpdate && cat === "account_update") return false;
+    if (strictSigninOnly && cat === "other") return false;
     return true;
   });
 }
@@ -2923,10 +2927,11 @@ function ProfileSelectPage() {
                           {profile.pinned && (
                             <span
                               aria-label="Pinned"
-                              className="absolute top-1.5 left-1.5 inline-flex items-center justify-center w-5 h-5 rounded-full bg-black/60 backdrop-blur text-white"
-                              style={{ boxShadow: "0 2px 6px rgba(0,0,0,0.45)" }}
+                              title="Pinned"
+                              className="absolute top-1.5 left-1.5 inline-flex items-center justify-center w-6 h-6 rounded-full bg-amber-400 text-black ring-2 ring-black/70"
+                              style={{ boxShadow: "0 4px 10px rgba(0,0,0,0.55)" }}
                             >
-                              <svg viewBox="0 0 24 24" className="w-3 h-3" fill="currentColor"><path d="M14 4l6 6-4 1-3 3-1 6-4-4-5 5 5-5-4-4 6-1 3-3z"/></svg>
+                              <Pin className="w-3.5 h-3.5" strokeWidth={2.5} fill="currentColor" />
                             </span>
                           )}
                         </div>
