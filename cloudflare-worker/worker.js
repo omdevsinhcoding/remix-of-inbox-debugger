@@ -105,6 +105,10 @@ function cachePrefixes() {
   ];
 }
 
+// SECURITY: only ever probe cache keys scoped to the SAME userAccountsKey.
+// Never fall back to `:all` or any other user's scope — cross-scope reads
+// leaked other accounts' emails (password resets, payments, etc.) to a
+// fresh profile that had no cache entry of its own yet.
 function candidateCacheKeys(userAccountsKey, limit) {
   return cachePrefixes().flatMap(({ list }) => [
     `${list}:${userAccountsKey}:limit:${limit}`,
@@ -112,11 +116,6 @@ function candidateCacheKeys(userAccountsKey, limit) {
     `${list}:${userAccountsKey}:limit:50`,
     `${list}:${userAccountsKey}:limit:3`,
     `${list}:${userAccountsKey}`,
-    `${list}:all:limit:${limit}`,
-    `${list}:all:limit:200`,
-    `${list}:all:limit:50`,
-    `${list}:all:limit:3`,
-    `${list}:all`,
   ]).filter((key, index, arr) => arr.indexOf(key) === index);
 }
 
@@ -127,6 +126,24 @@ async function readBestCachedRaw(env, userAccountsKey, limit, skipKey = "") {
     if (raw) return { key, raw };
   }
   return null;
+}
+
+// Defence-in-depth: even if a cache entry somehow contains cross-account
+// rows (legacy KV writes, admin-scope entries, corrupted merges), strip
+// anything outside the caller's assigned accounts before returning.
+function enforceScopeOnRaw(raw, session) {
+  if (!raw || !session || session.role === "admin") return raw;
+  const allowed = Array.isArray(session.assignedAccounts) ? session.assignedAccounts : [];
+  const allowSet = new Set(allowed.map((s) => String(s || "").trim()).filter(Boolean));
+  const list = parseEmailList(raw);
+  if (!Array.isArray(list)) return raw;
+  const filtered = list.filter((e) => {
+    const label = String(e?.account_label || "").trim();
+    // If the row has no label we cannot verify ownership → drop it.
+    if (!label) return false;
+    return allowSet.has(label);
+  });
+  return JSON.stringify(filtered);
 }
 
 function mergeEmailPayloads(existingRaw, incomingRaw) {
