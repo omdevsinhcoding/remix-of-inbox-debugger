@@ -8114,7 +8114,7 @@ function EmailViewer() {
 
 
   const syncViaWorker = useCallback(async (): Promise<Email[] | null> => {
-    const labels = refreshAccountLabels;
+    const labels = activeRefreshLabels;
     if (labels && labels.length === 0) return null;
     const started = performance.now();
     const data = await apiCall("fetch-emails", {
@@ -8132,7 +8132,7 @@ function EmailViewer() {
     });
     if (data?.success === false) return null;
     return Array.isArray(data?.emails) ? mergeEmailsById([data.emails as Email[]]) : null;
-  }, [pushDiag, refreshAccountLabels]);
+  }, [pushDiag, activeRefreshLabels]);
 
   const fetchEmails = async () => {
     if (refreshingRef.current) {
