@@ -1801,7 +1801,7 @@ Deno.serve(async (originalReq) => {
           sortOrder: u.sort_order ?? null,
           expiresAt: u.expires_at || null,
         }));
-      const payload = { success: true, users: mappedUsers, recaptcha, workerUrls, emailFilters, maintenance, avatarBaseUrl };
+      const payload = { success: true, users: mappedUsers, recaptcha, workerUrls, emailFilters, maintenance, avatarBaseUrl, locationRequired };
       __bootstrapCache = { at: now, payload };
       return new Response(JSON.stringify(payload), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
