@@ -54,6 +54,7 @@ const FAST_REFRESH_SCAN_COUNT = 4;
 const STALE_DAYS = 60;
 const USER_SYNC_WINDOW_MS = 5_000;
 const userSyncHits = new Map<string, number>();
+let cronRepairLastAttempt = 0;
 
 type Session = { userId: string; username: string; role: "admin" | "user"; assignedAccounts?: string[] | null; exp?: number };
 type Account = { label: string; host: string; port: number; user: string; password: string; recipientFilters?: string[] };
@@ -651,6 +652,27 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
   return response;
 }
 
+async function repairCronScheduleIfNeeded(supabase: any, cronSecret: string) {
+  if (!cronSecret || Date.now() - cronRepairLastAttempt < 10 * 60_000) return;
+  cronRepairLastAttempt = Date.now();
+  try {
+    const { data: cfg } = await supabase.from("app_settings").select("value").eq("key", "cron_config").maybeSingle();
+    const interval = Math.max(1, Math.min(10, parseInt(String(cfg?.value?.interval || "1")) || 1));
+    const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+    try { await supabase.rpc("unschedule_email_sync"); } catch {}
+    const { error } = await supabase.rpc("schedule_email_sync", {
+      cron_expr: `*/${interval} * * * *`,
+      function_url: `${SUPABASE_URL}/functions/v1/fetch-emails`,
+      auth_key: cronSecret,
+    });
+    if (error) throw error;
+    await supabase.from("app_settings").upsert({ key: "cron_config", value: { active: true, interval } }, { onConflict: "key" });
+    console.log(`[cron] Repaired schedule with secret header at */${interval} minute(s)`);
+  } catch (err) {
+    console.error("[cron] Repair failed:", err instanceof Error ? err.message : String(err));
+  }
+}
+
 Deno.serve(async (originalReq) => {
   if (originalReq.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -659,14 +681,20 @@ Deno.serve(async (originalReq) => {
   // Sec-Fetch-Site and must still use encrypted transport.
   const CRON_SHARED_SECRET_FOR_TRANSPORT = Deno.env.get("CRON_SHARED_SECRET") || "";
   const SERVICE_ROLE_FOR_TRANSPORT = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+  const ANON_KEY_FOR_TRANSPORT = Deno.env.get("SUPABASE_ANON_KEY") || Deno.env.get("SUPABASE_PUBLISHABLE_KEY") || "";
   const cronHeaderForTransport = originalReq.headers.get("x-cron-secret") || "";
   const authHeaderForTransport = originalReq.headers.get("authorization") || "";
   const sessionTokenForTransport = originalReq.headers.get("x-session-token") || "";
   const secFetchSiteForTransport = originalReq.headers.get("sec-fetch-site") || "";
   const hasValidCronSecret = !!CRON_SHARED_SECRET_FOR_TRANSPORT && cronHeaderForTransport === CRON_SHARED_SECRET_FOR_TRANSPORT;
   const hasServiceRoleBearer = !!SERVICE_ROLE_FOR_TRANSPORT && authHeaderForTransport === `Bearer ${SERVICE_ROLE_FOR_TRANSPORT}`;
+  // Legacy pg_cron jobs in this project were created with the anon bearer but
+  // without x-cron-secret, so encrypted transport rejected them with 426 before
+  // the sync code ran. Accept only server-side plaintext here; the action gate
+  // below restricts it to mode=sync/source=cron and strips email contents.
+  const hasLegacyPgCronBearer = !!ANON_KEY_FOR_TRANSPORT && authHeaderForTransport === `Bearer ${ANON_KEY_FOR_TRANSPORT}` && !secFetchSiteForTransport && originalReq.method === "POST";
   const serverLikeSessionProxy = !!sessionTokenForTransport && !secFetchSiteForTransport;
-  const allowServerPlaintext = hasValidCronSecret || hasServiceRoleBearer || serverLikeSessionProxy;
+  const allowServerPlaintext = hasValidCronSecret || hasServiceRoleBearer || hasLegacyPgCronBearer || serverLikeSessionProxy;
   let ctx: EncryptedRequestContext | null = null;
   let parsedBody: any = null;
   try {
@@ -698,7 +726,7 @@ Deno.serve(async (originalReq) => {
     const mode = body.mode || "sync";
     const source = body.source || "manual";
     const session = await requireSession(req, body, SIGNING_SECRET, LEGACY_SIGNING, supabase);
-    const isCron = !!CRON_SHARED_SECRET && req.headers.get("x-cron-secret") === CRON_SHARED_SECRET;
+    const isCronSecret = !!CRON_SHARED_SECRET && req.headers.get("x-cron-secret") === CRON_SHARED_SECRET;
 
 
     let filterSignInCodes = false;
@@ -712,6 +740,10 @@ Deno.serve(async (originalReq) => {
         if (filterData.value.showAccountUpdates === false) filterAccountUpdates = true;
       }
     } catch {}
+
+    const isLegacyPgCron = !session && !isCronSecret && hasLegacyPgCronBearer && mode === "sync" && source === "cron";
+    const isCron = isCronSecret || isLegacyPgCron;
+    if (isLegacyPgCron) repairCronScheduleIfNeeded(supabase, CRON_SHARED_SECRET).catch(() => {});
 
     if (mode === "cron_status") {
       if (!session || session.role !== "admin") return json({ success: false, error: "Admin session required" }, 401);
@@ -818,6 +850,16 @@ Deno.serve(async (originalReq) => {
     }
 
     const result = await runSync(supabase, ENCRYPTION_SECRET, source, accountLabels, clampLimit(body.limit, FULL_SYNC_MAX_UIDS, FULL_SYNC_MAX_UIDS));
+    if (!session && isCron && result?.success !== false) {
+      return json({
+        success: true,
+        source,
+        stats: result.stats || {},
+        totalFetched: result.totalFetched || 0,
+        inserted: result.inserted || 0,
+        duplicatesSkipped: result.duplicatesSkipped || 0,
+      });
+    }
     if (session && session.role !== "admin" && result?.success !== false) {
       const accountFilterForCache = await getAssignedAccountFilter(supabase, session);
       result.emails = await readCache(supabase, accountFilterForCache, filterSignInCodes, filterPasswordResets, filterAccountUpdates, session, body.limit).catch(() => []);
