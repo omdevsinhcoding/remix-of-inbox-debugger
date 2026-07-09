@@ -1577,7 +1577,7 @@ async function persistLoginEvent(
   // If new device and login success, notify admin via notifications table
   if (status === "success" && isNewDevice) {
     try {
-      const body = `${devVendor || ""} ${devModel || devType || "device"} · ${browser || "browser"} on ${os || "OS"} · ${merged.city || ""} ${merged.country || ""} · IP ${ip || "?"}`.trim();
+      const body = `${identity.vendor || ""} ${identity.model || identity.type || "device"} · ${browser || "browser"} on ${os || "OS"} · ${merged.city || ""} ${merged.country || ""} · IP ${ip || "?"}`.trim();
       await supabase.from("notifications").insert({
         title: `🆕 New device login: ${user.username}`,
         body,
