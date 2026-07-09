@@ -2345,13 +2345,17 @@ function filterVisibleEmails(list: Email[], _prefs?: UserProfilePrefs | null) {
   const hideSignin = filters.showSignInCodes === false;
   const hideReset = filters.showPasswordResets === false;
   const hideAccountUpdate = filters.showAccountUpdates === false;
+  // Strict mode: when BOTH password-reset and account-update are hidden
+  // (default for free profiles), also hide anything that isn't clearly a
+  // sign-in code — payment receipts, "verify your phone/email", "you're
+  // ready to watch", etc. Only OTP/sign-in mail should reach the user.
+  const strictSigninOnly = hideReset && hideAccountUpdate;
   return list.filter((email) => {
-    if (hideSignin || hideReset || hideAccountUpdate) {
-      const cat = classifyEmail(email);
-      if (hideSignin && cat === "signin") return false;
-      if (hideReset && cat === "password_reset") return false;
-      if (hideAccountUpdate && cat === "account_update") return false;
-    }
+    const cat = classifyEmail(email);
+    if (hideSignin && cat === "signin") return false;
+    if (hideReset && cat === "password_reset") return false;
+    if (hideAccountUpdate && cat === "account_update") return false;
+    if (strictSigninOnly && cat === "other") return false;
     return true;
   });
 }
