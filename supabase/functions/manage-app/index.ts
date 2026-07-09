@@ -2865,7 +2865,7 @@ Deno.serve(async (originalReq) => {
       const session = await requireSession(req);
       const { data: user, error } = await supabase
         .from("app_users")
-        .select("id, username, name, role, must_change_password, assigned_accounts, profile_prefs")
+        .select("id, username, name, role, must_change_password, assigned_accounts, profile_prefs, is_free")
         .eq("id", session.userId)
         .single();
       if (error || !user) throw new Error("Account not found");
@@ -2880,6 +2880,7 @@ Deno.serve(async (originalReq) => {
           assignedAccounts: user.assigned_accounts,
           profilePrefs: user.profile_prefs || {},
           profileAvatar: user.profile_prefs?.avatarId || null,
+          isFree: !!user.is_free,
           impersonated: session.impersonated === true,
         },
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
