@@ -7789,22 +7789,7 @@ function EmailViewer() {
   const [showChangePassword, setShowChangePassword] = useState(!!user.mustChangePassword);
   const [showProfile, setShowProfile] = useState(false);
   const [forcedPasswordChange] = useState(!!user.mustChangePassword);
-  // Impersonation state: user.impersonated (server-signed session) is source of
-  // truth so a page refresh keeps the admin in "View as user" mode without any
-  // localStorage/sessionStorage backup. admin_backup in sessionStorage is only
-  // used as a legacy fast-path fallback.
-  const readImpersonationBackup = (): { user?: string | null; token?: string | null; adminAuth?: string | null } | null => {
-    try {
-      const raw = sessionGet("admin_backup" as any);
-      if (!raw) return null;
-      const parsed = JSON.parse(raw);
-      if (!parsed || (parsed.exp && Date.now() > parsed.exp)) {
-        try { sessionRemove("admin_backup" as any); } catch {}
-        return null;
-      }
-      return parsed;
-    } catch { return null; }
-  };
+  // Impersonation state is server-signed and backed by the parent admin session row.
   const isImpersonating = (user as any)?.impersonated === true;
 
   const [refreshing, setRefreshing] = useState(false);
