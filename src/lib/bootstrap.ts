@@ -82,6 +82,12 @@ export function clearSessionData() {
     } catch {}
     // C.2: clear refresh-token state and cancel scheduler.
     try { import("./sessionRefresh").then(({ clearRefreshState }) => clearRefreshState()).catch(() => {}); } catch {}
+    try {
+      import("./inboxCache").then(({ clearInboxCache, clearAllInboxCaches }) => {
+        if (uid) clearInboxCache(uid).catch(() => {});
+        clearAllInboxCaches().catch(() => {});
+      }).catch(() => {});
+    } catch {}
   } catch {}
 
 }

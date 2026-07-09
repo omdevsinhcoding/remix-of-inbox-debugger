@@ -174,3 +174,23 @@ export async function getEmailHtml(
 export async function clearInboxCache(userId: string): Promise<void> {
   try { indexedDB.deleteDatabase(dbName(userId)); } catch { /* ignore */ }
 }
+
+/** Wipe every local inbox DB on this device. Used as a logout/shared-device safety sweep. */
+export async function clearAllInboxCaches(): Promise<void> {
+  try {
+    const listDatabases = (indexedDB as any).databases;
+    if (typeof listDatabases !== "function") return;
+    const dbs = await listDatabases.call(indexedDB);
+    await Promise.all(
+      (dbs || [])
+        .map((db: any) => String(db?.name || ""))
+        .filter((name: string) => name.startsWith(DB_PREFIX))
+        .map((name: string) => new Promise<void>((resolve) => {
+          const req = indexedDB.deleteDatabase(name);
+          req.onsuccess = () => resolve();
+          req.onerror = () => resolve();
+          req.onblocked = () => resolve();
+        })),
+    );
+  } catch { /* ignore */ }
+}
