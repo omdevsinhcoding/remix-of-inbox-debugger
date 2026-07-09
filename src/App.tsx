@@ -5126,19 +5126,33 @@ function AdminPanel() {
               </h2>
               <p className="text-[11px] text-slate-500 mb-3">Drag rows to reorder how profiles appear on the login screen. Pinned profiles always stay on top.</p>
               <div className="space-y-3">
-                {users.map(u => (
-                  <div key={u.id} className="p-3 sm:p-4 bg-slate-50 rounded-2xl border border-slate-100 hover:border-slate-200 transition-colors min-w-0">
+                {users.map(u => {
+                  const canDrag = u.role !== "admin";
+                  return (
+                  <div
+                    key={u.id}
+                    draggable={canDrag}
+                    onDragStart={() => canDrag && setDragUserId(u.id)}
+                    onDragOver={(e) => { if (canDrag && dragUserId && dragUserId !== u.id) e.preventDefault(); }}
+                    onDrop={(e) => { e.preventDefault(); if (canDrag) onDropUser(u.id); }}
+                    onDragEnd={() => setDragUserId(null)}
+                    className={`p-3 sm:p-4 bg-slate-50 rounded-2xl border transition-colors min-w-0 ${dragUserId === u.id ? "opacity-50 border-emerald-400" : "border-slate-100 hover:border-slate-200"} ${canDrag ? "cursor-move" : ""}`}
+                  >
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                       <div className="flex items-center gap-3 min-w-0">
                         <ProfileAvatar
                           avatarId={getStableProfileAvatar(u)}
                           name={u.name}
                           className="w-10 h-10 !rounded-xl"
-                          fallbackColor={u.role === "admin" ? "bg-red-500" : "bg-blue-500"}
+                          fallbackColor={u.role === "admin" ? "bg-red-500" : (u.isFree ? "bg-emerald-500" : "bg-blue-500")}
                         />
                         <div className="min-w-0">
-                          <p className="font-bold text-slate-900 truncate">{u.name}</p>
-                          <p className="text-xs text-slate-500 truncate">@{u.username} • <span className={u.role === "admin" ? "text-red-600 font-bold" : "text-blue-600"}>{u.role}</span></p>
+                          <p className="font-bold text-slate-900 truncate flex items-center gap-1.5">
+                            {u.name}
+                            {u.isFree && <span className="text-[9px] font-black bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded">FREE</span>}
+                            {u.pinned && <span className="text-[9px] font-black bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">PINNED</span>}
+                          </p>
+                          <p className="text-xs text-slate-500 truncate">@{u.username} • <span className={u.role === "admin" ? "text-red-600 font-bold" : (u.isFree ? "text-emerald-600 font-semibold" : "text-blue-600")}>{u.isFree ? "free" : u.role}</span></p>
                           {u.assignedAccounts && u.assignedAccounts.length > 0 && (
                             <div className="flex flex-wrap gap-1 mt-1">
                               {u.assignedAccounts.map((a: string) => (
@@ -5146,7 +5160,7 @@ function AdminPanel() {
                               ))}
                             </div>
                           )}
-                          {u.role !== "admin" && (u as any).session_limit != null && (
+                          {u.role !== "admin" && !u.isFree && (u as any).session_limit != null && (
                             <p className="text-[10px] text-emerald-700 mt-0.5 font-semibold">
                               Session limit: {(u as any).session_limit === 0 ? "unlimited" : `${(u as any).session_limit} device${(u as any).session_limit === 1 ? "" : "s"}`}
                             </p>
@@ -5158,6 +5172,10 @@ function AdminPanel() {
                       </div>
                       {u.role !== "admin" && (
                         <div className="flex items-center gap-1 self-end sm:self-auto">
+                          <button onClick={() => togglePinnedUser(u)} title={u.pinned ? "Unpin from top" : "Pin to top"}
+                            className={`p-2 rounded-lg transition-colors ${u.pinned ? "bg-amber-100 text-amber-700 hover:bg-amber-200" : "hover:bg-amber-50 text-amber-400 hover:text-amber-600"}`}>
+                            <svg viewBox="0 0 24 24" className="w-4 h-4" fill="currentColor"><path d="M14 4l6 6-4 1-3 3-1 6-4-4-5 5 5-5-4-4 6-1 3-3z"/></svg>
+                          </button>
                           <button onClick={() => loginAsUser(u)} title="View as user"
                             className="p-2 hover:bg-blue-50 text-blue-400 hover:text-blue-600 rounded-lg transition-colors">
                             <Eye className="w-4 h-4" />
@@ -5172,10 +5190,12 @@ function AdminPanel() {
                             className="p-2 hover:bg-green-50 text-green-400 hover:text-green-600 rounded-lg transition-colors">
                             <Edit className="w-4 h-4" />
                           </button>
-                          <button onClick={() => { setChangingUserPass(changingUserPass === u.id ? null : u.id); setUserNewPass(""); }} title="Change password"
-                            className="p-2 hover:bg-amber-50 text-amber-400 hover:text-amber-600 rounded-lg transition-colors">
-                            <KeyRound className="w-4 h-4" />
-                          </button>
+                          {!u.isFree && (
+                            <button onClick={() => { setChangingUserPass(changingUserPass === u.id ? null : u.id); setUserNewPass(""); }} title="Change password"
+                              className="p-2 hover:bg-amber-50 text-amber-400 hover:text-amber-600 rounded-lg transition-colors">
+                              <KeyRound className="w-4 h-4" />
+                            </button>
+                          )}
                           <button onClick={() => deleteUser(u.id)} title="Delete user"
                             className="p-2 hover:bg-red-50 text-red-400 hover:text-red-600 rounded-lg transition-colors">
                             <Trash2 className="w-4 h-4" />
@@ -5183,6 +5203,7 @@ function AdminPanel() {
                         </div>
                       )}
                     </div>
+
 
                     {editingUserAccounts === u.id && u.role !== "admin" && (
                       <div className="mt-3 p-3 bg-white rounded-xl border">
