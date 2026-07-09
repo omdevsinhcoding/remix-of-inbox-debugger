@@ -1259,7 +1259,6 @@ function AutoPopupNotification() {
       const fresh = list.filter((n) =>
         !seenRef.current.has(n.id) &&
         !n.read &&
-        !(n.locked) &&
         (!n.snoozed_until || new Date(n.snoozed_until) < new Date())
       );
       if (fresh.length) {
@@ -7789,6 +7788,7 @@ function EmailViewer() {
     setEmailsRaw(visible);
   }, [profilePrefs, user]);
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
+  const [loadingEmailHtmlId, setLoadingEmailHtmlId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
@@ -7979,14 +7979,18 @@ function EmailViewer() {
         if (!res.ok) {
           // Never surface raw transport JSON like `{"error":"encrypted transport required"}`.
           // Treat as an empty response and keep existing emails visible.
-          return [] as Email[];
+          return { ok: false, emails: [] as Email[] };
         }
         let data: any = [];
         try { data = text ? JSON.parse(text) : []; } catch { data = []; }
-        return Array.isArray(data) ? data as Email[] : [];
+        return { ok: true, emails: Array.isArray(data) ? data as Email[] : [] };
       }));
 
-      const emailList = mergeEmailsById(lists);
+      const okCount = lists.filter((item) => item.ok).length;
+      if (okCount === 0) {
+        return filterVisibleEmails(emails, profilePrefs, user).length;
+      }
+      const emailList = mergeEmailsById(lists.map((item) => item.emails));
       setEmails(emailList);
       setError(null);
       setLastUpdated(new Date());
@@ -8013,13 +8017,14 @@ function EmailViewer() {
     }
 
     const collected: Email[][] = [];
+    let okCount = 0;
     await Promise.all(groups.map(async (group) => {
       const endpoint = `${group.url}/api/emails/sync`;
       const started = performance.now();
       const res = await fetchWithTimeout(endpoint, {
         method: "POST",
         headers: { ...headers, "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "user_sync", source: "user_refresh", limit: 3, accountLabels: group.labels || undefined }),
+          body: JSON.stringify({ mode: "user_sync", source: "user_refresh", limit: 200, accountLabels: group.labels || undefined }),
       }, 18000);
       const text = await res.text();
       pushDiag({ ts: Date.now(), kind: "worker", endpoint, status: res.status, ms: Math.round(performance.now() - started), note: `user_sync${group.labels ? ` · ${group.labels.join(", ")}` : ""}` });
@@ -8030,10 +8035,11 @@ function EmailViewer() {
       let data: any = null;
       try { data = text ? JSON.parse(text) : null; } catch { data = null; }
       if (data && data.success === false) return;
+      okCount++;
       if (data && Array.isArray(data.emails)) collected.push(data.emails as Email[]);
     }));
 
-    if (collected.length === 0) return [];
+    if (okCount === 0) return null;
     return mergeEmailsById(collected);
   }, [pushDiag, resolvedWorkerUrls, workerUrlMap, refreshAccountLabels]);
 
@@ -8235,6 +8241,7 @@ function EmailViewer() {
   const openEmail = useCallback(async (email: Email) => {
     setSelectedEmail(email);
     if (email.html && email.html.length > 0) return;
+    setLoadingEmailHtmlId(email.id);
     try {
       const db = idbRef.current || (user?.id ? await openInboxDB(user.id) : null);
       if (db) {
@@ -8242,6 +8249,7 @@ function EmailViewer() {
         const localHtml = await getEmailHtml(db, email.id);
         if (localHtml) {
           setSelectedEmail({ ...email, html: localHtml });
+          setLoadingEmailHtmlId((id) => (id === email.id ? null : id));
           return;
         }
       }
@@ -8283,6 +8291,8 @@ function EmailViewer() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err || "");
       pushDiag({ ts: Date.now(), kind: "cache", endpoint: "get_email_html", error: msg });
+    } finally {
+      setLoadingEmailHtmlId((id) => (id === email.id ? null : id));
     }
   }, [user?.id, resolvedWorkerUrls, pushDiag]);
 
@@ -8573,19 +8583,28 @@ function EmailViewer() {
                     </div>
                   )}
                   <div className="email-html-wrapper">
-                    <iframe
-                      srcDoc={`<!DOCTYPE html><html><head><base target="_blank"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0;padding:8px;font-family:sans-serif;font-size:14px;color:#334155;overflow-x:hidden;word-break:break-word}img{max-width:100%!important;height:auto!important}table{max-width:100%!important;width:100%!important}td,th{max-width:100%!important;overflow:hidden}a{color:#e11d48}pre{white-space:pre-wrap;word-break:break-word;font-family:ui-sans-serif,system-ui,sans-serif;line-height:1.45}*{box-sizing:border-box}</style></head><body>${emailHtmlForDisplay(selectedEmail)}<script>(function(){function force(a){try{a.setAttribute('target','_blank');a.setAttribute('rel','noopener noreferrer');}catch(e){}}function scan(){document.querySelectorAll('a,button').forEach(force);}document.addEventListener('click',function(e){var a=e.target.closest('a,button');if(!a)return;var href=a.getAttribute('href')||a.dataset.href;if(href){e.preventDefault();window.open(href,'_blank','noopener,noreferrer');}},true);document.addEventListener('contextmenu',function(e){e.preventDefault();});scan();try{new MutationObserver(scan).observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['href','target']});}catch(e){}try{var links=document.querySelectorAll('a').length;var buttons=document.querySelectorAll('button').length;var base=document.querySelector('base');window.parent&&window.parent.postMessage({__nf:'iframe-links',links:links,buttons:buttons,hijack:true,baseTarget:(base&&base.getAttribute('target'))||''}, '*');}catch(e){}})();<\/script></body></html>`}
-                      sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-scripts"
-                      className="w-full border-0"
-                      style={{ minHeight: "400px" }}
-                      title="Email content"
-                      onLoad={(e) => {
-                        const iframe = e.target as HTMLIFrameElement;
-                        if (iframe.contentDocument?.body) {
-                          iframe.style.height = iframe.contentDocument.body.scrollHeight + 20 + "px";
-                        }
-                      }}
-                    />
+                    {!selectedEmail.html && loadingEmailHtmlId === selectedEmail.id ? (
+                      <div className="min-h-[320px] flex items-center justify-center text-center text-slate-400">
+                        <div className="flex flex-col items-center gap-3">
+                          <RefreshCw className="w-6 h-6 animate-spin" />
+                          <span className="text-xs font-bold uppercase tracking-[0.14em]">Loading full email</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <iframe
+                        srcDoc={`<!DOCTYPE html><html><head><base target="_blank"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0;padding:8px;font-family:sans-serif;font-size:14px;color:#334155;overflow-x:hidden;word-break:break-word}img{max-width:100%!important;height:auto!important}table{max-width:100%!important;width:100%!important}td,th{max-width:100%!important;overflow:hidden}a{color:#e11d48}pre{white-space:pre-wrap;word-break:break-word;font-family:ui-sans-serif,system-ui,sans-serif;line-height:1.45}*{box-sizing:border-box}</style></head><body>${emailHtmlForDisplay(selectedEmail)}<script>(function(){function force(a){try{a.setAttribute('target','_blank');a.setAttribute('rel','noopener noreferrer');}catch(e){}}function scan(){document.querySelectorAll('a,button').forEach(force);}document.addEventListener('click',function(e){var a=e.target.closest('a,button');if(!a)return;var href=a.getAttribute('href')||a.dataset.href;if(href){e.preventDefault();window.open(href,'_blank','noopener,noreferrer');}},true);document.addEventListener('contextmenu',function(e){e.preventDefault();});scan();try{new MutationObserver(scan).observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['href','target']});}catch(e){}try{var links=document.querySelectorAll('a').length;var buttons=document.querySelectorAll('button').length;var base=document.querySelector('base');window.parent&&window.parent.postMessage({__nf:'iframe-links',links:links,buttons:buttons,hijack:true,baseTarget:(base&&base.getAttribute('target'))||''}, '*');}catch(e){}})();<\/script></body></html>`}
+                        sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-scripts"
+                        className="w-full border-0"
+                        style={{ minHeight: "400px" }}
+                        title="Email content"
+                        onLoad={(e) => {
+                          const iframe = e.target as HTMLIFrameElement;
+                          if (iframe.contentDocument?.body) {
+                            iframe.style.height = iframe.contentDocument.body.scrollHeight + 20 + "px";
+                          }
+                        }}
+                      />
+                    )}
                   </div>
                 </div>
               </motion.div>

@@ -46,8 +46,8 @@ function extractOtpCode(subject: string, body: string): string | null {
   return null;
 }
 
-const FULL_SYNC_MAX_UIDS = 10;
-const USER_REFRESH_MAX_UIDS = 1;
+const FULL_SYNC_MAX_UIDS = 50;
+const USER_REFRESH_MAX_UIDS = 12;
 const PER_ACCOUNT_TIMEOUT_MS = 6500;
 const FAST_REFRESH_TIMEOUT_MS = 1800;
 const FAST_REFRESH_SCAN_COUNT = 4;

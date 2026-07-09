@@ -544,7 +544,7 @@ async function handleSync(env, session, rawToken, requestBody, ctx) {
         status: 401, headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
       });
     }
-    const limit = clampLimit(requestBody?.limit, 3, 50);
+    const limit = clampLimit(requestBody?.limit, 200, 200);
     const requestedLabels = Array.isArray(requestBody?.accountLabels) ? requestBody.accountLabels : [];
     if (session.role !== "admin" && (!Array.isArray(session.assignedAccounts) || session.assignedAccounts.length === 0)) {
       return new Response(JSON.stringify({ success: true, accepted: true, emails: [], message: "No accounts assigned" }), {

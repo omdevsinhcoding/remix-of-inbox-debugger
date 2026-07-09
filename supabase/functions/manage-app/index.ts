@@ -161,6 +161,12 @@ function normalizeAccountLabels(raw: any, available: string[] = []): string[] {
   return out;
 }
 
+function normalizedAssignedAccountsEqual(a: string[] | null, b: string[] | null): boolean {
+  const aa = Array.isArray(a) ? [...a].sort() : [];
+  const bb = Array.isArray(b) ? [...b].sort() : [];
+  return aa.length === bb.length && aa.every((v, i) => v === bb[i]);
+}
+
 async function normalizeAssignedAccounts(supabase: any, raw: any): Promise<string[] | null> {
   if (!Array.isArray(raw) || raw.length === 0) return null;
   const labels = await loadAvailableAccountLabels(supabase);
@@ -2135,6 +2141,10 @@ Deno.serve(async (originalReq) => {
       }
 
       const normalizedAssignedAccounts = await normalizeAssignedAccounts(supabase, user.assigned_accounts);
+      if (!normalizedAssignedAccountsEqual(normalizedAssignedAccounts, Array.isArray(user.assigned_accounts) ? user.assigned_accounts : null)) {
+        await supabase.from("app_users").update({ assigned_accounts: normalizedAssignedAccounts }).eq("id", user.id);
+        invalidateBootstrapCache();
+      }
       // C.2: mint access (15 min) + refresh (12 h) rotating pair
       const pair = await mintSessionPair(user.id, user.role, {
         userId: user.id,
@@ -2767,6 +2777,10 @@ Deno.serve(async (originalReq) => {
       } catch {}
 
       const normalizedAssignedAccounts = await normalizeAssignedAccounts(supabase, user.assigned_accounts);
+      if (!normalizedAssignedAccountsEqual(normalizedAssignedAccounts, Array.isArray(user.assigned_accounts) ? user.assigned_accounts : null)) {
+        await supabase.from("app_users").update({ assigned_accounts: normalizedAssignedAccounts }).eq("id", user.id);
+        invalidateBootstrapCache();
+      }
       const pair = await mintSessionPair(user.id, user.role, {
         userId: user.id,
         username: user.username,
@@ -2813,6 +2827,10 @@ Deno.serve(async (originalReq) => {
       if (error || !targetUser) throw new Error("User not found");
 
       const normalizedAssignedAccounts = await normalizeAssignedAccounts(supabase, targetUser.assigned_accounts);
+      if (!normalizedAssignedAccountsEqual(normalizedAssignedAccounts, Array.isArray(targetUser.assigned_accounts) ? targetUser.assigned_accounts : null)) {
+        await supabase.from("app_users").update({ assigned_accounts: normalizedAssignedAccounts }).eq("id", targetUser.id);
+        invalidateBootstrapCache();
+      }
       const pair = await mintSessionPair(targetUser.id, "user", {
         userId: targetUser.id,
         username: targetUser.username,
