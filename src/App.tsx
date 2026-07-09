@@ -2004,7 +2004,7 @@ function emailHtmlForDisplay(email: Email | null) {
 }
 interface UserData {
   id: string; username: string; name: string; role: "admin" | "user"; totpSecret?: string; mustChangePassword?: boolean; assignedAccounts?: string[] | null; profileAvatar?: string | null; profilePrefs?: UserProfilePrefs;
-  isFree?: boolean; pinned?: boolean; sortOrder?: number | null; session_limit?: number | null;
+  isFree?: boolean; pinned?: boolean; sortOrder?: number | null; session_limit?: number | null; expiresAt?: string | null;
 }
 
 function getUserRefreshAccountLabels(user: Partial<UserData>): string[] | null {
