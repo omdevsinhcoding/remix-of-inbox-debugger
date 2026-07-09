@@ -7764,12 +7764,13 @@ function UserProfileModal({
 // ==================== EMAIL VIEWER ====================
 function EmailViewer() {
   usePageHead("Email Inbox — Netflix Mail", "Secure viewer for Netflix sign-in codes, OTPs, and household verification emails.", "/viewer");
+  const { user: authUser, checkAuth } = useAuth();
   const user = useMemo<UserData>(() => {
+    if (authUser?.id) return authUser as UserData;
     try { return JSON.parse(sessionGet("user" as any) || "{}"); }
     catch { return {} as UserData; }
-  }, []);
+  }, [authUser]);
   const refreshAccountLabels = useMemo(() => getUserRefreshAccountLabels(user), [user]);
-  const { checkAuth } = useAuth();
   const [profilePrefs, setProfilePrefs] = useState<UserProfilePrefs>(() => user.profilePrefs || {});
   const viewerAvatarId = profilePrefs.avatarId || getStableProfileAvatar(user);
   const saveProfilePrefsLocally = useCallback((nextPrefs: UserProfilePrefs) => {
@@ -8152,13 +8153,18 @@ function EmailViewer() {
   // a redundant sync). Falls back silently on any error — no user-visible break.
   // ============================================================================
   const idbRef = useRef<Awaited<ReturnType<typeof openInboxDB>> | null>(null);
-  const instantInboxRanRef = useRef(false);
+  const instantInboxRunKeyRef = useRef("");
+  const instantInboxAccountKey = useMemo(
+    () => JSON.stringify(refreshAccountLabels === null ? null : [...(refreshAccountLabels || [])].sort()),
+    [refreshAccountLabels],
+  );
   useEffect(() => {
     // eslint-disable-next-line no-console
-    console.log("[inbox] effect fired", { userId: user?.id, alreadyRan: instantInboxRanRef.current });
-    if (instantInboxRanRef.current) return;
+    const runKey = `${user?.id || ""}:${instantInboxAccountKey}`;
+    console.log("[inbox] effect fired", { userId: user?.id, runKey, alreadyRan: instantInboxRunKeyRef.current === runKey });
+    if (instantInboxRunKeyRef.current === runKey) return;
     if (!user?.id) { console.log("[inbox] no user.id, skipping"); return; }
-    instantInboxRanRef.current = true;
+    instantInboxRunKeyRef.current = runKey;
 
     const t0 = performance.now();
     (async () => {
@@ -8230,7 +8236,7 @@ function EmailViewer() {
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, markInboxReady]);
+  }, [user?.id, instantInboxAccountKey, markInboxReady]);
 
 
   // Wrap email selection so full HTML is lazy-fetched on first click.
