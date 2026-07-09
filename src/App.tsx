@@ -5071,13 +5071,26 @@ function AdminPanel() {
                 Create User
               </h2>
               <div className="space-y-3 min-w-0">
+                <label className="flex items-start gap-3 p-3 rounded-xl border-2 border-dashed border-emerald-300 bg-emerald-50/60 cursor-pointer hover:bg-emerald-50 transition-colors">
+                  <input type="checkbox" checked={newIsFree} onChange={(e) => setNewIsFree(e.target.checked)}
+                    className="w-4 h-4 mt-0.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500" />
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-emerald-900">Free profile (no password)</p>
+                    <p className="text-[11px] text-emerald-700/80 leading-snug">Anyone can enter this profile with one tap. Username & password are auto-generated and never used.</p>
+                  </div>
+                </label>
+
                 <input type="text" placeholder="Display Name" value={newName} onChange={(e) => setNewName(e.target.value)}
                   className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
-                <input type="text" placeholder="Username" value={newUsername} onChange={(e) => setNewUsername(e.target.value)}
-                  className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
-                <PasswordInput value={newPassword} onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="Password"
-                  className="w-full bg-slate-50 border rounded-xl p-3 pr-12 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                {!newIsFree && (
+                  <>
+                    <input type="text" placeholder="Username" value={newUsername} onChange={(e) => setNewUsername(e.target.value)}
+                      className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                    <PasswordInput value={newPassword} onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="Password"
+                      className="w-full bg-slate-50 border rounded-xl p-3 pr-12 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                  </>
+                )}
 
                 <div>
                   <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Assign IMAP Accounts</label>
@@ -5099,8 +5112,8 @@ function AdminPanel() {
 
                 <button onClick={createUser}
                   disabled={creatingUser}
-                  className="w-full bg-slate-900 text-white font-bold py-3 rounded-xl hover:bg-slate-800 transition-all text-sm">
-                  {creatingUser ? "Creating…" : "Create User"}
+                  className={`w-full text-white font-bold py-3 rounded-xl transition-all text-sm ${newIsFree ? "bg-emerald-600 hover:bg-emerald-700" : "bg-slate-900 hover:bg-slate-800"}`}>
+                  {creatingUser ? "Creating…" : (newIsFree ? "Create Free Profile" : "Create User")}
                 </button>
               </div>
             </section>
@@ -5111,6 +5124,7 @@ function AdminPanel() {
                 Active Users
                 <span className="bg-slate-100 text-slate-600 text-xs px-2 py-0.5 rounded-full ml-auto">{users.length}</span>
               </h2>
+              <p className="text-[11px] text-slate-500 mb-3">Drag rows to reorder how profiles appear on the login screen. Pinned profiles always stay on top.</p>
               <div className="space-y-3">
                 {users.map(u => (
                   <div key={u.id} className="p-3 sm:p-4 bg-slate-50 rounded-2xl border border-slate-100 hover:border-slate-200 transition-colors min-w-0">
