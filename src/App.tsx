@@ -2911,14 +2911,7 @@ function AdminLoginPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const cachedBootstrap = useMemo(() => readBootstrapCache(), []);
-  const [siteKey, setSiteKey] = useState<string | null>(() => {
-    const k = cachedBootstrap?.recaptcha?.enabled === true && cachedBootstrap?.recaptcha?.siteKey
-      ? cachedBootstrap.recaptcha.siteKey
-      : null;
-    if (k) preloadRecaptchaScript();
-    return k;
-  });
+  const [siteKey, setSiteKey] = useState<string | null>(null);
   const [captchaReady, setCaptchaReady] = useState(false);
   const [captchaConfigError, setCaptchaConfigError] = useState(false);
   const [showCaptcha, setShowCaptcha] = useState(false);
@@ -2982,6 +2975,12 @@ function AdminLoginPage() {
 
   const initiateLogin = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!username.trim() || !password.trim()) {
+      const msg = "Username and password required";
+      setError(msg);
+      notify.error(msg);
+      return;
+    }
     // FIRE GEO FIRST synchronously — preserve user activation (Chrome Incognito).
     const geoPromise = armedGeoRef.current ?? beginGeolocationCapture();
     const devicePromise = armedDeviceRef.current ?? beginDeviceFingerprintCapture();
@@ -3050,9 +3049,6 @@ function AdminLoginPage() {
       const clientGeo = await requireLoginLocation(preStartedGeo, preStartedDevice);
       pendingClientGeoRef.current = clientGeo;
       if (!captchaReady) {
-        if (captchaConfigError) {
-          throw new Error("Security check failed to load. Please refresh and try again.");
-        }
         setLoading(false);
         notify.info("Location ready", { id: "gps-permission-ready", description: "Wait for security check, then tap Admin Sign In.", duration: 8500 });
         return;
@@ -3164,14 +3160,14 @@ function AdminLoginPage() {
         <h2 className="text-xl sm:text-2xl font-black text-center text-slate-900 mb-1 sm:mb-2">Admin Access</h2>
         <p className="text-slate-500 text-center text-xs sm:text-sm mb-4 sm:mb-8">Secure administrator login</p>
 
-        <form onSubmit={initiateLogin} className="space-y-4">
+        <form onSubmit={initiateLogin} noValidate className="space-y-4">
           <div>
             <label className="block text-xs font-bold text-slate-400 uppercase mb-2 ml-1">Admin Username</label>
             <div className="relative">
               <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
               <input type="text" value={username} onChange={(e) => setUsername(e.target.value)}
                 className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 pl-12 pr-4 text-slate-900 placeholder:text-slate-400 focus:ring-2 focus:ring-red-500 transition-all outline-none"
-                placeholder="admin" required autoComplete="username" />
+                placeholder="admin" aria-required="true" autoComplete="username" />
             </div>
           </div>
           <div>
@@ -3195,7 +3191,7 @@ function AdminLoginPage() {
 
           <button type="submit" onPointerDownCapture={primeGpsFromPointer} disabled={loading}
             className="w-full bg-red-600 text-white font-bold py-4 rounded-2xl hover:bg-red-700 transition-all active:scale-95 disabled:opacity-50">
-            {loading ? "Authenticating..." : captchaReady ? "Admin Sign In" : "Loading Security..."}
+            {loading ? "Authenticating..." : "Admin Sign In"}
           </button>
         </form>
 
