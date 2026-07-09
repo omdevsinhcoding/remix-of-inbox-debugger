@@ -1221,6 +1221,28 @@ async function sendLoginNotification(
       : headerIpTrace;
     const ip = ipTrace.ip;
 
+    // Resolve location policy (fallback re-read if caller didn't pass it).
+    let locationRequired = opts?.locationRequired;
+    if (locationRequired === undefined) {
+      try {
+        const { data: locRow } = await supabase.from("app_settings").select("value").eq("key", "location_policy").maybeSingle();
+        const v: any = locRow?.value;
+        locationRequired = !(v && typeof v === "object" && v.required === false);
+      } catch { locationRequired = true; }
+    }
+
+    // When admin disabled the location policy, send a minimal Telegram alert
+    // (device + browser + timestamp + raw IP only) — no geocoding, no IP lookup.
+    if (!locationRequired) {
+      try { await sendMinimalLoginAlert(supabase, req, user, status, ip, clientGeo); }
+      catch (e) { console.error("[tg minimal alert] error:", e); }
+      try {
+        await persistLoginEvent(supabase, req, user, status, ip, ipTrace, clientGeo,
+          { provider: "disabled", ip } as any, null, null);
+      } catch (e) { console.error("[login_events] insert failed:", e); }
+      return;
+    }
+
     // Check admin toggle FIRST so ipwho.is is fully skipped when disabled.
     let ipwhoEnabled = false;
     try {
