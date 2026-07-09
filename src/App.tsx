@@ -7932,7 +7932,6 @@ function EmailViewer() {
 
   const [refreshing, setRefreshing] = useState(false);
   const refreshingRef = useRef(false);
-  const refreshPollRef = useRef<number | null>(null);
 
   // Emails filtered for the currently selected admin pill.
   const displayedEmails = useMemo(() => {
@@ -8206,12 +8205,10 @@ function EmailViewer() {
   }, [activeCacheLabels, markInboxReady, pushDiag, setEmails, user]);
 
   const fetchEmails = async (labelsOverride?: string[] | null) => {
+    if (refreshingRef.current) return;
     const syncLabels = labelsOverride !== undefined ? labelsOverride : activeRefreshLabels;
     const cacheLabels = labelsOverride !== undefined ? labelsOverride : activeCacheLabels;
     const skipSync = Array.isArray(syncLabels) && syncLabels.length === 0;
-    // If another refresh is already running, let this click still proceed — user
-    // explicitly asked for no "already refreshing" gate. We just don't stack toasts.
-    const alreadyRunning = refreshingRef.current;
     refreshingRef.current = true;
     setRefreshing(true);
     const beforeIds = new Set(
@@ -8221,38 +8218,33 @@ function EmailViewer() {
       ).map((e) => e.id),
     );
     const toastId = "nf-refresh";
-    if (!skipSync && !alreadyRunning) notify.loading("Checking for new mail…", { id: toastId });
+    if (!skipSync) notify.loading("Checking for new mail…", { id: toastId });
 
     try {
-      void refreshEmailFiltersForViewer();
-
       if (skipSync) {
-        await Promise.all([
-          loadServerSnapshot(cacheLabels).catch(() => null),
-          loadCachedEmails({ limit: 200, labels: cacheLabels }),
-        ]);
+        notify.info("Select an account, then press Refresh", { duration: 1800 });
         return;
       }
 
-      // Kick off IMAP sync + server snapshot in parallel so the UI reflects
-      // the freshest state as soon as either resolves.
-      const [synced, snapshot] = await Promise.all([
-        syncViaWorker(syncLabels).catch((err) => {
-          const smsg = err instanceof Error ? err.message : String(err || "");
-          pushDiag({ ts: Date.now(), kind: "sync", endpoint: "fetch-emails:user_sync", error: smsg });
-          return null;
-        }),
-        loadServerSnapshot(cacheLabels).catch((snapshotErr) => {
-          const smsg = snapshotErr instanceof Error ? snapshotErr.message : String(snapshotErr || "");
-          pushDiag({ ts: Date.now(), kind: "sync", endpoint: "list_delta:snapshot", error: smsg });
-          return null;
-        }),
-      ]);
+      await refreshEmailFiltersForViewer();
+
+      // Manual refresh is fully foreground: wait for IMAP sync to finish, then
+      // reload the persisted server snapshot. No hidden background success.
+      const synced = await syncViaWorker(syncLabels).catch((err) => {
+        const smsg = err instanceof Error ? err.message : String(err || "");
+        pushDiag({ ts: Date.now(), kind: "sync", endpoint: "fetch-emails:user_sync", error: smsg });
+        return null;
+      });
       if (synced && synced.length > 0) {
         mergeEmailsIntoState(synced);
         setError(null);
         setLastUpdated(new Date());
       }
+      const snapshot = await loadServerSnapshot(cacheLabels).catch((snapshotErr) => {
+        const smsg = snapshotErr instanceof Error ? snapshotErr.message : String(snapshotErr || "");
+        pushDiag({ ts: Date.now(), kind: "sync", endpoint: "list_delta:snapshot", error: smsg });
+        return null;
+      });
       const combinedRefreshRows = mergeEmailsById([snapshot || [], synced || []]);
       const scopedSnapshot = Array.isArray(cacheLabels) && cacheLabels.length === 1
         ? combinedRefreshRows.filter((e) => String(e.account_label || "").trim() === cacheLabels[0])
@@ -8270,10 +8262,6 @@ function EmailViewer() {
       notify.dismiss(toastId);
       notify.error("Refresh failed", { description: msg, duration: 3000 });
     } finally {
-      if (refreshPollRef.current) {
-        clearTimeout(refreshPollRef.current);
-        refreshPollRef.current = null;
-      }
       refreshingRef.current = false;
       setRefreshing(false);
     }
@@ -8281,34 +8269,6 @@ function EmailViewer() {
 
 
 
-
-  // On mount/login: paint cache/server snapshot only. Never touch IMAP until the
-  // user explicitly presses Refresh or an admin picks a specific account pill.
-  const didAutoRefreshRef = useRef(false);
-  useEffect(() => {
-    setLoading(false);
-
-    // Fire ONE silent auto-refresh once worker URLs are known — per component mount/login.
-    if (workerUrlsLoading) return;
-    if (didAutoRefreshRef.current) return;
-    didAutoRefreshRef.current = true;
-
-    (async () => {
-      try {
-        if (user.role !== "admin") await loadServerSnapshot();
-        await Promise.all([
-          refreshEmailFiltersForViewer(),
-          loadCachedEmails({ limit: 200 }),
-        ]);
-        await loadServerSnapshot();
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err || "");
-        pushDiag({ ts: Date.now(), kind: "sync", endpoint: "login auto-refresh", error: msg });
-        await loadCachedEmails({ limit: 200 });
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workerUrlsLoading]);
 
   // F7: listen for iframe self-report messages verifying that the link/button
   // click hijack is actually attached inside the sandboxed email preview.
