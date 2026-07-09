@@ -2958,7 +2958,7 @@ function ProfileSelectPage() {
                 <ProfileAvatar avatarId={getStableProfileAvatar(selectedProfile)} name={selectedProfile.name} className="w-24 h-24 sm:w-28 sm:h-28" fallbackColor={PROFILE_COLORS[Math.max(0, profiles.findIndex((p) => p.id === selectedProfile.id)) % PROFILE_COLORS.length]} eager />
               </motion.div>
               <h2 className="text-2xl sm:text-3xl font-normal text-white tracking-tight" style={{ fontFamily: '"Netflix Sans","Helvetica Neue",Arial,sans-serif' }}>{selectedProfile.name}</h2>
-              <p className="text-neutral-500 text-xs sm:text-sm mt-1">@{selectedProfile.username}</p>
+              {selectedProfile.username ? (<p className="text-neutral-500 text-xs sm:text-sm mt-1">@{selectedProfile.username}</p>) : null}
             </div>
 
             <form onSubmit={initiateLogin} noValidate className="space-y-4">
