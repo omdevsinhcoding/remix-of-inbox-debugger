@@ -5046,30 +5046,14 @@ function AdminPanel() {
 
   const loginAsUser = async (targetUser: UserData) => {
     try {
-      // Snapshot the admin identity BEFORE the network call. The impersonate
-      // response carries a user-role sessionToken; if we read session state
-      // after the call, we'd back up the user token as "admin" and later
-      // restoration would fail with "Admin access required".
-      const adminUser = sessionGet("user" as any);
-      const adminToken = sessionGet("session_token" as any);
-      const adminAuth = sessionGet("admin_auth" as any);
-
       notify.loading(`Opening ${targetUser.name}'s inbox…`, { id: "impersonate" });
       const data = await apiCall("manage-app", { action: "impersonate", target_user_id: targetUser.id });
       notify.dismiss("impersonate");
 
-      // F4: Use sessionStorage (auto-cleared on tab close) with a 10-min TTL so a
-      // shared-device user or same-origin script can't lift the admin session token.
-      try {
-        sessionSet("admin_backup" as any, JSON.stringify({
-          user: adminUser, token: adminToken, adminAuth, exp: Date.now() + 10 * 60_000,
-        }));
-      } catch {}
-
       // Write the impersonated user session BEFORE /viewer mounts so EmailViewer
       // opens the correct per-user IndexedDB and delta-syncs that user's account.
-      // Do not call checkAuth here; keeping AuthContext as admin for this tick
-      // avoids the admin dashboard guard redirect race while navigation commits.
+      // The return-to-admin path is server-side through the parent admin session
+      // row, not a client-side admin token backup.
       const impersonatedUser = { ...(data.user || {}), impersonated: true, adminId: data.user?.adminId || null };
       sessionSet("user" as any, JSON.stringify(impersonatedUser));
       if (data.sessionToken) sessionSet("session_token" as any, data.sessionToken);
@@ -7821,7 +7805,7 @@ function EmailViewer() {
       return parsed;
     } catch { return null; }
   };
-  const isImpersonating = (user as any)?.impersonated === true || !!readImpersonationBackup();
+  const isImpersonating = (user as any)?.impersonated === true;
 
   const [refreshing, setRefreshing] = useState(false);
   const refreshingRef = useRef(false);
@@ -7879,19 +7863,6 @@ function EmailViewer() {
       return;
     } catch (err) {
       notify.dismiss("back-to-admin");
-      // Fallback to legacy client-side backup if server swap failed.
-      try {
-        const backup = readImpersonationBackup();
-        if (backup) {
-          if (backup.user) sessionSet("user" as any, backup.user);
-          if (backup.token) sessionSet("session_token" as any, backup.token);
-          if (backup.adminAuth) sessionSet("admin_auth" as any, backup.adminAuth);
-          try { sessionRemove("admin_backup" as any); } catch {}
-          checkAuth();
-          navigate("/admin/dashboard");
-          return;
-        }
-      } catch {}
       notify.error(err instanceof Error ? err.message : "Failed to return to admin");
       navigate("/admin");
     }
