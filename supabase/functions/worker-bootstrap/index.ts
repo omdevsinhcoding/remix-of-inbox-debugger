@@ -167,6 +167,6 @@ Deno.serve(async (req) => {
     SUPABASE_URL,
     SUPABASE_KEY,
     SESSION_SECRET,
-    account: { id: account.id, name: account.name, tofu: !known },
+    account: { id: account.id, name: account.name },
   });
 });
