@@ -2952,11 +2952,15 @@ function AdminLoginPage() {
         }
         setCaptchaReady(true);
         setCaptchaConfigError(false);
-      } catch {
+      } catch (err) {
+        console.warn("Admin bootstrap failed, allowing sign-in without captcha config:", err);
         if (!cancelled) {
-          setCaptchaReady(false);
-          setCaptchaConfigError(true);
-          setError("Security check failed to load. Please refresh and try again.");
+          // Never block a legitimate admin from signing in because the captcha
+          // config fetch hiccupped. Fall back to captcha-off; the server still
+          // enforces its real captcha requirement if one is configured.
+          setSiteKey(null);
+          setCaptchaReady(true);
+          setCaptchaConfigError(false);
         }
       }
     })();
