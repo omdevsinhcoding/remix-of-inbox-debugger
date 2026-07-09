@@ -2436,6 +2436,7 @@ function ProfileSelectPage() {
   }, [displayProfiles]);
 
   useEffect(() => {
+    if (!locationRequired) { setGpsPermissionMode(null); return; }
     if (!selectedProfile || typeof navigator === "undefined" || !navigator.geolocation) return;
     let cancelled = false;
     const primeGpsSheet = async () => {
@@ -2453,7 +2454,7 @@ function ProfileSelectPage() {
     };
     void primeGpsSheet();
     return () => { cancelled = true; };
-  }, [selectedProfile?.id]);
+  }, [selectedProfile?.id, locationRequired]);
 
 
 
