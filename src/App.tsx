@@ -8768,7 +8768,12 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
     versionTo: maint.versionTo || "",
   };
 
-  if (maint.enabled && !isAdminRoute && !isAdminImpersonating) {
+  // While auth is still hydrating on refresh, hold off on the maintenance
+  // screen — the /me response may reveal an impersonated admin session that
+  // should bypass maintenance. Cached user (which now includes impersonated=true)
+  // is checked above via isAdminImpersonating, but a first-time refresh in a
+  // new tab may not have it yet.
+  if (maint.enabled && !isAdminRoute && !isAdminImpersonating && !authLoading) {
     return <MaintenanceScreen {...screenProps} />;
   }
 
