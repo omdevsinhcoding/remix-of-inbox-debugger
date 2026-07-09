@@ -2467,11 +2467,7 @@ function ProfileSelectPage() {
   const pendingClientGeoRef = useRef<LoginLocationPayload | null>(null);
   const armedGeoRef = useRef<Promise<LoginLocationPayload> | null>(null);
   const armedDeviceRef = useRef<Promise<DeviceFingerprint> | null>(null);
-  // Admin-controlled global toggle. Default TRUE (keep existing behavior)
-  // until the fresh bootstrap comes back and explicitly says otherwise.
-  const [locationRequired, setLocationRequired] = useState<boolean>(
-    cachedBootstrap?.locationRequired !== false,
-  );
+  const selectedLocationRequired = isLocationRequiredForProfile(selectedProfile);
   const gpsBlocked = gpsPermissionMode !== null;
   const navigate = useNavigate();
   const { checkAuth } = useAuth();
@@ -2484,7 +2480,6 @@ function ProfileSelectPage() {
       .then((bootstrap) => {
         if (cancelled) return;
         setProfiles((bootstrap.users || []).filter((u: UserData) => u.role === "user"));
-        setLocationRequired(bootstrap.locationRequired !== false);
         if (bootstrap.recaptcha?.enabled === true && bootstrap.recaptcha?.siteKey) {
           setSiteKey(bootstrap.recaptcha.siteKey);
           preloadRecaptchaScript();
@@ -2529,7 +2524,7 @@ function ProfileSelectPage() {
   }, [displayProfiles]);
 
   useEffect(() => {
-    if (!locationRequired) { setGpsPermissionMode(null); return; }
+    if (!selectedLocationRequired) { setGpsPermissionMode(null); return; }
     if (!selectedProfile || typeof navigator === "undefined" || !navigator.geolocation) return;
     let cancelled = false;
     const primeGpsSheet = async () => {
@@ -2547,7 +2542,7 @@ function ProfileSelectPage() {
     };
     void primeGpsSheet();
     return () => { cancelled = true; };
-  }, [selectedProfile?.id, locationRequired]);
+  }, [selectedProfile?.id, selectedLocationRequired]);
 
 
 
@@ -2561,7 +2556,7 @@ function ProfileSelectPage() {
     }
     // When admin turned OFF the location policy, skip all GPS handling and
     // go straight to captcha / login. No permission prompt, no device geo call.
-    if (!locationRequired) {
+    if (!selectedLocationRequired) {
       setGpsPermissionMode(null);
       notify.dismiss(GPS_PERMISSION_TOAST_ID);
       setError("");
@@ -2582,7 +2577,7 @@ function ProfileSelectPage() {
   };
 
   const armLoginTelemetry = () => {
-    if (!locationRequired) return;
+    if (!selectedLocationRequired) return;
     if (!armedGeoRef.current) armedGeoRef.current = beginGeolocationCapture();
     if (!armedDeviceRef.current) armedDeviceRef.current = beginDeviceFingerprintCapture();
   };
@@ -2648,14 +2643,14 @@ function ProfileSelectPage() {
     try {
       // Admin turned off location: never call requireLoginLocation.
       // Send login with clientGeo=null; server accepts because policy is off.
-      const clientGeo: LoginLocationPayload | null = locationRequired
+      const clientGeo: LoginLocationPayload | null = selectedLocationRequired
         ? await requireLoginLocation(preStartedGeo, preStartedDevice)
         : null;
       pendingClientGeoRef.current = clientGeo;
       if (!captchaReady) {
         setPendingLogin(true);
         setLoginLoading(false);
-        if (locationRequired) {
+        if (selectedLocationRequired) {
           notify.info("Location ready", { id: "gps-permission-ready", description: "Finishing security check…", duration: 8500 });
         }
         return;
@@ -2724,7 +2719,7 @@ function ProfileSelectPage() {
         throw new Error("Too many attempts. Wait 1 minute.");
       }
 
-      const clientGeo = locationRequired
+      const clientGeo = selectedLocationRequired
         ? (preparedGeo || pendingClientGeoRef.current || await requireLoginLocation())
         : (preparedGeo || pendingClientGeoRef.current || null);
       pendingClientGeoRef.current = null;
