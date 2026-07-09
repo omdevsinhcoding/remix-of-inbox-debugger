@@ -1,14 +1,31 @@
-name = "__WORKER_NAME__"
+name = "netflixfetch"
 main = "worker.js"
 compatibility_date = "2026-04-07"
 
-# KV id is injected at build time from the Cloudflare account's Build Variables.
-# See build.sh — it replaces __KV_ID__ using $KV_ID from the dashboard.
-[[kv_namespaces]]
-binding = "EMAIL_CACHE"
-id = "__KV_ID__"
-
-[vars]
-# Runtime secrets (SUPABASE_URL, SUPABASE_KEY, SESSION_SECRET) live in
+# ─────────────────────────────────────────────────────────────
+# ZERO-CONFIG SETUP
+# ─────────────────────────────────────────────────────────────
+# Just connect this repo in each Cloudflare account's Workers → Create → 
+# Connect to Git. No build variables, no KV setup, no secrets needed to deploy.
+#
+# Build command:   (leave empty)
+# Deploy command:  npx wrangler deploy
+# Root directory:  /cloudflare-worker
+#
+# Worker deploys as "netflixfetch" in each account automatically.
+# If you want a different name per account, just rename this file's `name` 
+# field in a branch, OR rename the worker in the CF dashboard after first deploy.
+#
+# ─────────────────────────────────────────────────────────────
+# OPTIONAL: KV cache (skip entirely if you don't need it)
+# ─────────────────────────────────────────────────────────────
+# The worker runs fine WITHOUT KV — it just skips caching.
+# If you want KV caching later:
+#   1. Cloudflare dashboard → Workers → netflixfetch → Settings → Bindings
+#   2. Add KV Namespace binding, variable name: EMAIL_CACHE
+#   3. Done — no code change, no redeploy needed.
+#
+# ─────────────────────────────────────────────────────────────
+# Runtime secrets (SUPABASE_URL, SUPABASE_KEY, SESSION_SECRET) go in
 # Cloudflare dashboard → Worker → Settings → Variables and Secrets.
-# Do NOT put them here.
+# Set them ONCE per account after first deploy.
