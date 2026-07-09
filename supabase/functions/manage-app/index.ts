@@ -1863,7 +1863,14 @@ Deno.serve(async (originalReq) => {
       if (allowExpiredImpersonation) {
         session.impersonationAccessExpired = true;
       } else {
-        await supabase.from("app_sessions").delete().eq("id", row.id);
+        // Do NOT delete the row just because the short-lived access token
+        // expired. The refresh token lives on the same app_sessions row; deleting
+        // it here turns a recoverable stale access token into "session revoked"
+        // and breaks admin impersonation / inbox refresh after idle tabs.
+        const refreshStillValid = row.refresh_expires_at && new Date(row.refresh_expires_at).getTime() > nowMs;
+        if (!refreshStillValid) {
+          await supabase.from("app_sessions").delete().eq("id", row.id);
+        }
         throw new Error("Access token expired. Please sign in again.");
       }
     }
