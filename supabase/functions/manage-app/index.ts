@@ -21,12 +21,14 @@ function publicProfilePrefs(value: any) {
   const v = value && typeof value === "object" && !Array.isArray(value) ? value : {};
   return {
     avatarId: typeof v.avatarId === "string" ? v.avatarId : null,
-    locationRequired: v.locationRequired === true,
+    // Default: GPS required unless explicitly disabled by admin.
+    locationRequired: v.locationRequired !== false,
   };
 }
 function isProfileLocationRequired(user: any) {
   if (!user || user.is_free === true || user.role === "admin") return false;
-  return publicProfilePrefs(user.profile_prefs).locationRequired === true;
+  // Default true for paid/regular users unless admin explicitly turned it off.
+  return publicProfilePrefs(user.profile_prefs).locationRequired !== false;
 }
 const VIS_PASSWORD_RESET_RE = /(password (was |has been )?(changed|reset|updated)|reset your password|forgot password|password reset|new password|account recovery)/i;
 const VIS_SIGNIN_RE = /(sign[\s-]?in code|new sign[\s-]?in|new device|temporary access code|is using your account|access your account|verification code|login code|enter this code|otp)/i;
