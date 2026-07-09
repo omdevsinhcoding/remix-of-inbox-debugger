@@ -5223,6 +5223,14 @@ function AdminPanel() {
                               setEditAccountsList((u as any).assignedAccounts || []);
                               const cur = (u as any).session_limit;
                               setEditSessionLimit(cur === null || cur === undefined ? "" : String(cur));
+                              const exp = (u as any).expiresAt as string | null | undefined;
+                              if (exp) {
+                                const d = new Date(exp);
+                                const pad = (n: number) => String(n).padStart(2, "0");
+                                setEditExpiresAt(`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`);
+                              } else {
+                                setEditExpiresAt("");
+                              }
                             }} title="Edit accounts & session limit"
                             className="p-2 hover:bg-green-50 text-green-400 hover:text-green-600 rounded-lg transition-colors">
                             <Edit className="w-4 h-4" />
