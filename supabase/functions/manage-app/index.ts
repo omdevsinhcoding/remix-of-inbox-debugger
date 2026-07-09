@@ -163,10 +163,14 @@ function normalizeAccountLabels(raw: any, available: string[] = []): string[] {
 
 async function normalizeAssignedAccounts(supabase: any, raw: any): Promise<string[] | null> {
   if (!Array.isArray(raw) || raw.length === 0) return null;
-  const { data } = await supabase.from("app_settings").select("value").eq("key", "email_accounts").maybeSingle();
-  const labels = ["Primary", ...((Array.isArray(data?.value) ? data.value : []).map((acc: any) => String(acc?.label || acc?.user || "").trim()).filter(Boolean))];
+  const labels = await loadAvailableAccountLabels(supabase);
   const normalized = normalizeAccountLabels(raw, labels);
   return normalized.length > 0 ? normalized : null;
+}
+
+async function loadAvailableAccountLabels(supabase: any): Promise<string[]> {
+  const { data } = await supabase.from("app_settings").select("value").eq("key", "email_accounts").maybeSingle();
+  return ["Primary", ...((Array.isArray(data?.value) ? data.value : []).map((acc: any) => String(acc?.label || acc?.user || "").trim()).filter(Boolean))];
 }
 
 async function verifyRecaptchaToken(secretKey: string, token: string, ip?: string): Promise<boolean> {
@@ -1982,10 +1986,10 @@ Deno.serve(async (originalReq) => {
         .order("sort_order", { ascending: true, nullsFirst: false })
         .order("created_at", { ascending: true });
       if (error) throw error;
-      const availableAccountLabelsForList = ["Primary", ...Array.from(new Set((await normalizeAssignedAccounts(supabase, ["__noop__"])) || []))];
+      const availableAccountLabelsForList = await loadAvailableAccountLabels(supabase);
       const mappedData = (data || []).map((u: any) => ({
         ...u,
-        assignedAccounts: normalizeAccountLabels(u.assigned_accounts || [], availableAccountLabelsForList).length > 0 ? normalizeAccountLabels(u.assigned_accounts || [], availableAccountLabelsForList) : (u.assigned_accounts || null),
+        assignedAccounts: normalizeAccountLabels(u.assigned_accounts || [], availableAccountLabelsForList).length > 0 ? normalizeAccountLabels(u.assigned_accounts || [], availableAccountLabelsForList) : null,
         profileAvatar: u.profile_prefs?.avatarId || null,
         profilePrefs: publicProfilePrefs(u.profile_prefs),
         locationRequired: isProfileLocationRequired(u),
@@ -3748,11 +3752,12 @@ Deno.serve(async (originalReq) => {
         : Promise.resolve({ data: [] as any[] });
 
       const [usersRes, emailsCountRes, notesRes, totalUsersRes, settingsRes] = await Promise.all([usersP, emailsCountP, notesP, totalUsersP, settingsP]);
+      const availableAccountLabelsForList = await loadAvailableAccountLabels(supabase);
 
       // Users mapping
       const users = (usersRes.data || []).map((u: any) => ({
         ...u,
-        assignedAccounts: u.assigned_accounts || null,
+        assignedAccounts: normalizeAccountLabels(u.assigned_accounts || [], availableAccountLabelsForList).length > 0 ? normalizeAccountLabels(u.assigned_accounts || [], availableAccountLabelsForList) : null,
         profileAvatar: u.profile_prefs?.avatarId || null,
         profilePrefs: publicProfilePrefs(u.profile_prefs),
         locationRequired: isProfileLocationRequired(u),
