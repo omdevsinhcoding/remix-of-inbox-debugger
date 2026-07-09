@@ -3363,6 +3363,7 @@ Deno.serve(async (originalReq) => {
         rows,
         removedIds,
         newCursor: maxModseq,
+        accountLabels: labels,
         hasMore: (data?.length || 0) >= cap,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
