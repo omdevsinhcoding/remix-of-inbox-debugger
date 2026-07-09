@@ -44,11 +44,16 @@ function cleanTransportError(err: unknown): Error {
   return err instanceof Error ? err : new Error(msg || "Request failed");
 }
 
+// Hardcoded fallbacks so the app works on ANY host (Vercel/Netlify/custom
+// domain) even without build-time env vars. Anon key is publishable — safe.
+const FALLBACK_SUPABASE_URL = "https://jsqchutnfdeljajkxmly.supabase.co";
+const FALLBACK_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpzcWNodXRuZmRlbGphamt4bWx5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxMjI5MzksImV4cCI6MjA4OTY5ODkzOX0.HYN4zMEYEiP-H5KD_iIbFpr0GsatNoeyw40FI2mW_eA";
+
 function fnBase(): string {
-  return `${import.meta.env.VITE_SUPABASE_URL}/functions/v1`;
+  return `${import.meta.env.VITE_SUPABASE_URL || FALLBACK_SUPABASE_URL}/functions/v1`;
 }
 function anonKey(): string {
-  return import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+  return import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || FALLBACK_ANON_KEY;
 }
 
 function toB64(bytes: Uint8Array): string {
