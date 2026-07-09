@@ -7920,6 +7920,13 @@ function EmailViewer() {
   const [refreshing, setRefreshing] = useState(false);
   const refreshingRef = useRef(false);
   const refreshPollRef = useRef<number | null>(null);
+
+  // Emails filtered for the currently selected admin pill.
+  const displayedEmails = useMemo(() => {
+    if (user.role !== "admin" || !selectedAccountLabel) return emails;
+    return emails.filter((e) => String(e.account_label || "").trim() === selectedAccountLabel);
+  }, [emails, user.role, selectedAccountLabel]);
+
   const [resolvedWorkerUrls, setResolvedWorkerUrls] = useState<string[]>(() => getStoredWorkerUrls());
   const [workerUrlMap, setWorkerUrlMap] = useState<WorkerUrlMap>({ primary: [], byAccount: {} });
   const [workerUrlsLoading, setWorkerUrlsLoading] = useState(true);
