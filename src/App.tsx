@@ -6330,17 +6330,6 @@ function AdminPanel() {
                   <div className="mt-4 pt-3 border-t border-green-200 space-y-2.5">
                     <div className="grid grid-cols-2 gap-3">
                       <div className="bg-white/60 rounded-lg p-2">
-                        <p className="text-[10px] font-bold text-green-600 uppercase">Host</p>
-                        <p className="text-sm text-green-900 font-medium break-all">{serverConfig.IMAP_HOST || "Not set"}</p>
-                      </div>
-                      <div className="bg-white/60 rounded-lg p-2">
-                        <p className="text-[10px] font-bold text-green-600 uppercase">Port</p>
-                        <p className="text-sm text-green-900 font-medium">{serverConfig.IMAP_PORT || "Not set"}</p>
-                      </div>
-                    </div>
-                  <div className="mt-4 pt-3 border-t border-green-200 space-y-2.5">
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="bg-white/60 rounded-lg p-2">
                         <div className="flex items-center justify-between gap-2 mb-1">
                           <p className="text-[10px] font-bold text-green-600 uppercase">Host</p>
                           {serverConfig.IMAP_HOST && (
