@@ -105,6 +105,10 @@ function cachePrefixes() {
   ];
 }
 
+// SECURITY: only ever probe cache keys scoped to the SAME userAccountsKey.
+// Never fall back to `:all` or any other user's scope — cross-scope reads
+// leaked other accounts' emails (password resets, payments, etc.) to a
+// fresh profile that had no cache entry of its own yet.
 function candidateCacheKeys(userAccountsKey, limit) {
   return cachePrefixes().flatMap(({ list }) => [
     `${list}:${userAccountsKey}:limit:${limit}`,
@@ -112,11 +116,6 @@ function candidateCacheKeys(userAccountsKey, limit) {
     `${list}:${userAccountsKey}:limit:50`,
     `${list}:${userAccountsKey}:limit:3`,
     `${list}:${userAccountsKey}`,
-    `${list}:all:limit:${limit}`,
-    `${list}:all:limit:200`,
-    `${list}:all:limit:50`,
-    `${list}:all:limit:3`,
-    `${list}:all`,
   ]).filter((key, index, arr) => arr.indexOf(key) === index);
 }
 
@@ -127,6 +126,24 @@ async function readBestCachedRaw(env, userAccountsKey, limit, skipKey = "") {
     if (raw) return { key, raw };
   }
   return null;
+}
+
+// Defence-in-depth: even if a cache entry somehow contains cross-account
+// rows (legacy KV writes, admin-scope entries, corrupted merges), strip
+// anything outside the caller's assigned accounts before returning.
+function enforceScopeOnRaw(raw, session) {
+  if (!raw || !session || session.role === "admin") return raw;
+  const allowed = Array.isArray(session.assignedAccounts) ? session.assignedAccounts : [];
+  const allowSet = new Set(allowed.map((s) => String(s || "").trim()).filter(Boolean));
+  const list = parseEmailList(raw);
+  if (!Array.isArray(list)) return raw;
+  const filtered = list.filter((e) => {
+    const label = String(e?.account_label || "").trim();
+    // If the row has no label we cannot verify ownership → drop it.
+    if (!label) return false;
+    return allowSet.has(label);
+  });
+  return JSON.stringify(filtered);
 }
 
 function mergeEmailPayloads(existingRaw, incomingRaw) {
@@ -350,6 +367,19 @@ async function handleGetEmails(env, session, rawToken, opts = {}) {
   }
 
   const scopedLabels = accountLabels.length > 0 ? accountLabels : (session?.assignedAccounts || []);
+  // SECURITY: without a verified session we cannot enforce per-user scope
+  // — refuse rather than fall back to the shared `:all` bucket.
+  if (!session) {
+    return new Response(JSON.stringify({ error: "auth required" }), {
+      status: 401, headers: diagHeaders(),
+    });
+  }
+  // Non-admin with zero assigned accounts must never share the `:all` KV
+  // bucket (which is populated by the cron job with ADMIN-scope emails
+  // from every account). Return an empty list immediately.
+  if (session.role !== "admin" && scopedLabels.length === 0) {
+    return new Response("[]", { headers: diagHeaders({ "X-Cache-Status": "EMPTY_SCOPE" }) });
+  }
   const userAccountsKey = scopedLabels.length > 0 ? JSON.stringify([...scopedLabels].sort()) : "all";
   const cacheKey = `${CACHE_KEY}:${userAccountsKey}:limit:${limit}`;
   const tsKey = `${CACHE_TIMESTAMP_KEY}:${userAccountsKey}`;
@@ -358,7 +388,7 @@ async function handleGetEmails(env, session, rawToken, opts = {}) {
   if (bust) {
     const result = await fetchDirectFromSupabase(env, session, rawToken, { accountLabels, limit });
     if (result.status === 200) {
-      const body = await result.clone().text();
+      const body = enforceScopeOnRaw(await result.clone().text(), session);
       await Promise.all([kvPut(env, cacheKey, body), kvPut(env, tsKey, Date.now().toString())]);
       return new Response(body, { status: 200, headers: diagHeaders({ "X-Cache-Status": "BYPASS", "X-Cache-Key": cacheKey }) });
     }
@@ -372,21 +402,23 @@ async function handleGetEmails(env, session, rawToken, opts = {}) {
   if (!cached) {
     const fallback = await readBestCachedRaw(env, userAccountsKey, limit, cacheKey);
     if (fallback?.raw) {
-      await Promise.all([kvPut(env, cacheKey, fallback.raw), kvPut(env, tsKey, Date.now().toString())]);
-      if (hasRawMimeMarkers(fallback.raw)) {
+      const safeRaw = enforceScopeOnRaw(fallback.raw, session);
+      await Promise.all([kvPut(env, cacheKey, safeRaw), kvPut(env, tsKey, Date.now().toString())]);
+      if (hasRawMimeMarkers(safeRaw)) {
         const result = await fetchDirectFromSupabase(env, session, rawToken, { accountLabels, limit });
         if (result.status === 200) {
-          const body = await result.clone().text();
+          const body = enforceScopeOnRaw(await result.clone().text(), session);
           await Promise.all([kvPut(env, cacheKey, body), kvPut(env, tsKey, Date.now().toString())]);
           return new Response(body, { status: 200, headers: diagHeaders({ "X-Cache-Status": "BYPASS_RAW_MIME", "X-Cache-Key": cacheKey }) });
         }
       }
-      return new Response(fallback.raw, { headers: diagHeaders({ "X-Cache-Status": "FALLBACK_HIT", "X-Cache-Key": fallback.key }) });
+      return new Response(safeRaw, { headers: diagHeaders({ "X-Cache-Status": "FALLBACK_HIT", "X-Cache-Key": fallback.key }) });
     }
     const result = await fetchDirectFromSupabase(env, session, rawToken, { accountLabels, limit });
     if (result.status === 200) {
-      const body = await result.clone().text();
+      const body = enforceScopeOnRaw(await result.clone().text(), session);
       await Promise.all([kvPut(env, cacheKey, body), kvPut(env, tsKey, now.toString())]);
+      return new Response(body, { status: 200, headers: diagHeaders({ "X-Cache-Status": "MISS", "X-Cache-Key": cacheKey }) });
     }
     return result;
   }
@@ -400,7 +432,7 @@ async function handleGetEmails(env, session, rawToken, opts = {}) {
   if (hasRawMimeMarkers(cached)) {
     const result = await fetchDirectFromSupabase(env, session, rawToken, { accountLabels, limit });
     if (result.status === 200) {
-      const body = await result.clone().text();
+      const body = enforceScopeOnRaw(await result.clone().text(), session);
       await Promise.all([kvPut(env, cacheKey, body), kvPut(env, tsKey, Date.now().toString())]);
       return new Response(body, {
         headers: diagHeaders({ "X-Cache-Status": "BYPASS_RAW_MIME", "X-Cache-Age": Math.round(age).toString(), "X-Cache-Key": cacheKey }),
@@ -408,7 +440,7 @@ async function handleGetEmails(env, session, rawToken, opts = {}) {
     }
   }
 
-  return new Response(cached, {
+  return new Response(enforceScopeOnRaw(cached, session), {
     headers: diagHeaders({ "X-Cache-Status": status, "X-Cache-Age": Math.round(age).toString(), "X-Cache-Key": cacheKey }),
   });
 }
