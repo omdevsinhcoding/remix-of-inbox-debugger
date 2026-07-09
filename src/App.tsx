@@ -7766,9 +7766,17 @@ function EmailViewer() {
   usePageHead("Email Inbox — Netflix Mail", "Secure viewer for Netflix sign-in codes, OTPs, and household verification emails.", "/viewer");
   const { user: authUser, checkAuth } = useAuth();
   const user = useMemo<UserData>(() => {
-    if (authUser?.id) return authUser as UserData;
+    let stored: UserData | null = null;
     try { return JSON.parse(sessionGet("user" as any) || "{}"); }
-    catch { return {} as UserData; }
+    catch { stored = null; }
+    try {
+      const raw = sessionGet("user" as any);
+      stored = raw ? JSON.parse(raw) : null;
+      const impersonating = !!sessionGet("admin_backup" as any) || stored?.impersonated === true;
+      if (impersonating && stored?.id) return stored;
+    } catch {}
+    if (authUser?.id) return authUser as UserData;
+    return stored || ({} as UserData);
   }, [authUser]);
   const refreshAccountLabels = useMemo(() => getUserRefreshAccountLabels(user), [user]);
   const [profilePrefs, setProfilePrefs] = useState<UserProfilePrefs>(() => user.profilePrefs || {});
