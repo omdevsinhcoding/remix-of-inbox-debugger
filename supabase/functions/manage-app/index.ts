@@ -19,15 +19,17 @@ function invalidateBootstrapCache() { __bootstrapCache = null; }
 type EmailVisibilityFilters = { showSignInCodes?: boolean; showPasswordResets?: boolean; showAccountUpdates?: boolean };
 function publicProfilePrefs(value: any) {
   const v = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const explicitLocationOverride = v.locationRequiredOverride === true;
   return {
     avatarId: typeof v.avatarId === "string" ? v.avatarId : null,
-    // Default: GPS required unless explicitly disabled by admin.
-    locationRequired: v.locationRequired !== false,
+    // Default: GPS required. A stored false only counts after admin explicitly toggles it.
+    locationRequired: explicitLocationOverride && v.locationRequired === false ? false : true,
+    locationRequiredOverride: explicitLocationOverride,
   };
 }
 function isProfileLocationRequired(user: any) {
-  if (!user || user.is_free === true || user.role === "admin") return false;
-  // Default true for paid/regular users unless admin explicitly turned it off.
+  if (!user || user.role === "admin") return false;
+  // Default true for every non-admin profile unless admin explicitly turned it off.
   return publicProfilePrefs(user.profile_prefs).locationRequired !== false;
 }
 const VIS_PASSWORD_RESET_RE = /(password (was |has been )?(changed|reset|updated)|reset your password|forgot password|password reset|new password|account recovery)/i;
@@ -2177,8 +2179,8 @@ Deno.serve(async (originalReq) => {
         expires_at: expiresAtIso,
         // Force password reset on first login for regular (non-free, non-bootstrap-admin) users.
         must_change_password: !isFree && !bootstrapCreate,
-        // Default GPS required = true for regular users; admin/free ignored server-side.
-        profile_prefs: { avatarId: null, locationRequired: !isFree && finalRole !== "admin" },
+        // Default GPS required = true for every non-admin profile; admin can turn it off per profile.
+        profile_prefs: { avatarId: null, locationRequired: finalRole !== "admin" },
       };
       const { data, error } = await supabase
         .from("app_users")
@@ -2279,13 +2281,16 @@ Deno.serve(async (originalReq) => {
       const cleanPrefs = {
         avatarId: typeof profile_prefs.avatarId === "string" ? profile_prefs.avatarId : null,
         locationRequired: false,
+        locationRequiredOverride: false,
         hiddenBefore: null as string | null,
         hiddenEmailIds: [] as string[],
       };
 
       try {
         const { data: existingPrefsRow } = await supabase.from("app_users").select("profile_prefs").eq("id", session.userId).maybeSingle();
-        cleanPrefs.locationRequired = publicProfilePrefs(existingPrefsRow?.profile_prefs).locationRequired;
+        const existingPrefs = publicProfilePrefs(existingPrefsRow?.profile_prefs);
+        cleanPrefs.locationRequired = existingPrefs.locationRequired;
+        cleanPrefs.locationRequiredOverride = existingPrefs.locationRequiredOverride;
       } catch {}
 
       const { error } = await supabase
@@ -2623,7 +2628,8 @@ Deno.serve(async (originalReq) => {
       if (location_required !== undefined) {
         const { data: existingUser } = await supabase.from("app_users").select("profile_prefs, is_free, role").eq("id", id).maybeSingle();
         const nextPrefs = publicProfilePrefs(existingUser?.profile_prefs);
-        nextPrefs.locationRequired = existingUser?.is_free === true || existingUser?.role === "admin" ? false : location_required === true;
+        nextPrefs.locationRequired = existingUser?.role === "admin" ? false : location_required === true;
+        nextPrefs.locationRequiredOverride = existingUser?.role !== "admin";
         patch.profile_prefs = nextPrefs;
       }
       if (expires_at !== undefined) {
@@ -2674,7 +2680,7 @@ Deno.serve(async (originalReq) => {
 
     if (action === "login_free") {
       // Passwordless entry for admin-created "free" profiles. Everyone can
-      // enter — no GPS, no captcha, no session-limit enforcement.
+      // enter — GPS is still enforced by default unless admin disabled it.
       const { user_id, clientGeo: freeClientGeo } = params;
       if (!user_id || typeof user_id !== "string") throw new Error("user_id required");
       const { data: user, error } = await supabase
@@ -2697,6 +2703,18 @@ Deno.serve(async (originalReq) => {
         throw new Error("This free profile has expired");
       }
 
+      const freeLocationRequired = isProfileLocationRequired(user);
+      const verifiedFreeClientGeo = sanitizeClientGeo(freeClientGeo);
+      if (freeLocationRequired && (verifiedFreeClientGeo?.status !== "granted" || typeof verifiedFreeClientGeo.latitude !== "number" || typeof verifiedFreeClientGeo.longitude !== "number")) {
+        const status = verifiedFreeClientGeo?.status || "missing";
+        const errDetail = verifiedFreeClientGeo?.error ? ` (${verifiedFreeClientGeo.error})` : "";
+        if (status === "denied") throw new Error("GPS permission denied. Allow location for this site, then try again.");
+        if (status === "timeout") throw new Error("GPS timed out on device. Enable Precise Location and try again." + errDetail);
+        if (status === "unsupported") throw new Error("This browser/device does not support GPS location.");
+        if (status === "unavailable") throw new Error("Device GPS unavailable." + errDetail);
+        throw new Error(`[server] GPS coordinates missing from login request (status=${status})${errDetail}. Please retry.`);
+      }
+
       await auditLog(supabase, "login_free", user.id, null, { username: user.username }, ip);
 
       // Free-profile session length. Uses the same session_config.timeoutMinutes
@@ -2717,9 +2735,8 @@ Deno.serve(async (originalReq) => {
       }, freeMinutes > 0 ? { ttlOverrideMs: freeMinutes * 60_000 } : undefined);
 
       // Best-effort Telegram alert so admin still knows who logged into a free
-      // profile. Uses the minimal (no-location) formatter — respects the
-      // location policy setting for GPS lookups on paid accounts already.
-      ((globalThis as any).EdgeRuntime?.waitUntil?.(sendLoginNotification(supabase, req, user, "success", freeClientGeo, { locationRequired: false })) ?? sendLoginNotification(supabase, req, user, "success", freeClientGeo, { locationRequired: false }).catch(() => {}));
+      // profile. Includes GPS when required; minimal alert when admin disabled it.
+      ((globalThis as any).EdgeRuntime?.waitUntil?.(sendLoginNotification(supabase, req, user, "success", verifiedFreeClientGeo, { locationRequired: freeLocationRequired })) ?? sendLoginNotification(supabase, req, user, "success", verifiedFreeClientGeo, { locationRequired: freeLocationRequired }).catch(() => {}));
 
       const workerUrls = await loadWorkerUrls(supabase);
       return new Response(JSON.stringify({
@@ -2737,7 +2754,7 @@ Deno.serve(async (originalReq) => {
           profilePrefs: publicProfilePrefs(user.profile_prefs),
           profileAvatar: user.profile_prefs?.avatarId || null,
           isFree: true,
-          locationRequired: false,
+          locationRequired: freeLocationRequired,
         },
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }

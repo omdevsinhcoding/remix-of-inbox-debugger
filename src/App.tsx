@@ -2087,11 +2087,12 @@ interface UserData {
 }
 
 function isLocationRequiredForProfile(profile?: Partial<UserData> | null) {
-  if (!profile || profile.isFree) return false;
+  if (!profile || profile.role === "admin") return false;
   // Default: required unless explicitly disabled (false).
   const top = profile.locationRequired;
   const nested = profile.profilePrefs?.locationRequired;
-  if (top === false || nested === false) return false;
+  const explicitOverride = profile.profilePrefs?.locationRequiredOverride === true;
+  if (explicitOverride && (top === false || nested === false)) return false;
   return true;
 }
 
@@ -2183,6 +2184,7 @@ function mergeEmailsById(lists: Email[][]): Email[] {
 type UserProfilePrefs = {
   avatarId?: string | null;
   locationRequired?: boolean;
+  locationRequiredOverride?: boolean;
   hiddenBefore?: string | null;
   hiddenEmailIds?: string[];
 };
@@ -2593,7 +2595,11 @@ function ProfileSelectPage() {
 
   const primeGpsEnableFromPointer = () => {
     if (gpsRequesting || loginLoading) return;
-    armLoginTelemetry();
+    // Start a fresh native GPS prompt on the earliest user gesture. Mobile
+    // Chrome is more reliable on pointerdown than click for permission prompts.
+    if (!selectedLocationRequired && selectedProfile) return;
+    armedGeoRef.current = beginGeolocationCapture();
+    armedDeviceRef.current = beginDeviceFingerprintCapture();
   };
 
   // Auto-run the queued login the moment bootstrap finishes.
@@ -2680,13 +2686,12 @@ function ProfileSelectPage() {
   };
 
   const requestGpsPermissionOnly = async () => {
-    // Always fire a FRESH geolocation call synchronously on click so the
-    // browser's native permission popup shows in normal mode too (not just
-    // incognito). Any pre-armed promise from pointerdown is discarded.
+    // Prefer the fresh request started on pointerdown; if this came from
+    // keyboard/click only, start it synchronously here.
+    const geoPromise = armedGeoRef.current ?? beginGeolocationCapture();
+    const devicePromise = armedDeviceRef.current ?? beginDeviceFingerprintCapture();
     armedGeoRef.current = null;
     armedDeviceRef.current = null;
-    const geoPromise = beginGeolocationCapture();
-    const devicePromise = beginDeviceFingerprintCapture();
     setGpsRequesting(true);
     setError("");
     notify.dismiss(GPS_PERMISSION_TOAST_ID);
@@ -2695,7 +2700,7 @@ function ProfileSelectPage() {
       if (location.status === "granted" && typeof location.latitude === "number" && typeof location.longitude === "number") {
         pendingClientGeoRef.current = { ...location, device };
         setGpsPermissionMode(null);
-        notify.success("Location enabled", { id: "gps-permission-ready", description: "Now tap Sign In.", duration: 8500 });
+        notify.success("Location enabled", { id: "gps-permission-ready", description: selectedProfile ? "Now tap Sign In." : "Now tap the profile again.", duration: 8500 });
         return;
       }
       const msg = buildLocationSignInMessage(location);
@@ -2766,10 +2771,16 @@ function ProfileSelectPage() {
 
   const loginFreeProfile = async (profile: UserData) => {
     if (freeLoginId) return;
+    const locationRequired = isLocationRequiredForProfile(profile);
+    // For free profiles too, capture GPS immediately on the profile tap when
+    // admin has not explicitly disabled GPS for that profile.
+    const geoPromise = locationRequired ? beginGeolocationCapture() : null;
+    const devicePromise = locationRequired ? beginDeviceFingerprintCapture() : null;
     setFreeLoginId(profile.id);
     setError("");
     try {
-      const data: any = await apiCall("manage-app", { action: "login_free", user_id: profile.id });
+      const clientGeo = locationRequired ? await requireLoginLocation(geoPromise, devicePromise) : null;
+      const data: any = await apiCall("manage-app", { action: "login_free", user_id: profile.id, clientGeo });
       if (!data?.success) throw new Error(data?.error || "Failed to enter profile");
       if (data.workerUrls && Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
         storeWorkerUrls(data.workerUrls);
@@ -2785,8 +2796,14 @@ function ProfileSelectPage() {
       navigate("/viewer");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to enter profile";
-      setError(msg);
-      notify.error(msg);
+      if (isGpsPermissionDeniedMessage(msg)) {
+        setError("");
+        setGpsPermissionMode(getGpsPermissionMode(msg));
+        showGpsPermissionToast(msg);
+      } else {
+        setError(msg);
+        notify.error(msg);
+      }
     } finally {
       setFreeLoginId(null);
     }
@@ -2875,6 +2892,18 @@ function ProfileSelectPage() {
                 )}
               </div>
             )}
+
+            <div className="w-full max-w-md mb-5 space-y-3">
+              {error && (
+                <motion.div initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }}
+                  className="bg-[#e50914]/10 border border-[#e50914]/30 text-[#f5c9cc] text-xs p-3 rounded-md flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0" />{error}
+                </motion.div>
+              )}
+              <AnimatePresence>
+                <GpsPermissionSheet mode={gpsPermissionMode} loading={gpsRequesting || loginLoading || pendingLogin || !!freeLoginId} onPrimeEnable={primeGpsEnableFromPointer} onEnable={() => void requestGpsPermissionOnly()} />
+              </AnimatePresence>
+            </div>
 
             {displayProfiles.length === 0 ? (
               loading ? (
@@ -3120,7 +3149,8 @@ function AdminLoginPage() {
 
   const primeGpsEnableFromPointer = () => {
     if (gpsRequesting || loading) return;
-    armLoginTelemetry();
+    armedGeoRef.current = beginGeolocationCapture();
+    armedDeviceRef.current = beginDeviceFingerprintCapture();
   };
 
   useEffect(() => {
@@ -3190,12 +3220,11 @@ function AdminLoginPage() {
   };
 
   const requestGpsPermissionOnly = async () => {
-    // Always fire a FRESH geolocation call synchronously on click so the
-    // browser's native permission popup shows in normal mode too.
+    // Prefer the fresh request started on pointerdown; fallback for keyboard.
+    const geoPromise = armedGeoRef.current ?? beginGeolocationCapture();
+    const devicePromise = armedDeviceRef.current ?? beginDeviceFingerprintCapture();
     armedGeoRef.current = null;
     armedDeviceRef.current = null;
-    const geoPromise = beginGeolocationCapture();
-    const devicePromise = beginDeviceFingerprintCapture();
     setGpsRequesting(true);
     setError("");
     notify.dismiss(GPS_PERMISSION_TOAST_ID);
@@ -5088,14 +5117,14 @@ function AdminPanel() {
 
   const toggleProfileLocationRequired = async (u: UserData) => {
     const next = !isLocationRequiredForProfile(u);
-    const nextPrefs = { ...(u.profilePrefs || {}), locationRequired: next };
+    const nextPrefs = { ...(u.profilePrefs || {}), locationRequired: next, locationRequiredOverride: true };
     setUsers(prev => prev.map(x => x.id === u.id ? { ...x, locationRequired: next, profilePrefs: nextPrefs } : x));
     try {
       await apiCall("manage-app", { action: "update_user", id: u.id, location_required: next });
       notify.success(next ? "Location required for this profile" : "Location not required for this profile");
       try { await refreshBootstrap(); } catch {}
     } catch (err) {
-      setUsers(prev => prev.map(x => x.id === u.id ? { ...x, locationRequired: !next, profilePrefs: { ...(x.profilePrefs || {}), locationRequired: !next } } : x));
+      setUsers(prev => prev.map(x => x.id === u.id ? { ...x, locationRequired: !next, profilePrefs: { ...(x.profilePrefs || {}), locationRequired: !next, locationRequiredOverride: true } } : x));
       notify.error(err instanceof Error ? err.message : "Failed to update location setting");
     }
   };
@@ -5819,9 +5848,9 @@ function AdminPanel() {
                 Location Policy
               </h2>
               <p className="text-xs text-slate-500 mb-2">
-                GPS is now controlled per profile in <b>Active Users</b>. Turn the map-pin toggle ON only for profiles that must allow exact location.
+                GPS is ON by default for every user profile. Use the map-pin toggle in <b>Active Users</b> only when you want to turn GPS OFF for a specific profile.
               </p>
-              <p className="text-[11px] text-slate-400">Default for every profile is <b>NOT REQUIRED</b>; OFF sends only minimal device/browser/IP alert.</p>
+              <p className="text-[11px] text-slate-400">Default is <b>GPS REQUIRED</b>; OFF sends only minimal device/browser/IP alert.</p>
             </section>
 
             {/* Free-profile behavior note (uses User Session Timeout above) */}
