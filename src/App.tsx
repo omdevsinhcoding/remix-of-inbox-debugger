@@ -6428,7 +6428,36 @@ function AdminPanel() {
                             </div>
                             <div>
                               <p className="text-[10px] font-bold text-blue-500 uppercase">Password</p>
-                              <p className="text-sm text-slate-800 font-medium">{acc.password ? "••••••••" : "Not set"}</p>
+                              {acc.password ? (
+                                <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                                  <p className="text-sm text-slate-800 font-medium font-mono break-all flex-1 min-w-0">
+                                    {revealedPasswords.has(`acc-${i}`) ? acc.password : "••••••••••••"}
+                                  </p>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); togglePasswordReveal(`acc-${i}`); }}
+                                    className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-600 flex-shrink-0"
+                                    aria-label={revealedPasswords.has(`acc-${i}`) ? "Hide password" : "Show password"}
+                                  >
+                                    {revealedPasswords.has(`acc-${i}`) ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                  </button>
+                                  {revealedPasswords.has(`acc-${i}`) && (
+                                    <button
+                                      type="button"
+                                      onClick={async (e) => {
+                                        e.stopPropagation();
+                                        try { await navigator.clipboard.writeText(acc.password || ""); notify.success("Password copied"); } catch { notify.error("Copy failed"); }
+                                      }}
+                                      className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-600 flex-shrink-0"
+                                      aria-label="Copy password"
+                                    >
+                                      <Copy className="w-4 h-4" />
+                                    </button>
+                                  )}
+                                </div>
+                              ) : (
+                                <p className="text-sm text-slate-800 font-medium">Not set</p>
+                              )}
                             </div>
                           </div>
                           <div>
