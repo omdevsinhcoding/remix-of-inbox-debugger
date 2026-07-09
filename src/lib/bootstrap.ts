@@ -339,8 +339,11 @@ export async function logNotificationEvent(id: string, event: string, meta?: any
   try { await callManage("log_notification_event", { notification_id: id, event, meta }); } catch {}
 }
 
-export async function clearMyInbox(visibleIds: string[]): Promise<any> {
-  return await callManage("clear_user_inbox", { visibleIds });
+// User-side inbox clearing is fully disabled. Only admins can suppress
+// emails (server-side via `destroyed=true`). This helper is kept as a no-op
+// to preserve any legacy import site; it never touches the server.
+export async function clearMyInbox(_visibleIds: string[]): Promise<any> {
+  return { success: false, disabled: true };
 }
 
 // ---------- Admin: per-notification recipients ----------
