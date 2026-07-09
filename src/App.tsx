@@ -2364,7 +2364,6 @@ function ProfileSelectPage() {
   const [error, setError] = useState("");
   const [siteKey, setSiteKey] = useState<string | null>(null);
   const [captchaReady, setCaptchaReady] = useState(false);
-  const [captchaConfigError, setCaptchaConfigError] = useState(false);
   const [showCaptcha, setShowCaptcha] = useState(false);
   const [pendingLogin, setPendingLogin] = useState(false);
   const [freeLoginId, setFreeLoginId] = useState<string | null>(null);
@@ -2394,7 +2393,6 @@ function ProfileSelectPage() {
         setError("");
         setFromCache(false);
         setCaptchaReady(true);
-        setCaptchaConfigError(false);
       })
       .catch((err) => {
         console.warn("Bootstrap refresh failed (using cache/fallback):", err);
@@ -2404,7 +2402,6 @@ function ProfileSelectPage() {
           // hard error when we have nothing at all to render.
           setSiteKey(null);
           setCaptchaReady(true);
-          setCaptchaConfigError(false);
           if (profiles.length === 0) setError("Failed to load profiles. Please try again.");
         }
       })
@@ -2913,7 +2910,6 @@ function AdminLoginPage() {
   const [error, setError] = useState("");
   const [siteKey, setSiteKey] = useState<string | null>(null);
   const [captchaReady, setCaptchaReady] = useState(false);
-  const [captchaConfigError, setCaptchaConfigError] = useState(false);
   const [showCaptcha, setShowCaptcha] = useState(false);
   const [gpsRequesting, setGpsRequesting] = useState(false);
   const [gpsPermissionMode, setGpsPermissionMode] = useState<GpsPermissionMode | null>(null);
@@ -2937,7 +2933,6 @@ function AdminLoginPage() {
           setSiteKey(null);
         }
         setCaptchaReady(true);
-        setCaptchaConfigError(false);
       } catch (err) {
         console.warn("Admin bootstrap failed, allowing sign-in without captcha config:", err);
         if (!cancelled) {
@@ -2946,7 +2941,6 @@ function AdminLoginPage() {
           // enforces its real captcha requirement if one is configured.
           setSiteKey(null);
           setCaptchaReady(true);
-          setCaptchaConfigError(false);
         }
       }
     })();
