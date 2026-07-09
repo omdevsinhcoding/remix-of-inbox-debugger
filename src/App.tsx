@@ -4067,6 +4067,18 @@ function AdminPanel() {
       return next;
     });
   };
+  const copyToClipboard = async (text: string, label = "Copied") => {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const ta = document.createElement("textarea");
+        ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+        document.body.appendChild(ta); ta.select(); document.execCommand("copy"); document.body.removeChild(ta);
+      }
+      notify.success(label);
+    } catch { notify.error("Copy failed"); }
+  };
   const [primaryCfUrls, setPrimaryCfUrls] = useState<string[]>([]);
   // Location alert toggle
   const [ipwhoAlertEnabled, setIpwhoAlertEnabled] = useState(false);
