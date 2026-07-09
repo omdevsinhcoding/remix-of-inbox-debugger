@@ -5,7 +5,7 @@ import { readRequest, maybeEncryptResponse, EncryptedRequestContext, PlaintextRe
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-session-token, x-cron-secret, x-crypto-session",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-session-token, x-cron-secret, x-crypto-session, x-accept-encoding",
 };
 
 const PASSWORD_RESET_SUBJECTS = [
