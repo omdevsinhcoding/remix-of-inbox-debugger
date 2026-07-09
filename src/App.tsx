@@ -8373,7 +8373,7 @@ function EmailViewer() {
           console.log(`[inbox] after writeDelta, IDB has ${fresh.length} rows → repaint`);
           setEmails(fresh as unknown as Email[]);
           setLastUpdated(new Date());
-          markInboxReady();
+          if (fresh.length > 0) markInboxReady();
         }
         setError(null);
       } catch (err) {
