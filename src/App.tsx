@@ -244,6 +244,56 @@ const PlatformChipVisual: React.FC<{ id?: string | null; size?: number; audit?: 
   );
 };
 
+// Premium framed tile for user-facing notification icons (popup / center / list).
+// Uses admin-selected platform_icon when set, otherwise falls back to the category glyph.
+const NotifIconTile: React.FC<{
+  platformId?: string | null;
+  fallback?: React.ReactNode;
+  size?: number;
+  tone?: "dark" | "light";
+}> = ({ platformId, fallback, size = 44, tone = "dark" }) => {
+  const resolved = platformId ? resolvePlatformOption(platformId) : null;
+  const hasPlatform = !!(resolved && resolved.id);
+  const radius = Math.round(size * 0.28);
+  const inner = Math.round(size * 0.78);
+  const bg = tone === "dark"
+    ? "linear-gradient(160deg, rgba(255,255,255,0.09), rgba(255,255,255,0.02))"
+    : "linear-gradient(160deg, #ffffff, #f4f4f6)";
+  const ring = tone === "dark" ? "1px solid rgba(255,255,255,0.10)" : "1px solid rgba(0,0,0,0.06)";
+  const shadow = tone === "dark"
+    ? "0 10px 28px -12px rgba(0,0,0,0.65), inset 0 1px 0 rgba(255,255,255,0.08)"
+    : "0 8px 22px -10px rgba(15,15,20,0.35), inset 0 1px 0 rgba(255,255,255,0.9)";
+  return (
+    <div
+      className="flex-shrink-0 flex items-center justify-center relative"
+      style={{
+        width: size,
+        height: size,
+        borderRadius: radius,
+        background: bg,
+        border: ring,
+        boxShadow: shadow,
+      }}
+    >
+      {hasPlatform ? (
+        <PlatformChipVisual id={resolved!.id} size={inner} />
+      ) : (
+        <div
+          className="flex items-center justify-center rounded-full"
+          style={{
+            width: inner,
+            height: inner,
+            background: tone === "dark" ? "rgba(255,255,255,0.04)" : "rgba(15,15,20,0.04)",
+          }}
+        >
+          {fallback}
+        </div>
+      )}
+    </div>
+  );
+};
+
+
 // Template icon (lucide)
 const TemplateIcon: React.FC<{ id: string; className?: string }> = ({ id, className = "w-4 h-4" }) => {
   switch (id) {
@@ -1338,13 +1388,21 @@ function AutoPopupNotification() {
 
             <div className="px-6 sm:px-7 pb-6 sm:pb-7 pt-5 sm:pt-6">
               {/* icon medallion */}
-              <div className="flex items-center gap-2.5 mb-3">
-                <span className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-white/[0.06] border border-white/10">
-                  <CatIcon className={`w-5 h-5 ${cat.color}`} />
-                </span>
-                <span className="text-[10.5px] uppercase tracking-[0.14em] text-zinc-400 font-medium">
-                  {cat.label}
-                </span>
+              <div className="flex items-center gap-3 mb-4">
+                <NotifIconTile
+                  platformId={current.platform_icon}
+                  size={52}
+                  tone="dark"
+                  fallback={<CatIcon className={`w-6 h-6 ${cat.color}`} />}
+                />
+                <div className="flex flex-col">
+                  <span className="text-[10.5px] uppercase tracking-[0.16em] text-zinc-400 font-medium">
+                    {cat.label}
+                  </span>
+                  <span className="text-[11px] text-zinc-500 font-light mt-0.5">
+                    {formatRelative(current.created_at)}
+                  </span>
+                </div>
               </div>
 
               <h2
@@ -1583,13 +1641,22 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
                     <div className="flex flex-col items-center flex-shrink-0">
                       <span className={`w-1 h-full rounded-full ${accent} opacity-70`} style={{ minHeight: 30 }} />
                     </div>
-                    {n.image_url ? (
+                    {n.platform_icon ? (
+                      <NotifIconTile
+                        platformId={n.platform_icon}
+                        size={46}
+                        tone="dark"
+                        fallback={<CatIcon className={`w-4 h-4 ${cat.color}`} />}
+                      />
+                    ) : n.image_url ? (
                       <img src={n.image_url} referrerPolicy="no-referrer" loading="lazy" alt=""
-                        className="w-11 h-11 rounded-lg object-cover flex-shrink-0 bg-zinc-800" />
+                        className="w-11 h-11 rounded-xl object-cover flex-shrink-0 bg-zinc-800 ring-1 ring-white/10 shadow-lg" />
                     ) : (
-                      <div className="w-11 h-11 rounded-lg bg-white/[0.04] border border-white/10 flex-shrink-0 flex items-center justify-center">
-                        <CatIcon className={`w-4 h-4 ${cat.color}`} />
-                      </div>
+                      <NotifIconTile
+                        size={46}
+                        tone="dark"
+                        fallback={<CatIcon className={`w-4 h-4 ${cat.color}`} />}
+                      />
                     )}
                     <div className="min-w-0 flex-1">
                       <div className="flex items-baseline justify-between gap-3">
@@ -1633,16 +1700,26 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
           </div>
         )}
         <div className="px-6 py-5">
-          <div className="flex items-center gap-2 mb-3">
-            <span className={`w-1.5 h-1.5 rounded-full ${accent}`} />
-            <span className="inline-flex items-center gap-1.5 text-[10.5px] uppercase tracking-[0.14em] text-zinc-400 font-medium">
-              <CatIcon className={`w-3.5 h-3.5 ${cat.color}`} /> {cat.label}
-            </span>
-            <span className="text-[10.5px] text-zinc-500 ml-auto">{new Date(detail.created_at).toLocaleString()}</span>
+          <div className="flex items-start gap-3.5 mb-4">
+            <NotifIconTile
+              platformId={detail.platform_icon}
+              size={54}
+              tone="dark"
+              fallback={<CatIcon className={`w-6 h-6 ${cat.color}`} />}
+            />
+            <div className="min-w-0 flex-1 pt-0.5">
+              <div className="flex items-center gap-2 mb-1">
+                <span className={`w-1.5 h-1.5 rounded-full ${accent}`} />
+                <span className="text-[10.5px] uppercase tracking-[0.16em] text-zinc-400 font-medium">
+                  {cat.label}
+                </span>
+                <span className="text-[10.5px] text-zinc-500 ml-auto">{new Date(detail.created_at).toLocaleString()}</span>
+              </div>
+              <h2 className="text-white text-[24px] leading-tight" style={{ fontFamily: "'Instrument Serif', ui-serif, Georgia, serif", letterSpacing: "-0.015em" }}>
+                {detail.title}
+              </h2>
+            </div>
           </div>
-          <h2 className="text-white text-[24px] leading-tight mb-3" style={{ fontFamily: "'Instrument Serif', ui-serif, Georgia, serif", letterSpacing: "-0.015em" }}>
-            {detail.title}
-          </h2>
           <p className="text-zinc-200 text-[14px] leading-relaxed font-light whitespace-pre-wrap">{detail.body}</p>
           {detail.description && (
             <p className="mt-4 text-zinc-400 text-[13px] leading-relaxed font-light whitespace-pre-wrap">{detail.description}</p>
@@ -7601,14 +7678,12 @@ function UserProfileModal({
   prefs,
   onPrefsSaved,
   onPassword,
-  onDeleteOldEmails,
   onClose,
 }: {
   user: UserData;
   prefs: UserProfilePrefs;
   onPrefsSaved: (prefs: UserProfilePrefs) => void;
   onPassword: () => void;
-  onDeleteOldEmails: () => void;
   onClose: () => void;
 }) {
   const [savingAvatar, setSavingAvatar] = useState(false);
@@ -7668,22 +7743,14 @@ function UserProfileModal({
             saving={savingAvatar}
           />
         </div>
-        <div className="p-4 border-t border-slate-100 bg-white/95 backdrop-blur">
-
-
-          <div className={`grid grid-cols-1 ${user.isFree ? "" : "sm:grid-cols-2"} gap-3`}>
-            {!user.isFree && (
-              <button onClick={() => { onClose(); onPassword(); }}
-                className="flex items-center justify-center gap-2 bg-slate-900 text-white font-bold py-3 rounded-xl hover:bg-slate-800 transition-all active:scale-95">
-                <Key className="w-4 h-4" /> Change Password
-              </button>
-            )}
-            <button onClick={onDeleteOldEmails}
-              className="flex items-center justify-center gap-2 bg-red-600 text-white font-bold py-3 rounded-xl hover:bg-red-700 transition-all active:scale-95">
-              <Trash2 className="w-4 h-4" /> Delete old emails
+        {!user.isFree && (
+          <div className="p-4 border-t border-slate-100 bg-white/95 backdrop-blur">
+            <button onClick={() => { onClose(); onPassword(); }}
+              className="w-full flex items-center justify-center gap-2 bg-slate-900 text-white font-bold py-3 rounded-xl hover:bg-slate-800 transition-all active:scale-95">
+              <Key className="w-4 h-4" /> Change Password
             </button>
           </div>
-        </div>
+        )}
       </motion.div>
     </motion.div>
   );
@@ -8000,29 +8067,6 @@ function EmailViewer() {
     }
   };
 
-  const deleteOldEmailsForUser = async () => {
-    const newestVisibleTime = emails.reduce((max, email) => {
-      const time = new Date(email.date || 0).getTime();
-      return Number.isNaN(time) ? max : Math.max(max, time);
-    }, 0);
-    const hiddenBefore = new Date(newestVisibleTime || Date.now()).toISOString();
-    const nextPrefs = {
-      ...profilePrefs,
-      hiddenBefore,
-      hiddenEmailIds: Array.from(new Set([...(profilePrefs.hiddenEmailIds || []), ...emails.map(emailIdentity), ...emails.map((e) => e.id)])).slice(-2000),
-    };
-
-    saveProfilePrefsLocally(nextPrefs);
-    setEmailsRaw([]);
-    setSelectedEmail(null);
-
-    try {
-      await apiCall("manage-app", { action: "update_profile_prefs", profile_prefs: nextPrefs });
-      notify.success("Old emails deleted for this profile");
-    } catch (err) {
-      notify.error(err instanceof Error ? err.message : "Could not save delete setting");
-    }
-  };
 
   // On mount/login: ONE silent auto-refresh via the worker POST sync path.
   // No browser-persistent email cache, no background polling, no GET /api/emails.
@@ -8244,7 +8288,6 @@ function EmailViewer() {
             prefs={profilePrefs}
             onPrefsSaved={saveProfilePrefsLocally}
             onPassword={() => setShowChangePassword(true)}
-            onDeleteOldEmails={deleteOldEmailsForUser}
             onClose={() => setShowProfile(false)}
           />
         )}
