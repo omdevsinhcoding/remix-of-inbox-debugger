@@ -5,6 +5,7 @@
   "type": "module",
   "main": "worker.js",
   "scripts": {
+    "build": "bash setup.sh",
     "deploy": "wrangler deploy",
     "dev": "wrangler dev"
   },
