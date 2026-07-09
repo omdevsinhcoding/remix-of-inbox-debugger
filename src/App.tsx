@@ -877,7 +877,7 @@ async function apiCall(functionName: string, body: any) {
   if (pendingToken && functionName === "manage-app" && pendingActions.has(body?.action)) extraHeaders["X-Pending-Token"] = pendingToken;
 
   const { invokeEdge } = await import("./lib/secureTransport");
-  const { storeSessionPair, refreshNow, ensureFreshAccess } = await import("./lib/sessionRefresh");
+  const { storeSessionPair, refreshNow, ensureFreshAccess, hasRefreshToken } = await import("./lib/sessionRefresh");
 
   const skipRefreshActions = new Set(["refresh_session", "back_to_admin"]);
 
@@ -904,7 +904,7 @@ async function apiCall(functionName: string, body: any) {
     const looksExpired = /access token expired|session expired|session revoked|authentication required|session invalid/i.test(msg);
     // C.2: single retry after refresh on stale-session errors, except for the
     // refresh endpoint itself and unauthenticated calls.
-    if (looksExpired && !(functionName === "manage-app" && skipRefreshActions.has(body?.action)) && getSessionToken()) {
+    if (looksExpired && !(functionName === "manage-app" && skipRefreshActions.has(body?.action)) && (getSessionToken() || hasRefreshToken())) {
       const ok = await refreshNow();
       if (!ok) throw err;
       const t3 = getSessionToken();

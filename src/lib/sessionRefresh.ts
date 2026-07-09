@@ -56,6 +56,10 @@ function getRefreshToken(): string | null { try { return sessionGet(K_REFRESH as
 function getAccessExp(): number { const v = (() => { try { return sessionGet(K_ACCESS_EXP as any); } catch { return null; } })(); return v ? Number(v) : 0; }
 function getRefreshExp(): number { const v = (() => { try { return sessionGet(K_REFRESH_EXP as any); } catch { return null; } })(); return v ? Number(v) : 0; }
 
+export function hasRefreshToken(): boolean {
+  return !!getRefreshToken();
+}
+
 export function armAutoRefresh() {
   if (armedTimer !== null) { clearTimeout(armedTimer); armedTimer = null; }
   const refresh = getRefreshToken();
@@ -123,6 +127,10 @@ export async function refreshNow(): Promise<boolean> {
 // present a live token.
 export async function ensureFreshAccess(leadMs = 30_000): Promise<void> {
   const accessExp = getAccessExp();
+  if (!sessionGet("session_token" as any) && getRefreshToken()) {
+    await refreshNow();
+    return;
+  }
   if (!accessExp) return; // legacy session without pair — leave alone
   if (accessExp - Date.now() > leadMs) return;
   await refreshNow();
