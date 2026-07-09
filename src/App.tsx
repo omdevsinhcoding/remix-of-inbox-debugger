@@ -2402,14 +2402,19 @@ function ProfileSelectPage() {
         setCaptchaConfigError(false);
       })
       .catch((err) => {
-        console.error("Failed to load profiles:", err);
+        console.warn("Bootstrap refresh failed (using cache/fallback):", err);
         if (!cancelled) {
-          setCaptchaConfigError(true);
-          setCaptchaReady(false);
+          // Do NOT block sign-in on a captcha/config fetch hiccup. If we already
+          // have profiles from the cached bootstrap, stay usable; only show a
+          // hard error when we have nothing at all to render.
           if (profiles.length === 0) {
+            setCaptchaConfigError(true);
+            setCaptchaReady(false);
             setError("Failed to load profiles. Please try again.");
           } else {
-            setError("Security check failed to load. Please refresh and try again.");
+            setCaptchaReady(true);
+            setCaptchaConfigError(false);
+            setError("");
           }
         }
       })
