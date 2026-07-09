@@ -1,33 +1,21 @@
 // Worker bootstrap endpoint — returns SUPABASE_URL, SUPABASE_KEY, SESSION_SECRET
-// to the Cloudflare Workers Builds `setup.sh` so each new worker deploys with
-// zero manual configuration.
+// to the Cloudflare Workers Builds `setup.sh`.
 //
-// SECURITY MODEL (no hardcoded secrets in git):
-//   1. Caller must send X-CF-Token header containing a Cloudflare API token.
-//      Cloudflare Workers Builds auto-injects CLOUDFLARE_API_TOKEN at build
-//      time — it never appears in git.
-//   2. We verify the token by calling Cloudflare's own verify endpoint AND
-//      list the accounts it can access.
-//   3. The caller's Cloudflare account ID must be in
-//      app_settings.worker_account_allowlist. If the allowlist has fewer than
-//      MAX_TOFU_ACCOUNTS entries, we trust-on-first-use: add the new account
-//      and send a Telegram alert so the admin sees it.
-//   4. After MAX_TOFU_ACCOUNTS is reached, unknown accounts get 403.
-//      Admin can edit the allowlist in the app_settings table.
+// SECURITY MODEL (hardened — no TOFU):
+//   1. Caller must send X-CF-Token header (Cloudflare API token). CF Builds
+//      injects CLOUDFLARE_API_TOKEN at build time.
+//   2. Caller must ALSO send X-Bootstrap-Secret header matching
+//      WORKER_BOOTSTRAP_SECRET env var. This shared secret is stored in the
+//      Cloudflare Worker's build env by the admin — an attacker with only a
+//      leaked repo cannot obtain it.
+//   3. We verify the CF token AND check the caller's CF account is in
+//      app_settings.worker_account_allowlist. Unknown accounts are REJECTED
+//      (no auto-add) and generate a Telegram alert. Admin must explicitly
+//      add the account_id to the allowlist first.
 //
-// If the repo leaks, an attacker still can't bootstrap because they don't own
-// any of the allow-listed Cloudflare accounts.
+// Previous TOFU behavior (auto-add first N accounts) leaked SESSION_SECRET
+// to any Cloudflare account holder — removed.
 
-import { createClient } from "npm:@supabase/supabase-js@2";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-cf-token",
-};
-
-const MAX_TOFU_ACCOUNTS = 25;
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
