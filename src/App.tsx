@@ -3874,24 +3874,28 @@ function LoginEventsPanel() {
 function AllEmailsPanel() {
   const [emails, setEmails] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [search, setSearch] = useState("");
-  const [accountLabel, setAccountLabel] = useState("");
+  const [accountLabel, setAccountLabel] = useState<string>(""); // "" = nothing selected
   const [labels, setLabels] = useState<string[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [viewing, setViewing] = useState<any | null>(null);
   const [offset, setOffset] = useState(0);
   const limit = 100;
 
+  const hasSelection = accountLabel !== "" || accountLabel === "__all__";
 
-  const load = useCallback(async (nextOffset = 0) => {
+  const load = useCallback(async (nextOffset = 0, labelOverride?: string) => {
+    const label = labelOverride !== undefined ? labelOverride : accountLabel;
+    if (!label) return; // nothing selected
     setLoading(true);
     try {
       const res: any = await apiCall("manage-app", {
         action: "admin_list_emails",
         limit, offset: nextOffset,
         search: search || undefined,
-        accountLabel: accountLabel || undefined,
+        accountLabel: label === "__all__" ? undefined : label,
       });
       setEmails(res?.emails || []);
       setTotal(res?.total || 0);
@@ -3909,11 +3913,35 @@ function AllEmailsPanel() {
         if (Array.isArray(data?.value)) setLabels(data.value.map((a: any) => a.label || a.user).filter(Boolean));
       } catch {}
     })();
-    load(0);
+    // Intentionally no auto-load — admin picks an account first.
+  }, []);
 
-    // eslint-disable-next-line
-  }, [load]);
+  const pickAccount = (label: string) => {
+    setAccountLabel(label);
+    setSearch("");
+    load(0, label);
+  };
 
+  const syncSelected = async () => {
+    if (!accountLabel || accountLabel === "__all__") return;
+    setSyncing(true);
+    const toastId = "adm-sync";
+    notify.loading(`Syncing ${accountLabel}…`, { id: toastId });
+    try {
+      await apiCall("fetch-emails", {
+        mode: "sync",
+        source: "admin_manual",
+        accountLabels: [accountLabel],
+        limit: 50,
+      });
+      notify.dismiss(toastId);
+      notify.success(`${accountLabel} synced`);
+      await load(0);
+    } catch (e: any) {
+      notify.dismiss(toastId);
+      notify.error(e?.message || "Sync failed");
+    } finally { setSyncing(false); }
+  };
 
   const openEmail = async (id: string) => {
     try {
@@ -3948,26 +3976,47 @@ function AllEmailsPanel() {
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <h2 className="font-black text-base sm:text-lg flex items-center gap-2 mr-auto">
           <div className="bg-red-50 p-1.5 rounded-lg"><Mail className="w-4 h-4 text-red-600" /></div>
-          All Emails <span className="text-xs font-normal text-slate-500">({total})</span>
+          All Emails {hasSelection && <span className="text-xs font-normal text-slate-500">({total})</span>}
         </h2>
-        <input value={search} onChange={e => setSearch(e.target.value)} onKeyDown={e => e.key === "Enter" && load(0)}
-          placeholder="Search subject / from / to / OTP…" aria-label="Search all emails" className="border rounded-lg px-3 py-1.5 text-sm w-56 text-slate-900" />
-        <select value={accountLabel} onChange={e => setAccountLabel(e.target.value)} className="border rounded-lg px-2 py-1.5 text-sm text-slate-900">
-          <option value="">All accounts</option>
-          {labels.map(l => <option key={l} value={l}>{l}</option>)}
-        </select>
-        <button onClick={() => load(0)} className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm font-semibold">Search</button>
-        {selected.size > 0 && (
-          <button onClick={() => deleteIds(Array.from(selected))} className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-semibold flex items-center gap-1">
-            <Trash2 className="w-3.5 h-3.5" /> Delete {selected.size}
-          </button>
+        {hasSelection && (
+          <>
+            <input value={search} onChange={e => setSearch(e.target.value)} onKeyDown={e => e.key === "Enter" && load(0)}
+              placeholder="Search subject / from / to / OTP…" aria-label="Search all emails" className="border rounded-lg px-3 py-1.5 text-sm w-56 text-slate-900" />
+            <button onClick={() => load(0)} className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm font-semibold">Search</button>
+            {accountLabel !== "__all__" && (
+              <button onClick={syncSelected} disabled={syncing} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-lg text-sm font-semibold">
+                {syncing ? "Syncing…" : `Sync ${accountLabel}`}
+              </button>
+            )}
+            {selected.size > 0 && (
+              <button onClick={() => deleteIds(Array.from(selected))} className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-semibold flex items-center gap-1">
+                <Trash2 className="w-3.5 h-3.5" /> Delete {selected.size}
+              </button>
+            )}
+          </>
         )}
       </div>
 
-      {loading ? (
+      <div className="flex flex-wrap items-center gap-2 mb-4 pb-3 border-b">
+        <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 mr-1">Account:</span>
+        {labels.map(l => (
+          <button key={l} onClick={() => pickAccount(l)}
+            className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${accountLabel === l ? "bg-slate-900 text-white border-slate-900" : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50"}`}>
+            {l}
+          </button>
+        ))}
+        <button onClick={() => pickAccount("__all__")}
+          className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${accountLabel === "__all__" ? "bg-slate-900 text-white border-slate-900" : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50"}`}>
+          All accounts
+        </button>
+      </div>
+
+      {!hasSelection ? (
+        <div className="py-16 text-center text-slate-500 text-sm">Select an account above to view its cached emails.</div>
+      ) : loading ? (
         <div className="py-12 text-center text-slate-500 text-sm">Loading…</div>
       ) : emails.length === 0 ? (
-        <div className="py-12 text-center text-slate-500 text-sm">No emails found.</div>
+        <div className="py-12 text-center text-slate-500 text-sm">No cached emails for this account. Click <b>Sync {accountLabel !== "__all__" ? accountLabel : ""}</b> to pull fresh.</div>
       ) : (
         <>
           <div className="overflow-auto border rounded-lg max-h-[65vh]">
