@@ -13,21 +13,20 @@ export type BootstrapResult = { users: any[]; recaptcha: any; workerUrls: string
 
 
 // Module-level filter cache — read synchronously by filterVisibleEmails.
-const DEFAULT_EMAIL_FILTERS: Required<EmailFilters> = { showSignInCodes: true, showPasswordResets: false, showAccountUpdates: false };
+const DEFAULT_EMAIL_FILTERS: Required<EmailFilters> = { showSignInCodes: true, showPasswordResets: true, showAccountUpdates: true };
 function normalizeEmailFilters(value: EmailFilters | null | undefined): Required<EmailFilters> {
   const v = value && typeof value === "object" ? value : {};
   return {
     showSignInCodes: v.showSignInCodes === false ? false : true,
-    showPasswordResets: v.showPasswordResets === true,
-    showAccountUpdates: v.showAccountUpdates === true,
+    showPasswordResets: v.showPasswordResets === false ? false : true,
+    showAccountUpdates: v.showAccountUpdates === false ? false : true,
   };
 }
 let currentEmailFilters: EmailFilters = DEFAULT_EMAIL_FILTERS;
 export function getEmailFilters(): EmailFilters { return currentEmailFilters; }
 export function setEmailFilters(next: EmailFilters) {
-  // Replace with a full normalized object instead of merging. Old browser caches
-  // may have `showAccountUpdates:true`; if the server setting omits that key,
-  // account-update / verify-phone / verify-email messages must fail closed.
+  // Replace with a full normalized object instead of merging. Defaults show mail;
+  // only an explicit admin OFF (`false`) hides that category.
   currentEmailFilters = normalizeEmailFilters(next);
   try { localStorage.removeItem("email_filters_cache_v1"); } catch {}
 }
