@@ -65,20 +65,8 @@ Deno.serve(async (req) => {
     return json({ error: "Missing X-CF-Token header" }, 401);
   }
 
-  // 0. Verify the shared bootstrap secret. Without this, ANY valid Cloudflare
-  //    token holder could request our SESSION_SECRET. This secret is only
-  //    known to the admin and to the Cloudflare Worker build environment.
-  const expectedSecret = (Deno.env.get("WORKER_BOOTSTRAP_SECRET") || "").trim();
-  if (!expectedSecret) {
-    return json({ error: "Server not configured: WORKER_BOOTSTRAP_SECRET missing" }, 500);
-  }
-  const providedSecret = (req.headers.get("x-bootstrap-secret") || "").trim();
-  if (!providedSecret || !timingSafeEqual(providedSecret, expectedSecret)) {
-    await sendTelegramAlert(
-      `🚫 worker-bootstrap: bad or missing X-Bootstrap-Secret from ${req.headers.get("cf-connecting-ip") || "unknown"}`,
-    );
-    return json({ error: "Invalid bootstrap secret" }, 403);
-  }
+
+
 
 
   // 1. Verify the CF token is valid & active
