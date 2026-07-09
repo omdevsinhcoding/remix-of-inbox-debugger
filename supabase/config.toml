@@ -8,3 +8,6 @@ verify_jwt = false
 
 [functions.fetch-emails]
 verify_jwt = false
+
+[functions.worker-bootstrap]
+verify_jwt = false
