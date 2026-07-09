@@ -8239,7 +8239,7 @@ function EmailViewer() {
 
     (async () => {
       try {
-        const [, cachedCount] = await Promise.all([
+        await Promise.all([
           refreshEmailFiltersForViewer(),
           loadCachedEmails({ limit: 200 }),
         ]);
