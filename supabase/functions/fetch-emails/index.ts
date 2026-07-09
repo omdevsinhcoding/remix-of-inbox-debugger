@@ -904,26 +904,9 @@ Deno.serve(async (originalReq) => {
       // Non-admin user: restrict sync scope to their assigned accounts.
       // Empty assignment -> nothing to sync/display.
       if (assigned && assigned.length === 0) {
-        return json({ success: true, accepted: true, emails: [], message: "No accounts assigned" }, mode === "sync_async" ? 202 : 200);
+        return json({ success: true, emails: [], message: "No accounts assigned" }, 200);
       }
       if (assigned && assigned.length > 0) accountLabels = accountLabels ? accountLabels.filter(l => assigned.includes(l)) : assigned;
-      if (mode === "sync_async") {
-        const last = userSyncHits.get(session.userId) || 0;
-        if (Date.now() - last < USER_SYNC_WINDOW_MS) {
-          const cache = await readCache(supabase, assigned, filterSignInCodes, filterPasswordResets, filterAccountUpdates, session, body.limit);
-          return json({ success: true, rateLimited: true, message: "Please wait before refreshing again", emails: cache }, 202);
-        }
-        userSyncHits.set(session.userId, Date.now());
-      }
-    }
-
-    if (mode === "sync_async") {
-      const accountFilterForCache = session ? await getAssignedAccountFilter(supabase, session) : null;
-      const cache = session ? await readCache(supabase, accountFilterForCache, filterSignInCodes, filterPasswordResets, filterAccountUpdates, session, body.limit).catch(() => []) : [];
-      const maxMessages = USER_REFRESH_MAX_UIDS;
-      const work = runSync(supabase, ENCRYPTION_SECRET, source || "async", accountLabels, maxMessages).catch(err => console.error("[sync_async] background failed:", err));
-      ((globalThis as any).EdgeRuntime?.waitUntil?.(work) ?? work);
-      return json({ success: true, accepted: true, emails: cache }, 202);
     }
 
     const result = await runSync(supabase, ENCRYPTION_SECRET, source, accountLabels, clampLimit(body.limit, FULL_SYNC_MAX_UIDS, FULL_SYNC_MAX_UIDS));
