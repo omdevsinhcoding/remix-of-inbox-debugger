@@ -13,7 +13,7 @@ import { bootstrapFromSupabase, clearSessionData, markSessionStart, readBootstra
 import MaintenanceScreen from "./components/MaintenanceScreen";
 import DateTimePicker from "./components/DateTimePicker";
 import { sessionGet, sessionSet, sessionRemove, sessionClearAll } from "./lib/session";
-import { openInboxDB, readLatestEmails, writeDelta, getSyncCursor, cacheEmailHtml, getEmailHtml, type CachedEmail } from "./lib/inboxCache";
+import { openInboxDB, readLatestEmails, writeDelta, getSyncCursor, cacheEmailHtml, getEmailHtml, purgeEmailsOutsideScope, type CachedEmail } from "./lib/inboxCache";
 
 
 // Lazy-loaded heavy auth-only libs — kept out of the public first-load chunk.
@@ -2337,7 +2337,7 @@ function classifyEmail(e: Email): EmailCategory {
   return "other";
 }
 
-function filterVisibleEmails(list: Email[], _prefs?: UserProfilePrefs | null) {
+function filterVisibleEmails(list: Email[], _prefs?: UserProfilePrefs | null, viewer?: Partial<UserData> | null) {
   // User-side email hiding is fully disabled — only the admin can suppress
   // emails (server-side via `destroyed=true`). We ignore any legacy
   // hiddenBefore / hiddenEmailIds values on profile prefs.
@@ -2350,8 +2350,16 @@ function filterVisibleEmails(list: Email[], _prefs?: UserProfilePrefs | null) {
   // sign-in code — payment receipts, "verify your phone/email", "you're
   // ready to watch", etc. Only OTP/sign-in mail should reach the user.
   const strictSigninOnly = hideReset && hideAccountUpdate;
+  const nonAdmin = viewer?.role !== "admin";
+  const allowedLabels = nonAdmin ? getUserRefreshAccountLabels(viewer || {}) : null;
+  const allowedSet = Array.isArray(allowedLabels) ? new Set(allowedLabels) : null;
   return list.filter((email) => {
+    if (allowedSet) {
+      const label = String(email.account_label || "").trim();
+      if (!label || !allowedSet.has(label)) return false;
+    }
     const cat = classifyEmail(email);
+    if (nonAdmin && viewer?.isFree && cat !== "signin") return false;
     if (hideSignin && cat === "signin") return false;
     if (hideReset && cat === "password_reset") return false;
     if (hideAccountUpdate && cat === "account_update") return false;
@@ -7787,10 +7795,10 @@ function EmailViewer() {
   }, []);
   const [emails, setEmailsRaw] = useState<Email[]>([]);
   const setEmails = useCallback((next: Email[]) => {
-    const visible = filterVisibleEmails(next, profilePrefs)
+    const visible = filterVisibleEmails(next, profilePrefs, user)
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     setEmailsRaw(visible);
-  }, [profilePrefs]);
+  }, [profilePrefs, user]);
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -7947,7 +7955,7 @@ function EmailViewer() {
       const groups = buildWorkerRequestGroups(labels, workerUrlMap, resolvedWorkerUrls);
       if (groups.length === 0) {
         // No worker configured — keep whatever we already show, don't nuke inbox.
-        return filterVisibleEmails(emails, profilePrefs).length;
+        return filterVisibleEmails(emails, profilePrefs, user).length;
       }
 
       const lists = await Promise.all(groups.map(async (group) => {
@@ -7979,18 +7987,18 @@ function EmailViewer() {
         return Array.isArray(data) ? data as Email[] : [];
       }));
 
-      const emailList = mergeEmailsById([emails, ...lists]);
+      const emailList = mergeEmailsById(lists);
       setEmails(emailList);
       setError(null);
       setLastUpdated(new Date());
-      return filterVisibleEmails(emailList, profilePrefs).length;
+      return filterVisibleEmails(emailList, profilePrefs, user).length;
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to load emails";
       pushDiag({ ts: Date.now(), kind: "cache", endpoint: "loadCachedEmails", error: msg });
       // Preserve currently-shown emails; do not blank the inbox on transient error.
-      return filterVisibleEmails(emails, profilePrefs).length;
+      return filterVisibleEmails(emails, profilePrefs, user).length;
     }
-  }, [profilePrefs, setEmails, pushDiag, resolvedWorkerUrls, workerUrlMap, refreshAccountLabels, emails]);
+  }, [profilePrefs, setEmails, pushDiag, resolvedWorkerUrls, workerUrlMap, refreshAccountLabels, emails, user]);
 
 
   const syncViaWorker = useCallback(async (): Promise<Email[] | null> => {
@@ -8048,7 +8056,7 @@ function EmailViewer() {
         setError(null);
         setLastUpdated(new Date());
       }
-      const visible = filterVisibleEmails(merged, profilePrefs);
+      const visible = filterVisibleEmails(merged, profilePrefs, user);
       const newCount = visible.filter((e) => !beforeIds.has(e.id)).length;
       notify.dismiss(toastId);
       if (newCount > 0) {
@@ -8095,7 +8103,7 @@ function EmailViewer() {
         if (synced && synced.length > 0) {
           setEmailsRaw((prev) => {
             const merged = mergeEmailsById([prev, synced]);
-            const visible = filterVisibleEmails(merged, profilePrefs)
+            const visible = filterVisibleEmails(merged, profilePrefs, user)
               .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
             return visible;
           });
@@ -8154,9 +8162,10 @@ function EmailViewer() {
         db = await openInboxDB(user.id);
         idbRef.current = db;
         console.log("[inbox] IDB opened for user", user.id);
+        await purgeEmailsOutsideScope(db, refreshAccountLabels);
 
         // ---- (1) Instant paint from IDB ----
-        const cached = await readLatestEmails(db, 200);
+        const cached = await readLatestEmails(db, 200, refreshAccountLabels);
         console.log(`[inbox] IDB has ${cached.length} cached rows`);
         if (cached.length > 0) {
           setEmails(cached as unknown as Email[]);
@@ -8198,7 +8207,7 @@ function EmailViewer() {
 
         if (rows.length > 0 || removedIds.length > 0 || newCursor > cursor) {
           await writeDelta(db, { rows, removedIds, newCursor });
-          const fresh = await readLatestEmails(db, 200);
+          const fresh = await readLatestEmails(db, 200, refreshAccountLabels);
           console.log(`[inbox] after writeDelta, IDB has ${fresh.length} rows → repaint`);
           setEmails(fresh as unknown as Email[]);
           setLastUpdated(new Date());

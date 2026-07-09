@@ -71,18 +71,45 @@ export async function openInboxDB(userId: string): Promise<IDBPDatabase<InboxSch
 export async function readLatestEmails(
   db: IDBPDatabase<InboxSchema>,
   limit = 50,
+  allowedAccountLabels?: string[] | null,
 ): Promise<CachedEmail[]> {
   const out: CachedEmail[] = [];
+  const allowed = Array.isArray(allowedAccountLabels)
+    ? new Set(allowedAccountLabels.map((s) => String(s || "").trim()).filter(Boolean))
+    : null;
+  if (allowed && allowed.size === 0) return [];
   const tx = db.transaction("emailMeta", "readonly");
   const idx = tx.store.index("by-date");
   let cursor = await idx.openCursor(null, "prev");   // newest first
   while (cursor && out.length < limit) {
     const v = cursor.value;
-    if (!v.destroyed) out.push(v);
+    const label = String(v.account_label || "").trim();
+    if (!v.destroyed && (!allowed || (label && allowed.has(label)))) out.push(v);
     cursor = await cursor.continue();
   }
   await tx.done;
   return out;
+}
+
+/** Remove local rows that are outside the logged-in user's current account scope. */
+export async function purgeEmailsOutsideScope(
+  db: IDBPDatabase<InboxSchema>,
+  allowedAccountLabels?: string[] | null,
+): Promise<void> {
+  if (!Array.isArray(allowedAccountLabels)) return;
+  const allowed = new Set(allowedAccountLabels.map((s) => String(s || "").trim()).filter(Boolean));
+  const tx = db.transaction(["emailMeta", "emailHtml"], "readwrite");
+  let cursor = await tx.objectStore("emailMeta").openCursor();
+  while (cursor) {
+    const row = cursor.value;
+    const label = String(row.account_label || "").trim();
+    if (!label || !allowed.has(label)) {
+      await tx.objectStore("emailHtml").delete(row.id);
+      await cursor.delete();
+    }
+    cursor = await cursor.continue();
+  }
+  await tx.done;
 }
 
 /** Apply a delta batch atomically. */
