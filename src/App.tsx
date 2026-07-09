@@ -5171,7 +5171,7 @@ function AdminPanel() {
                     className="w-4 h-4 mt-0.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500" />
                   <div className="min-w-0">
                     <p className="text-sm font-bold text-emerald-900">Free profile (no password)</p>
-                    <p className="text-[11px] text-emerald-700/80 leading-snug">Anyone can enter this profile with one tap. Username & password are auto-generated and never used.</p>
+                    <p className="text-[11px] text-emerald-700/80 leading-snug">Anyone can enter this profile with one tap. No username or password is stored.</p>
                   </div>
                 </label>
 
