@@ -29,6 +29,21 @@ async function gunzipBytes(input: Uint8Array): Promise<Uint8Array> {
 type Session = { sidBytes: Uint8Array; key: CryptoKey; expiresAt: number };
 let sessionPromise: Promise<Session> | null = null;
 
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function cleanTransportError(err: unknown): Error {
+  const msg = err instanceof Error ? err.message : String(err || "");
+  if (/handshake\s*429|rate limited/i.test(msg)) {
+    return new Error("Security connection is busy. Please try again in a few seconds.");
+  }
+  if (/handshake|secureTransport|unknown session|bad frame|non-binary|OperationError|Failed to fetch|NetworkError|stale request|replay|origin mismatch/i.test(msg)) {
+    return new Error("Secure connection failed. Please retry.");
+  }
+  return err instanceof Error ? err : new Error(msg || "Request failed");
+}
+
 function fnBase(): string {
   return `${import.meta.env.VITE_SUPABASE_URL}/functions/v1`;
 }
@@ -66,15 +81,21 @@ async function doHandshake(): Promise<Session> {
   req[0] = VERSION;
   req.set(pubRaw, 1);
 
-  const res = await fetch(`${fnBase()}/crypto-handshake`, {
-    method: "POST",
-    headers: {
-      "Content-Type": CT_BINARY,
-      Authorization: `Bearer ${anonKey()}`,
-      apikey: anonKey(),
-    },
-    body: req,
-  });
+  let res: Response | null = null;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    res = await fetch(`${fnBase()}/crypto-handshake`, {
+      method: "POST",
+      headers: {
+        "Content-Type": CT_BINARY,
+        Authorization: `Bearer ${anonKey()}`,
+        apikey: anonKey(),
+      },
+      body: req,
+    });
+    if (res.status !== 429) break;
+    await wait(350 * (attempt + 1) + Math.floor(Math.random() * 250));
+  }
+  if (!res) throw new Error("handshake failed");
   if (!res.ok) throw new Error(`handshake ${res.status}`);
   const buf = new Uint8Array(await res.arrayBuffer());
   // Support both legacy (no expiresAt) and v2 (with 8-byte expiresAt suffix).
@@ -121,7 +142,7 @@ async function getSession(): Promise<Session> {
   if (!sessionPromise) {
     sessionPromise = doHandshake().catch((e) => {
       sessionPromise = null;
-      throw e;
+      throw cleanTransportError(e);
     });
   }
   return sessionPromise;
@@ -228,10 +249,23 @@ export async function invokeEdge(
     return await secureFetchJson(functionName, body, opts);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    if (/handshake\s*429|rate limited/i.test(msg)) {
+      resetSession();
+      await wait(700 + Math.floor(Math.random() * 500));
+      try {
+        return await secureFetchJson(functionName, body, opts);
+      } catch (retryErr) {
+        throw cleanTransportError(retryErr);
+      }
+    }
     if (/handshake|unknown session|bad frame|non-binary|OperationError|Failed to fetch|NetworkError|stale request|replay|origin mismatch/i.test(msg)) {
       resetSession();
-      return await secureFetchJson(functionName, body, opts);
+      try {
+        return await secureFetchJson(functionName, body, opts);
+      } catch (retryErr) {
+        throw cleanTransportError(retryErr);
+      }
     }
-    throw err;
+    throw cleanTransportError(err);
   }
 }
