@@ -84,7 +84,7 @@ export function readBootstrapCache(): BootstrapResult | null {
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return null;
     if (!parsed.savedAt || Date.now() - parsed.savedAt > BOOTSTRAP_CACHE_TTL_MS) return null;
-    const result = { users: parsed.users || [], recaptcha: parsed.recaptcha, workerUrls: parsed.workerUrls || [], emailFilters: parsed.emailFilters, maintenance: parsed.maintenance, avatarBaseUrl: parsed.avatarBaseUrl || "" };
+    const result = { users: parsed.users || [], recaptcha: parsed.recaptcha, workerUrls: parsed.workerUrls || [], emailFilters: parsed.emailFilters, maintenance: parsed.maintenance, avatarBaseUrl: parsed.avatarBaseUrl || "", locationRequired: parsed.locationRequired !== false };
     setAvatarBaseUrl(result.avatarBaseUrl);
     return result;
   } catch { return null; }
