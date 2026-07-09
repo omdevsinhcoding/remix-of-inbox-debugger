@@ -5070,7 +5070,8 @@ function AdminPanel() {
       // opens the correct per-user IndexedDB and delta-syncs that user's account.
       // Do not call checkAuth here; keeping AuthContext as admin for this tick
       // avoids the admin dashboard guard redirect race while navigation commits.
-      sessionSet("user" as any, JSON.stringify(data.user));
+      const impersonatedUser = { ...(data.user || {}), impersonated: true, adminId: data.user?.adminId || null };
+      sessionSet("user" as any, JSON.stringify(impersonatedUser));
       if (data.sessionToken) sessionSet("session_token" as any, data.sessionToken);
       // Impersonation: also defer session timer until EmailViewer loads inbox.
       try { sessionRemove("session_started_at" as any); } catch {}
