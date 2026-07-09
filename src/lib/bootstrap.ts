@@ -124,7 +124,7 @@ export async function bootstrapFromSupabase(opts?: { force?: boolean }): Promise
       storeWorkerUrls(data.workerUrls);
     }
 
-    const result: BootstrapResult = { users: data.users || [], recaptcha: data.recaptcha, workerUrls: data.workerUrls || [], emailFilters: data.emailFilters || {}, maintenance: data.maintenance || { enabled: false }, avatarBaseUrl: data.avatarBaseUrl || "" };
+    const result: BootstrapResult = { users: data.users || [], recaptcha: data.recaptcha, workerUrls: data.workerUrls || [], emailFilters: data.emailFilters || {}, maintenance: data.maintenance || { enabled: false }, avatarBaseUrl: data.avatarBaseUrl || "", locationRequired: data.locationRequired !== false };
     setAvatarBaseUrl(result.avatarBaseUrl);
     if (data.emailFilters && typeof data.emailFilters === "object") setEmailFilters(data.emailFilters);
     writeBootstrapCache(result);
