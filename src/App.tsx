@@ -8230,13 +8230,19 @@ function EmailViewer() {
   useEffect(() => {
     setLoading(false);
 
-    // Fire ONE silent auto-refresh once worker URLs are known — per component mount/login.
-    if (workerUrlsLoading) return;
+    // Start the session countdown immediately on inbox mount — do NOT wait
+    // for the worker/IDB paint. Otherwise the timer never starts if either
+    // path stalls or the account has zero cached emails.
+    markInboxReady();
+
     if (didAutoRefreshRef.current) return;
     didAutoRefreshRef.current = true;
 
     (async () => {
       try {
+        // Kick off the cached (KV) preload immediately using whatever worker
+        // URLs are already known (stored in session). Do not gate on the
+        // async URL-resolver — that adds ~2-4 s of dead time on first paint.
         await refreshEmailFiltersForViewer();
         await loadCachedEmails({ limit: 200 });
         const synced = await syncViaWorker();
@@ -8252,7 +8258,8 @@ function EmailViewer() {
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workerUrlsLoading]);
+  }, []);
+
 
   // F7: listen for iframe self-report messages verifying that the link/button
   // click hijack is actually attached inside the sandboxed email preview.
