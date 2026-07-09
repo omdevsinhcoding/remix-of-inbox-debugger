@@ -2617,12 +2617,13 @@ Deno.serve(async (originalReq) => {
 
       await auditLog(supabase, "login_free", user.id, null, { username: user.username }, ip);
 
-      // Free-profile session length (admin-configurable). Applied per login;
-      // each user gets their own countdown independent of other logins.
+      // Free-profile session length. Uses the same session_config.timeoutMinutes
+      // as paid users so the client SessionCountdown and the server token TTL
+      // stay in sync — each login gets its own countdown from its own login time.
       let freeMinutes = 0;
       try {
-        const { data: fsRow } = await supabase.from("app_settings").select("value").eq("key", "free_session_minutes").maybeSingle();
-        const m = Number((fsRow?.value as any)?.minutes);
+        const { data: fsRow } = await supabase.from("app_settings").select("value").eq("key", "session_config").maybeSingle();
+        const m = Number((fsRow?.value as any)?.timeoutMinutes);
         if (Number.isFinite(m) && m > 0) freeMinutes = Math.floor(m);
       } catch {}
 
