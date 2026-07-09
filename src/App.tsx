@@ -879,9 +879,13 @@ async function apiCall(functionName: string, body: any) {
   const { invokeEdge } = await import("./lib/secureTransport");
   const { storeSessionPair, refreshNow, ensureFreshAccess } = await import("./lib/sessionRefresh");
 
+  const skipRefreshActions = new Set(["refresh_session", "back_to_admin"]);
+
   // C.2: proactively refresh if access token is within 30s of expiry,
-  // but never for the refresh endpoint itself (would recurse).
-  if (functionName === "manage-app" && body?.action !== "refresh_session") {
+  // but never for refresh itself. Also skip for back_to_admin: that endpoint
+  // intentionally accepts an expired impersonation access token so an admin can
+  // always return from a viewed user account, even if user refresh failed.
+  if (functionName === "manage-app" && !skipRefreshActions.has(body?.action)) {
     await ensureFreshAccess(30_000).catch(() => {});
     // Re-read possibly-rotated token
     const t2 = getSessionToken();
@@ -893,10 +897,10 @@ async function apiCall(functionName: string, body: any) {
     data = await invokeEdge(functionName, body, { headers: extraHeaders });
   } catch (err: any) {
     const msg = String(err?.message || err || "");
-    const looksExpired = /session expired|session revoked|authentication required|session invalid/i.test(msg);
+    const looksExpired = /access token expired|session expired|session revoked|authentication required|session invalid/i.test(msg);
     // C.2: single retry after refresh on stale-session errors, except for the
     // refresh endpoint itself and unauthenticated calls.
-    if (looksExpired && functionName === "manage-app" && body?.action !== "refresh_session" && getSessionToken()) {
+    if (looksExpired && functionName === "manage-app" && !skipRefreshActions.has(body?.action) && getSessionToken()) {
       const ok = await refreshNow();
       if (!ok) throw err;
       const t3 = getSessionToken();
@@ -969,6 +973,7 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const hydrateFromServer = async () => {
     const token = getSessionToken();
+    const cachedBeforeHydrate = readCached();
     if (!token) {
       try { sessionRemove("user" as any); } catch {}
       setUser(null);
@@ -985,7 +990,15 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         throw new Error(res?.error || "Session invalid");
       }
     } catch {
-      // Session revoked, expired, or account missing → force logout
+      // Session revoked, expired, or account missing → force logout.
+      // Exception: an admin viewing a user account must never be dumped into
+      // maintenance on refresh because of a transient /me or refresh failure.
+      // Keep the cached server-signed impersonation shell so Back to Admin can
+      // still use the existing token row (back_to_admin accepts expired access).
+      if (cachedBeforeHydrate?.impersonated === true && cachedBeforeHydrate?.id) {
+        setUser(cachedBeforeHydrate);
+        return;
+      }
       try {
         sessionRemove("session_token" as any);
         sessionRemove("user" as any);

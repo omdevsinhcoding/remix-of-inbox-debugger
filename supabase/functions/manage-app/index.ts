@@ -1704,6 +1704,7 @@ Deno.serve(async (originalReq) => {
   const ENCRYPTION_SECRET = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const SIGNING_SECRET = Deno.env.get("SESSION_SIGNING_SECRET") || ENCRYPTION_SECRET;
   const LEGACY_SIGNING = ENCRYPTION_SECRET;
+  const IMPERSONATION_SESSION_TTL_MS = 365 * 24 * 60 * 60 * 1000;
 
   const ip = getClientIp(req);
 
@@ -1820,19 +1821,37 @@ Deno.serve(async (originalReq) => {
   async function requireSession(req: Request): Promise<Record<string, any>> {
     const token = req.headers.get("x-session-token");
     if (!token) throw new Error("Authentication required");
-    const session = await verifySessionTokenDual(token, SIGNING_SECRET, LEGACY_SIGNING);
-    if (!session) throw new Error("Session expired or invalid");
+    let session = await verifySessionTokenDual(token, SIGNING_SECRET, LEGACY_SIGNING);
+    if (!session) {
+      session = await verifySessionTokenDualAllowExpired(token, SIGNING_SECRET, LEGACY_SIGNING);
+      if (!session) throw new Error("Session expired or invalid");
+    }
     const tokenHash = await sha256Hex(token);
     const { data: row } = await supabase
       .from("app_sessions")
-      .select("id, expires_at, binding_hash, user_id, role, parent_session_id, revoked_at")
+      .select("id, expires_at, refresh_expires_at, binding_hash, user_id, role, parent_session_id, revoked_at")
       .eq("token_hash", tokenHash)
       .maybeSingle();
     if (!row) throw new Error("Session revoked. Please sign in again.");
     if (row.revoked_at) throw new Error("Session revoked. Please sign in again.");
-    if (new Date(row.expires_at).getTime() < Date.now()) {
-      await supabase.from("app_sessions").delete().eq("id", row.id);
-      throw new Error("Session expired. Please sign in again.");
+    const nowMs = Date.now();
+    const accessExpired = new Date(row.expires_at).getTime() < nowMs || (Number(session.exp) > 0 && Number(session.exp) < nowMs);
+    if (accessExpired) {
+      let allowExpiredImpersonation = false;
+      if (row.parent_session_id && row.refresh_expires_at && new Date(row.refresh_expires_at).getTime() > nowMs) {
+        const { data: parentForExpiry } = await supabase
+          .from("app_sessions")
+          .select("role, revoked_at")
+          .eq("id", row.parent_session_id)
+          .maybeSingle();
+        allowExpiredImpersonation = parentForExpiry?.role === "admin" && !parentForExpiry.revoked_at;
+      }
+      if (allowExpiredImpersonation) {
+        session.impersonationAccessExpired = true;
+      } else {
+        await supabase.from("app_sessions").delete().eq("id", row.id);
+        throw new Error("Access token expired. Please sign in again.");
+      }
     }
     // C.3 device-binding check. Only enforce when a binding is stored (soft
     // rollout: legacy sessions with null binding_hash pass through).
@@ -2884,7 +2903,7 @@ Deno.serve(async (originalReq) => {
         assignedAccounts: normalizedAssignedAccounts,
         impersonated: true,
         adminId: session.userId,
-      }, { parentSessionId: session.sessionRowId || null, refreshTtlOverrideMs: 365 * 24 * 60 * 60 * 1000 });
+      }, { parentSessionId: session.sessionRowId || null, ttlOverrideMs: IMPERSONATION_SESSION_TTL_MS });
 
       await auditLog(supabase, "impersonate", session.userId, targetUser.id, { targetUsername: targetUser.username }, ip);
 
@@ -3081,6 +3100,15 @@ Deno.serve(async (originalReq) => {
           .eq("id", row.parent_session_id)
           .maybeSingle();
         if (parent?.role === "admin" && !parent.revoked_at) parentAdminId = parent.user_id;
+        if (!parentAdminId) {
+          const accessToken = req.headers.get("x-session-token") || "";
+          const accessPayload = accessToken
+            ? await verifySessionTokenDualAllowExpired(accessToken, SIGNING_SECRET, LEGACY_SIGNING)
+            : null;
+          if (accessPayload?.impersonated === true && typeof accessPayload.adminId === "string") {
+            parentAdminId = accessPayload.adminId;
+          }
+        }
       }
       // Mint new pair inside the same family, linked to parent row
       const pair = await mintSessionPair(user.id, row.role, {
@@ -3091,8 +3119,8 @@ Deno.serve(async (originalReq) => {
         ...(parentAdminId ? { impersonated: true, adminId: parentAdminId } : {}),
       }, {
         familyId: row.family_id,
-        parentSessionId: parentAdminId ? (row.parent_session_id || row.id) : row.id,
-        refreshTtlOverrideMs: parentAdminId ? 365 * 24 * 60 * 60 * 1000 : undefined,
+        parentSessionId: parentAdminId ? (row.parent_session_id || null) : null,
+        ttlOverrideMs: parentAdminId ? IMPERSONATION_SESSION_TTL_MS : undefined,
       });
 
       // Mark old row revoked (kept in DB briefly for reuse detection; expires_at cleanup will remove it)
