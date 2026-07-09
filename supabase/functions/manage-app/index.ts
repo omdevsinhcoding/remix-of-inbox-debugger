@@ -2283,6 +2283,7 @@ Deno.serve(async (originalReq) => {
       if (fetchErr || !user) throw new Error("User not found");
 
       let isAdminReset = false;
+      let clearForcedReset = false;
       if (current_password) {
         // Normal self-change: verify current password
         const match = await verifyPassword(current_password, user.password);
@@ -2301,13 +2302,14 @@ Deno.serve(async (originalReq) => {
           // Admin changing own password — allowed
         } else if (session.userId === id && user.must_change_password) {
           // First-time forced password set — allowed
+          clearForcedReset = true;
         } else {
           throw new Error("Provide your current password or contact an admin");
         }
       }
 
       const hashed = await hashPassword(new_password);
-      const { error } = await supabase.from("app_users").update({ password: hashed, must_change_password: isAdminReset }).eq("id", id);
+      const { error } = await supabase.from("app_users").update({ password: hashed, must_change_password: isAdminReset && !clearForcedReset }).eq("id", id);
       if (error) throw error;
       await auditLog(supabase, "password_changed", id, id, {}, ip);
       return new Response(JSON.stringify({ success: true }), {
