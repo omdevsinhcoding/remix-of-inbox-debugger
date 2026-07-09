@@ -3047,7 +3047,7 @@ Deno.serve(async (originalReq) => {
         throw new Error("Invalid mode");
       }
       q = q.eq("destroyed", false);
-      const { error, count } = await q.select("id", { count: "exact" });
+      const { error, count } = await q.select("id");
       if (error) throw error;
       details.deleted = count || 0;
       await auditLog(supabase, "admin_clear_inbox", session.userId, null, details, ip);

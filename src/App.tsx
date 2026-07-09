@@ -1899,7 +1899,7 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
 
 // --- Types ---
 interface Email {
-  id: string; subject: string; from: string; to?: string; date: string; otp: string | null; preview: string; html: string; account_label?: string | null; cached_at?: string | null;
+  id: string; subject: string; from: string; to?: string; date: string; otp: string | null; preview: string; html: string; account_label?: string | null; cached_at?: string | null; destroyed?: boolean;
 }
 
 type EmailAccountConfig = { label: string; host: string; port: string; user: string; password: string; cloudflareUrls: string[]; recipientFilters?: string[] };
@@ -2005,7 +2005,7 @@ function emailHtmlForDisplay(email: Email | null) {
   return normalizeEmailHtmlForDisplay(email.html, email.preview);
 }
 interface UserData {
-  id: string; username: string; name: string; role: "admin" | "user"; totpSecret?: string; mustChangePassword?: boolean; assignedAccounts?: string[] | null; profileAvatar?: string | null; profilePrefs?: UserProfilePrefs;
+  id: string; username: string | null; name: string; role: "admin" | "user"; totpSecret?: string; mustChangePassword?: boolean; assignedAccounts?: string[] | null; profileAvatar?: string | null; profilePrefs?: UserProfilePrefs;
   isFree?: boolean; pinned?: boolean; sortOrder?: number | null; session_limit?: number | null; expiresAt?: string | null;
 }
 
@@ -2086,7 +2086,9 @@ function mergeEmailsById(lists: Email[][]): Email[] {
   const byId = new Map<string, Email>();
   for (const list of lists) {
     for (const email of list) {
-      if (email?.id) byId.set(email.id, email);
+      if (!email?.id) continue;
+      if (email.destroyed) byId.delete(email.id);
+      else byId.set(email.id, email);
     }
   }
   return Array.from(byId.values()).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -7697,6 +7699,7 @@ function EmailViewer() {
   const refreshAccountLabels = useMemo(() => getUserRefreshAccountLabels(user), [user]);
   const { checkAuth } = useAuth();
   const [profilePrefs, setProfilePrefs] = useState<UserProfilePrefs>(() => user.profilePrefs || {});
+  const viewerAvatarId = profilePrefs.avatarId || getStableProfileAvatar(user);
   const saveProfilePrefsLocally = useCallback((nextPrefs: UserProfilePrefs) => {
     setProfilePrefs(nextPrefs);
     try {
@@ -8334,7 +8337,7 @@ function EmailViewer() {
                 aria-label="Open profile settings"
                 title="Profile settings"
               >
-                <ProfileAvatar avatarId={profilePrefs.avatarId || user.profileAvatar} name={user.name} className="w-8 h-8 rounded-md overflow-hidden ring-1 ring-red-600/40" fallbackColor="bg-red-600" eager />
+                <ProfileAvatar avatarId={viewerAvatarId} name={user.name} className="w-8 h-8 rounded-md overflow-hidden ring-1 ring-red-600/40" fallbackColor="bg-red-600" eager />
               </button>
               <NetflixNLogo className="hidden sm:block w-6 h-6 sm:w-8 sm:h-8" />
               <div className="hidden sm:block h-8 w-px bg-slate-200 ml-1" />
@@ -8345,7 +8348,7 @@ function EmailViewer() {
                 aria-label="Open profile settings"
                 title="Profile settings"
               >
-                <ProfileAvatar avatarId={profilePrefs.avatarId || user.profileAvatar} name={user.name} className="w-9 h-9" fallbackColor="bg-red-600" eager />
+                <ProfileAvatar avatarId={viewerAvatarId} name={user.name} className="w-9 h-9" fallbackColor="bg-red-600" eager />
               </button>
             </div>
             <div className="min-w-0">
