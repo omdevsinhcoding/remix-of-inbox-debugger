@@ -1715,12 +1715,16 @@ Deno.serve(async (originalReq) => {
       const settingsP = supabase
         .from("app_settings")
         .select("key,value")
-        .in("key", ["recaptcha", "primary_cloudflare_urls", "email_filters", "maintenance", "r2_storage"]);
+        .in("key", ["recaptcha", "primary_cloudflare_urls", "email_filters", "maintenance", "r2_storage", "location_policy"]);
 
       const [{ data: users, error: usersErr }, { data: settingRows }] = await Promise.all([usersP, settingsP]);
       if (usersErr) throw usersErr;
 
       const settings = new Map((settingRows || []).map((row: any) => [row.key, row.value]));
+
+      // Location policy — default TRUE (require GPS) unless admin explicitly turned it off.
+      const locPolicy: any = settings.get("location_policy");
+      const locationRequired = locPolicy && typeof locPolicy === "object" ? (locPolicy.required !== false) : true;
 
       let recaptcha = null;
       const rcData: any = settings.get("recaptcha");
