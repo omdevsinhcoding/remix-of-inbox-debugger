@@ -1700,16 +1700,26 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
           </div>
         )}
         <div className="px-6 py-5">
-          <div className="flex items-center gap-2 mb-3">
-            <span className={`w-1.5 h-1.5 rounded-full ${accent}`} />
-            <span className="inline-flex items-center gap-1.5 text-[10.5px] uppercase tracking-[0.14em] text-zinc-400 font-medium">
-              <CatIcon className={`w-3.5 h-3.5 ${cat.color}`} /> {cat.label}
-            </span>
-            <span className="text-[10.5px] text-zinc-500 ml-auto">{new Date(detail.created_at).toLocaleString()}</span>
+          <div className="flex items-start gap-3.5 mb-4">
+            <NotifIconTile
+              platformId={detail.platform_icon}
+              size={54}
+              tone="dark"
+              fallback={<CatIcon className={`w-6 h-6 ${cat.color}`} />}
+            />
+            <div className="min-w-0 flex-1 pt-0.5">
+              <div className="flex items-center gap-2 mb-1">
+                <span className={`w-1.5 h-1.5 rounded-full ${accent}`} />
+                <span className="text-[10.5px] uppercase tracking-[0.16em] text-zinc-400 font-medium">
+                  {cat.label}
+                </span>
+                <span className="text-[10.5px] text-zinc-500 ml-auto">{new Date(detail.created_at).toLocaleString()}</span>
+              </div>
+              <h2 className="text-white text-[24px] leading-tight" style={{ fontFamily: "'Instrument Serif', ui-serif, Georgia, serif", letterSpacing: "-0.015em" }}>
+                {detail.title}
+              </h2>
+            </div>
           </div>
-          <h2 className="text-white text-[24px] leading-tight mb-3" style={{ fontFamily: "'Instrument Serif', ui-serif, Georgia, serif", letterSpacing: "-0.015em" }}>
-            {detail.title}
-          </h2>
           <p className="text-zinc-200 text-[14px] leading-relaxed font-light whitespace-pre-wrap">{detail.body}</p>
           {detail.description && (
             <p className="mt-4 text-zinc-400 text-[13px] leading-relaxed font-light whitespace-pre-wrap">{detail.description}</p>
