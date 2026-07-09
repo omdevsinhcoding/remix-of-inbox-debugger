@@ -2374,6 +2374,11 @@ function ProfileSelectPage() {
   const pendingClientGeoRef = useRef<LoginLocationPayload | null>(null);
   const armedGeoRef = useRef<Promise<LoginLocationPayload> | null>(null);
   const armedDeviceRef = useRef<Promise<DeviceFingerprint> | null>(null);
+  // Admin-controlled global toggle. Default TRUE (keep existing behavior)
+  // until the fresh bootstrap comes back and explicitly says otherwise.
+  const [locationRequired, setLocationRequired] = useState<boolean>(
+    cachedBootstrap?.locationRequired !== false,
+  );
   const gpsBlocked = gpsPermissionMode !== null;
   const navigate = useNavigate();
   const { checkAuth } = useAuth();
