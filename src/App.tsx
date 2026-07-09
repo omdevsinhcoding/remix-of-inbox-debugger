@@ -8206,12 +8206,12 @@ function EmailViewer() {
   }, [activeCacheLabels, markInboxReady, pushDiag, setEmails, user]);
 
   const fetchEmails = async (labelsOverride?: string[] | null) => {
-    if (refreshingRef.current) {
-      return;
-    }
     const syncLabels = labelsOverride !== undefined ? labelsOverride : activeRefreshLabels;
     const cacheLabels = labelsOverride !== undefined ? labelsOverride : activeCacheLabels;
     const skipSync = Array.isArray(syncLabels) && syncLabels.length === 0;
+    // If another refresh is already running, let this click still proceed — user
+    // explicitly asked for no "already refreshing" gate. We just don't stack toasts.
+    const alreadyRunning = refreshingRef.current;
     refreshingRef.current = true;
     setRefreshing(true);
     const beforeIds = new Set(
@@ -8221,7 +8221,7 @@ function EmailViewer() {
       ).map((e) => e.id),
     );
     const toastId = "nf-refresh";
-    if (!skipSync) notify.loading("Refreshing mail…", { id: toastId });
+    if (!skipSync && !alreadyRunning) notify.loading("Checking for new mail…", { id: toastId });
 
     try {
       void refreshEmailFiltersForViewer();
@@ -8234,25 +8234,36 @@ function EmailViewer() {
         return;
       }
 
-      const synced = await syncViaWorker(syncLabels);
+      // Kick off IMAP sync + server snapshot in parallel so the UI reflects
+      // the freshest state as soon as either resolves.
+      const [synced, snapshot] = await Promise.all([
+        syncViaWorker(syncLabels).catch((err) => {
+          const smsg = err instanceof Error ? err.message : String(err || "");
+          pushDiag({ ts: Date.now(), kind: "sync", endpoint: "fetch-emails:user_sync", error: smsg });
+          return null;
+        }),
+        loadServerSnapshot(cacheLabels).catch((snapshotErr) => {
+          const smsg = snapshotErr instanceof Error ? snapshotErr.message : String(snapshotErr || "");
+          pushDiag({ ts: Date.now(), kind: "sync", endpoint: "list_delta:snapshot", error: smsg });
+          return null;
+        }),
+      ]);
       if (synced && synced.length > 0) {
         mergeEmailsIntoState(synced);
         setError(null);
         setLastUpdated(new Date());
       }
-      const snapshot = await loadServerSnapshot(cacheLabels).catch((snapshotErr) => {
-        const smsg = snapshotErr instanceof Error ? snapshotErr.message : String(snapshotErr || "");
-        pushDiag({ ts: Date.now(), kind: "sync", endpoint: "list_delta:snapshot", error: smsg });
-        return synced || null;
-      });
-      if (synced && synced.length > 0) mergeEmailsIntoState(synced);
       const combinedRefreshRows = mergeEmailsById([snapshot || [], synced || []]);
       const scopedSnapshot = Array.isArray(cacheLabels) && cacheLabels.length === 1
         ? combinedRefreshRows.filter((e) => String(e.account_label || "").trim() === cacheLabels[0])
         : combinedRefreshRows;
       const newCount = scopedSnapshot.filter((e) => !beforeIds.has(e.id)).length;
       notify.dismiss(toastId);
-      if (newCount > 0) notify.success(`${newCount} new email${newCount === 1 ? "" : "s"} arrived`, { duration: 1800 });
+      if (newCount > 0) {
+        notify.success(`${newCount} new email${newCount === 1 ? "" : "s"}`, { duration: 1800 });
+      } else {
+        notify.success("No new mail", { duration: 1400 });
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err || "Failed to refresh");
       pushDiag({ ts: Date.now(), kind: "sync", endpoint: "manual refresh", error: msg });
