@@ -138,6 +138,37 @@ async function sha256Hex(value: string): Promise<string> {
   return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
+function normalizeAccountLabels(raw: any, available: string[] = []): string[] {
+  const allowed = Array.from(new Set(available.map((s) => String(s || "").trim()).filter(Boolean)));
+  const out: string[] = [];
+  const add = (label: string) => {
+    const clean = String(label || "").trim();
+    if (clean && (!allowed.length || allowed.includes(clean)) && !out.includes(clean)) out.push(clean);
+  };
+  const values = Array.isArray(raw) ? raw : raw ? [raw] : [];
+  for (const value of values) {
+    const clean = String(value || "").trim();
+    if (!clean) continue;
+    if (!allowed.length || allowed.includes(clean)) {
+      add(clean);
+      continue;
+    }
+    for (const label of allowed) {
+      const re = new RegExp(`(^|\\s)${label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=\\s|$)`, "i");
+      if (re.test(clean)) add(label);
+    }
+  }
+  return out;
+}
+
+async function normalizeAssignedAccounts(supabase: any, raw: any): Promise<string[] | null> {
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  const { data } = await supabase.from("app_settings").select("value").eq("key", "email_accounts").maybeSingle();
+  const labels = ["Primary", ...((Array.isArray(data?.value) ? data.value : []).map((acc: any) => String(acc?.label || acc?.user || "").trim()).filter(Boolean))];
+  const normalized = normalizeAccountLabels(raw, labels);
+  return normalized.length > 0 ? normalized : null;
+}
+
 async function verifyRecaptchaToken(secretKey: string, token: string, ip?: string): Promise<boolean> {
   const body = new URLSearchParams();
   body.set("secret", secretKey);
@@ -2169,12 +2200,13 @@ Deno.serve(async (originalReq) => {
       const cleanedUsername = typeof username === "string" && username.trim() ? username.trim() : null;
       const finalUsername = isFree ? cleanedUsername : username;
       const finalRole = isFree ? "user" : (role || "user");
+      const normalizedAssignedAccounts = await normalizeAssignedAccounts(supabase, assigned_accounts);
       const insertPayload: any = {
         username: finalUsername,
         password: isFree ? null : await hashPassword(password),
         name,
         role: finalRole,
-        assigned_accounts: assigned_accounts || null,
+        assigned_accounts: normalizedAssignedAccounts,
         is_free: isFree,
         expires_at: expiresAtIso,
         // Force password reset on first login for regular (non-free, non-bootstrap-admin) users.
@@ -2196,7 +2228,7 @@ Deno.serve(async (originalReq) => {
         success: true,
         user: {
           ...data,
-          assignedAccounts: data.assigned_accounts || null,
+          assignedAccounts: normalizeAccountLabels(data.assigned_accounts || [], normalizedAssignedAccounts || []),
           profileAvatar: data.profile_prefs?.avatarId || null,
           profilePrefs: publicProfilePrefs(data.profile_prefs),
           locationRequired: isProfileLocationRequired(data),
@@ -2613,7 +2645,7 @@ Deno.serve(async (originalReq) => {
       const { id, assigned_accounts, session_limit, pinned, is_free, name, username, expires_at, location_required } = params;
       if (!id) throw new Error("User ID required");
       const patch: Record<string, any> = {};
-      if (assigned_accounts !== undefined) patch.assigned_accounts = assigned_accounts;
+      if (assigned_accounts !== undefined) patch.assigned_accounts = await normalizeAssignedAccounts(supabase, assigned_accounts);
       if (typeof name === "string" && name.trim()) patch.name = name.trim();
       if (username !== undefined) {
         const cleanUsername = typeof username === "string" && username.trim() ? username.trim() : null;
