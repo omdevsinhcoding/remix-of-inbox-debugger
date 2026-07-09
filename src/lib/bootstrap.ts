@@ -13,14 +13,22 @@ export type BootstrapResult = { users: any[]; recaptcha: any; workerUrls: string
 
 
 // Module-level filter cache — read synchronously by filterVisibleEmails.
-let currentEmailFilters: EmailFilters = { showSignInCodes: true, showPasswordResets: false, showAccountUpdates: false };
-try {
-  const raw = typeof localStorage !== "undefined" ? localStorage.getItem("email_filters_cache_v1") : null;
-  if (raw) currentEmailFilters = { ...currentEmailFilters, ...JSON.parse(raw) };
-} catch {}
+const DEFAULT_EMAIL_FILTERS: Required<EmailFilters> = { showSignInCodes: true, showPasswordResets: false, showAccountUpdates: false };
+function normalizeEmailFilters(value: EmailFilters | null | undefined): Required<EmailFilters> {
+  const v = value && typeof value === "object" ? value : {};
+  return {
+    showSignInCodes: v.showSignInCodes === false ? false : true,
+    showPasswordResets: v.showPasswordResets === true,
+    showAccountUpdates: v.showAccountUpdates === true,
+  };
+}
+let currentEmailFilters: EmailFilters = DEFAULT_EMAIL_FILTERS;
 export function getEmailFilters(): EmailFilters { return currentEmailFilters; }
 export function setEmailFilters(next: EmailFilters) {
-  currentEmailFilters = { ...currentEmailFilters, ...next };
+  // Replace with a full normalized object instead of merging. Old browser caches
+  // may have `showAccountUpdates:true`; if the server setting omits that key,
+  // account-update / verify-phone / verify-email messages must fail closed.
+  currentEmailFilters = normalizeEmailFilters(next);
   try { localStorage.setItem("email_filters_cache_v1", JSON.stringify(currentEmailFilters)); } catch {}
 }
 
@@ -100,8 +108,9 @@ export function readBootstrapCache(): BootstrapResult | null {
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return null;
     if (!parsed.savedAt || Date.now() - parsed.savedAt > BOOTSTRAP_CACHE_TTL_MS) return null;
-    const result = { users: sanitizeBootstrapUsers(parsed.users || []), recaptcha: parsed.recaptcha, workerUrls: parsed.workerUrls || [], emailFilters: parsed.emailFilters, maintenance: parsed.maintenance, avatarBaseUrl: parsed.avatarBaseUrl || "", locationRequired: parsed.locationRequired !== false };
+    const result = { users: sanitizeBootstrapUsers(parsed.users || []), recaptcha: parsed.recaptcha, workerUrls: parsed.workerUrls || [], emailFilters: normalizeEmailFilters(parsed.emailFilters), maintenance: parsed.maintenance, avatarBaseUrl: parsed.avatarBaseUrl || "", locationRequired: parsed.locationRequired !== false };
     setAvatarBaseUrl(result.avatarBaseUrl);
+    setEmailFilters(result.emailFilters);
     return result;
   } catch { return null; }
 }
@@ -140,9 +149,9 @@ export async function bootstrapFromSupabase(opts?: { force?: boolean }): Promise
       storeWorkerUrls(data.workerUrls);
     }
 
-    const result: BootstrapResult = { users: sanitizeBootstrapUsers(data.users || []), recaptcha: data.recaptcha, workerUrls: data.workerUrls || [], emailFilters: data.emailFilters || {}, maintenance: data.maintenance || { enabled: false }, avatarBaseUrl: data.avatarBaseUrl || "", locationRequired: data.locationRequired !== false };
+    const result: BootstrapResult = { users: sanitizeBootstrapUsers(data.users || []), recaptcha: data.recaptcha, workerUrls: data.workerUrls || [], emailFilters: normalizeEmailFilters(data.emailFilters), maintenance: data.maintenance || { enabled: false }, avatarBaseUrl: data.avatarBaseUrl || "", locationRequired: data.locationRequired !== false };
     setAvatarBaseUrl(result.avatarBaseUrl);
-    if (data.emailFilters && typeof data.emailFilters === "object") setEmailFilters(data.emailFilters);
+    setEmailFilters(result.emailFilters || DEFAULT_EMAIL_FILTERS);
     writeBootstrapCache(result);
     return result;
   })();

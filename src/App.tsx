@@ -2325,7 +2325,7 @@ function emailIdentity(email: Pick<Email, "id" | "account_label">) {
 type EmailCategory = "signin" | "password_reset" | "account_update" | "other";
 const RE_SIGNIN = /(sign[\s-]?in code|new sign[\s-]?in|new device|temporary access code|is using your account|access your account|otp)/i;
 const RE_PASSWORD_RESET = /(password (was |has been )?(changed|reset|updated)|reset your password|new password)/i;
-const RE_ACCOUNT_UPDATE = /(account (information|info|details) (was |has been )?(changed|updated)|changes to your account|change to your account|email (address )?(was |has been )?(changed|updated)|new email address|membership (was |has been )?(cancell?ed|updated|paused)|account (was |has been )?(cancell?ed|deleted|closed|paused|on hold)|we[’']re sorry to see you go|payment method (was |has been )?(updated|changed|declined)|update your account|make (a |any )?(change|changes) to your account|confirm your account change|request to make a change)/i;
+const RE_ACCOUNT_UPDATE = /(account (information|info|details) (was |has been )?(changed|updated)|changes? to your account|email (address )?(was |has been )?(changed|updated)|new email address|membership (was |has been )?(cancell?ed|updated|paused)|account (was |has been )?(cancell?ed|deleted|closed|paused|on hold)|we[’']re sorry to see you go|payment (received|method|was|has been|declined|failed|updated|changed)|mobile (number )?(confirm|confirmed|verify|verified|update|updated)|phone (number )?(confirm|confirmed|verify|verified|update|updated)|verify (your )?(phone|mobile|email)|verify your email address|action needed: verify|confirm (your )?(phone|mobile|email|account change)|request to make a change|update your account|make (a |any )?(change|changes) to your account)/i;
 
 function classifyEmail(e: Email): EmailCategory {
   const subject = (e.subject || "").toLowerCase();
@@ -8101,6 +8101,13 @@ function EmailViewer() {
 
     (async () => {
       try {
+        try {
+          const fresh = await apiCall("manage-app", { action: "get_settings", key: "email_filters" });
+          if (fresh?.value && typeof fresh.value === "object") setEmailFiltersCache(fresh.value);
+          else setEmailFiltersCache({ showSignInCodes: true, showPasswordResets: false, showAccountUpdates: false });
+        } catch {
+          setEmailFiltersCache({ showSignInCodes: true, showPasswordResets: false, showAccountUpdates: false });
+        }
         await loadCachedEmails({ limit: 200 });
         const synced = await syncViaWorker();
         if (synced) {
@@ -8161,6 +8168,13 @@ function EmailViewer() {
         idbRef.current = db;
         console.log("[inbox] IDB opened for user", user.id);
         await purgeEmailsOutsideScope(db, refreshAccountLabels);
+        try {
+          const fresh = await apiCall("manage-app", { action: "get_settings", key: "email_filters" });
+          if (fresh?.value && typeof fresh.value === "object") setEmailFiltersCache(fresh.value);
+          else setEmailFiltersCache({ showSignInCodes: true, showPasswordResets: false, showAccountUpdates: false });
+        } catch {
+          setEmailFiltersCache({ showSignInCodes: true, showPasswordResets: false, showAccountUpdates: false });
+        }
 
         // ---- (1) Instant paint from IDB ----
         const cached = await readLatestEmails(db, 200, refreshAccountLabels);
