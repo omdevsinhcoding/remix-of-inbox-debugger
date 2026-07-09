@@ -7697,6 +7697,7 @@ function EmailViewer() {
   const refreshAccountLabels = useMemo(() => getUserRefreshAccountLabels(user), [user]);
   const { checkAuth } = useAuth();
   const [profilePrefs, setProfilePrefs] = useState<UserProfilePrefs>(() => user.profilePrefs || {});
+  const viewerAvatarId = profilePrefs.avatarId || getStableProfileAvatar(user);
   const saveProfilePrefsLocally = useCallback((nextPrefs: UserProfilePrefs) => {
     setProfilePrefs(nextPrefs);
     try {
@@ -8334,7 +8335,7 @@ function EmailViewer() {
                 aria-label="Open profile settings"
                 title="Profile settings"
               >
-                <ProfileAvatar avatarId={profilePrefs.avatarId || user.profileAvatar} name={user.name} className="w-8 h-8 rounded-md overflow-hidden ring-1 ring-red-600/40" fallbackColor="bg-red-600" eager />
+                <ProfileAvatar avatarId={viewerAvatarId} name={user.name} className="w-8 h-8 rounded-md overflow-hidden ring-1 ring-red-600/40" fallbackColor="bg-red-600" eager />
               </button>
               <NetflixNLogo className="hidden sm:block w-6 h-6 sm:w-8 sm:h-8" />
               <div className="hidden sm:block h-8 w-px bg-slate-200 ml-1" />
@@ -8345,7 +8346,7 @@ function EmailViewer() {
                 aria-label="Open profile settings"
                 title="Profile settings"
               >
-                <ProfileAvatar avatarId={profilePrefs.avatarId || user.profileAvatar} name={user.name} className="w-9 h-9" fallbackColor="bg-red-600" eager />
+                <ProfileAvatar avatarId={viewerAvatarId} name={user.name} className="w-9 h-9" fallbackColor="bg-red-600" eager />
               </button>
             </div>
             <div className="min-w-0">
