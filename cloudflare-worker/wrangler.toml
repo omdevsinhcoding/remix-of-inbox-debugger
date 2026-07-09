@@ -1,29 +1,14 @@
-name = "netflixfetch"
+name = "__WORKER_NAME__"
 main = "worker.js"
 compatibility_date = "2026-04-07"
 
-# KV Namespaces — create via: npx wrangler kv namespace create EMAIL_CACHE
-# To add a new KV when the old one is full:
-#   npx wrangler kv namespace create EMAIL_CACHE_V2
-# Then paste the new id below. The worker uses V2 first, falls back to V1.
-
+# KV id is injected at build time from the Cloudflare account's Build Variables.
+# See build.sh — it replaces __KV_ID__ using $KV_ID from the dashboard.
 [[kv_namespaces]]
 binding = "EMAIL_CACHE"
-id = "YOUR_KV_NAMESPACE_ID_HERE"
+id = "__KV_ID__"
 
-# Uncomment and add a new KV namespace when the old one is full:
-# [[kv_namespaces]]
-# binding = "EMAIL_CACHE_V2"
-# id = "YOUR_NEW_KV_NAMESPACE_ID_HERE"
-
-# Scheduled sync — uncomment to enable automatic email syncing
-# [triggers]
-# crons = ["*/5 * * * *"]  # Every 5 minutes
-
-# Environment variables — set via Cloudflare dashboard or:
-# npx wrangler secret put SUPABASE_URL
-# npx wrangler secret put SUPABASE_KEY
-# npx wrangler secret put SESSION_SECRET
 [vars]
-# SUPABASE_URL = "https://your-project.supabase.co"  # Set as secret instead
-# SUPABASE_KEY = "your-anon-key"                      # Set as secret instead
+# Runtime secrets (SUPABASE_URL, SUPABASE_KEY, SESSION_SECRET) live in
+# Cloudflare dashboard → Worker → Settings → Variables and Secrets.
+# Do NOT put them here.
