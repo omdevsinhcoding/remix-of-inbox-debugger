@@ -4872,25 +4872,73 @@ function AdminPanel() {
 
 
   const createUser = async () => {
-    if (!newUsername || !newPassword || !newName) { notify.error("Please fill all fields"); return; }
+    if (!newName) { notify.error("Display name required"); return; }
+    if (!newIsFree && (!newUsername || !newPassword)) { notify.error("Please fill all fields"); return; }
     if (creatingUser) return;
     setCreatingUser(true);
     try {
       const res: any = await apiCall("manage-app", {
-        action: "create", username: newUsername, password: newPassword, name: newName, role: "user",
+        action: "create",
+        username: newIsFree ? (newUsername || undefined) : newUsername,
+        password: newIsFree ? undefined : newPassword,
+        name: newName, role: "user",
         assigned_accounts: newUserAccounts.length > 0 ? newUserAccounts : null,
+        is_free: newIsFree,
       });
-      setNewUsername(""); setNewPassword(""); setNewName(""); setNewUserAccounts([]);
+      setNewUsername(""); setNewPassword(""); setNewName(""); setNewUserAccounts([]); setNewIsFree(false);
       if (!res?.user) throw new Error("Server did not return the created user");
       setUsers(prev => [...prev, res.user]);
       setStats(prev => ({ ...prev, totalUsers: prev.totalUsers + 1 }));
-      notify.success("User created!");
+      notify.success(newIsFree ? "Free profile created!" : "User created!");
     } catch (err) {
       notify.error("Failed: " + (err instanceof Error ? err.message : String(err)));
     } finally {
       setCreatingUser(false);
     }
   };
+
+  const togglePinnedUser = async (u: UserData) => {
+    const next = !u.pinned;
+    setUsers(prev => prev.map(x => x.id === u.id ? { ...x, pinned: next } : x));
+    try {
+      await apiCall("manage-app", { action: "update_user", id: u.id, pinned: next });
+      notify.success(next ? "Pinned to top" : "Unpinned");
+    } catch (err) {
+      setUsers(prev => prev.map(x => x.id === u.id ? { ...x, pinned: !next } : x));
+      notify.error(err instanceof Error ? err.message : "Failed to pin");
+    }
+  };
+
+  const persistUserOrder = async (orderedIds: string[]) => {
+    if (reordering) return;
+    setReordering(true);
+    try {
+      await apiCall("manage-app", { action: "reorder_users", orderedIds });
+    } catch (err) {
+      notify.error(err instanceof Error ? err.message : "Failed to save order");
+    } finally {
+      setReordering(false);
+    }
+  };
+
+  const onDropUser = (targetId: string) => {
+    if (!dragUserId || dragUserId === targetId) { setDragUserId(null); return; }
+    setUsers(prev => {
+      const nonAdmin = prev.filter(u => u.role !== "admin");
+      const admins = prev.filter(u => u.role === "admin");
+      const from = nonAdmin.findIndex(u => u.id === dragUserId);
+      const to = nonAdmin.findIndex(u => u.id === targetId);
+      if (from < 0 || to < 0) return prev;
+      const moved = [...nonAdmin];
+      const [item] = moved.splice(from, 1);
+      moved.splice(to, 0, item);
+      const merged = [...admins, ...moved];
+      persistUserOrder(moved.map(u => u.id));
+      return merged;
+    });
+    setDragUserId(null);
+  };
+
 
   const deleteUser = async (id: string) => {
     try {
