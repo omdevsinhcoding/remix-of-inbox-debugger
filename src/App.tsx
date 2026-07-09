@@ -5164,6 +5164,28 @@ function AdminPanel() {
     }
   };
 
+  const updateEmailAccountDraft = (index: number, patch: Partial<EmailAccountConfig>) => {
+    setEmailAccounts((prev) => prev.map((acc, i) => (i === index ? { ...acc, ...patch } : acc)));
+  };
+
+  const saveEmailAccount = async (index: number) => {
+    const account = emailAccounts[index];
+    if (!account) return;
+    if (!account.label.trim() || !account.user.trim() || !account.password.trim()) {
+      notify.error("Fill label, email, and password");
+      return;
+    }
+    setSavingAccounts(true);
+    try {
+      await apiCall("manage-app", { action: "set_settings", key: "email_accounts", value: emailAccounts });
+      notify.success("Account updated!");
+    } catch (err) {
+      notify.error(err instanceof Error ? err.message : "Failed to save account");
+    } finally {
+      setSavingAccounts(false);
+    }
+  };
+
   const updateUserAccounts = async (userId: string) => {
     try {
       const raw = editSessionLimit.trim();
