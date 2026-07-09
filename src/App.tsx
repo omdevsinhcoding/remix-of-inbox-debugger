@@ -4059,6 +4059,14 @@ function AdminPanel() {
   const [newAccountRecipients, setNewAccountRecipients] = useState("");
   const [savingAccounts, setSavingAccounts] = useState(false);
   const [expandedAccount, setExpandedAccount] = useState<number | null>(null);
+  const [revealedPasswords, setRevealedPasswords] = useState<Set<string>>(new Set());
+  const togglePasswordReveal = (key: string) => {
+    setRevealedPasswords(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
   const [primaryCfUrls, setPrimaryCfUrls] = useState<string[]>([]);
   // Location alert toggle
   const [ipwhoAlertEnabled, setIpwhoAlertEnabled] = useState(false);
@@ -6323,7 +6331,36 @@ function AdminPanel() {
                       </div>
                       <div>
                         <p className="text-[10px] font-bold text-green-600 uppercase">Password</p>
-                        <p className="text-sm text-green-900 font-medium">{serverConfig.IMAP_PASSWORD ? "••••••••" : "Not set"}</p>
+                        {serverConfig.IMAP_PASSWORD ? (
+                          <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                            <p className="text-sm text-green-900 font-medium font-mono break-all flex-1 min-w-0">
+                              {revealedPasswords.has("primary") ? serverConfig.IMAP_PASSWORD : "••••••••••••"}
+                            </p>
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); togglePasswordReveal("primary"); }}
+                              className="p-1.5 rounded-lg hover:bg-green-200 text-green-700 flex-shrink-0"
+                              aria-label={revealedPasswords.has("primary") ? "Hide password" : "Show password"}
+                            >
+                              {revealedPasswords.has("primary") ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                            </button>
+                            {revealedPasswords.has("primary") && (
+                              <button
+                                type="button"
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  try { await navigator.clipboard.writeText(serverConfig.IMAP_PASSWORD || ""); notify.success("Password copied"); } catch { notify.error("Copy failed"); }
+                                }}
+                                className="p-1.5 rounded-lg hover:bg-green-200 text-green-700 flex-shrink-0"
+                                aria-label="Copy password"
+                              >
+                                <Copy className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-green-900 font-medium">Not set</p>
+                        )}
                       </div>
                     </div>
                     <div>
@@ -6391,7 +6428,36 @@ function AdminPanel() {
                             </div>
                             <div>
                               <p className="text-[10px] font-bold text-blue-500 uppercase">Password</p>
-                              <p className="text-sm text-slate-800 font-medium">{acc.password ? "••••••••" : "Not set"}</p>
+                              {acc.password ? (
+                                <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                                  <p className="text-sm text-slate-800 font-medium font-mono break-all flex-1 min-w-0">
+                                    {revealedPasswords.has(`acc-${i}`) ? acc.password : "••••••••••••"}
+                                  </p>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); togglePasswordReveal(`acc-${i}`); }}
+                                    className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-600 flex-shrink-0"
+                                    aria-label={revealedPasswords.has(`acc-${i}`) ? "Hide password" : "Show password"}
+                                  >
+                                    {revealedPasswords.has(`acc-${i}`) ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                  </button>
+                                  {revealedPasswords.has(`acc-${i}`) && (
+                                    <button
+                                      type="button"
+                                      onClick={async (e) => {
+                                        e.stopPropagation();
+                                        try { await navigator.clipboard.writeText(acc.password || ""); notify.success("Password copied"); } catch { notify.error("Copy failed"); }
+                                      }}
+                                      className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-600 flex-shrink-0"
+                                      aria-label="Copy password"
+                                    >
+                                      <Copy className="w-4 h-4" />
+                                    </button>
+                                  )}
+                                </div>
+                              ) : (
+                                <p className="text-sm text-slate-800 font-medium">Not set</p>
+                              )}
                             </div>
                           </div>
                           <div>
