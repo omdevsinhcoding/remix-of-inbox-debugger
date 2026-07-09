@@ -2857,6 +2857,8 @@ Deno.serve(async (originalReq) => {
           profileAvatar: targetUser.profile_prefs?.avatarId || null,
           isFree: !!targetUser.is_free,
           locationRequired: isProfileLocationRequired(targetUser),
+          impersonated: true,
+          adminId: session.userId,
         },
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
