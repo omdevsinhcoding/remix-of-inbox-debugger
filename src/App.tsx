@@ -8148,15 +8148,15 @@ function EmailViewer() {
     }
     const started = performance.now();
     const data = await apiCall("fetch-emails", {
-      mode: "sync_async",
+      mode: "user_sync",
       source: "user_refresh",
-      limit: 200,
+      limit: 6,
       accountLabels: labels || undefined,
     });
     pushDiag({
       ts: Date.now(),
       kind: "sync",
-      endpoint: "fetch-emails:sync_async",
+      endpoint: "fetch-emails:user_sync",
       ms: Math.round(performance.now() - started),
       note: labels ? labels.join(", ") : "all accounts",
     });
@@ -8224,12 +8224,13 @@ function EmailViewer() {
     if (!skipSync) notify.loading("Refreshing mail…", { id: toastId });
 
     try {
-      await Promise.all([
-        refreshEmailFiltersForViewer(),
-        loadCachedEmails({ limit: 200, labels: cacheLabels }),
-      ]);
+      void refreshEmailFiltersForViewer();
 
       if (skipSync) {
+        await Promise.all([
+          loadServerSnapshot(cacheLabels).catch(() => null),
+          loadCachedEmails({ limit: 200, labels: cacheLabels }),
+        ]);
         return;
       }
 
