@@ -4905,6 +4905,10 @@ function AdminPanel() {
     if (!newIsFree && (!username || !password)) { notify.error("Please fill all fields"); return; }
     if (creatingUser) return;
     setCreatingUser(true);
+    const timeout = window.setTimeout(() => {
+      notify.error("Create request is taking too long. Please retry.");
+      setCreatingUser(false);
+    }, 25_000);
     try {
       let expiresIso: string | null = null;
       if (newIsFree && newFreeExpiresAt) {
@@ -4934,6 +4938,7 @@ function AdminPanel() {
     } catch (err) {
       notify.error("Failed: " + (err instanceof Error ? err.message : String(err)));
     } finally {
+      window.clearTimeout(timeout);
       setCreatingUser(false);
     }
   };
