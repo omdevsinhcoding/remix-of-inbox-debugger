@@ -1641,13 +1641,22 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
                     <div className="flex flex-col items-center flex-shrink-0">
                       <span className={`w-1 h-full rounded-full ${accent} opacity-70`} style={{ minHeight: 30 }} />
                     </div>
-                    {n.image_url ? (
+                    {n.platform_icon ? (
+                      <NotifIconTile
+                        platformId={n.platform_icon}
+                        size={46}
+                        tone="dark"
+                        fallback={<CatIcon className={`w-4 h-4 ${cat.color}`} />}
+                      />
+                    ) : n.image_url ? (
                       <img src={n.image_url} referrerPolicy="no-referrer" loading="lazy" alt=""
-                        className="w-11 h-11 rounded-lg object-cover flex-shrink-0 bg-zinc-800" />
+                        className="w-11 h-11 rounded-xl object-cover flex-shrink-0 bg-zinc-800 ring-1 ring-white/10 shadow-lg" />
                     ) : (
-                      <div className="w-11 h-11 rounded-lg bg-white/[0.04] border border-white/10 flex-shrink-0 flex items-center justify-center">
-                        <CatIcon className={`w-4 h-4 ${cat.color}`} />
-                      </div>
+                      <NotifIconTile
+                        size={46}
+                        tone="dark"
+                        fallback={<CatIcon className={`w-4 h-4 ${cat.color}`} />}
+                      />
                     )}
                     <div className="min-w-0 flex-1">
                       <div className="flex items-baseline justify-between gap-3">
