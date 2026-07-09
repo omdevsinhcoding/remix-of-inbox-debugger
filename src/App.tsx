@@ -13,7 +13,7 @@ import { bootstrapFromSupabase, clearSessionData, markSessionStart, readBootstra
 import MaintenanceScreen from "./components/MaintenanceScreen";
 import DateTimePicker from "./components/DateTimePicker";
 import { sessionGet, sessionSet, sessionRemove, sessionClearAll } from "./lib/session";
-import { openInboxDB, readLatestEmails, writeDelta, getSyncCursor, cacheEmailHtml, getEmailHtml, purgeEmailsOutsideScope, type CachedEmail } from "./lib/inboxCache";
+import { openInboxDB, readLatestEmails, writeDelta, cacheEmailHtml, getEmailHtml, purgeEmailsOutsideScope, type CachedEmail } from "./lib/inboxCache";
 
 
 // Lazy-loaded heavy auth-only libs — kept out of the public first-load chunk.
