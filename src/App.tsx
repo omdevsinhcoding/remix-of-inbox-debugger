@@ -5779,37 +5779,16 @@ function AdminPanel() {
               </p>
             </section>
 
-            {/* Location policy — global toggle */}
+            {/* Location policy — per profile */}
             <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
               <h2 className="font-black text-base sm:text-lg mb-2 flex items-center gap-2 text-slate-900">
-                <div className="bg-sky-50 p-1.5 rounded-lg"><Globe className="w-4 h-4 text-sky-600" /></div>
+                <div className="bg-sky-50 p-1.5 rounded-lg"><MapPin className="w-4 h-4 text-sky-600" /></div>
                 Location Policy
               </h2>
-              <p className="text-xs text-slate-500 mb-4">
-                When ON, all users must allow GPS to sign in and Telegram alerts include exact location.
-                When OFF, no GPS is requested and alerts show only device + browser + IP.
+              <p className="text-xs text-slate-500 mb-2">
+                GPS is now controlled per profile in <b>Active Users</b>. Turn the map-pin toggle ON only for profiles that must allow exact location.
               </p>
-              <button
-                onClick={async () => {
-                  const next = !locationRequired;
-                  setSavingLocationPolicy(true);
-                  try {
-                    await apiCall("manage-app", { action: "set_settings", key: "location_policy", value: { required: next } });
-                    setLocationRequired(next);
-                    notify.success(next ? "Location required to sign in" : "Location disabled for all sign-ins");
-                    try { await refreshBootstrap(); } catch {}
-                  } catch (err) {
-                    notify.error(err instanceof Error ? err.message : "Failed to update location policy");
-                  } finally { setSavingLocationPolicy(false); }
-                }}
-                disabled={savingLocationPolicy}
-                className={`relative w-14 h-7 rounded-full transition-colors flex-shrink-0 ${locationRequired ? "bg-emerald-500" : "bg-slate-300"} disabled:opacity-50`}
-                aria-label="Toggle location policy">
-                <div className={`absolute top-0.5 w-6 h-6 bg-white rounded-full shadow transition-transform ${locationRequired ? "translate-x-7" : "translate-x-0.5"}`} />
-              </button>
-              <p className="text-[11px] text-slate-400 mt-3">
-                Current: <span className="font-bold">{locationRequired ? "Location REQUIRED" : "Location DISABLED"}</span>
-              </p>
+              <p className="text-[11px] text-slate-400">Default for every profile is <b>NOT REQUIRED</b>; OFF sends only minimal device/browser/IP alert.</p>
             </section>
 
             {/* Free-profile behavior note (uses User Session Timeout above) */}
