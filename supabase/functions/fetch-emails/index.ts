@@ -494,7 +494,7 @@ async function loadAccounts(supabase: any, secret: string, accountLabels: string
     const envPort = Deno.env.get("IMAP_PORT");
     if (primaryPort === 993 && envPort) primaryPort = parseInt(envPort) || 993;
 
-    if (primaryUser && primaryPassword && !accounts.some(a => a.user === primaryUser)) {
+    if (primaryUser && primaryPassword && !accounts.some(a => a.label === "Primary")) {
       accounts.unshift({ label: "Primary", host: primaryHost, port: primaryPort, user: primaryUser, password: primaryPassword, recipientFilters: [] });
     }
   }
