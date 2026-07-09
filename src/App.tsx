@@ -8442,12 +8442,11 @@ function EmailViewer() {
               <UserCircle className="w-4 h-4 sm:w-5 sm:h-5" />
               <span className="hidden sm:inline ml-1.5">Profile</span>
             </button>
-            <button onClick={() => {
-              if (isImpersonating) { backToAdmin(); return; }
-              sessionClearAll(); navigate("/");
-            }} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
-              <LogOut className="w-5 h-5 text-slate-400" />
-            </button>
+            {!isImpersonating && (
+              <button onClick={() => { sessionClearAll(); navigate("/"); }} className="p-2 hover:bg-slate-100 rounded-full transition-colors" title="Logout" aria-label="Logout">
+                <LogOut className="w-5 h-5 text-slate-400" />
+              </button>
+            )}
           </div>
         </div>
       </header>
