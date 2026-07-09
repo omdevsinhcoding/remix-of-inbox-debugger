@@ -1205,6 +1205,7 @@ async function sendLoginNotification(
   user: any,
   status: "success" | "failed",
   rawClientGeo?: unknown,
+  opts?: { locationRequired?: boolean },
 ) {
   try {
     if (!user) return;
