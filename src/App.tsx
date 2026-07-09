@@ -7864,6 +7864,29 @@ function EmailViewer() {
     return stored || ({} as UserData);
   }, [authUser]);
   const refreshAccountLabels = useMemo(() => getUserRefreshAccountLabels(user), [user]);
+
+  // Admin-only: which account pill is picked. null = All (no auto-sync on login).
+  const [selectedAccountLabel, setSelectedAccountLabel] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    try { return sessionStorage.getItem("nf-admin-selected-account") || null; } catch { return null; }
+  });
+  useEffect(() => {
+    try {
+      if (selectedAccountLabel) sessionStorage.setItem("nf-admin-selected-account", selectedAccountLabel);
+      else sessionStorage.removeItem("nf-admin-selected-account");
+    } catch {}
+  }, [selectedAccountLabel]);
+
+  // Admin-only: full list of configured account labels for the pill row.
+  const [allAccountLabels, setAllAccountLabels] = useState<string[]>([]);
+
+  // Refresh scope actually used by sync — admin narrows to picked pill.
+  const activeRefreshLabels = useMemo<string[] | null>(() => {
+    if (user.role !== "admin") return refreshAccountLabels;
+    if (selectedAccountLabel) return [selectedAccountLabel];
+    return null;
+  }, [user.role, refreshAccountLabels, selectedAccountLabel]);
+
   const [profilePrefs, setProfilePrefs] = useState<UserProfilePrefs>(() => user.profilePrefs || {});
   const viewerAvatarId = profilePrefs.avatarId || getStableProfileAvatar(user);
   const saveProfilePrefsLocally = useCallback((nextPrefs: UserProfilePrefs) => {
