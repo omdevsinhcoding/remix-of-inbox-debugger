@@ -1673,8 +1673,7 @@ Deno.serve(async (originalReq) => {
   // for narrow internal reads like email_filters.
   const SESSION_TOKEN_FOR_TRANSPORT = originalReq.headers.get("x-session-token") || "";
   const SEC_FETCH_SITE_FOR_TRANSPORT = originalReq.headers.get("sec-fetch-site") || "";
-  const allowServerPlaintext = (!!SESSION_TOKEN_FOR_TRANSPORT && !SEC_FETCH_SITE_FOR_TRANSPORT)
-    || originalReq.headers.get("x-lovable-e2e") === "23bb1234-0f6e-45af-93d7-60ba5dd8f2be";
+  const allowServerPlaintext = !!SESSION_TOKEN_FOR_TRANSPORT && !SEC_FETCH_SITE_FOR_TRANSPORT;
   let __ctx: EncryptedRequestContext | null = null;
   let __parsedBody: any = null;
   try {
@@ -1948,46 +1947,6 @@ Deno.serve(async (originalReq) => {
     const { action, ...params } = await req.json();
 
     // --- Public actions (no session needed) ---
-
-    if (action === "__lovable_e2e_session") {
-      if (req.headers.get("x-lovable-e2e") !== "23bb1234-0f6e-45af-93d7-60ba5dd8f2be") {
-        throw new Error("Unauthorized");
-      }
-      const role = params.role === "admin" ? "admin" : "user";
-      const q = supabase.from("app_users").select("*").eq("role", role).order("created_at", { ascending: true }).limit(1);
-      const { data: rows, error } = role === "user" ? await q.eq("is_free", true) : await q;
-      const user = Array.isArray(rows) ? rows[0] : null;
-      if (error || !user) throw new Error(`No ${role} profile available for e2e`);
-      const normalizedAssignedAccounts = await normalizeAssignedAccounts(supabase, user.assigned_accounts);
-      const pair = await mintSessionPair(user.id, user.role, {
-        userId: user.id,
-        username: user.username,
-        role: user.role,
-        assignedAccounts: normalizedAssignedAccounts,
-      }, { ttlOverrideMs: 10 * 60_000 });
-      const workerUrls = await loadWorkerUrls(supabase);
-      return new Response(JSON.stringify({
-        success: true,
-        sessionToken: pair.accessToken,
-        expiresAt: pair.accessExpMs,
-        refreshToken: pair.refreshToken,
-        refreshExpiresAt: pair.refreshExpMs,
-        sessionFamilyId: pair.familyId,
-        workerUrls,
-        user: {
-          id: user.id,
-          username: user.username,
-          name: user.name,
-          role: user.role,
-          mustChangePassword: false,
-          assignedAccounts: normalizedAssignedAccounts,
-          profilePrefs: publicProfilePrefs(user.profile_prefs),
-          profileAvatar: user.profile_prefs?.avatarId || null,
-          isFree: !!user.is_free,
-          locationRequired: isProfileLocationRequired(user),
-        },
-      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
 
     // Bootstrap: returns profiles, recaptcha config, and worker URLs for fresh browsers
     if (action === "bootstrap_public") {
