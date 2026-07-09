@@ -134,29 +134,17 @@ Deno.serve(async (req) => {
   const known = list.find((x) => x.id === account.id);
 
   if (!known) {
-    if (list.length >= MAX_TOFU_ACCOUNTS) {
-      await sendTelegramAlert(
-        `🚫 Worker bootstrap REJECTED — allowlist full.\n` +
-        `Account: <code>${account.name}</code> (<code>${account.id}</code>)`,
-      );
-      return json({ error: "Account not in allowlist and cap reached. Contact admin." }, 403);
-    }
-    // Trust-on-first-use: add and alert
-    const updated = [
-      ...list,
-      { id: account.id, name: account.name, added_at: new Date().toISOString() },
-    ];
-    await supabase
-      .from("app_settings")
-      .upsert({ key: "worker_account_allowlist", value: updated }, { onConflict: "key" });
-
+    // No TOFU. Admin must add the account_id to
+    // app_settings.worker_account_allowlist manually first.
     await sendTelegramAlert(
-      `✅ New Cloudflare account added to worker allowlist (TOFU)\n` +
+      `🚫 Worker bootstrap REJECTED — unknown Cloudflare account.\n` +
       `Name: <b>${account.name}</b>\n` +
       `ID: <code>${account.id}</code>\n` +
-      `Slot ${updated.length}/${MAX_TOFU_ACCOUNTS} used`,
+      `Add it to app_settings.worker_account_allowlist to authorize.`,
     );
+    return json({ error: "Account not in allowlist. Contact admin." }, 403);
   }
+
 
   // 4. Return the secrets the worker needs
   const SUPABASE_KEY =
