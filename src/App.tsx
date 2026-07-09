@@ -4992,15 +4992,29 @@ function AdminPanel() {
     try {
       const raw = editSessionLimit.trim();
       const session_limit = raw === "" ? null : Math.max(0, Math.min(50, Math.floor(Number(raw) || 0)));
+      const target = users.find(x => x.id === userId);
+      const isFreeTarget = !!target?.isFree;
+      let expires_at: string | null | undefined = undefined;
+      if (isFreeTarget) {
+        if (!editExpiresAt) {
+          expires_at = null;
+        } else {
+          const t = Date.parse(editExpiresAt);
+          if (!Number.isFinite(t)) { notify.error("Invalid expiry date"); return; }
+          if (t <= Date.now()) { notify.error("Expiry must be in the future"); return; }
+          expires_at = new Date(t).toISOString();
+        }
+      }
       await apiCall("manage-app", {
         action: "update_user",
         id: userId,
         assigned_accounts: editAccountsList.length > 0 ? editAccountsList : null,
         session_limit,
+        ...(expires_at !== undefined ? { expires_at } : {}),
       });
       const nextAccounts = editAccountsList.length > 0 ? editAccountsList : null;
       setEditingUserAccounts(null);
-      setUsers(prev => prev.map(u => u.id === userId ? { ...u, assignedAccounts: nextAccounts, session_limit } : u));
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, assignedAccounts: nextAccounts, session_limit, ...(expires_at !== undefined ? { expiresAt: expires_at } as any : {}) } : u));
       notify.success("User settings updated!");
     } catch (err) {
       notify.error(err instanceof Error ? err.message : "Failed to update");
