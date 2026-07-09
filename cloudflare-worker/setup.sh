@@ -1,32 +1,33 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────
-# Auto-KV setup for Cloudflare Workers Builds
+# FULL AUTO SETUP for Cloudflare Workers Builds
 # ─────────────────────────────────────────────────────────────
-# Runs in Cloudflare's build step BEFORE `npx wrangler deploy`.
-# Uses the same API token the build is already authenticated with
-# (CLOUDFLARE_API_TOKEN is injected automatically by CF Builds),
-# so no manual config is needed per account.
+# Runs before `npx wrangler deploy`. Does everything automatically:
+#   1. Finds/creates the EMAIL_CACHE KV namespace and binds it
+#   2. Sets SUPABASE_URL and SUPABASE_KEY secrets (safe public values)
+#   3. Deploys worker
 #
-# What it does:
-#   1. Lists KV namespaces in this account.
-#   2. Finds one titled "EMAIL_CACHE" — creates it if missing.
-#   3. Appends a [[kv_namespaces]] binding with that ID into wrangler.toml.
+# The ONLY thing you can't fully automate is SESSION_SECRET — it's a real
+# secret that must match your Supabase project's SESSION_SECRET. It gets
+# read from a Cloudflare Build Variable named SESSION_SECRET if present;
+# otherwise setup skips it and the worker uses a fallback (see bottom).
 #
-# Requirement: the API token used to connect Git must include
-# "Workers KV Storage: Edit" permission. (The default CF-generated
-# "Workers Builds" token already has it.)
+# Uses CLOUDFLARE_API_TOKEN that Cloudflare Builds injects automatically.
+# API token must have: Workers Scripts:Edit, Workers KV Storage:Edit.
 # ─────────────────────────────────────────────────────────────
 
 set -euo pipefail
 
+# --- Hardcoded PUBLIC values (safe to commit — publishable/anon key) ---
+SUPABASE_URL_VALUE="https://jsqchutnfdeljajkxmly.supabase.co"
+SUPABASE_KEY_VALUE="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpzcWNodXRuZmRlbGphamt4bWx5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxMjI5MzksImV4cCI6MjA4OTY5ODkzOX0.HYN4zMEYEiP-H5KD_iIbFpr0GsatNoeyw40FI2mW_eA"
+
+WRANGLER="npx --yes wrangler@latest"
 KV_TITLE="EMAIL_CACHE"
 
-echo "→ Checking for KV namespace '$KV_TITLE'..."
-
-# List existing namespaces
-LIST_JSON="$(npx --yes wrangler@latest kv namespace list 2>/dev/null || echo '[]')"
-
-# Extract id where title == EMAIL_CACHE (portable jq-less parsing)
+# ─── 1. KV namespace: find or create ─────────────────────────
+echo "→ Checking KV namespace '$KV_TITLE'..."
+LIST_JSON="$($WRANGLER kv namespace list 2>/dev/null || echo '[]')"
 KV_ID="$(node -e "
   const list = JSON.parse(process.argv[1] || '[]');
   const hit = list.find(n => n.title === '$KV_TITLE' || n.title.endsWith('-$KV_TITLE'));
@@ -34,28 +35,41 @@ KV_ID="$(node -e "
 " "$LIST_JSON")"
 
 if [ -z "$KV_ID" ]; then
-  echo "→ Not found. Creating KV namespace '$KV_TITLE'..."
-  CREATE_OUT="$(npx --yes wrangler@latest kv namespace create "$KV_TITLE" 2>&1)"
+  echo "→ Creating KV namespace '$KV_TITLE'..."
+  CREATE_OUT="$($WRANGLER kv namespace create "$KV_TITLE" 2>&1 || true)"
   echo "$CREATE_OUT"
-  # wrangler prints: id = "abc123..."  — grab it
   KV_ID="$(echo "$CREATE_OUT" | grep -oE 'id = "[a-f0-9]+"' | head -1 | sed -E 's/id = "([a-f0-9]+)"/\1/')"
 fi
 
-if [ -z "$KV_ID" ]; then
-  echo "⚠  Could not determine KV namespace ID. Deploying WITHOUT KV binding."
-  echo "   (Worker will still run — caching disabled. Check API token has 'Workers KV Storage: Edit'.)"
-  exit 0
-fi
-
-echo "→ Using KV namespace id: $KV_ID"
-
-# Append binding (idempotent — safe even if already present, wrangler will just overwrite)
-cat >> wrangler.toml <<EOF
+if [ -n "$KV_ID" ]; then
+  echo "→ KV id: $KV_ID"
+  cat >> wrangler.toml <<EOF
 
 [[kv_namespaces]]
 binding = "EMAIL_CACHE"
 id = "$KV_ID"
 EOF
+else
+  echo "⚠  KV setup skipped (token may lack 'Workers KV Storage:Edit'). Worker will run without cache."
+fi
 
-echo "→ Final wrangler.toml:"
-cat wrangler.toml
+# ─── 2. Deploy worker FIRST so we can attach secrets to it ───
+echo "→ Deploying worker..."
+$WRANGLER deploy
+
+# ─── 3. Push public secrets automatically ────────────────────
+echo "→ Setting SUPABASE_URL secret..."
+echo -n "$SUPABASE_URL_VALUE" | $WRANGLER secret put SUPABASE_URL || echo "⚠  Failed to set SUPABASE_URL"
+
+echo "→ Setting SUPABASE_KEY secret..."
+echo -n "$SUPABASE_KEY_VALUE" | $WRANGLER secret put SUPABASE_KEY || echo "⚠  Failed to set SUPABASE_KEY"
+
+# ─── 4. SESSION_SECRET (from build variable if provided) ─────
+if [ -n "${SESSION_SECRET:-}" ]; then
+  echo "→ Setting SESSION_SECRET secret from build variable..."
+  echo -n "$SESSION_SECRET" | $WRANGLER secret put SESSION_SECRET || echo "⚠  Failed to set SESSION_SECRET"
+else
+  echo "ℹ  SESSION_SECRET not provided as build variable — set it once in dashboard if not already set."
+fi
+
+echo "✅ Setup complete."

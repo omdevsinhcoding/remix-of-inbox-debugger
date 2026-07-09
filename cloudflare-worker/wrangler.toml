@@ -3,19 +3,23 @@ main = "worker.js"
 compatibility_date = "2026-04-07"
 
 # ─────────────────────────────────────────────────────────────
-# ZERO-CONFIG SETUP — KV bhi auto ban jayega
+# FULL AUTO SETUP
 # ─────────────────────────────────────────────────────────────
 # Cloudflare Workers → Create → Connect to Git:
 #   Repo:            inbox-debugger
 #   Branch:          main
 #   Root directory:  /cloudflare-worker
 #   Build command:   bash setup.sh
-#   Deploy command:  npx wrangler deploy
+#   Deploy command:  (leave empty — setup.sh already deploys)
 #
-# Bas itna. `setup.sh` khud check karega ki "EMAIL_CACHE" KV namespace
-# is account me exist karta hai ya nahi — nahi hua to create karega,
-# aur uska ID yahan neeche inject kar dega deploy se pehle.
+# setup.sh khud:
+#   • KV namespace "EMAIL_CACHE" auto-create karega + bind karega
+#   • SUPABASE_URL + SUPABASE_KEY secrets auto set karega
+#   • Worker deploy karega
 #
-# Runtime secrets (SUPABASE_URL, SUPABASE_KEY, SESSION_SECRET) ko
-# Cloudflare dashboard → Worker → Settings → Variables and Secrets me
-# ek baar daal do (per account).
+# SESSION_SECRET (real secret) 2 tarah se de sakte ho:
+#   (a) Cloudflare Build Variable naam "SESSION_SECRET" — auto set ho jayega
+#   (b) Dashboard → Worker → Variables and Secrets me manual ek baar
+#
+# API token needs: Workers Scripts:Edit + Workers KV Storage:Edit
+# (default "Workers Builds" token me dono hote hain)
