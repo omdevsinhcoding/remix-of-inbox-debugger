@@ -8145,7 +8145,7 @@ function EmailViewer() {
     }
     const started = performance.now();
     const data = await apiCall("fetch-emails", {
-      mode: "user_sync",
+      mode: "sync_async",
       source: "user_refresh",
       limit: 200,
       accountLabels: labels || undefined,
@@ -8153,7 +8153,7 @@ function EmailViewer() {
     pushDiag({
       ts: Date.now(),
       kind: "sync",
-      endpoint: "fetch-emails:user_sync",
+      endpoint: "fetch-emails:sync_async",
       ms: Math.round(performance.now() - started),
       note: labels ? labels.join(", ") : "all accounts",
     });
