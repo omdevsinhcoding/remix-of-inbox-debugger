@@ -4146,8 +4146,6 @@ function AdminPanel() {
   const [savingEmailAutoDelete, setSavingEmailAutoDelete] = useState(false);
   const [blockNetflixPromo, setBlockNetflixPromo] = useState(false);
   const [savingBlockPromo, setSavingBlockPromo] = useState(false);
-  const [locationRequired, setLocationRequired] = useState<boolean>(true);
-  const [savingLocationPolicy, setSavingLocationPolicy] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newAdminPassword, setNewAdminPassword] = useState("");
   const [changingPassword, setChangingPassword] = useState(false);
@@ -4383,7 +4381,6 @@ function AdminPanel() {
         const cs = Number(s.session_limits?.maxPerUser);
         if (Number.isFinite(cs) && cs >= 0) setConcurrentSessionLimit(String(cs));
         setIpwhoAlertEnabled(s.ipwho_alert?.enabled === true);
-        setLocationRequired(!(s.location_policy && s.location_policy.required === false));
 
         if (s.maintenance) {
           const mnt = s.maintenance;

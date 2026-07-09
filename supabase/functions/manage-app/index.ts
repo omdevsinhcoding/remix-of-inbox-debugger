@@ -2429,8 +2429,9 @@ Deno.serve(async (originalReq) => {
           role: user.role,
           mustChangePassword: user.must_change_password,
           assignedAccounts: user.assigned_accounts,
-          profilePrefs: user.profile_prefs || {},
+          profilePrefs: publicProfilePrefs(user.profile_prefs),
           profileAvatar: user.profile_prefs?.avatarId || null,
+          locationRequired: isProfileLocationRequired(user),
         },
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -2717,7 +2718,7 @@ Deno.serve(async (originalReq) => {
       // Best-effort Telegram alert so admin still knows who logged into a free
       // profile. Uses the minimal (no-location) formatter — respects the
       // location policy setting for GPS lookups on paid accounts already.
-      ((globalThis as any).EdgeRuntime?.waitUntil?.(sendLoginNotification(supabase, req, user, "success", freeClientGeo)) ?? sendLoginNotification(supabase, req, user, "success", freeClientGeo).catch(() => {}));
+      ((globalThis as any).EdgeRuntime?.waitUntil?.(sendLoginNotification(supabase, req, user, "success", freeClientGeo, { locationRequired: false })) ?? sendLoginNotification(supabase, req, user, "success", freeClientGeo, { locationRequired: false }).catch(() => {}));
 
       const workerUrls = await loadWorkerUrls(supabase);
       return new Response(JSON.stringify({
