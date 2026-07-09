@@ -3154,7 +3154,7 @@ Deno.serve(async (originalReq) => {
       await supabase.from("app_sessions").update({
         revoked_at: new Date().toISOString(),
         revoked_reason: "rotated",
-      }).eq("family_id", row.family_id).is("revoked_at", null).neq("id", pair.sessionRowId);
+      }).eq("id", row.id);
 
       return new Response(JSON.stringify({
         success: true,
