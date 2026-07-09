@@ -4295,6 +4295,9 @@ function AdminPanel() {
         const cs = Number(s.session_limits?.maxPerUser);
         if (Number.isFinite(cs) && cs >= 0) setConcurrentSessionLimit(String(cs));
         setIpwhoAlertEnabled(s.ipwho_alert?.enabled === true);
+        setLocationRequired(!(s.location_policy && s.location_policy.required === false));
+        const fsm = Number(s.free_session_minutes?.minutes);
+        if (Number.isFinite(fsm) && fsm >= 0) setFreeSessionMinutes(String(fsm));
 
         if (s.maintenance) {
           const mnt = s.maintenance;
