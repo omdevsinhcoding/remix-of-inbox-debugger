@@ -2083,7 +2083,12 @@ function emailHtmlForDisplay(email: Email | null) {
 }
 interface UserData {
   id: string; username: string | null; name: string; role: "admin" | "user"; totpSecret?: string; mustChangePassword?: boolean; assignedAccounts?: string[] | null; profileAvatar?: string | null; profilePrefs?: UserProfilePrefs;
-  isFree?: boolean; pinned?: boolean; sortOrder?: number | null; session_limit?: number | null; expiresAt?: string | null;
+  isFree?: boolean; pinned?: boolean; sortOrder?: number | null; session_limit?: number | null; expiresAt?: string | null; locationRequired?: boolean;
+}
+
+function isLocationRequiredForProfile(profile?: Partial<UserData> | null) {
+  if (!profile || profile.isFree) return false;
+  return profile.locationRequired === true || profile.profilePrefs?.locationRequired === true;
 }
 
 function getUserRefreshAccountLabels(user: Partial<UserData>): string[] | null {
@@ -2173,6 +2178,7 @@ function mergeEmailsById(lists: Email[][]): Email[] {
 
 type UserProfilePrefs = {
   avatarId?: string | null;
+  locationRequired?: boolean;
   hiddenBefore?: string | null;
   hiddenEmailIds?: string[];
 };
