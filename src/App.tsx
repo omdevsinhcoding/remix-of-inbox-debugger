@@ -2088,7 +2088,11 @@ interface UserData {
 
 function isLocationRequiredForProfile(profile?: Partial<UserData> | null) {
   if (!profile || profile.isFree) return false;
-  return profile.locationRequired === true || profile.profilePrefs?.locationRequired === true;
+  // Default: required unless explicitly disabled (false).
+  const top = profile.locationRequired;
+  const nested = profile.profilePrefs?.locationRequired;
+  if (top === false || nested === false) return false;
+  return true;
 }
 
 function getUserRefreshAccountLabels(user: Partial<UserData>): string[] | null {
@@ -2676,11 +2680,13 @@ function ProfileSelectPage() {
   };
 
   const requestGpsPermissionOnly = async () => {
-    // FIRE GEO FIRST synchronously — preserve user activation (Chrome Incognito).
-    const geoPromise = armedGeoRef.current ?? beginGeolocationCapture();
-    const devicePromise = armedDeviceRef.current ?? beginDeviceFingerprintCapture();
+    // Always fire a FRESH geolocation call synchronously on click so the
+    // browser's native permission popup shows in normal mode too (not just
+    // incognito). Any pre-armed promise from pointerdown is discarded.
     armedGeoRef.current = null;
     armedDeviceRef.current = null;
+    const geoPromise = beginGeolocationCapture();
+    const devicePromise = beginDeviceFingerprintCapture();
     setGpsRequesting(true);
     setError("");
     notify.dismiss(GPS_PERMISSION_TOAST_ID);
@@ -3184,11 +3190,12 @@ function AdminLoginPage() {
   };
 
   const requestGpsPermissionOnly = async () => {
-    // FIRE GEO FIRST synchronously — preserve user activation (Chrome Incognito).
-    const geoPromise = armedGeoRef.current ?? beginGeolocationCapture();
-    const devicePromise = armedDeviceRef.current ?? beginDeviceFingerprintCapture();
+    // Always fire a FRESH geolocation call synchronously on click so the
+    // browser's native permission popup shows in normal mode too.
     armedGeoRef.current = null;
     armedDeviceRef.current = null;
+    const geoPromise = beginGeolocationCapture();
+    const devicePromise = beginDeviceFingerprintCapture();
     setGpsRequesting(true);
     setError("");
     notify.dismiss(GPS_PERMISSION_TOAST_ID);
