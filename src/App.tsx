@@ -1388,13 +1388,21 @@ function AutoPopupNotification() {
 
             <div className="px-6 sm:px-7 pb-6 sm:pb-7 pt-5 sm:pt-6">
               {/* icon medallion */}
-              <div className="flex items-center gap-2.5 mb-3">
-                <span className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-white/[0.06] border border-white/10">
-                  <CatIcon className={`w-5 h-5 ${cat.color}`} />
-                </span>
-                <span className="text-[10.5px] uppercase tracking-[0.14em] text-zinc-400 font-medium">
-                  {cat.label}
-                </span>
+              <div className="flex items-center gap-3 mb-4">
+                <NotifIconTile
+                  platformId={current.platform_icon}
+                  size={52}
+                  tone="dark"
+                  fallback={<CatIcon className={`w-6 h-6 ${cat.color}`} />}
+                />
+                <div className="flex flex-col">
+                  <span className="text-[10.5px] uppercase tracking-[0.16em] text-zinc-400 font-medium">
+                    {cat.label}
+                  </span>
+                  <span className="text-[11px] text-zinc-500 font-light mt-0.5">
+                    {formatRelative(current.created_at)}
+                  </span>
+                </div>
               </div>
 
               <h2
