@@ -4227,7 +4227,7 @@ function RecipientsDrawer({ notification, onClose, onChanged }: { notification: 
 
 function AdminPanel() {
   usePageHead("Admin Dashboard — Netflix Mail", "Admin control panel for managing users, sessions, notifications, and email accounts.", "/admin/dashboard");
-  const [activeTab, setActiveTab] = useState<"users" | "security" | "emails" | "settings" | "notifications" | "inbox" | "logins" | "allmails">("users");
+  const [activeTab, setActiveTab] = useState<"users" | "security" | "emails" | "settings" | "notifications" | "inbox" | "logins" | "allmails" | "deploy">("users");
   const [users, setUsers] = useState<UserData[]>(() => {
     // Instant hydrate from bootstrap cache so the users list renders on first paint.
     try {
@@ -5336,6 +5336,7 @@ function AdminPanel() {
     { id: "security" as const, label: "Security", icon: ShieldCheck },
     { id: "emails" as const, label: "Email Accounts", icon: Server },
     { id: "settings" as const, label: "Settings", icon: Settings },
+    { id: "deploy" as const, label: "Deploy", icon: Server },
   ];
 
 
@@ -7337,7 +7338,67 @@ function AdminPanel() {
             </div>
           </div>
         )}
+
+        {activeTab === "deploy" && (
+          <div className="grid grid-cols-1 gap-4 sm:gap-6">
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <h2 className="font-black text-base sm:text-lg mb-2 flex items-center gap-2">
+                <div className="bg-orange-50 p-1.5 rounded-lg"><Server className="w-4 h-4 text-orange-600" /></div>
+                Cloudflare Worker — Deploy Settings
+              </h2>
+              <p className="text-xs text-slate-500 mb-4">
+                Exact values to paste into Cloudflare → Workers &amp; Pages → your worker → <b>Settings → Build</b>.
+                Nothing else to tick. Everything else auto-fetches from Supabase at build time.
+              </p>
+
+              <div className="overflow-x-auto rounded-xl border border-slate-200">
+                <table className="w-full text-sm">
+                  <tbody className="divide-y divide-slate-200">
+                    {[
+                      ["Branch", "main"],
+                      ["Root directory", "/cloudflare-worker"],
+                      ["Build command", "(leave EMPTY)"],
+                      ["Deploy command", "npx wrangler deploy"],
+                      ["Build variables", "(none — leave empty)"],
+                      ["Build secrets", "(none — leave empty)"],
+                    ].map(([k, v]) => (
+                      <tr key={k}>
+                        <td className="px-4 py-2.5 font-bold text-slate-700 whitespace-nowrap bg-slate-50">{k}</td>
+                        <td className="px-4 py-2.5 font-mono text-slate-900 break-all">{v}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="mt-5 p-4 rounded-xl bg-emerald-50 border border-emerald-200">
+                <p className="text-sm font-bold text-emerald-900 mb-1">✅ To redeploy</p>
+                <p className="text-xs text-emerald-800">
+                  Dashboard → Workers &amp; Pages → your worker → <b>Deployments</b> tab → click <b>Retry</b> on the latest deployment.
+                  (Or push any commit to <code className="font-mono">main</code>.)
+                </p>
+              </div>
+
+              <div className="mt-4 p-4 rounded-xl bg-amber-50 border border-amber-200">
+                <p className="text-sm font-bold text-amber-900 mb-1">🔒 Access control</p>
+                <p className="text-xs text-amber-800">
+                  Only Cloudflare accounts in <code className="font-mono">app_settings.worker_account_allowlist</code> can bootstrap.
+                  Unknown accounts get 403 + Telegram alert. Currently authorized: <b>opgohil</b>.
+                </p>
+              </div>
+
+              <details className="mt-4 rounded-xl border border-slate-200 p-4">
+                <summary className="cursor-pointer text-sm font-bold text-slate-700">Stored secret reference (WORKER_BOOTSTRAP_SECRET)</summary>
+                <p className="mt-2 text-xs text-slate-600">
+                  Not required by the current worker setup (allowlist is the enforced gate). Stored in
+                  <code className="font-mono mx-1">app_settings.worker_bootstrap_secret</code> for future use.
+                </p>
+              </details>
+            </section>
+          </div>
+        )}
       </main>
+
     </div>
   );
 }
