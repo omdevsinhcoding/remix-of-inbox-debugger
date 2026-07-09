@@ -2072,6 +2072,7 @@ Deno.serve(async (originalReq) => {
           assignedAccounts: user.assigned_accounts,
           profilePrefs: user.profile_prefs || {},
           profileAvatar: user.profile_prefs?.avatarId || null,
+          isFree: !!user.is_free,
         },
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
