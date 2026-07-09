@@ -2004,6 +2004,7 @@ function emailHtmlForDisplay(email: Email | null) {
 }
 interface UserData {
   id: string; username: string; name: string; role: "admin" | "user"; totpSecret?: string; mustChangePassword?: boolean; assignedAccounts?: string[] | null; profileAvatar?: string | null; profilePrefs?: UserProfilePrefs;
+  isFree?: boolean; pinned?: boolean; sortOrder?: number | null; session_limit?: number | null;
 }
 
 function getUserRefreshAccountLabels(user: Partial<UserData>): string[] | null {
@@ -2371,6 +2372,7 @@ function ProfileSelectPage() {
   const [captchaConfigError, setCaptchaConfigError] = useState(false);
   const [showCaptcha, setShowCaptcha] = useState(false);
   const [pendingLogin, setPendingLogin] = useState(false);
+  const [freeLoginId, setFreeLoginId] = useState<string | null>(null);
   const [gpsRequesting, setGpsRequesting] = useState(false);
   const [gpsPermissionMode, setGpsPermissionMode] = useState<GpsPermissionMode | null>(null);
   const pendingClientGeoRef = useRef<LoginLocationPayload | null>(null);
@@ -2646,6 +2648,35 @@ function ProfileSelectPage() {
     }
   };
 
+  const loginFreeProfile = async (profile: UserData) => {
+    if (freeLoginId) return;
+    setFreeLoginId(profile.id);
+    setError("");
+    try {
+      const data: any = await apiCall("manage-app", { action: "login_free", user_id: profile.id });
+      if (!data?.success) throw new Error(data?.error || "Failed to enter profile");
+      if (data.workerUrls && Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
+        storeWorkerUrls(data.workerUrls);
+      }
+      sessionSet("user" as any, JSON.stringify(data.user));
+      if (data.sessionToken) sessionSet("session_token" as any, data.sessionToken);
+      try {
+        const { storeSessionPair } = await import("./lib/sessionRefresh");
+        storeSessionPair(data);
+      } catch {}
+      try { sessionRemove("session_started_at" as any); } catch {}
+      checkAuth();
+      navigate("/viewer");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to enter profile";
+      setError(msg);
+      notify.error(msg);
+    } finally {
+      setFreeLoginId(null);
+    }
+  };
+
+
   return (
     <div className="min-h-screen bg-[#141414] flex flex-col items-center px-4 pt-10 sm:pt-14 pb-12 relative overflow-hidden">
       {/* Official Netflix wordmark + premium OTP badge (baseline-aligned) */}
@@ -2756,12 +2787,20 @@ function ProfileSelectPage() {
                   <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-x-4 gap-y-7 sm:gap-x-6 sm:gap-y-9 mx-auto pb-4">
                     {displayProfiles.map((profile, i) => {
                       const d = `${Math.min(i, 30) * 75}ms`;
+                      const isFreeProfile = !!profile.isFree;
                       return (
                       <button
                         key={profile.id}
                         type="button"
-                        onClick={() => setSelectedProfile(profile)}
-                        className="flex flex-col items-center gap-2 sm:gap-3 group focus:outline-none min-w-0 profile-item-in"
+                        onClick={() => {
+                          if (isFreeProfile) {
+                            void loginFreeProfile(profile);
+                          } else {
+                            setSelectedProfile(profile);
+                          }
+                        }}
+                        disabled={isFreeProfile && freeLoginId === profile.id}
+                        className="flex flex-col items-center gap-2 sm:gap-3 group focus:outline-none min-w-0 profile-item-in disabled:opacity-70"
                         style={{ animationDelay: d, ["--tile-delay" as any]: d }}
                       >
                         <div className="relative rounded-md overflow-hidden ring-0 group-hover:ring-2 group-hover:ring-white aspect-square w-full max-w-[140px] transform-gpu transition-transform duration-150 ease-out group-hover:scale-105 group-active:scale-95 will-change-transform">
@@ -2772,6 +2811,27 @@ function ProfileSelectPage() {
                             fallbackColor={PROFILE_COLORS[i % PROFILE_COLORS.length]}
                             eager
                           />
+                          {isFreeProfile && (
+                            <span
+                              className="absolute top-1.5 right-1.5 inline-flex items-center gap-0.5 px-1.5 py-[2px] rounded-md text-[9px] sm:text-[10px] font-black tracking-[0.14em] uppercase text-white"
+                              style={{
+                                background: "linear-gradient(135deg,#00c853,#009624)",
+                                boxShadow: "0 2px 8px rgba(0,150,50,0.55), inset 0 0 0 1px rgba(255,255,255,0.25)",
+                                textShadow: "0 1px 2px rgba(0,0,0,0.4)",
+                              }}
+                            >
+                              FREE
+                            </span>
+                          )}
+                          {profile.pinned && (
+                            <span
+                              aria-label="Pinned"
+                              className="absolute top-1.5 left-1.5 inline-flex items-center justify-center w-5 h-5 rounded-full bg-black/60 backdrop-blur text-white"
+                              style={{ boxShadow: "0 2px 6px rgba(0,0,0,0.45)" }}
+                            >
+                              <svg viewBox="0 0 24 24" className="w-3 h-3" fill="currentColor"><path d="M14 4l6 6-4 1-3 3-1 6-4-4-5 5 5-5-4-4 6-1 3-3z"/></svg>
+                            </span>
+                          )}
                         </div>
                         <span className="text-neutral-400 group-hover:text-white text-[12px] sm:text-[14px] font-normal transition-colors duration-150 truncate max-w-full text-center">
                           {profile.name}
@@ -3989,6 +4049,9 @@ function AdminPanel() {
   const [editingUserAccounts, setEditingUserAccounts] = useState<string | null>(null);
   const [editAccountsList, setEditAccountsList] = useState<string[]>([]);
   const [editSessionLimit, setEditSessionLimit] = useState<string>("");
+  const [newIsFree, setNewIsFree] = useState(false);
+  const [dragUserId, setDragUserId] = useState<string | null>(null);
+  const [reordering, setReordering] = useState(false);
   const [serverConfig, setServerConfig] = useState({
     TELEGRAM_BOT_TOKEN: "", TELEGRAM_CHAT_ID: "", IMAP_HOST: "", IMAP_PORT: "", IMAP_USER: "", IMAP_PASSWORD: "",
   });
@@ -4809,25 +4872,73 @@ function AdminPanel() {
 
 
   const createUser = async () => {
-    if (!newUsername || !newPassword || !newName) { notify.error("Please fill all fields"); return; }
+    if (!newName) { notify.error("Display name required"); return; }
+    if (!newIsFree && (!newUsername || !newPassword)) { notify.error("Please fill all fields"); return; }
     if (creatingUser) return;
     setCreatingUser(true);
     try {
       const res: any = await apiCall("manage-app", {
-        action: "create", username: newUsername, password: newPassword, name: newName, role: "user",
+        action: "create",
+        username: newIsFree ? (newUsername || undefined) : newUsername,
+        password: newIsFree ? undefined : newPassword,
+        name: newName, role: "user",
         assigned_accounts: newUserAccounts.length > 0 ? newUserAccounts : null,
+        is_free: newIsFree,
       });
-      setNewUsername(""); setNewPassword(""); setNewName(""); setNewUserAccounts([]);
+      setNewUsername(""); setNewPassword(""); setNewName(""); setNewUserAccounts([]); setNewIsFree(false);
       if (!res?.user) throw new Error("Server did not return the created user");
       setUsers(prev => [...prev, res.user]);
       setStats(prev => ({ ...prev, totalUsers: prev.totalUsers + 1 }));
-      notify.success("User created!");
+      notify.success(newIsFree ? "Free profile created!" : "User created!");
     } catch (err) {
       notify.error("Failed: " + (err instanceof Error ? err.message : String(err)));
     } finally {
       setCreatingUser(false);
     }
   };
+
+  const togglePinnedUser = async (u: UserData) => {
+    const next = !u.pinned;
+    setUsers(prev => prev.map(x => x.id === u.id ? { ...x, pinned: next } : x));
+    try {
+      await apiCall("manage-app", { action: "update_user", id: u.id, pinned: next });
+      notify.success(next ? "Pinned to top" : "Unpinned");
+    } catch (err) {
+      setUsers(prev => prev.map(x => x.id === u.id ? { ...x, pinned: !next } : x));
+      notify.error(err instanceof Error ? err.message : "Failed to pin");
+    }
+  };
+
+  const persistUserOrder = async (orderedIds: string[]) => {
+    if (reordering) return;
+    setReordering(true);
+    try {
+      await apiCall("manage-app", { action: "reorder_users", orderedIds });
+    } catch (err) {
+      notify.error(err instanceof Error ? err.message : "Failed to save order");
+    } finally {
+      setReordering(false);
+    }
+  };
+
+  const onDropUser = (targetId: string) => {
+    if (!dragUserId || dragUserId === targetId) { setDragUserId(null); return; }
+    setUsers(prev => {
+      const nonAdmin = prev.filter(u => u.role !== "admin");
+      const admins = prev.filter(u => u.role === "admin");
+      const from = nonAdmin.findIndex(u => u.id === dragUserId);
+      const to = nonAdmin.findIndex(u => u.id === targetId);
+      if (from < 0 || to < 0) return prev;
+      const moved = [...nonAdmin];
+      const [item] = moved.splice(from, 1);
+      moved.splice(to, 0, item);
+      const merged = [...admins, ...moved];
+      persistUserOrder(moved.map(u => u.id));
+      return merged;
+    });
+    setDragUserId(null);
+  };
+
 
   const deleteUser = async (id: string) => {
     try {
@@ -4960,13 +5071,26 @@ function AdminPanel() {
                 Create User
               </h2>
               <div className="space-y-3 min-w-0">
+                <label className="flex items-start gap-3 p-3 rounded-xl border-2 border-dashed border-emerald-300 bg-emerald-50/60 cursor-pointer hover:bg-emerald-50 transition-colors">
+                  <input type="checkbox" checked={newIsFree} onChange={(e) => setNewIsFree(e.target.checked)}
+                    className="w-4 h-4 mt-0.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500" />
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-emerald-900">Free profile (no password)</p>
+                    <p className="text-[11px] text-emerald-700/80 leading-snug">Anyone can enter this profile with one tap. Username & password are auto-generated and never used.</p>
+                  </div>
+                </label>
+
                 <input type="text" placeholder="Display Name" value={newName} onChange={(e) => setNewName(e.target.value)}
                   className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
-                <input type="text" placeholder="Username" value={newUsername} onChange={(e) => setNewUsername(e.target.value)}
-                  className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
-                <PasswordInput value={newPassword} onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="Password"
-                  className="w-full bg-slate-50 border rounded-xl p-3 pr-12 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                {!newIsFree && (
+                  <>
+                    <input type="text" placeholder="Username" value={newUsername} onChange={(e) => setNewUsername(e.target.value)}
+                      className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                    <PasswordInput value={newPassword} onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="Password"
+                      className="w-full bg-slate-50 border rounded-xl p-3 pr-12 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                  </>
+                )}
 
                 <div>
                   <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Assign IMAP Accounts</label>
@@ -4988,8 +5112,8 @@ function AdminPanel() {
 
                 <button onClick={createUser}
                   disabled={creatingUser}
-                  className="w-full bg-slate-900 text-white font-bold py-3 rounded-xl hover:bg-slate-800 transition-all text-sm">
-                  {creatingUser ? "Creating…" : "Create User"}
+                  className={`w-full text-white font-bold py-3 rounded-xl transition-all text-sm ${newIsFree ? "bg-emerald-600 hover:bg-emerald-700" : "bg-slate-900 hover:bg-slate-800"}`}>
+                  {creatingUser ? "Creating…" : (newIsFree ? "Create Free Profile" : "Create User")}
                 </button>
               </div>
             </section>
@@ -5000,20 +5124,35 @@ function AdminPanel() {
                 Active Users
                 <span className="bg-slate-100 text-slate-600 text-xs px-2 py-0.5 rounded-full ml-auto">{users.length}</span>
               </h2>
+              <p className="text-[11px] text-slate-500 mb-3">Drag rows to reorder how profiles appear on the login screen. Pinned profiles always stay on top.</p>
               <div className="space-y-3">
-                {users.map(u => (
-                  <div key={u.id} className="p-3 sm:p-4 bg-slate-50 rounded-2xl border border-slate-100 hover:border-slate-200 transition-colors min-w-0">
+                {users.map(u => {
+                  const canDrag = u.role !== "admin";
+                  return (
+                  <div
+                    key={u.id}
+                    draggable={canDrag}
+                    onDragStart={() => canDrag && setDragUserId(u.id)}
+                    onDragOver={(e) => { if (canDrag && dragUserId && dragUserId !== u.id) e.preventDefault(); }}
+                    onDrop={(e) => { e.preventDefault(); if (canDrag) onDropUser(u.id); }}
+                    onDragEnd={() => setDragUserId(null)}
+                    className={`p-3 sm:p-4 bg-slate-50 rounded-2xl border transition-colors min-w-0 ${dragUserId === u.id ? "opacity-50 border-emerald-400" : "border-slate-100 hover:border-slate-200"} ${canDrag ? "cursor-move" : ""}`}
+                  >
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                       <div className="flex items-center gap-3 min-w-0">
                         <ProfileAvatar
                           avatarId={getStableProfileAvatar(u)}
                           name={u.name}
                           className="w-10 h-10 !rounded-xl"
-                          fallbackColor={u.role === "admin" ? "bg-red-500" : "bg-blue-500"}
+                          fallbackColor={u.role === "admin" ? "bg-red-500" : (u.isFree ? "bg-emerald-500" : "bg-blue-500")}
                         />
                         <div className="min-w-0">
-                          <p className="font-bold text-slate-900 truncate">{u.name}</p>
-                          <p className="text-xs text-slate-500 truncate">@{u.username} • <span className={u.role === "admin" ? "text-red-600 font-bold" : "text-blue-600"}>{u.role}</span></p>
+                          <p className="font-bold text-slate-900 truncate flex items-center gap-1.5">
+                            {u.name}
+                            {u.isFree && <span className="text-[9px] font-black bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded">FREE</span>}
+                            {u.pinned && <span className="text-[9px] font-black bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">PINNED</span>}
+                          </p>
+                          <p className="text-xs text-slate-500 truncate">@{u.username} • <span className={u.role === "admin" ? "text-red-600 font-bold" : (u.isFree ? "text-emerald-600 font-semibold" : "text-blue-600")}>{u.isFree ? "free" : u.role}</span></p>
                           {u.assignedAccounts && u.assignedAccounts.length > 0 && (
                             <div className="flex flex-wrap gap-1 mt-1">
                               {u.assignedAccounts.map((a: string) => (
@@ -5021,7 +5160,7 @@ function AdminPanel() {
                               ))}
                             </div>
                           )}
-                          {u.role !== "admin" && (u as any).session_limit != null && (
+                          {u.role !== "admin" && !u.isFree && (u as any).session_limit != null && (
                             <p className="text-[10px] text-emerald-700 mt-0.5 font-semibold">
                               Session limit: {(u as any).session_limit === 0 ? "unlimited" : `${(u as any).session_limit} device${(u as any).session_limit === 1 ? "" : "s"}`}
                             </p>
@@ -5033,6 +5172,10 @@ function AdminPanel() {
                       </div>
                       {u.role !== "admin" && (
                         <div className="flex items-center gap-1 self-end sm:self-auto">
+                          <button onClick={() => togglePinnedUser(u)} title={u.pinned ? "Unpin from top" : "Pin to top"}
+                            className={`p-2 rounded-lg transition-colors ${u.pinned ? "bg-amber-100 text-amber-700 hover:bg-amber-200" : "hover:bg-amber-50 text-amber-400 hover:text-amber-600"}`}>
+                            <svg viewBox="0 0 24 24" className="w-4 h-4" fill="currentColor"><path d="M14 4l6 6-4 1-3 3-1 6-4-4-5 5 5-5-4-4 6-1 3-3z"/></svg>
+                          </button>
                           <button onClick={() => loginAsUser(u)} title="View as user"
                             className="p-2 hover:bg-blue-50 text-blue-400 hover:text-blue-600 rounded-lg transition-colors">
                             <Eye className="w-4 h-4" />
@@ -5047,10 +5190,12 @@ function AdminPanel() {
                             className="p-2 hover:bg-green-50 text-green-400 hover:text-green-600 rounded-lg transition-colors">
                             <Edit className="w-4 h-4" />
                           </button>
-                          <button onClick={() => { setChangingUserPass(changingUserPass === u.id ? null : u.id); setUserNewPass(""); }} title="Change password"
-                            className="p-2 hover:bg-amber-50 text-amber-400 hover:text-amber-600 rounded-lg transition-colors">
-                            <KeyRound className="w-4 h-4" />
-                          </button>
+                          {!u.isFree && (
+                            <button onClick={() => { setChangingUserPass(changingUserPass === u.id ? null : u.id); setUserNewPass(""); }} title="Change password"
+                              className="p-2 hover:bg-amber-50 text-amber-400 hover:text-amber-600 rounded-lg transition-colors">
+                              <KeyRound className="w-4 h-4" />
+                            </button>
+                          )}
                           <button onClick={() => deleteUser(u.id)} title="Delete user"
                             className="p-2 hover:bg-red-50 text-red-400 hover:text-red-600 rounded-lg transition-colors">
                             <Trash2 className="w-4 h-4" />
@@ -5058,6 +5203,7 @@ function AdminPanel() {
                         </div>
                       )}
                     </div>
+
 
                     {editingUserAccounts === u.id && u.role !== "admin" && (
                       <div className="mt-3 p-3 bg-white rounded-xl border">
@@ -5110,7 +5256,8 @@ function AdminPanel() {
                       </div>
                     )}
                   </div>
-                ))}
+                  );
+                })}
                 {users.length === 0 && <p className="text-slate-400 text-sm text-center py-8">No users yet. Create one above.</p>}
               </div>
             </section>
@@ -7151,11 +7298,13 @@ function UserProfileModal({
         <div className="p-4 border-t border-slate-100 bg-white/95 backdrop-blur">
 
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <button onClick={() => { onClose(); onPassword(); }}
-              className="flex items-center justify-center gap-2 bg-slate-900 text-white font-bold py-3 rounded-xl hover:bg-slate-800 transition-all active:scale-95">
-              <Key className="w-4 h-4" /> Change Password
-            </button>
+          <div className={`grid grid-cols-1 ${user.isFree ? "" : "sm:grid-cols-2"} gap-3`}>
+            {!user.isFree && (
+              <button onClick={() => { onClose(); onPassword(); }}
+                className="flex items-center justify-center gap-2 bg-slate-900 text-white font-bold py-3 rounded-xl hover:bg-slate-800 transition-all active:scale-95">
+                <Key className="w-4 h-4" /> Change Password
+              </button>
+            )}
             <button onClick={onDeleteOldEmails}
               className="flex items-center justify-center gap-2 bg-red-600 text-white font-bold py-3 rounded-xl hover:bg-red-700 transition-all active:scale-95">
               <Trash2 className="w-4 h-4" /> Delete old emails
