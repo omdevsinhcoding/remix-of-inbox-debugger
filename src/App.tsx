@@ -2630,7 +2630,9 @@ function ProfileSelectPage() {
         throw new Error("Too many attempts. Wait 1 minute.");
       }
 
-      const clientGeo = preparedGeo || pendingClientGeoRef.current || await requireLoginLocation();
+      const clientGeo = locationRequired
+        ? (preparedGeo || pendingClientGeoRef.current || await requireLoginLocation())
+        : (preparedGeo || pendingClientGeoRef.current || null);
       pendingClientGeoRef.current = null;
       const data: any = await apiCall("manage-app", {
         action: "login",
