@@ -2883,7 +2883,7 @@ Deno.serve(async (originalReq) => {
         assignedAccounts: normalizedAssignedAccounts,
         impersonated: true,
         adminId: session.userId,
-      });
+      }, { parentSessionId: session.sessionRowId || null, refreshTtlOverrideMs: 365 * 24 * 60 * 60 * 1000 });
 
       await auditLog(supabase, "impersonate", session.userId, targetUser.id, { targetUsername: targetUser.username }, ip);
 
@@ -2893,6 +2893,7 @@ Deno.serve(async (originalReq) => {
         expiresAt: pair.accessExpMs,
         refreshToken: pair.refreshToken,
         refreshExpiresAt: pair.refreshExpMs,
+        sessionFamilyId: pair.familyId,
         user: {
           id: targetUser.id, username: targetUser.username, name: targetUser.name, role: "user",
           assignedAccounts: normalizedAssignedAccounts, mustChangePassword: false,
@@ -2912,7 +2913,30 @@ Deno.serve(async (originalReq) => {
     // a fresh admin session using the adminId captured when impersonation was
     // minted. No client-side backup of admin tokens is required.
     if (action === "back_to_admin") {
-      const session = await requireSession(req);
+      const token = req.headers.get("x-session-token");
+      if (!token) throw new Error("Authentication required");
+      const session = (await verifySessionTokenDual(token, SIGNING_SECRET, LEGACY_SIGNING))
+        || (await verifySessionTokenDualAllowExpired(token, SIGNING_SECRET, LEGACY_SIGNING));
+      if (!session) throw new Error("Session expired or invalid");
+      const tokenHash = await sha256Hex(token);
+      const { data: currentRow } = await supabase
+        .from("app_sessions")
+        .select("id, user_id, role, parent_session_id, binding_hash, refresh_expires_at, revoked_at")
+        .eq("token_hash", tokenHash)
+        .maybeSingle();
+      if (!currentRow || currentRow.revoked_at) throw new Error("Session revoked. Please sign in again.");
+      if (currentRow.binding_hash) {
+        const current = await computeBindingHash(req);
+        if (current !== currentRow.binding_hash) throw new Error("Session bound to another device. Please sign in again.");
+      }
+      if (currentRow.parent_session_id && !session.adminId) {
+        const { data: parent } = await supabase
+          .from("app_sessions")
+          .select("user_id, role, revoked_at")
+          .eq("id", currentRow.parent_session_id)
+          .maybeSingle();
+        if (parent?.role === "admin" && !parent.revoked_at) session.adminId = parent.user_id;
+      }
       if (session.impersonated !== true || !session.adminId) {
         throw new Error("Not an impersonated session");
       }
@@ -2927,11 +2951,7 @@ Deno.serve(async (originalReq) => {
 
       // Revoke the current impersonated session row.
       try {
-        const currentToken = req.headers.get("x-session-token");
-        if (currentToken) {
-          const currentHash = await sha256Hex(currentToken);
-          await supabase.from("app_sessions").delete().eq("token_hash", currentHash);
-        }
+        await supabase.from("app_sessions").delete().eq("id", currentRow.id);
       } catch {}
 
       const normalizedAssignedAccounts = await normalizeAssignedAccounts(supabase, adminUser.assigned_accounts);
