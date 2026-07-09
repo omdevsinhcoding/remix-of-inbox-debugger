@@ -8017,13 +8017,14 @@ function EmailViewer() {
     }
 
     const collected: Email[][] = [];
+    let okCount = 0;
     await Promise.all(groups.map(async (group) => {
       const endpoint = `${group.url}/api/emails/sync`;
       const started = performance.now();
       const res = await fetchWithTimeout(endpoint, {
         method: "POST",
         headers: { ...headers, "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "user_sync", source: "user_refresh", limit: 3, accountLabels: group.labels || undefined }),
+          body: JSON.stringify({ mode: "user_sync", source: "user_refresh", limit: 200, accountLabels: group.labels || undefined }),
       }, 18000);
       const text = await res.text();
       pushDiag({ ts: Date.now(), kind: "worker", endpoint, status: res.status, ms: Math.round(performance.now() - started), note: `user_sync${group.labels ? ` · ${group.labels.join(", ")}` : ""}` });
@@ -8034,10 +8035,11 @@ function EmailViewer() {
       let data: any = null;
       try { data = text ? JSON.parse(text) : null; } catch { data = null; }
       if (data && data.success === false) return;
+      okCount++;
       if (data && Array.isArray(data.emails)) collected.push(data.emails as Email[]);
     }));
 
-    if (collected.length === 0) return [];
+    if (okCount === 0) return null;
     return mergeEmailsById(collected);
   }, [pushDiag, resolvedWorkerUrls, workerUrlMap, refreshAccountLabels]);
 
