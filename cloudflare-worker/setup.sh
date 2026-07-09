@@ -2,28 +2,38 @@
 # ─────────────────────────────────────────────────────────────
 # TRUE ZERO-CONFIG SETUP for Cloudflare Workers Builds
 # ─────────────────────────────────────────────────────────────
-# You only click "Connect to Git" in Cloudflare. Everything else is automatic:
-#   1. KV namespace EMAIL_CACHE  — create if missing, bind to worker
-#   2. Deploy worker
-#   3. Fetch SUPABASE_URL + SUPABASE_KEY + SESSION_SECRET from Supabase
-#      worker-bootstrap endpoint and push all 3 as secrets
+# Only "Connect to Git" in Cloudflare. Nothing else.
 #
-# Requirements per Cloudflare account (one-time, via the API token used to
-# connect Git): permissions Workers Scripts:Edit + Workers KV Storage:Edit.
-# Cloudflare's default "Workers Builds" token template has both.
+# What this script does automatically:
+#   1. Create KV namespace EMAIL_CACHE if missing, bind to worker
+#   2. Deploy the worker
+#   3. Authenticate to Supabase using $CLOUDFLARE_API_TOKEN (auto-injected
+#      by Cloudflare Workers Builds — NOT stored in git) — Supabase verifies
+#      the token with Cloudflare and checks the account against an allowlist
+#   4. Fetch SUPABASE_URL / SUPABASE_KEY / SESSION_SECRET and set them
+#
+# SECURITY: no shared secret lives in this repo. Auth is proof that the caller
+# owns a Cloudflare account that's in the allowlist. First unknown account
+# triggers a Telegram alert (trust-on-first-use).
 # ─────────────────────────────────────────────────────────────
 
 set -euo pipefail
 
-# Bootstrap endpoint (public + magic-token protected).
-# Anon key below is only used to reach the Supabase edge function.
 BOOTSTRAP_URL_HOST="https://jsqchutnfdeljajkxmly.supabase.co"
+# This anon key is publishable — safe to commit. It only lets us reach the
+# Supabase edge function gateway; auth is done via CF token below.
 BOOTSTRAP_ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpzcWNodXRuZmRlbGphamt4bWx5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxMjI5MzksImV4cCI6MjA4OTY5ODkzOX0.HYN4zMEYEiP-H5KD_iIbFpr0GsatNoeyw40FI2mW_eA"
-BOOTSTRAP_MAGIC="wkr_bootstrap_2026_netflixfetch_auto_v1"
 BOOTSTRAP_URL="$BOOTSTRAP_URL_HOST/functions/v1/worker-bootstrap"
 
 WRANGLER="npx --yes wrangler@latest"
 KV_TITLE="EMAIL_CACHE"
+
+# ─── Sanity check ─────────────────────────────────────────────
+if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
+  echo "❌ CLOUDFLARE_API_TOKEN not set. This must run inside Cloudflare"
+  echo "   Workers Builds — CF auto-injects the token there."
+  exit 1
+fi
 
 # ─── 1. KV namespace: find or create ─────────────────────────
 echo "→ Checking KV namespace '$KV_TITLE'..."
@@ -50,20 +60,20 @@ binding = "EMAIL_CACHE"
 id = "$KV_ID"
 EOF
 else
-  echo "⚠  KV setup skipped (API token may lack 'Workers KV Storage:Edit'). Worker will run without cache."
+  echo "⚠  KV setup skipped (token may lack 'Workers KV Storage:Edit'). Worker will run without cache."
 fi
 
-# ─── 2. Deploy worker FIRST so we can attach secrets ─────────
+# ─── 2. Deploy worker (needed before secrets can be attached) ─
 echo "→ Deploying worker..."
 $WRANGLER deploy
 
-# ─── 3. Fetch ALL 3 secrets from Supabase bootstrap endpoint ─
-echo "→ Fetching secrets from worker-bootstrap..."
+# ─── 3. Fetch secrets from Supabase using CF token as auth ───
+echo "→ Fetching secrets from worker-bootstrap (auth = CF API token)..."
 BOOT_JSON="$(curl -sS -X POST "$BOOTSTRAP_URL" \
   -H "Content-Type: application/json" \
   -H "apikey: $BOOTSTRAP_ANON_KEY" \
   -H "Authorization: Bearer $BOOTSTRAP_ANON_KEY" \
-  -H "X-Bootstrap-Token: $BOOTSTRAP_MAGIC" \
+  -H "X-CF-Token: $CLOUDFLARE_API_TOKEN" \
   || echo '{}')"
 
 eval "$(node -e "
@@ -73,24 +83,30 @@ eval "$(node -e "
     process.stdout.write('SB_URL=' + q(j.SUPABASE_URL) + '\n');
     process.stdout.write('SB_KEY=' + q(j.SUPABASE_KEY) + '\n');
     process.stdout.write('SB_SESSION=' + q(j.SESSION_SECRET) + '\n');
+    process.stdout.write('SB_ERR=' + q(j.error || '') + '\n');
   } catch(e) {
-    process.stdout.write('SB_URL=\"\"\nSB_KEY=\"\"\nSB_SESSION=\"\"\n');
+    process.stdout.write('SB_URL=\"\"\nSB_KEY=\"\"\nSB_SESSION=\"\"\nSB_ERR=\"parse failed\"\n');
   }
 " "$BOOT_JSON")"
 
 if [ -z "${SB_URL:-}" ] || [ -z "${SB_KEY:-}" ] || [ -z "${SB_SESSION:-}" ]; then
-  echo "❌ Bootstrap failed. Response: $BOOT_JSON"
-  echo "   Ensure worker-bootstrap edge function is deployed on Supabase."
+  echo "❌ Bootstrap failed: ${SB_ERR:-unknown}"
+  echo "   Full response: $BOOT_JSON"
+  echo ""
+  echo "   Possible causes:"
+  echo "   • CLOUDFLARE_API_TOKEN missing Account.Read permission (needed to verify account)"
+  echo "   • Your Cloudflare account is not yet in the allowlist AND the cap is reached"
+  echo "   • Check Telegram for a bootstrap-rejection alert"
   exit 1
 fi
 
 echo "→ Setting SUPABASE_URL..."
-echo -n "$SB_URL" | $WRANGLER secret put SUPABASE_URL || echo "⚠  Failed SUPABASE_URL"
+echo -n "$SB_URL" | $WRANGLER secret put SUPABASE_URL
 
 echo "→ Setting SUPABASE_KEY..."
-echo -n "$SB_KEY" | $WRANGLER secret put SUPABASE_KEY || echo "⚠  Failed SUPABASE_KEY"
+echo -n "$SB_KEY" | $WRANGLER secret put SUPABASE_KEY
 
 echo "→ Setting SESSION_SECRET..."
-echo -n "$SB_SESSION" | $WRANGLER secret put SESSION_SECRET || echo "⚠  Failed SESSION_SECRET"
+echo -n "$SB_SESSION" | $WRANGLER secret put SESSION_SECRET
 
 echo "✅ Setup complete."
