@@ -4878,6 +4878,13 @@ function AdminPanel() {
     if (creatingUser) return;
     setCreatingUser(true);
     try {
+      let expiresIso: string | null = null;
+      if (newIsFree && newFreeExpiresAt) {
+        const t = Date.parse(newFreeExpiresAt);
+        if (!Number.isFinite(t)) { notify.error("Invalid expiry date"); setCreatingUser(false); return; }
+        if (t <= Date.now()) { notify.error("Expiry must be in the future"); setCreatingUser(false); return; }
+        expiresIso = new Date(t).toISOString();
+      }
       const res: any = await apiCall("manage-app", {
         action: "create",
         username: newIsFree ? (newUsername || undefined) : newUsername,
@@ -4885,8 +4892,9 @@ function AdminPanel() {
         name: newName, role: "user",
         assigned_accounts: newUserAccounts.length > 0 ? newUserAccounts : null,
         is_free: newIsFree,
+        expires_at: expiresIso,
       });
-      setNewUsername(""); setNewPassword(""); setNewName(""); setNewUserAccounts([]); setNewIsFree(false);
+      setNewUsername(""); setNewPassword(""); setNewName(""); setNewUserAccounts([]); setNewIsFree(false); setNewFreeExpiresAt("");
       if (!res?.user) throw new Error("Server did not return the created user");
       setUsers(prev => [...prev, res.user]);
       setStats(prev => ({ ...prev, totalUsers: prev.totalUsers + 1 }));
