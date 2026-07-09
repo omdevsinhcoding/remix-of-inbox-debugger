@@ -56,7 +56,7 @@ const USER_SYNC_WINDOW_MS = 5_000;
 const userSyncHits = new Map<string, number>();
 let cronRepairLastAttempt = 0;
 
-type Session = { userId: string; username: string; role: "admin" | "user"; assignedAccounts?: string[] | null; exp?: number };
+type Session = { userId: string; username: string; role: "admin" | "user"; assignedAccounts?: string[] | null; exp?: number; impersonated?: boolean; adminId?: string | null };
 type Account = { label: string; host: string; port: number; user: string; password: string; recipientFilters?: string[] };
 
 function normalizeAccountLabels(raw: any, available: string[] = []): string[] {
@@ -101,6 +101,19 @@ async function verifySessionToken(token: string, secret: string): Promise<Sessio
   } catch { return null; }
 }
 
+async function verifySessionTokenAllowExpired(token: string, secret: string): Promise<Session | null> {
+  try {
+    const [dataB64, sigHex] = token.split(".");
+    if (!dataB64 || !sigHex) return null;
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
+    const sig = new Uint8Array(sigHex.match(/.{2}/g)!.map(b => parseInt(b, 16)));
+    const valid = await crypto.subtle.verify("HMAC", key, sig, encoder.encode(dataB64));
+    if (!valid) return null;
+    return JSON.parse(atob(dataB64));
+  } catch { return null; }
+}
+
 async function sha256Hex(value: string): Promise<string> {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -111,6 +124,12 @@ async function requireSession(req: Request, body: any, primary: string, legacy?:
   if (!token) return null;
   let p = await verifySessionToken(token, primary);
   if (!p && legacy && legacy !== primary) p = await verifySessionToken(token, legacy);
+  let tokenExpired = false;
+  if (!p) {
+    p = await verifySessionTokenAllowExpired(token, primary);
+    if (!p && legacy && legacy !== primary) p = await verifySessionTokenAllowExpired(token, legacy);
+    tokenExpired = !!p;
+  }
   if (!p) return null;
   // Live DB revocation check — an admin-revoked session must lose access
   // immediately, not wait for the 15-minute HMAC token to expire.
@@ -119,12 +138,26 @@ async function requireSession(req: Request, body: any, primary: string, legacy?:
       const tokenHash = await sha256Hex(token);
       const { data: sessRow } = await supabase
         .from("app_sessions")
-        .select("id, revoked_at, expires_at")
+        .select("id, revoked_at, expires_at, refresh_expires_at, parent_session_id")
         .eq("token_hash", tokenHash)
         .maybeSingle();
       if (!sessRow) return null;
       if (sessRow.revoked_at) return null;
-      if (sessRow.expires_at && new Date(sessRow.expires_at).getTime() < Date.now()) return null;
+      const rowExpired = sessRow.expires_at && new Date(sessRow.expires_at).getTime() < Date.now();
+      if (tokenExpired || rowExpired) {
+        let allowExpiredImpersonation = false;
+        if (sessRow.parent_session_id && sessRow.refresh_expires_at && new Date(sessRow.refresh_expires_at).getTime() > Date.now()) {
+          const { data: parent } = await supabase
+            .from("app_sessions")
+            .select("role, revoked_at")
+            .eq("id", sessRow.parent_session_id)
+            .maybeSingle();
+          allowExpiredImpersonation = parent
+            ? (parent.role === "admin" && !parent.revoked_at)
+            : (p.impersonated === true && typeof p.adminId === "string");
+        }
+        if (!allowExpiredImpersonation) return null;
+      }
     } catch {
       return null;
     }

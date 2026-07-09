@@ -881,11 +881,11 @@ async function apiCall(functionName: string, body: any) {
 
   const skipRefreshActions = new Set(["refresh_session", "back_to_admin"]);
 
-  // C.2: proactively refresh if access token is within 30s of expiry,
-  // but never for refresh itself. Also skip for back_to_admin: that endpoint
-  // intentionally accepts an expired impersonation access token so an admin can
-  // always return from a viewed user account, even if user refresh failed.
-  if (functionName === "manage-app" && !skipRefreshActions.has(body?.action)) {
+  // C.2: proactively refresh if access token is within 30s of expiry before
+  // ANY authenticated edge call, including fetch-emails. Previously this only
+  // ran for manage-app, so manual inbox refresh could hit fetch-emails with an
+  // expired access token and show "Refresh could not complete".
+  if (!(functionName === "manage-app" && skipRefreshActions.has(body?.action))) {
     await ensureFreshAccess(30_000).catch(() => {});
     // Re-read possibly-rotated token
     const t2 = getSessionToken();
@@ -900,7 +900,7 @@ async function apiCall(functionName: string, body: any) {
     const looksExpired = /access token expired|session expired|session revoked|authentication required|session invalid/i.test(msg);
     // C.2: single retry after refresh on stale-session errors, except for the
     // refresh endpoint itself and unauthenticated calls.
-    if (looksExpired && functionName === "manage-app" && !skipRefreshActions.has(body?.action) && getSessionToken()) {
+    if (looksExpired && !(functionName === "manage-app" && skipRefreshActions.has(body?.action)) && getSessionToken()) {
       const ok = await refreshNow();
       if (!ok) throw err;
       const t3 = getSessionToken();
