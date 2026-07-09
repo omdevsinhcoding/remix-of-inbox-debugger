@@ -4898,10 +4898,17 @@ function AdminPanel() {
 
 
   const createUser = async () => {
-    if (!newName) { notify.error("Display name required"); return; }
-    if (!newIsFree && (!newUsername || !newPassword)) { notify.error("Please fill all fields"); return; }
+    const displayName = newName.trim();
+    const username = newUsername.trim();
+    const password = newPassword.trim();
+    if (!displayName) { notify.error("Display name required"); return; }
+    if (!newIsFree && (!username || !password)) { notify.error("Please fill all fields"); return; }
     if (creatingUser) return;
     setCreatingUser(true);
+    const timeout = window.setTimeout(() => {
+      notify.error("Create request is taking too long. Please retry.");
+      setCreatingUser(false);
+    }, 25_000);
     try {
       let expiresIso: string | null = null;
       if (newIsFree && newFreeExpiresAt) {
@@ -4910,11 +4917,15 @@ function AdminPanel() {
         if (t <= Date.now()) { notify.error("Expiry must be in the future"); setCreatingUser(false); return; }
         expiresIso = new Date(t).toISOString();
       }
+      const generatedFreeUsername = `free_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+      const generatedFreePassword = typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? `${crypto.randomUUID()}${crypto.randomUUID()}`
+        : `${Date.now()}_${Math.random().toString(36).slice(2)}_${Math.random().toString(36).slice(2)}`;
       const res: any = await apiCall("manage-app", {
         action: "create",
-        username: newIsFree ? (newUsername || undefined) : newUsername,
-        password: newIsFree ? undefined : newPassword,
-        name: newName, role: "user",
+        username: newIsFree ? (username || generatedFreeUsername) : username,
+        password: newIsFree ? generatedFreePassword : password,
+        name: displayName, role: "user",
         assigned_accounts: newUserAccounts.length > 0 ? newUserAccounts : null,
         is_free: newIsFree,
         expires_at: expiresIso,
@@ -4927,6 +4938,7 @@ function AdminPanel() {
     } catch (err) {
       notify.error("Failed: " + (err instanceof Error ? err.message : String(err)));
     } finally {
+      window.clearTimeout(timeout);
       setCreatingUser(false);
     }
   };
