@@ -2520,6 +2520,17 @@ Deno.serve(async (originalReq) => {
         .single();
       if (error || !user) throw new Error("Free profile not found");
 
+      // Hard safety: only actual free profiles reach this branch. Never grant
+      // a session to a paid/admin account through this endpoint.
+      if (!user.is_free || user.role === "admin") throw new Error("Not a free profile");
+
+      // Enforce expiry — and clean up expired free profiles opportunistically.
+      if (user.expires_at && Date.parse(user.expires_at) <= Date.now()) {
+        try { await supabase.from("app_users").delete().eq("id", user.id).eq("is_free", true); } catch {}
+        invalidateBootstrapCache();
+        throw new Error("This free profile has expired");
+      }
+
       await auditLog(supabase, "login_free", user.id, null, { username: user.username }, ip);
 
       const pair = await mintSessionPair(user.id, user.role, {
