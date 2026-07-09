@@ -6391,12 +6391,18 @@ function AdminPanel() {
                         <p className="text-sm text-green-900 font-medium">Not set</p>
                       )}
                     </div>
-                    <div>
-                      <p className="text-[10px] font-bold text-green-600 uppercase">Cloudflare Worker URLs</p>
+                    <div className="bg-white/60 rounded-lg p-2">
+                      <p className="text-[10px] font-bold text-green-600 uppercase mb-1">Cloudflare Worker URLs</p>
                       {primaryCfUrls.length > 0 ? (
-                        <div className="space-y-1 mt-1">
+                        <div className="space-y-1.5">
                           {primaryCfUrls.map((url, ui) => (
-                            <p key={ui} className="text-sm text-green-900 font-medium break-all">• {url}</p>
+                            <div key={ui} className="flex items-center gap-2 bg-white rounded-md px-2 py-1 border border-green-100">
+                              <p className="text-sm text-green-900 font-medium break-all flex-1 min-w-0">• {url}</p>
+                              <button type="button" onClick={(e) => { e.stopPropagation(); copyToClipboard(url, "Worker URL copied"); }}
+                                className="p-1 rounded hover:bg-green-100 text-green-700 flex-shrink-0" aria-label="Copy worker URL">
+                                <Copy className="w-3 h-3" />
+                              </button>
+                            </div>
                           ))}
                         </div>
                       ) : (
@@ -6571,9 +6577,15 @@ function AdminPanel() {
                                 </button>
                               </div>
                             ) : acc.cloudflareUrls && acc.cloudflareUrls.length > 0 ? (
-                              <div className="space-y-1 mt-1">
+                              <div className="space-y-1.5 mt-1">
                                 {acc.cloudflareUrls.map((url, ui) => (
-                                  <p key={ui} className="text-sm text-slate-800 font-medium break-all">• {url}</p>
+                                  <div key={ui} className="flex items-center gap-2 bg-slate-50 rounded-md px-2 py-1 border border-slate-100">
+                                    <p className="text-sm text-slate-800 font-medium break-all flex-1 min-w-0">• {url}</p>
+                                    <button type="button" onClick={(e) => { e.stopPropagation(); copyToClipboard(url, "Worker URL copied"); }}
+                                      className="p-1 rounded hover:bg-slate-200 text-slate-600 flex-shrink-0" aria-label="Copy worker URL">
+                                      <Copy className="w-3 h-3" />
+                                    </button>
+                                  </div>
                                 ))}
                               </div>
                             ) : (
