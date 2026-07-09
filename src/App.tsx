@@ -8712,8 +8712,14 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
   }, [maint.enabled, maint.endsAt]);
 
   // Always let the admin login flow through, even during maintenance.
+  // Also let admins who are impersonating a user (via "View as user") through,
+  // so they can QA the real user experience while the site is locked down.
   const path = typeof window !== "undefined" ? window.location.pathname : "/";
   const isAdminRoute = path.startsWith("/admin");
+  const isAdminImpersonating =
+    user?.role === "admin" ||
+    user?.impersonated === true ||
+    hasActiveAdminImpersonationBackup();
 
   const screenProps = {
     title: maint.title,
@@ -8723,9 +8729,10 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
     versionTo: maint.versionTo || "",
   };
 
-  if (maint.enabled && !isAdminRoute) {
+  if (maint.enabled && !isAdminRoute && !isAdminImpersonating) {
     return <MaintenanceScreen {...screenProps} />;
   }
+
 
   return <>{children}</>;
 }
