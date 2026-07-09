@@ -8211,7 +8211,6 @@ function EmailViewer() {
             prefs={profilePrefs}
             onPrefsSaved={saveProfilePrefsLocally}
             onPassword={() => setShowChangePassword(true)}
-            onDeleteOldEmails={deleteOldEmailsForUser}
             onClose={() => setShowProfile(false)}
           />
         )}
