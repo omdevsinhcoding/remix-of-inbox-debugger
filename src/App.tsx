@@ -8012,43 +8012,25 @@ function EmailViewer() {
 
 
   const syncViaWorker = useCallback(async (): Promise<Email[] | null> => {
-    const token = getSessionToken();
-    const headers: Record<string, string> = {};
-    if (token) headers["X-Session-Token"] = token;
     const labels = refreshAccountLabels;
     if (labels && labels.length === 0) return null;
-    const groups = buildWorkerRequestGroups(labels, workerUrlMap, resolvedWorkerUrls);
-
-    if (groups.length === 0) {
-      throw new Error("Cloudflare worker URL is not configured for this inbox");
-    }
-
-    const collected: Email[][] = [];
-    let okCount = 0;
-    await Promise.all(groups.map(async (group) => {
-      const endpoint = `${group.url}/api/emails/sync`;
-      const started = performance.now();
-      const res = await fetchWithTimeout(endpoint, {
-        method: "POST",
-        headers: { ...headers, "Content-Type": "application/json" },
-          body: JSON.stringify({ mode: "user_sync", source: "user_refresh", limit: 200, accountLabels: group.labels || undefined }),
-      }, 18000);
-      const text = await res.text();
-      pushDiag({ ts: Date.now(), kind: "worker", endpoint, status: res.status, ms: Math.round(performance.now() - started), note: `user_sync${group.labels ? ` · ${group.labels.join(", ")}` : ""}` });
-      if (!res.ok) {
-        // Swallow transport-shaped errors — keep KV cache visible instead.
-        return;
-      }
-      let data: any = null;
-      try { data = text ? JSON.parse(text) : null; } catch { data = null; }
-      if (data && data.success === false) return;
-      okCount++;
-      if (data && Array.isArray(data.emails)) collected.push(data.emails as Email[]);
-    }));
-
-    if (okCount === 0) return null;
-    return mergeEmailsById(collected);
-  }, [pushDiag, resolvedWorkerUrls, workerUrlMap, refreshAccountLabels]);
+    const started = performance.now();
+    const data = await apiCall("fetch-emails", {
+      mode: "user_sync",
+      source: "user_refresh",
+      limit: 200,
+      accountLabels: labels || undefined,
+    });
+    pushDiag({
+      ts: Date.now(),
+      kind: "sync",
+      endpoint: "fetch-emails:user_sync",
+      ms: Math.round(performance.now() - started),
+      note: labels ? labels.join(", ") : "all accounts",
+    });
+    if (data?.success === false) return null;
+    return Array.isArray(data?.emails) ? mergeEmailsById([data.emails as Email[]]) : null;
+  }, [pushDiag, refreshAccountLabels]);
 
   const fetchEmails = async () => {
     if (refreshingRef.current) return;
