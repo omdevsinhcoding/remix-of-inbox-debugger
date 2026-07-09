@@ -2680,11 +2680,13 @@ function ProfileSelectPage() {
   };
 
   const requestGpsPermissionOnly = async () => {
-    // FIRE GEO FIRST synchronously — preserve user activation (Chrome Incognito).
-    const geoPromise = armedGeoRef.current ?? beginGeolocationCapture();
-    const devicePromise = armedDeviceRef.current ?? beginDeviceFingerprintCapture();
+    // Always fire a FRESH geolocation call synchronously on click so the
+    // browser's native permission popup shows in normal mode too (not just
+    // incognito). Any pre-armed promise from pointerdown is discarded.
     armedGeoRef.current = null;
     armedDeviceRef.current = null;
+    const geoPromise = beginGeolocationCapture();
+    const devicePromise = beginDeviceFingerprintCapture();
     setGpsRequesting(true);
     setError("");
     notify.dismiss(GPS_PERMISSION_TOAST_ID);
