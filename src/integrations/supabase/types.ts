@@ -157,6 +157,7 @@ export type Database = {
         Row: {
           assigned_accounts: Json | null
           created_at: string
+          expires_at: string | null
           id: string
           is_free: boolean
           must_change_password: boolean
@@ -173,6 +174,7 @@ export type Database = {
         Insert: {
           assigned_accounts?: Json | null
           created_at?: string
+          expires_at?: string | null
           id?: string
           is_free?: boolean
           must_change_password?: boolean
@@ -189,6 +191,7 @@ export type Database = {
         Update: {
           assigned_accounts?: Json | null
           created_at?: string
+          expires_at?: string | null
           id?: string
           is_free?: boolean
           must_change_password?: boolean
@@ -941,6 +944,7 @@ export type Database = {
       get_cron_status: { Args: never; Returns: Json }
       get_email_cleanup_status: { Args: never; Returns: Json }
       purge_expired_crypto_sessions: { Args: never; Returns: undefined }
+      purge_expired_free_profiles: { Args: never; Returns: number }
       purge_expired_nonces: { Args: never; Returns: undefined }
       schedule_email_cleanup: {
         Args: { days: number; hour: number }
