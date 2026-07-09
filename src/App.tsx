@@ -8246,24 +8246,27 @@ function EmailViewer() {
 
     (async () => {
       try {
-        await Promise.all([
+        const [, cachedCount] = await Promise.all([
           refreshEmailFiltersForViewer(),
           loadCachedEmails({ limit: 200 }),
         ]);
-        markInboxReady();
+        if ((cachedCount || 0) > 0) markInboxReady();
         const synced = await syncViaWorker();
         if (synced) {
           setEmails(synced);
           setError(null);
           setLastUpdated(new Date());
-          if (synced.length > 0) cachedEmailsLoadedRef.current = true;
-          markInboxReady();
+          const visible = filterVisibleEmails(synced, profilePrefs, user);
+          if (visible.length > 0) {
+            cachedEmailsLoadedRef.current = true;
+            markInboxReady();
+          }
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err || "");
         pushDiag({ ts: Date.now(), kind: "sync", endpoint: "login auto-refresh", error: msg });
-        await loadCachedEmails({ limit: 200 });
-        markInboxReady();
+        const cachedCount = await loadCachedEmails({ limit: 200 });
+        if ((cachedCount || 0) > 0) markInboxReady();
       } finally {
         setLoading(false);
       }
