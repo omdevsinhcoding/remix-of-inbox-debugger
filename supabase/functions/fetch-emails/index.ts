@@ -705,17 +705,9 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
       destroyed: false,
     }));
 
-    const persistWork = supabase.from("cached_emails").upsert(rows, { onConflict: "id", ignoreDuplicates: true })
-      .then(({ error: upsertErr }: any) => {
-        if (upsertErr) console.error("[sync] Cache upsert error:", upsertErr);
-      });
-    if (quickRefresh) {
-      inserted = rows.length;
-      ((globalThis as any).EdgeRuntime?.waitUntil?.(persistWork) ?? persistWork.catch((err: any) => console.error("[sync] Background upsert error:", err)));
-    } else {
-      await persistWork;
-      inserted = rows.length;
-    }
+    const { error: upsertErr } = await supabase.from("cached_emails").upsert(rows, { onConflict: "id", ignoreDuplicates: true });
+    if (upsertErr) console.error("[sync] Cache upsert error:", upsertErr);
+    inserted = rows.length;
   }
 
   const cleanupWork = (async () => {
@@ -723,8 +715,7 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
     cutoff.setDate(cutoff.getDate() - STALE_DAYS);
     await supabase.from("cached_emails").delete().lt("date", cutoff.toISOString()).eq("destroyed", false);
   })().catch((e) => console.error("[sync] Stale cleanup error:", e));
-  if (quickRefresh) ((globalThis as any).EdgeRuntime?.waitUntil?.(cleanupWork) ?? cleanupWork);
-  else await cleanupWork;
+  await cleanupWork;
 
   const response: any = {
     success: true,

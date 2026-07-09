@@ -8659,15 +8659,13 @@ function EmailViewer() {
                       type="button"
                       onClick={() => {
                         setSelectedAccountLabel(label);
-                        // Trigger a scoped refresh immediately when admin picks a pill.
-                        setTimeout(() => { void fetchEmails([label]); }, 0);
                       }}
                       className={`px-3 py-1 rounded-full text-[11px] font-bold transition-all ${
                         selectedAccountLabel === label
                           ? "bg-red-600 text-white shadow-sm"
                           : "bg-slate-100 text-slate-700 hover:bg-slate-200"
                       }`}
-                      title={`Refresh only ${label}`}
+                      title={`Show ${label}. Press Refresh to sync.`}
                     >
                       {label}
                     </button>
