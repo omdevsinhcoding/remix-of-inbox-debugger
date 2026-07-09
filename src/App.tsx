@@ -8113,9 +8113,9 @@ function EmailViewer() {
 
   const fetchEmails = async () => {
     if (refreshingRef.current) {
-      notify.info("Refresh already in process, please wait until it finishes", {
+      notify.info("Refresh in progress…", {
         id: "nf-refresh-busy",
-        duration: 2200,
+        duration: 1800,
       });
       return;
     }
