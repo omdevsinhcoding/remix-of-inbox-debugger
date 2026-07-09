@@ -1789,6 +1789,9 @@ Deno.serve(async (originalReq) => {
         name: u.name,
         role: u.role,
         profileAvatar: u.profile_prefs?.avatarId || null,
+        isFree: !!u.is_free,
+        pinned: !!u.pinned,
+        sortOrder: u.sort_order ?? null,
       }));
       const payload = { success: true, users: mappedUsers, recaptcha, workerUrls, emailFilters, maintenance, avatarBaseUrl };
       __bootstrapCache = { at: now, payload };
