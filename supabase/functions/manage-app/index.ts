@@ -2175,7 +2175,10 @@ Deno.serve(async (originalReq) => {
         assigned_accounts: assigned_accounts || null,
         is_free: isFree,
         expires_at: expiresAtIso,
-        must_change_password: false,
+        // Force password reset on first login for regular (non-free, non-bootstrap-admin) users.
+        must_change_password: !isFree && !bootstrapCreate,
+        // Default GPS required = true for regular users; admin/free ignored server-side.
+        profile_prefs: { avatarId: null, locationRequired: !isFree && finalRole !== "admin" },
       };
       const { data, error } = await supabase
         .from("app_users")
