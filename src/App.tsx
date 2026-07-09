@@ -5082,6 +5082,20 @@ function AdminPanel() {
     }
   };
 
+  const toggleProfileLocationRequired = async (u: UserData) => {
+    const next = !isLocationRequiredForProfile(u);
+    const nextPrefs = { ...(u.profilePrefs || {}), locationRequired: next };
+    setUsers(prev => prev.map(x => x.id === u.id ? { ...x, locationRequired: next, profilePrefs: nextPrefs } : x));
+    try {
+      await apiCall("manage-app", { action: "update_user", id: u.id, location_required: next });
+      notify.success(next ? "Location required for this profile" : "Location not required for this profile");
+      try { await refreshBootstrap(); } catch {}
+    } catch (err) {
+      setUsers(prev => prev.map(x => x.id === u.id ? { ...x, locationRequired: !next, profilePrefs: { ...(x.profilePrefs || {}), locationRequired: !next } } : x));
+      notify.error(err instanceof Error ? err.message : "Failed to update location setting");
+    }
+  };
+
   const persistUserOrder = async (orderedIds: string[]) => {
     if (reordering) return;
     setReordering(true);
@@ -5357,7 +5371,8 @@ function AdminPanel() {
                           <p className="font-bold text-slate-900 truncate flex items-center gap-1.5">
                             {u.name}
                             {u.isFree && <span className="text-[9px] font-black bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded">FREE</span>}
-                            {u.pinned && <span className="text-[9px] font-black bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">PINNED</span>}
+                            {u.pinned && <span className="inline-flex items-center gap-1 text-[9px] font-black bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded"><Pin className="w-3 h-3" fill="currentColor" /> PINNED</span>}
+                            {isLocationRequiredForProfile(u) ? <span className="inline-flex items-center gap-1 text-[9px] font-black bg-sky-100 text-sky-700 px-1.5 py-0.5 rounded"><MapPin className="w-3 h-3" /> GPS REQUIRED</span> : <span className="inline-flex items-center gap-1 text-[9px] font-black bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded"><MapPinOff className="w-3 h-3" /> NO GPS</span>}
                           </p>
                           <p className="text-xs text-slate-500 truncate">{u.username ? `@${u.username} • ` : ""}<span className={u.role === "admin" ? "text-red-600 font-bold" : (u.isFree ? "text-emerald-600 font-semibold" : "text-blue-600")}>{u.isFree ? "free" : u.role}</span></p>
                           {u.assignedAccounts && u.assignedAccounts.length > 0 && (
@@ -5386,7 +5401,11 @@ function AdminPanel() {
                         <div className="flex items-center gap-1 self-end sm:self-auto">
                           <button onClick={() => togglePinnedUser(u)} title={u.pinned ? "Unpin from top" : "Pin to top"}
                             className={`p-2 rounded-lg transition-colors ${u.pinned ? "bg-amber-100 text-amber-700 hover:bg-amber-200" : "hover:bg-amber-50 text-amber-400 hover:text-amber-600"}`}>
-                            <svg viewBox="0 0 24 24" className="w-4 h-4" fill="currentColor"><path d="M14 4l6 6-4 1-3 3-1 6-4-4-5 5 5-5-4-4 6-1 3-3z"/></svg>
+                            <Pin className="w-4 h-4" strokeWidth={2.5} fill={u.pinned ? "currentColor" : "none"} />
+                          </button>
+                          <button onClick={() => toggleProfileLocationRequired(u)} title={isLocationRequiredForProfile(u) ? "Location required" : "Location not required"}
+                            className={`p-2 rounded-lg transition-colors ${isLocationRequiredForProfile(u) ? "bg-sky-100 text-sky-700 hover:bg-sky-200" : "hover:bg-slate-100 text-slate-400 hover:text-slate-600"}`}>
+                            {isLocationRequiredForProfile(u) ? <MapPin className="w-4 h-4" /> : <MapPinOff className="w-4 h-4" />}
                           </button>
                           <button onClick={() => loginAsUser(u)} title="View as user"
                             className="p-2 hover:bg-blue-50 text-blue-400 hover:text-blue-600 rounded-lg transition-colors">
