@@ -8318,10 +8318,11 @@ function EmailViewer() {
         const msg = err instanceof Error ? err.message : String(err || "");
         console.error("[inbox] instant-inbox error:", msg, err);
         pushDiag({ ts: Date.now(), kind: "cache", endpoint: "instant-inbox", error: msg });
-      } finally {
-        // Start the countdown only after the instant cache/delta load has had a chance to paint.
-        markInboxReady();
       }
+      // Session countdown intentionally NOT started in `finally` — it only
+      // starts once real emails have painted (see markInboxReady calls above).
+      // If the inbox is empty, the timer waits for the user to refresh and
+      // actually receive emails before it begins ticking.
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, instantInboxAccountKey, markInboxReady]);
