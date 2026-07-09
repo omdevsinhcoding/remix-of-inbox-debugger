@@ -8112,7 +8112,13 @@ function EmailViewer() {
   }, [pushDiag, refreshAccountLabels]);
 
   const fetchEmails = async () => {
-    if (refreshingRef.current) return;
+    if (refreshingRef.current) {
+      notify.info("Refresh already in process, please wait until it finishes", {
+        id: "nf-refresh-busy",
+        duration: 2200,
+      });
+      return;
+    }
     refreshingRef.current = true;
     setRefreshing(true);
     const beforeIds = new Set(emails.map((e) => e.id));
