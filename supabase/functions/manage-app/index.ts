@@ -2857,11 +2857,72 @@ Deno.serve(async (originalReq) => {
           profileAvatar: targetUser.profile_prefs?.avatarId || null,
           isFree: !!targetUser.is_free,
           locationRequired: isProfileLocationRequired(targetUser),
+          impersonated: true,
+          adminId: session.userId,
         },
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    // Server-side "Back to Admin" — swaps the current impersonated session for
+    // a fresh admin session using the adminId captured when impersonation was
+    // minted. No client-side backup of admin tokens is required.
+    if (action === "back_to_admin") {
+      const session = await requireSession(req);
+      if (session.impersonated !== true || !session.adminId) {
+        throw new Error("Not an impersonated session");
+      }
+      const { data: adminUser, error: adminErr } = await supabase
+        .from("app_users")
+        .select("*")
+        .eq("id", session.adminId)
+        .single();
+      if (adminErr || !adminUser || adminUser.role !== "admin") {
+        throw new Error("Original admin account is no longer available");
+      }
+
+      // Revoke the current impersonated session row.
+      try {
+        const currentToken = req.headers.get("x-session-token");
+        if (currentToken) {
+          const currentHash = await sha256Hex(currentToken);
+          await supabase.from("app_sessions").delete().eq("token_hash", currentHash);
+        }
+      } catch {}
+
+      const normalizedAssignedAccounts = await normalizeAssignedAccounts(supabase, adminUser.assigned_accounts);
+      const pair = await mintSessionPair(adminUser.id, "admin", {
+        userId: adminUser.id,
+        username: adminUser.username,
+        role: "admin",
+        assignedAccounts: normalizedAssignedAccounts,
+      });
+      const workerUrls = await loadWorkerUrls(supabase);
+      await auditLog(supabase, "impersonate_return", adminUser.id, session.userId, {}, ip);
+
+      return new Response(JSON.stringify({
+        success: true,
+        sessionToken: pair.accessToken,
+        expiresAt: pair.accessExpMs,
+        refreshToken: pair.refreshToken,
+        refreshExpiresAt: pair.refreshExpMs,
+        sessionFamilyId: pair.familyId,
+        workerUrls,
+        user: {
+          id: adminUser.id,
+          username: adminUser.username,
+          name: adminUser.name,
+          role: adminUser.role,
+          mustChangePassword: adminUser.must_change_password,
+          assignedAccounts: normalizedAssignedAccounts,
+          profilePrefs: publicProfilePrefs(adminUser.profile_prefs),
+          profileAvatar: adminUser.profile_prefs?.avatarId || null,
+          locationRequired: isProfileLocationRequired(adminUser),
+        },
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
 
     // C.2: refresh access token — rotates refresh token, detects reuse.
     // Body: { refreshToken: string }
@@ -3035,6 +3096,7 @@ Deno.serve(async (originalReq) => {
           isFree: !!user.is_free,
           locationRequired: isProfileLocationRequired(user),
           impersonated: session.impersonated === true,
+          adminId: session.impersonated === true ? (session.adminId || null) : null,
         },
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }

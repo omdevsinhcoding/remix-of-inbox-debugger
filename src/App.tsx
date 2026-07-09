@@ -5070,7 +5070,8 @@ function AdminPanel() {
       // opens the correct per-user IndexedDB and delta-syncs that user's account.
       // Do not call checkAuth here; keeping AuthContext as admin for this tick
       // avoids the admin dashboard guard redirect race while navigation commits.
-      sessionSet("user" as any, JSON.stringify(data.user));
+      const impersonatedUser = { ...(data.user || {}), impersonated: true, adminId: data.user?.adminId || null };
+      sessionSet("user" as any, JSON.stringify(impersonatedUser));
       if (data.sessionToken) sessionSet("session_token" as any, data.sessionToken);
       // Impersonation: also defer session timer until EmailViewer loads inbox.
       try { sessionRemove("session_started_at" as any); } catch {}
@@ -7804,7 +7805,10 @@ function EmailViewer() {
   const [showChangePassword, setShowChangePassword] = useState(!!user.mustChangePassword);
   const [showProfile, setShowProfile] = useState(false);
   const [forcedPasswordChange] = useState(!!user.mustChangePassword);
-  // F4: read impersonation backup from sessionStorage (with TTL check).
+  // Impersonation state: user.impersonated (server-signed session) is source of
+  // truth so a page refresh keeps the admin in "View as user" mode without any
+  // localStorage/sessionStorage backup. admin_backup in sessionStorage is only
+  // used as a legacy fast-path fallback.
   const readImpersonationBackup = (): { user?: string | null; token?: string | null; adminAuth?: string | null } | null => {
     try {
       const raw = sessionGet("admin_backup" as any);
@@ -7817,7 +7821,7 @@ function EmailViewer() {
       return parsed;
     } catch { return null; }
   };
-  const isImpersonating = !!readImpersonationBackup();
+  const isImpersonating = (user as any)?.impersonated === true || !!readImpersonationBackup();
 
   const [refreshing, setRefreshing] = useState(false);
   const refreshingRef = useRef(false);
@@ -7858,23 +7862,37 @@ function EmailViewer() {
   }, []);
   const clearDiag = useCallback(() => setDiag([]), []);
 
-  const backToAdmin = () => {
+  const backToAdmin = async () => {
+    // Preferred path: server swaps the impersonated session for a fresh admin
+    // session via the adminId captured at impersonate time. Survives refresh
+    // because no client-side backup is required.
     try {
-      const backup = readImpersonationBackup();
-      if (!backup) {
-        notify.error("Impersonation session expired — please sign in again as admin.");
-        try { sessionRemove("admin_backup" as any); } catch {}
-        navigate("/admin");
-        return;
-      }
-      if (backup.user) sessionSet("user" as any, backup.user);
-      if (backup.token) sessionSet("session_token" as any, backup.token);
-      if (backup.adminAuth) sessionSet("admin_auth" as any, backup.adminAuth);
+      notify.loading("Returning to admin…", { id: "back-to-admin" });
+      const data = await apiCall("manage-app", { action: "back_to_admin" });
+      notify.dismiss("back-to-admin");
+      if (data?.sessionToken) sessionSet("session_token" as any, data.sessionToken);
+      if (data?.user) sessionSet("user" as any, JSON.stringify(data.user));
       try { sessionRemove("admin_backup" as any); } catch {}
-      try { sessionRemove("admin_backup" as any); } catch {}
+      try { sessionRemove("session_started_at" as any); } catch {}
       checkAuth();
       navigate("/admin/dashboard");
-    } catch {
+      return;
+    } catch (err) {
+      notify.dismiss("back-to-admin");
+      // Fallback to legacy client-side backup if server swap failed.
+      try {
+        const backup = readImpersonationBackup();
+        if (backup) {
+          if (backup.user) sessionSet("user" as any, backup.user);
+          if (backup.token) sessionSet("session_token" as any, backup.token);
+          if (backup.adminAuth) sessionSet("admin_auth" as any, backup.adminAuth);
+          try { sessionRemove("admin_backup" as any); } catch {}
+          checkAuth();
+          navigate("/admin/dashboard");
+          return;
+        }
+      } catch {}
+      notify.error(err instanceof Error ? err.message : "Failed to return to admin");
       navigate("/admin");
     }
   };
@@ -8654,7 +8672,7 @@ function hasActiveAdminImpersonationBackup(): boolean {
 }
 
 function MaintenanceGate({ children }: { children: React.ReactNode }) {
-  const { user, checkAuth } = useAuth();
+  const { user, loading: authLoading, checkAuth } = useAuth();
   const navigate = useNavigate();
   const cached = useMemo(() => readBootstrapCache(), []);
   const [maint, setMaint] = useState<MaintenanceInfo>(
@@ -8670,8 +8688,13 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
   // 🚨 Force-kick non-admin users the moment maintenance turns ON.
   useEffect(() => {
     if (!maint.enabled) return;
+    if (authLoading) return; // wait for server hydration so we don't kick a stale-cached impersonation
     if (!user) return;
     if (user.role === "admin") return;
+    // Admin impersonating a user: keep the session alive so they can QA the
+    // real user experience during maintenance. Source of truth is the
+    // server-signed `impersonated` flag on the session; sessionStorage backup
+    // is only a legacy fast-path fallback.
     if (user.impersonated === true || hasActiveAdminImpersonationBackup()) return;
     const path = typeof window !== "undefined" ? window.location.pathname : "/";
     if (path.startsWith("/admin")) return;
@@ -8683,7 +8706,7 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
       duration: 4000,
     });
     navigate("/", { replace: true });
-  }, [maint.enabled, user?.id, user?.role]);
+  }, [maint.enabled, authLoading, user?.id, user?.role, user?.impersonated]);
 
 
   useEffect(() => {
@@ -8745,7 +8768,12 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
     versionTo: maint.versionTo || "",
   };
 
-  if (maint.enabled && !isAdminRoute && !isAdminImpersonating) {
+  // While auth is still hydrating on refresh, hold off on the maintenance
+  // screen — the /me response may reveal an impersonated admin session that
+  // should bypass maintenance. Cached user (which now includes impersonated=true)
+  // is checked above via isAdminImpersonating, but a first-time refresh in a
+  // new tab may not have it yet.
+  if (maint.enabled && !isAdminRoute && !isAdminImpersonating && !authLoading) {
     return <MaintenanceScreen {...screenProps} />;
   }
 
