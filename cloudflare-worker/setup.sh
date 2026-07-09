@@ -28,18 +28,12 @@ if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
   exit 1
 fi
 
-if [ -z "${WORKER_BOOTSTRAP_SECRET:-}" ]; then
-  echo "❌ WORKER_BOOTSTRAP_SECRET missing. Set it as a Cloudflare Worker build env var — same value as the WORKER_BOOTSTRAP_SECRET secret on the Supabase edge function."
-  exit 1
-fi
-
 echo "→ Fetching runtime config from Supabase bootstrap..."
 BOOT_JSON="$(curl -sS -X POST "$BOOTSTRAP_URL" \
   -H "Content-Type: application/json" \
   -H "apikey: $BOOTSTRAP_ANON_KEY" \
   -H "Authorization: Bearer $BOOTSTRAP_ANON_KEY" \
   -H "X-CF-Token: $CLOUDFLARE_API_TOKEN" \
-  -H "X-Bootstrap-Secret: $WORKER_BOOTSTRAP_SECRET" \
   || echo '{}')"
 
 mkdir -p "$OUT_DIR"
