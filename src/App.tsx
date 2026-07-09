@@ -1902,6 +1902,8 @@ interface Email {
   id: string; subject: string; from: string; to?: string; date: string; otp: string | null; preview: string; html: string; account_label?: string | null; cached_at?: string | null;
 }
 
+type EmailAccountConfig = { label: string; host: string; port: string; user: string; password: string; cloudflareUrls: string[]; recipientFilters?: string[] };
+
 function escapeEmailHtml(value = "") {
   return String(value).replace(/[&<>"]/g, (ch) => {
     if (ch === "&") return "&amp;";
@@ -2107,8 +2109,9 @@ function PasswordInput({ value, onChange, placeholder, className, autoFocus, req
       <input type={show ? "text" : "password"} value={value} onChange={onChange}
         placeholder={placeholder}
         aria-label={placeholder || "Password"}
+        aria-required={required || undefined}
         className={(className || "") + " text-slate-900 placeholder:text-slate-400"}
-        autoFocus={autoFocus} required={required} />
+        autoFocus={autoFocus} />
       <button type="button" onClick={() => setShow(!show)}
         aria-label={show ? "Hide password" : "Show password"}
         className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors p-1">
@@ -2361,15 +2364,8 @@ function ProfileSelectPage() {
   const [fromCache, setFromCache] = useState(cachedUsers.length > 0);
   const [loginLoading, setLoginLoading] = useState(false);
   const [error, setError] = useState("");
-  const [siteKey, setSiteKey] = useState<string | null>(() => {
-    const k = cachedBootstrap?.recaptcha?.enabled === true && cachedBootstrap?.recaptcha?.siteKey
-      ? cachedBootstrap.recaptcha.siteKey
-      : null;
-    if (k) preloadRecaptchaScript();
-    return k;
-  });
+  const [siteKey, setSiteKey] = useState<string | null>(null);
   const [captchaReady, setCaptchaReady] = useState(false);
-  const [captchaConfigError, setCaptchaConfigError] = useState(false);
   const [showCaptcha, setShowCaptcha] = useState(false);
   const [pendingLogin, setPendingLogin] = useState(false);
   const [freeLoginId, setFreeLoginId] = useState<string | null>(null);
@@ -2399,7 +2395,6 @@ function ProfileSelectPage() {
         setError("");
         setFromCache(false);
         setCaptchaReady(true);
-        setCaptchaConfigError(false);
       })
       .catch((err) => {
         console.warn("Bootstrap refresh failed (using cache/fallback):", err);
@@ -2407,15 +2402,9 @@ function ProfileSelectPage() {
           // Do NOT block sign-in on a captcha/config fetch hiccup. If we already
           // have profiles from the cached bootstrap, stay usable; only show a
           // hard error when we have nothing at all to render.
-          if (profiles.length === 0) {
-            setCaptchaConfigError(true);
-            setCaptchaReady(false);
-            setError("Failed to load profiles. Please try again.");
-          } else {
-            setCaptchaReady(true);
-            setCaptchaConfigError(false);
-            setError("");
-          }
+          setSiteKey(null);
+          setCaptchaReady(true);
+          if (profiles.length === 0) setError("Failed to load profiles. Please try again.");
         }
       })
       .finally(() => { if (!cancelled) setLoading(false); });
@@ -2464,6 +2453,12 @@ function ProfileSelectPage() {
 
   const initiateLogin = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!selectedProfile) return;
+    if (!password.trim()) {
+      setError("Password required");
+      notify.error("Password required");
+      return;
+    }
     // FIRE GEOLOCATION FIRST — synchronously, before any setState / notify.
     // Chrome Android + Incognito silently drop the native prompt if there is
     // any async gap between the user gesture and getCurrentPosition().
@@ -2544,9 +2539,6 @@ function ProfileSelectPage() {
       const clientGeo = await requireLoginLocation(preStartedGeo, preStartedDevice);
       pendingClientGeoRef.current = clientGeo;
       if (!captchaReady) {
-        if (captchaConfigError) {
-          throw new Error("Couldn't reach server. Please refresh and try again.");
-        }
         setPendingLogin(true);
         setLoginLoading(false);
         notify.info("Location ready", { id: "gps-permission-ready", description: "Finishing security check…", duration: 8500 });
@@ -2869,7 +2861,7 @@ function ProfileSelectPage() {
               <p className="text-neutral-500 text-xs sm:text-sm mt-1">@{selectedProfile.username}</p>
             </div>
 
-            <form onSubmit={initiateLogin} className="space-y-4">
+            <form onSubmit={initiateLogin} noValidate className="space-y-4">
               <div className="relative">
                 <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-500 w-4 h-4 z-10" />
                 <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)}
@@ -2918,16 +2910,8 @@ function AdminLoginPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const cachedBootstrap = useMemo(() => readBootstrapCache(), []);
-  const [siteKey, setSiteKey] = useState<string | null>(() => {
-    const k = cachedBootstrap?.recaptcha?.enabled === true && cachedBootstrap?.recaptcha?.siteKey
-      ? cachedBootstrap.recaptcha.siteKey
-      : null;
-    if (k) preloadRecaptchaScript();
-    return k;
-  });
+  const [siteKey, setSiteKey] = useState<string | null>(null);
   const [captchaReady, setCaptchaReady] = useState(false);
-  const [captchaConfigError, setCaptchaConfigError] = useState(false);
   const [showCaptcha, setShowCaptcha] = useState(false);
   const [gpsRequesting, setGpsRequesting] = useState(false);
   const [gpsPermissionMode, setGpsPermissionMode] = useState<GpsPermissionMode | null>(null);
@@ -2951,7 +2935,6 @@ function AdminLoginPage() {
           setSiteKey(null);
         }
         setCaptchaReady(true);
-        setCaptchaConfigError(false);
       } catch (err) {
         console.warn("Admin bootstrap failed, allowing sign-in without captcha config:", err);
         if (!cancelled) {
@@ -2960,7 +2943,6 @@ function AdminLoginPage() {
           // enforces its real captcha requirement if one is configured.
           setSiteKey(null);
           setCaptchaReady(true);
-          setCaptchaConfigError(false);
         }
       }
     })();
@@ -2989,6 +2971,12 @@ function AdminLoginPage() {
 
   const initiateLogin = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!username.trim() || !password.trim()) {
+      const msg = "Username and password required";
+      setError(msg);
+      notify.error(msg);
+      return;
+    }
     // FIRE GEO FIRST synchronously — preserve user activation (Chrome Incognito).
     const geoPromise = armedGeoRef.current ?? beginGeolocationCapture();
     const devicePromise = armedDeviceRef.current ?? beginDeviceFingerprintCapture();
@@ -3057,9 +3045,6 @@ function AdminLoginPage() {
       const clientGeo = await requireLoginLocation(preStartedGeo, preStartedDevice);
       pendingClientGeoRef.current = clientGeo;
       if (!captchaReady) {
-        if (captchaConfigError) {
-          throw new Error("Security check failed to load. Please refresh and try again.");
-        }
         setLoading(false);
         notify.info("Location ready", { id: "gps-permission-ready", description: "Wait for security check, then tap Admin Sign In.", duration: 8500 });
         return;
@@ -3171,14 +3156,14 @@ function AdminLoginPage() {
         <h2 className="text-xl sm:text-2xl font-black text-center text-slate-900 mb-1 sm:mb-2">Admin Access</h2>
         <p className="text-slate-500 text-center text-xs sm:text-sm mb-4 sm:mb-8">Secure administrator login</p>
 
-        <form onSubmit={initiateLogin} className="space-y-4">
+        <form onSubmit={initiateLogin} noValidate className="space-y-4">
           <div>
             <label className="block text-xs font-bold text-slate-400 uppercase mb-2 ml-1">Admin Username</label>
             <div className="relative">
               <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
               <input type="text" value={username} onChange={(e) => setUsername(e.target.value)}
                 className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 pl-12 pr-4 text-slate-900 placeholder:text-slate-400 focus:ring-2 focus:ring-red-500 transition-all outline-none"
-                placeholder="admin" required autoComplete="username" />
+                placeholder="admin" aria-required="true" autoComplete="username" />
             </div>
           </div>
           <div>
@@ -3202,7 +3187,7 @@ function AdminLoginPage() {
 
           <button type="submit" onPointerDownCapture={primeGpsFromPointer} disabled={loading}
             className="w-full bg-red-600 text-white font-bold py-4 rounded-2xl hover:bg-red-700 transition-all active:scale-95 disabled:opacity-50">
-            {loading ? "Authenticating..." : captchaReady ? "Admin Sign In" : "Loading Security..."}
+            {loading ? "Authenticating..." : "Admin Sign In"}
           </button>
         </form>
 
@@ -4067,10 +4052,11 @@ function AdminPanel() {
     TELEGRAM_BOT_TOKEN: "", TELEGRAM_CHAT_ID: "", IMAP_HOST: "", IMAP_PORT: "", IMAP_USER: "", IMAP_PASSWORD: "",
   });
   const [savingConfig, setSavingConfig] = useState(false);
-  const [emailAccounts, setEmailAccounts] = useState<Array<{ label: string; host: string; port: string; user: string; password: string; cloudflareUrls: string[] }>>([]);
+  const [emailAccounts, setEmailAccounts] = useState<EmailAccountConfig[]>([]);
   const [newAccount, setNewAccount] = useState({ label: "", host: "imap.gmail.com", port: "993", user: "", password: "" });
   const [newAccountCfUrls, setNewAccountCfUrls] = useState<string[]>([]);
   const [newAccountCfInput, setNewAccountCfInput] = useState("");
+  const [newAccountRecipients, setNewAccountRecipients] = useState("");
   const [savingAccounts, setSavingAccounts] = useState(false);
   const [expandedAccount, setExpandedAccount] = useState<number | null>(null);
   const [primaryCfUrls, setPrimaryCfUrls] = useState<string[]>([]);
@@ -4145,6 +4131,8 @@ function AdminPanel() {
   const [editingAccountUrls, setEditingAccountUrls] = useState<number | null>(null);
   const [editCfUrls, setEditCfUrls] = useState<string[]>([]);
   const [editCfInput, setEditCfInput] = useState("");
+  const [editingAccountRecipients, setEditingAccountRecipients] = useState<number | null>(null);
+  const [editRecipientsInput, setEditRecipientsInput] = useState("");
   const navigate = useNavigate();
   const { user: currentUser, checkAuth } = useAuth();
 
@@ -4176,6 +4164,13 @@ function AdminPanel() {
     });
     return labels;
   };
+
+  const parseRecipientFilters = (value: string): string[] => Array.from(new Set(
+    value
+      .split(/[\s,;]+/)
+      .map((v) => v.trim().toLowerCase())
+      .filter((v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v))
+  ));
 
   const loadAdminData = useCallback(async (opts?: { silent?: boolean }) => {
     const silent = !!opts?.silent;
@@ -4236,11 +4231,11 @@ function AdminPanel() {
         }
         if (Array.isArray(s.email_accounts)) {
           const migrated = s.email_accounts.map((acc: any) => {
-            if (acc.cloudflareUrls && Array.isArray(acc.cloudflareUrls)) return acc;
+            if (acc.cloudflareUrls && Array.isArray(acc.cloudflareUrls)) return { ...acc, recipientFilters: Array.isArray(acc.recipientFilters) ? acc.recipientFilters : [] };
             const urls: string[] = [];
             if (acc.cloudflareUrl && acc.cloudflareUrl.trim()) urls.push(acc.cloudflareUrl.trim());
             const { cloudflareUrl, ...rest } = acc;
-            return { ...rest, cloudflareUrls: urls };
+            return { ...rest, cloudflareUrls: urls, recipientFilters: Array.isArray(acc.recipientFilters) ? acc.recipientFilters : [] };
           });
           setEmailAccounts(migrated);
         }
@@ -4973,11 +4968,13 @@ function AdminPanel() {
     if (!newAccount.label || !newAccount.user || !newAccount.password) {
       notify.error("Fill label, email, and password"); return;
     }
-    const updated = [...emailAccounts, { ...newAccount, cloudflareUrls: [...newAccountCfUrls] }];
+    const recipientFilters = parseRecipientFilters(newAccountRecipients);
+    const updated = [...emailAccounts, { ...newAccount, cloudflareUrls: [...newAccountCfUrls], recipientFilters }];
     setEmailAccounts(updated);
     setNewAccount({ label: "", host: "imap.gmail.com", port: "993", user: "", password: "" });
     setNewAccountCfUrls([]);
     setNewAccountCfInput("");
+    setNewAccountRecipients("");
     try {
       await apiCall("manage-app", { action: "set_settings", key: "email_accounts", value: updated });
       notify.success("Email account added!");
@@ -6245,6 +6242,13 @@ function AdminPanel() {
                   className="w-full bg-slate-50 border rounded-xl p-3 pr-12 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
 
                 <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Recipient filter</label>
+                  <input type="text" placeholder="omdevsinhgohil538+freenf@gmail.com" value={newAccountRecipients} onChange={(e) => setNewAccountRecipients(e.target.value)}
+                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                  <p className="text-[10px] text-slate-400 mt-1 ml-1">Optional. Only cache emails sent to these addresses. Use comma/space for multiple.</p>
+                </div>
+
+                <div>
                   <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Cloudflare Worker URLs</label>
                   <p className="text-[10px] text-slate-400 mb-2 ml-1">Assign dedicated Cloudflare Worker URLs to this account. Emails for this account will be fetched through these workers. If none are added, primary workers will be used. Multiple URLs are load-balanced randomly.</p>
                   <div className="space-y-1.5 mb-2">
@@ -6361,6 +6365,9 @@ function AdminPanel() {
                           {acc.cloudflareUrls && acc.cloudflareUrls.length > 0 && (
                             <p className="text-[10px] text-orange-600 font-bold mt-0.5">{acc.cloudflareUrls.length} Worker URL{acc.cloudflareUrls.length > 1 ? "s" : ""}</p>
                           )}
+                          {acc.recipientFilters && acc.recipientFilters.length > 0 && (
+                            <p className="text-[10px] text-emerald-600 font-bold mt-0.5">Recipient filter: {acc.recipientFilters.join(", ")}</p>
+                          )}
                         </div>
                         <button onClick={(e) => { e.stopPropagation(); removeEmailAccount(i); }}
                           className="p-2 hover:bg-red-50 text-red-400 hover:text-red-600 rounded-lg transition-colors">
@@ -6451,6 +6458,52 @@ function AdminPanel() {
                               </div>
                             ) : (
                               <p className="text-sm text-slate-400 font-medium">Not configured — click Edit URLs to add</p>
+                            )}
+                          </div>
+                          <div>
+                            <div className="flex items-center justify-between">
+                              <p className="text-[10px] font-bold text-emerald-600 uppercase">Recipient filter</p>
+                              <button onClick={(e) => {
+                                e.stopPropagation();
+                                if (editingAccountRecipients === i) {
+                                  setEditingAccountRecipients(null);
+                                } else {
+                                  setEditingAccountRecipients(i);
+                                  setEditRecipientsInput((acc.recipientFilters || []).join(", "));
+                                }
+                              }} className="text-[10px] font-bold text-emerald-700 hover:text-emerald-900 transition-colors">
+                                {editingAccountRecipients === i ? "Cancel" : "Edit filter"}
+                              </button>
+                            </div>
+                            {editingAccountRecipients === i ? (
+                              <div className="mt-1 space-y-1.5" onClick={(e) => e.stopPropagation()}>
+                                <input type="text" placeholder="omdevsinhgohil538+freenf@gmail.com" value={editRecipientsInput}
+                                  onChange={(e) => setEditRecipientsInput(e.target.value)}
+                                  className="w-full bg-white border rounded-lg p-1.5 outline-none focus:ring-2 focus:ring-emerald-500 text-xs" />
+                                <button onClick={async (e) => {
+                                  e.stopPropagation();
+                                  const updated = [...emailAccounts];
+                                  updated[i] = { ...updated[i], recipientFilters: parseRecipientFilters(editRecipientsInput) };
+                                  setEmailAccounts(updated);
+                                  setEditingAccountRecipients(null);
+                                  try {
+                                    await apiCall("manage-app", { action: "set_settings", key: "email_accounts", value: updated });
+                                    notify.success("Recipient filter updated!");
+                                  } catch (err) {
+                                    notify.error(err instanceof Error ? err.message : "Failed to save filter");
+                                  }
+                                }} className="w-full bg-emerald-600 text-white text-xs font-bold py-1.5 rounded-lg hover:bg-emerald-700 transition-all">
+                                  Save Filter
+                                </button>
+                              </div>
+                            ) : acc.recipientFilters && acc.recipientFilters.length > 0 ? (
+                              <div className="space-y-1 mt-1">
+                                {acc.recipientFilters.map((email) => (
+                                  <p key={email} className="text-sm text-slate-800 font-medium break-all">• {email}</p>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-sm text-slate-400 font-medium">No filter — all recipients in this inbox are cached</p>
                             )}
                           </div>
                           <div>

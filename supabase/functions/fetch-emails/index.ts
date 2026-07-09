@@ -54,7 +54,7 @@ const USER_SYNC_WINDOW_MS = 5_000;
 const userSyncHits = new Map<string, number>();
 
 type Session = { userId: string; username: string; role: "admin" | "user"; assignedAccounts?: string[] | null; exp?: number };
-type Account = { label: string; host: string; port: number; user: string; password: string };
+type Account = { label: string; host: string; port: number; user: string; password: string; recipientFilters?: string[] };
 
 function json(body: any, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -200,6 +200,30 @@ function formatAddress(addr: any) {
   return `${name}${address}`.trim();
 }
 
+function normalizeEmail(value: string | null | undefined): string {
+  return String(value || "").trim().toLowerCase();
+}
+
+function extractEmailAddresses(value: string | null | undefined): string[] {
+  const s = normalizeEmail(value);
+  if (!s) return [];
+  const matches = s.match(/[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9.-]+\.[a-z]{2,}/gi) || [];
+  return matches.map(normalizeEmail);
+}
+
+function normalizeRecipientFilters(raw: any): string[] {
+  const values = Array.isArray(raw) ? raw : typeof raw === "string" ? raw.split(/[\s,;]+/) : [];
+  return Array.from(new Set(values.flatMap((v: any) => extractEmailAddresses(String(v || "")))));
+}
+
+function recipientMatches(toRaw: string | null | undefined, filters?: string[]): boolean {
+  if (!filters || filters.length === 0) return true;
+  const recipients = extractEmailAddresses(toRaw);
+  if (recipients.length === 0) return false;
+  const allowed = new Set(filters.map(normalizeEmail).filter(Boolean));
+  return recipients.some((email) => allowed.has(email));
+}
+
 function parseFastEmail(rawSource: Uint8Array, envelope: any, accountLabel: string, uid: number) {
   const raw = new TextDecoder().decode(rawSource);
   const splitAt = raw.search(/\r?\n\r?\n/);
@@ -276,6 +300,7 @@ async function fetchFromAccount(
   cachedIds: Set<string>,
   maxMessages = FULL_SYNC_MAX_UIDS,
   quickRefresh = false,
+  recipientFilters: string[] = [],
 ): Promise<{ emails: any[]; fetched: number; skipped: number }> {
   const emails: any[] = [];
   let skipped = 0;
@@ -375,6 +400,11 @@ async function fetchFromAccount(
             console.log(`[${accountLabel}] Skipping UID ${uid}: sender not @netflix.com (${fromText})`);
             continue;
           }
+          const toText = parsed.to ? (Array.isArray(parsed.to) ? parsed.to[0]?.text : parsed.to.text) : undefined;
+          if (!recipientMatches(toText, recipientFilters)) {
+            console.log(`[${accountLabel}] Skipping UID ${uid}: recipient not allowed (${toText || "none"})`);
+            continue;
+          }
           const otpCode = extractOtpCode(subjectText, bodyText);
           const stableId = `${accountLabel}:${uid}`;
 
@@ -383,7 +413,7 @@ async function fetchFromAccount(
             message_id: parsed.messageId || null,
             subject: parsed.subject || fullMsg.envelope?.subject || "",
             from: parsed.from?.text || "Netflix",
-            to: parsed.to ? (Array.isArray(parsed.to) ? parsed.to[0]?.text : parsed.to.text) : undefined,
+            to: toText,
             date: parsed.date || new Date(),
             otp: otpCode,
             preview: bodyText.length > 100 ? `${bodyText.substring(0, 100)}...` : bodyText,
@@ -434,6 +464,7 @@ async function loadAccounts(supabase: any, secret: string, accountLabels: string
             port: parseInt(acc.port) || 993,
             user: acc.user,
             password: await decryptValue(acc.password, secret),
+            recipientFilters: normalizeRecipientFilters(acc.recipientFilters || acc.recipientFilter || acc.allowedRecipients),
           } as Account;
         }));
         accounts.push(...decrypted.filter(Boolean) as Account[]);
@@ -463,8 +494,8 @@ async function loadAccounts(supabase: any, secret: string, accountLabels: string
     const envPort = Deno.env.get("IMAP_PORT");
     if (primaryPort === 993 && envPort) primaryPort = parseInt(envPort) || 993;
 
-    if (primaryUser && primaryPassword && !accounts.some(a => a.user === primaryUser)) {
-      accounts.unshift({ label: "Primary", host: primaryHost, port: primaryPort, user: primaryUser, password: primaryPassword });
+    if (primaryUser && primaryPassword && !accounts.some(a => a.label === "Primary")) {
+      accounts.unshift({ label: "Primary", host: primaryHost, port: primaryPort, user: primaryUser, password: primaryPassword, recipientFilters: [] });
     }
   }
 
@@ -499,7 +530,7 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
 
   const settled = await Promise.allSettled(accounts.map(async (acc) => {
     console.log(`[sync] Fetching ${acc.label} (${acc.user})`);
-    const result = await fetchFromAccount(acc.host, acc.port, acc.user, acc.password, acc.label, cachedIds, maxMessages, quickRefresh);
+    const result = await fetchFromAccount(acc.host, acc.port, acc.user, acc.password, acc.label, cachedIds, maxMessages, quickRefresh, acc.recipientFilters || []);
     return { acc, result };
   }));
 
