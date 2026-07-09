@@ -1198,6 +1198,55 @@ async function sendLegacyIpwhoAlert(
   } catch {}
 }
 
+// Minimal Telegram alert used when admin disabled the location policy.
+// No reverse-geocoding, no IP lookup, no VPN detection — only profile,
+// device/browser/OS, timestamp, raw IP.
+async function sendMinimalLoginAlert(
+  supabase: any,
+  req: Request,
+  user: any,
+  status: "success" | "failed",
+  ip: string,
+  clientGeo: ClientGeoPayload | null,
+) {
+  const tg = await getTelegramConfig(supabase);
+  if (!tg) return;
+  const forwardedUa = clientGeo?.device?.userAgent || req.headers.get("x-client-user-agent") || req.headers.get("user-agent") || "";
+  const parsedUa = parseUserAgent(forwardedUa);
+  const identity = normalizeDeviceIdentity(forwardedUa, clientGeo?.device);
+  const browser = clientGeo?.device?.browserName || parsedUa.browser;
+  const browserVersion = clientGeo?.device?.browserVersion || parsedUa.browserVersion;
+  const os = clientGeo?.device?.osName || parsedUa.os;
+  const osVersion = clientGeo?.device?.osVersion || parsedUa.osVersion;
+  const browserStr = `${browser}${browserVersion ? " " + normalizedVersion(browserVersion) : ""}`;
+  const osStr = `${os}${osVersion ? " " + normalizedVersion(osVersion) : ""}`;
+  const deviceStr = `${identity.vendor ? identity.vendor + " " : ""}${identity.model}${identity.model !== identity.type ? ` (${identity.type})` : ""}`;
+  const displayName = user?.name || user?.username || "Unknown";
+  const role = user?.role || "user";
+  const roleChip = role === "admin" ? "👑 Admin" : (user?.is_free ? "🆓 Free" : "👤 Member");
+  const time = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata", hour12: true });
+  const headline = status === "success" ? "🟢  <b>SIGN-IN SUCCESS</b>" : "🔴  <b>SIGN-IN BLOCKED</b>";
+  const ipLine = ip && ip !== "unknown" ? `<code>${esc(ip)}</code>` : "<i>unavailable</i>";
+  const text = [
+    headline,
+    ``,
+    `${roleChip}  <b>${esc(displayName)}</b>${user?.username ? `  <i>@${esc(user.username)}</i>` : ""}`,
+    `🕐 <i>${esc(time)}</i>`,
+    ``,
+    `📱 <b>${esc(deviceStr)}</b>`,
+    `🌐 ${esc(browserStr)}    💻 ${esc(osStr)}`,
+    `🌐 IP  ${ipLine}`,
+    ``,
+    `<i>Location tracking is disabled by admin.</i>`,
+  ].join("\n");
+  try {
+    const tgRes = await postTelegram(tg, { text });
+    if (!tgRes.ok) console.error("[tg minimal alert] failed:", await tgRes.text());
+  } catch (e) { console.error("[tg minimal alert] error:", e); }
+}
+
+
+
 
 async function sendLoginNotification(
   supabase: any,
