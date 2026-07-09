@@ -1902,6 +1902,8 @@ interface Email {
   id: string; subject: string; from: string; to?: string; date: string; otp: string | null; preview: string; html: string; account_label?: string | null; cached_at?: string | null;
 }
 
+type EmailAccountConfig = { label: string; host: string; port: string; user: string; password: string; cloudflareUrls: string[]; recipientFilters?: string[] };
+
 function escapeEmailHtml(value = "") {
   return String(value).replace(/[&<>"]/g, (ch) => {
     if (ch === "&") return "&amp;";
@@ -4050,10 +4052,11 @@ function AdminPanel() {
     TELEGRAM_BOT_TOKEN: "", TELEGRAM_CHAT_ID: "", IMAP_HOST: "", IMAP_PORT: "", IMAP_USER: "", IMAP_PASSWORD: "",
   });
   const [savingConfig, setSavingConfig] = useState(false);
-  const [emailAccounts, setEmailAccounts] = useState<Array<{ label: string; host: string; port: string; user: string; password: string; cloudflareUrls: string[] }>>([]);
+  const [emailAccounts, setEmailAccounts] = useState<EmailAccountConfig[]>([]);
   const [newAccount, setNewAccount] = useState({ label: "", host: "imap.gmail.com", port: "993", user: "", password: "" });
   const [newAccountCfUrls, setNewAccountCfUrls] = useState<string[]>([]);
   const [newAccountCfInput, setNewAccountCfInput] = useState("");
+  const [newAccountRecipients, setNewAccountRecipients] = useState("");
   const [savingAccounts, setSavingAccounts] = useState(false);
   const [expandedAccount, setExpandedAccount] = useState<number | null>(null);
   const [primaryCfUrls, setPrimaryCfUrls] = useState<string[]>([]);
@@ -4128,6 +4131,8 @@ function AdminPanel() {
   const [editingAccountUrls, setEditingAccountUrls] = useState<number | null>(null);
   const [editCfUrls, setEditCfUrls] = useState<string[]>([]);
   const [editCfInput, setEditCfInput] = useState("");
+  const [editingAccountRecipients, setEditingAccountRecipients] = useState<number | null>(null);
+  const [editRecipientsInput, setEditRecipientsInput] = useState("");
   const navigate = useNavigate();
   const { user: currentUser, checkAuth } = useAuth();
 
@@ -4159,6 +4164,13 @@ function AdminPanel() {
     });
     return labels;
   };
+
+  const parseRecipientFilters = (value: string): string[] => Array.from(new Set(
+    value
+      .split(/[\s,;]+/)
+      .map((v) => v.trim().toLowerCase())
+      .filter((v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v))
+  ));
 
   const loadAdminData = useCallback(async (opts?: { silent?: boolean }) => {
     const silent = !!opts?.silent;
@@ -4219,11 +4231,11 @@ function AdminPanel() {
         }
         if (Array.isArray(s.email_accounts)) {
           const migrated = s.email_accounts.map((acc: any) => {
-            if (acc.cloudflareUrls && Array.isArray(acc.cloudflareUrls)) return acc;
+            if (acc.cloudflareUrls && Array.isArray(acc.cloudflareUrls)) return { ...acc, recipientFilters: Array.isArray(acc.recipientFilters) ? acc.recipientFilters : [] };
             const urls: string[] = [];
             if (acc.cloudflareUrl && acc.cloudflareUrl.trim()) urls.push(acc.cloudflareUrl.trim());
             const { cloudflareUrl, ...rest } = acc;
-            return { ...rest, cloudflareUrls: urls };
+            return { ...rest, cloudflareUrls: urls, recipientFilters: Array.isArray(acc.recipientFilters) ? acc.recipientFilters : [] };
           });
           setEmailAccounts(migrated);
         }
@@ -4956,11 +4968,13 @@ function AdminPanel() {
     if (!newAccount.label || !newAccount.user || !newAccount.password) {
       notify.error("Fill label, email, and password"); return;
     }
-    const updated = [...emailAccounts, { ...newAccount, cloudflareUrls: [...newAccountCfUrls] }];
+    const recipientFilters = parseRecipientFilters(newAccountRecipients);
+    const updated = [...emailAccounts, { ...newAccount, cloudflareUrls: [...newAccountCfUrls], recipientFilters }];
     setEmailAccounts(updated);
     setNewAccount({ label: "", host: "imap.gmail.com", port: "993", user: "", password: "" });
     setNewAccountCfUrls([]);
     setNewAccountCfInput("");
+    setNewAccountRecipients("");
     try {
       await apiCall("manage-app", { action: "set_settings", key: "email_accounts", value: updated });
       notify.success("Email account added!");
