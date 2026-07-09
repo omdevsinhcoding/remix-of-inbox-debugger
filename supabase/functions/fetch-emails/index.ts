@@ -296,6 +296,7 @@ async function shouldBlockPromo(supabase: any): Promise<boolean> {
 function decodeQuotedPrintable(input: string) {
   const bytes: number[] = [];
   const normalized = input.replace(/=\r?\n/g, "");
+  if (!/=([0-9A-Fa-f]{2})/.test(normalized)) return normalized;
   for (let i = 0; i < normalized.length; i++) {
     if (normalized[i] === "=" && /^[0-9A-Fa-f]{2}$/.test(normalized.slice(i + 1, i + 3))) {
       bytes.push(parseInt(normalized.slice(i + 1, i + 3), 16));
