@@ -4059,6 +4059,14 @@ function AdminPanel() {
   const [newAccountRecipients, setNewAccountRecipients] = useState("");
   const [savingAccounts, setSavingAccounts] = useState(false);
   const [expandedAccount, setExpandedAccount] = useState<number | null>(null);
+  const [revealedPasswords, setRevealedPasswords] = useState<Set<string>>(new Set());
+  const togglePasswordReveal = (key: string) => {
+    setRevealedPasswords(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
   const [primaryCfUrls, setPrimaryCfUrls] = useState<string[]>([]);
   // Location alert toggle
   const [ipwhoAlertEnabled, setIpwhoAlertEnabled] = useState(false);
