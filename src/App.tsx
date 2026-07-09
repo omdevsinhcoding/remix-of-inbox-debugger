@@ -8335,6 +8335,7 @@ function EmailViewer() {
   // ============================================================================
   const idbRef = useRef<Awaited<ReturnType<typeof openInboxDB>> | null>(null);
   const instantInboxRunKeyRef = useRef("");
+  const serverSnapshotRunKeyRef = useRef("");
   const instantInboxAccountKey = useMemo(
     () => JSON.stringify(activeCacheLabels === null ? null : [...(activeCacheLabels || [])].sort()),
     [activeCacheLabels],
@@ -8381,6 +8382,23 @@ function EmailViewer() {
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, instantInboxAccountKey, markInboxReady]);
+
+  // Cache-only server snapshot for first paint on fresh devices/browsers.
+  // This does NOT touch IMAP; only the Refresh button performs live mail sync.
+  useEffect(() => {
+    const runKey = `${user?.id || ""}:${instantInboxAccountKey}`;
+    if (!user?.id || serverSnapshotRunKeyRef.current === runKey) return;
+    serverSnapshotRunKeyRef.current = runKey;
+    (async () => {
+      try {
+        await refreshEmailFiltersForViewer();
+        await loadServerSnapshot(activeCacheLabels);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err || "");
+        pushDiag({ ts: Date.now(), kind: "cache", endpoint: "cache-only snapshot", error: msg });
+      }
+    })();
+  }, [user?.id, instantInboxAccountKey, activeCacheLabels, loadServerSnapshot, refreshEmailFiltersForViewer, pushDiag]);
 
 
   // Wrap email selection so full HTML is lazy-fetched on first click.
