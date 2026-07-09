@@ -7864,6 +7864,29 @@ function EmailViewer() {
     return stored || ({} as UserData);
   }, [authUser]);
   const refreshAccountLabels = useMemo(() => getUserRefreshAccountLabels(user), [user]);
+
+  // Admin-only: which account pill is picked. null = All (no auto-sync on login).
+  const [selectedAccountLabel, setSelectedAccountLabel] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    try { return sessionStorage.getItem("nf-admin-selected-account") || null; } catch { return null; }
+  });
+  useEffect(() => {
+    try {
+      if (selectedAccountLabel) sessionStorage.setItem("nf-admin-selected-account", selectedAccountLabel);
+      else sessionStorage.removeItem("nf-admin-selected-account");
+    } catch {}
+  }, [selectedAccountLabel]);
+
+  // Admin-only: full list of configured account labels for the pill row.
+  const [allAccountLabels, setAllAccountLabels] = useState<string[]>([]);
+
+  // Refresh scope actually used by sync — admin narrows to picked pill.
+  const activeRefreshLabels = useMemo<string[] | null>(() => {
+    if (user.role !== "admin") return refreshAccountLabels;
+    if (selectedAccountLabel) return [selectedAccountLabel];
+    return null;
+  }, [user.role, refreshAccountLabels, selectedAccountLabel]);
+
   const [profilePrefs, setProfilePrefs] = useState<UserProfilePrefs>(() => user.profilePrefs || {});
   const viewerAvatarId = profilePrefs.avatarId || getStableProfileAvatar(user);
   const saveProfilePrefsLocally = useCallback((nextPrefs: UserProfilePrefs) => {
@@ -7897,6 +7920,13 @@ function EmailViewer() {
   const [refreshing, setRefreshing] = useState(false);
   const refreshingRef = useRef(false);
   const refreshPollRef = useRef<number | null>(null);
+
+  // Emails filtered for the currently selected admin pill.
+  const displayedEmails = useMemo(() => {
+    if (user.role !== "admin" || !selectedAccountLabel) return emails;
+    return emails.filter((e) => String(e.account_label || "").trim() === selectedAccountLabel);
+  }, [emails, user.role, selectedAccountLabel]);
+
   const [resolvedWorkerUrls, setResolvedWorkerUrls] = useState<string[]>(() => getStoredWorkerUrls());
   const [workerUrlMap, setWorkerUrlMap] = useState<WorkerUrlMap>({ primary: [], byAccount: {} });
   const [workerUrlsLoading, setWorkerUrlsLoading] = useState(true);
@@ -7975,6 +8005,7 @@ function EmailViewer() {
       try {
         const data = await apiCall("manage-app", { action: "get_settings", key: "email_accounts" });
         if (data.value && Array.isArray(data.value)) {
+          const labels: string[] = [];
           for (const acc of data.value) {
             const label = acc.label || acc.user;
             const accUrls: string[] = [];
@@ -7991,9 +8022,12 @@ function EmailViewer() {
             if (accUrls.length > 0 && label) {
               accountUrls[label] = accUrls;
             }
+            if (label && !labels.includes(String(label))) labels.push(String(label));
           }
+          setAllAccountLabels(labels);
         }
       } catch { }
+
 
       // Only primary URLs go into the general pool (used by apiCall)
       const normalizedPrimaryRaw = primaryUrls
@@ -8091,7 +8125,7 @@ function EmailViewer() {
 
 
   const syncViaWorker = useCallback(async (): Promise<Email[] | null> => {
-    const labels = refreshAccountLabels;
+    const labels = activeRefreshLabels;
     if (labels && labels.length === 0) return null;
     const started = performance.now();
     const data = await apiCall("fetch-emails", {
@@ -8109,7 +8143,7 @@ function EmailViewer() {
     });
     if (data?.success === false) return null;
     return Array.isArray(data?.emails) ? mergeEmailsById([data.emails as Email[]]) : null;
-  }, [pushDiag, refreshAccountLabels]);
+  }, [pushDiag, activeRefreshLabels]);
 
   const fetchEmails = async () => {
     if (refreshingRef.current) {
@@ -8200,6 +8234,10 @@ function EmailViewer() {
       try {
         await refreshEmailFiltersForViewer();
         await loadCachedEmails({ limit: 200 });
+        // Admin with "All" selected → skip IMAP sync entirely. Admin must
+        // pick a specific account pill to trigger a sync (option B).
+        const skipSync = user.role === "admin" && !selectedAccountLabel;
+        if (skipSync) return;
         const synced = await syncViaWorker();
         if (synced) {
           setEmails(synced);
@@ -8576,9 +8614,45 @@ function EmailViewer() {
               <div className="flex items-center justify-between mb-2">
                 <h3 className="font-bold text-slate-800 flex items-center gap-2">
                   Inbox
-                  <span className="bg-slate-200 text-slate-600 text-[10px] px-2 py-0.5 rounded-full">{emails.length}</span>
+                  <span className="bg-slate-200 text-slate-600 text-[10px] px-2 py-0.5 rounded-full">{displayedEmails.length}</span>
                 </h3>
               </div>
+
+              {user.role === "admin" && allAccountLabels.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-3">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedAccountLabel(null)}
+                    className={`px-3 py-1 rounded-full text-[11px] font-bold transition-all ${
+                      !selectedAccountLabel
+                        ? "bg-slate-900 text-white shadow-sm"
+                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    }`}
+                    title="Show cached emails from every account (no sync)"
+                  >
+                    All
+                  </button>
+                  {allAccountLabels.map((label) => (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={() => {
+                        setSelectedAccountLabel(label);
+                        // Trigger a scoped refresh immediately when admin picks a pill.
+                        setTimeout(() => { void fetchEmails(); }, 0);
+                      }}
+                      className={`px-3 py-1 rounded-full text-[11px] font-bold transition-all ${
+                        selectedAccountLabel === label
+                          ? "bg-red-600 text-white shadow-sm"
+                          : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                      }`}
+                      title={`Refresh only ${label}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
 
               {error && (
                 <div className="bg-red-50 border border-red-100 rounded-xl p-3 mb-2">
@@ -8587,17 +8661,19 @@ function EmailViewer() {
               )}
 
               <div className="space-y-2 flex-1 overflow-y-auto min-h-0">
-                {emails.length === 0 && !error ? (
+                {displayedEmails.length === 0 && !error ? (
                   <div className="bg-white border border-dashed border-slate-200 rounded-xl p-12 text-center">
                     <div className="bg-slate-50 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3">
                       <Mail className="text-slate-200 w-6 h-6" />
                     </div>
                     <p className="text-[10px] sm:text-xs text-slate-400 font-medium">
-                      No Netflix emails found
+                      {user.role === "admin" && !selectedAccountLabel && allAccountLabels.length > 0
+                        ? "Pick an account above to load emails"
+                        : "No Netflix emails found"}
                     </p>
                   </div>
                 ) : (
-                  emails.map(email => (
+                  displayedEmails.map(email => (
                     <button key={email.id} onClick={() => { void openEmail(email); }}
                       className={`w-full text-left p-3 rounded-xl border transition-all ${
                         selectedEmail?.id === email.id
