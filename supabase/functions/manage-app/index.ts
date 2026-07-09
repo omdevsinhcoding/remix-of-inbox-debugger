@@ -2937,6 +2937,9 @@ Deno.serve(async (originalReq) => {
     if (action === "back_to_admin") {
       const token = req.headers.get("x-session-token");
       if (!token) throw new Error("Authentication required");
+      // Accept expired tokens too: back_to_admin is a recovery path — an admin
+      // viewing a user account must be able to return to admin even if the
+      // impersonated access/refresh window lapsed while they were reviewing.
       const session = (await verifySessionTokenDual(token, SIGNING_SECRET, LEGACY_SIGNING))
         || (await verifySessionTokenDualAllowExpired(token, SIGNING_SECRET, LEGACY_SIGNING));
       if (!session) throw new Error("Session expired or invalid");
@@ -2946,12 +2949,14 @@ Deno.serve(async (originalReq) => {
         .select("id, user_id, role, parent_session_id, binding_hash, refresh_expires_at, revoked_at")
         .eq("token_hash", tokenHash)
         .maybeSingle();
-      if (!currentRow || currentRow.revoked_at) throw new Error("Session revoked. Please sign in again.");
-      if (currentRow.binding_hash) {
+      // Do NOT throw "Session revoked" here. If the row is gone/rotated/revoked
+      // we still try to recover as long as the token payload proves this was
+      // an impersonated session and the parent admin still exists.
+      if (currentRow?.binding_hash) {
         const current = await computeBindingHash(req);
         if (current !== currentRow.binding_hash) throw new Error("Session bound to another device. Please sign in again.");
       }
-      if (currentRow.parent_session_id && !session.adminId) {
+      if (currentRow?.parent_session_id && !session.adminId) {
         const { data: parent } = await supabase
           .from("app_sessions")
           .select("user_id, role, revoked_at")
@@ -2974,10 +2979,10 @@ Deno.serve(async (originalReq) => {
         throw new Error("Original admin account is no longer available");
       }
 
-      // Revoke the current impersonated session row.
-      try {
-        await supabase.from("app_sessions").delete().eq("id", currentRow.id);
-      } catch {}
+      // Revoke the current impersonated session row (may already be gone).
+      if (currentRow?.id) {
+        try { await supabase.from("app_sessions").delete().eq("id", currentRow.id); } catch {}
+      }
 
       const normalizedAssignedAccounts = await normalizeAssignedAccounts(supabase, adminUser.assigned_accounts);
       const pair = await mintSessionPair(adminUser.id, "admin", {
