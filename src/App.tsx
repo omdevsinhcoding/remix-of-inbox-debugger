@@ -8299,9 +8299,11 @@ function EmailViewer() {
 
     (async () => {
       try {
-        await refreshEmailFiltersForViewer();
-        await loadCachedEmails({ limit: 200 });
         if (user.role !== "admin") await loadServerSnapshot();
+        await Promise.all([
+          refreshEmailFiltersForViewer(),
+          loadCachedEmails({ limit: 200 }),
+        ]);
         // Admin with "All" selected → skip IMAP sync entirely. Admin must
         // pick a specific account pill to trigger a sync (option B).
         const skipSync = user.role === "admin" && !selectedAccountLabel;
@@ -8371,7 +8373,6 @@ function EmailViewer() {
         idbRef.current = db;
         console.log("[inbox] IDB opened for user", user.id);
         await purgeEmailsOutsideScope(db, refreshAccountLabels);
-        await refreshEmailFiltersForViewer();
 
         // ---- (1) Instant paint from IDB ----
         const canReadLocalScope = user.role === "admin" || Array.isArray(user.assignedAccounts);
@@ -8385,6 +8386,8 @@ function EmailViewer() {
           pushDiag({ ts: Date.now(), kind: "cache", endpoint: "idb:instant-paint", ms: Math.round(dt), note: `${cached.length} rows` });
           console.log(`[inbox] instant paint in ${dt.toFixed(1)}ms (${cached.length} rows from IDB)`);
         }
+
+        void refreshEmailFiltersForViewer();
 
         // ---- (2) Delta sync via Supabase edge function ----
         const storedCursor = await getSyncCursor(db);
