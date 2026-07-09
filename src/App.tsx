@@ -2757,12 +2757,20 @@ function ProfileSelectPage() {
                   <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-x-4 gap-y-7 sm:gap-x-6 sm:gap-y-9 mx-auto pb-4">
                     {displayProfiles.map((profile, i) => {
                       const d = `${Math.min(i, 30) * 75}ms`;
+                      const isFreeProfile = !!profile.isFree;
                       return (
                       <button
                         key={profile.id}
                         type="button"
-                        onClick={() => setSelectedProfile(profile)}
-                        className="flex flex-col items-center gap-2 sm:gap-3 group focus:outline-none min-w-0 profile-item-in"
+                        onClick={() => {
+                          if (isFreeProfile) {
+                            void loginFreeProfile(profile);
+                          } else {
+                            setSelectedProfile(profile);
+                          }
+                        }}
+                        disabled={isFreeProfile && freeLoginId === profile.id}
+                        className="flex flex-col items-center gap-2 sm:gap-3 group focus:outline-none min-w-0 profile-item-in disabled:opacity-70"
                         style={{ animationDelay: d, ["--tile-delay" as any]: d }}
                       >
                         <div className="relative rounded-md overflow-hidden ring-0 group-hover:ring-2 group-hover:ring-white aspect-square w-full max-w-[140px] transform-gpu transition-transform duration-150 ease-out group-hover:scale-105 group-active:scale-95 will-change-transform">
@@ -2773,6 +2781,27 @@ function ProfileSelectPage() {
                             fallbackColor={PROFILE_COLORS[i % PROFILE_COLORS.length]}
                             eager
                           />
+                          {isFreeProfile && (
+                            <span
+                              className="absolute top-1.5 right-1.5 inline-flex items-center gap-0.5 px-1.5 py-[2px] rounded-md text-[9px] sm:text-[10px] font-black tracking-[0.14em] uppercase text-white"
+                              style={{
+                                background: "linear-gradient(135deg,#00c853,#009624)",
+                                boxShadow: "0 2px 8px rgba(0,150,50,0.55), inset 0 0 0 1px rgba(255,255,255,0.25)",
+                                textShadow: "0 1px 2px rgba(0,0,0,0.4)",
+                              }}
+                            >
+                              FREE
+                            </span>
+                          )}
+                          {profile.pinned && (
+                            <span
+                              aria-label="Pinned"
+                              className="absolute top-1.5 left-1.5 inline-flex items-center justify-center w-5 h-5 rounded-full bg-black/60 backdrop-blur text-white"
+                              style={{ boxShadow: "0 2px 6px rgba(0,0,0,0.45)" }}
+                            >
+                              <svg viewBox="0 0 24 24" className="w-3 h-3" fill="currentColor"><path d="M14 4l6 6-4 1-3 3-1 6-4-4-5 5 5-5-4-4 6-1 3-3z"/></svg>
+                            </span>
+                          )}
                         </div>
                         <span className="text-neutral-400 group-hover:text-white text-[12px] sm:text-[14px] font-normal transition-colors duration-150 truncate max-w-full text-center">
                           {profile.name}
