@@ -1899,7 +1899,7 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
 
 // --- Types ---
 interface Email {
-  id: string; subject: string; from: string; to?: string; date: string; otp: string | null; preview: string; html: string; account_label?: string | null; cached_at?: string | null;
+  id: string; subject: string; from: string; to?: string; date: string; otp: string | null; preview: string; html: string; account_label?: string | null; cached_at?: string | null; destroyed?: boolean;
 }
 
 type EmailAccountConfig = { label: string; host: string; port: string; user: string; password: string; cloudflareUrls: string[]; recipientFilters?: string[] };
@@ -2086,7 +2086,9 @@ function mergeEmailsById(lists: Email[][]): Email[] {
   const byId = new Map<string, Email>();
   for (const list of lists) {
     for (const email of list) {
-      if (email?.id) byId.set(email.id, email);
+      if (!email?.id) continue;
+      if (email.destroyed) byId.delete(email.id);
+      else byId.set(email.id, email);
     }
   }
   return Array.from(byId.values()).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
