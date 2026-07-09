@@ -6242,6 +6242,13 @@ function AdminPanel() {
                   className="w-full bg-slate-50 border rounded-xl p-3 pr-12 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
 
                 <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Recipient filter</label>
+                  <input type="text" placeholder="omdevsinhgohil538+freenf@gmail.com" value={newAccountRecipients} onChange={(e) => setNewAccountRecipients(e.target.value)}
+                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                  <p className="text-[10px] text-slate-400 mt-1 ml-1">Optional. Only cache emails sent to these addresses. Use comma/space for multiple.</p>
+                </div>
+
+                <div>
                   <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Cloudflare Worker URLs</label>
                   <p className="text-[10px] text-slate-400 mb-2 ml-1">Assign dedicated Cloudflare Worker URLs to this account. Emails for this account will be fetched through these workers. If none are added, primary workers will be used. Multiple URLs are load-balanced randomly.</p>
                   <div className="space-y-1.5 mb-2">
@@ -6358,6 +6365,9 @@ function AdminPanel() {
                           {acc.cloudflareUrls && acc.cloudflareUrls.length > 0 && (
                             <p className="text-[10px] text-orange-600 font-bold mt-0.5">{acc.cloudflareUrls.length} Worker URL{acc.cloudflareUrls.length > 1 ? "s" : ""}</p>
                           )}
+                          {acc.recipientFilters && acc.recipientFilters.length > 0 && (
+                            <p className="text-[10px] text-emerald-600 font-bold mt-0.5">Recipient filter: {acc.recipientFilters.join(", ")}</p>
+                          )}
                         </div>
                         <button onClick={(e) => { e.stopPropagation(); removeEmailAccount(i); }}
                           className="p-2 hover:bg-red-50 text-red-400 hover:text-red-600 rounded-lg transition-colors">
@@ -6448,6 +6458,52 @@ function AdminPanel() {
                               </div>
                             ) : (
                               <p className="text-sm text-slate-400 font-medium">Not configured — click Edit URLs to add</p>
+                            )}
+                          </div>
+                          <div>
+                            <div className="flex items-center justify-between">
+                              <p className="text-[10px] font-bold text-emerald-600 uppercase">Recipient filter</p>
+                              <button onClick={(e) => {
+                                e.stopPropagation();
+                                if (editingAccountRecipients === i) {
+                                  setEditingAccountRecipients(null);
+                                } else {
+                                  setEditingAccountRecipients(i);
+                                  setEditRecipientsInput((acc.recipientFilters || []).join(", "));
+                                }
+                              }} className="text-[10px] font-bold text-emerald-700 hover:text-emerald-900 transition-colors">
+                                {editingAccountRecipients === i ? "Cancel" : "Edit filter"}
+                              </button>
+                            </div>
+                            {editingAccountRecipients === i ? (
+                              <div className="mt-1 space-y-1.5" onClick={(e) => e.stopPropagation()}>
+                                <input type="text" placeholder="omdevsinhgohil538+freenf@gmail.com" value={editRecipientsInput}
+                                  onChange={(e) => setEditRecipientsInput(e.target.value)}
+                                  className="w-full bg-white border rounded-lg p-1.5 outline-none focus:ring-2 focus:ring-emerald-500 text-xs" />
+                                <button onClick={async (e) => {
+                                  e.stopPropagation();
+                                  const updated = [...emailAccounts];
+                                  updated[i] = { ...updated[i], recipientFilters: parseRecipientFilters(editRecipientsInput) };
+                                  setEmailAccounts(updated);
+                                  setEditingAccountRecipients(null);
+                                  try {
+                                    await apiCall("manage-app", { action: "set_settings", key: "email_accounts", value: updated });
+                                    notify.success("Recipient filter updated!");
+                                  } catch (err) {
+                                    notify.error(err instanceof Error ? err.message : "Failed to save filter");
+                                  }
+                                }} className="w-full bg-emerald-600 text-white text-xs font-bold py-1.5 rounded-lg hover:bg-emerald-700 transition-all">
+                                  Save Filter
+                                </button>
+                              </div>
+                            ) : acc.recipientFilters && acc.recipientFilters.length > 0 ? (
+                              <div className="space-y-1 mt-1">
+                                {acc.recipientFilters.map((email) => (
+                                  <p key={email} className="text-sm text-slate-800 font-medium break-all">• {email}</p>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-sm text-slate-400 font-medium">No filter — all recipients in this inbox are cached</p>
                             )}
                           </div>
                           <div>
