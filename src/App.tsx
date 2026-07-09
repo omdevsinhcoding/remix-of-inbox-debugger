@@ -7788,6 +7788,7 @@ function EmailViewer() {
     setEmailsRaw(visible);
   }, [profilePrefs, user]);
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
+  const [loadingEmailHtmlId, setLoadingEmailHtmlId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
