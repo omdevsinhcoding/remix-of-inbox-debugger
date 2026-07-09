@@ -244,6 +244,56 @@ const PlatformChipVisual: React.FC<{ id?: string | null; size?: number; audit?: 
   );
 };
 
+// Premium framed tile for user-facing notification icons (popup / center / list).
+// Uses admin-selected platform_icon when set, otherwise falls back to the category glyph.
+const NotifIconTile: React.FC<{
+  platformId?: string | null;
+  fallback?: React.ReactNode;
+  size?: number;
+  tone?: "dark" | "light";
+}> = ({ platformId, fallback, size = 44, tone = "dark" }) => {
+  const resolved = platformId ? resolvePlatformOption(platformId) : null;
+  const hasPlatform = !!(resolved && resolved.id);
+  const radius = Math.round(size * 0.28);
+  const inner = Math.round(size * 0.78);
+  const bg = tone === "dark"
+    ? "linear-gradient(160deg, rgba(255,255,255,0.09), rgba(255,255,255,0.02))"
+    : "linear-gradient(160deg, #ffffff, #f4f4f6)";
+  const ring = tone === "dark" ? "1px solid rgba(255,255,255,0.10)" : "1px solid rgba(0,0,0,0.06)";
+  const shadow = tone === "dark"
+    ? "0 10px 28px -12px rgba(0,0,0,0.65), inset 0 1px 0 rgba(255,255,255,0.08)"
+    : "0 8px 22px -10px rgba(15,15,20,0.35), inset 0 1px 0 rgba(255,255,255,0.9)";
+  return (
+    <div
+      className="flex-shrink-0 flex items-center justify-center relative"
+      style={{
+        width: size,
+        height: size,
+        borderRadius: radius,
+        background: bg,
+        border: ring,
+        boxShadow: shadow,
+      }}
+    >
+      {hasPlatform ? (
+        <PlatformChipVisual id={resolved!.id} size={inner} />
+      ) : (
+        <div
+          className="flex items-center justify-center rounded-full"
+          style={{
+            width: inner,
+            height: inner,
+            background: tone === "dark" ? "rgba(255,255,255,0.04)" : "rgba(15,15,20,0.04)",
+          }}
+        >
+          {fallback}
+        </div>
+      )}
+    </div>
+  );
+};
+
+
 // Template icon (lucide)
 const TemplateIcon: React.FC<{ id: string; className?: string }> = ({ id, className = "w-4 h-4" }) => {
   switch (id) {
