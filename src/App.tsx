@@ -2088,7 +2088,11 @@ interface UserData {
 
 function isLocationRequiredForProfile(profile?: Partial<UserData> | null) {
   if (!profile || profile.isFree) return false;
-  return profile.locationRequired === true || profile.profilePrefs?.locationRequired === true;
+  // Default: required unless explicitly disabled (false).
+  const top = profile.locationRequired;
+  const nested = profile.profilePrefs?.locationRequired;
+  if (top === false || nested === false) return false;
+  return true;
 }
 
 function getUserRefreshAccountLabels(user: Partial<UserData>): string[] | null {
