@@ -5175,9 +5175,16 @@ function AdminPanel() {
       notify.error("Fill label, email, and password");
       return;
     }
+    const updated = emailAccounts.map((acc, i) => (
+      i === index
+        ? { ...acc, recipientFilters: editingAccountRecipients === index ? parseRecipientFilters(editRecipientsInput) : (acc.recipientFilters || []) }
+        : acc
+    ));
     setSavingAccounts(true);
     try {
-      await apiCall("manage-app", { action: "set_settings", key: "email_accounts", value: emailAccounts });
+      setEmailAccounts(updated);
+      setEditingAccountRecipients(null);
+      await apiCall("manage-app", { action: "set_settings", key: "email_accounts", value: updated });
       notify.success("Account updated!");
     } catch (err) {
       notify.error(err instanceof Error ? err.message : "Failed to save account");
