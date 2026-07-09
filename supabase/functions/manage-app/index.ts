@@ -1706,7 +1706,7 @@ Deno.serve(async (originalReq) => {
       // Order: pinned first, then admin-defined sort_order, then creation time.
       const usersP = supabase
         .from("app_users")
-        .select("id, username, name, role, profile_prefs, is_free, pinned, sort_order")
+        .select("id, username, name, role, profile_prefs, is_free, pinned, sort_order, expires_at")
         .neq("role", "admin")
         .order("pinned", { ascending: false })
         .order("sort_order", { ascending: true, nullsFirst: false })
@@ -1783,16 +1783,20 @@ Deno.serve(async (originalReq) => {
         avatarBaseUrl = r2.publicBaseUrl || "";
       } catch {}
 
-      const mappedUsers = (users || []).map((u: any) => ({
-        id: u.id,
-        username: u.username,
-        name: u.name,
-        role: u.role,
-        profileAvatar: u.profile_prefs?.avatarId || null,
-        isFree: !!u.is_free,
-        pinned: !!u.pinned,
-        sortOrder: u.sort_order ?? null,
-      }));
+      const nowMs = Date.now();
+      const mappedUsers = (users || [])
+        .filter((u: any) => !(u.is_free && u.expires_at && Date.parse(u.expires_at) <= nowMs))
+        .map((u: any) => ({
+          id: u.id,
+          username: u.username,
+          name: u.name,
+          role: u.role,
+          profileAvatar: u.profile_prefs?.avatarId || null,
+          isFree: !!u.is_free,
+          pinned: !!u.pinned,
+          sortOrder: u.sort_order ?? null,
+          expiresAt: u.expires_at || null,
+        }));
       const payload = { success: true, users: mappedUsers, recaptcha, workerUrls, emailFilters, maintenance, avatarBaseUrl };
       __bootstrapCache = { at: now, payload };
       return new Response(JSON.stringify(payload), {
@@ -1806,7 +1810,7 @@ Deno.serve(async (originalReq) => {
       await requireAdmin(req);
       const { data, error } = await supabase
         .from("app_users")
-        .select("id, username, name, role, assigned_accounts, profile_prefs, session_limit, is_free, pinned, sort_order")
+        .select("id, username, name, role, assigned_accounts, profile_prefs, session_limit, is_free, pinned, sort_order, expires_at")
         .order("pinned", { ascending: false })
         .order("sort_order", { ascending: true, nullsFirst: false })
         .order("created_at", { ascending: true });
@@ -1818,6 +1822,7 @@ Deno.serve(async (originalReq) => {
         isFree: !!u.is_free,
         pinned: !!u.pinned,
         sortOrder: u.sort_order ?? null,
+        expiresAt: u.expires_at || null,
       }));
       return new Response(JSON.stringify({ success: true, users: mappedData }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -1987,10 +1992,20 @@ Deno.serve(async (originalReq) => {
     }
 
     if (action === "create") {
-      const { username, password, name, role, assigned_accounts, is_free } = params;
+      const { username, password, name, role, assigned_accounts, is_free, expires_at } = params;
       const isFree = !!is_free;
       if (!name) throw new Error("Name required");
       if (!isFree && (!username || !password)) throw new Error("Username and password required");
+
+      // Only free profiles may have an expiry. Validate + normalize.
+      let expiresAtIso: string | null = null;
+      if (expires_at) {
+        if (!isFree) throw new Error("Only free profiles can have an expiry");
+        const t = Date.parse(String(expires_at));
+        if (!Number.isFinite(t)) throw new Error("Invalid expiry date");
+        if (t <= Date.now()) throw new Error("Expiry must be in the future");
+        expiresAtIso = new Date(t).toISOString();
+      }
 
       // Optionally require admin session for creating users
       let bootstrapCreate = false;
@@ -2005,6 +2020,9 @@ Deno.serve(async (originalReq) => {
         bootstrapCreate = true;
       }
 
+      // Bootstrap (first user) can never be a free profile — must be admin.
+      if (bootstrapCreate && isFree) throw new Error("First user must be admin");
+
       // Free profile: auto-generate username + random password (never used).
       const finalUsername = isFree
         ? (username && String(username).trim() ? String(username).trim() : `free_${crypto.randomUUID().slice(0, 8)}`)
@@ -2013,24 +2031,26 @@ Deno.serve(async (originalReq) => {
         ? crypto.randomUUID() + crypto.randomUUID()
         : password;
       const hashed = await hashPassword(rawPassword);
+      const finalRole = isFree ? "user" : (role || "user");
       const insertPayload: any = {
         username: finalUsername,
         password: hashed,
         name,
-        role: role || "user",
+        role: finalRole,
         assigned_accounts: assigned_accounts || null,
         is_free: isFree,
+        expires_at: expiresAtIso,
         must_change_password: false,
       };
       const { data, error } = await supabase
         .from("app_users")
         .insert(insertPayload)
-        .select("id, username, name, role, assigned_accounts, profile_prefs, is_free, pinned, sort_order")
+        .select("id, username, name, role, assigned_accounts, profile_prefs, is_free, pinned, sort_order, expires_at")
         .single();
       if (error) throw error;
       invalidateBootstrapCache();
 
-      await auditLog(supabase, bootstrapCreate ? "bootstrap_admin_created" : (isFree ? "free_user_created" : "user_created"), actorId, data.id, { username: finalUsername, role: role || "user", isFree }, ip);
+      await auditLog(supabase, bootstrapCreate ? "bootstrap_admin_created" : (isFree ? "free_user_created" : "user_created"), actorId, data.id, { username: finalUsername, role: finalRole, isFree, expiresAt: expiresAtIso }, ip);
 
       return new Response(JSON.stringify({
         success: true,
@@ -2041,6 +2061,7 @@ Deno.serve(async (originalReq) => {
           isFree: !!data.is_free,
           pinned: !!data.pinned,
           sortOrder: data.sort_order ?? null,
+          expiresAt: data.expires_at || null,
         },
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -2432,13 +2453,22 @@ Deno.serve(async (originalReq) => {
 
     if (action === "update_user") {
       const session = await requireAdmin(req);
-      const { id, assigned_accounts, session_limit, pinned, is_free, name } = params;
+      const { id, assigned_accounts, session_limit, pinned, is_free, name, expires_at } = params;
       if (!id) throw new Error("User ID required");
       const patch: Record<string, any> = {};
       if (assigned_accounts !== undefined) patch.assigned_accounts = assigned_accounts;
       if (typeof name === "string" && name.trim()) patch.name = name.trim();
       if (pinned !== undefined) patch.pinned = !!pinned;
       if (is_free !== undefined) patch.is_free = !!is_free;
+      if (expires_at !== undefined) {
+        if (expires_at === null || expires_at === "") {
+          patch.expires_at = null;
+        } else {
+          const t = Date.parse(String(expires_at));
+          if (!Number.isFinite(t)) throw new Error("Invalid expiry date");
+          patch.expires_at = new Date(t).toISOString();
+        }
+      }
       if (session_limit !== undefined) {
         // null | "" -> clear (fall back to global). Otherwise clamp to a sane non-negative int.
         if (session_limit === null || session_limit === "") {
@@ -2489,6 +2519,17 @@ Deno.serve(async (originalReq) => {
         .neq("role", "admin")
         .single();
       if (error || !user) throw new Error("Free profile not found");
+
+      // Hard safety: only actual free profiles reach this branch. Never grant
+      // a session to a paid/admin account through this endpoint.
+      if (!user.is_free || user.role === "admin") throw new Error("Not a free profile");
+
+      // Enforce expiry — and clean up expired free profiles opportunistically.
+      if (user.expires_at && Date.parse(user.expires_at) <= Date.now()) {
+        try { await supabase.from("app_users").delete().eq("id", user.id).eq("is_free", true); } catch {}
+        invalidateBootstrapCache();
+        throw new Error("This free profile has expired");
+      }
 
       await auditLog(supabase, "login_free", user.id, null, { username: user.username }, ip);
 

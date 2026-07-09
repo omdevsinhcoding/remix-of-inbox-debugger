@@ -2004,7 +2004,7 @@ function emailHtmlForDisplay(email: Email | null) {
 }
 interface UserData {
   id: string; username: string; name: string; role: "admin" | "user"; totpSecret?: string; mustChangePassword?: boolean; assignedAccounts?: string[] | null; profileAvatar?: string | null; profilePrefs?: UserProfilePrefs;
-  isFree?: boolean; pinned?: boolean; sortOrder?: number | null; session_limit?: number | null;
+  isFree?: boolean; pinned?: boolean; sortOrder?: number | null; session_limit?: number | null; expiresAt?: string | null;
 }
 
 function getUserRefreshAccountLabels(user: Partial<UserData>): string[] | null {
@@ -4049,7 +4049,9 @@ function AdminPanel() {
   const [editingUserAccounts, setEditingUserAccounts] = useState<string | null>(null);
   const [editAccountsList, setEditAccountsList] = useState<string[]>([]);
   const [editSessionLimit, setEditSessionLimit] = useState<string>("");
+  const [editExpiresAt, setEditExpiresAt] = useState<string>(""); // "YYYY-MM-DDTHH:mm" for free users only
   const [newIsFree, setNewIsFree] = useState(false);
+  const [newFreeExpiresAt, setNewFreeExpiresAt] = useState<string>(""); // "YYYY-MM-DDTHH:mm"
   const [dragUserId, setDragUserId] = useState<string | null>(null);
   const [reordering, setReordering] = useState(false);
   const [serverConfig, setServerConfig] = useState({
@@ -4877,6 +4879,13 @@ function AdminPanel() {
     if (creatingUser) return;
     setCreatingUser(true);
     try {
+      let expiresIso: string | null = null;
+      if (newIsFree && newFreeExpiresAt) {
+        const t = Date.parse(newFreeExpiresAt);
+        if (!Number.isFinite(t)) { notify.error("Invalid expiry date"); setCreatingUser(false); return; }
+        if (t <= Date.now()) { notify.error("Expiry must be in the future"); setCreatingUser(false); return; }
+        expiresIso = new Date(t).toISOString();
+      }
       const res: any = await apiCall("manage-app", {
         action: "create",
         username: newIsFree ? (newUsername || undefined) : newUsername,
@@ -4884,8 +4893,9 @@ function AdminPanel() {
         name: newName, role: "user",
         assigned_accounts: newUserAccounts.length > 0 ? newUserAccounts : null,
         is_free: newIsFree,
+        expires_at: expiresIso,
       });
-      setNewUsername(""); setNewPassword(""); setNewName(""); setNewUserAccounts([]); setNewIsFree(false);
+      setNewUsername(""); setNewPassword(""); setNewName(""); setNewUserAccounts([]); setNewIsFree(false); setNewFreeExpiresAt("");
       if (!res?.user) throw new Error("Server did not return the created user");
       setUsers(prev => [...prev, res.user]);
       setStats(prev => ({ ...prev, totalUsers: prev.totalUsers + 1 }));
@@ -4982,15 +4992,29 @@ function AdminPanel() {
     try {
       const raw = editSessionLimit.trim();
       const session_limit = raw === "" ? null : Math.max(0, Math.min(50, Math.floor(Number(raw) || 0)));
+      const target = users.find(x => x.id === userId);
+      const isFreeTarget = !!target?.isFree;
+      let expires_at: string | null | undefined = undefined;
+      if (isFreeTarget) {
+        if (!editExpiresAt) {
+          expires_at = null;
+        } else {
+          const t = Date.parse(editExpiresAt);
+          if (!Number.isFinite(t)) { notify.error("Invalid expiry date"); return; }
+          if (t <= Date.now()) { notify.error("Expiry must be in the future"); return; }
+          expires_at = new Date(t).toISOString();
+        }
+      }
       await apiCall("manage-app", {
         action: "update_user",
         id: userId,
         assigned_accounts: editAccountsList.length > 0 ? editAccountsList : null,
         session_limit,
+        ...(expires_at !== undefined ? { expires_at } : {}),
       });
       const nextAccounts = editAccountsList.length > 0 ? editAccountsList : null;
       setEditingUserAccounts(null);
-      setUsers(prev => prev.map(u => u.id === userId ? { ...u, assignedAccounts: nextAccounts, session_limit } : u));
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, assignedAccounts: nextAccounts, session_limit, ...(expires_at !== undefined ? { expiresAt: expires_at } as any : {}) } : u));
       notify.success("User settings updated!");
     } catch (err) {
       notify.error(err instanceof Error ? err.message : "Failed to update");
@@ -5110,6 +5134,19 @@ function AdminPanel() {
                   <p className="text-[10px] text-slate-400 mt-1">Leave empty = user sees no accounts</p>
                 </div>
 
+                {newIsFree && (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Expires at (optional)</label>
+                    <DateTimePicker value={newFreeExpiresAt} onChange={setNewFreeExpiresAt} />
+                    <p className="text-[10px] text-slate-400 mt-1">Free profile is auto-deleted after this time. Leave empty = never expires.</p>
+                    {newFreeExpiresAt && (
+                      <button type="button" onClick={() => setNewFreeExpiresAt("")}
+                        className="mt-1 text-[11px] text-emerald-700 hover:underline">Clear expiry</button>
+                    )}
+                  </div>
+                )}
+
+
                 <button onClick={createUser}
                   disabled={creatingUser}
                   className={`w-full text-white font-bold py-3 rounded-xl transition-all text-sm ${newIsFree ? "bg-emerald-600 hover:bg-emerald-700" : "bg-slate-900 hover:bg-slate-800"}`}>
@@ -5165,6 +5202,11 @@ function AdminPanel() {
                               Session limit: {(u as any).session_limit === 0 ? "unlimited" : `${(u as any).session_limit} device${(u as any).session_limit === 1 ? "" : "s"}`}
                             </p>
                           )}
+                          {u.isFree && (u as any).expiresAt && (
+                            <p className="text-[10px] text-emerald-700 mt-0.5 font-semibold">
+                              Expires: {new Date((u as any).expiresAt).toLocaleString()}
+                            </p>
+                          )}
                           {(!u.assignedAccounts || u.assignedAccounts.length === 0) && u.role !== "admin" && (
                             <p className="text-[10px] text-amber-600 mt-0.5 font-semibold">No accounts assigned</p>
                           )}
@@ -5186,6 +5228,14 @@ function AdminPanel() {
                               setEditAccountsList((u as any).assignedAccounts || []);
                               const cur = (u as any).session_limit;
                               setEditSessionLimit(cur === null || cur === undefined ? "" : String(cur));
+                              const exp = (u as any).expiresAt as string | null | undefined;
+                              if (exp) {
+                                const d = new Date(exp);
+                                const pad = (n: number) => String(n).padStart(2, "0");
+                                setEditExpiresAt(`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`);
+                              } else {
+                                setEditExpiresAt("");
+                              }
                             }} title="Edit accounts & session limit"
                             className="p-2 hover:bg-green-50 text-green-400 hover:text-green-600 rounded-lg transition-colors">
                             <Edit className="w-4 h-4" />
@@ -5221,22 +5271,37 @@ function AdminPanel() {
                             </label>
                           ))}
                         </div>
-                        <div className="mb-2">
-                          <label className="block text-xs font-bold text-slate-500 mb-1">Concurrent session limit</label>
-                          <input
-                            type="number"
-                            min={0}
-                            max={50}
-                            step={1}
-                            value={editSessionLimit}
-                            onChange={(e) => setEditSessionLimit(e.target.value)}
-                            placeholder="Blank = use global default"
-                            className="w-full bg-slate-50 border rounded-lg p-2 outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
-                          />
-                          <p className="text-[10px] text-slate-400 mt-1">
-                            How many devices this user can be signed in on at once. <b>Blank</b> = use the global limit set under Security. <b>0</b> = unlimited for this user. <b>1, 2, …</b> = cap; extra logins kick the oldest device out.
-                          </p>
-                        </div>
+                        {!u.isFree && (
+                          <div className="mb-2">
+                            <label className="block text-xs font-bold text-slate-500 mb-1">Concurrent session limit</label>
+                            <input
+                              type="number"
+                              min={0}
+                              max={50}
+                              step={1}
+                              value={editSessionLimit}
+                              onChange={(e) => setEditSessionLimit(e.target.value)}
+                              placeholder="Blank = use global default"
+                              className="w-full bg-slate-50 border rounded-lg p-2 outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
+                            />
+                            <p className="text-[10px] text-slate-400 mt-1">
+                              How many devices this user can be signed in on at once. <b>Blank</b> = use the global limit set under Security. <b>0</b> = unlimited for this user. <b>1, 2, …</b> = cap; extra logins kick the oldest device out.
+                            </p>
+                          </div>
+                        )}
+                        {u.isFree && (
+                          <div className="mb-2">
+                            <label className="block text-xs font-bold text-slate-500 mb-1">Expires at</label>
+                            <DateTimePicker value={editExpiresAt} onChange={setEditExpiresAt} />
+                            <div className="flex items-center justify-between mt-1">
+                              <p className="text-[10px] text-slate-400">Auto-deletes after this time. Leave empty = never.</p>
+                              {editExpiresAt && (
+                                <button type="button" onClick={() => setEditExpiresAt("")}
+                                  className="text-[11px] text-emerald-700 hover:underline">Clear</button>
+                              )}
+                            </div>
+                          </div>
+                        )}
                         <button onClick={() => updateUserAccounts(u.id)}
                           className="w-full bg-green-600 text-white text-xs font-bold py-2 rounded-lg hover:bg-green-700 transition-all">
                           Save Settings
