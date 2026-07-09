@@ -892,6 +892,10 @@ async function apiCall(functionName: string, body: any) {
     if (t2) extraHeaders["X-Session-Token"] = t2;
   }
 
+  const isTransientEdgeError = (value: unknown) => /Secure connection|handshake|Failed to fetch|NetworkError|busy|timeout|temporar|unknown session|bad frame|non-binary|stale request|replay|origin mismatch/i.test(
+    value instanceof Error ? value.message : String(value || ""),
+  );
+
   let data: any;
   try {
     data = await invokeEdge(functionName, body, { headers: extraHeaders });
@@ -905,6 +909,11 @@ async function apiCall(functionName: string, body: any) {
       if (!ok) throw err;
       const t3 = getSessionToken();
       if (t3) extraHeaders["X-Session-Token"] = t3;
+      data = await invokeEdge(functionName, body, { headers: extraHeaders });
+    } else if (isTransientEdgeError(err)) {
+      await new Promise((r) => setTimeout(r, 750));
+      const t4 = getSessionToken();
+      if (t4) extraHeaders["X-Session-Token"] = t4;
       data = await invokeEdge(functionName, body, { headers: extraHeaders });
     } else {
       throw err;
@@ -989,13 +998,18 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       } else {
         throw new Error(res?.error || "Session invalid");
       }
-    } catch {
+    } catch (err) {
       // Session revoked, expired, or account missing → force logout.
       // Exception: an admin viewing a user account must never be dumped into
       // maintenance on refresh because of a transient /me or refresh failure.
       // Keep the cached server-signed impersonation shell so Back to Admin can
       // still use the existing token row (back_to_admin accepts expired access).
       if (cachedBeforeHydrate?.impersonated === true && cachedBeforeHydrate?.id) {
+        setUser(cachedBeforeHydrate);
+        return;
+      }
+      const msg = err instanceof Error ? err.message : String(err || "");
+      if (cachedBeforeHydrate?.id && /Secure connection|handshake|Failed to fetch|NetworkError|busy|timeout|temporar/i.test(msg)) {
         setUser(cachedBeforeHydrate);
         return;
       }
@@ -1045,6 +1059,7 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         channel = supabase
           .channel(`session-family-${fid}`)
           .on("broadcast", { event: "revoked" }, async () => {
+            if ((user as any)?.impersonated === true) return;
             try {
               sessionRemove("session_token" as any);
               sessionRemove("user" as any);
@@ -8078,7 +8093,12 @@ function EmailViewer() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to load";
       notify.dismiss(toastId);
-      notify.error("Refresh could not complete", { description: msg, duration: 3200 });
+      if (/Secure connection|handshake|Failed to fetch|NetworkError|busy|timeout|temporar/i.test(msg)) {
+        await loadCachedEmails({ limit: 200 });
+        notify.info("Inbox is still available", { description: "Mail check is retrying in the background.", duration: 2600 });
+      } else {
+        notify.error("Mail check needs attention", { description: msg, duration: 3200 });
+      }
 
 
 

@@ -138,11 +138,18 @@ async function requireSession(req: Request, body: any, primary: string, legacy?:
       const tokenHash = await sha256Hex(token);
       const { data: sessRow } = await supabase
         .from("app_sessions")
-        .select("id, revoked_at, expires_at, refresh_expires_at, parent_session_id")
+        .select("id, revoked_at, revoked_reason, expires_at, refresh_expires_at, parent_session_id, family_id")
         .eq("token_hash", tokenHash)
         .maybeSingle();
-      if (!sessRow) return null;
-      if (sessRow.revoked_at) return null;
+      if (!sessRow) {
+        if (p.impersonated === true && typeof p.adminId === "string") return p;
+        return null;
+      }
+      if (sessRow.revoked_at) {
+        const rotatedGrace = /^rotated/i.test(String(sessRow.revoked_reason || ""))
+          && Date.now() - new Date(sessRow.revoked_at).getTime() < 2 * 60 * 1000;
+        if (!rotatedGrace && !(p.impersonated === true && typeof p.adminId === "string")) return null;
+      }
       const rowExpired = sessRow.expires_at && new Date(sessRow.expires_at).getTime() < Date.now();
       if (tokenExpired || rowExpired) {
         let allowExpiredImpersonation = false;
@@ -914,6 +921,19 @@ Deno.serve(async (originalReq) => {
     }
 
     const result = await runSync(supabase, ENCRYPTION_SECRET, source, accountLabels, clampLimit(body.limit, FULL_SYNC_MAX_UIDS, FULL_SYNC_MAX_UIDS));
+    if (userRequestedSync && session && result?.success === false) {
+      const accountFilterForCache = await getAssignedAccountFilter(supabase, session);
+      const cache = await readCache(supabase, accountFilterForCache, filterSignInCodes, filterPasswordResets, filterAccountUpdates, session, body.limit).catch(() => []);
+      return json({
+        success: true,
+        fallback: true,
+        warning: result.error || "Mail server is temporarily unavailable",
+        emails: cache,
+        stats: result.stats || {},
+        totalFetched: Array.isArray(cache) ? cache.length : 0,
+        inserted: 0,
+      });
+    }
     if (!session && isCron && result?.success !== false) {
       return json({
         success: true,
