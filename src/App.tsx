@@ -671,7 +671,7 @@ function showGpsPermissionToast(message: string) {
   if (mode === "blocked") {
     notify.error("Location blocked", {
       id: GPS_PERMISSION_TOAST_ID,
-      description: "Use Enable Location below.",
+      description: "Reset Location in the browser site settings, then tap Enable Location again.",
       duration: 9000,
     });
   } else {
@@ -2695,6 +2695,13 @@ function ProfileSelectPage() {
     setGpsRequesting(true);
     setError("");
     notify.dismiss(GPS_PERMISSION_TOAST_ID);
+    if (gpsPermissionMode === "blocked") {
+      notify.error("Location blocked in browser", {
+        id: GPS_PERMISSION_TOAST_ID,
+        description: "Normal Chrome will not show the native popup again until you reset Location from the lock/tune icon.",
+        duration: 9000,
+      });
+    }
     try {
       const [location, device] = await Promise.all([geoPromise, devicePromise]);
       if (location.status === "granted" && typeof location.latitude === "number" && typeof location.longitude === "number") {
@@ -3228,6 +3235,13 @@ function AdminLoginPage() {
     setGpsRequesting(true);
     setError("");
     notify.dismiss(GPS_PERMISSION_TOAST_ID);
+    if (gpsPermissionMode === "blocked") {
+      notify.error("Location blocked in browser", {
+        id: GPS_PERMISSION_TOAST_ID,
+        description: "Normal Chrome will not show the native popup again until you reset Location from the lock/tune icon.",
+        duration: 9000,
+      });
+    }
     try {
       const [location, device] = await Promise.all([geoPromise, devicePromise]);
       if (location.status === "granted" && typeof location.latitude === "number" && typeof location.longitude === "number") {
