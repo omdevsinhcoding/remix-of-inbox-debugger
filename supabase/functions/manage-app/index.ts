@@ -1846,16 +1846,12 @@ Deno.serve(async (originalReq) => {
       const settingsP = supabase
         .from("app_settings")
         .select("key,value")
-        .in("key", ["recaptcha", "primary_cloudflare_urls", "email_filters", "maintenance", "r2_storage", "location_policy"]);
+        .in("key", ["recaptcha", "primary_cloudflare_urls", "email_filters", "maintenance", "r2_storage"]);
 
       const [{ data: users, error: usersErr }, { data: settingRows }] = await Promise.all([usersP, settingsP]);
       if (usersErr) throw usersErr;
 
       const settings = new Map((settingRows || []).map((row: any) => [row.key, row.value]));
-
-      // Location policy — default TRUE (require GPS) unless admin explicitly turned it off.
-      const locPolicy: any = settings.get("location_policy");
-      const locationRequired = locPolicy && typeof locPolicy === "object" ? (locPolicy.required !== false) : true;
 
       let recaptcha = null;
       const rcData: any = settings.get("recaptcha");
@@ -1933,7 +1929,7 @@ Deno.serve(async (originalReq) => {
           sortOrder: u.sort_order ?? null,
           expiresAt: u.expires_at || null,
         }));
-      const payload = { success: true, users: mappedUsers, recaptcha, workerUrls, emailFilters, maintenance, avatarBaseUrl, locationRequired };
+      const payload = { success: true, users: mappedUsers, recaptcha, workerUrls, emailFilters, maintenance, avatarBaseUrl };
       __bootstrapCache = { at: now, payload };
       return new Response(JSON.stringify(payload), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
