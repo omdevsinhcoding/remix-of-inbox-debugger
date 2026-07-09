@@ -433,6 +433,11 @@ async function readCache(supabase: any, accountFilter: string[] | null, filterSi
   return applyEmailFilters(emails, filterSignInCodes, filterPasswordResets, filterAccountUpdates, blockPromo);
 }
 
+function isDirtyCachedEmail(row: any): boolean {
+  const value = `${row?.preview || ""}\n${row?.html || ""}`;
+  return /Content-Transfer-Encoding|MIME-Version:|Content-Type:|------=_Part_|&(?:shy|#8199|#847|#8201|#8202);|â|Â/.test(value);
+}
+
 async function fetchFromAccount(
   imapHost: string,
   imapPort: number,
@@ -687,8 +692,8 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
     }
   }
 
-  const { data: cachedRows } = await supabase.from("cached_emails").select("id");
-  const cachedIds = new Set((cachedRows || []).map((r: any) => String(r.id)));
+  const { data: cachedRows } = await supabase.from("cached_emails").select("id, preview, html");
+  const cachedIds = new Set((cachedRows || []).filter((r: any) => !isDirtyCachedEmail(r)).map((r: any) => String(r.id)));
 
   const settled = await Promise.allSettled(accounts.map(async (acc) => {
     console.log(`[sync] Fetching ${acc.label} (${acc.user})`);
@@ -739,7 +744,7 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
       destroyed: false,
     }));
 
-    const { error: upsertErr } = await supabase.from("cached_emails").upsert(rows, { onConflict: "id", ignoreDuplicates: true });
+    const { error: upsertErr } = await supabase.from("cached_emails").upsert(rows, { onConflict: "id" });
     if (upsertErr) console.error("[sync] Cache upsert error:", upsertErr);
     inserted = rows.length;
   }
