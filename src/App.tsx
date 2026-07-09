@@ -2064,12 +2064,21 @@ function stripRawMimeNoise(value = "") {
     .replace(/^Content-(Type|Transfer-Encoding|Disposition|ID|Description):.*$/gim, "")
     .replace(/^MIME-Version:.*$/gim, "")
     .replace(/^charset=.*$/gim, "")
+    .replace(/&shy;|\u00ad/gi, "")
+    .replace(/&#(?:8199|8201|8202|8239);/gi, " ")
     .replace(/&nbsp;/gi, " ")
     .replace(/&amp;/gi, "&")
     .replace(/&lt;/gi, "<")
     .replace(/&gt;/gi, ">")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .replace(/[\u2000-\u200A\u202F\u205F\u3000]/g, " ")
+    .replace(/â/g, "’")
+    .replace(/â/g, "“")
+    .replace(/â/g, "”")
+    .replace(/â/g, "–")
+    .replace(/Â\s*/g, "")
     .replace(/\r/g, "")
-    .replace(/[ \t]+/g, " ")
+    .replace(/[ \t]{2,}/g, " ")
     .replace(/\n[ \t]+/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
@@ -2080,13 +2089,28 @@ function looksLikeRawMime(value = "") {
 }
 
 function decodeQuotedPrintableText(input = "") {
-  try {
-    return String(input || "")
-      .replace(/=\r?\n/g, "")
-      .replace(/=([0-9A-F]{2})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
-  } catch {
-    return String(input || "");
+  const normalized = String(input || "").replace(/=\r?\n/g, "");
+  if (!/=([0-9A-Fa-f]{2})/.test(normalized)) return normalized;
+  const bytes: number[] = [];
+  for (let i = 0; i < normalized.length; i++) {
+    if (normalized[i] === "=" && /^[0-9A-Fa-f]{2}$/.test(normalized.slice(i + 1, i + 3))) {
+      bytes.push(parseInt(normalized.slice(i + 1, i + 3), 16));
+      i += 2;
+    } else {
+      bytes.push(normalized.charCodeAt(i));
+    }
   }
+  try { return new TextDecoder("utf-8", { fatal: false }).decode(new Uint8Array(bytes)); }
+  catch { return normalized; }
+}
+
+function cleanEmailSnippet(value = "") {
+  return stripRawMimeNoise(decodeHtmlEntities(decodeQuotedPrintableText(String(value || ""))))
+    .replace(/^[-=_A-Za-z0-9.'+\/]{12,}.*$/gm, "")
+    .replace(/\[[^\]]*https?:\/\/[^\]]+\]/g, "")
+    .replace(/https?:\/\/\S+/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function extractDisplayableMimePart(raw = "") {
@@ -2094,7 +2118,7 @@ function extractDisplayableMimePart(raw = "") {
   const parts = source.split(/\n--[^\n]+/g).map((part) => part.trim()).filter(Boolean);
   const htmlPart = parts.find((part) => /Content-Type:\s*text\/html/i.test(part)) || "";
   const textPart = parts.find((part) => /Content-Type:\s*text\/plain/i.test(part)) || "";
-  const chosen = htmlPart || textPart || source;
+  const chosen = textPart || htmlPart || source;
   const bodyStart = chosen.search(/\n\n/);
   const body = bodyStart >= 0 ? chosen.slice(bodyStart + 2) : chosen;
   return decodeQuotedPrintableText(body)
@@ -2105,6 +2129,15 @@ function extractDisplayableMimePart(raw = "") {
 
 function decodeHtmlEntities(input = "") {
   return String(input || "")
+    .replace(/&#(\d+);/g, (_, code) => {
+      const n = Number(code);
+      return Number.isFinite(n) ? String.fromCodePoint(n) : "";
+    })
+    .replace(/&#x([0-9a-f]+);/gi, (_, code) => {
+      const n = parseInt(code, 16);
+      return Number.isFinite(n) ? String.fromCodePoint(n) : "";
+    })
+    .replace(/&shy;/gi, "")
     .replace(/&lt;/gi, "<")
     .replace(/&gt;/gi, ">")
     .replace(/&quot;/gi, '"')
@@ -2129,19 +2162,28 @@ function normalizeEmailHtmlForDisplay(rawHtml = "", preview = "") {
   const unwrapped = unwrapPreWrapper(raw);
   if (unwrapped !== raw) raw = unwrapped;
 
-  if (!looksLikeRawMime(raw)) return raw;
+  if (!looksLikeRawMime(raw)) {
+    const textOnly = !/<\s*(html|body|table|div|p|span|a|img|style)\b/i.test(raw);
+    return textOnly ? `<pre style="white-space:pre-wrap;font-family:ui-sans-serif,system-ui,sans-serif;line-height:1.45">${escapeEmailHtml(cleanEmailSnippet(raw))}</pre>` : raw;
+  }
 
   const extracted = extractDisplayableMimePart(raw);
   if (/<\s*(html|body|table|div|p|span|a|img)\b/i.test(extracted) && !looksLikeRawMime(extracted.replace(/<[^>]+>/g, " "))) {
     return extracted;
   }
-  const cleaned = stripRawMimeNoise(decodeQuotedPrintableText(extracted || raw));
-  return `<pre style="white-space:pre-wrap;font-family:ui-sans-serif,system-ui,sans-serif;line-height:1.45">${escapeEmailHtml(cleaned || String(preview || ""))}</pre>`;
+  const cleaned = cleanEmailSnippet(extracted || raw);
+  return `<pre style="white-space:pre-wrap;font-family:ui-sans-serif,system-ui,sans-serif;line-height:1.45">${escapeEmailHtml(cleaned || cleanEmailSnippet(String(preview || "")))}</pre>`;
 }
 
 function emailHtmlForDisplay(email: Email | null) {
   if (!email) return "";
   return normalizeEmailHtmlForDisplay(email.html, email.preview);
+}
+
+function normalizeEmailForDisplay(email: Email): Email {
+  const preview = String(email.preview || "");
+  const dirtyPreview = looksLikeRawMime(preview) || /&(?:shy|nbsp|#\d+);|â|Â/.test(preview);
+  return dirtyPreview ? { ...email, preview: cleanEmailSnippet(preview).slice(0, 280) } : email;
 }
 interface UserData {
   id: string; username: string | null; name: string; role: "admin" | "user"; totpSecret?: string; mustChangePassword?: boolean; assignedAccounts?: string[] | null; profileAvatar?: string | null; profilePrefs?: UserProfilePrefs;
@@ -7908,13 +7950,13 @@ function EmailViewer() {
   }, []);
   const [emails, setEmailsRaw] = useState<Email[]>([]);
   const setEmails = useCallback((next: Email[]) => {
-    const visible = filterVisibleEmails(next, profilePrefs, user)
+    const visible = filterVisibleEmails(next.map(normalizeEmailForDisplay), profilePrefs, user)
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     setEmailsRaw(visible);
   }, [profilePrefs, user]);
   const mergeEmailsIntoState = useCallback((incoming: Email[]) => {
     if (!incoming.length) return;
-    setEmailsRaw((prev) => filterVisibleEmails(mergeEmailsById([prev, incoming]), profilePrefs, user)
+    setEmailsRaw((prev) => filterVisibleEmails(mergeEmailsById([prev, incoming.map(normalizeEmailForDisplay)]), profilePrefs, user)
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
   }, [profilePrefs, user]);
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
@@ -8218,7 +8260,7 @@ function EmailViewer() {
       ).map((e) => e.id),
     );
     const toastId = "nf-refresh";
-    if (!skipSync) notify.loading("Checking for new mail…", { id: toastId });
+    notify.dismiss(toastId);
 
     try {
       if (skipSync) {
@@ -8237,12 +8279,7 @@ function EmailViewer() {
         setError(null);
         setLastUpdated(new Date());
       }
-      const snapshot = await loadServerSnapshot(cacheLabels).catch((snapshotErr) => {
-        const smsg = snapshotErr instanceof Error ? snapshotErr.message : String(snapshotErr || "");
-        pushDiag({ ts: Date.now(), kind: "sync", endpoint: "list_delta:snapshot", error: smsg });
-        return null;
-      });
-      const combinedRefreshRows = mergeEmailsById([snapshot || [], synced || []]);
+      const combinedRefreshRows = mergeEmailsById([synced || []]);
       const scopedSnapshot = Array.isArray(cacheLabels) && cacheLabels.length === 1
         ? combinedRefreshRows.filter((e) => String(e.account_label || "").trim() === cacheLabels[0])
         : combinedRefreshRows;
@@ -8293,6 +8330,7 @@ function EmailViewer() {
   // ============================================================================
   const idbRef = useRef<Awaited<ReturnType<typeof openInboxDB>> | null>(null);
   const instantInboxRunKeyRef = useRef("");
+  const serverSnapshotRunKeyRef = useRef("");
   const instantInboxAccountKey = useMemo(
     () => JSON.stringify(activeCacheLabels === null ? null : [...(activeCacheLabels || [])].sort()),
     [activeCacheLabels],
@@ -8339,6 +8377,23 @@ function EmailViewer() {
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, instantInboxAccountKey, markInboxReady]);
+
+  // Cache-only server snapshot for first paint on fresh devices/browsers.
+  // This does NOT touch IMAP; only the Refresh button performs live mail sync.
+  useEffect(() => {
+    const runKey = `${user?.id || ""}:${instantInboxAccountKey}`;
+    if (!user?.id || serverSnapshotRunKeyRef.current === runKey) return;
+    serverSnapshotRunKeyRef.current = runKey;
+    (async () => {
+      try {
+        await refreshEmailFiltersForViewer();
+        await loadServerSnapshot(activeCacheLabels);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err || "");
+        pushDiag({ ts: Date.now(), kind: "cache", endpoint: "cache-only snapshot", error: msg });
+      }
+    })();
+  }, [user?.id, instantInboxAccountKey, activeCacheLabels, loadServerSnapshot, refreshEmailFiltersForViewer, pushDiag]);
 
 
   // Wrap email selection so full HTML is lazy-fetched on first click.
@@ -8547,9 +8602,11 @@ function EmailViewer() {
             <NotificationBell />
             <button onClick={() => fetchEmails()}
               disabled={refreshing}
-              className="flex items-center p-2.5 sm:px-4 sm:py-2 bg-slate-900 text-white rounded-full text-sm font-bold hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-60">
+              aria-busy={refreshing}
+              title={refreshing ? "Refreshing emails" : "Refresh emails"}
+              className="flex items-center min-w-10 justify-center p-2.5 sm:px-4 sm:py-2 bg-slate-900 text-white rounded-full text-sm font-bold hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-80">
               <RefreshCw className={`w-4 h-4 sm:w-5 sm:h-5 ${refreshing ? "animate-spin" : ""}`} />
-              <span className="hidden sm:inline ml-1.5">Refresh</span>
+              <span className={`${refreshing ? "inline" : "hidden sm:inline"} ml-1.5`}>{refreshing ? "Syncing" : "Refresh"}</span>
             </button>
 
 
