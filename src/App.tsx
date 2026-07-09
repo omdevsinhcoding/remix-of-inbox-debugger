@@ -5336,6 +5336,7 @@ function AdminPanel() {
     { id: "security" as const, label: "Security", icon: ShieldCheck },
     { id: "emails" as const, label: "Email Accounts", icon: Server },
     { id: "settings" as const, label: "Settings", icon: Settings },
+    { id: "deploy" as const, label: "Deploy", icon: Server },
   ];
 
 
