@@ -49,8 +49,8 @@ function extractOtpCode(subject: string, body: string): string | null {
 const FULL_SYNC_MAX_UIDS = 50;
 const USER_REFRESH_MAX_UIDS = 12;
 const PER_ACCOUNT_TIMEOUT_MS = 6500;
-const FAST_REFRESH_TIMEOUT_MS = 2400;
-const FAST_REFRESH_SCAN_COUNT = 8;
+const FAST_REFRESH_TIMEOUT_MS = 3200;
+const FAST_REFRESH_SCAN_COUNT = 30;
 const STALE_DAYS = 60;
 const USER_SYNC_WINDOW_MS = 5_000;
 const userSyncHits = new Map<string, number>();
@@ -447,25 +447,26 @@ async function fetchFromAccount(
           if (!hasBudget()) break;
           newestUids.push(message.uid);
           const fromAddr = message.envelope?.from?.[0]?.address?.toLowerCase() || "";
+          const toText = (message.envelope?.to || []).map(formatAddress).filter(Boolean).join(", ") || undefined;
           // STRICT: only accept @netflix.com senders (or subdomains). No subject/to matching —
           // that let third-party threads like "Netflix wtf??" from Reddit slip through.
-          if (/@([a-z0-9-]+\.)*netflix\.com$/.test(fromAddr)) {
+          if (/@([a-z0-9-]+\.)*netflix\.com$/.test(fromAddr) && recipientMatches(toText, recipientFilters)) {
             netflixUids.push(message.uid);
           }
         }
         if (netflixUids.length > 0) console.log(`[${accountLabel}] Latest inbox scan found ${netflixUids.length}`);
       }
 
-      if (!quickRefresh && netflixUids.length === 0 && hasBudget()) {
+      if (netflixUids.length === 0 && hasBudget()) {
         const since = new Date();
-        since.setDate(since.getDate() - 7);
+        since.setDate(since.getDate() - (quickRefresh ? 2 : 7));
         for (const term of ["netflix.com", "netflix"]) {
           if (netflixUids.length > 0 || !hasBudget()) break;
           try {
             const searchResults = await client.search({ from: term, since }, { uid: true });
             if (searchResults?.length > 0) {
               netflixUids = searchResults as number[];
-              console.log(`[${accountLabel}] Search "${term}" found ${netflixUids.length}`);
+              console.log(`[${accountLabel}] ${quickRefresh ? "Quick " : ""}Search "${term}" found ${netflixUids.length}`);
             }
           } catch (searchErr) {
             console.log(`[${accountLabel}] Search "${term}" failed:`, searchErr);
@@ -912,7 +913,7 @@ Deno.serve(async (originalReq) => {
         return json({ success: true, accepted: true, emails: [], message: "No accounts assigned" }, mode === "sync_async" ? 202 : 200);
       }
       if (assigned && assigned.length > 0) accountLabels = accountLabels ? accountLabels.filter(l => assigned.includes(l)) : assigned;
-      if (mode === "sync_async" && source !== "user_refresh") {
+      if (mode === "sync_async") {
         const last = userSyncHits.get(session.userId) || 0;
         if (Date.now() - last < USER_SYNC_WINDOW_MS) {
           const cache = await readCache(supabase, assigned, filterSignInCodes, filterPasswordResets, filterAccountUpdates, session, body.limit);
@@ -922,7 +923,7 @@ Deno.serve(async (originalReq) => {
       }
     }
 
-    if (mode === "sync_async" && source !== "user_refresh") {
+    if (mode === "sync_async") {
       const accountFilterForCache = session ? await getAssignedAccountFilter(supabase, session) : null;
       const cache = session ? await readCache(supabase, accountFilterForCache, filterSignInCodes, filterPasswordResets, filterAccountUpdates, session, body.limit).catch(() => []) : [];
       const maxMessages = clampLimit(body.limit, USER_REFRESH_MAX_UIDS, FULL_SYNC_MAX_UIDS);
