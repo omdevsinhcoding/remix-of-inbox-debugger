@@ -3096,6 +3096,7 @@ Deno.serve(async (originalReq) => {
           isFree: !!user.is_free,
           locationRequired: isProfileLocationRequired(user),
           impersonated: session.impersonated === true,
+          adminId: session.impersonated === true ? (session.adminId || null) : null,
         },
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
