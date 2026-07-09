@@ -5690,53 +5690,16 @@ function AdminPanel() {
               </p>
             </section>
 
-            {/* Free-profile session length */}
-            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
-              <h2 className="font-black text-base sm:text-lg mb-2 flex items-center gap-2 text-slate-900">
-                <div className="bg-emerald-50 p-1.5 rounded-lg"><Clock className="w-4 h-4 text-emerald-600" /></div>
-                Free-Profile Session Length
+            {/* Free-profile behavior note (uses User Session Timeout above) */}
+            <section className="bg-emerald-50/40 p-5 sm:p-6 rounded-2xl border border-emerald-200 shadow-sm">
+              <h2 className="font-black text-base sm:text-lg mb-2 flex items-center gap-2 text-emerald-900">
+                <div className="bg-emerald-100 p-1.5 rounded-lg"><Clock className="w-4 h-4 text-emerald-700" /></div>
+                Free Profiles — how sessions work
               </h2>
-              <p className="text-xs text-slate-500 mb-4">
-                Each free-profile login gets its own countdown. All active free logins auto-logout after
-                this many minutes from their own login time. No cap on concurrent free logins.
-              </p>
-              <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
-                <div className="flex-1">
-                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">Free session (minutes)</label>
-                  <input
-                    type="number" min={0} step={1}
-                    value={freeSessionMinutes}
-                    onChange={(e) => setFreeSessionMinutes(e.target.value)}
-                    placeholder="e.g. 10"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-emerald-500 text-sm text-slate-900 placeholder:text-slate-400"
-                  />
-                </div>
-                <button
-                  onClick={async () => {
-                    const m = Math.max(0, Math.floor(Number(freeSessionMinutes) || 0));
-                    setSavingFreeSessionMinutes(true);
-                    try {
-                      await apiCall("manage-app", { action: "set_settings", key: "free_session_minutes", value: { minutes: m } });
-                      // Mirror the value into session_config too so the client
-                      // SessionCountdown (which reads session_config for role=user)
-                      // shows the same countdown for free-profile logins.
-                      try {
-                        await apiCall("manage-app", { action: "set_settings", key: "session_config", value: { timeoutMinutes: m } });
-                        setSessionTimeoutMin(String(m));
-                      } catch {}
-                      setFreeSessionMinutes(String(m));
-                      notify.success(m === 0 ? "Free session timeout disabled" : `Free session set to ${m} min`);
-                    } catch (err) {
-                      notify.error(err instanceof Error ? err.message : "Failed to save");
-                    } finally { setSavingFreeSessionMinutes(false); }
-                  }}
-                  disabled={savingFreeSessionMinutes}
-                  className="sm:mt-5 bg-emerald-600 text-white font-bold py-3 px-6 rounded-xl hover:bg-emerald-700 transition-all disabled:opacity-50 text-sm whitespace-nowrap">
-                  {savingFreeSessionMinutes ? "Saving..." : "Save"}
-                </button>
-              </div>
-              <p className="text-[11px] text-slate-400 mt-3">
-                Current: {Number(freeSessionMinutes) > 0 ? `${freeSessionMinutes} min per free login` : "Disabled — free sessions never expire"}
+              <p className="text-xs text-emerald-900/80">
+                Free profiles use the <b>User Session Timeout</b> value above. Every free login gets its
+                own countdown from its own login time — unlimited concurrent free logins, no eviction.
+                Each session auto-logs out after {Number(sessionTimeoutMin) > 0 ? `${sessionTimeoutMin} min` : "never (currently disabled)"}.
               </p>
             </section>
 
