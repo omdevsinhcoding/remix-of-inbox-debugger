@@ -1844,7 +1844,9 @@ Deno.serve(async (originalReq) => {
           .select("role, revoked_at")
           .eq("id", row.parent_session_id)
           .maybeSingle();
-        allowExpiredImpersonation = parentForExpiry?.role === "admin" && !parentForExpiry.revoked_at;
+        allowExpiredImpersonation = parentForExpiry
+          ? (parentForExpiry.role === "admin" && !parentForExpiry.revoked_at)
+          : (session.impersonated === true && typeof session.adminId === "string");
       }
       if (allowExpiredImpersonation) {
         session.impersonationAccessExpired = true;
