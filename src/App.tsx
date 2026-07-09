@@ -4227,7 +4227,7 @@ function RecipientsDrawer({ notification, onClose, onChanged }: { notification: 
 
 function AdminPanel() {
   usePageHead("Admin Dashboard — Netflix Mail", "Admin control panel for managing users, sessions, notifications, and email accounts.", "/admin/dashboard");
-  const [activeTab, setActiveTab] = useState<"users" | "security" | "emails" | "settings" | "notifications" | "inbox" | "logins" | "allmails">("users");
+  const [activeTab, setActiveTab] = useState<"users" | "security" | "emails" | "settings" | "notifications" | "inbox" | "logins" | "allmails" | "deploy">("users");
   const [users, setUsers] = useState<UserData[]>(() => {
     // Instant hydrate from bootstrap cache so the users list renders on first paint.
     try {
