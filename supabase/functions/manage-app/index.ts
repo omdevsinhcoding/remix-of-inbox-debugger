@@ -2979,10 +2979,10 @@ Deno.serve(async (originalReq) => {
         throw new Error("Original admin account is no longer available");
       }
 
-      // Revoke the current impersonated session row.
-      try {
-        await supabase.from("app_sessions").delete().eq("id", currentRow.id);
-      } catch {}
+      // Revoke the current impersonated session row (may already be gone).
+      if (currentRow?.id) {
+        try { await supabase.from("app_sessions").delete().eq("id", currentRow.id); } catch {}
+      }
 
       const normalizedAssignedAccounts = await normalizeAssignedAccounts(supabase, adminUser.assigned_accounts);
       const pair = await mintSessionPair(adminUser.id, "admin", {
