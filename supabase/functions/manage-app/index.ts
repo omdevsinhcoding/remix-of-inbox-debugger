@@ -3136,13 +3136,15 @@ Deno.serve(async (originalReq) => {
 
       const normalizedAssignedAccounts = await normalizeAssignedAccounts(supabase, user.assigned_accounts);
       let parentAdminId: string | null = null;
-      if (row.parent_session_id && row.role !== "admin") {
-        const { data: parent } = await supabase
-          .from("app_sessions")
-          .select("user_id, role, revoked_at")
-          .eq("id", row.parent_session_id)
-          .maybeSingle();
-        if (parent?.role === "admin" && !parent.revoked_at) parentAdminId = parent.user_id;
+      if (row.role !== "admin") {
+        if (row.parent_session_id) {
+          const { data: parent } = await supabase
+            .from("app_sessions")
+            .select("user_id, role, revoked_at")
+            .eq("id", row.parent_session_id)
+            .maybeSingle();
+          if (parent?.role === "admin" && !parent.revoked_at) parentAdminId = parent.user_id;
+        }
         if (!parentAdminId) {
           const accessToken = req.headers.get("x-session-token") || "";
           const accessPayload = accessToken
