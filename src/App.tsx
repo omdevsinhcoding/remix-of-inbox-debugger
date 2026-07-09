@@ -7755,7 +7755,7 @@ function EmailViewer() {
     try { stored = JSON.parse(sessionGet("user" as any) || "{}"); }
     catch { stored = null; }
     try {
-      const impersonating = !!sessionGet("admin_backup" as any) || (stored as any)?.impersonated === true;
+      const impersonating = (stored as any)?.impersonated === true;
       if (impersonating && stored?.id) return stored;
     } catch {}
     if (authUser?.id) return authUser as UserData;
@@ -8628,18 +8628,8 @@ function EmailViewer() {
 // and toggle maintenance off from the panel.
 
 function hasActiveAdminImpersonationBackup(): boolean {
-  try {
-    const raw = sessionGet("admin_backup" as any);
-    if (!raw) return false;
-    const parsed = JSON.parse(raw);
-    if (!parsed || (parsed.exp && Date.now() > parsed.exp)) {
-      sessionRemove("admin_backup" as any);
-      return false;
-    }
-    return !!parsed.token && !!parsed.user;
-  } catch {
-    return false;
-  }
+  try { sessionRemove("admin_backup" as any); } catch {}
+  return false;
 }
 
 function MaintenanceGate({ children }: { children: React.ReactNode }) {
