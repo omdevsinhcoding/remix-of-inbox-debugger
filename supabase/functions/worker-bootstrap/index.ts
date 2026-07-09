@@ -16,6 +16,22 @@
 // Previous TOFU behavior (auto-add first N accounts) leaked SESSION_SECRET
 // to any Cloudflare account holder — removed.
 
+import { createClient } from "npm:@supabase/supabase-js@2";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-cf-token, x-bootstrap-secret",
+};
+
+// Constant-time string compare to avoid timing oracles on the shared secret.
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
