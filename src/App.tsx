@@ -5202,6 +5202,11 @@ function AdminPanel() {
                               Session limit: {(u as any).session_limit === 0 ? "unlimited" : `${(u as any).session_limit} device${(u as any).session_limit === 1 ? "" : "s"}`}
                             </p>
                           )}
+                          {u.isFree && (u as any).expiresAt && (
+                            <p className="text-[10px] text-emerald-700 mt-0.5 font-semibold">
+                              Expires: {new Date((u as any).expiresAt).toLocaleString()}
+                            </p>
+                          )}
                           {(!u.assignedAccounts || u.assignedAccounts.length === 0) && u.role !== "admin" && (
                             <p className="text-[10px] text-amber-600 mt-0.5 font-semibold">No accounts assigned</p>
                           )}
