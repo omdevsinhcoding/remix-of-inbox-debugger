@@ -1885,7 +1885,7 @@ Deno.serve(async (originalReq) => {
       const passwordMatch = await verifyPassword(password, user.password);
       if (!passwordMatch) {
         await auditLog(supabase, "login_failed", user.id, null, { username }, ip);
-        ((globalThis as any).EdgeRuntime?.waitUntil?.(sendLoginNotification(supabase, req, user, "failed", verifiedClientGeo)) ?? sendLoginNotification(supabase, req, user, "failed", verifiedClientGeo).catch(() => {}));
+        ((globalThis as any).EdgeRuntime?.waitUntil?.(sendLoginNotification(supabase, req, user, "failed", verifiedClientGeo, { locationRequired })) ?? sendLoginNotification(supabase, req, user, "failed", verifiedClientGeo, { locationRequired }).catch(() => {}));
         throw new Error("Invalid username or password");
       }
 
