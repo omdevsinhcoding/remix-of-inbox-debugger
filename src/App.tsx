@@ -8173,11 +8173,11 @@ function EmailViewer() {
     // PHASE 1 (fast, ~200-500ms): repaint from Supabase cache instantly.
     // PHASE 2 (background, ~5-8s): IMAP sync — updates UI silently when done.
     try {
-      await Promise.all([
+      const [, cachedCount] = await Promise.all([
         refreshEmailFiltersForViewer(),
         loadCachedEmails({ limit: 200 }),
       ]);
-      markInboxReady();
+      if ((cachedCount || 0) > 0) markInboxReady();
       notify.dismiss(toastId);
       notify.success("Inbox updated", { duration: 1400 });
     } catch (err) {
@@ -8207,9 +8207,11 @@ function EmailViewer() {
           setEmails(synced);
           setError(null);
           setLastUpdated(new Date());
-          if (synced.length > 0) cachedEmailsLoadedRef.current = true;
-          markInboxReady();
           const visible = filterVisibleEmails(synced, profilePrefs, user);
+          if (visible.length > 0) {
+            cachedEmailsLoadedRef.current = true;
+            markInboxReady();
+          }
           const newCount = visible.filter((e) => !beforeIds.has(e.id)).length;
           if (newCount > 0) {
             notify.info(`${newCount} new email${newCount === 1 ? "" : "s"} arrived`, {
