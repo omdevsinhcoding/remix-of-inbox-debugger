@@ -4,7 +4,7 @@
 //
 // Session keys owned by this module:
 //   session_token, refresh_token, session_expires_at, refresh_expires_at,
-//   user, admin_auth, admin_backup, pending_admin_token,
+//   session_family_id, user, admin_auth, admin_backup, pending_admin_token,
 //   pending_admin_token_at, session_started_at, cloudflare_worker_urls
 //
 // Everything else (worker URL cache, stats cache, email cache) still uses
@@ -15,6 +15,7 @@ const KEYS = [
   "refresh_token",
   "session_expires_at",
   "refresh_expires_at",
+  "session_family_id",
   "user",
   "admin_auth",
   "admin_backup",
