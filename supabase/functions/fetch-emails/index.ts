@@ -447,9 +447,10 @@ async function fetchFromAccount(
           if (!hasBudget()) break;
           newestUids.push(message.uid);
           const fromAddr = message.envelope?.from?.[0]?.address?.toLowerCase() || "";
+          const toText = (message.envelope?.to || []).map(formatAddress).filter(Boolean).join(", ") || undefined;
           // STRICT: only accept @netflix.com senders (or subdomains). No subject/to matching —
           // that let third-party threads like "Netflix wtf??" from Reddit slip through.
-          if (/@([a-z0-9-]+\.)*netflix\.com$/.test(fromAddr)) {
+          if (/@([a-z0-9-]+\.)*netflix\.com$/.test(fromAddr) && recipientMatches(toText, recipientFilters)) {
             netflixUids.push(message.uid);
           }
         }
