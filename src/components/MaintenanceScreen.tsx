@@ -403,16 +403,7 @@ export default function MaintenanceScreen({ title, message, endsAt, versionFrom,
               </div>
             </div>
 
-            {isAdmin && onAdminBypass && (
-              <button
-                onClick={onAdminBypass}
-                className="mt-7 group inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-white text-[13px] font-semibold transition-all hover:gap-3"
-                style={{ background: "linear-gradient(180deg,#e50914,#b0060f)", boxShadow: "0 10px 30px -8px rgba(229,9,20,0.55)" }}
-              >
-                Enter as admin
-                <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5" />
-              </button>
-            )}
+
           </div>
         </div>
       </div>
