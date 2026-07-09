@@ -7998,6 +7998,9 @@ function EmailViewer() {
         return filterVisibleEmails(emails, profilePrefs, user).length;
       }
       const emailList = mergeEmailsById(lists.map((item) => item.emails));
+      if (emailList.length === 0 && emails.length > 0) {
+        return filterVisibleEmails(emails, profilePrefs, user).length;
+      }
       setEmails(emailList);
       setError(null);
       setLastUpdated(new Date());
