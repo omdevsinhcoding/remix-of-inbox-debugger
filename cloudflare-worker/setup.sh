@@ -65,7 +65,18 @@ fi
 
 # ─── 2. Deploy worker (needed before secrets can be attached) ─
 echo "→ Deploying worker..."
-$WRANGLER deploy
+DEPLOY_OUT="$($WRANGLER deploy 2>&1 | tee /dev/stderr)"
+
+# CF Workers Builds may override the worker name (CI project name != wrangler.toml name).
+# Parse the actual deployed name from "Uploaded <name>" so `wrangler secret put`
+# targets the SAME worker instead of the wrangler.toml default.
+DEPLOYED_NAME="$(echo "$DEPLOY_OUT" | grep -oE 'Uploaded [a-zA-Z0-9_-]+' | head -1 | awk '{print $2}')"
+CONFIG_NAME="$(grep -oE '^name = "[^"]+"' wrangler.toml | head -1 | sed -E 's/name = "([^"]+)"/\1/')"
+if [ -n "$DEPLOYED_NAME" ] && [ "$DEPLOYED_NAME" != "$CONFIG_NAME" ]; then
+  echo "→ CI overrode worker name: '$CONFIG_NAME' → '$DEPLOYED_NAME'. Patching wrangler.toml so secrets target the right worker..."
+  sed -i.bak -E "s/^name = \"[^\"]+\"/name = \"$DEPLOYED_NAME\"/" wrangler.toml
+  rm -f wrangler.toml.bak
+fi
 
 # ─── 3. Fetch secrets from Supabase using CF token as auth ───
 echo "→ Fetching secrets from worker-bootstrap (auth = CF API token)..."
