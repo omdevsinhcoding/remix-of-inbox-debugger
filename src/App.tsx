@@ -8159,7 +8159,7 @@ function EmailViewer() {
       ms: Math.round(performance.now() - started),
       note: labels ? labels.join(", ") : "all accounts",
     });
-    if (data?.success === false) return null;
+    if (data?.success === false) throw new Error(data?.error || "Refresh did not complete");
     return Array.isArray(data?.emails) ? mergeEmailsById([data.emails as Email[]]) : null;
   }, [pushDiag, activeRefreshLabels]);
 
@@ -8230,11 +8230,8 @@ function EmailViewer() {
 
       // Manual refresh is fully foreground: wait for IMAP sync to finish, then
       // reload the persisted server snapshot. No hidden background success.
-      const synced = await syncViaWorker(syncLabels).catch((err) => {
-        const smsg = err instanceof Error ? err.message : String(err || "");
-        pushDiag({ ts: Date.now(), kind: "sync", endpoint: "fetch-emails:user_sync", error: smsg });
-        return null;
-      });
+      const synced = await syncViaWorker(syncLabels);
+      if (!synced) throw new Error("Refresh did not complete");
       if (synced && synced.length > 0) {
         mergeEmailsIntoState(synced);
         setError(null);
