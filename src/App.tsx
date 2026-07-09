@@ -7601,14 +7601,12 @@ function UserProfileModal({
   prefs,
   onPrefsSaved,
   onPassword,
-  onDeleteOldEmails,
   onClose,
 }: {
   user: UserData;
   prefs: UserProfilePrefs;
   onPrefsSaved: (prefs: UserProfilePrefs) => void;
   onPassword: () => void;
-  onDeleteOldEmails: () => void;
   onClose: () => void;
 }) {
   const [savingAvatar, setSavingAvatar] = useState(false);
