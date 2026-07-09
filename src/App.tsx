@@ -7696,16 +7696,20 @@ function UserProfileModal({
     const nextPrefs = { ...prefs, avatarId };
     setSavingAvatar(true);
     onPrefsSaved(nextPrefs);
-    // Update the cached bootstrap immediately so the profile-selection grid
-    // shows the new avatar the very next time it mounts (e.g. after logout),
-    // without waiting for a network refresh.
+    // Also update the in-session `user` object so header/other surfaces render
+    // the new avatar in micro-seconds without waiting for a network roundtrip.
+    try {
+      const stored = JSON.parse(sessionGet("user" as any) || "{}");
+      stored.profilePrefs = nextPrefs;
+      stored.profileAvatar = avatarId;
+      sessionSet("user" as any, JSON.stringify(stored));
+    } catch {}
     if (user?.id) {
       patchBootstrapCacheUser(user.id, { profile_prefs: nextPrefs, profileAvatar: avatarId });
     }
     try {
       await apiCall("manage-app", { action: "update_profile_prefs", profile_prefs: nextPrefs });
       notify.success("Profile icon updated");
-      // Kick off a background refresh so any other cached fields also update.
       refreshBootstrap().catch(() => {});
     } catch (err) {
       notify.error(err instanceof Error ? err.message : "Could not save icon");
