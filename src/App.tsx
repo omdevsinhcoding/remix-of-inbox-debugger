@@ -7990,29 +7990,6 @@ function EmailViewer() {
     }
   };
 
-  const deleteOldEmailsForUser = async () => {
-    const newestVisibleTime = emails.reduce((max, email) => {
-      const time = new Date(email.date || 0).getTime();
-      return Number.isNaN(time) ? max : Math.max(max, time);
-    }, 0);
-    const hiddenBefore = new Date(newestVisibleTime || Date.now()).toISOString();
-    const nextPrefs = {
-      ...profilePrefs,
-      hiddenBefore,
-      hiddenEmailIds: Array.from(new Set([...(profilePrefs.hiddenEmailIds || []), ...emails.map(emailIdentity), ...emails.map((e) => e.id)])).slice(-2000),
-    };
-
-    saveProfilePrefsLocally(nextPrefs);
-    setEmailsRaw([]);
-    setSelectedEmail(null);
-
-    try {
-      await apiCall("manage-app", { action: "update_profile_prefs", profile_prefs: nextPrefs });
-      notify.success("Old emails deleted for this profile");
-    } catch (err) {
-      notify.error(err instanceof Error ? err.message : "Could not save delete setting");
-    }
-  };
 
   // On mount/login: ONE silent auto-refresh via the worker POST sync path.
   // No browser-persistent email cache, no background polling, no GET /api/emails.
