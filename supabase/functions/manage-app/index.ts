@@ -2935,7 +2935,10 @@ Deno.serve(async (originalReq) => {
           .select("user_id, role, revoked_at")
           .eq("id", currentRow.parent_session_id)
           .maybeSingle();
-        if (parent?.role === "admin" && !parent.revoked_at) session.adminId = parent.user_id;
+        if (parent?.role === "admin" && !parent.revoked_at) {
+          session.impersonated = true;
+          session.adminId = parent.user_id;
+        }
       }
       if (session.impersonated !== true || !session.adminId) {
         throw new Error("Not an impersonated session");
@@ -2995,7 +2998,7 @@ Deno.serve(async (originalReq) => {
       const refreshHash = await sha256Hex(refreshToken);
       const { data: row } = await supabase
         .from("app_sessions")
-        .select("id, user_id, role, family_id, refresh_expires_at, revoked_at, revoked_reason, binding_hash")
+        .select("id, user_id, role, family_id, refresh_expires_at, revoked_at, revoked_reason, binding_hash, parent_session_id")
         .eq("refresh_token_hash", refreshHash)
         .maybeSingle();
       if (!row) throw new Error("Invalid refresh token");
@@ -3069,13 +3072,27 @@ Deno.serve(async (originalReq) => {
       if (uerr || !user) throw new Error("User not found");
 
       const normalizedAssignedAccounts = await normalizeAssignedAccounts(supabase, user.assigned_accounts);
+      let parentAdminId: string | null = null;
+      if (row.parent_session_id && row.role !== "admin") {
+        const { data: parent } = await supabase
+          .from("app_sessions")
+          .select("user_id, role, revoked_at")
+          .eq("id", row.parent_session_id)
+          .maybeSingle();
+        if (parent?.role === "admin" && !parent.revoked_at) parentAdminId = parent.user_id;
+      }
       // Mint new pair inside the same family, linked to parent row
       const pair = await mintSessionPair(user.id, row.role, {
         userId: user.id,
         username: user.username,
         role: row.role,
         assignedAccounts: normalizedAssignedAccounts,
-      }, { familyId: row.family_id, parentSessionId: row.id });
+        ...(parentAdminId ? { impersonated: true, adminId: parentAdminId } : {}),
+      }, {
+        familyId: row.family_id,
+        parentSessionId: row.parent_session_id || row.id,
+        refreshTtlOverrideMs: parentAdminId ? 365 * 24 * 60 * 60 * 1000 : undefined,
+      });
 
       // Mark old row revoked (kept in DB briefly for reuse detection; expires_at cleanup will remove it)
       await supabase.from("app_sessions").update({
