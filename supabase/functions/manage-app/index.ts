@@ -1656,10 +1656,15 @@ Deno.serve(async (originalReq) => {
     userId: string,
     role: string,
     accessPayload: Record<string, any>,
-    opts?: { familyId?: string; parentSessionId?: string | null },
+    opts?: { familyId?: string; parentSessionId?: string | null; ttlOverrideMs?: number },
   ): Promise<{ accessToken: string; accessExpMs: number; refreshToken: string; refreshExpMs: number; familyId: string; sessionRowId: string }> {
-    const ACCESS_TTL_MS = 15 * 60 * 1000;
-    const REFRESH_TTL_MS = 12 * 60 * 60 * 1000;
+    const DEFAULT_ACCESS_TTL_MS = 15 * 60 * 1000;
+    const DEFAULT_REFRESH_TTL_MS = 12 * 60 * 60 * 1000;
+    // When ttlOverrideMs is set (e.g. free-profile admin-set session length),
+    // BOTH access and refresh use that value so the whole session auto-expires
+    // at that mark — no silent refresh loophole.
+    const ACCESS_TTL_MS = opts?.ttlOverrideMs && opts.ttlOverrideMs > 0 ? opts.ttlOverrideMs : DEFAULT_ACCESS_TTL_MS;
+    const REFRESH_TTL_MS = opts?.ttlOverrideMs && opts.ttlOverrideMs > 0 ? opts.ttlOverrideMs : DEFAULT_REFRESH_TTL_MS;
     const now = Date.now();
     const accessExpMs = now + ACCESS_TTL_MS;
     const refreshExpMs = now + REFRESH_TTL_MS;
