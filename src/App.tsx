@@ -5119,6 +5119,19 @@ function AdminPanel() {
                   <p className="text-[10px] text-slate-400 mt-1">Leave empty = user sees no accounts</p>
                 </div>
 
+                {newIsFree && (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Expires at (optional)</label>
+                    <DateTimePicker value={newFreeExpiresAt} onChange={setNewFreeExpiresAt} />
+                    <p className="text-[10px] text-slate-400 mt-1">Free profile is auto-deleted after this time. Leave empty = never expires.</p>
+                    {newFreeExpiresAt && (
+                      <button type="button" onClick={() => setNewFreeExpiresAt("")}
+                        className="mt-1 text-[11px] text-emerald-700 hover:underline">Clear expiry</button>
+                    )}
+                  </div>
+                )}
+
+
                 <button onClick={createUser}
                   disabled={creatingUser}
                   className={`w-full text-white font-bold py-3 rounded-xl transition-all text-sm ${newIsFree ? "bg-emerald-600 hover:bg-emerald-700" : "bg-slate-900 hover:bg-slate-800"}`}>
