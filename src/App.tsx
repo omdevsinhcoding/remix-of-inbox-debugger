@@ -8051,7 +8051,10 @@ function EmailViewer() {
       const synced = await syncViaWorker();
       let merged: Email[] = emails;
       if (synced && synced.length > 0) {
-        merged = mergeEmailsById([emails, synced]);
+        // Server sync returns the currently-authorized visible cache for users.
+        // Do not merge the previous browser state back in, or hidden/stale rows
+        // can reappear on every refresh.
+        merged = synced;
         setEmails(merged);
         setError(null);
         setLastUpdated(new Date());
@@ -8101,12 +8104,7 @@ function EmailViewer() {
         await loadCachedEmails({ limit: 200 });
         const synced = await syncViaWorker();
         if (synced && synced.length > 0) {
-          setEmailsRaw((prev) => {
-            const merged = mergeEmailsById([prev, synced]);
-            const visible = filterVisibleEmails(merged, profilePrefs, user)
-              .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-            return visible;
-          });
+          setEmails(synced);
           setError(null);
           setLastUpdated(new Date());
         }
