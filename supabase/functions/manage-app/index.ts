@@ -3008,19 +3008,10 @@ Deno.serve(async (originalReq) => {
     // ---------- User: clear own inbox (hide-only) ----------
 
     if (action === "clear_user_inbox") {
-      const session = await requireSession(req);
-      const { visibleIds } = params as { visibleIds?: string[] };
-      const { data: u, error: uErr } = await supabase
-        .from("app_users").select("profile_prefs").eq("id", session.userId).single();
-      if (uErr || !u) throw new Error("User not found");
-      const prefs = (u.profile_prefs || {}) as any;
-      const existing: string[] = Array.isArray(prefs.hiddenEmailIds) ? prefs.hiddenEmailIds : [];
-      const merged = Array.from(new Set([...existing, ...(Array.isArray(visibleIds) ? visibleIds : [])])).slice(-5000);
-      const nextPrefs = { ...prefs, hiddenBefore: new Date().toISOString(), hiddenEmailIds: merged };
-      const { error: upErr } = await supabase.from("app_users").update({ profile_prefs: nextPrefs }).eq("id", session.userId);
-      if (upErr) throw upErr;
-      await auditLog(supabase, "user_clear_inbox", session.userId, session.userId, { count: merged.length }, ip);
-      return new Response(JSON.stringify({ success: true, profilePrefs: nextPrefs }), {
+      // Fully disabled. Users must never delete or hide emails — admin-only.
+      await requireSession(req);
+      return new Response(JSON.stringify({ success: false, error: "User email deletion is disabled" }), {
+        status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
