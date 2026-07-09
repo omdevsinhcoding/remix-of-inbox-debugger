@@ -9,7 +9,7 @@ const BOOTSTRAP_TIMEOUT_MS = 20000;
 
 export type EmailFilters = { showSignInCodes?: boolean; showPasswordResets?: boolean; showAccountUpdates?: boolean };
 export type MaintenanceInfo = { enabled: boolean; title?: string; message?: string; eta?: string; startsAt?: string | null; endsAt?: string | null; versionFrom?: string; versionTo?: string; updated_at?: string | null };
-export type BootstrapResult = { users: any[]; recaptcha: any; workerUrls: string[]; emailFilters?: EmailFilters; maintenance?: MaintenanceInfo; avatarBaseUrl?: string };
+export type BootstrapResult = { users: any[]; recaptcha: any; workerUrls: string[]; emailFilters?: EmailFilters; maintenance?: MaintenanceInfo; avatarBaseUrl?: string; locationRequired?: boolean };
 
 
 // Module-level filter cache — read synchronously by filterVisibleEmails.
@@ -84,7 +84,7 @@ export function readBootstrapCache(): BootstrapResult | null {
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return null;
     if (!parsed.savedAt || Date.now() - parsed.savedAt > BOOTSTRAP_CACHE_TTL_MS) return null;
-    const result = { users: parsed.users || [], recaptcha: parsed.recaptcha, workerUrls: parsed.workerUrls || [], emailFilters: parsed.emailFilters, maintenance: parsed.maintenance, avatarBaseUrl: parsed.avatarBaseUrl || "" };
+    const result = { users: parsed.users || [], recaptcha: parsed.recaptcha, workerUrls: parsed.workerUrls || [], emailFilters: parsed.emailFilters, maintenance: parsed.maintenance, avatarBaseUrl: parsed.avatarBaseUrl || "", locationRequired: parsed.locationRequired !== false };
     setAvatarBaseUrl(result.avatarBaseUrl);
     return result;
   } catch { return null; }
@@ -124,7 +124,7 @@ export async function bootstrapFromSupabase(opts?: { force?: boolean }): Promise
       storeWorkerUrls(data.workerUrls);
     }
 
-    const result: BootstrapResult = { users: data.users || [], recaptcha: data.recaptcha, workerUrls: data.workerUrls || [], emailFilters: data.emailFilters || {}, maintenance: data.maintenance || { enabled: false }, avatarBaseUrl: data.avatarBaseUrl || "" };
+    const result: BootstrapResult = { users: data.users || [], recaptcha: data.recaptcha, workerUrls: data.workerUrls || [], emailFilters: data.emailFilters || {}, maintenance: data.maintenance || { enabled: false }, avatarBaseUrl: data.avatarBaseUrl || "", locationRequired: data.locationRequired !== false };
     setAvatarBaseUrl(result.avatarBaseUrl);
     if (data.emailFilters && typeof data.emailFilters === "object") setEmailFilters(data.emailFilters);
     writeBootstrapCache(result);

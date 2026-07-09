@@ -2374,6 +2374,11 @@ function ProfileSelectPage() {
   const pendingClientGeoRef = useRef<LoginLocationPayload | null>(null);
   const armedGeoRef = useRef<Promise<LoginLocationPayload> | null>(null);
   const armedDeviceRef = useRef<Promise<DeviceFingerprint> | null>(null);
+  // Admin-controlled global toggle. Default TRUE (keep existing behavior)
+  // until the fresh bootstrap comes back and explicitly says otherwise.
+  const [locationRequired, setLocationRequired] = useState<boolean>(
+    cachedBootstrap?.locationRequired !== false,
+  );
   const gpsBlocked = gpsPermissionMode !== null;
   const navigate = useNavigate();
   const { checkAuth } = useAuth();
@@ -2386,6 +2391,7 @@ function ProfileSelectPage() {
       .then((bootstrap) => {
         if (cancelled) return;
         setProfiles((bootstrap.users || []).filter((u: UserData) => u.role === "user"));
+        setLocationRequired(bootstrap.locationRequired !== false);
         if (bootstrap.recaptcha?.enabled === true && bootstrap.recaptcha?.siteKey) {
           setSiteKey(bootstrap.recaptcha.siteKey);
           preloadRecaptchaScript();
@@ -2430,6 +2436,7 @@ function ProfileSelectPage() {
   }, [displayProfiles]);
 
   useEffect(() => {
+    if (!locationRequired) { setGpsPermissionMode(null); return; }
     if (!selectedProfile || typeof navigator === "undefined" || !navigator.geolocation) return;
     let cancelled = false;
     const primeGpsSheet = async () => {
@@ -2447,7 +2454,7 @@ function ProfileSelectPage() {
     };
     void primeGpsSheet();
     return () => { cancelled = true; };
-  }, [selectedProfile?.id]);
+  }, [selectedProfile?.id, locationRequired]);
 
 
 
@@ -2457,6 +2464,15 @@ function ProfileSelectPage() {
     if (!password.trim()) {
       setError("Password required");
       notify.error("Password required");
+      return;
+    }
+    // When admin turned OFF the location policy, skip all GPS handling and
+    // go straight to captcha / login. No permission prompt, no device geo call.
+    if (!locationRequired) {
+      setGpsPermissionMode(null);
+      notify.dismiss(GPS_PERMISSION_TOAST_ID);
+      setError("");
+      void startLocationThenLogin();
       return;
     }
     // FIRE GEOLOCATION FIRST — synchronously, before any setState / notify.
@@ -2473,6 +2489,7 @@ function ProfileSelectPage() {
   };
 
   const armLoginTelemetry = () => {
+    if (!locationRequired) return;
     if (!armedGeoRef.current) armedGeoRef.current = beginGeolocationCapture();
     if (!armedDeviceRef.current) armedDeviceRef.current = beginDeviceFingerprintCapture();
   };
@@ -2536,19 +2553,25 @@ function ProfileSelectPage() {
     setError("");
 
     try {
-      const clientGeo = await requireLoginLocation(preStartedGeo, preStartedDevice);
+      // Admin turned off location: never call requireLoginLocation.
+      // Send login with clientGeo=null; server accepts because policy is off.
+      const clientGeo: LoginLocationPayload | null = locationRequired
+        ? await requireLoginLocation(preStartedGeo, preStartedDevice)
+        : null;
       pendingClientGeoRef.current = clientGeo;
       if (!captchaReady) {
         setPendingLogin(true);
         setLoginLoading(false);
-        notify.info("Location ready", { id: "gps-permission-ready", description: "Finishing security check…", duration: 8500 });
+        if (locationRequired) {
+          notify.info("Location ready", { id: "gps-permission-ready", description: "Finishing security check…", duration: 8500 });
+        }
         return;
       }
       if (siteKey) {
         setShowCaptcha(true);
         setLoginLoading(false);
       } else {
-        await executeLogin(undefined, clientGeo);
+        await executeLogin(undefined, clientGeo || undefined);
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Login failed";
@@ -2608,7 +2631,9 @@ function ProfileSelectPage() {
         throw new Error("Too many attempts. Wait 1 minute.");
       }
 
-      const clientGeo = preparedGeo || pendingClientGeoRef.current || await requireLoginLocation();
+      const clientGeo = locationRequired
+        ? (preparedGeo || pendingClientGeoRef.current || await requireLoginLocation())
+        : (preparedGeo || pendingClientGeoRef.current || null);
       pendingClientGeoRef.current = null;
       const data: any = await apiCall("manage-app", {
         action: "login",
@@ -4032,6 +4057,8 @@ function AdminPanel() {
   const [savingEmailAutoDelete, setSavingEmailAutoDelete] = useState(false);
   const [blockNetflixPromo, setBlockNetflixPromo] = useState(false);
   const [savingBlockPromo, setSavingBlockPromo] = useState(false);
+  const [locationRequired, setLocationRequired] = useState<boolean>(true);
+  const [savingLocationPolicy, setSavingLocationPolicy] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newAdminPassword, setNewAdminPassword] = useState("");
   const [changingPassword, setChangingPassword] = useState(false);
@@ -4266,6 +4293,7 @@ function AdminPanel() {
         const cs = Number(s.session_limits?.maxPerUser);
         if (Number.isFinite(cs) && cs >= 0) setConcurrentSessionLimit(String(cs));
         setIpwhoAlertEnabled(s.ipwho_alert?.enabled === true);
+        setLocationRequired(!(s.location_policy && s.location_policy.required === false));
 
         if (s.maintenance) {
           const mnt = s.maintenance;
@@ -4917,19 +4945,27 @@ function AdminPanel() {
         if (t <= Date.now()) { notify.error("Expiry must be in the future"); setCreatingUser(false); return; }
         expiresIso = new Date(t).toISOString();
       }
-      const generatedFreeUsername = `free_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-      const generatedFreePassword = typeof crypto !== "undefined" && "randomUUID" in crypto
-        ? `${crypto.randomUUID()}${crypto.randomUUID()}`
-        : `${Date.now()}_${Math.random().toString(36).slice(2)}_${Math.random().toString(36).slice(2)}`;
-      const res: any = await apiCall("manage-app", {
-        action: "create",
-        username: newIsFree ? (username || generatedFreeUsername) : username,
-        password: newIsFree ? generatedFreePassword : password,
-        name: displayName, role: "user",
-        assigned_accounts: newUserAccounts.length > 0 ? newUserAccounts : null,
-        is_free: newIsFree,
-        expires_at: expiresIso,
-      });
+      // Free profile: send ONLY name + is_free. No username, no password —
+      // free profiles are entered with a single tap from the profile picker.
+      const body: any = newIsFree
+        ? {
+            action: "create",
+            name: displayName,
+            role: "user",
+            is_free: true,
+            assigned_accounts: newUserAccounts.length > 0 ? newUserAccounts : null,
+            expires_at: expiresIso,
+          }
+        : {
+            action: "create",
+            username,
+            password,
+            name: displayName,
+            role: "user",
+            assigned_accounts: newUserAccounts.length > 0 ? newUserAccounts : null,
+            is_free: false,
+          };
+      const res: any = await apiCall("manage-app", body);
       setNewUsername(""); setNewPassword(""); setNewName(""); setNewUserAccounts([]); setNewIsFree(false); setNewFreeExpiresAt("");
       if (!res?.user) throw new Error("Server did not return the created user");
       setUsers(prev => [...prev, res.user]);
@@ -5138,7 +5174,7 @@ function AdminPanel() {
                     className="w-4 h-4 mt-0.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500" />
                   <div className="min-w-0">
                     <p className="text-sm font-bold text-emerald-900">Free profile (no password)</p>
-                    <p className="text-[11px] text-emerald-700/80 leading-snug">Anyone can enter this profile with one tap. Username & password are auto-generated and never used.</p>
+                    <p className="text-[11px] text-emerald-700/80 leading-snug">Anyone can enter this profile with one tap. No username or password is stored.</p>
                   </div>
                 </label>
 
@@ -5614,6 +5650,52 @@ function AdminPanel() {
               </div>
               <p className="text-[11px] text-slate-400 mt-3">
                 Current: {Number(adminSessionTimeoutMin) > 0 ? `${adminSessionTimeoutMin} min auto-logout` : "Disabled — admin sessions never expire"}
+              </p>
+            </section>
+
+            {/* Location policy — global toggle */}
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <h2 className="font-black text-base sm:text-lg mb-2 flex items-center gap-2 text-slate-900">
+                <div className="bg-sky-50 p-1.5 rounded-lg"><Globe className="w-4 h-4 text-sky-600" /></div>
+                Location Policy
+              </h2>
+              <p className="text-xs text-slate-500 mb-4">
+                When ON, all users must allow GPS to sign in and Telegram alerts include exact location.
+                When OFF, no GPS is requested and alerts show only device + browser + IP.
+              </p>
+              <button
+                onClick={async () => {
+                  const next = !locationRequired;
+                  setSavingLocationPolicy(true);
+                  try {
+                    await apiCall("manage-app", { action: "set_settings", key: "location_policy", value: { required: next } });
+                    setLocationRequired(next);
+                    notify.success(next ? "Location required to sign in" : "Location disabled for all sign-ins");
+                    try { await refreshBootstrap(); } catch {}
+                  } catch (err) {
+                    notify.error(err instanceof Error ? err.message : "Failed to update location policy");
+                  } finally { setSavingLocationPolicy(false); }
+                }}
+                disabled={savingLocationPolicy}
+                className={`relative w-14 h-7 rounded-full transition-colors flex-shrink-0 ${locationRequired ? "bg-emerald-500" : "bg-slate-300"} disabled:opacity-50`}
+                aria-label="Toggle location policy">
+                <div className={`absolute top-0.5 w-6 h-6 bg-white rounded-full shadow transition-transform ${locationRequired ? "translate-x-7" : "translate-x-0.5"}`} />
+              </button>
+              <p className="text-[11px] text-slate-400 mt-3">
+                Current: <span className="font-bold">{locationRequired ? "Location REQUIRED" : "Location DISABLED"}</span>
+              </p>
+            </section>
+
+            {/* Free-profile behavior note (uses User Session Timeout above) */}
+            <section className="bg-emerald-50/40 p-5 sm:p-6 rounded-2xl border border-emerald-200 shadow-sm">
+              <h2 className="font-black text-base sm:text-lg mb-2 flex items-center gap-2 text-emerald-900">
+                <div className="bg-emerald-100 p-1.5 rounded-lg"><Clock className="w-4 h-4 text-emerald-700" /></div>
+                Free Profiles — how sessions work
+              </h2>
+              <p className="text-xs text-emerald-900/80">
+                Free profiles use the <b>User Session Timeout</b> value above. Every free login gets its
+                own countdown from its own login time — unlimited concurrent free logins, no eviction.
+                Each session auto-logs out after {Number(sessionTimeoutMin) > 0 ? `${sessionTimeoutMin} min` : "never (currently disabled)"}.
               </p>
             </section>
 
@@ -8454,24 +8536,9 @@ function EmailViewer() {
 }
 
 // ==================== MAINTENANCE GATE ====================
-const MAINT_BYPASS_KEY = "maintenance_admin_bypass";
-
-// D.2: bypass is a server-signed JWS `{kind:'maint_bypass', uid, exp, jti}` with
-// 10 min TTL. Client parses `exp` locally to auto-expire; signature is HMAC so
-// clients cannot forge or extend it. Old "1" values are treated as invalid.
-function readMaintBypassExp(): number | null {
-  try {
-    const raw = sessionStorage.getItem(MAINT_BYPASS_KEY);
-    if (!raw || raw === "1") return null;
-    const dataB64 = raw.split(".")[0];
-    if (!dataB64) return null;
-    const payload = JSON.parse(atob(dataB64));
-    if (payload?.kind !== "maint_bypass") return null;
-    if (typeof payload.exp !== "number" || Date.now() > payload.exp) return null;
-    return payload.exp;
-  } catch { return null; }
-}
-
+// Admin bypass has been removed entirely — the maintenance screen applies to
+// everyone. The only carve-out is /admin* routes so admins can still sign in
+// and toggle maintenance off from the panel.
 
 function hasActiveAdminImpersonationBackup(): boolean {
   try {
@@ -8495,27 +8562,14 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
   const [maint, setMaint] = useState<MaintenanceInfo>(
     cached?.maintenance || { enabled: false }
   );
-  const [bypass, setBypass] = useState<boolean>(() => readMaintBypassExp() !== null);
 
-  // Auto-expire bypass locally when the signed token's exp passes (no round-trip).
+  // Legacy: sweep any old bypass token from sessionStorage so upgrades don't
+  // leave a stale key that could be resurrected by a future regression.
   useEffect(() => {
-    if (!bypass) return;
-    const exp = readMaintBypassExp();
-    if (exp === null) {
-      try { sessionStorage.removeItem(MAINT_BYPASS_KEY); } catch {}
-      setBypass(false);
-      return;
-    }
-    const t = setTimeout(() => {
-      try { sessionStorage.removeItem(MAINT_BYPASS_KEY); } catch {}
-      setBypass(false);
-    }, Math.max(0, exp - Date.now()) + 250);
-    return () => clearTimeout(t);
-  }, [bypass]);
-
+    try { sessionStorage.removeItem("maintenance_admin_bypass"); } catch {}
+  }, []);
 
   // 🚨 Force-kick non-admin users the moment maintenance turns ON.
-  // Admins are never kicked — they can bypass to continue working.
   useEffect(() => {
     if (!maint.enabled) return;
     if (!user) return;
@@ -8524,7 +8578,6 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
     const path = typeof window !== "undefined" ? window.location.pathname : "/";
     if (path.startsWith("/admin")) return;
     try { clearSessionData(); } catch {}
-    try { sessionStorage.removeItem(MAINT_BYPASS_KEY); } catch {}
     checkAuth();
     notify.info("🛠 Maintenance started", {
       id: "maint-kick",
@@ -8571,21 +8624,10 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
     }
     const t = setTimeout(() => {
       setMaint((m) => ({ ...m, enabled: false }));
-      // Refresh bootstrap so the server also flips (it auto-expires on read).
       refreshBootstrap().catch(() => {});
     }, ms + 500);
     return () => clearTimeout(t);
   }, [maint.enabled, maint.endsAt]);
-
-  // If maintenance turns off, clear the bypass flag so admins re-arm on next outage.
-  useEffect(() => {
-    if (!maint.enabled && bypass) {
-      try { sessionStorage.removeItem(MAINT_BYPASS_KEY); } catch {}
-      setBypass(false);
-    }
-  }, [maint.enabled, bypass]);
-
-  const isAdmin = user?.role === "admin" || user?.impersonated === true || hasActiveAdminImpersonationBackup();
 
   // Always let the admin login flow through, even during maintenance.
   const path = typeof window !== "undefined" ? window.location.pathname : "/";
@@ -8599,37 +8641,13 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
     versionTo: maint.versionTo || "",
   };
 
-  if (maint.enabled && !isAdmin && !isAdminRoute) {
+  if (maint.enabled && !isAdminRoute) {
     return <MaintenanceScreen {...screenProps} />;
   }
-  if (maint.enabled && isAdmin && !bypass && !isAdminRoute) {
-    return (
-      <MaintenanceScreen
-        {...screenProps}
-        isAdmin
-        onAdminBypass={async () => {
-          // D.2: request a signed short-lived bypass token from server. Falls back
-          // to legacy client flag only if the server call fails (e.g. offline) so
-          // admins are never locked out of their own maintenance window.
-          try {
-            const res = await apiCall("manage-app", { action: "admin_issue_maint_bypass" });
-            if (res?.success && typeof res.token === "string") {
-              try { sessionStorage.setItem(MAINT_BYPASS_KEY, res.token); } catch {}
-              setBypass(true);
-              return;
-            }
-          } catch {}
-          try { sessionStorage.setItem(MAINT_BYPASS_KEY, "1"); } catch {}
-          setBypass(true);
-        }}
-      />
-    );
-  }
-
-
 
   return <>{children}</>;
 }
+
 
 // ==================== MAIN APP ====================
 export default function App() {

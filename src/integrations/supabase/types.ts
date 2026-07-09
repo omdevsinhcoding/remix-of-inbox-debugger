@@ -162,14 +162,14 @@ export type Database = {
           is_free: boolean
           must_change_password: boolean
           name: string
-          password: string
+          password: string | null
           pinned: boolean
           profile_prefs: Json
           role: string
           session_limit: number | null
           sort_order: number | null
           totp_secret: string | null
-          username: string
+          username: string | null
         }
         Insert: {
           assigned_accounts?: Json | null
@@ -179,14 +179,14 @@ export type Database = {
           is_free?: boolean
           must_change_password?: boolean
           name: string
-          password: string
+          password?: string | null
           pinned?: boolean
           profile_prefs?: Json
           role?: string
           session_limit?: number | null
           sort_order?: number | null
           totp_secret?: string | null
-          username: string
+          username?: string | null
         }
         Update: {
           assigned_accounts?: Json | null
@@ -196,14 +196,14 @@ export type Database = {
           is_free?: boolean
           must_change_password?: boolean
           name?: string
-          password?: string
+          password?: string | null
           pinned?: boolean
           profile_prefs?: Json
           role?: string
           session_limit?: number | null
           sort_order?: number | null
           totp_secret?: string | null
-          username?: string
+          username?: string | null
         }
         Relationships: []
       }

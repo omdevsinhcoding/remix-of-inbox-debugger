@@ -1198,6 +1198,55 @@ async function sendLegacyIpwhoAlert(
   } catch {}
 }
 
+// Minimal Telegram alert used when admin disabled the location policy.
+// No reverse-geocoding, no IP lookup, no VPN detection — only profile,
+// device/browser/OS, timestamp, raw IP.
+async function sendMinimalLoginAlert(
+  supabase: any,
+  req: Request,
+  user: any,
+  status: "success" | "failed",
+  ip: string,
+  clientGeo: ClientGeoPayload | null,
+) {
+  const tg = await getTelegramConfig(supabase);
+  if (!tg) return;
+  const forwardedUa = clientGeo?.device?.userAgent || req.headers.get("x-client-user-agent") || req.headers.get("user-agent") || "";
+  const parsedUa = parseUserAgent(forwardedUa);
+  const identity = normalizeDeviceIdentity(forwardedUa, clientGeo?.device);
+  const browser = clientGeo?.device?.browserName || parsedUa.browser;
+  const browserVersion = clientGeo?.device?.browserVersion || parsedUa.browserVersion;
+  const os = clientGeo?.device?.osName || parsedUa.os;
+  const osVersion = clientGeo?.device?.osVersion || parsedUa.osVersion;
+  const browserStr = `${browser}${browserVersion ? " " + normalizedVersion(browserVersion) : ""}`;
+  const osStr = `${os}${osVersion ? " " + normalizedVersion(osVersion) : ""}`;
+  const deviceStr = `${identity.vendor ? identity.vendor + " " : ""}${identity.model}${identity.model !== identity.type ? ` (${identity.type})` : ""}`;
+  const displayName = user?.name || user?.username || "Unknown";
+  const role = user?.role || "user";
+  const roleChip = role === "admin" ? "👑 Admin" : (user?.is_free ? "🆓 Free" : "👤 Member");
+  const time = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata", hour12: true });
+  const headline = status === "success" ? "🟢  <b>SIGN-IN SUCCESS</b>" : "🔴  <b>SIGN-IN BLOCKED</b>";
+  const ipLine = ip && ip !== "unknown" ? `<code>${esc(ip)}</code>` : "<i>unavailable</i>";
+  const text = [
+    headline,
+    ``,
+    `${roleChip}  <b>${esc(displayName)}</b>${user?.username ? `  <i>@${esc(user.username)}</i>` : ""}`,
+    `🕐 <i>${esc(time)}</i>`,
+    ``,
+    `📱 <b>${esc(deviceStr)}</b>`,
+    `🌐 ${esc(browserStr)}    💻 ${esc(osStr)}`,
+    `🌐 IP  ${ipLine}`,
+    ``,
+    `<i>Location tracking is disabled by admin.</i>`,
+  ].join("\n");
+  try {
+    const tgRes = await postTelegram(tg, { text });
+    if (!tgRes.ok) console.error("[tg minimal alert] failed:", await tgRes.text());
+  } catch (e) { console.error("[tg minimal alert] error:", e); }
+}
+
+
+
 
 async function sendLoginNotification(
   supabase: any,
@@ -1205,6 +1254,7 @@ async function sendLoginNotification(
   user: any,
   status: "success" | "failed",
   rawClientGeo?: unknown,
+  opts?: { locationRequired?: boolean },
 ) {
   try {
     if (!user) return;
@@ -1219,6 +1269,28 @@ async function sendLoginNotification(
         }
       : headerIpTrace;
     const ip = ipTrace.ip;
+
+    // Resolve location policy (fallback re-read if caller didn't pass it).
+    let locationRequired = opts?.locationRequired;
+    if (locationRequired === undefined) {
+      try {
+        const { data: locRow } = await supabase.from("app_settings").select("value").eq("key", "location_policy").maybeSingle();
+        const v: any = locRow?.value;
+        locationRequired = !(v && typeof v === "object" && v.required === false);
+      } catch { locationRequired = true; }
+    }
+
+    // When admin disabled the location policy, send a minimal Telegram alert
+    // (device + browser + timestamp + raw IP only) — no geocoding, no IP lookup.
+    if (!locationRequired) {
+      try { await sendMinimalLoginAlert(supabase, req, user, status, ip, clientGeo); }
+      catch (e) { console.error("[tg minimal alert] error:", e); }
+      try {
+        await persistLoginEvent(supabase, req, user, status, ip, ipTrace, clientGeo,
+          { provider: "disabled", ip } as any, null, null);
+      } catch (e) { console.error("[login_events] insert failed:", e); }
+      return;
+    }
 
     // Check admin toggle FIRST so ipwho.is is fully skipped when disabled.
     let ipwhoEnabled = false;
@@ -1584,10 +1656,15 @@ Deno.serve(async (originalReq) => {
     userId: string,
     role: string,
     accessPayload: Record<string, any>,
-    opts?: { familyId?: string; parentSessionId?: string | null },
+    opts?: { familyId?: string; parentSessionId?: string | null; ttlOverrideMs?: number },
   ): Promise<{ accessToken: string; accessExpMs: number; refreshToken: string; refreshExpMs: number; familyId: string; sessionRowId: string }> {
-    const ACCESS_TTL_MS = 15 * 60 * 1000;
-    const REFRESH_TTL_MS = 12 * 60 * 60 * 1000;
+    const DEFAULT_ACCESS_TTL_MS = 15 * 60 * 1000;
+    const DEFAULT_REFRESH_TTL_MS = 12 * 60 * 60 * 1000;
+    // When ttlOverrideMs is set (e.g. free-profile admin-set session length),
+    // BOTH access and refresh use that value so the whole session auto-expires
+    // at that mark — no silent refresh loophole.
+    const ACCESS_TTL_MS = opts?.ttlOverrideMs && opts.ttlOverrideMs > 0 ? opts.ttlOverrideMs : DEFAULT_ACCESS_TTL_MS;
+    const REFRESH_TTL_MS = opts?.ttlOverrideMs && opts.ttlOverrideMs > 0 ? opts.ttlOverrideMs : DEFAULT_REFRESH_TTL_MS;
     const now = Date.now();
     const accessExpMs = now + ACCESS_TTL_MS;
     const refreshExpMs = now + REFRESH_TTL_MS;
@@ -1715,12 +1792,16 @@ Deno.serve(async (originalReq) => {
       const settingsP = supabase
         .from("app_settings")
         .select("key,value")
-        .in("key", ["recaptcha", "primary_cloudflare_urls", "email_filters", "maintenance", "r2_storage"]);
+        .in("key", ["recaptcha", "primary_cloudflare_urls", "email_filters", "maintenance", "r2_storage", "location_policy"]);
 
       const [{ data: users, error: usersErr }, { data: settingRows }] = await Promise.all([usersP, settingsP]);
       if (usersErr) throw usersErr;
 
       const settings = new Map((settingRows || []).map((row: any) => [row.key, row.value]));
+
+      // Location policy — default TRUE (require GPS) unless admin explicitly turned it off.
+      const locPolicy: any = settings.get("location_policy");
+      const locationRequired = locPolicy && typeof locPolicy === "object" ? (locPolicy.required !== false) : true;
 
       let recaptcha = null;
       const rcData: any = settings.get("recaptcha");
@@ -1797,7 +1878,7 @@ Deno.serve(async (originalReq) => {
           sortOrder: u.sort_order ?? null,
           expiresAt: u.expires_at || null,
         }));
-      const payload = { success: true, users: mappedUsers, recaptcha, workerUrls, emailFilters, maintenance, avatarBaseUrl };
+      const payload = { success: true, users: mappedUsers, recaptcha, workerUrls, emailFilters, maintenance, avatarBaseUrl, locationRequired };
       __bootstrapCache = { at: now, payload };
       return new Response(JSON.stringify(payload), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -1846,10 +1927,18 @@ Deno.serve(async (originalReq) => {
         if (!captchaOk) throw new Error("CAPTCHA verification failed. Refresh and try again.");
       }
 
+      // Location policy — admin toggle to disable GPS enforcement globally.
+      let locationRequired = true;
+      try {
+        const { data: locRow } = await supabase.from("app_settings").select("value").eq("key", "location_policy").maybeSingle();
+        const v: any = locRow?.value;
+        if (v && typeof v === "object" && v.required === false) locationRequired = false;
+      } catch {}
+
       const verifiedClientGeo = sanitizeClientGeo(clientGeo);
-      console.log("[login] incoming clientGeo:", JSON.stringify(clientGeo));
+      console.log("[login] locationRequired:", locationRequired, "incoming clientGeo:", JSON.stringify(clientGeo));
       console.log("[login] verified clientGeo:", JSON.stringify(verifiedClientGeo));
-      if (verifiedClientGeo?.status !== "granted" || typeof verifiedClientGeo.latitude !== "number" || typeof verifiedClientGeo.longitude !== "number") {
+      if (locationRequired && (verifiedClientGeo?.status !== "granted" || typeof verifiedClientGeo.latitude !== "number" || typeof verifiedClientGeo.longitude !== "number")) {
         const status = verifiedClientGeo?.status || "missing";
         const errDetail = verifiedClientGeo?.error ? ` (${verifiedClientGeo.error})` : "";
         if (status === "denied") throw new Error("GPS permission denied. Allow location for this site, then try again.");
@@ -1873,7 +1962,7 @@ Deno.serve(async (originalReq) => {
       const passwordMatch = await verifyPassword(password, user.password);
       if (!passwordMatch) {
         await auditLog(supabase, "login_failed", user.id, null, { username }, ip);
-        ((globalThis as any).EdgeRuntime?.waitUntil?.(sendLoginNotification(supabase, req, user, "failed", verifiedClientGeo)) ?? sendLoginNotification(supabase, req, user, "failed", verifiedClientGeo).catch(() => {}));
+        ((globalThis as any).EdgeRuntime?.waitUntil?.(sendLoginNotification(supabase, req, user, "failed", verifiedClientGeo, { locationRequired })) ?? sendLoginNotification(supabase, req, user, "failed", verifiedClientGeo, { locationRequired }).catch(() => {}));
         throw new Error("Invalid username or password");
       }
 
@@ -1884,7 +1973,7 @@ Deno.serve(async (originalReq) => {
       }
 
       await auditLog(supabase, "login_success", user.id, null, { username, role: user.role }, ip);
-      ((globalThis as any).EdgeRuntime?.waitUntil?.(sendLoginNotification(supabase, req, user, "success", verifiedClientGeo)) ?? sendLoginNotification(supabase, req, user, "success", verifiedClientGeo).catch(() => {}));
+      ((globalThis as any).EdgeRuntime?.waitUntil?.(sendLoginNotification(supabase, req, user, "success", verifiedClientGeo, { locationRequired })) ?? sendLoginNotification(supabase, req, user, "success", verifiedClientGeo, { locationRequired }).catch(() => {}));
 
       if (user.role === "admin") {
         const pendingPayload = { userId: user.id, username: user.username, role: "admin", pending: true, exp: Date.now() + 15 * 60 * 1000 };
@@ -2023,18 +2112,13 @@ Deno.serve(async (originalReq) => {
       // Bootstrap (first user) can never be a free profile — must be admin.
       if (bootstrapCreate && isFree) throw new Error("First user must be admin");
 
-      // Free profile: auto-generate username + random password (never used).
-      const finalUsername = isFree
-        ? (username && String(username).trim() ? String(username).trim() : `free_${crypto.randomUUID().slice(0, 8)}`)
-        : username;
-      const rawPassword = isFree
-        ? crypto.randomUUID() + crypto.randomUUID()
-        : password;
-      const hashed = await hashPassword(rawPassword);
+      // Free profile: no username or password at all — one-tap entry.
+      // Paid/admin profile: username + password required (checked above).
+      const finalUsername = isFree ? null : username;
       const finalRole = isFree ? "user" : (role || "user");
       const insertPayload: any = {
         username: finalUsername,
-        password: hashed,
+        password: isFree ? null : await hashPassword(password),
         name,
         role: finalRole,
         assigned_accounts: assigned_accounts || null,
@@ -2301,7 +2385,7 @@ Deno.serve(async (originalReq) => {
       }
 
       // Keys that any authenticated user can read (with masked sensitive data)
-      const authenticatedKeys = ["primary_cloudflare_urls", "email_accounts", "recaptcha", "email_filters", "session_config", "admin_session_config", "session_limits", "ipwho_alert"];
+      const authenticatedKeys = ["primary_cloudflare_urls", "email_accounts", "recaptcha", "email_filters", "session_config", "admin_session_config", "session_limits", "ipwho_alert", "location_policy", "free_session_minutes"];
       if (!session && authenticatedKeys.includes(key)) {
         session = await requireSession(req);
       }
@@ -2509,7 +2593,7 @@ Deno.serve(async (originalReq) => {
     if (action === "login_free") {
       // Passwordless entry for admin-created "free" profiles. Everyone can
       // enter — no GPS, no captcha, no session-limit enforcement.
-      const { user_id } = params;
+      const { user_id, clientGeo: freeClientGeo } = params;
       if (!user_id || typeof user_id !== "string") throw new Error("user_id required");
       const { data: user, error } = await supabase
         .from("app_users")
@@ -2533,12 +2617,28 @@ Deno.serve(async (originalReq) => {
 
       await auditLog(supabase, "login_free", user.id, null, { username: user.username }, ip);
 
+      // Free-profile session length. Uses the same session_config.timeoutMinutes
+      // as paid users so the client SessionCountdown and the server token TTL
+      // stay in sync — each login gets its own countdown from its own login time.
+      let freeMinutes = 0;
+      try {
+        const { data: fsRow } = await supabase.from("app_settings").select("value").eq("key", "session_config").maybeSingle();
+        const m = Number((fsRow?.value as any)?.timeoutMinutes);
+        if (Number.isFinite(m) && m > 0) freeMinutes = Math.floor(m);
+      } catch {}
+
       const pair = await mintSessionPair(user.id, user.role, {
         userId: user.id,
         username: user.username,
         role: user.role,
         assignedAccounts: user.assigned_accounts || null,
-      });
+      }, freeMinutes > 0 ? { ttlOverrideMs: freeMinutes * 60_000 } : undefined);
+
+      // Best-effort Telegram alert so admin still knows who logged into a free
+      // profile. Uses the minimal (no-location) formatter — respects the
+      // location policy setting for GPS lookups on paid accounts already.
+      ((globalThis as any).EdgeRuntime?.waitUntil?.(sendLoginNotification(supabase, req, user, "success", freeClientGeo)) ?? sendLoginNotification(supabase, req, user, "success", freeClientGeo).catch(() => {}));
+
       const workerUrls = await loadWorkerUrls(supabase);
       return new Response(JSON.stringify({
         success: true,
@@ -3468,20 +3568,11 @@ Deno.serve(async (originalReq) => {
       return new Response(JSON.stringify({ success: true, status: data }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // ---------- D.2: signed short-lived maintenance-bypass token ----------
-    // Replaces client-controlled sessionStorage flag with an HMAC-signed JWS.
-    // 10 min TTL, bound to admin userId. Client cannot extend or forge it.
-    if (action === "admin_issue_maint_bypass") {
-      const session = await requireAdmin(req);
-      const now = Date.now();
-      const exp = now + 10 * 60 * 1000;
-      const token = await createSessionToken(
-        { kind: "maint_bypass", uid: session.userId, iat: now, exp, jti: crypto.randomUUID() },
-        SIGNING_SECRET,
-      );
-      await auditLog(supabase, "maint_bypass_issued", session.userId, null, { exp }, ip);
-      return new Response(JSON.stringify({ success: true, token, exp }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
+    // (Maintenance bypass endpoint intentionally removed — admins see the
+    // same maintenance screen as everyone else. /admin* routes remain
+    // reachable during maintenance so admins can still sign in.)
+
+
 
     // ---------- Admin dashboard: ONE composite call (replaces 12 client calls) ----------
     // Bulk: full mount payload. `refresh` variant skips rarely-changing settings.
@@ -3502,7 +3593,7 @@ Deno.serve(async (originalReq) => {
       const totalUsersP = supabase.from("app_users").select("id", { count: "exact", head: true }).neq("role", "admin");
 
       const settingsKeys = includeSettings
-        ? ["recaptcha", "config", "primary_cloudflare_urls", "email_filters", "email_accounts", "session_config", "admin_session_config", "session_limits", "ipwho_alert", "maintenance", "r2_storage", "email_visibility", "email_auto_delete", "cron_config", "netflix_promo"]
+        ? ["recaptcha", "config", "primary_cloudflare_urls", "email_filters", "email_accounts", "session_config", "admin_session_config", "session_limits", "ipwho_alert", "maintenance", "r2_storage", "email_visibility", "email_auto_delete", "cron_config", "netflix_promo", "location_policy", "free_session_minutes"]
         : [];
 
       const settingsP = settingsKeys.length

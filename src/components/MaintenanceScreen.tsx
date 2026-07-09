@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
-import { ArrowRight, Clock } from "lucide-react";
+import { Clock } from "lucide-react";
 
 type Props = {
   title?: string;
@@ -8,8 +8,6 @@ type Props = {
   endsAt?: string | null;
   versionFrom?: string;
   versionTo?: string;
-  isAdmin?: boolean;
-  onAdminBypass?: () => void;
 };
 
 
@@ -18,7 +16,7 @@ type Props = {
  * Cinematic black stage, crimson brand palette, Three.js flowing shader,
  * drifting embers, editorial serif headline on a glass card.
  */
-export default function MaintenanceScreen({ title, message, endsAt, versionFrom, versionTo, isAdmin, onAdminBypass }: Props) {
+export default function MaintenanceScreen({ title, message, endsAt, versionFrom, versionTo }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const particlesRef = useRef<HTMLCanvasElement | null>(null);
   const [now, setNow] = useState<Date>(new Date());
@@ -405,16 +403,7 @@ export default function MaintenanceScreen({ title, message, endsAt, versionFrom,
               </div>
             </div>
 
-            {isAdmin && onAdminBypass && (
-              <button
-                onClick={onAdminBypass}
-                className="mt-7 group inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-white text-[13px] font-semibold transition-all hover:gap-3"
-                style={{ background: "linear-gradient(180deg,#e50914,#b0060f)", boxShadow: "0 10px 30px -8px rgba(229,9,20,0.55)" }}
-              >
-                Enter as admin
-                <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5" />
-              </button>
-            )}
+
           </div>
         </div>
       </div>
