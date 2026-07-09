@@ -8236,38 +8236,33 @@ function EmailViewer() {
         return;
       }
 
-      let synced: Email[] | null = null;
-      try {
-        synced = await syncViaWorker(syncLabels);
-      } catch (transient) {
-        const tmsg = transient instanceof Error ? transient.message : String(transient);
-        if (/Secure connection|handshake|Failed to fetch|NetworkError|busy/i.test(tmsg)) {
-          await new Promise((r) => setTimeout(r, 500));
-          synced = await syncViaWorker(syncLabels);
-        } else {
-          throw transient;
-        }
-      }
-
-      if (synced && synced.length > 0) {
-        mergeEmailsIntoState(synced);
-        setError(null);
-        setLastUpdated(new Date());
-      }
       const snapshot = await loadServerSnapshot(cacheLabels).catch((snapshotErr) => {
         const smsg = snapshotErr instanceof Error ? snapshotErr.message : String(snapshotErr || "");
         pushDiag({ ts: Date.now(), kind: "sync", endpoint: "list_delta:snapshot", error: smsg });
         return null;
       });
-      const scopedSynced = Array.isArray(cacheLabels) && cacheLabels.length === 1
-        ? (synced || []).filter((e) => String(e.account_label || "").trim() === cacheLabels[0])
-        : (synced || []);
       const scopedSnapshot = Array.isArray(cacheLabels) && cacheLabels.length === 1
         ? (snapshot || []).filter((e) => String(e.account_label || "").trim() === cacheLabels[0])
         : (snapshot || []);
-      const newCount = mergeEmailsById([scopedSynced, scopedSnapshot]).filter((e) => !beforeIds.has(e.id)).length;
+      const newCount = scopedSnapshot.filter((e) => !beforeIds.has(e.id)).length;
       notify.dismiss(toastId);
       notify.success(newCount > 0 ? `${newCount} new email${newCount === 1 ? "" : "s"} arrived` : "Inbox updated", { duration: 1800 });
+
+      void (async () => {
+        try {
+          const synced = await syncViaWorker(syncLabels);
+          if (synced && synced.length > 0) {
+            mergeEmailsIntoState(synced);
+            setError(null);
+            setLastUpdated(new Date());
+          }
+          await new Promise((r) => setTimeout(r, 900));
+          await loadServerSnapshot(cacheLabels);
+        } catch (bgErr) {
+          const bmsg = bgErr instanceof Error ? bgErr.message : String(bgErr || "");
+          pushDiag({ ts: Date.now(), kind: "sync", endpoint: "background refresh", error: bmsg });
+        }
+      })();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err || "Failed to refresh");
       pushDiag({ ts: Date.now(), kind: "sync", endpoint: "manual refresh", error: msg });
