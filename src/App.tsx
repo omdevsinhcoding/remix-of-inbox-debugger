@@ -4049,6 +4049,7 @@ function AdminPanel() {
   const [editingUserAccounts, setEditingUserAccounts] = useState<string | null>(null);
   const [editAccountsList, setEditAccountsList] = useState<string[]>([]);
   const [editSessionLimit, setEditSessionLimit] = useState<string>("");
+  const [editExpiresAt, setEditExpiresAt] = useState<string>(""); // "YYYY-MM-DDTHH:mm" for free users only
   const [newIsFree, setNewIsFree] = useState(false);
   const [newFreeExpiresAt, setNewFreeExpiresAt] = useState<string>(""); // "YYYY-MM-DDTHH:mm"
   const [dragUserId, setDragUserId] = useState<string | null>(null);
