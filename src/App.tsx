@@ -6644,200 +6644,78 @@ function AdminPanel() {
                       </div>
                       {expandedAccount === i && (
                         <div className="mt-4 pt-3 border-t border-blue-200 space-y-2.5">
-                          <div className="grid grid-cols-2 gap-3">
-                            <div className="bg-white rounded-lg p-2 border border-slate-100">
-                              <div className="flex items-center justify-between gap-2 mb-1">
-                                <p className="text-[10px] font-bold text-blue-500 uppercase">Host</p>
-                                {acc.host && (
-                                  <button type="button" onClick={(e) => { e.stopPropagation(); copyToClipboard(acc.host, "Host copied"); }}
-                                    className="p-1 rounded hover:bg-slate-100 text-slate-600" aria-label="Copy host">
-                                    <Copy className="w-3 h-3" />
-                                  </button>
-                                )}
+                          <div onClick={(e) => e.stopPropagation()} className="space-y-3">
+                            <div>
+                              <label className="block text-[10px] font-bold text-blue-500 uppercase mb-1">Label / Name</label>
+                              <input type="text" value={acc.label} onChange={(e) => updateEmailAccountDraft(i, { label: e.target.value })}
+                                placeholder="Account label" className="w-full bg-white border border-slate-200 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500 text-sm text-slate-900" />
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              <div>
+                                <label className="block text-[10px] font-bold text-blue-500 uppercase mb-1">Host</label>
+                                <input type="text" value={acc.host} onChange={(e) => updateEmailAccountDraft(i, { host: e.target.value })}
+                                  placeholder="imap.gmail.com" className="w-full bg-white border border-slate-200 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500 text-sm text-slate-900" />
                               </div>
-                              <p className="text-sm text-slate-800 font-medium break-all">{acc.host}</p>
-                            </div>
-                            <div className="bg-white rounded-lg p-2 border border-slate-100">
-                              <div className="flex items-center justify-between gap-2 mb-1">
-                                <p className="text-[10px] font-bold text-blue-500 uppercase">Port</p>
-                                {acc.port && (
-                                  <button type="button" onClick={(e) => { e.stopPropagation(); copyToClipboard(String(acc.port), "Port copied"); }}
-                                    className="p-1 rounded hover:bg-slate-100 text-slate-600" aria-label="Copy port">
-                                    <Copy className="w-3 h-3" />
-                                  </button>
-                                )}
+                              <div>
+                                <label className="block text-[10px] font-bold text-blue-500 uppercase mb-1">Port</label>
+                                <input type="text" value={acc.port} onChange={(e) => updateEmailAccountDraft(i, { port: e.target.value })}
+                                  placeholder="993" className="w-full bg-white border border-slate-200 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500 text-sm text-slate-900" />
                               </div>
-                              <p className="text-sm text-slate-800 font-medium">{acc.port}</p>
                             </div>
-                          </div>
-                          <div className="bg-white rounded-lg p-2 border border-slate-100">
-                            <div className="flex items-center justify-between gap-2 mb-1">
-                              <p className="text-[10px] font-bold text-blue-500 uppercase">Email</p>
-                              {acc.user && (
-                                <button type="button" onClick={(e) => { e.stopPropagation(); copyToClipboard(acc.user, "Email copied"); }}
-                                  className="p-1 rounded hover:bg-slate-100 text-slate-600" aria-label="Copy email">
-                                  <Copy className="w-3 h-3" />
-                                </button>
-                              )}
+                            <div>
+                              <label className="block text-[10px] font-bold text-blue-500 uppercase mb-1">Email / Username</label>
+                              <input type="text" value={acc.user} onChange={(e) => updateEmailAccountDraft(i, { user: e.target.value })}
+                                placeholder="Email address" className="w-full bg-white border border-slate-200 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500 text-sm text-slate-900" />
                             </div>
-                            <p className="text-sm text-slate-800 font-medium break-all">{acc.user}</p>
-                          </div>
-                          <div className="bg-white rounded-lg p-2 border border-slate-100">
-                            <div className="flex items-center justify-between gap-2 mb-1">
-                              <p className="text-[10px] font-bold text-blue-500 uppercase">Password</p>
-                              {acc.password && (
-                                <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                                  <button
-                                    type="button"
-                                    onClick={(e) => { e.stopPropagation(); togglePasswordReveal(`acc-${i}`); }}
-                                    className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-600"
-                                    aria-label={revealedPasswords.has(`acc-${i}`) ? "Hide password" : "Show password"}
-                                  >
-                                    {revealedPasswords.has(`acc-${i}`) ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={async (e) => {
-                                      e.stopPropagation();
-                                      try { await navigator.clipboard.writeText(acc.password || ""); notify.success("Password copied"); } catch { notify.error("Copy failed"); }
-                                    }}
-                                    className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-600"
-                                    aria-label="Copy password"
-                                  >
-                                    <Copy className="w-3.5 h-3.5" />
-                                  </button>
-                                </div>
-                              )}
+                            <div>
+                              <label className="block text-[10px] font-bold text-blue-500 uppercase mb-1">Password</label>
+                              <PasswordInput value={acc.password} onChange={(e) => updateEmailAccountDraft(i, { password: e.target.value })}
+                                placeholder="App password" className="w-full bg-white border border-slate-200 rounded-lg p-2 pr-12 outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
                             </div>
-                            {acc.password ? (
-                              <p className="text-sm text-slate-800 font-mono font-medium break-all tracking-wider">
-                                {revealedPasswords.has(`acc-${i}`) ? acc.password : "••••••••••••••••"}
-                              </p>
-                            ) : (
-                              <p className="text-sm text-slate-800 font-medium">Not set</p>
-                            )}
-                          </div>
-                          <div>
-                            <div className="flex items-center justify-between">
-                              <p className="text-[10px] font-bold text-blue-500 uppercase">Cloudflare Worker URLs</p>
-                              <button onClick={(e) => {
-                                e.stopPropagation();
-                                if (editingAccountUrls === i) {
-                                  setEditingAccountUrls(null);
-                                } else {
-                                  setEditingAccountUrls(i);
-                                  setEditCfUrls([...(acc.cloudflareUrls || [])]);
-                                  setEditCfInput("");
-                                }
-                              }} className="text-[10px] font-bold text-blue-600 hover:text-blue-800 transition-colors">
-                                {editingAccountUrls === i ? "Cancel" : "Edit URLs"}
-                              </button>
-                            </div>
-                            {editingAccountUrls === i ? (
-                              <div className="mt-1 space-y-1.5">
-                                {editCfUrls.map((url, ui) => (
-                                  <div key={ui} className="flex items-center gap-2 p-1.5 bg-white rounded-lg border">
-                                    <Globe className="w-3 h-3 text-slate-400 flex-shrink-0" />
-                                    <span className="text-xs text-slate-700 flex-1 break-all">{url}</span>
-                                    <button onClick={(e) => { e.stopPropagation(); setEditCfUrls(editCfUrls.filter((_, idx) => idx !== ui)); }}
-                                      className="p-0.5 hover:bg-red-50 text-red-400 hover:text-red-600 rounded transition-colors">
+                            <div>
+                              <p className="text-[10px] font-bold text-blue-500 uppercase mb-1">Cloudflare Worker URLs</p>
+                              <div className="space-y-1.5 mb-2">
+                                {(acc.cloudflareUrls || []).map((url, ui) => (
+                                  <div key={ui} className="flex items-center gap-2 bg-white rounded-md px-2 py-1 border border-slate-100">
+                                    <input type="text" value={url} onChange={(e) => updateEmailAccountDraft(i, { cloudflareUrls: (acc.cloudflareUrls || []).map((item, idx) => idx === ui ? e.target.value : item) })}
+                                      className="text-sm text-slate-800 font-medium flex-1 min-w-0 bg-transparent outline-none" />
+                                    <button type="button" onClick={() => copyToClipboard(url, "Worker URL copied")}
+                                      className="p-1 rounded hover:bg-slate-200 text-slate-600 flex-shrink-0" aria-label="Copy worker URL">
+                                      <Copy className="w-3 h-3" />
+                                    </button>
+                                    <button type="button" onClick={() => updateEmailAccountDraft(i, { cloudflareUrls: (acc.cloudflareUrls || []).filter((_, idx) => idx !== ui) })}
+                                      className="p-1 rounded hover:bg-red-50 text-red-500 flex-shrink-0" aria-label="Remove worker URL">
                                       <X className="w-3 h-3" />
                                     </button>
                                   </div>
                                 ))}
-                                <div className="flex gap-1.5" onClick={(e) => e.stopPropagation()}>
-                                  <input type="text" placeholder="https://worker.workers.dev" value={editCfInput}
-                                    onChange={(e) => setEditCfInput(e.target.value)}
-                                    className="flex-1 bg-white border rounded-lg p-1.5 outline-none focus:ring-2 focus:ring-blue-500 text-xs" />
-                                  <button onClick={() => {
-                                    if (!editCfInput.trim()) return;
-                                    setEditCfUrls([...editCfUrls, editCfInput.trim().replace(/\/+$/, "")]);
-                                    setEditCfInput("");
-                                  }} className="px-2 py-1 bg-slate-800 text-white text-[10px] font-bold rounded-lg hover:bg-slate-700">
-                                    Add
-                                  </button>
-                                </div>
-                                <button onClick={async (e) => {
-                                  e.stopPropagation();
-                                  const updated = [...emailAccounts];
-                                  updated[i] = { ...updated[i], cloudflareUrls: [...editCfUrls] };
-                                  setEmailAccounts(updated);
+                              </div>
+                              <div className="flex gap-1.5">
+                                <input type="text" placeholder="https://worker.workers.dev" value={editingAccountUrls === i ? editCfInput : ""}
+                                  onFocus={() => { setEditingAccountUrls(i); setEditCfInput(""); }}
+                                  onChange={(e) => { setEditingAccountUrls(i); setEditCfInput(e.target.value); }}
+                                  className="flex-1 bg-white border border-slate-200 rounded-lg p-1.5 outline-none focus:ring-2 focus:ring-blue-500 text-xs text-slate-900" />
+                                <button type="button" onClick={() => {
+                                  if (!editCfInput.trim()) return;
+                                  updateEmailAccountDraft(i, { cloudflareUrls: [...(acc.cloudflareUrls || []), editCfInput.trim().replace(/\/+$/, "")] });
+                                  setEditCfInput("");
                                   setEditingAccountUrls(null);
-                                  try {
-                                    await apiCall("manage-app", { action: "set_settings", key: "email_accounts", value: updated });
-                                    notify.success("Worker URLs updated!");
-                                  } catch (err) {
-                                    notify.error(err instanceof Error ? err.message : "Failed to save URLs");
-                                  }
-                                }} className="w-full bg-blue-600 text-white text-xs font-bold py-1.5 rounded-lg hover:bg-blue-700 transition-all">
-                                  Save URLs
+                                }} className="px-2 py-1 bg-slate-800 text-white text-[10px] font-bold rounded-lg hover:bg-slate-700">
+                                  Add
                                 </button>
                               </div>
-                            ) : acc.cloudflareUrls && acc.cloudflareUrls.length > 0 ? (
-                              <div className="space-y-1.5 mt-1">
-                                {acc.cloudflareUrls.map((url, ui) => (
-                                  <div key={ui} className="flex items-center gap-2 bg-slate-50 rounded-md px-2 py-1 border border-slate-100">
-                                    <p className="text-sm text-slate-800 font-medium break-all flex-1 min-w-0">• {url}</p>
-                                    <button type="button" onClick={(e) => { e.stopPropagation(); copyToClipboard(url, "Worker URL copied"); }}
-                                      className="p-1 rounded hover:bg-slate-200 text-slate-600 flex-shrink-0" aria-label="Copy worker URL">
-                                      <Copy className="w-3 h-3" />
-                                    </button>
-                                  </div>
-                                ))}
-                              </div>
-                            ) : (
-                              <p className="text-sm text-slate-400 font-medium">Not configured — click Edit URLs to add</p>
-                            )}
-                          </div>
-                          <div>
-                            <div className="flex items-center justify-between">
-                              <p className="text-[10px] font-bold text-emerald-600 uppercase">Recipient filter</p>
-                              <button onClick={(e) => {
-                                e.stopPropagation();
-                                if (editingAccountRecipients === i) {
-                                  setEditingAccountRecipients(null);
-                                } else {
-                                  setEditingAccountRecipients(i);
-                                  setEditRecipientsInput((acc.recipientFilters || []).join(", "));
-                                }
-                              }} className="text-[10px] font-bold text-emerald-700 hover:text-emerald-900 transition-colors">
-                                {editingAccountRecipients === i ? "Cancel" : "Edit filter"}
-                              </button>
                             </div>
-                            {editingAccountRecipients === i ? (
-                              <div className="mt-1 space-y-1.5" onClick={(e) => e.stopPropagation()}>
-                                <input type="text" placeholder="omdevsinhgohil538+freenf@gmail.com" value={editRecipientsInput}
-                                  onChange={(e) => setEditRecipientsInput(e.target.value)}
-                                  className="w-full bg-white border rounded-lg p-1.5 outline-none focus:ring-2 focus:ring-emerald-500 text-xs" />
-                                <button onClick={async (e) => {
-                                  e.stopPropagation();
-                                  const updated = [...emailAccounts];
-                                  updated[i] = { ...updated[i], recipientFilters: parseRecipientFilters(editRecipientsInput) };
-                                  setEmailAccounts(updated);
-                                  setEditingAccountRecipients(null);
-                                  try {
-                                    await apiCall("manage-app", { action: "set_settings", key: "email_accounts", value: updated });
-                                    notify.success("Recipient filter updated!");
-                                  } catch (err) {
-                                    notify.error(err instanceof Error ? err.message : "Failed to save filter");
-                                  }
-                                }} className="w-full bg-emerald-600 text-white text-xs font-bold py-1.5 rounded-lg hover:bg-emerald-700 transition-all">
-                                  Save Filter
-                                </button>
-                              </div>
-                            ) : acc.recipientFilters && acc.recipientFilters.length > 0 ? (
-                              <div className="space-y-1 mt-1">
-                                {acc.recipientFilters.map((email) => (
-                                  <p key={email} className="text-sm text-slate-800 font-medium break-all">• {email}</p>
-                                ))}
-                              </div>
-                            ) : (
-                              <p className="text-sm text-slate-400 font-medium">No filter — all recipients in this inbox are cached</p>
-                            )}
-                          </div>
-                          <div>
-                            <p className="text-[10px] font-bold text-blue-500 uppercase">Label</p>
-                            <p className="text-sm text-slate-800 font-medium">{acc.label}</p>
+                            <div>
+                              <label className="block text-[10px] font-bold text-emerald-600 uppercase mb-1">Recipient filter</label>
+                              <input type="text" placeholder="email1@example.com, email2@example.com" value={editingAccountRecipients === i ? editRecipientsInput : (acc.recipientFilters || []).join(", ")}
+                                onFocus={() => { setEditingAccountRecipients(i); setEditRecipientsInput((acc.recipientFilters || []).join(", ")); }}
+                                onChange={(e) => { setEditingAccountRecipients(i); setEditRecipientsInput(e.target.value); }}
+                                className="w-full bg-white border border-slate-200 rounded-lg p-2 outline-none focus:ring-2 focus:ring-emerald-500 text-sm text-slate-900" />
+                            </div>
+                            <button type="button" onClick={() => saveEmailAccount(i)} disabled={savingAccounts}
+                              className="w-full bg-blue-600 text-white text-sm font-bold py-2.5 rounded-xl hover:bg-blue-700 disabled:opacity-60 transition-all">
+                              {savingAccounts ? "Saving..." : "Save Account"}
+                            </button>
                           </div>
                         </div>
                       )}
