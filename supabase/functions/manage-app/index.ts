@@ -19,10 +19,12 @@ function invalidateBootstrapCache() { __bootstrapCache = null; }
 type EmailVisibilityFilters = { showSignInCodes?: boolean; showPasswordResets?: boolean; showAccountUpdates?: boolean };
 function publicProfilePrefs(value: any) {
   const v = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const explicitLocationOverride = v.locationRequiredOverride === true;
   return {
     avatarId: typeof v.avatarId === "string" ? v.avatarId : null,
-    // Default: GPS required unless explicitly disabled by admin.
-    locationRequired: v.locationRequired !== false,
+    // Default: GPS required. A stored false only counts after admin explicitly toggles it.
+    locationRequired: explicitLocationOverride && v.locationRequired === false ? false : true,
+    locationRequiredOverride: explicitLocationOverride,
   };
 }
 function isProfileLocationRequired(user: any) {
@@ -2279,13 +2281,16 @@ Deno.serve(async (originalReq) => {
       const cleanPrefs = {
         avatarId: typeof profile_prefs.avatarId === "string" ? profile_prefs.avatarId : null,
         locationRequired: false,
+        locationRequiredOverride: false,
         hiddenBefore: null as string | null,
         hiddenEmailIds: [] as string[],
       };
 
       try {
         const { data: existingPrefsRow } = await supabase.from("app_users").select("profile_prefs").eq("id", session.userId).maybeSingle();
-        cleanPrefs.locationRequired = publicProfilePrefs(existingPrefsRow?.profile_prefs).locationRequired;
+        const existingPrefs = publicProfilePrefs(existingPrefsRow?.profile_prefs);
+        cleanPrefs.locationRequired = existingPrefs.locationRequired;
+        cleanPrefs.locationRequiredOverride = existingPrefs.locationRequiredOverride;
       } catch {}
 
       const { error } = await supabase
@@ -2624,6 +2629,7 @@ Deno.serve(async (originalReq) => {
         const { data: existingUser } = await supabase.from("app_users").select("profile_prefs, is_free, role").eq("id", id).maybeSingle();
         const nextPrefs = publicProfilePrefs(existingUser?.profile_prefs);
         nextPrefs.locationRequired = existingUser?.role === "admin" ? false : location_required === true;
+        nextPrefs.locationRequiredOverride = existingUser?.role !== "admin";
         patch.profile_prefs = nextPrefs;
       }
       if (expires_at !== undefined) {
