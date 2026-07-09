@@ -8241,6 +8241,7 @@ function EmailViewer() {
   const openEmail = useCallback(async (email: Email) => {
     setSelectedEmail(email);
     if (email.html && email.html.length > 0) return;
+    setLoadingEmailHtmlId(email.id);
     try {
       const db = idbRef.current || (user?.id ? await openInboxDB(user.id) : null);
       if (db) {
@@ -8248,6 +8249,7 @@ function EmailViewer() {
         const localHtml = await getEmailHtml(db, email.id);
         if (localHtml) {
           setSelectedEmail({ ...email, html: localHtml });
+          setLoadingEmailHtmlId((id) => (id === email.id ? null : id));
           return;
         }
       }
@@ -8289,6 +8291,8 @@ function EmailViewer() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err || "");
       pushDiag({ ts: Date.now(), kind: "cache", endpoint: "get_email_html", error: msg });
+    } finally {
+      setLoadingEmailHtmlId((id) => (id === email.id ? null : id));
     }
   }, [user?.id, resolvedWorkerUrls, pushDiag]);
 
