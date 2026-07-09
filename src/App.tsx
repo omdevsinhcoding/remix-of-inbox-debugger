@@ -8706,7 +8706,7 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
       duration: 4000,
     });
     navigate("/", { replace: true });
-  }, [maint.enabled, user?.id, user?.role, user?.impersonated]);
+  }, [maint.enabled, authLoading, user?.id, user?.role, user?.impersonated]);
 
 
   useEffect(() => {
