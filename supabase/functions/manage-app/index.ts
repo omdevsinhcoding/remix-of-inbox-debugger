@@ -3567,20 +3567,11 @@ Deno.serve(async (originalReq) => {
       return new Response(JSON.stringify({ success: true, status: data }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // ---------- D.2: signed short-lived maintenance-bypass token ----------
-    // Replaces client-controlled sessionStorage flag with an HMAC-signed JWS.
-    // 10 min TTL, bound to admin userId. Client cannot extend or forge it.
-    if (action === "admin_issue_maint_bypass") {
-      const session = await requireAdmin(req);
-      const now = Date.now();
-      const exp = now + 10 * 60 * 1000;
-      const token = await createSessionToken(
-        { kind: "maint_bypass", uid: session.userId, iat: now, exp, jti: crypto.randomUUID() },
-        SIGNING_SECRET,
-      );
-      await auditLog(supabase, "maint_bypass_issued", session.userId, null, { exp }, ip);
-      return new Response(JSON.stringify({ success: true, token, exp }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
+    // (Maintenance bypass endpoint intentionally removed — admins see the
+    // same maintenance screen as everyone else. /admin* routes remain
+    // reachable during maintenance so admins can still sign in.)
+
+
 
     // ---------- Admin dashboard: ONE composite call (replaces 12 client calls) ----------
     // Bulk: full mount payload. `refresh` variant skips rarely-changing settings.
