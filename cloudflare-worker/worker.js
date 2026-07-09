@@ -367,6 +367,12 @@ async function handleGetEmails(env, session, rawToken, opts = {}) {
   }
 
   const scopedLabels = accountLabels.length > 0 ? accountLabels : (session?.assignedAccounts || []);
+  // Non-admin with zero assigned accounts must never share the `:all` KV
+  // bucket (which is populated by the cron job with ADMIN-scope emails
+  // from every account). Return an empty list immediately.
+  if (session && session.role !== "admin" && scopedLabels.length === 0) {
+    return new Response("[]", { headers: diagHeaders({ "X-Cache-Status": "EMPTY_SCOPE" }) });
+  }
   const userAccountsKey = scopedLabels.length > 0 ? JSON.stringify([...scopedLabels].sort()) : "all";
   const cacheKey = `${CACHE_KEY}:${userAccountsKey}:limit:${limit}`;
   const tsKey = `${CACHE_TIMESTAMP_KEY}:${userAccountsKey}`;
