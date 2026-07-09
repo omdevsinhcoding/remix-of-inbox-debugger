@@ -2337,19 +2337,15 @@ function classifyEmail(e: Email): EmailCategory {
   return "other";
 }
 
-function filterVisibleEmails(list: Email[], prefs?: UserProfilePrefs | null) {
-  const hiddenIds = new Set(prefs?.hiddenEmailIds || []);
-  const hiddenBeforeTime = prefs?.hiddenBefore ? new Date(prefs.hiddenBefore).getTime() : 0;
+function filterVisibleEmails(list: Email[], _prefs?: UserProfilePrefs | null) {
+  // User-side email hiding is fully disabled — only the admin can suppress
+  // emails (server-side via `destroyed=true`). We ignore any legacy
+  // hiddenBefore / hiddenEmailIds values on profile prefs.
   const filters = getEmailFilters();
   const hideSignin = filters.showSignInCodes === false;
   const hideReset = filters.showPasswordResets === false;
   const hideAccountUpdate = filters.showAccountUpdates === false;
   return list.filter((email) => {
-    if (hiddenIds.has(email.id) || hiddenIds.has(emailIdentity(email))) return false;
-    if (hiddenBeforeTime) {
-      const emailTime = new Date(email.date || 0).getTime();
-      if (!Number.isNaN(emailTime) && emailTime <= hiddenBeforeTime) return false;
-    }
     if (hideSignin || hideReset || hideAccountUpdate) {
       const cat = classifyEmail(email);
       if (hideSignin && cat === "signin") return false;
