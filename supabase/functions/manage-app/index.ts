@@ -2827,6 +2827,10 @@ Deno.serve(async (originalReq) => {
       if (error || !targetUser) throw new Error("User not found");
 
       const normalizedAssignedAccounts = await normalizeAssignedAccounts(supabase, targetUser.assigned_accounts);
+      if (!normalizedAssignedAccountsEqual(normalizedAssignedAccounts, Array.isArray(targetUser.assigned_accounts) ? targetUser.assigned_accounts : null)) {
+        await supabase.from("app_users").update({ assigned_accounts: normalizedAssignedAccounts }).eq("id", targetUser.id);
+        invalidateBootstrapCache();
+      }
       const pair = await mintSessionPair(targetUser.id, "user", {
         userId: targetUser.id,
         username: targetUser.username,
