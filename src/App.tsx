@@ -8639,8 +8639,7 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
     if (user.role === "admin") return;
     // Admin impersonating a user: keep the session alive so they can QA the
     // real user experience during maintenance. Source of truth is the
-    // server-signed `impersonated` flag on the session; sessionStorage backup
-    // is only a legacy fast-path fallback.
+    // server-signed `impersonated` flag backed by the parent admin session row.
     if (user.impersonated === true || hasActiveAdminImpersonationBackup()) return;
     const path = typeof window !== "undefined" ? window.location.pathname : "/";
     if (path.startsWith("/admin")) return;
