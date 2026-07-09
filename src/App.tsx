@@ -6443,16 +6443,40 @@ function AdminPanel() {
                         <div className="mt-4 pt-3 border-t border-blue-200 space-y-2.5">
                           <div className="grid grid-cols-2 gap-3">
                             <div className="bg-white rounded-lg p-2 border border-slate-100">
-                              <p className="text-[10px] font-bold text-blue-500 uppercase">Host</p>
+                              <div className="flex items-center justify-between gap-2 mb-1">
+                                <p className="text-[10px] font-bold text-blue-500 uppercase">Host</p>
+                                {acc.host && (
+                                  <button type="button" onClick={(e) => { e.stopPropagation(); copyToClipboard(acc.host, "Host copied"); }}
+                                    className="p-1 rounded hover:bg-slate-100 text-slate-600" aria-label="Copy host">
+                                    <Copy className="w-3 h-3" />
+                                  </button>
+                                )}
+                              </div>
                               <p className="text-sm text-slate-800 font-medium break-all">{acc.host}</p>
                             </div>
                             <div className="bg-white rounded-lg p-2 border border-slate-100">
-                              <p className="text-[10px] font-bold text-blue-500 uppercase">Port</p>
+                              <div className="flex items-center justify-between gap-2 mb-1">
+                                <p className="text-[10px] font-bold text-blue-500 uppercase">Port</p>
+                                {acc.port && (
+                                  <button type="button" onClick={(e) => { e.stopPropagation(); copyToClipboard(String(acc.port), "Port copied"); }}
+                                    className="p-1 rounded hover:bg-slate-100 text-slate-600" aria-label="Copy port">
+                                    <Copy className="w-3 h-3" />
+                                  </button>
+                                )}
+                              </div>
                               <p className="text-sm text-slate-800 font-medium">{acc.port}</p>
                             </div>
                           </div>
                           <div className="bg-white rounded-lg p-2 border border-slate-100">
-                            <p className="text-[10px] font-bold text-blue-500 uppercase">Email</p>
+                            <div className="flex items-center justify-between gap-2 mb-1">
+                              <p className="text-[10px] font-bold text-blue-500 uppercase">Email</p>
+                              {acc.user && (
+                                <button type="button" onClick={(e) => { e.stopPropagation(); copyToClipboard(acc.user, "Email copied"); }}
+                                  className="p-1 rounded hover:bg-slate-100 text-slate-600" aria-label="Copy email">
+                                  <Copy className="w-3 h-3" />
+                                </button>
+                              )}
+                            </div>
                             <p className="text-sm text-slate-800 font-medium break-all">{acc.user}</p>
                           </div>
                           <div className="bg-white rounded-lg p-2 border border-slate-100">
