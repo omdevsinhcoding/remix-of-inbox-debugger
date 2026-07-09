@@ -3722,10 +3722,10 @@ function AllEmailsPanel() {
 
   const deleteIds = async (ids: string[]) => {
     if (!ids.length) return;
-    if (!confirm(`Delete ${ids.length} email${ids.length === 1 ? "" : "s"} from the database? This removes them for every user and cannot be undone.`)) return;
+    if (!confirm(`Suppress ${ids.length} email${ids.length === 1 ? "" : "s"} for every user? Future syncs will not bring them back.`)) return;
     try {
       const res: any = await apiCall("manage-app", { action: "admin_delete_emails", ids });
-      notify.success(`Deleted ${res?.deleted ?? ids.length} email${(res?.deleted ?? ids.length) === 1 ? "" : "s"}`);
+      notify.success(`Suppressed ${res?.deleted ?? ids.length} email${(res?.deleted ?? ids.length) === 1 ? "" : "s"}`);
       if (viewing && ids.includes(viewing.id)) setViewing(null);
       await load(offset);
     } catch (e: any) { notify.error(e?.message || "Delete failed"); }
@@ -4841,7 +4841,7 @@ function AdminPanel() {
     }
     if (inboxMode === "label" && !inboxLabel) { notify.error("Choose an account label"); return; }
     if (inboxMode === "days" && !inboxDays) { notify.error("Enter days"); return; }
-    if (!confirm("This permanently deletes emails from the database. Continue?")) return;
+    if (!confirm("This suppresses matching emails for every user forever. Future syncs will not bring them back. Continue?")) return;
     setClearingInbox(true);
     try {
       const res = await apiCall("manage-app", {
@@ -4851,7 +4851,7 @@ function AdminPanel() {
         days: inboxMode === "days" ? Number(inboxDays) : undefined,
         confirm: inboxMode === "all" ? inboxConfirm : undefined,
       });
-      notify.success(`Deleted ${res.deleted || 0} email(s)`);
+      notify.success(`Suppressed ${res.deleted || 0} email(s)`);
       setInboxConfirm("");
     } catch (err) {
       notify.error(err instanceof Error ? err.message : "Failed");
