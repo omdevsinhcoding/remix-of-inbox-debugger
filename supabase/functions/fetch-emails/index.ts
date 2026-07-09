@@ -702,14 +702,14 @@ Deno.serve(async (originalReq) => {
 
 
     let filterSignInCodes = false;
-    let filterPasswordResets = true;
-    let filterAccountUpdates = true;
+    let filterPasswordResets = false;
+    let filterAccountUpdates = false;
     try {
       const { data: filterData } = await supabase.from("app_settings").select("value").eq("key", "email_filters").single();
       if (filterData?.value) {
         if (filterData.value.showSignInCodes === false) filterSignInCodes = true;
-        if (filterData.value.showPasswordResets === true) filterPasswordResets = false;
-        if (filterData.value.showAccountUpdates === true) filterAccountUpdates = false;
+        if (filterData.value.showPasswordResets === false) filterPasswordResets = true;
+        if (filterData.value.showAccountUpdates === false) filterAccountUpdates = true;
       }
     } catch {}
 

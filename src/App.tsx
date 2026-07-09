@@ -4152,8 +4152,8 @@ function AdminPanel() {
   const [changingUserPass, setChangingUserPass] = useState<string | null>(null);
   const [userNewPass, setUserNewPass] = useState("");
   const [showSignInCodes, setShowSignInCodes] = useState(true);
-  const [showPasswordResets, setShowPasswordResets] = useState(false);
-  const [showAccountUpdates, setShowAccountUpdates] = useState(false);
+  const [showPasswordResets, setShowPasswordResets] = useState(true);
+  const [showAccountUpdates, setShowAccountUpdates] = useState(true);
   const [editingUserAccounts, setEditingUserAccounts] = useState<string | null>(null);
   const [editAccountsList, setEditAccountsList] = useState<string[]>([]);
   const [editUsername, setEditUsername] = useState<string>("");
