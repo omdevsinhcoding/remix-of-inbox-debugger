@@ -1,25 +1,34 @@
 name = "netflixfetch"
 main = "worker.js"
 compatibility_date = "2026-04-07"
+workers_dev = true
+
+# Source-of-truth binding. Wrangler 4.45+ automatically provisions this KV
+# namespace during `wrangler deploy` if it does not exist in the connected
+# Cloudflare account, so Git deploy gets a binding without manual dashboard work.
+[[kv_namespaces]]
+binding = "EMAIL_CACHE"
 
 # ─────────────────────────────────────────────────────────────
-# FULL AUTO SETUP
+# FULL AUTO SETUP — GitHub Connect only
 # ─────────────────────────────────────────────────────────────
 # Cloudflare Workers → Create → Connect to Git:
 #   Repo:            inbox-debugger
 #   Branch:          main
 #   Root directory:  /cloudflare-worker
-#   Build command:   bash setup.sh
-#   Deploy command:  (leave empty — setup.sh already deploys)
+#   Build command:   (leave empty)
+#   Deploy command:  npx wrangler deploy
 #
-# setup.sh khud:
-#   • KV namespace "EMAIL_CACHE" auto-create karega + bind karega
-#   • SUPABASE_URL + SUPABASE_KEY secrets auto set karega
-#   • Worker deploy karega
+# During deploy:
+#   • KV namespace "EMAIL_CACHE" auto-provisions + binds from this file
+#   • [build] runs `bash setup.sh` before upload
+#   • setup.sh fetches Supabase config and writes generated vars/secrets file
+#   • deploy uploads vars/secrets together with worker code
 #
-# SESSION_SECRET (real secret) 2 tarah se de sakte ho:
-#   (a) Cloudflare Build Variable naam "SESSION_SECRET" — auto set ho jayega
-#   (b) Dashboard → Worker → Variables and Secrets me manual ek baar
-#
-# API token needs: Workers Scripts:Edit + Workers KV Storage:Edit
-# (default "Workers Builds" token me dono hote hain)
+# Cloudflare docs notes:
+#   • Workers Builds default API token includes Account Settings read,
+#     Workers Scripts edit, Workers KV Storage edit.
+#   • Wrangler 4.45+ can deploy KV bindings without resource IDs.
+
+[build]
+command = "bash setup.sh"
