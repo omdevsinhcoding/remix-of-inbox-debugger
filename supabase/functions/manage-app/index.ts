@@ -1992,10 +1992,20 @@ Deno.serve(async (originalReq) => {
     }
 
     if (action === "create") {
-      const { username, password, name, role, assigned_accounts, is_free } = params;
+      const { username, password, name, role, assigned_accounts, is_free, expires_at } = params;
       const isFree = !!is_free;
       if (!name) throw new Error("Name required");
       if (!isFree && (!username || !password)) throw new Error("Username and password required");
+
+      // Only free profiles may have an expiry. Validate + normalize.
+      let expiresAtIso: string | null = null;
+      if (expires_at) {
+        if (!isFree) throw new Error("Only free profiles can have an expiry");
+        const t = Date.parse(String(expires_at));
+        if (!Number.isFinite(t)) throw new Error("Invalid expiry date");
+        if (t <= Date.now()) throw new Error("Expiry must be in the future");
+        expiresAtIso = new Date(t).toISOString();
+      }
 
       // Optionally require admin session for creating users
       let bootstrapCreate = false;
@@ -2010,6 +2020,9 @@ Deno.serve(async (originalReq) => {
         bootstrapCreate = true;
       }
 
+      // Bootstrap (first user) can never be a free profile — must be admin.
+      if (bootstrapCreate && isFree) throw new Error("First user must be admin");
+
       // Free profile: auto-generate username + random password (never used).
       const finalUsername = isFree
         ? (username && String(username).trim() ? String(username).trim() : `free_${crypto.randomUUID().slice(0, 8)}`)
@@ -2018,24 +2031,26 @@ Deno.serve(async (originalReq) => {
         ? crypto.randomUUID() + crypto.randomUUID()
         : password;
       const hashed = await hashPassword(rawPassword);
+      const finalRole = isFree ? "user" : (role || "user");
       const insertPayload: any = {
         username: finalUsername,
         password: hashed,
         name,
-        role: role || "user",
+        role: finalRole,
         assigned_accounts: assigned_accounts || null,
         is_free: isFree,
+        expires_at: expiresAtIso,
         must_change_password: false,
       };
       const { data, error } = await supabase
         .from("app_users")
         .insert(insertPayload)
-        .select("id, username, name, role, assigned_accounts, profile_prefs, is_free, pinned, sort_order")
+        .select("id, username, name, role, assigned_accounts, profile_prefs, is_free, pinned, sort_order, expires_at")
         .single();
       if (error) throw error;
       invalidateBootstrapCache();
 
-      await auditLog(supabase, bootstrapCreate ? "bootstrap_admin_created" : (isFree ? "free_user_created" : "user_created"), actorId, data.id, { username: finalUsername, role: role || "user", isFree }, ip);
+      await auditLog(supabase, bootstrapCreate ? "bootstrap_admin_created" : (isFree ? "free_user_created" : "user_created"), actorId, data.id, { username: finalUsername, role: finalRole, isFree, expiresAt: expiresAtIso }, ip);
 
       return new Response(JSON.stringify({
         success: true,
@@ -2046,6 +2061,7 @@ Deno.serve(async (originalReq) => {
           isFree: !!data.is_free,
           pinned: !!data.pinned,
           sortOrder: data.sort_order ?? null,
+          expiresAt: data.expires_at || null,
         },
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
