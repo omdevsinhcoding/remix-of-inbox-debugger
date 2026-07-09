@@ -1706,7 +1706,7 @@ Deno.serve(async (originalReq) => {
       // Order: pinned first, then admin-defined sort_order, then creation time.
       const usersP = supabase
         .from("app_users")
-        .select("id, username, name, role, profile_prefs, is_free, pinned, sort_order")
+        .select("id, username, name, role, profile_prefs, is_free, pinned, sort_order, expires_at")
         .neq("role", "admin")
         .order("pinned", { ascending: false })
         .order("sort_order", { ascending: true, nullsFirst: false })
