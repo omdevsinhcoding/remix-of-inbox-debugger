@@ -1806,13 +1806,18 @@ Deno.serve(async (originalReq) => {
       await requireAdmin(req);
       const { data, error } = await supabase
         .from("app_users")
-        .select("id, username, name, role, assigned_accounts, profile_prefs")
+        .select("id, username, name, role, assigned_accounts, profile_prefs, session_limit, is_free, pinned, sort_order")
+        .order("pinned", { ascending: false })
+        .order("sort_order", { ascending: true, nullsFirst: false })
         .order("created_at", { ascending: true });
       if (error) throw error;
       const mappedData = (data || []).map((u: any) => ({
         ...u,
         assignedAccounts: u.assigned_accounts || null,
         profileAvatar: u.profile_prefs?.avatarId || null,
+        isFree: !!u.is_free,
+        pinned: !!u.pinned,
+        sortOrder: u.sort_order ?? null,
       }));
       return new Response(JSON.stringify({ success: true, users: mappedData }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
