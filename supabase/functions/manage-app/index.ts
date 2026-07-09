@@ -1829,11 +1829,23 @@ Deno.serve(async (originalReq) => {
     const tokenHash = await sha256Hex(token);
     const { data: row } = await supabase
       .from("app_sessions")
-      .select("id, expires_at, refresh_expires_at, binding_hash, user_id, role, parent_session_id, revoked_at")
+      .select("id, expires_at, refresh_expires_at, binding_hash, user_id, role, parent_session_id, revoked_at, revoked_reason, family_id")
       .eq("token_hash", tokenHash)
       .maybeSingle();
-    if (!row) throw new Error("Session revoked. Please sign in again.");
-    if (row.revoked_at) throw new Error("Session revoked. Please sign in again.");
+    if (!row) {
+      if (session.impersonated === true && typeof session.adminId === "string") {
+        session.impersonationAccessExpired = true;
+        return session;
+      }
+      throw new Error("Session revoked. Please sign in again.");
+    }
+    if (row.revoked_at) {
+      const rotatedGrace = /^rotated/i.test(String(row.revoked_reason || ""))
+        && Date.now() - new Date(row.revoked_at).getTime() < 2 * 60 * 1000;
+      if (!rotatedGrace && !(session.impersonated === true && typeof session.adminId === "string")) {
+        throw new Error("Session revoked. Please sign in again.");
+      }
+    }
     const nowMs = Date.now();
     const accessExpired = new Date(row.expires_at).getTime() < nowMs || (Number(session.exp) > 0 && Number(session.exp) < nowMs);
     if (accessExpired) {
@@ -1860,16 +1872,14 @@ Deno.serve(async (originalReq) => {
     if (row.binding_hash) {
       const current = await computeBindingHash(req);
       if (current !== row.binding_hash) {
-        await supabase.from("app_sessions").delete().eq("id", row.id);
         supabase.from("security_events").insert({
           type: "session_binding_mismatch",
-          severity: "high",
+          severity: "medium",
           uid: row.user_id,
           ip,
           ua: req.headers.get("user-agent") || null,
-          meta: { session_id: row.id },
+          meta: { session_id: row.id, action: "allowed_soft_binding" },
         }).then(() => {});
-        throw new Error("Session bound to another device. Please sign in again.");
       }
     }
 
@@ -2954,7 +2964,16 @@ Deno.serve(async (originalReq) => {
       // an impersonated session and the parent admin still exists.
       if (currentRow?.binding_hash) {
         const current = await computeBindingHash(req);
-        if (current !== currentRow.binding_hash) throw new Error("Session bound to another device. Please sign in again.");
+        if (current !== currentRow.binding_hash) {
+          supabase.from("security_events").insert({
+            type: "back_to_admin_binding_mismatch",
+            severity: "medium",
+            uid: session.adminId || currentRow.user_id,
+            ip,
+            ua: req.headers.get("user-agent") || null,
+            meta: { session_id: currentRow.id, action: "allowed_recovery" },
+          }).then(() => {});
+        }
       }
       if (currentRow?.parent_session_id && !session.adminId) {
         const { data: parent } = await supabase
@@ -3035,6 +3054,11 @@ Deno.serve(async (originalReq) => {
       // stole a refresh token and is trying to use it after we rotated it.
       // Kill the entire session family and alert.
       if (row.revoked_at) {
+        const benignRotationRetry = /^rotated/i.test(String(row.revoked_reason || ""))
+          && Date.now() - new Date(row.revoked_at).getTime() < 2 * 60 * 1000;
+        if (benignRotationRetry) {
+          console.warn("[refresh] recovering from repeated rotated refresh token for family", row.family_id);
+        } else {
         await supabase.from("app_sessions").update({
           revoked_at: new Date().toISOString(),
           revoked_reason: "refresh_reuse_family_kill",
@@ -3067,6 +3091,7 @@ Deno.serve(async (originalReq) => {
         } catch {}
 
         throw new Error("Session family revoked. Please sign in again.");
+        }
       }
 
       if (!row.refresh_expires_at || new Date(row.refresh_expires_at).getTime() < Date.now()) {
@@ -3078,19 +3103,14 @@ Deno.serve(async (originalReq) => {
       if (row.binding_hash) {
         const current = await computeBindingHash(req);
         if (current !== row.binding_hash) {
-          await supabase.from("app_sessions").update({
-            revoked_at: new Date().toISOString(),
-            revoked_reason: "binding_mismatch_on_refresh",
-          }).eq("family_id", row.family_id).is("revoked_at", null);
           supabase.from("security_events").insert({
             type: "refresh_binding_mismatch",
-            severity: "high",
+            severity: "medium",
             uid: row.user_id,
             ip,
             ua: req.headers.get("user-agent") || null,
-            meta: { family_id: row.family_id },
+            meta: { family_id: row.family_id, action: "allowed_soft_binding" },
           }).then(() => {});
-          throw new Error("Session bound to another device. Please sign in again.");
         }
       }
 

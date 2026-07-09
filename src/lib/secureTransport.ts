@@ -82,20 +82,26 @@ async function doHandshake(): Promise<Session> {
   req.set(pubRaw, 1);
 
   let res: Response | null = null;
-  for (let attempt = 0; attempt < 4; attempt++) {
-    res = await fetch(`${fnBase()}/crypto-handshake`, {
-      method: "POST",
-      headers: {
-        "Content-Type": CT_BINARY,
-        Authorization: `Bearer ${anonKey()}`,
-        apikey: anonKey(),
-      },
-      body: req,
-    });
-    if (res.status !== 429) break;
-    await wait(350 * (attempt + 1) + Math.floor(Math.random() * 250));
+  let lastErr: unknown = null;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      res = await fetch(`${fnBase()}/crypto-handshake`, {
+        method: "POST",
+        headers: {
+          "Content-Type": CT_BINARY,
+          Authorization: `Bearer ${anonKey()}`,
+          apikey: anonKey(),
+        },
+        body: req,
+      });
+      if (res.status !== 429 && res.status < 500) break;
+    } catch (e) {
+      lastErr = e;
+      res = null;
+    }
+    await wait(350 * (attempt + 1) + Math.floor(Math.random() * 300));
   }
-  if (!res) throw new Error("handshake failed");
+  if (!res) throw (lastErr instanceof Error ? lastErr : new Error("handshake failed"));
   if (!res.ok) throw new Error(`handshake ${res.status}`);
   const buf = new Uint8Array(await res.arrayBuffer());
   // Support both legacy (no expiresAt) and v2 (with 8-byte expiresAt suffix).
@@ -262,8 +268,14 @@ export async function invokeEdge(
       resetSession();
       try {
         return await secureFetchJson(functionName, body, opts);
-      } catch (retryErr) {
-        throw cleanTransportError(retryErr);
+      } catch {
+        resetSession();
+        await wait(650 + Math.floor(Math.random() * 450));
+        try {
+          return await secureFetchJson(functionName, body, opts);
+        } catch (retryErr2) {
+          throw cleanTransportError(retryErr2);
+        }
       }
     }
     throw cleanTransportError(err);

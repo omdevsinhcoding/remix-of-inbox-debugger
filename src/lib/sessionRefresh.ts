@@ -86,7 +86,8 @@ export async function refreshNow(): Promise<boolean> {
       sessionSet("session_token" as any, data.sessionToken);
       storeSessionPair(data);
       return true;
-    } catch {
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err || "");
       // Refresh irrecoverable — clear normal sessions so AuthProvider signs the
       // user out. For admin-impersonation, keep the expired access token and
       // cached user shell: the server-side back_to_admin endpoint accepts an
@@ -96,6 +97,14 @@ export async function refreshNow(): Promise<boolean> {
         const raw = sessionGet("user" as any);
         keepExpiredImpersonationToken = !!(raw && JSON.parse(raw)?.impersonated === true);
       } catch {}
+      const transient = /Secure connection|handshake|Failed to fetch|NetworkError|busy|timeout|temporar|Request failed/i.test(msg);
+      const hardExpired = /refresh token expired|session family revoked|bound to another device|user not found/i.test(msg);
+      if (transient || (!hardExpired && !/revoked/i.test(msg))) {
+        // Do not terminate a logged-in user just because the refresh endpoint or
+        // encrypted handshake had a temporary blip. Keep the existing token pair
+        // so the next request can retry/repair instead of dumping to login.
+        return false;
+      }
       if (!keepExpiredImpersonationToken) {
         try { sessionRemove("session_token" as any); } catch {}
         try { sessionRemove("user" as any); } catch {}
