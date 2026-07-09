@@ -512,7 +512,7 @@ async function fetchFromAccount(
 
 async function loadAccounts(supabase: any, secret: string, accountLabels: string[] | null): Promise<Account[]> {
   let accounts: Account[] = [];
-  const requested = accountLabels && accountLabels.length > 0
+  let requested = accountLabels && accountLabels.length > 0
     ? new Set(accountLabels.map((label) => String(label).trim()).filter(Boolean))
     : null;
   const onlyPrimaryRequested = !!requested && requested.size === 1 && requested.has("Primary");
@@ -521,6 +521,10 @@ async function loadAccounts(supabase: any, secret: string, accountLabels: string
     try {
       const { data: accountsData } = await supabase.from("app_settings").select("value").eq("key", "email_accounts").single();
       if (Array.isArray(accountsData?.value)) {
+        const availableLabels = ["Primary", ...accountsData.value.map((acc: any) => String(acc.label || acc.user || "").trim()).filter(Boolean)];
+        if (accountLabels && accountLabels.length > 0) {
+          requested = new Set(normalizeAccountLabels(accountLabels, availableLabels));
+        }
         const accountRows = requested
           ? accountsData.value.filter((acc: any) => requested.has(String(acc.label || acc.user || "").trim()))
           : accountsData.value;
@@ -568,7 +572,8 @@ async function loadAccounts(supabase: any, secret: string, accountLabels: string
   }
 
   if (accountLabels && accountLabels.length > 0) {
-    accounts = accounts.filter(a => accountLabels.includes(a.label));
+    const normalized = normalizeAccountLabels(accountLabels, accounts.map((a) => a.label));
+    accounts = accounts.filter(a => normalized.includes(a.label));
   }
 
   return accounts;
