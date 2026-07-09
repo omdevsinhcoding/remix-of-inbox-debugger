@@ -8291,11 +8291,8 @@ function EmailViewer() {
 
 
   // ============================================================================
-  // INSTANT INBOX — Gmail-style stale-while-revalidate via IndexedDB + delta sync
-  //  1) Open per-user IDB, read latest 50 rows → paint (target < 50ms)
-  //  2) Fire /list_delta with last cursor → merge new/updated/removed → repaint
-  // Runs in parallel with the existing worker refresh path (which stays as
-  // a redundant sync). Falls back silently on any error — no user-visible break.
+  // INSTANT INBOX — local-only first paint.
+  // No server delta or IMAP work runs on load; every live refresh is manual.
   // ============================================================================
   const idbRef = useRef<Awaited<ReturnType<typeof openInboxDB>> | null>(null);
   const instantInboxRunKeyRef = useRef("");
@@ -8333,47 +8330,6 @@ function EmailViewer() {
           console.log(`[inbox] instant paint in ${dt.toFixed(1)}ms (${cached.length} rows from IDB)`);
         }
 
-        void refreshEmailFiltersForViewer();
-
-        // ---- (2) Delta sync via Supabase edge function ----
-        const storedCursor = await getSyncCursor(db);
-        // If the cache is empty but a cursor exists (stale/corrupt IDB, profile/account switch,
-        // or an older failed rollout), force a baseline snapshot instead of asking only for
-        // changes after that cursor. Otherwise old emails can never backfill.
-        const cursor = cached.length === 0 ? 0 : storedCursor;
-        const started = performance.now();
-        console.log(`[inbox] calling list_delta since=${cursor}${storedCursor && cursor === 0 ? ` (reset stale cursor ${storedCursor})` : ""}`);
-        const delta = await apiCall("manage-app", { action: "list_delta", since: cursor, limit: cursor === 0 ? 1000 : 500, accountLabels: activeCacheLabels || undefined });
-        console.log("[inbox] list_delta response", {
-          success: delta?.success,
-          mode: delta?.mode,
-          rows: delta?.rows?.length || 0,
-          removed: delta?.removedIds?.length || 0,
-          newCursor: delta?.newCursor,
-          accountLabels: delta?.accountLabels,
-          sample: delta?.rows?.[0],
-        });
-        pushDiag({
-          ts: Date.now(),
-          kind: "sync",
-          endpoint: "list_delta",
-          ms: Math.round(performance.now() - started),
-          note: `since=${cursor} +${delta?.rows?.length || 0}/-${delta?.removedIds?.length || 0} → ${delta?.newCursor || 0}`,
-        });
-
-        const rows: CachedEmail[] = Array.isArray(delta?.rows) ? delta.rows : [];
-        const removedIds: string[] = Array.isArray(delta?.removedIds) ? delta.removedIds : [];
-        const newCursor = Number(delta?.newCursor || 0);
-        const serverLabels: string[] | null = Array.isArray(delta?.accountLabels) ? delta.accountLabels : activeCacheLabels;
-
-        if (rows.length > 0 || removedIds.length > 0 || newCursor > cursor) {
-          await writeDelta(db, { rows, removedIds, newCursor });
-          const fresh = await readLatestEmails(db, 200, serverLabels);
-          console.log(`[inbox] after writeDelta, IDB has ${fresh.length} rows → repaint`);
-          setEmails(fresh as unknown as Email[]);
-          setLastUpdated(new Date());
-          if (fresh.length > 0) markInboxReady();
-        }
         setError(null);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err || "");
