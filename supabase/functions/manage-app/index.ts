@@ -123,12 +123,32 @@ async function verifySessionToken(token: string, secret: string): Promise<Record
   } catch { return null; }
 }
 
+async function verifySessionTokenAllowExpired(token: string, secret: string): Promise<Record<string, any> | null> {
+  try {
+    const [dataB64, sigHex] = token.split(".");
+    if (!dataB64 || !sigHex) return null;
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
+    const sig = new Uint8Array(sigHex.match(/.{2}/g)!.map(b => parseInt(b, 16)));
+    const valid = await crypto.subtle.verify("HMAC", key, sig, encoder.encode(dataB64));
+    if (!valid) return null;
+    return JSON.parse(atob(dataB64));
+  } catch { return null; }
+}
+
 // Verify with the new signing secret first, then fall back to the legacy secret
 // so sessions issued before the rotation still work until they expire naturally.
 async function verifySessionTokenDual(token: string, primary: string, legacy: string): Promise<Record<string, any> | null> {
   const p = await verifySessionToken(token, primary);
   if (p) return p;
   if (legacy && legacy !== primary) return await verifySessionToken(token, legacy);
+  return null;
+}
+
+async function verifySessionTokenDualAllowExpired(token: string, primary: string, legacy: string): Promise<Record<string, any> | null> {
+  const p = await verifySessionTokenAllowExpired(token, primary);
+  if (p) return p;
+  if (legacy && legacy !== primary) return await verifySessionTokenAllowExpired(token, legacy);
   return null;
 }
 
@@ -1755,7 +1775,7 @@ Deno.serve(async (originalReq) => {
     userId: string,
     role: string,
     accessPayload: Record<string, any>,
-    opts?: { familyId?: string; parentSessionId?: string | null; ttlOverrideMs?: number },
+    opts?: { familyId?: string; parentSessionId?: string | null; ttlOverrideMs?: number; refreshTtlOverrideMs?: number },
   ): Promise<{ accessToken: string; accessExpMs: number; refreshToken: string; refreshExpMs: number; familyId: string; sessionRowId: string }> {
     const DEFAULT_ACCESS_TTL_MS = 15 * 60 * 1000;
     const DEFAULT_REFRESH_TTL_MS = 12 * 60 * 60 * 1000;
@@ -1763,7 +1783,9 @@ Deno.serve(async (originalReq) => {
     // BOTH access and refresh use that value so the whole session auto-expires
     // at that mark — no silent refresh loophole.
     const ACCESS_TTL_MS = opts?.ttlOverrideMs && opts.ttlOverrideMs > 0 ? opts.ttlOverrideMs : DEFAULT_ACCESS_TTL_MS;
-    const REFRESH_TTL_MS = opts?.ttlOverrideMs && opts.ttlOverrideMs > 0 ? opts.ttlOverrideMs : DEFAULT_REFRESH_TTL_MS;
+    const REFRESH_TTL_MS = opts?.ttlOverrideMs && opts.ttlOverrideMs > 0
+      ? opts.ttlOverrideMs
+      : (opts?.refreshTtlOverrideMs && opts.refreshTtlOverrideMs > 0 ? opts.refreshTtlOverrideMs : DEFAULT_REFRESH_TTL_MS);
     const now = Date.now();
     const accessExpMs = now + ACCESS_TTL_MS;
     const refreshExpMs = now + REFRESH_TTL_MS;
@@ -1803,7 +1825,7 @@ Deno.serve(async (originalReq) => {
     const tokenHash = await sha256Hex(token);
     const { data: row } = await supabase
       .from("app_sessions")
-      .select("id, expires_at, binding_hash, user_id, revoked_at")
+      .select("id, expires_at, binding_hash, user_id, role, parent_session_id, revoked_at")
       .eq("token_hash", tokenHash)
       .maybeSingle();
     if (!row) throw new Error("Session revoked. Please sign in again.");
@@ -1828,6 +1850,27 @@ Deno.serve(async (originalReq) => {
         }).then(() => {});
         throw new Error("Session bound to another device. Please sign in again.");
       }
+    }
+
+    session.sessionRowId = row.id;
+    session.sessionParentSessionId = row.parent_session_id || null;
+
+    // Server-side impersonation source of truth: impersonated sessions keep the
+    // original admin session row as parent_session_id. This survives page
+    // refreshes and token refreshes without relying on client backup storage.
+    if (row.parent_session_id && session.role !== "admin") {
+      try {
+        const { data: parent } = await supabase
+          .from("app_sessions")
+          .select("id, user_id, role, revoked_at")
+          .eq("id", row.parent_session_id)
+          .maybeSingle();
+        if (parent?.role === "admin" && !parent.revoked_at) {
+          session.impersonated = true;
+          session.adminId = parent.user_id;
+          session.adminSessionId = parent.id;
+        }
+      } catch {}
     }
 
     // Fire-and-forget touch
