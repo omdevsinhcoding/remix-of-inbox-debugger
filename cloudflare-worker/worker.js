@@ -375,7 +375,7 @@ async function handleGetEmails(env, session, rawToken, opts = {}) {
   if (bust) {
     const result = await fetchDirectFromSupabase(env, session, rawToken, { accountLabels, limit });
     if (result.status === 200) {
-      const body = await result.clone().text();
+      const body = enforceScopeOnRaw(await result.clone().text(), session);
       await Promise.all([kvPut(env, cacheKey, body), kvPut(env, tsKey, Date.now().toString())]);
       return new Response(body, { status: 200, headers: diagHeaders({ "X-Cache-Status": "BYPASS", "X-Cache-Key": cacheKey }) });
     }
@@ -389,21 +389,23 @@ async function handleGetEmails(env, session, rawToken, opts = {}) {
   if (!cached) {
     const fallback = await readBestCachedRaw(env, userAccountsKey, limit, cacheKey);
     if (fallback?.raw) {
-      await Promise.all([kvPut(env, cacheKey, fallback.raw), kvPut(env, tsKey, Date.now().toString())]);
-      if (hasRawMimeMarkers(fallback.raw)) {
+      const safeRaw = enforceScopeOnRaw(fallback.raw, session);
+      await Promise.all([kvPut(env, cacheKey, safeRaw), kvPut(env, tsKey, Date.now().toString())]);
+      if (hasRawMimeMarkers(safeRaw)) {
         const result = await fetchDirectFromSupabase(env, session, rawToken, { accountLabels, limit });
         if (result.status === 200) {
-          const body = await result.clone().text();
+          const body = enforceScopeOnRaw(await result.clone().text(), session);
           await Promise.all([kvPut(env, cacheKey, body), kvPut(env, tsKey, Date.now().toString())]);
           return new Response(body, { status: 200, headers: diagHeaders({ "X-Cache-Status": "BYPASS_RAW_MIME", "X-Cache-Key": cacheKey }) });
         }
       }
-      return new Response(fallback.raw, { headers: diagHeaders({ "X-Cache-Status": "FALLBACK_HIT", "X-Cache-Key": fallback.key }) });
+      return new Response(safeRaw, { headers: diagHeaders({ "X-Cache-Status": "FALLBACK_HIT", "X-Cache-Key": fallback.key }) });
     }
     const result = await fetchDirectFromSupabase(env, session, rawToken, { accountLabels, limit });
     if (result.status === 200) {
-      const body = await result.clone().text();
+      const body = enforceScopeOnRaw(await result.clone().text(), session);
       await Promise.all([kvPut(env, cacheKey, body), kvPut(env, tsKey, now.toString())]);
+      return new Response(body, { status: 200, headers: diagHeaders({ "X-Cache-Status": "MISS", "X-Cache-Key": cacheKey }) });
     }
     return result;
   }
@@ -417,7 +419,7 @@ async function handleGetEmails(env, session, rawToken, opts = {}) {
   if (hasRawMimeMarkers(cached)) {
     const result = await fetchDirectFromSupabase(env, session, rawToken, { accountLabels, limit });
     if (result.status === 200) {
-      const body = await result.clone().text();
+      const body = enforceScopeOnRaw(await result.clone().text(), session);
       await Promise.all([kvPut(env, cacheKey, body), kvPut(env, tsKey, Date.now().toString())]);
       return new Response(body, {
         headers: diagHeaders({ "X-Cache-Status": "BYPASS_RAW_MIME", "X-Cache-Age": Math.round(age).toString(), "X-Cache-Key": cacheKey }),
@@ -425,7 +427,7 @@ async function handleGetEmails(env, session, rawToken, opts = {}) {
     }
   }
 
-  return new Response(cached, {
+  return new Response(enforceScopeOnRaw(cached, session), {
     headers: diagHeaders({ "X-Cache-Status": status, "X-Cache-Age": Math.round(age).toString(), "X-Cache-Key": cacheKey }),
   });
 }
