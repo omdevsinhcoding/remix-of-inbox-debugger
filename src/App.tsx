@@ -2923,10 +2923,11 @@ function ProfileSelectPage() {
                           {profile.pinned && (
                             <span
                               aria-label="Pinned"
-                              className="absolute top-1.5 left-1.5 inline-flex items-center justify-center w-5 h-5 rounded-full bg-black/60 backdrop-blur text-white"
-                              style={{ boxShadow: "0 2px 6px rgba(0,0,0,0.45)" }}
+                              title="Pinned"
+                              className="absolute top-1.5 left-1.5 inline-flex items-center justify-center w-6 h-6 rounded-full bg-amber-400 text-black ring-2 ring-black/70"
+                              style={{ boxShadow: "0 4px 10px rgba(0,0,0,0.55)" }}
                             >
-                              <svg viewBox="0 0 24 24" className="w-3 h-3" fill="currentColor"><path d="M14 4l6 6-4 1-3 3-1 6-4-4-5 5 5-5-4-4 6-1 3-3z"/></svg>
+                              <Pin className="w-3.5 h-3.5" strokeWidth={2.5} fill="currentColor" />
                             </span>
                           )}
                         </div>
