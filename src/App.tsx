@@ -8050,7 +8050,7 @@ function EmailViewer() {
       // Fast path: worker sync returns fresh emails directly — no second round-trip.
       const synced = await syncViaWorker();
       let merged: Email[] = emails;
-      if (synced && synced.length > 0) {
+      if (synced) {
         // Server sync returns the currently-authorized visible cache for users.
         // Do not merge the previous browser state back in, or hidden/stale rows
         // can reappear on every refresh.
@@ -8103,7 +8103,7 @@ function EmailViewer() {
       try {
         await loadCachedEmails({ limit: 200 });
         const synced = await syncViaWorker();
-        if (synced && synced.length > 0) {
+        if (synced) {
           setEmails(synced);
           setError(null);
           setLastUpdated(new Date());
