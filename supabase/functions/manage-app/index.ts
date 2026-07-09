@@ -3090,7 +3090,7 @@ Deno.serve(async (originalReq) => {
         ...(parentAdminId ? { impersonated: true, adminId: parentAdminId } : {}),
       }, {
         familyId: row.family_id,
-        parentSessionId: row.parent_session_id || row.id,
+        parentSessionId: parentAdminId ? (row.parent_session_id || row.id) : row.id,
         refreshTtlOverrideMs: parentAdminId ? 365 * 24 * 60 * 60 * 1000 : undefined,
       });
 
