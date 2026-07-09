@@ -2432,10 +2432,13 @@ Deno.serve(async (originalReq) => {
 
     if (action === "update_user") {
       const session = await requireAdmin(req);
-      const { id, assigned_accounts, session_limit } = params;
+      const { id, assigned_accounts, session_limit, pinned, is_free, name } = params;
       if (!id) throw new Error("User ID required");
       const patch: Record<string, any> = {};
       if (assigned_accounts !== undefined) patch.assigned_accounts = assigned_accounts;
+      if (typeof name === "string" && name.trim()) patch.name = name.trim();
+      if (pinned !== undefined) patch.pinned = !!pinned;
+      if (is_free !== undefined) patch.is_free = !!is_free;
       if (session_limit !== undefined) {
         // null | "" -> clear (fall back to global). Otherwise clamp to a sane non-negative int.
         if (session_limit === null || session_limit === "") {
@@ -2448,11 +2451,73 @@ Deno.serve(async (originalReq) => {
       if (Object.keys(patch).length === 0) throw new Error("No fields to update");
       const { error } = await supabase.from("app_users").update(patch).eq("id", id);
       if (error) throw error;
+      invalidateBootstrapCache();
       await auditLog(supabase, "user_updated", session.userId, id, patch, ip);
       return new Response(JSON.stringify({ success: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    if (action === "reorder_users") {
+      const session = await requireAdmin(req);
+      const orderedIds = Array.isArray(params?.orderedIds) ? params.orderedIds.filter((s: any) => typeof s === "string") : [];
+      if (orderedIds.length === 0) throw new Error("orderedIds required");
+      // Bulk update: sort_order = index in provided array (0-based).
+      const updates = orderedIds.map((id: string, idx: number) =>
+        supabase.from("app_users").update({ sort_order: idx }).eq("id", id)
+      );
+      const results = await Promise.all(updates);
+      const firstErr = results.find((r) => r.error);
+      if (firstErr?.error) throw firstErr.error;
+      invalidateBootstrapCache();
+      await auditLog(supabase, "users_reordered", session.userId, null, { count: orderedIds.length }, ip);
+      return new Response(JSON.stringify({ success: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "login_free") {
+      // Passwordless entry for admin-created "free" profiles. Everyone can
+      // enter — no GPS, no captcha, no session-limit enforcement.
+      const { user_id } = params;
+      if (!user_id || typeof user_id !== "string") throw new Error("user_id required");
+      const { data: user, error } = await supabase
+        .from("app_users")
+        .select("*")
+        .eq("id", user_id)
+        .eq("is_free", true)
+        .neq("role", "admin")
+        .single();
+      if (error || !user) throw new Error("Free profile not found");
+
+      await auditLog(supabase, "login_free", user.id, null, { username: user.username }, ip);
+
+      const pair = await mintSessionPair(user.id, user.role, {
+        userId: user.id,
+        username: user.username,
+        role: user.role,
+        assignedAccounts: user.assigned_accounts || null,
+      });
+      const workerUrls = await loadWorkerUrls(supabase);
+      return new Response(JSON.stringify({
+        success: true,
+        sessionToken: pair.accessToken,
+        expiresAt: pair.accessExpMs,
+        refreshToken: pair.refreshToken,
+        refreshExpiresAt: pair.refreshExpMs,
+        sessionFamilyId: pair.familyId,
+        workerUrls,
+        user: {
+          id: user.id, username: user.username, name: user.name, role: user.role,
+          mustChangePassword: false,
+          assignedAccounts: user.assigned_accounts,
+          profilePrefs: user.profile_prefs || {},
+          profileAvatar: user.profile_prefs?.avatarId || null,
+          isFree: true,
+        },
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
 
     if (action === "impersonate") {
       const session = await requireAdmin(req);
