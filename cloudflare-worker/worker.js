@@ -128,21 +128,71 @@ async function readBestCachedRaw(env, userAccountsKey, limit, skipKey = "") {
   return null;
 }
 
+const DEFAULT_EMAIL_FILTERS = { showSignInCodes: true, showPasswordResets: false, showAccountUpdates: false };
+const WORKER_ACCOUNT_UPDATE_RE = /(account (information|info|details) (was |has been )?(changed|updated)|changes? to your account|email (address )?(was |has been )?(changed|updated)|new email address|membership (was |has been )?(cancell?ed|updated|paused)|account (was |has been )?(cancell?ed|deleted|closed|paused|on hold)|we[’']re sorry to see you go|payment (received|method|was|has been|declined|failed|updated|changed)|mobile (number )?(confirm|confirmed|verify|verified|update|updated)|phone (number )?(confirm|confirmed|verify|verified|update|updated)|verify (your )?(phone|mobile|email)|verify your email address|action needed: verify|confirm (your )?(phone|mobile|email|account change)|request to make a change|update your account|make (a |any )?(change|changes) to your account)/i;
+const WORKER_PASSWORD_RESET_RE = /(password (was |has been )?(changed|reset|updated)|reset your password|forgot password|password reset|new password|account recovery)/i;
+const WORKER_SIGNIN_RE = /(sign[\s-]?in code|new sign[\s-]?in|new device|temporary access code|is using your account|access your account|verification code|login code|enter this code|otp)/i;
+
+function normalizeEmailFilters(value) {
+  const v = value && typeof value === "object" ? value : {};
+  return {
+    showSignInCodes: v.showSignInCodes === false ? false : true,
+    showPasswordResets: v.showPasswordResets === true,
+    showAccountUpdates: v.showAccountUpdates === true,
+  };
+}
+
+async function readWorkerEmailFilters(env) {
+  try {
+    const raw = await kvGet(env, WORKER_CONFIG_KEY);
+    if (!raw) return DEFAULT_EMAIL_FILTERS;
+    const config = JSON.parse(raw);
+    return normalizeEmailFilters(config?.email_filters);
+  } catch {
+    return DEFAULT_EMAIL_FILTERS;
+  }
+}
+
+function classifyWorkerEmail(email) {
+  const text = `${email?.subject || ""} ${email?.preview || ""}`;
+  if (WORKER_ACCOUNT_UPDATE_RE.test(text)) return "account_update";
+  if (WORKER_PASSWORD_RESET_RE.test(text)) return "password_reset";
+  if (email?.otp || WORKER_SIGNIN_RE.test(text)) return "signin";
+  return "other";
+}
+
+function applyWorkerFilters(list, filters, session) {
+  if (!Array.isArray(list) || !session || session.role === "admin") return list;
+  const normalized = normalizeEmailFilters(filters);
+  const hideSignin = normalized.showSignInCodes === false;
+  const hideReset = normalized.showPasswordResets !== true;
+  const hideAccountUpdate = normalized.showAccountUpdates !== true;
+  return list.filter((email) => {
+    const cat = classifyWorkerEmail(email);
+    if (hideSignin && cat === "signin") return false;
+    if (hideReset && cat === "password_reset") return false;
+    if (hideAccountUpdate && cat === "account_update") return false;
+    if (hideReset && hideAccountUpdate && cat === "other") return false;
+    return true;
+  });
+}
+
 // Defence-in-depth: even if a cache entry somehow contains cross-account
 // rows (legacy KV writes, admin-scope entries, corrupted merges), strip
 // anything outside the caller's assigned accounts before returning.
-function enforceScopeOnRaw(raw, session) {
+function enforceScopeOnRaw(raw, session, filters = DEFAULT_EMAIL_FILTERS) {
   if (!raw || !session || session.role === "admin") return raw;
   const allowed = Array.isArray(session.assignedAccounts) ? session.assignedAccounts : [];
   const allowSet = new Set(allowed.map((s) => String(s || "").trim()).filter(Boolean));
   const list = parseEmailList(raw);
   if (!Array.isArray(list)) return raw;
-  const filtered = list.filter((e) => {
+  const scoped = list.filter((e) => {
     const label = String(e?.account_label || "").trim();
     // If the row has no label we cannot verify ownership → drop it.
     if (!label) return false;
     return allowSet.has(label);
   });
+  const filtered = applyWorkerFilters(scoped, filters, session);
   try {
     const parsed = JSON.parse(raw);
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && Array.isArray(parsed.emails)) {
@@ -367,6 +417,7 @@ async function handleGetEmails(env, session, rawToken, opts = {}) {
   const bust = !!opts.bust;
   const limit = clampLimit(opts.limit, 3, 200);
   const accountLabels = Array.isArray(opts.accountLabels) ? opts.accountLabels : [];
+  const filters = await readWorkerEmailFilters(env);
 
   if (!hasKV) {
     return fetchDirectFromSupabase(env, session, rawToken, { accountLabels, limit });
@@ -394,7 +445,7 @@ async function handleGetEmails(env, session, rawToken, opts = {}) {
   if (bust) {
     const result = await fetchDirectFromSupabase(env, session, rawToken, { accountLabels, limit });
     if (result.status === 200) {
-      const body = enforceScopeOnRaw(await result.clone().text(), session);
+      const body = enforceScopeOnRaw(await result.clone().text(), session, filters);
       await Promise.all([kvPut(env, cacheKey, body), kvPut(env, tsKey, Date.now().toString())]);
       return new Response(body, { status: 200, headers: diagHeaders({ "X-Cache-Status": "BYPASS", "X-Cache-Key": cacheKey }) });
     }
@@ -408,12 +459,12 @@ async function handleGetEmails(env, session, rawToken, opts = {}) {
   if (!cached) {
     const fallback = await readBestCachedRaw(env, userAccountsKey, limit, cacheKey);
     if (fallback?.raw) {
-      const safeRaw = enforceScopeOnRaw(fallback.raw, session);
+      const safeRaw = enforceScopeOnRaw(fallback.raw, session, filters);
       await Promise.all([kvPut(env, cacheKey, safeRaw), kvPut(env, tsKey, Date.now().toString())]);
       if (hasRawMimeMarkers(safeRaw)) {
         const result = await fetchDirectFromSupabase(env, session, rawToken, { accountLabels, limit });
         if (result.status === 200) {
-          const body = enforceScopeOnRaw(await result.clone().text(), session);
+          const body = enforceScopeOnRaw(await result.clone().text(), session, filters);
           await Promise.all([kvPut(env, cacheKey, body), kvPut(env, tsKey, Date.now().toString())]);
           return new Response(body, { status: 200, headers: diagHeaders({ "X-Cache-Status": "BYPASS_RAW_MIME", "X-Cache-Key": cacheKey }) });
         }
@@ -422,7 +473,7 @@ async function handleGetEmails(env, session, rawToken, opts = {}) {
     }
     const result = await fetchDirectFromSupabase(env, session, rawToken, { accountLabels, limit });
     if (result.status === 200) {
-      const body = enforceScopeOnRaw(await result.clone().text(), session);
+      const body = enforceScopeOnRaw(await result.clone().text(), session, filters);
       await Promise.all([kvPut(env, cacheKey, body), kvPut(env, tsKey, now.toString())]);
       return new Response(body, { status: 200, headers: diagHeaders({ "X-Cache-Status": "MISS", "X-Cache-Key": cacheKey }) });
     }
@@ -438,7 +489,7 @@ async function handleGetEmails(env, session, rawToken, opts = {}) {
   if (hasRawMimeMarkers(cached)) {
     const result = await fetchDirectFromSupabase(env, session, rawToken, { accountLabels, limit });
     if (result.status === 200) {
-      const body = enforceScopeOnRaw(await result.clone().text(), session);
+      const body = enforceScopeOnRaw(await result.clone().text(), session, filters);
       await Promise.all([kvPut(env, cacheKey, body), kvPut(env, tsKey, Date.now().toString())]);
       return new Response(body, {
         headers: diagHeaders({ "X-Cache-Status": "BYPASS_RAW_MIME", "X-Cache-Age": Math.round(age).toString(), "X-Cache-Key": cacheKey }),
@@ -446,7 +497,7 @@ async function handleGetEmails(env, session, rawToken, opts = {}) {
     }
   }
 
-  return new Response(enforceScopeOnRaw(cached, session), {
+  return new Response(enforceScopeOnRaw(cached, session, filters), {
     headers: diagHeaders({ "X-Cache-Status": status, "X-Cache-Age": Math.round(age).toString(), "X-Cache-Key": cacheKey }),
   });
 }
@@ -527,7 +578,8 @@ async function handleSync(env, session, rawToken, requestBody, ctx) {
       if (ctx?.waitUntil) ctx.waitUntil(cacheWork);
     }
 
-    const safeResponseText = enforceScopeOnRaw(responseText, session);
+    const filters = await readWorkerEmailFilters(env);
+    const safeResponseText = enforceScopeOnRaw(responseText, session, filters);
     return new Response(safeResponseText, {
       headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
     });
@@ -581,7 +633,8 @@ async function refreshFromSupabase(env, session, rawToken, cacheKey, tsKey, opts
       console.error("Supabase cache fetch failed:", result.status);
       return;
     }
-    const data = enforceScopeOnRaw(await result.text(), session);
+    const filters = await readWorkerEmailFilters(env);
+    const data = enforceScopeOnRaw(await result.text(), session, filters);
     await Promise.all([
       kvPut(env, cacheKey, data),
       kvPut(env, tsKey, Date.now().toString()),
