@@ -161,6 +161,12 @@ function normalizeAccountLabels(raw: any, available: string[] = []): string[] {
   return out;
 }
 
+function normalizedAssignedAccountsEqual(a: string[] | null, b: string[] | null): boolean {
+  const aa = Array.isArray(a) ? [...a].sort() : [];
+  const bb = Array.isArray(b) ? [...b].sort() : [];
+  return aa.length === bb.length && aa.every((v, i) => v === bb[i]);
+}
+
 async function normalizeAssignedAccounts(supabase: any, raw: any): Promise<string[] | null> {
   if (!Array.isArray(raw) || raw.length === 0) return null;
   const labels = await loadAvailableAccountLabels(supabase);
