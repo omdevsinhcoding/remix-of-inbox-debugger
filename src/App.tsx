@@ -2091,7 +2091,8 @@ function isLocationRequiredForProfile(profile?: Partial<UserData> | null) {
   // Default: required unless explicitly disabled (false).
   const top = profile.locationRequired;
   const nested = profile.profilePrefs?.locationRequired;
-  if (top === false || nested === false) return false;
+  const explicitOverride = profile.profilePrefs?.locationRequiredOverride === true;
+  if (explicitOverride && (top === false || nested === false)) return false;
   return true;
 }
 
@@ -2183,6 +2184,7 @@ function mergeEmailsById(lists: Email[][]): Email[] {
 type UserProfilePrefs = {
   avatarId?: string | null;
   locationRequired?: boolean;
+  locationRequiredOverride?: boolean;
   hiddenBefore?: string | null;
   hiddenEmailIds?: string[];
 };
@@ -5115,14 +5117,14 @@ function AdminPanel() {
 
   const toggleProfileLocationRequired = async (u: UserData) => {
     const next = !isLocationRequiredForProfile(u);
-    const nextPrefs = { ...(u.profilePrefs || {}), locationRequired: next };
+    const nextPrefs = { ...(u.profilePrefs || {}), locationRequired: next, locationRequiredOverride: true };
     setUsers(prev => prev.map(x => x.id === u.id ? { ...x, locationRequired: next, profilePrefs: nextPrefs } : x));
     try {
       await apiCall("manage-app", { action: "update_user", id: u.id, location_required: next });
       notify.success(next ? "Location required for this profile" : "Location not required for this profile");
       try { await refreshBootstrap(); } catch {}
     } catch (err) {
-      setUsers(prev => prev.map(x => x.id === u.id ? { ...x, locationRequired: !next, profilePrefs: { ...(x.profilePrefs || {}), locationRequired: !next } } : x));
+      setUsers(prev => prev.map(x => x.id === u.id ? { ...x, locationRequired: !next, profilePrefs: { ...(x.profilePrefs || {}), locationRequired: !next, locationRequiredOverride: true } } : x));
       notify.error(err instanceof Error ? err.message : "Failed to update location setting");
     }
   };
