@@ -6338,8 +6338,43 @@ function AdminPanel() {
                         <p className="text-sm text-green-900 font-medium">{serverConfig.IMAP_PORT || "Not set"}</p>
                       </div>
                     </div>
+                  <div className="mt-4 pt-3 border-t border-green-200 space-y-2.5">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="bg-white/60 rounded-lg p-2">
+                        <div className="flex items-center justify-between gap-2 mb-1">
+                          <p className="text-[10px] font-bold text-green-600 uppercase">Host</p>
+                          {serverConfig.IMAP_HOST && (
+                            <button type="button" onClick={(e) => { e.stopPropagation(); copyToClipboard(serverConfig.IMAP_HOST, "Host copied"); }}
+                              className="p-1 rounded hover:bg-green-200 text-green-700" aria-label="Copy host">
+                              <Copy className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+                        <p className="text-sm text-green-900 font-medium break-all">{serverConfig.IMAP_HOST || "Not set"}</p>
+                      </div>
+                      <div className="bg-white/60 rounded-lg p-2">
+                        <div className="flex items-center justify-between gap-2 mb-1">
+                          <p className="text-[10px] font-bold text-green-600 uppercase">Port</p>
+                          {serverConfig.IMAP_PORT && (
+                            <button type="button" onClick={(e) => { e.stopPropagation(); copyToClipboard(serverConfig.IMAP_PORT, "Port copied"); }}
+                              className="p-1 rounded hover:bg-green-200 text-green-700" aria-label="Copy port">
+                              <Copy className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+                        <p className="text-sm text-green-900 font-medium">{serverConfig.IMAP_PORT || "Not set"}</p>
+                      </div>
+                    </div>
                     <div className="bg-white/60 rounded-lg p-2">
-                      <p className="text-[10px] font-bold text-green-600 uppercase">Email</p>
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <p className="text-[10px] font-bold text-green-600 uppercase">Email</p>
+                        {serverConfig.IMAP_USER && (
+                          <button type="button" onClick={(e) => { e.stopPropagation(); copyToClipboard(serverConfig.IMAP_USER, "Email copied"); }}
+                            className="p-1 rounded hover:bg-green-200 text-green-700" aria-label="Copy email">
+                            <Copy className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
                       <p className="text-sm text-green-900 font-medium break-all">{serverConfig.IMAP_USER || "Not set"}</p>
                     </div>
                     <div className="bg-white/60 rounded-lg p-2">
@@ -6347,24 +6382,14 @@ function AdminPanel() {
                         <p className="text-[10px] font-bold text-green-600 uppercase">Password</p>
                         {serverConfig.IMAP_PASSWORD && (
                           <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                            <button
-                              type="button"
-                              onClick={(e) => { e.stopPropagation(); togglePasswordReveal("primary"); }}
-                              className="p-1.5 rounded-lg hover:bg-green-200 text-green-700"
-                              aria-label={revealedPasswords.has("primary") ? "Hide password" : "Show password"}
-                            >
-                              {revealedPasswords.has("primary") ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                            <button type="button" onClick={(e) => { e.stopPropagation(); togglePasswordReveal("primary"); }}
+                              className="p-1 rounded hover:bg-green-200 text-green-700"
+                              aria-label={revealedPasswords.has("primary") ? "Hide password" : "Show password"}>
+                              {revealedPasswords.has("primary") ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
                             </button>
-                            <button
-                              type="button"
-                              onClick={async (e) => {
-                                e.stopPropagation();
-                                try { await navigator.clipboard.writeText(serverConfig.IMAP_PASSWORD || ""); notify.success("Password copied"); } catch { notify.error("Copy failed"); }
-                              }}
-                              className="p-1.5 rounded-lg hover:bg-green-200 text-green-700"
-                              aria-label="Copy password"
-                            >
-                              <Copy className="w-3.5 h-3.5" />
+                            <button type="button" onClick={(e) => { e.stopPropagation(); copyToClipboard(serverConfig.IMAP_PASSWORD || "", "Password copied"); }}
+                              className="p-1 rounded hover:bg-green-200 text-green-700" aria-label="Copy password">
+                              <Copy className="w-3 h-3" />
                             </button>
                           </div>
                         )}
