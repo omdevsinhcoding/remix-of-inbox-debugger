@@ -1,22 +1,20 @@
 // Worker bootstrap endpoint — returns SUPABASE_URL, SUPABASE_KEY, SESSION_SECRET
-// to the Cloudflare Workers Builds `setup.sh` so each new worker deploys with
-// zero manual configuration.
+// to the Cloudflare Workers Builds `setup.sh`.
 //
-// SECURITY MODEL (no hardcoded secrets in git):
-//   1. Caller must send X-CF-Token header containing a Cloudflare API token.
-//      Cloudflare Workers Builds auto-injects CLOUDFLARE_API_TOKEN at build
-//      time — it never appears in git.
-//   2. We verify the token by calling Cloudflare's own verify endpoint AND
-//      list the accounts it can access.
-//   3. The caller's Cloudflare account ID must be in
-//      app_settings.worker_account_allowlist. If the allowlist has fewer than
-//      MAX_TOFU_ACCOUNTS entries, we trust-on-first-use: add the new account
-//      and send a Telegram alert so the admin sees it.
-//   4. After MAX_TOFU_ACCOUNTS is reached, unknown accounts get 403.
-//      Admin can edit the allowlist in the app_settings table.
+// SECURITY MODEL (hardened — no TOFU):
+//   1. Caller must send X-CF-Token header (Cloudflare API token). CF Builds
+//      injects CLOUDFLARE_API_TOKEN at build time.
+//   2. Caller must ALSO send X-Bootstrap-Secret header matching
+//      WORKER_BOOTSTRAP_SECRET env var. This shared secret is stored in the
+//      Cloudflare Worker's build env by the admin — an attacker with only a
+//      leaked repo cannot obtain it.
+//   3. We verify the CF token AND check the caller's CF account is in
+//      app_settings.worker_account_allowlist. Unknown accounts are REJECTED
+//      (no auto-add) and generate a Telegram alert. Admin must explicitly
+//      add the account_id to the allowlist first.
 //
-// If the repo leaks, an attacker still can't bootstrap because they don't own
-// any of the allow-listed Cloudflare accounts.
+// Previous TOFU behavior (auto-add first N accounts) leaked SESSION_SECRET
+// to any Cloudflare account holder — removed.
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 
@@ -24,10 +22,16 @@ const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-cf-token",
+    "authorization, x-client-info, apikey, content-type, x-cf-token, x-bootstrap-secret",
 };
 
-const MAX_TOFU_ACCOUNTS = 25;
+// Constant-time string compare to avoid timing oracles on the shared secret.
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -60,6 +64,22 @@ Deno.serve(async (req) => {
   if (!cfToken) {
     return json({ error: "Missing X-CF-Token header" }, 401);
   }
+
+  // 0. Verify the shared bootstrap secret. Without this, ANY valid Cloudflare
+  //    token holder could request our SESSION_SECRET. This secret is only
+  //    known to the admin and to the Cloudflare Worker build environment.
+  const expectedSecret = (Deno.env.get("WORKER_BOOTSTRAP_SECRET") || "").trim();
+  if (!expectedSecret) {
+    return json({ error: "Server not configured: WORKER_BOOTSTRAP_SECRET missing" }, 500);
+  }
+  const providedSecret = (req.headers.get("x-bootstrap-secret") || "").trim();
+  if (!providedSecret || !timingSafeEqual(providedSecret, expectedSecret)) {
+    await sendTelegramAlert(
+      `🚫 worker-bootstrap: bad or missing X-Bootstrap-Secret from ${req.headers.get("cf-connecting-ip") || "unknown"}`,
+    );
+    return json({ error: "Invalid bootstrap secret" }, 403);
+  }
+
 
   // 1. Verify the CF token is valid & active
   let verifyRes: any = null;
@@ -114,29 +134,17 @@ Deno.serve(async (req) => {
   const known = list.find((x) => x.id === account.id);
 
   if (!known) {
-    if (list.length >= MAX_TOFU_ACCOUNTS) {
-      await sendTelegramAlert(
-        `🚫 Worker bootstrap REJECTED — allowlist full.\n` +
-        `Account: <code>${account.name}</code> (<code>${account.id}</code>)`,
-      );
-      return json({ error: "Account not in allowlist and cap reached. Contact admin." }, 403);
-    }
-    // Trust-on-first-use: add and alert
-    const updated = [
-      ...list,
-      { id: account.id, name: account.name, added_at: new Date().toISOString() },
-    ];
-    await supabase
-      .from("app_settings")
-      .upsert({ key: "worker_account_allowlist", value: updated }, { onConflict: "key" });
-
+    // No TOFU. Admin must add the account_id to
+    // app_settings.worker_account_allowlist manually first.
     await sendTelegramAlert(
-      `✅ New Cloudflare account added to worker allowlist (TOFU)\n` +
+      `🚫 Worker bootstrap REJECTED — unknown Cloudflare account.\n` +
       `Name: <b>${account.name}</b>\n` +
       `ID: <code>${account.id}</code>\n` +
-      `Slot ${updated.length}/${MAX_TOFU_ACCOUNTS} used`,
+      `Add it to app_settings.worker_account_allowlist to authorize.`,
     );
+    return json({ error: "Account not in allowlist. Contact admin." }, 403);
   }
+
 
   // 4. Return the secrets the worker needs
   const SUPABASE_KEY =
@@ -159,6 +167,6 @@ Deno.serve(async (req) => {
     SUPABASE_URL,
     SUPABASE_KEY,
     SESSION_SECRET,
-    account: { id: account.id, name: account.name, tofu: !known },
+    account: { id: account.id, name: account.name },
   });
 });
