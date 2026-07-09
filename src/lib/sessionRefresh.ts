@@ -79,15 +79,27 @@ export async function refreshNow(): Promise<boolean> {
   inflight = (async () => {
     try {
       const { invokeEdge } = await import("./secureTransport");
-      const data: any = await invokeEdge("manage-app", { action: "refresh_session", refreshToken }, { headers: {} });
+      const accessToken = sessionGet("session_token" as any);
+      const headers: Record<string, string> = accessToken ? { "X-Session-Token": accessToken } : {};
+      const data: any = await invokeEdge("manage-app", { action: "refresh_session", refreshToken }, { headers });
       if (!data?.success || !data?.sessionToken) throw new Error(data?.error || "refresh failed");
       sessionSet("session_token" as any, data.sessionToken);
       storeSessionPair(data);
       return true;
     } catch {
-      // Refresh irrecoverable — clear session so AuthProvider signs the user out.
-      try { sessionRemove("session_token" as any); } catch {}
-      try { sessionRemove("user" as any); } catch {}
+      // Refresh irrecoverable — clear normal sessions so AuthProvider signs the
+      // user out. For admin-impersonation, keep the expired access token and
+      // cached user shell: the server-side back_to_admin endpoint accepts an
+      // expired impersonation token and swaps it back to a fresh admin session.
+      let keepExpiredImpersonationToken = false;
+      try {
+        const raw = sessionGet("user" as any);
+        keepExpiredImpersonationToken = !!(raw && JSON.parse(raw)?.impersonated === true);
+      } catch {}
+      if (!keepExpiredImpersonationToken) {
+        try { sessionRemove("session_token" as any); } catch {}
+        try { sessionRemove("user" as any); } catch {}
+      }
       clearRefreshState();
       return false;
     } finally {
