@@ -1,6 +1,6 @@
-name = "email-cache-proxy"
+name = "netflixfetch"
 main = "worker.js"
-compatibility_date = "2024-01-01"
+compatibility_date = "2026-04-07"
 
 # KV Namespaces — create via: npx wrangler kv namespace create EMAIL_CACHE
 # To add a new KV when the old one is full:
