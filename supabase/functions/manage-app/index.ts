@@ -1987,8 +1987,10 @@ Deno.serve(async (originalReq) => {
     }
 
     if (action === "create") {
-      const { username, password, name, role, assigned_accounts } = params;
-      if (!username || !password || !name) throw new Error("All fields required");
+      const { username, password, name, role, assigned_accounts, is_free } = params;
+      const isFree = !!is_free;
+      if (!name) throw new Error("Name required");
+      if (!isFree && (!username || !password)) throw new Error("Username and password required");
 
       // Optionally require admin session for creating users
       let bootstrapCreate = false;
@@ -2003,18 +2005,44 @@ Deno.serve(async (originalReq) => {
         bootstrapCreate = true;
       }
 
-      const hashed = await hashPassword(password);
+      // Free profile: auto-generate username + random password (never used).
+      const finalUsername = isFree
+        ? (username && String(username).trim() ? String(username).trim() : `free_${crypto.randomUUID().slice(0, 8)}`)
+        : username;
+      const rawPassword = isFree
+        ? crypto.randomUUID() + crypto.randomUUID()
+        : password;
+      const hashed = await hashPassword(rawPassword);
+      const insertPayload: any = {
+        username: finalUsername,
+        password: hashed,
+        name,
+        role: role || "user",
+        assigned_accounts: assigned_accounts || null,
+        is_free: isFree,
+        must_change_password: false,
+      };
       const { data, error } = await supabase
         .from("app_users")
-        .insert({ username, password: hashed, name, role: role || "user", assigned_accounts: assigned_accounts || null })
-        .select("id, username, name, role, assigned_accounts, profile_prefs")
+        .insert(insertPayload)
+        .select("id, username, name, role, assigned_accounts, profile_prefs, is_free, pinned, sort_order")
         .single();
       if (error) throw error;
       invalidateBootstrapCache();
 
-      await auditLog(supabase, bootstrapCreate ? "bootstrap_admin_created" : "user_created", actorId, data.id, { username, role: role || "user" }, ip);
+      await auditLog(supabase, bootstrapCreate ? "bootstrap_admin_created" : (isFree ? "free_user_created" : "user_created"), actorId, data.id, { username: finalUsername, role: role || "user", isFree }, ip);
 
-      return new Response(JSON.stringify({ success: true, user: data }), {
+      return new Response(JSON.stringify({
+        success: true,
+        user: {
+          ...data,
+          assignedAccounts: data.assigned_accounts || null,
+          profileAvatar: data.profile_prefs?.avatarId || null,
+          isFree: !!data.is_free,
+          pinned: !!data.pinned,
+          sortOrder: data.sort_order ?? null,
+        },
+      }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
