@@ -294,9 +294,54 @@ async function shouldBlockPromo(supabase: any): Promise<boolean> {
 }
 
 function decodeQuotedPrintable(input: string) {
-  return input
+  const bytes: number[] = [];
+  const normalized = input.replace(/=\r?\n/g, "");
+  for (let i = 0; i < normalized.length; i++) {
+    if (normalized[i] === "=" && /^[0-9A-Fa-f]{2}$/.test(normalized.slice(i + 1, i + 3))) {
+      bytes.push(parseInt(normalized.slice(i + 1, i + 3), 16));
+      i += 2;
+    } else {
+      bytes.push(normalized.charCodeAt(i));
+    }
+  }
+  try {
+    return new TextDecoder("utf-8", { fatal: false }).decode(new Uint8Array(bytes));
+  } catch {
+    return normalized
     .replace(/=\r?\n/g, "")
     .replace(/=([0-9A-F]{2})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+  }
+}
+
+function decodeHtmlEntities(input: string) {
+  return String(input || "")
+    .replace(/&#(\d+);/g, (_, code) => {
+      const n = Number(code);
+      return Number.isFinite(n) ? String.fromCodePoint(n) : "";
+    })
+    .replace(/&#x([0-9a-f]+);/gi, (_, code) => {
+      const n = parseInt(code, 16);
+      return Number.isFinite(n) ? String.fromCodePoint(n) : "";
+    })
+    .replace(/&shy;/gi, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'");
+}
+
+function cleanDisplayText(input: string) {
+  return decodeHtmlEntities(input)
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .replace(/[\u2000-\u200A\u202F\u205F\u3000]/g, " ")
+    .replace(/\u00ad/g, "")
+    .replace(/Â\s*/g, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n[ \t]+/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function formatAddress(addr: any) {
@@ -330,21 +375,12 @@ function recipientMatches(toRaw: string | null | undefined, filters?: string[]):
   return recipients.some((email) => allowed.has(email));
 }
 
-function parseFastEmail(rawSource: Uint8Array, envelope: any, accountLabel: string, uid: number) {
-  const raw = new TextDecoder().decode(rawSource);
-  const splitAt = raw.search(/\r?\n\r?\n/);
-  const rawBody = splitAt >= 0 ? raw.slice(splitAt) : raw;
-  const bodyText = decodeQuotedPrintable(rawBody)
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/[ \t]+/g, " ")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim()
-    .slice(0, 20_000);
-  const subject = (envelope?.subject || "").toString();
-  const from = (envelope?.from || []).map(formatAddress).filter(Boolean).join(", ") || "Netflix";
-  const to = (envelope?.to || []).map(formatAddress).filter(Boolean).join(", ") || undefined;
+async function parseFastEmail(rawSource: Uint8Array, envelope: any, accountLabel: string, uid: number) {
+  const parsed = await simpleParser(rawSource, { skipImageLinks: true, skipTextLinks: true });
+  const subject = (parsed.subject || envelope?.subject || "").toString();
+  const from = parsed.from?.text || (envelope?.from || []).map(formatAddress).filter(Boolean).join(", ") || "Netflix";
+  const to = parsed.to?.text || (envelope?.to || []).map(formatAddress).filter(Boolean).join(", ") || undefined;
+  const bodyText = cleanDisplayText(parsed.text || "").slice(0, 20_000);
   // Strict: sender must be a real @netflix.com address. Promo filtering happens
   // at read-time (respecting the admin toggle), not at ingest — so all official
   // Netflix mail (marketing/new-release announcements included) enters the cache.
@@ -356,10 +392,10 @@ function parseFastEmail(rawSource: Uint8Array, envelope: any, accountLabel: stri
     subject,
     from,
     to,
-    date: envelope?.date || new Date(),
+    date: parsed.date || envelope?.date || new Date(),
     otp: extractOtpCode(subject, bodyText),
     preview,
-    html: `<pre>${escapeHtml(bodyText)}</pre>`,
+    html: parsed.html || parsed.textAsHtml || `<pre>${escapeHtml(bodyText)}</pre>`,
     account_label: accountLabel,
   };
 }
@@ -501,7 +537,7 @@ async function fetchFromAccount(
           if (!fullMsg?.source) continue;
 
           if (quickRefresh) {
-            const fast = parseFastEmail(fullMsg.source, fullMsg.envelope, accountLabel, uid);
+            const fast = await parseFastEmail(fullMsg.source, fullMsg.envelope, accountLabel, uid);
             if (!fast) continue;
             if (!recipientMatches(fast.to, recipientFilters)) {
               console.log(`[${accountLabel}] Skipping UID ${uid}: recipient not allowed (${fast.to || "none"})`);
