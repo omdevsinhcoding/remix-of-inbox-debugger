@@ -693,7 +693,10 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
     }
   }
 
-  const { data: cachedRows } = await supabase.from("cached_emails").select("id, preview, html");
+  let cachedQuery = supabase.from("cached_emails").select("id, preview, html");
+  const loadedLabels = accounts.map((a) => a.label).filter(Boolean);
+  if (loadedLabels.length > 0) cachedQuery = cachedQuery.in("account_label", loadedLabels);
+  const { data: cachedRows } = await cachedQuery;
   const cachedIds = new Set((cachedRows || []).filter((r: any) => !isDirtyCachedEmail(r)).map((r: any) => String(r.id)));
 
   const settled = await Promise.allSettled(accounts.map(async (acc) => {
