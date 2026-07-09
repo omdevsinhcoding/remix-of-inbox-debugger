@@ -8301,8 +8301,8 @@ function EmailViewer() {
   const idbRef = useRef<Awaited<ReturnType<typeof openInboxDB>> | null>(null);
   const instantInboxRunKeyRef = useRef("");
   const instantInboxAccountKey = useMemo(
-    () => JSON.stringify(refreshAccountLabels === null ? null : [...(refreshAccountLabels || [])].sort()),
-    [refreshAccountLabels],
+    () => JSON.stringify(activeCacheLabels === null ? null : [...(activeCacheLabels || [])].sort()),
+    [activeCacheLabels],
   );
   useEffect(() => {
     // eslint-disable-next-line no-console
@@ -8323,7 +8323,7 @@ function EmailViewer() {
         await refreshEmailFiltersForViewer();
 
         // ---- (1) Instant paint from IDB ----
-        const cached = await readLatestEmails(db, 200, refreshAccountLabels);
+        const cached = await readLatestEmails(db, 200, activeCacheLabels);
         console.log(`[inbox] IDB has ${cached.length} cached rows`);
         if (cached.length > 0) {
           setEmails(cached as unknown as Email[]);
@@ -8342,7 +8342,7 @@ function EmailViewer() {
         const cursor = cached.length === 0 ? 0 : storedCursor;
         const started = performance.now();
         console.log(`[inbox] calling list_delta since=${cursor}${storedCursor && cursor === 0 ? ` (reset stale cursor ${storedCursor})` : ""}`);
-        const delta = await apiCall("manage-app", { action: "list_delta", since: cursor, limit: cursor === 0 ? 1000 : 500 });
+        const delta = await apiCall("manage-app", { action: "list_delta", since: cursor, limit: cursor === 0 ? 1000 : 500, accountLabels: activeCacheLabels || undefined });
         console.log("[inbox] list_delta response", {
           success: delta?.success,
           mode: delta?.mode,
@@ -8365,7 +8365,7 @@ function EmailViewer() {
 
         if (rows.length > 0 || removedIds.length > 0 || newCursor > cursor) {
           await writeDelta(db, { rows, removedIds, newCursor });
-          const fresh = await readLatestEmails(db, 200, refreshAccountLabels);
+          const fresh = await readLatestEmails(db, 200, activeCacheLabels);
           console.log(`[inbox] after writeDelta, IDB has ${fresh.length} rows → repaint`);
           setEmails(fresh as unknown as Email[]);
           setLastUpdated(new Date());
@@ -8657,7 +8657,7 @@ function EmailViewer() {
                       onClick={() => {
                         setSelectedAccountLabel(label);
                         // Trigger a scoped refresh immediately when admin picks a pill.
-                        setTimeout(() => { void fetchEmails(); }, 0);
+                        setTimeout(() => { void fetchEmails([label]); }, 0);
                       }}
                       className={`px-3 py-1 rounded-full text-[11px] font-bold transition-all ${
                         selectedAccountLabel === label

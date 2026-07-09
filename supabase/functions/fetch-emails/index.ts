@@ -49,8 +49,8 @@ function extractOtpCode(subject: string, body: string): string | null {
 const FULL_SYNC_MAX_UIDS = 50;
 const USER_REFRESH_MAX_UIDS = 12;
 const PER_ACCOUNT_TIMEOUT_MS = 6500;
-const FAST_REFRESH_TIMEOUT_MS = 1800;
-const FAST_REFRESH_SCAN_COUNT = 4;
+const FAST_REFRESH_TIMEOUT_MS = 2400;
+const FAST_REFRESH_SCAN_COUNT = 8;
 const STALE_DAYS = 60;
 const USER_SYNC_WINDOW_MS = 5_000;
 const userSyncHits = new Map<string, number>();
@@ -498,6 +498,17 @@ async function fetchFromAccount(
           const fullMsg = await client.fetchOne(uid, { source: true, envelope: true }, { uid: true });
           if (!fullMsg?.source) continue;
 
+          if (quickRefresh) {
+            const fast = parseFastEmail(fullMsg.source, fullMsg.envelope, accountLabel, uid);
+            if (!fast) continue;
+            if (!recipientMatches(fast.to, recipientFilters)) {
+              console.log(`[${accountLabel}] Skipping UID ${uid}: recipient not allowed (${fast.to || "none"})`);
+              continue;
+            }
+            emails.push(fast);
+            continue;
+          }
+
           const parsed = await simpleParser(fullMsg.source, { skipImageLinks: true, skipTextLinks: true });
           const bodyText = (parsed.text || "").trim();
           const subjectText = (parsed.subject || fullMsg.envelope?.subject || "").toString();
@@ -623,7 +634,7 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
   console.log(`[sync] Starting parallel IMAP sync (source: ${source})`);
   // Keep output identical to the old working fetch-emails implementation:
   // every refresh uses mailparser/simpleParser so Netflix HTML is cached and displayed as-is.
-  const quickRefresh = false;
+  const quickRefresh = source === "user_refresh";
   const accounts = await loadAccounts(supabase, secret, accountLabels);
 
   if (accounts.length === 0) {
