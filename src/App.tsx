@@ -8245,9 +8245,11 @@ function EmailViewer() {
         pushDiag({ ts: Date.now(), kind: "sync", endpoint: "list_delta:snapshot", error: smsg });
         return synced || null;
       });
+      if (synced && synced.length > 0) mergeEmailsIntoState(synced);
+      const combinedRefreshRows = mergeEmailsById([snapshot || [], synced || []]);
       const scopedSnapshot = Array.isArray(cacheLabels) && cacheLabels.length === 1
-        ? (snapshot || synced || []).filter((e) => String(e.account_label || "").trim() === cacheLabels[0])
-        : (snapshot || synced || []);
+        ? combinedRefreshRows.filter((e) => String(e.account_label || "").trim() === cacheLabels[0])
+        : combinedRefreshRows;
       const newCount = scopedSnapshot.filter((e) => !beforeIds.has(e.id)).length;
       notify.dismiss(toastId);
       if (newCount > 0) notify.success(`${newCount} new email${newCount === 1 ? "" : "s"} arrived`, { duration: 1800 });
