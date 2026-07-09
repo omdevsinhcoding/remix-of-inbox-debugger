@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
-import { ArrowRight, Clock } from "lucide-react";
+import { Clock } from "lucide-react";
 
 type Props = {
   title?: string;
@@ -8,8 +8,6 @@ type Props = {
   endsAt?: string | null;
   versionFrom?: string;
   versionTo?: string;
-  isAdmin?: boolean;
-  onAdminBypass?: () => void;
 };
 
 
@@ -18,7 +16,7 @@ type Props = {
  * Cinematic black stage, crimson brand palette, Three.js flowing shader,
  * drifting embers, editorial serif headline on a glass card.
  */
-export default function MaintenanceScreen({ title, message, endsAt, versionFrom, versionTo, isAdmin, onAdminBypass }: Props) {
+export default function MaintenanceScreen({ title, message, endsAt, versionFrom, versionTo }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const particlesRef = useRef<HTMLCanvasElement | null>(null);
   const [now, setNow] = useState<Date>(new Date());
