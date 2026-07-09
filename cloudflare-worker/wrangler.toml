@@ -1,4 +1,6 @@
-name = "netflixfetch"
+# NOTE: no `name` field on purpose — Cloudflare Workers Builds injects the
+# service name from the dashboard automatically, so renaming the worker in
+# Cloudflare never causes a wrangler.toml mismatch warning.
 main = "worker.js"
 compatibility_date = "2026-04-07"
 workers_dev = true
