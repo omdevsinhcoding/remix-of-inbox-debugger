@@ -679,7 +679,7 @@ Deno.serve(async (originalReq) => {
     try { body = await req.json(); } catch {}
     const mode = body.mode || "sync";
     const source = body.source || "manual";
-    const session = await requireSession(req, body, SIGNING_SECRET, LEGACY_SIGNING);
+    const session = await requireSession(req, body, SIGNING_SECRET, LEGACY_SIGNING, supabase);
     const isCron = !!CRON_SHARED_SECRET && req.headers.get("x-cron-secret") === CRON_SHARED_SECRET;
 
 
