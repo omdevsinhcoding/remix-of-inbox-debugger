@@ -681,7 +681,6 @@ Deno.serve(async (originalReq) => {
   // Sec-Fetch-Site and must still use encrypted transport.
   const CRON_SHARED_SECRET_FOR_TRANSPORT = Deno.env.get("CRON_SHARED_SECRET") || "";
   const SERVICE_ROLE_FOR_TRANSPORT = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
-  const ANON_KEY_FOR_TRANSPORT = Deno.env.get("SUPABASE_ANON_KEY") || Deno.env.get("SUPABASE_PUBLISHABLE_KEY") || "";
   const cronHeaderForTransport = originalReq.headers.get("x-cron-secret") || "";
   const authHeaderForTransport = originalReq.headers.get("authorization") || "";
   const sessionTokenForTransport = originalReq.headers.get("x-session-token") || "";
@@ -692,9 +691,9 @@ Deno.serve(async (originalReq) => {
   // without x-cron-secret, so encrypted transport rejected them with 426 before
   // the sync code ran. Accept only server-side plaintext here; the action gate
   // below restricts it to mode=sync/source=cron and strips email contents.
-  const hasLegacyPgCronBearer = !!ANON_KEY_FOR_TRANSPORT && authHeaderForTransport === `Bearer ${ANON_KEY_FOR_TRANSPORT}` && !secFetchSiteForTransport && originalReq.method === "POST";
+  const hasServerSideBearer = /^Bearer\s+\S+/i.test(authHeaderForTransport) && !secFetchSiteForTransport && originalReq.method === "POST";
   const serverLikeSessionProxy = !!sessionTokenForTransport && !secFetchSiteForTransport;
-  const allowServerPlaintext = hasValidCronSecret || hasServiceRoleBearer || hasLegacyPgCronBearer || serverLikeSessionProxy;
+  const allowServerPlaintext = hasValidCronSecret || hasServiceRoleBearer || hasServerSideBearer || serverLikeSessionProxy;
   let ctx: EncryptedRequestContext | null = null;
   let parsedBody: any = null;
   try {
@@ -741,7 +740,7 @@ Deno.serve(async (originalReq) => {
       }
     } catch {}
 
-    const isLegacyPgCron = !session && !isCronSecret && hasLegacyPgCronBearer && mode === "sync" && source === "cron";
+    const isLegacyPgCron = !session && !isCronSecret && hasServerSideBearer && mode === "sync" && source === "cron";
     const isCron = isCronSecret || isLegacyPgCron;
     if (isLegacyPgCron) repairCronScheduleIfNeeded(supabase, CRON_SHARED_SECRET).catch(() => {});
 
