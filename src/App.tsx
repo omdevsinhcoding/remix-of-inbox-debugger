@@ -2552,19 +2552,25 @@ function ProfileSelectPage() {
     setError("");
 
     try {
-      const clientGeo = await requireLoginLocation(preStartedGeo, preStartedDevice);
+      // Admin turned off location: never call requireLoginLocation.
+      // Send login with clientGeo=null; server accepts because policy is off.
+      const clientGeo: LoginLocationPayload | null = locationRequired
+        ? await requireLoginLocation(preStartedGeo, preStartedDevice)
+        : null;
       pendingClientGeoRef.current = clientGeo;
       if (!captchaReady) {
         setPendingLogin(true);
         setLoginLoading(false);
-        notify.info("Location ready", { id: "gps-permission-ready", description: "Finishing security check…", duration: 8500 });
+        if (locationRequired) {
+          notify.info("Location ready", { id: "gps-permission-ready", description: "Finishing security check…", duration: 8500 });
+        }
         return;
       }
       if (siteKey) {
         setShowCaptcha(true);
         setLoginLoading(false);
       } else {
-        await executeLogin(undefined, clientGeo);
+        await executeLogin(undefined, clientGeo || undefined);
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Login failed";
