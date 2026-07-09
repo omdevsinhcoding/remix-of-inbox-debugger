@@ -7723,7 +7723,11 @@ function UserProfileModal({
             <ProfileAvatar avatarId={selectedAvatar} name={user.name} className="w-12 h-12" fallbackColor="bg-red-500" eager />
             <div className="min-w-0">
               <h2 className="text-lg font-black text-slate-900 leading-tight truncate">{user.name}</h2>
-              <p className="text-xs text-slate-500 truncate">@{user.username}</p>
+              {user.username ? (
+                <p className="text-xs text-slate-500 truncate">@{user.username}</p>
+              ) : user.isFree ? (
+                <p className="text-[10px] font-black tracking-[0.14em] uppercase text-emerald-600">Free profile</p>
+              ) : null}
             </div>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full transition-colors" aria-label="Close profile">
