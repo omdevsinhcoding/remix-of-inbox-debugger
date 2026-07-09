@@ -7998,6 +7998,7 @@ function EmailViewer() {
       try {
         const data = await apiCall("manage-app", { action: "get_settings", key: "email_accounts" });
         if (data.value && Array.isArray(data.value)) {
+          const labels: string[] = [];
           for (const acc of data.value) {
             const label = acc.label || acc.user;
             const accUrls: string[] = [];
@@ -8014,9 +8015,12 @@ function EmailViewer() {
             if (accUrls.length > 0 && label) {
               accountUrls[label] = accUrls;
             }
+            if (label && !labels.includes(String(label))) labels.push(String(label));
           }
+          setAllAccountLabels(labels);
         }
       } catch { }
+
 
       // Only primary URLs go into the general pool (used by apiCall)
       const normalizedPrimaryRaw = primaryUrls
