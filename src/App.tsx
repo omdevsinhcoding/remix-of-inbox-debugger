@@ -7979,14 +7979,18 @@ function EmailViewer() {
         if (!res.ok) {
           // Never surface raw transport JSON like `{"error":"encrypted transport required"}`.
           // Treat as an empty response and keep existing emails visible.
-          return [] as Email[];
+          return { ok: false, emails: [] as Email[] };
         }
         let data: any = [];
         try { data = text ? JSON.parse(text) : []; } catch { data = []; }
-        return Array.isArray(data) ? data as Email[] : [];
+        return { ok: true, emails: Array.isArray(data) ? data as Email[] : [] };
       }));
 
-      const emailList = mergeEmailsById(lists);
+      const okCount = lists.filter((item) => item.ok).length;
+      if (okCount === 0) {
+        return filterVisibleEmails(emails, profilePrefs, user).length;
+      }
+      const emailList = mergeEmailsById(lists.map((item) => item.emails));
       setEmails(emailList);
       setError(null);
       setLastUpdated(new Date());
