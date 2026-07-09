@@ -2526,7 +2526,11 @@ function ProfileSelectPage() {
           // hard error when we have nothing at all to render.
           setSiteKey(null);
           setCaptchaReady(true);
-          if (profiles.length === 0) setError("Failed to load profiles. Please try again.");
+          if (profiles.length === 0) {
+            setError("Connection is busy. Please refresh or try again in a few seconds.");
+          } else {
+            setError("");
+          }
         }
       })
       .finally(() => { if (!cancelled) setLoading(false); });
