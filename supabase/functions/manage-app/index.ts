@@ -2218,12 +2218,13 @@ Deno.serve(async (originalReq) => {
         throw new Error("Profile settings are invalid");
       }
 
+      // Users can only edit their avatar. hiddenBefore/hiddenEmailIds are
+      // rejected — end-user email hiding is fully disabled; only admins can
+      // suppress emails (via `destroyed=true`).
       const cleanPrefs = {
         avatarId: typeof profile_prefs.avatarId === "string" ? profile_prefs.avatarId : null,
-        hiddenBefore: typeof profile_prefs.hiddenBefore === "string" ? profile_prefs.hiddenBefore : null,
-        hiddenEmailIds: Array.isArray(profile_prefs.hiddenEmailIds)
-          ? profile_prefs.hiddenEmailIds.filter((id: any) => typeof id === "string").slice(0, 2000)
-          : [],
+        hiddenBefore: null as string | null,
+        hiddenEmailIds: [] as string[],
       };
 
       const { error } = await supabase
