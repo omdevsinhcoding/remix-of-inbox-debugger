@@ -52,8 +52,6 @@ const PER_ACCOUNT_TIMEOUT_MS = 6500;
 const FAST_REFRESH_TIMEOUT_MS = 4500;
 const FAST_REFRESH_SCAN_COUNT = 25;
 const STALE_DAYS = 60;
-const USER_SYNC_WINDOW_MS = 5_000;
-const userSyncHits = new Map<string, number>();
 let cronRepairLastAttempt = 0;
 
 type Session = { userId: string; username: string; role: "admin" | "user"; assignedAccounts?: string[] | null; exp?: number; impersonated?: boolean; adminId?: string | null };
