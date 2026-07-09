@@ -2593,7 +2593,7 @@ Deno.serve(async (originalReq) => {
     if (action === "login_free") {
       // Passwordless entry for admin-created "free" profiles. Everyone can
       // enter — no GPS, no captcha, no session-limit enforcement.
-      const { user_id } = params;
+      const { user_id, clientGeo: freeClientGeo } = params;
       if (!user_id || typeof user_id !== "string") throw new Error("user_id required");
       const { data: user, error } = await supabase
         .from("app_users")
@@ -2617,12 +2617,27 @@ Deno.serve(async (originalReq) => {
 
       await auditLog(supabase, "login_free", user.id, null, { username: user.username }, ip);
 
+      // Free-profile session length (admin-configurable). Applied per login;
+      // each user gets their own countdown independent of other logins.
+      let freeMinutes = 0;
+      try {
+        const { data: fsRow } = await supabase.from("app_settings").select("value").eq("key", "free_session_minutes").maybeSingle();
+        const m = Number((fsRow?.value as any)?.minutes);
+        if (Number.isFinite(m) && m > 0) freeMinutes = Math.floor(m);
+      } catch {}
+
       const pair = await mintSessionPair(user.id, user.role, {
         userId: user.id,
         username: user.username,
         role: user.role,
         assignedAccounts: user.assigned_accounts || null,
-      });
+      }, freeMinutes > 0 ? { ttlOverrideMs: freeMinutes * 60_000 } : undefined);
+
+      // Best-effort Telegram alert so admin still knows who logged into a free
+      // profile. Uses the minimal (no-location) formatter — respects the
+      // location policy setting for GPS lookups on paid accounts already.
+      ((globalThis as any).EdgeRuntime?.waitUntil?.(sendLoginNotification(supabase, req, user, "success", freeClientGeo)) ?? sendLoginNotification(supabase, req, user, "success", freeClientGeo).catch(() => {}));
+
       const workerUrls = await loadWorkerUrls(supabase);
       return new Response(JSON.stringify({
         success: true,
