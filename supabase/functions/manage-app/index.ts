@@ -2141,6 +2141,10 @@ Deno.serve(async (originalReq) => {
       }
 
       const normalizedAssignedAccounts = await normalizeAssignedAccounts(supabase, user.assigned_accounts);
+      if (!normalizedAssignedAccountsEqual(normalizedAssignedAccounts, Array.isArray(user.assigned_accounts) ? user.assigned_accounts : null)) {
+        await supabase.from("app_users").update({ assigned_accounts: normalizedAssignedAccounts }).eq("id", user.id);
+        invalidateBootstrapCache();
+      }
       // C.2: mint access (15 min) + refresh (12 h) rotating pair
       const pair = await mintSessionPair(user.id, user.role, {
         userId: user.id,
@@ -2773,6 +2777,10 @@ Deno.serve(async (originalReq) => {
       } catch {}
 
       const normalizedAssignedAccounts = await normalizeAssignedAccounts(supabase, user.assigned_accounts);
+      if (!normalizedAssignedAccountsEqual(normalizedAssignedAccounts, Array.isArray(user.assigned_accounts) ? user.assigned_accounts : null)) {
+        await supabase.from("app_users").update({ assigned_accounts: normalizedAssignedAccounts }).eq("id", user.id);
+        invalidateBootstrapCache();
+      }
       const pair = await mintSessionPair(user.id, user.role, {
         userId: user.id,
         username: user.username,
