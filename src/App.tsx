@@ -7902,9 +7902,9 @@ function EmailViewer() {
   const workerUrlLoaded = React.useRef(false);
   const inboxSessionStartedRef = useRef(false);
   const cachedEmailsLoadedRef = useRef(false);
-  const markInboxReady = useCallback((loadedCount = 0) => {
+  const markInboxReady = useCallback(() => {
     if (inboxSessionStartedRef.current) return;
-    if (loadedCount <= 0) return;
+    if (!cachedEmailsLoadedRef.current) return;
     inboxSessionStartedRef.current = true;
     if (!sessionGet("session_started_at" as any)) markSessionStart();
   }, []);
@@ -8032,6 +8032,7 @@ function EmailViewer() {
         setEmails([]);
         setError(null);
         setLastUpdated(new Date());
+        cachedEmailsLoadedRef.current = true;
         return 0;
       }
       const groups = buildWorkerRequestGroups(labels, workerUrlMap, resolvedWorkerUrls);
@@ -8242,19 +8243,20 @@ function EmailViewer() {
           refreshEmailFiltersForViewer(),
           loadCachedEmails({ limit: 200 }),
         ]);
-        markInboxReady(cachedCount);
+        markInboxReady();
         const synced = await syncViaWorker();
         if (synced) {
           setEmails(synced);
           setError(null);
           setLastUpdated(new Date());
-          markInboxReady(filterVisibleEmails(synced, profilePrefs, user).length);
+          if (synced.length > 0) cachedEmailsLoadedRef.current = true;
+          markInboxReady();
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err || "");
         pushDiag({ ts: Date.now(), kind: "sync", endpoint: "login auto-refresh", error: msg });
-        const cachedCount = await loadCachedEmails({ limit: 200 });
-        markInboxReady(cachedCount);
+        await loadCachedEmails({ limit: 200 });
+        markInboxReady();
       } finally {
         setLoading(false);
       }
@@ -8320,7 +8322,7 @@ function EmailViewer() {
         if (cached.length > 0) {
           setEmails(cached as unknown as Email[]);
           setLastUpdated(new Date());
-          if (cachedEmailsLoadedRef.current) markInboxReady(cached.length);
+          markInboxReady();
           const dt = performance.now() - t0;
           pushDiag({ ts: Date.now(), kind: "cache", endpoint: "idb:instant-paint", ms: Math.round(dt), note: `${cached.length} rows` });
           console.log(`[inbox] instant paint in ${dt.toFixed(1)}ms (${cached.length} rows from IDB)`);
@@ -8361,7 +8363,7 @@ function EmailViewer() {
           console.log(`[inbox] after writeDelta, IDB has ${fresh.length} rows → repaint`);
           setEmails(fresh as unknown as Email[]);
           setLastUpdated(new Date());
-          if (cachedEmailsLoadedRef.current) markInboxReady(fresh.length);
+          markInboxReady();
         }
         setError(null);
       } catch (err) {
