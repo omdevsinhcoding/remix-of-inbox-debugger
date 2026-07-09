@@ -2453,13 +2453,22 @@ Deno.serve(async (originalReq) => {
 
     if (action === "update_user") {
       const session = await requireAdmin(req);
-      const { id, assigned_accounts, session_limit, pinned, is_free, name } = params;
+      const { id, assigned_accounts, session_limit, pinned, is_free, name, expires_at } = params;
       if (!id) throw new Error("User ID required");
       const patch: Record<string, any> = {};
       if (assigned_accounts !== undefined) patch.assigned_accounts = assigned_accounts;
       if (typeof name === "string" && name.trim()) patch.name = name.trim();
       if (pinned !== undefined) patch.pinned = !!pinned;
       if (is_free !== undefined) patch.is_free = !!is_free;
+      if (expires_at !== undefined) {
+        if (expires_at === null || expires_at === "") {
+          patch.expires_at = null;
+        } else {
+          const t = Date.parse(String(expires_at));
+          if (!Number.isFinite(t)) throw new Error("Invalid expiry date");
+          patch.expires_at = new Date(t).toISOString();
+        }
+      }
       if (session_limit !== undefined) {
         // null | "" -> clear (fall back to global). Otherwise clamp to a sane non-negative int.
         if (session_limit === null || session_limit === "") {
