@@ -8487,24 +8487,9 @@ function EmailViewer() {
 }
 
 // ==================== MAINTENANCE GATE ====================
-const MAINT_BYPASS_KEY = "maintenance_admin_bypass";
-
-// D.2: bypass is a server-signed JWS `{kind:'maint_bypass', uid, exp, jti}` with
-// 10 min TTL. Client parses `exp` locally to auto-expire; signature is HMAC so
-// clients cannot forge or extend it. Old "1" values are treated as invalid.
-function readMaintBypassExp(): number | null {
-  try {
-    const raw = sessionStorage.getItem(MAINT_BYPASS_KEY);
-    if (!raw || raw === "1") return null;
-    const dataB64 = raw.split(".")[0];
-    if (!dataB64) return null;
-    const payload = JSON.parse(atob(dataB64));
-    if (payload?.kind !== "maint_bypass") return null;
-    if (typeof payload.exp !== "number" || Date.now() > payload.exp) return null;
-    return payload.exp;
-  } catch { return null; }
-}
-
+// Admin bypass has been removed entirely — the maintenance screen applies to
+// everyone. The only carve-out is /admin* routes so admins can still sign in
+// and toggle maintenance off from the panel.
 
 function hasActiveAdminImpersonationBackup(): boolean {
   try {
@@ -8528,27 +8513,14 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
   const [maint, setMaint] = useState<MaintenanceInfo>(
     cached?.maintenance || { enabled: false }
   );
-  const [bypass, setBypass] = useState<boolean>(() => readMaintBypassExp() !== null);
 
-  // Auto-expire bypass locally when the signed token's exp passes (no round-trip).
+  // Legacy: sweep any old bypass token from sessionStorage so upgrades don't
+  // leave a stale key that could be resurrected by a future regression.
   useEffect(() => {
-    if (!bypass) return;
-    const exp = readMaintBypassExp();
-    if (exp === null) {
-      try { sessionStorage.removeItem(MAINT_BYPASS_KEY); } catch {}
-      setBypass(false);
-      return;
-    }
-    const t = setTimeout(() => {
-      try { sessionStorage.removeItem(MAINT_BYPASS_KEY); } catch {}
-      setBypass(false);
-    }, Math.max(0, exp - Date.now()) + 250);
-    return () => clearTimeout(t);
-  }, [bypass]);
-
+    try { sessionStorage.removeItem("maintenance_admin_bypass"); } catch {}
+  }, []);
 
   // 🚨 Force-kick non-admin users the moment maintenance turns ON.
-  // Admins are never kicked — they can bypass to continue working.
   useEffect(() => {
     if (!maint.enabled) return;
     if (!user) return;
@@ -8557,7 +8529,6 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
     const path = typeof window !== "undefined" ? window.location.pathname : "/";
     if (path.startsWith("/admin")) return;
     try { clearSessionData(); } catch {}
-    try { sessionStorage.removeItem(MAINT_BYPASS_KEY); } catch {}
     checkAuth();
     notify.info("🛠 Maintenance started", {
       id: "maint-kick",
@@ -8604,21 +8575,10 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
     }
     const t = setTimeout(() => {
       setMaint((m) => ({ ...m, enabled: false }));
-      // Refresh bootstrap so the server also flips (it auto-expires on read).
       refreshBootstrap().catch(() => {});
     }, ms + 500);
     return () => clearTimeout(t);
   }, [maint.enabled, maint.endsAt]);
-
-  // If maintenance turns off, clear the bypass flag so admins re-arm on next outage.
-  useEffect(() => {
-    if (!maint.enabled && bypass) {
-      try { sessionStorage.removeItem(MAINT_BYPASS_KEY); } catch {}
-      setBypass(false);
-    }
-  }, [maint.enabled, bypass]);
-
-  const isAdmin = user?.role === "admin" || user?.impersonated === true || hasActiveAdminImpersonationBackup();
 
   // Always let the admin login flow through, even during maintenance.
   const path = typeof window !== "undefined" ? window.location.pathname : "/";
@@ -8632,27 +8592,12 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
     versionTo: maint.versionTo || "",
   };
 
-  if (maint.enabled && !isAdmin && !isAdminRoute) {
+  if (maint.enabled && !isAdminRoute) {
     return <MaintenanceScreen {...screenProps} />;
   }
-  if (maint.enabled && isAdmin && !bypass && !isAdminRoute) {
-    return (
-      <MaintenanceScreen
-        {...screenProps}
-        isAdmin
-        onAdminBypass={async () => {
-          // D.2: request a signed short-lived bypass token from server. Falls back
-          // to legacy client flag only if the server call fails (e.g. offline) so
-          // admins are never locked out of their own maintenance window.
-          try {
-            const res = await apiCall("manage-app", { action: "admin_issue_maint_bypass" });
-            if (res?.success && typeof res.token === "string") {
-              try { sessionStorage.setItem(MAINT_BYPASS_KEY, res.token); } catch {}
-              setBypass(true);
-              return;
-            }
-          } catch {}
-          try { sessionStorage.setItem(MAINT_BYPASS_KEY, "1"); } catch {}
+
+  return <>{children}</>;
+}
           setBypass(true);
         }}
       />
