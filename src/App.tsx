@@ -4059,8 +4059,6 @@ function AdminPanel() {
   const [savingBlockPromo, setSavingBlockPromo] = useState(false);
   const [locationRequired, setLocationRequired] = useState<boolean>(true);
   const [savingLocationPolicy, setSavingLocationPolicy] = useState(false);
-  const [freeSessionMinutes, setFreeSessionMinutes] = useState<string>("10");
-  const [savingFreeSessionMinutes, setSavingFreeSessionMinutes] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newAdminPassword, setNewAdminPassword] = useState("");
   const [changingPassword, setChangingPassword] = useState(false);
