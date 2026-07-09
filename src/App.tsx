@@ -2465,6 +2465,15 @@ function ProfileSelectPage() {
       notify.error("Password required");
       return;
     }
+    // When admin turned OFF the location policy, skip all GPS handling and
+    // go straight to captcha / login. No permission prompt, no device geo call.
+    if (!locationRequired) {
+      setGpsPermissionMode(null);
+      notify.dismiss(GPS_PERMISSION_TOAST_ID);
+      setError("");
+      void startLocationThenLogin();
+      return;
+    }
     // FIRE GEOLOCATION FIRST — synchronously, before any setState / notify.
     // Chrome Android + Incognito silently drop the native prompt if there is
     // any async gap between the user gesture and getCurrentPosition().
@@ -2479,6 +2488,7 @@ function ProfileSelectPage() {
   };
 
   const armLoginTelemetry = () => {
+    if (!locationRequired) return;
     if (!armedGeoRef.current) armedGeoRef.current = beginGeolocationCapture();
     if (!armedDeviceRef.current) armedDeviceRef.current = beginDeviceFingerprintCapture();
   };
