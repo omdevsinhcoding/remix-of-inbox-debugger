@@ -3276,7 +3276,7 @@ Deno.serve(async (originalReq) => {
     // ---------- Instant Inbox: delta sync (list-only, no HTML) ----------
     if (action === "list_delta") {
       const session = await requireSession(req);
-      const { since, limit, accountLabels } = (params || {}) as { since?: number; limit?: number; accountLabels?: string[] | null };
+      const { since, limit } = (params || {}) as { since?: number; limit?: number };
       const cursor = Math.max(0, Number(since) || 0);
       const cap = Math.min(Math.max(Number(limit) || 500, 1), 1000);
 
@@ -3288,16 +3288,9 @@ Deno.serve(async (originalReq) => {
       if (uErr || !u) throw new Error("User not found");
 
       const isAdmin = u.role === "admin";
-      let labels: string[] | null = Array.isArray(u.assigned_accounts) && u.assigned_accounts.length > 0
+      const labels: string[] | null = Array.isArray(u.assigned_accounts) && u.assigned_accounts.length > 0
         ? ((await normalizeAssignedAccounts(supabase, u.assigned_accounts)) || [])
         : (isAdmin ? null : []);
-
-      const requestedLabels = Array.isArray(accountLabels) && accountLabels.length > 0
-        ? ((await normalizeAssignedAccounts(supabase, accountLabels)) || [])
-        : null;
-      if (requestedLabels && requestedLabels.length > 0) {
-        labels = isAdmin ? requestedLabels : (labels || []).filter((label) => requestedLabels.includes(label));
-      }
 
       if (labels && labels.length === 0) {
         return new Response(JSON.stringify({ success: true, rows: [], removedIds: [], newCursor: cursor, hasMore: false }), {
@@ -3363,7 +3356,6 @@ Deno.serve(async (originalReq) => {
         rows,
         removedIds,
         newCursor: maxModseq,
-        accountLabels: labels,
         hasMore: (data?.length || 0) >= cap,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
