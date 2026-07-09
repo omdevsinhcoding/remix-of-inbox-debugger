@@ -2391,6 +2391,7 @@ function ProfileSelectPage() {
       .then((bootstrap) => {
         if (cancelled) return;
         setProfiles((bootstrap.users || []).filter((u: UserData) => u.role === "user"));
+        setLocationRequired(bootstrap.locationRequired !== false);
         if (bootstrap.recaptcha?.enabled === true && bootstrap.recaptcha?.siteKey) {
           setSiteKey(bootstrap.recaptcha.siteKey);
           preloadRecaptchaScript();
