@@ -7666,22 +7666,14 @@ function UserProfileModal({
             saving={savingAvatar}
           />
         </div>
-        <div className="p-4 border-t border-slate-100 bg-white/95 backdrop-blur">
-
-
-          <div className={`grid grid-cols-1 ${user.isFree ? "" : "sm:grid-cols-2"} gap-3`}>
-            {!user.isFree && (
-              <button onClick={() => { onClose(); onPassword(); }}
-                className="flex items-center justify-center gap-2 bg-slate-900 text-white font-bold py-3 rounded-xl hover:bg-slate-800 transition-all active:scale-95">
-                <Key className="w-4 h-4" /> Change Password
-              </button>
-            )}
-            <button onClick={onDeleteOldEmails}
-              className="flex items-center justify-center gap-2 bg-red-600 text-white font-bold py-3 rounded-xl hover:bg-red-700 transition-all active:scale-95">
-              <Trash2 className="w-4 h-4" /> Delete old emails
+        {!user.isFree && (
+          <div className="p-4 border-t border-slate-100 bg-white/95 backdrop-blur">
+            <button onClick={() => { onClose(); onPassword(); }}
+              className="w-full flex items-center justify-center gap-2 bg-slate-900 text-white font-bold py-3 rounded-xl hover:bg-slate-800 transition-all active:scale-95">
+              <Key className="w-4 h-4" /> Change Password
             </button>
           </div>
-        </div>
+        )}
       </motion.div>
     </motion.div>
   );
