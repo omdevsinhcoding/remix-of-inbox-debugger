@@ -7880,11 +7880,19 @@ function EmailViewer() {
   // Admin-only: full list of configured account labels for the pill row.
   const [allAccountLabels, setAllAccountLabels] = useState<string[]>([]);
 
-  // Refresh scope actually used by sync — admin narrows to picked pill.
+  // Refresh scope actually used by sync — admin "All" means display cache only,
+  // never sync every configured inbox.
   const activeRefreshLabels = useMemo<string[] | null>(() => {
     if (user.role !== "admin") return refreshAccountLabels;
     if (selectedAccountLabel) return [selectedAccountLabel];
-    return null;
+    return [];
+  }, [user.role, refreshAccountLabels, selectedAccountLabel]);
+
+  // Cache/display scope. Admin "All" may read cached rows from all accounts,
+  // but selected pills read only that account.
+  const activeCacheLabels = useMemo<string[] | null>(() => {
+    if (user.role !== "admin") return refreshAccountLabels;
+    return selectedAccountLabel ? [selectedAccountLabel] : null;
   }, [user.role, refreshAccountLabels, selectedAccountLabel]);
 
   const [profilePrefs, setProfilePrefs] = useState<UserProfilePrefs>(() => user.profilePrefs || {});
@@ -7903,6 +7911,11 @@ function EmailViewer() {
     const visible = filterVisibleEmails(next, profilePrefs, user)
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     setEmailsRaw(visible);
+  }, [profilePrefs, user]);
+  const mergeEmailsIntoState = useCallback((incoming: Email[]) => {
+    if (!incoming.length) return;
+    setEmailsRaw((prev) => filterVisibleEmails(mergeEmailsById([prev, incoming]), profilePrefs, user)
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
   }, [profilePrefs, user]);
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
   const [loadingEmailHtmlId, setLoadingEmailHtmlId] = useState<string | null>(null);
@@ -8053,7 +8066,7 @@ function EmailViewer() {
     })();
   }, []);
 
-  const loadCachedEmails = useCallback(async (opts?: { bust?: boolean; limit?: number }) => {
+  const loadCachedEmails = useCallback(async (opts?: { bust?: boolean; limit?: number; labels?: string[] | null }) => {
     const bust = !!opts?.bust;
     const limit = opts?.limit || 3;
     try {
@@ -8061,7 +8074,7 @@ function EmailViewer() {
       const headers: Record<string, string> = {};
       if (token) headers["X-Session-Token"] = token;
 
-      const labels = refreshAccountLabels;
+      const labels = opts && "labels" in opts ? opts.labels! : activeCacheLabels;
       if (labels && labels.length === 0) {
         setEmails([]);
         setError(null);
@@ -8121,12 +8134,15 @@ function EmailViewer() {
       // Preserve currently-shown emails; do not blank the inbox on transient error.
       return filterVisibleEmails(emails, profilePrefs, user).length;
     }
-  }, [profilePrefs, setEmails, pushDiag, resolvedWorkerUrls, workerUrlMap, refreshAccountLabels, emails, user]);
+  }, [profilePrefs, setEmails, pushDiag, resolvedWorkerUrls, workerUrlMap, activeCacheLabels, emails, user]);
 
 
-  const syncViaWorker = useCallback(async (): Promise<Email[] | null> => {
-    const labels = activeRefreshLabels;
-    if (labels && labels.length === 0) return null;
+  const syncViaWorker = useCallback(async (labelsOverride?: string[] | null): Promise<Email[] | null> => {
+    const labels = labelsOverride !== undefined ? labelsOverride : activeRefreshLabels;
+    if (Array.isArray(labels) && labels.length === 0) {
+      pushDiag({ ts: Date.now(), kind: "sync", endpoint: "fetch-emails:user_sync", note: "skipped: no account selected" });
+      return null;
+    }
     const started = performance.now();
     const data = await apiCall("fetch-emails", {
       mode: "user_sync",
@@ -8145,7 +8161,7 @@ function EmailViewer() {
     return Array.isArray(data?.emails) ? mergeEmailsById([data.emails as Email[]]) : null;
   }, [pushDiag, activeRefreshLabels]);
 
-  const fetchEmails = async () => {
+  const fetchEmails = async (labelsOverride?: string[] | null) => {
     if (refreshingRef.current) {
       notify.info("Refresh in progress…", {
         id: "nf-refresh-busy",
@@ -8153,67 +8169,69 @@ function EmailViewer() {
       });
       return;
     }
+    const syncLabels = labelsOverride !== undefined ? labelsOverride : activeRefreshLabels;
+    const cacheLabels = labelsOverride !== undefined ? labelsOverride : activeCacheLabels;
+    const skipSync = Array.isArray(syncLabels) && syncLabels.length === 0;
     refreshingRef.current = true;
     setRefreshing(true);
-    const beforeIds = new Set(emails.map((e) => e.id));
+    const beforeIds = new Set(
+      (Array.isArray(cacheLabels) && cacheLabels.length === 1
+        ? emails.filter((e) => String(e.account_label || "").trim() === cacheLabels[0])
+        : emails
+      ).map((e) => e.id),
+    );
     const toastId = "nf-refresh";
-    notify.loading("Checking mail…", { id: toastId });
+    notify.loading(skipSync ? "Loading inbox…" : "Refreshing mail…", { id: toastId });
 
-    // PHASE 1 (fast, ~200-500ms): repaint from Supabase cache instantly.
-    // PHASE 2 (background, ~5-8s): IMAP sync — updates UI silently when done.
     try {
       await Promise.all([
         refreshEmailFiltersForViewer(),
-        loadCachedEmails({ limit: 200 }),
+        loadCachedEmails({ limit: 200, labels: cacheLabels }),
       ]);
-      notify.dismiss(toastId);
-      notify.success("Inbox updated", { duration: 1400 });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Failed to load";
-      notify.dismiss(toastId);
-      notify.error("Inbox load failed", { description: msg, duration: 2600 });
-    } finally {
-      setRefreshing(false); // release UI immediately — button re-enabled
-    }
 
-    // Background IMAP sync — no spinner, only toast if new mail actually arrived.
-    (async () => {
-      try {
-        let synced: Email[] | null = null;
-        try {
-          synced = await syncViaWorker();
-        } catch (transient) {
-          const tmsg = transient instanceof Error ? transient.message : String(transient);
-          if (/Secure connection|handshake|Failed to fetch|NetworkError|busy/i.test(tmsg)) {
-            await new Promise((r) => setTimeout(r, 700));
-            synced = await syncViaWorker();
-          } else {
-            throw transient;
-          }
-        }
-        if (synced) {
-          setEmails(synced);
-          setError(null);
-          setLastUpdated(new Date());
-          const visible = filterVisibleEmails(synced, profilePrefs, user);
-          const newCount = visible.filter((e) => !beforeIds.has(e.id)).length;
-          if (newCount > 0) {
-            notify.info(`${newCount} new email${newCount === 1 ? "" : "s"} arrived`, {
-              duration: 2600,
-            });
-          }
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err || "");
-        pushDiag({ ts: Date.now(), kind: "sync", endpoint: "background sync", error: msg });
-      } finally {
-        if (refreshPollRef.current) {
-          clearTimeout(refreshPollRef.current);
-          refreshPollRef.current = null;
-        }
-        refreshingRef.current = false;
+      if (skipSync) {
+        notify.dismiss(toastId);
+        notify.info(user.role === "admin" ? "Pick an account to refresh" : "Inbox updated", { duration: 1600 });
+        return;
       }
-    })();
+
+      let synced: Email[] | null = null;
+      try {
+        synced = await syncViaWorker(syncLabels);
+      } catch (transient) {
+        const tmsg = transient instanceof Error ? transient.message : String(transient);
+        if (/Secure connection|handshake|Failed to fetch|NetworkError|busy/i.test(tmsg)) {
+          await new Promise((r) => setTimeout(r, 500));
+          synced = await syncViaWorker(syncLabels);
+        } else {
+          throw transient;
+        }
+      }
+
+      if (synced && synced.length > 0) {
+        mergeEmailsIntoState(synced);
+        setError(null);
+        setLastUpdated(new Date());
+      }
+      const scopedSynced = Array.isArray(cacheLabels) && cacheLabels.length === 1
+        ? (synced || []).filter((e) => String(e.account_label || "").trim() === cacheLabels[0])
+        : (synced || []);
+      const newCount = scopedSynced.filter((e) => !beforeIds.has(e.id)).length;
+      notify.dismiss(toastId);
+      notify.success(newCount > 0 ? `${newCount} new email${newCount === 1 ? "" : "s"} arrived` : "Inbox updated", { duration: 1800 });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err || "Failed to refresh");
+      pushDiag({ ts: Date.now(), kind: "sync", endpoint: "manual refresh", error: msg });
+      notify.dismiss(toastId);
+      notify.error("Refresh failed", { description: msg, duration: 3000 });
+    } finally {
+      if (refreshPollRef.current) {
+        clearTimeout(refreshPollRef.current);
+        refreshPollRef.current = null;
+      }
+      refreshingRef.current = false;
+      setRefreshing(false);
+    }
   };
 
 
@@ -8283,8 +8301,8 @@ function EmailViewer() {
   const idbRef = useRef<Awaited<ReturnType<typeof openInboxDB>> | null>(null);
   const instantInboxRunKeyRef = useRef("");
   const instantInboxAccountKey = useMemo(
-    () => JSON.stringify(refreshAccountLabels === null ? null : [...(refreshAccountLabels || [])].sort()),
-    [refreshAccountLabels],
+    () => JSON.stringify(activeCacheLabels === null ? null : [...(activeCacheLabels || [])].sort()),
+    [activeCacheLabels],
   );
   useEffect(() => {
     // eslint-disable-next-line no-console
@@ -8305,7 +8323,7 @@ function EmailViewer() {
         await refreshEmailFiltersForViewer();
 
         // ---- (1) Instant paint from IDB ----
-        const cached = await readLatestEmails(db, 200, refreshAccountLabels);
+        const cached = await readLatestEmails(db, 200, activeCacheLabels);
         console.log(`[inbox] IDB has ${cached.length} cached rows`);
         if (cached.length > 0) {
           setEmails(cached as unknown as Email[]);
@@ -8324,7 +8342,7 @@ function EmailViewer() {
         const cursor = cached.length === 0 ? 0 : storedCursor;
         const started = performance.now();
         console.log(`[inbox] calling list_delta since=${cursor}${storedCursor && cursor === 0 ? ` (reset stale cursor ${storedCursor})` : ""}`);
-        const delta = await apiCall("manage-app", { action: "list_delta", since: cursor, limit: cursor === 0 ? 1000 : 500 });
+        const delta = await apiCall("manage-app", { action: "list_delta", since: cursor, limit: cursor === 0 ? 1000 : 500, accountLabels: activeCacheLabels || undefined });
         console.log("[inbox] list_delta response", {
           success: delta?.success,
           mode: delta?.mode,
@@ -8347,7 +8365,7 @@ function EmailViewer() {
 
         if (rows.length > 0 || removedIds.length > 0 || newCursor > cursor) {
           await writeDelta(db, { rows, removedIds, newCursor });
-          const fresh = await readLatestEmails(db, 200, refreshAccountLabels);
+          const fresh = await readLatestEmails(db, 200, activeCacheLabels);
           console.log(`[inbox] after writeDelta, IDB has ${fresh.length} rows → repaint`);
           setEmails(fresh as unknown as Email[]);
           setLastUpdated(new Date());
@@ -8639,7 +8657,7 @@ function EmailViewer() {
                       onClick={() => {
                         setSelectedAccountLabel(label);
                         // Trigger a scoped refresh immediately when admin picks a pill.
-                        setTimeout(() => { void fetchEmails(); }, 0);
+                        setTimeout(() => { void fetchEmails([label]); }, 0);
                       }}
                       className={`px-3 py-1 rounded-full text-[11px] font-bold transition-all ${
                         selectedAccountLabel === label
