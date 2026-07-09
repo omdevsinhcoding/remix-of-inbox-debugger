@@ -1,26 +1,30 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────
-# FULL AUTO SETUP for Cloudflare Workers Builds
+# TRUE ZERO-CONFIG SETUP for Cloudflare Workers Builds
 # ─────────────────────────────────────────────────────────────
-# Runs before `npx wrangler deploy`. Does everything automatically:
-#   1. Finds/creates the EMAIL_CACHE KV namespace and binds it
-#   2. Sets SUPABASE_URL and SUPABASE_KEY secrets (safe public values)
-#   3. Deploys worker
+# You only click "Connect to Git" in Cloudflare. Everything else is automatic:
+#   1. KV namespace EMAIL_CACHE  — create if missing, bind to worker
+#   2. SUPABASE_URL              — hardcoded (publishable)
+#   3. SUPABASE_KEY (anon)       — hardcoded (publishable)
+#   4. SESSION_SECRET            — fetched at build time from Supabase
+#                                   worker-bootstrap endpoint
+#   5. Deploy
 #
-# The ONLY thing you can't fully automate is SESSION_SECRET — it's a real
-# secret that must match your Supabase project's SESSION_SECRET. It gets
-# read from a Cloudflare Build Variable named SESSION_SECRET if present;
-# otherwise setup skips it and the worker uses a fallback (see bottom).
-#
-# Uses CLOUDFLARE_API_TOKEN that Cloudflare Builds injects automatically.
-# API token must have: Workers Scripts:Edit, Workers KV Storage:Edit.
+# Requirements per Cloudflare account (one-time, via the API token used to
+# connect Git): permissions Workers Scripts:Edit + Workers KV Storage:Edit.
+# Cloudflare's default "Workers Builds" token template has both.
 # ─────────────────────────────────────────────────────────────
 
 set -euo pipefail
 
-# --- Hardcoded PUBLIC values (safe to commit — publishable/anon key) ---
+# --- Hardcoded public values (safe — publishable/anon key) ---
 SUPABASE_URL_VALUE="https://jsqchutnfdeljajkxmly.supabase.co"
 SUPABASE_KEY_VALUE="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpzcWNodXRuZmRlbGphamt4bWx5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxMjI5MzksImV4cCI6MjA4OTY5ODkzOX0.HYN4zMEYEiP-H5KD_iIbFpr0GsatNoeyw40FI2mW_eA"
+
+# Bootstrap magic — MUST match BOOTSTRAP_MAGIC in
+# supabase/functions/worker-bootstrap/index.ts
+BOOTSTRAP_MAGIC="wkr_bootstrap_2026_netflixfetch_auto_v1"
+BOOTSTRAP_URL="$SUPABASE_URL_VALUE/functions/v1/worker-bootstrap"
 
 WRANGLER="npx --yes wrangler@latest"
 KV_TITLE="EMAIL_CACHE"
@@ -50,26 +54,40 @@ binding = "EMAIL_CACHE"
 id = "$KV_ID"
 EOF
 else
-  echo "⚠  KV setup skipped (token may lack 'Workers KV Storage:Edit'). Worker will run without cache."
+  echo "⚠  KV setup skipped (API token may lack 'Workers KV Storage:Edit'). Worker will run without cache."
 fi
 
-# ─── 2. Deploy worker FIRST so we can attach secrets to it ───
+# ─── 2. Deploy worker FIRST so we can attach secrets ─────────
 echo "→ Deploying worker..."
 $WRANGLER deploy
 
-# ─── 3. Push public secrets automatically ────────────────────
-echo "→ Setting SUPABASE_URL secret..."
-echo -n "$SUPABASE_URL_VALUE" | $WRANGLER secret put SUPABASE_URL || echo "⚠  Failed to set SUPABASE_URL"
+# ─── 3. Push SUPABASE_URL + SUPABASE_KEY (hardcoded) ─────────
+echo "→ Setting SUPABASE_URL..."
+echo -n "$SUPABASE_URL_VALUE" | $WRANGLER secret put SUPABASE_URL || echo "⚠  Failed SUPABASE_URL"
 
-echo "→ Setting SUPABASE_KEY secret..."
-echo -n "$SUPABASE_KEY_VALUE" | $WRANGLER secret put SUPABASE_KEY || echo "⚠  Failed to set SUPABASE_KEY"
+echo "→ Setting SUPABASE_KEY..."
+echo -n "$SUPABASE_KEY_VALUE" | $WRANGLER secret put SUPABASE_KEY || echo "⚠  Failed SUPABASE_KEY"
 
-# ─── 4. SESSION_SECRET (from build variable if provided) ─────
-if [ -n "${SESSION_SECRET:-}" ]; then
-  echo "→ Setting SESSION_SECRET secret from build variable..."
-  echo -n "$SESSION_SECRET" | $WRANGLER secret put SESSION_SECRET || echo "⚠  Failed to set SESSION_SECRET"
+# ─── 4. Fetch SESSION_SECRET from Supabase bootstrap endpoint ─
+echo "→ Fetching SESSION_SECRET from worker-bootstrap..."
+BOOT_JSON="$(curl -sS -X POST "$BOOTSTRAP_URL" \
+  -H "Content-Type: application/json" \
+  -H "apikey: $SUPABASE_KEY_VALUE" \
+  -H "Authorization: Bearer $SUPABASE_KEY_VALUE" \
+  -H "X-Bootstrap-Token: $BOOTSTRAP_MAGIC" \
+  || echo '{}')"
+
+SESSION_SECRET_VALUE="$(node -e "
+  try { const j = JSON.parse(process.argv[1] || '{}'); process.stdout.write(j.SESSION_SECRET || ''); }
+  catch(e) { process.stdout.write(''); }
+" "$BOOT_JSON")"
+
+if [ -n "$SESSION_SECRET_VALUE" ]; then
+  echo "→ Setting SESSION_SECRET..."
+  echo -n "$SESSION_SECRET_VALUE" | $WRANGLER secret put SESSION_SECRET || echo "⚠  Failed SESSION_SECRET"
 else
-  echo "ℹ  SESSION_SECRET not provided as build variable — set it once in dashboard if not already set."
+  echo "⚠  Could not fetch SESSION_SECRET from bootstrap endpoint. Response: $BOOT_JSON"
+  echo "   Ensure the worker-bootstrap edge function is deployed on Supabase."
 fi
 
 echo "✅ Setup complete."

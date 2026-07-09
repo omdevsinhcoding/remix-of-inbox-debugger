@@ -5,10 +5,12 @@
 // matches the one hardcoded in cloudflare-worker/setup.sh. This is NOT strong
 // security — anyone with read access to the repo can call this and obtain
 // SESSION_SECRET. Keep the repo private.
-//
-// The token is also gated by the Supabase anon key (default Edge Function auth).
 
-import { corsHeaders } from "../_shared/crypto.ts";
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-bootstrap-token",
+};
 
 // Rotate this string if you ever suspect the repo leaked.
 const BOOTSTRAP_MAGIC = "wkr_bootstrap_2026_netflixfetch_auto_v1";
@@ -18,7 +20,7 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  const provided = req.headers.get("X-Bootstrap-Token") || "";
+  const provided = req.headers.get("X-Bootstrap-Token") || req.headers.get("x-bootstrap-token") || "";
   if (provided !== BOOTSTRAP_MAGIC) {
     return new Response(JSON.stringify({ error: "Forbidden" }), {
       status: 403,
@@ -35,7 +37,14 @@ Deno.serve(async (req) => {
 
   if (!SUPABASE_URL || !SUPABASE_KEY || !SESSION_SECRET) {
     return new Response(
-      JSON.stringify({ error: "Server missing required env vars" }),
+      JSON.stringify({
+        error: "Server missing required env vars",
+        missing: {
+          SUPABASE_URL: !SUPABASE_URL,
+          SUPABASE_ANON_KEY: !SUPABASE_KEY,
+          SESSION_SECRET: !SESSION_SECRET,
+        },
+      }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
