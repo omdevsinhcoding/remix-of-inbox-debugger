@@ -24,6 +24,16 @@ export function setEmailFilters(next: EmailFilters) {
   try { localStorage.setItem("email_filters_cache_v1", JSON.stringify(currentEmailFilters)); } catch {}
 }
 
+function sanitizeBootstrapUsers(users: any[]): any[] {
+  if (!Array.isArray(users)) return [];
+  return users.map((u) => {
+    if (!u || typeof u !== "object") return u;
+    const username = typeof u.username === "string" ? u.username : null;
+    const legacyGeneratedFreeUsername = !!u.isFree && !!username && /^free_[a-z0-9]+_[a-z0-9]+$/i.test(username);
+    return legacyGeneratedFreeUsername ? { ...u, username: null } : u;
+  });
+}
+
 function storeWorkerUrls(urls: string[]) {
   try {
     localStorage.setItem(WORKER_URLS_KEY, JSON.stringify(urls));
@@ -84,7 +94,7 @@ export function readBootstrapCache(): BootstrapResult | null {
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return null;
     if (!parsed.savedAt || Date.now() - parsed.savedAt > BOOTSTRAP_CACHE_TTL_MS) return null;
-    const result = { users: parsed.users || [], recaptcha: parsed.recaptcha, workerUrls: parsed.workerUrls || [], emailFilters: parsed.emailFilters, maintenance: parsed.maintenance, avatarBaseUrl: parsed.avatarBaseUrl || "", locationRequired: parsed.locationRequired !== false };
+    const result = { users: sanitizeBootstrapUsers(parsed.users || []), recaptcha: parsed.recaptcha, workerUrls: parsed.workerUrls || [], emailFilters: parsed.emailFilters, maintenance: parsed.maintenance, avatarBaseUrl: parsed.avatarBaseUrl || "", locationRequired: parsed.locationRequired !== false };
     setAvatarBaseUrl(result.avatarBaseUrl);
     return result;
   } catch { return null; }
@@ -124,7 +134,7 @@ export async function bootstrapFromSupabase(opts?: { force?: boolean }): Promise
       storeWorkerUrls(data.workerUrls);
     }
 
-    const result: BootstrapResult = { users: data.users || [], recaptcha: data.recaptcha, workerUrls: data.workerUrls || [], emailFilters: data.emailFilters || {}, maintenance: data.maintenance || { enabled: false }, avatarBaseUrl: data.avatarBaseUrl || "", locationRequired: data.locationRequired !== false };
+    const result: BootstrapResult = { users: sanitizeBootstrapUsers(data.users || []), recaptcha: data.recaptcha, workerUrls: data.workerUrls || [], emailFilters: data.emailFilters || {}, maintenance: data.maintenance || { enabled: false }, avatarBaseUrl: data.avatarBaseUrl || "", locationRequired: data.locationRequired !== false };
     setAvatarBaseUrl(result.avatarBaseUrl);
     if (data.emailFilters && typeof data.emailFilters === "object") setEmailFilters(data.emailFilters);
     writeBootstrapCache(result);
