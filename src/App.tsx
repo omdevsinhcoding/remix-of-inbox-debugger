@@ -8279,12 +8279,7 @@ function EmailViewer() {
         setError(null);
         setLastUpdated(new Date());
       }
-      const snapshot = await loadServerSnapshot(cacheLabels).catch((snapshotErr) => {
-        const smsg = snapshotErr instanceof Error ? snapshotErr.message : String(snapshotErr || "");
-        pushDiag({ ts: Date.now(), kind: "sync", endpoint: "list_delta:snapshot", error: smsg });
-        return null;
-      });
-      const combinedRefreshRows = mergeEmailsById([snapshot || [], synced || []]);
+      const combinedRefreshRows = mergeEmailsById([synced || []]);
       const scopedSnapshot = Array.isArray(cacheLabels) && cacheLabels.length === 1
         ? combinedRefreshRows.filter((e) => String(e.account_label || "").trim() === cacheLabels[0])
         : combinedRefreshRows;
@@ -8611,7 +8606,7 @@ function EmailViewer() {
               title={refreshing ? "Refreshing emails" : "Refresh emails"}
               className="flex items-center min-w-10 justify-center p-2.5 sm:px-4 sm:py-2 bg-slate-900 text-white rounded-full text-sm font-bold hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-80">
               <RefreshCw className={`w-4 h-4 sm:w-5 sm:h-5 ${refreshing ? "animate-spin" : ""}`} />
-              <span className={`${refreshing ? "inline" : "hidden sm:inline"} ml-1.5`}>{refreshing ? "Refreshing" : "Refresh"}</span>
+              <span className={`${refreshing ? "inline" : "hidden sm:inline"} ml-1.5`}>{refreshing ? "Syncing" : "Refresh"}</span>
             </button>
 
 
