@@ -3884,7 +3884,7 @@ function AllEmailsPanel() {
   const [offset, setOffset] = useState(0);
   const limit = 100;
 
-  const hasSelection = accountLabel !== "" || accountLabel === "__all__";
+  const hasSelection = accountLabel !== "";
 
   const load = useCallback(async (nextOffset = 0, labelOverride?: string) => {
     const label = labelOverride !== undefined ? labelOverride : accountLabel;
