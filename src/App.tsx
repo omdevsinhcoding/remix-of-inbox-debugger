@@ -8672,7 +8672,7 @@ function hasActiveAdminImpersonationBackup(): boolean {
 }
 
 function MaintenanceGate({ children }: { children: React.ReactNode }) {
-  const { user, checkAuth } = useAuth();
+  const { user, loading: authLoading, checkAuth } = useAuth();
   const navigate = useNavigate();
   const cached = useMemo(() => readBootstrapCache(), []);
   const [maint, setMaint] = useState<MaintenanceInfo>(
