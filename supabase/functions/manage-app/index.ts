@@ -2112,18 +2112,13 @@ Deno.serve(async (originalReq) => {
       // Bootstrap (first user) can never be a free profile — must be admin.
       if (bootstrapCreate && isFree) throw new Error("First user must be admin");
 
-      // Free profile: auto-generate username + random password (never used).
-      const finalUsername = isFree
-        ? (username && String(username).trim() ? String(username).trim() : `free_${crypto.randomUUID().slice(0, 8)}`)
-        : username;
-      const rawPassword = isFree
-        ? crypto.randomUUID() + crypto.randomUUID()
-        : password;
-      const hashed = await hashPassword(rawPassword);
+      // Free profile: no username or password at all — one-tap entry.
+      // Paid/admin profile: username + password required (checked above).
+      const finalUsername = isFree ? null : username;
       const finalRole = isFree ? "user" : (role || "user");
       const insertPayload: any = {
         username: finalUsername,
-        password: hashed,
+        password: isFree ? null : await hashPassword(password),
         name,
         role: finalRole,
         assigned_accounts: assigned_accounts || null,
