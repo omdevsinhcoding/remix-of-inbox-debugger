@@ -2543,7 +2543,14 @@ Deno.serve(async (originalReq) => {
       const patch: Record<string, any> = {};
       if (assigned_accounts !== undefined) patch.assigned_accounts = assigned_accounts;
       if (typeof name === "string" && name.trim()) patch.name = name.trim();
-      if (username !== undefined) patch.username = typeof username === "string" && username.trim() ? username.trim() : null;
+      if (username !== undefined) {
+        const cleanUsername = typeof username === "string" && username.trim() ? username.trim() : null;
+        if (!cleanUsername) {
+          const { data: existingUser } = await supabase.from("app_users").select("is_free").eq("id", id).maybeSingle();
+          if (!existingUser?.is_free) throw new Error("Username required");
+        }
+        patch.username = cleanUsername;
+      }
       if (pinned !== undefined) patch.pinned = !!pinned;
       if (is_free !== undefined) patch.is_free = !!is_free;
       if (expires_at !== undefined) {
@@ -3592,7 +3599,7 @@ Deno.serve(async (originalReq) => {
       // Kick everything off in PARALLEL server-side. Edge → Postgres latency is
       // ~1-5ms each, so 12 parallel queries return in ~50-150ms total.
       const usersP = supabase.from("app_users")
-        .select("id, username, name, role, assigned_accounts, profile_prefs, session_limit")
+        .select("id, username, name, role, assigned_accounts, profile_prefs, session_limit, is_free, pinned, sort_order, expires_at")
         .order("created_at", { ascending: true });
 
       const emailsCountP = supabase.from("cached_emails").select("id", { count: "exact", head: true }).eq("destroyed", false);
