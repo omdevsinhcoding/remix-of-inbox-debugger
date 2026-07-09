@@ -148,8 +148,23 @@ export function ToastProvider() {
     if (typeof window !== "undefined") setTone(getCardTone());
   }, [toasts.length]);
 
+  // Hide toasts entirely while the notification panel is open — notifications
+  // are the primary surface, toasts must not overlay them.
+  const [notifOpen, setNotifOpen] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onOpen = () => setNotifOpen(true);
+    const onClose = () => setNotifOpen(false);
+    window.addEventListener("notif:open", onOpen);
+    window.addEventListener("notif:close", onClose);
+    return () => {
+      window.removeEventListener("notif:open", onOpen);
+      window.removeEventListener("notif:close", onClose);
+    };
+  }, []);
+
   const root = useMemo(() => (typeof document === "undefined" ? null : document.body), []);
-  if (!root || toasts.length === 0) return null;
+  if (!root || toasts.length === 0 || notifOpen) return null;
 
   return createPortal(
     <div className="gt-toast-viewport" data-global-toast-root="true">
