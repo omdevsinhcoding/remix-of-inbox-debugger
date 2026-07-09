@@ -47,10 +47,10 @@ function extractOtpCode(subject: string, body: string): string | null {
 }
 
 const FULL_SYNC_MAX_UIDS = 50;
-const USER_REFRESH_MAX_UIDS = 6;
+const USER_REFRESH_MAX_UIDS = 15;
 const PER_ACCOUNT_TIMEOUT_MS = 6500;
-const FAST_REFRESH_TIMEOUT_MS = 2600;
-const FAST_REFRESH_SCAN_COUNT = 12;
+const FAST_REFRESH_TIMEOUT_MS = 4500;
+const FAST_REFRESH_SCAN_COUNT = 25;
 const STALE_DAYS = 60;
 const USER_SYNC_WINDOW_MS = 5_000;
 const userSyncHits = new Map<string, number>();
