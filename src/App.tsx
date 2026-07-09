@@ -8688,6 +8688,7 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
   // 🚨 Force-kick non-admin users the moment maintenance turns ON.
   useEffect(() => {
     if (!maint.enabled) return;
+    if (authLoading) return; // wait for server hydration so we don't kick a stale-cached impersonation
     if (!user) return;
     if (user.role === "admin") return;
     // Admin impersonating a user: keep the session alive so they can QA the
