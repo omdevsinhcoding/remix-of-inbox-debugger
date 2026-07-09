@@ -3028,7 +3028,7 @@ Deno.serve(async (originalReq) => {
     if (action === "admin_clear_inbox") {
       const session = await requireAdmin(req);
       const { mode, accountLabel, days, confirm } = params as any;
-      let q = supabase.from("cached_emails").update({ destroyed: true, html: null, preview: null, otp: null, cached_at: new Date().toISOString() });
+      let q = supabase.from("cached_emails").update({ destroyed: true, html: null, preview: null, otp: null, cached_at: new Date().toISOString() }, { count: "exact" });
       let details: any = { mode };
       if (mode === "all") {
         if (confirm !== "DELETE ALL") throw new Error("Confirmation phrase required");
@@ -3622,6 +3622,10 @@ Deno.serve(async (originalReq) => {
         ...u,
         assignedAccounts: u.assigned_accounts || null,
         profileAvatar: u.profile_prefs?.avatarId || null,
+        isFree: !!u.is_free,
+        pinned: !!u.pinned,
+        sortOrder: u.sort_order ?? null,
+        expiresAt: u.expires_at || null,
       }));
 
       // Notification stats — 2 more queries but only if there are notes
