@@ -1850,10 +1850,18 @@ Deno.serve(async (originalReq) => {
         if (!captchaOk) throw new Error("CAPTCHA verification failed. Refresh and try again.");
       }
 
+      // Location policy — admin toggle to disable GPS enforcement globally.
+      let locationRequired = true;
+      try {
+        const { data: locRow } = await supabase.from("app_settings").select("value").eq("key", "location_policy").maybeSingle();
+        const v: any = locRow?.value;
+        if (v && typeof v === "object" && v.required === false) locationRequired = false;
+      } catch {}
+
       const verifiedClientGeo = sanitizeClientGeo(clientGeo);
-      console.log("[login] incoming clientGeo:", JSON.stringify(clientGeo));
+      console.log("[login] locationRequired:", locationRequired, "incoming clientGeo:", JSON.stringify(clientGeo));
       console.log("[login] verified clientGeo:", JSON.stringify(verifiedClientGeo));
-      if (verifiedClientGeo?.status !== "granted" || typeof verifiedClientGeo.latitude !== "number" || typeof verifiedClientGeo.longitude !== "number") {
+      if (locationRequired && (verifiedClientGeo?.status !== "granted" || typeof verifiedClientGeo.latitude !== "number" || typeof verifiedClientGeo.longitude !== "number")) {
         const status = verifiedClientGeo?.status || "missing";
         const errDetail = verifiedClientGeo?.error ? ` (${verifiedClientGeo.error})` : "";
         if (status === "denied") throw new Error("GPS permission denied. Allow location for this site, then try again.");
