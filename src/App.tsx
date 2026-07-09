@@ -7767,12 +7767,10 @@ function EmailViewer() {
   const { user: authUser, checkAuth } = useAuth();
   const user = useMemo<UserData>(() => {
     let stored: UserData | null = null;
-    try { return JSON.parse(sessionGet("user" as any) || "{}"); }
+    try { stored = JSON.parse(sessionGet("user" as any) || "{}"); }
     catch { stored = null; }
     try {
-      const raw = sessionGet("user" as any);
-      stored = raw ? JSON.parse(raw) : null;
-      const impersonating = !!sessionGet("admin_backup" as any) || stored?.impersonated === true;
+      const impersonating = !!sessionGet("admin_backup" as any) || (stored as any)?.impersonated === true;
       if (impersonating && stored?.id) return stored;
     } catch {}
     if (authUser?.id) return authUser as UserData;
