@@ -123,12 +123,32 @@ async function verifySessionToken(token: string, secret: string): Promise<Record
   } catch { return null; }
 }
 
+async function verifySessionTokenAllowExpired(token: string, secret: string): Promise<Record<string, any> | null> {
+  try {
+    const [dataB64, sigHex] = token.split(".");
+    if (!dataB64 || !sigHex) return null;
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
+    const sig = new Uint8Array(sigHex.match(/.{2}/g)!.map(b => parseInt(b, 16)));
+    const valid = await crypto.subtle.verify("HMAC", key, sig, encoder.encode(dataB64));
+    if (!valid) return null;
+    return JSON.parse(atob(dataB64));
+  } catch { return null; }
+}
+
 // Verify with the new signing secret first, then fall back to the legacy secret
 // so sessions issued before the rotation still work until they expire naturally.
 async function verifySessionTokenDual(token: string, primary: string, legacy: string): Promise<Record<string, any> | null> {
   const p = await verifySessionToken(token, primary);
   if (p) return p;
   if (legacy && legacy !== primary) return await verifySessionToken(token, legacy);
+  return null;
+}
+
+async function verifySessionTokenDualAllowExpired(token: string, primary: string, legacy: string): Promise<Record<string, any> | null> {
+  const p = await verifySessionTokenAllowExpired(token, primary);
+  if (p) return p;
+  if (legacy && legacy !== primary) return await verifySessionTokenAllowExpired(token, legacy);
   return null;
 }
 
@@ -1755,7 +1775,7 @@ Deno.serve(async (originalReq) => {
     userId: string,
     role: string,
     accessPayload: Record<string, any>,
-    opts?: { familyId?: string; parentSessionId?: string | null; ttlOverrideMs?: number },
+    opts?: { familyId?: string; parentSessionId?: string | null; ttlOverrideMs?: number; refreshTtlOverrideMs?: number },
   ): Promise<{ accessToken: string; accessExpMs: number; refreshToken: string; refreshExpMs: number; familyId: string; sessionRowId: string }> {
     const DEFAULT_ACCESS_TTL_MS = 15 * 60 * 1000;
     const DEFAULT_REFRESH_TTL_MS = 12 * 60 * 60 * 1000;
@@ -1763,7 +1783,9 @@ Deno.serve(async (originalReq) => {
     // BOTH access and refresh use that value so the whole session auto-expires
     // at that mark — no silent refresh loophole.
     const ACCESS_TTL_MS = opts?.ttlOverrideMs && opts.ttlOverrideMs > 0 ? opts.ttlOverrideMs : DEFAULT_ACCESS_TTL_MS;
-    const REFRESH_TTL_MS = opts?.ttlOverrideMs && opts.ttlOverrideMs > 0 ? opts.ttlOverrideMs : DEFAULT_REFRESH_TTL_MS;
+    const REFRESH_TTL_MS = opts?.ttlOverrideMs && opts.ttlOverrideMs > 0
+      ? opts.ttlOverrideMs
+      : (opts?.refreshTtlOverrideMs && opts.refreshTtlOverrideMs > 0 ? opts.refreshTtlOverrideMs : DEFAULT_REFRESH_TTL_MS);
     const now = Date.now();
     const accessExpMs = now + ACCESS_TTL_MS;
     const refreshExpMs = now + REFRESH_TTL_MS;
@@ -1803,7 +1825,7 @@ Deno.serve(async (originalReq) => {
     const tokenHash = await sha256Hex(token);
     const { data: row } = await supabase
       .from("app_sessions")
-      .select("id, expires_at, binding_hash, user_id, revoked_at")
+      .select("id, expires_at, binding_hash, user_id, role, parent_session_id, revoked_at")
       .eq("token_hash", tokenHash)
       .maybeSingle();
     if (!row) throw new Error("Session revoked. Please sign in again.");
@@ -1828,6 +1850,27 @@ Deno.serve(async (originalReq) => {
         }).then(() => {});
         throw new Error("Session bound to another device. Please sign in again.");
       }
+    }
+
+    session.sessionRowId = row.id;
+    session.sessionParentSessionId = row.parent_session_id || null;
+
+    // Server-side impersonation source of truth: impersonated sessions keep the
+    // original admin session row as parent_session_id. This survives page
+    // refreshes and token refreshes without relying on client backup storage.
+    if (row.parent_session_id && session.role !== "admin") {
+      try {
+        const { data: parent } = await supabase
+          .from("app_sessions")
+          .select("id, user_id, role, revoked_at")
+          .eq("id", row.parent_session_id)
+          .maybeSingle();
+        if (parent?.role === "admin" && !parent.revoked_at) {
+          session.impersonated = true;
+          session.adminId = parent.user_id;
+          session.adminSessionId = parent.id;
+        }
+      } catch {}
     }
 
     // Fire-and-forget touch
@@ -2478,6 +2521,7 @@ Deno.serve(async (originalReq) => {
         expiresAt: pair.accessExpMs,
         refreshToken: pair.refreshToken,
         refreshExpiresAt: pair.refreshExpMs,
+        sessionFamilyId: pair.familyId,
         workerUrls,
         user: {
           id: user.id,
@@ -2840,7 +2884,7 @@ Deno.serve(async (originalReq) => {
         assignedAccounts: normalizedAssignedAccounts,
         impersonated: true,
         adminId: session.userId,
-      });
+      }, { parentSessionId: session.sessionRowId || null, refreshTtlOverrideMs: 365 * 24 * 60 * 60 * 1000 });
 
       await auditLog(supabase, "impersonate", session.userId, targetUser.id, { targetUsername: targetUser.username }, ip);
 
@@ -2850,6 +2894,7 @@ Deno.serve(async (originalReq) => {
         expiresAt: pair.accessExpMs,
         refreshToken: pair.refreshToken,
         refreshExpiresAt: pair.refreshExpMs,
+        sessionFamilyId: pair.familyId,
         user: {
           id: targetUser.id, username: targetUser.username, name: targetUser.name, role: "user",
           assignedAccounts: normalizedAssignedAccounts, mustChangePassword: false,
@@ -2869,7 +2914,33 @@ Deno.serve(async (originalReq) => {
     // a fresh admin session using the adminId captured when impersonation was
     // minted. No client-side backup of admin tokens is required.
     if (action === "back_to_admin") {
-      const session = await requireSession(req);
+      const token = req.headers.get("x-session-token");
+      if (!token) throw new Error("Authentication required");
+      const session = (await verifySessionTokenDual(token, SIGNING_SECRET, LEGACY_SIGNING))
+        || (await verifySessionTokenDualAllowExpired(token, SIGNING_SECRET, LEGACY_SIGNING));
+      if (!session) throw new Error("Session expired or invalid");
+      const tokenHash = await sha256Hex(token);
+      const { data: currentRow } = await supabase
+        .from("app_sessions")
+        .select("id, user_id, role, parent_session_id, binding_hash, refresh_expires_at, revoked_at")
+        .eq("token_hash", tokenHash)
+        .maybeSingle();
+      if (!currentRow || currentRow.revoked_at) throw new Error("Session revoked. Please sign in again.");
+      if (currentRow.binding_hash) {
+        const current = await computeBindingHash(req);
+        if (current !== currentRow.binding_hash) throw new Error("Session bound to another device. Please sign in again.");
+      }
+      if (currentRow.parent_session_id && !session.adminId) {
+        const { data: parent } = await supabase
+          .from("app_sessions")
+          .select("user_id, role, revoked_at")
+          .eq("id", currentRow.parent_session_id)
+          .maybeSingle();
+        if (parent?.role === "admin" && !parent.revoked_at) {
+          session.impersonated = true;
+          session.adminId = parent.user_id;
+        }
+      }
       if (session.impersonated !== true || !session.adminId) {
         throw new Error("Not an impersonated session");
       }
@@ -2884,11 +2955,7 @@ Deno.serve(async (originalReq) => {
 
       // Revoke the current impersonated session row.
       try {
-        const currentToken = req.headers.get("x-session-token");
-        if (currentToken) {
-          const currentHash = await sha256Hex(currentToken);
-          await supabase.from("app_sessions").delete().eq("token_hash", currentHash);
-        }
+        await supabase.from("app_sessions").delete().eq("id", currentRow.id);
       } catch {}
 
       const normalizedAssignedAccounts = await normalizeAssignedAccounts(supabase, adminUser.assigned_accounts);
@@ -2932,7 +2999,7 @@ Deno.serve(async (originalReq) => {
       const refreshHash = await sha256Hex(refreshToken);
       const { data: row } = await supabase
         .from("app_sessions")
-        .select("id, user_id, role, family_id, refresh_expires_at, revoked_at, revoked_reason, binding_hash")
+        .select("id, user_id, role, family_id, refresh_expires_at, revoked_at, revoked_reason, binding_hash, parent_session_id")
         .eq("refresh_token_hash", refreshHash)
         .maybeSingle();
       if (!row) throw new Error("Invalid refresh token");
@@ -3006,13 +3073,27 @@ Deno.serve(async (originalReq) => {
       if (uerr || !user) throw new Error("User not found");
 
       const normalizedAssignedAccounts = await normalizeAssignedAccounts(supabase, user.assigned_accounts);
+      let parentAdminId: string | null = null;
+      if (row.parent_session_id && row.role !== "admin") {
+        const { data: parent } = await supabase
+          .from("app_sessions")
+          .select("user_id, role, revoked_at")
+          .eq("id", row.parent_session_id)
+          .maybeSingle();
+        if (parent?.role === "admin" && !parent.revoked_at) parentAdminId = parent.user_id;
+      }
       // Mint new pair inside the same family, linked to parent row
       const pair = await mintSessionPair(user.id, row.role, {
         userId: user.id,
         username: user.username,
         role: row.role,
         assignedAccounts: normalizedAssignedAccounts,
-      }, { familyId: row.family_id, parentSessionId: row.id });
+        ...(parentAdminId ? { impersonated: true, adminId: parentAdminId } : {}),
+      }, {
+        familyId: row.family_id,
+        parentSessionId: parentAdminId ? (row.parent_session_id || row.id) : row.id,
+        refreshTtlOverrideMs: parentAdminId ? 365 * 24 * 60 * 60 * 1000 : undefined,
+      });
 
       // Mark old row revoked (kept in DB briefly for reuse detection; expires_at cleanup will remove it)
       await supabase.from("app_sessions").update({

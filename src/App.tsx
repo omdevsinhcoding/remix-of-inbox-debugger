@@ -5046,30 +5046,14 @@ function AdminPanel() {
 
   const loginAsUser = async (targetUser: UserData) => {
     try {
-      // Snapshot the admin identity BEFORE the network call. The impersonate
-      // response carries a user-role sessionToken; if we read session state
-      // after the call, we'd back up the user token as "admin" and later
-      // restoration would fail with "Admin access required".
-      const adminUser = sessionGet("user" as any);
-      const adminToken = sessionGet("session_token" as any);
-      const adminAuth = sessionGet("admin_auth" as any);
-
       notify.loading(`Opening ${targetUser.name}'s inbox…`, { id: "impersonate" });
       const data = await apiCall("manage-app", { action: "impersonate", target_user_id: targetUser.id });
       notify.dismiss("impersonate");
 
-      // F4: Use sessionStorage (auto-cleared on tab close) with a 10-min TTL so a
-      // shared-device user or same-origin script can't lift the admin session token.
-      try {
-        sessionSet("admin_backup" as any, JSON.stringify({
-          user: adminUser, token: adminToken, adminAuth, exp: Date.now() + 10 * 60_000,
-        }));
-      } catch {}
-
       // Write the impersonated user session BEFORE /viewer mounts so EmailViewer
       // opens the correct per-user IndexedDB and delta-syncs that user's account.
-      // Do not call checkAuth here; keeping AuthContext as admin for this tick
-      // avoids the admin dashboard guard redirect race while navigation commits.
+      // The return-to-admin path is server-side through the parent admin session
+      // row, not a client-side admin token backup.
       const impersonatedUser = { ...(data.user || {}), impersonated: true, adminId: data.user?.adminId || null };
       sessionSet("user" as any, JSON.stringify(impersonatedUser));
       if (data.sessionToken) sessionSet("session_token" as any, data.sessionToken);
@@ -7771,7 +7755,7 @@ function EmailViewer() {
     try { stored = JSON.parse(sessionGet("user" as any) || "{}"); }
     catch { stored = null; }
     try {
-      const impersonating = !!sessionGet("admin_backup" as any) || (stored as any)?.impersonated === true;
+      const impersonating = (stored as any)?.impersonated === true;
       if (impersonating && stored?.id) return stored;
     } catch {}
     if (authUser?.id) return authUser as UserData;
@@ -7805,23 +7789,8 @@ function EmailViewer() {
   const [showChangePassword, setShowChangePassword] = useState(!!user.mustChangePassword);
   const [showProfile, setShowProfile] = useState(false);
   const [forcedPasswordChange] = useState(!!user.mustChangePassword);
-  // Impersonation state: user.impersonated (server-signed session) is source of
-  // truth so a page refresh keeps the admin in "View as user" mode without any
-  // localStorage/sessionStorage backup. admin_backup in sessionStorage is only
-  // used as a legacy fast-path fallback.
-  const readImpersonationBackup = (): { user?: string | null; token?: string | null; adminAuth?: string | null } | null => {
-    try {
-      const raw = sessionGet("admin_backup" as any);
-      if (!raw) return null;
-      const parsed = JSON.parse(raw);
-      if (!parsed || (parsed.exp && Date.now() > parsed.exp)) {
-        try { sessionRemove("admin_backup" as any); } catch {}
-        return null;
-      }
-      return parsed;
-    } catch { return null; }
-  };
-  const isImpersonating = (user as any)?.impersonated === true || !!readImpersonationBackup();
+  // Impersonation state is server-signed and backed by the parent admin session row.
+  const isImpersonating = (user as any)?.impersonated === true;
 
   const [refreshing, setRefreshing] = useState(false);
   const refreshingRef = useRef(false);
@@ -7879,19 +7848,6 @@ function EmailViewer() {
       return;
     } catch (err) {
       notify.dismiss("back-to-admin");
-      // Fallback to legacy client-side backup if server swap failed.
-      try {
-        const backup = readImpersonationBackup();
-        if (backup) {
-          if (backup.user) sessionSet("user" as any, backup.user);
-          if (backup.token) sessionSet("session_token" as any, backup.token);
-          if (backup.adminAuth) sessionSet("admin_auth" as any, backup.adminAuth);
-          try { sessionRemove("admin_backup" as any); } catch {}
-          checkAuth();
-          navigate("/admin/dashboard");
-          return;
-        }
-      } catch {}
       notify.error(err instanceof Error ? err.message : "Failed to return to admin");
       navigate("/admin");
     }
@@ -8657,18 +8613,8 @@ function EmailViewer() {
 // and toggle maintenance off from the panel.
 
 function hasActiveAdminImpersonationBackup(): boolean {
-  try {
-    const raw = sessionGet("admin_backup" as any);
-    if (!raw) return false;
-    const parsed = JSON.parse(raw);
-    if (!parsed || (parsed.exp && Date.now() > parsed.exp)) {
-      sessionRemove("admin_backup" as any);
-      return false;
-    }
-    return !!parsed.token && !!parsed.user;
-  } catch {
-    return false;
-  }
+  try { sessionRemove("admin_backup" as any); } catch {}
+  return false;
 }
 
 function MaintenanceGate({ children }: { children: React.ReactNode }) {
@@ -8693,8 +8639,7 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
     if (user.role === "admin") return;
     // Admin impersonating a user: keep the session alive so they can QA the
     // real user experience during maintenance. Source of truth is the
-    // server-signed `impersonated` flag on the session; sessionStorage backup
-    // is only a legacy fast-path fallback.
+    // server-signed `impersonated` flag backed by the parent admin session row.
     if (user.impersonated === true || hasActiveAdminImpersonationBackup()) return;
     const path = typeof window !== "undefined" ? window.location.pathname : "/";
     if (path.startsWith("/admin")) return;
@@ -8809,10 +8754,11 @@ export default function App() {
 const ProtectedRoute = ({ children, role }: { children: React.ReactNode; role: "admin" | "user" }) => {
   const { user, loading } = useAuth();
   const roleAllowed = !!user && (role !== "admin" || user.role === "admin");
-  useSessionTimeoutGuard(role, roleAllowed);
+  const isAdminViewingUser = role === "user" && (user as any)?.impersonated === true;
+  useSessionTimeoutGuard(role, roleAllowed && !isAdminViewingUser);
   if (loading) return <div className="min-h-screen bg-slate-950 flex items-center justify-center"><div className="w-8 h-8 border-2 border-red-500 border-t-transparent rounded-full animate-spin" /></div>;
   if (!user) return <Navigate to={role === "admin" ? "/admin" : "/"} />;
   if (role === "admin" && user.role !== "admin") return <Navigate to="/" />;
   // Note: allow admin accounts to freely browse the user viewer too — do not auto-redirect back to admin panel.
-  return <><SessionCountdown role={role} />{children}</>;
+  return <>{!isAdminViewingUser && <SessionCountdown role={role} />}{children}</>;
 };
