@@ -75,13 +75,35 @@ async function verifySessionToken(token: string, secret: string): Promise<Sessio
   } catch { return null; }
 }
 
-async function requireSession(req: Request, body: any, primary: string, legacy?: string): Promise<Session | null> {
+async function sha256Hex(value: string): Promise<string> {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function requireSession(req: Request, body: any, primary: string, legacy?: string, supabase?: any): Promise<Session | null> {
   const token = req.headers.get("x-session-token") || body.sessionToken;
   if (!token) return null;
-  const p = await verifySessionToken(token, primary);
-  if (p) return p;
-  if (legacy && legacy !== primary) return await verifySessionToken(token, legacy);
-  return null;
+  let p = await verifySessionToken(token, primary);
+  if (!p && legacy && legacy !== primary) p = await verifySessionToken(token, legacy);
+  if (!p) return null;
+  // Live DB revocation check — an admin-revoked session must lose access
+  // immediately, not wait for the 15-minute HMAC token to expire.
+  if (supabase) {
+    try {
+      const tokenHash = await sha256Hex(token);
+      const { data: sessRow } = await supabase
+        .from("app_sessions")
+        .select("id, revoked_at, expires_at")
+        .eq("token_hash", tokenHash)
+        .maybeSingle();
+      if (!sessRow) return null;
+      if (sessRow.revoked_at) return null;
+      if (sessRow.expires_at && new Date(sessRow.expires_at).getTime() < Date.now()) return null;
+    } catch {
+      return null;
+    }
+  }
+  return p;
 }
 
 
