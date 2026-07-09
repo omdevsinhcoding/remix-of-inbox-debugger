@@ -8182,10 +8182,7 @@ function EmailViewer() {
     })();
   };
 
-      refreshingRef.current = false;
-      setRefreshing(false);
-    }
-  };
+
 
 
   // On mount/login: ONE silent auto-refresh via the worker POST sync path.
