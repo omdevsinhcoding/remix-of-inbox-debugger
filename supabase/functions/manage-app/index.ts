@@ -2072,6 +2072,7 @@ Deno.serve(async (originalReq) => {
           assignedAccounts: user.assigned_accounts,
           profilePrefs: user.profile_prefs || {},
           profileAvatar: user.profile_prefs?.avatarId || null,
+          isFree: !!user.is_free,
         },
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -2218,12 +2219,13 @@ Deno.serve(async (originalReq) => {
         throw new Error("Profile settings are invalid");
       }
 
+      // Users can only edit their avatar. hiddenBefore/hiddenEmailIds are
+      // rejected — end-user email hiding is fully disabled; only admins can
+      // suppress emails (via `destroyed=true`).
       const cleanPrefs = {
         avatarId: typeof profile_prefs.avatarId === "string" ? profile_prefs.avatarId : null,
-        hiddenBefore: typeof profile_prefs.hiddenBefore === "string" ? profile_prefs.hiddenBefore : null,
-        hiddenEmailIds: Array.isArray(profile_prefs.hiddenEmailIds)
-          ? profile_prefs.hiddenEmailIds.filter((id: any) => typeof id === "string").slice(0, 2000)
-          : [],
+        hiddenBefore: null as string | null,
+        hiddenEmailIds: [] as string[],
       };
 
       const { error } = await supabase
@@ -2703,6 +2705,7 @@ Deno.serve(async (originalReq) => {
           assignedAccounts: targetUser.assigned_accounts, mustChangePassword: false,
           profilePrefs: targetUser.profile_prefs || {},
           profileAvatar: targetUser.profile_prefs?.avatarId || null,
+          isFree: !!targetUser.is_free,
         },
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -2862,7 +2865,7 @@ Deno.serve(async (originalReq) => {
       const session = await requireSession(req);
       const { data: user, error } = await supabase
         .from("app_users")
-        .select("id, username, name, role, must_change_password, assigned_accounts, profile_prefs")
+        .select("id, username, name, role, must_change_password, assigned_accounts, profile_prefs, is_free")
         .eq("id", session.userId)
         .single();
       if (error || !user) throw new Error("Account not found");
@@ -2877,6 +2880,7 @@ Deno.serve(async (originalReq) => {
           assignedAccounts: user.assigned_accounts,
           profilePrefs: user.profile_prefs || {},
           profileAvatar: user.profile_prefs?.avatarId || null,
+          isFree: !!user.is_free,
           impersonated: session.impersonated === true,
         },
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -3007,19 +3011,10 @@ Deno.serve(async (originalReq) => {
     // ---------- User: clear own inbox (hide-only) ----------
 
     if (action === "clear_user_inbox") {
-      const session = await requireSession(req);
-      const { visibleIds } = params as { visibleIds?: string[] };
-      const { data: u, error: uErr } = await supabase
-        .from("app_users").select("profile_prefs").eq("id", session.userId).single();
-      if (uErr || !u) throw new Error("User not found");
-      const prefs = (u.profile_prefs || {}) as any;
-      const existing: string[] = Array.isArray(prefs.hiddenEmailIds) ? prefs.hiddenEmailIds : [];
-      const merged = Array.from(new Set([...existing, ...(Array.isArray(visibleIds) ? visibleIds : [])])).slice(-5000);
-      const nextPrefs = { ...prefs, hiddenBefore: new Date().toISOString(), hiddenEmailIds: merged };
-      const { error: upErr } = await supabase.from("app_users").update({ profile_prefs: nextPrefs }).eq("id", session.userId);
-      if (upErr) throw upErr;
-      await auditLog(supabase, "user_clear_inbox", session.userId, session.userId, { count: merged.length }, ip);
-      return new Response(JSON.stringify({ success: true, profilePrefs: nextPrefs }), {
+      // Fully disabled. Users must never delete or hide emails — admin-only.
+      await requireSession(req);
+      return new Response(JSON.stringify({ success: false, error: "User email deletion is disabled" }), {
+        status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }

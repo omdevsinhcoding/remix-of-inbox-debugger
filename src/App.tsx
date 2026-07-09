@@ -2337,19 +2337,15 @@ function classifyEmail(e: Email): EmailCategory {
   return "other";
 }
 
-function filterVisibleEmails(list: Email[], prefs?: UserProfilePrefs | null) {
-  const hiddenIds = new Set(prefs?.hiddenEmailIds || []);
-  const hiddenBeforeTime = prefs?.hiddenBefore ? new Date(prefs.hiddenBefore).getTime() : 0;
+function filterVisibleEmails(list: Email[], _prefs?: UserProfilePrefs | null) {
+  // User-side email hiding is fully disabled — only the admin can suppress
+  // emails (server-side via `destroyed=true`). We ignore any legacy
+  // hiddenBefore / hiddenEmailIds values on profile prefs.
   const filters = getEmailFilters();
   const hideSignin = filters.showSignInCodes === false;
   const hideReset = filters.showPasswordResets === false;
   const hideAccountUpdate = filters.showAccountUpdates === false;
   return list.filter((email) => {
-    if (hiddenIds.has(email.id) || hiddenIds.has(emailIdentity(email))) return false;
-    if (hiddenBeforeTime) {
-      const emailTime = new Date(email.date || 0).getTime();
-      if (!Number.isNaN(emailTime) && emailTime <= hiddenBeforeTime) return false;
-    }
     if (hideSignin || hideReset || hideAccountUpdate) {
       const cat = classifyEmail(email);
       if (hideSignin && cat === "signin") return false;
@@ -2962,7 +2958,7 @@ function ProfileSelectPage() {
                 <ProfileAvatar avatarId={getStableProfileAvatar(selectedProfile)} name={selectedProfile.name} className="w-24 h-24 sm:w-28 sm:h-28" fallbackColor={PROFILE_COLORS[Math.max(0, profiles.findIndex((p) => p.id === selectedProfile.id)) % PROFILE_COLORS.length]} eager />
               </motion.div>
               <h2 className="text-2xl sm:text-3xl font-normal text-white tracking-tight" style={{ fontFamily: '"Netflix Sans","Helvetica Neue",Arial,sans-serif' }}>{selectedProfile.name}</h2>
-              <p className="text-neutral-500 text-xs sm:text-sm mt-1">@{selectedProfile.username}</p>
+              {selectedProfile.username ? (<p className="text-neutral-500 text-xs sm:text-sm mt-1">@{selectedProfile.username}</p>) : null}
             </div>
 
             <form onSubmit={initiateLogin} noValidate className="space-y-4">
@@ -7700,16 +7696,20 @@ function UserProfileModal({
     const nextPrefs = { ...prefs, avatarId };
     setSavingAvatar(true);
     onPrefsSaved(nextPrefs);
-    // Update the cached bootstrap immediately so the profile-selection grid
-    // shows the new avatar the very next time it mounts (e.g. after logout),
-    // without waiting for a network refresh.
+    // Also update the in-session `user` object so header/other surfaces render
+    // the new avatar in micro-seconds without waiting for a network roundtrip.
+    try {
+      const stored = JSON.parse(sessionGet("user" as any) || "{}");
+      stored.profilePrefs = nextPrefs;
+      stored.profileAvatar = avatarId;
+      sessionSet("user" as any, JSON.stringify(stored));
+    } catch {}
     if (user?.id) {
       patchBootstrapCacheUser(user.id, { profile_prefs: nextPrefs, profileAvatar: avatarId });
     }
     try {
       await apiCall("manage-app", { action: "update_profile_prefs", profile_prefs: nextPrefs });
       notify.success("Profile icon updated");
-      // Kick off a background refresh so any other cached fields also update.
       refreshBootstrap().catch(() => {});
     } catch (err) {
       notify.error(err instanceof Error ? err.message : "Could not save icon");
@@ -7727,7 +7727,11 @@ function UserProfileModal({
             <ProfileAvatar avatarId={selectedAvatar} name={user.name} className="w-12 h-12" fallbackColor="bg-red-500" eager />
             <div className="min-w-0">
               <h2 className="text-lg font-black text-slate-900 leading-tight truncate">{user.name}</h2>
-              <p className="text-xs text-slate-500 truncate">@{user.username}</p>
+              {user.username ? (
+                <p className="text-xs text-slate-500 truncate">@{user.username}</p>
+              ) : user.isFree ? (
+                <p className="text-[10px] font-black tracking-[0.14em] uppercase text-emerald-600">Free profile</p>
+              ) : null}
             </div>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full transition-colors" aria-label="Close profile">
