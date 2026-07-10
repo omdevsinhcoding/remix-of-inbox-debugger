@@ -5838,47 +5838,55 @@ function AdminPanel() {
 
 
 
-                    {editingUserAccounts === u.id && u.role !== "admin" && (
-                      <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-200" onClick={() => setEditingUserAccounts(null)}>
-                        <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-md" />
+                    {editingUserAccounts === u.id && u.role !== "admin" && createPortal(
+                      <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center animate-in fade-in duration-200"
+                        onClick={() => setEditingUserAccounts(null)}
+                        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
+                        <div className="absolute inset-0 bg-gradient-to-br from-slate-950/70 via-slate-900/70 to-blue-950/70 backdrop-blur-xl" />
                         <div onClick={(e) => e.stopPropagation()}
-                          className="relative w-full max-w-md max-h-[92vh] overflow-hidden rounded-3xl bg-white shadow-2xl ring-1 ring-slate-200 animate-in zoom-in-95 slide-in-from-bottom-4 duration-300 flex flex-col">
-                          {/* Gradient header */}
-                          <div className={`relative overflow-hidden px-5 pt-5 pb-14 ${u.isFree ? "bg-gradient-to-br from-emerald-500 via-emerald-600 to-teal-700" : "bg-gradient-to-br from-blue-600 via-indigo-600 to-violet-700"}`}>
-                            <div className="absolute -top-8 -right-8 w-40 h-40 rounded-full bg-white/10 blur-2xl" />
-                            <div className="absolute -bottom-10 -left-6 w-32 h-32 rounded-full bg-white/10 blur-2xl" />
+                          className="relative w-full sm:max-w-md max-h-[92vh] sm:max-h-[88vh] overflow-hidden bg-white sm:rounded-3xl rounded-t-3xl shadow-[0_-20px_80px_-10px_rgba(0,0,0,0.4)] sm:shadow-[0_30px_120px_-30px_rgba(59,130,246,0.5)] ring-1 ring-white/40 animate-in slide-in-from-bottom-8 sm:zoom-in-95 duration-300 flex flex-col">
+                          {/* Mobile grab handle */}
+                          <div className="sm:hidden flex justify-center pt-2.5 pb-1"><div className="w-10 h-1 rounded-full bg-slate-300" /></div>
+                          {/* Header */}
+                          <div className={`relative overflow-hidden px-5 pt-5 pb-16 ${u.isFree ? "bg-gradient-to-br from-emerald-500 via-emerald-600 to-teal-700" : "bg-gradient-to-br from-blue-600 via-indigo-600 to-red-600"}`}>
+                            <div className="absolute inset-0 opacity-30" style={{ backgroundImage: "radial-gradient(circle at 20% 20%, rgba(255,255,255,0.4) 0%, transparent 50%), radial-gradient(circle at 80% 80%, rgba(255,255,255,0.2) 0%, transparent 50%)" }} />
+                            <div className="absolute -top-10 -right-10 w-48 h-48 rounded-full bg-white/15 blur-3xl" />
+                            <div className="absolute -bottom-12 -left-8 w-40 h-40 rounded-full bg-white/10 blur-3xl" />
                             <div className="relative flex items-start justify-between">
-                              <div className="flex items-center gap-3">
-                                <ProfileAvatar avatarId={getStableProfileAvatar(u)} name={u.name}
-                                  className="w-11 h-11 !rounded-2xl ring-2 ring-white/40 shadow-lg" />
-                                <div>
-                                  <p className="text-[9px] font-black tracking-[0.25em] text-white/70 uppercase">Edit Profile</p>
-                                  <p className="text-white font-black text-base leading-tight truncate max-w-[180px]">{u.name}</p>
-                                  <p className="text-white/70 text-[10px] font-mono truncate max-w-[180px]">{u.username ? `@${u.username}` : "no username"}</p>
+                              <div className="flex items-center gap-3 min-w-0">
+                                <div className="relative flex-shrink-0">
+                                  <div className="absolute inset-0 bg-white/40 rounded-2xl blur-md" />
+                                  <ProfileAvatar avatarId={getStableProfileAvatar(u)} name={u.name}
+                                    className="relative w-12 h-12 !rounded-2xl ring-2 ring-white/60 shadow-xl" />
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="text-[9px] font-black tracking-[0.3em] text-white/80 uppercase mb-0.5">✎ Edit Profile</p>
+                                  <p className="text-white font-black text-lg leading-tight truncate">{u.name}</p>
+                                  <p className="text-white/70 text-[11px] font-mono truncate">{u.username ? `@${u.username}` : "no username"}</p>
                                 </div>
                               </div>
                               <button onClick={() => setEditingUserAccounts(null)}
-                                className="w-8 h-8 rounded-xl bg-white/15 hover:bg-white/25 text-white flex items-center justify-center transition-colors">
-                                <X className="w-4 h-4" />
+                                className="flex-shrink-0 w-9 h-9 rounded-2xl bg-white/20 hover:bg-white/35 text-white flex items-center justify-center transition-all active:scale-90 backdrop-blur-sm ring-1 ring-white/30">
+                                <X className="w-4 h-4" strokeWidth={2.5} />
                               </button>
                             </div>
                           </div>
                           {/* Body */}
-                          <div className="relative -mt-8 flex-1 overflow-y-auto px-5 pb-5">
-                            <div className="bg-white rounded-2xl border border-slate-200 shadow-lg p-4 space-y-4">
+                          <div className="relative -mt-10 flex-1 overflow-y-auto px-4 sm:px-5 pb-4">
+                            <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl shadow-slate-300/40 p-4 space-y-4">
                               <div>
-                                <label className="block text-[10px] font-black tracking-[0.15em] text-slate-500 uppercase mb-1.5">Username {u.isFree ? "(optional)" : ""}</label>
+                                <label className="block text-[10px] font-black tracking-[0.2em] text-slate-500 uppercase mb-2">Username {u.isFree ? "(optional)" : ""}</label>
                                 <input type="text" value={editUsername} onChange={(e) => setEditUsername(e.target.value)}
                                   placeholder={u.isFree ? "No username" : "Username"}
-                                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm transition-all" />
+                                  className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 text-sm font-medium transition-all" />
                               </div>
                               <div>
-                                <label className="block text-[10px] font-black tracking-[0.15em] text-slate-500 uppercase mb-1.5">Assigned IMAP Accounts</label>
-                                <div className="space-y-1 max-h-48 overflow-y-auto pr-1">
+                                <label className="block text-[10px] font-black tracking-[0.2em] text-slate-500 uppercase mb-2">Assigned IMAP Accounts</label>
+                                <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
                                   {getAvailableAccounts().map(label => {
                                     const checked = editAccountsList.includes(label);
                                     return (
-                                      <label key={label} className={`flex items-center gap-2.5 p-2 rounded-xl cursor-pointer transition-all border ${checked ? "bg-indigo-50 border-indigo-200" : "bg-slate-50 border-transparent hover:bg-slate-100"}`}>
+                                      <label key={label} className={`flex items-center gap-2.5 p-2.5 rounded-xl cursor-pointer transition-all border-2 ${checked ? "bg-gradient-to-r from-indigo-50 to-blue-50 border-indigo-300 shadow-sm" : "bg-slate-50 border-transparent hover:bg-slate-100"}`}>
                                         <input type="checkbox" checked={checked}
                                           onChange={(e) => {
                                             if (e.target.checked) setEditAccountsList([...editAccountsList, label]);
@@ -5893,22 +5901,20 @@ function AdminPanel() {
                               </div>
                               {!u.isFree && (
                                 <div>
-                                  <label className="block text-[10px] font-black tracking-[0.15em] text-slate-500 uppercase mb-1.5">Concurrent Session Limit</label>
+                                  <label className="block text-[10px] font-black tracking-[0.2em] text-slate-500 uppercase mb-2">Concurrent Session Limit</label>
                                   <input type="number" min={0} max={50} step={1} value={editSessionLimit}
                                     onChange={(e) => setEditSessionLimit(e.target.value)}
                                     placeholder="Blank = global default"
-                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm" />
-                                  <p className="text-[10px] text-slate-400 mt-1.5 leading-relaxed">
-                                    <b>Blank</b> = global limit · <b>0</b> = unlimited · <b>1+</b> = cap; extra logins kick oldest device.
-                                  </p>
+                                    className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 text-sm font-medium" />
+                                  <p className="text-[10px] text-slate-500 mt-2 leading-relaxed"><b>Blank</b> = global · <b>0</b> = unlimited · <b>1+</b> = cap.</p>
                                 </div>
                               )}
                               {u.isFree && (
                                 <div>
-                                  <label className="block text-[10px] font-black tracking-[0.15em] text-slate-500 uppercase mb-1.5">Expires At</label>
+                                  <label className="block text-[10px] font-black tracking-[0.2em] text-slate-500 uppercase mb-2">Expires At</label>
                                   <DateTimePicker value={editExpiresAt} onChange={setEditExpiresAt} />
                                   <div className="flex items-center justify-between mt-1.5">
-                                    <p className="text-[10px] text-slate-400">Auto-deletes after this time. Empty = never.</p>
+                                    <p className="text-[10px] text-slate-400">Empty = never.</p>
                                     {editExpiresAt && (
                                       <button type="button" onClick={() => setEditExpiresAt("")}
                                         className="text-[11px] text-emerald-700 font-bold hover:underline">Clear</button>
@@ -5918,73 +5924,81 @@ function AdminPanel() {
                               )}
                             </div>
                           </div>
-                          {/* Footer actions */}
-                          <div className="border-t border-slate-100 p-3 flex gap-2 bg-slate-50/50">
+                          {/* Footer */}
+                          <div className="border-t border-slate-100 p-3 flex gap-2 bg-gradient-to-b from-white to-slate-50">
                             <button onClick={() => setEditingUserAccounts(null)}
-                              className="flex-1 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-700 text-sm font-bold hover:bg-slate-50 active:scale-95 transition-all">
+                              className="flex-1 py-3 rounded-2xl border-2 border-slate-200 bg-white text-slate-700 text-sm font-bold hover:bg-slate-50 hover:border-slate-300 active:scale-95 transition-all">
                               Cancel
                             </button>
                             <button onClick={() => updateUserAccounts(u.id)}
-                              className={`flex-[2] py-2.5 rounded-xl text-white text-sm font-black shadow-lg active:scale-95 transition-all ${u.isFree ? "bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 shadow-emerald-500/30" : "bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 shadow-indigo-500/30"}`}>
+                              className={`flex-[2] py-3 rounded-2xl text-white text-sm font-black shadow-xl active:scale-95 transition-all ${u.isFree ? "bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 shadow-emerald-500/40" : "bg-gradient-to-r from-blue-600 via-indigo-600 to-red-600 hover:brightness-110 shadow-indigo-500/40"}`}>
                               Save Changes
                             </button>
                           </div>
                         </div>
-                      </div>
+                      </div>,
+                      document.body
                     )}
 
-                    {changingUserPass === u.id && u.role !== "admin" && (
-                      <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-200" onClick={() => setChangingUserPass(null)}>
-                        <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-md" />
+                    {changingUserPass === u.id && u.role !== "admin" && createPortal(
+                      <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center animate-in fade-in duration-200"
+                        onClick={() => setChangingUserPass(null)}
+                        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
+                        <div className="absolute inset-0 bg-gradient-to-br from-slate-950/70 via-rose-950/60 to-slate-950/70 backdrop-blur-xl" />
                         <div onClick={(e) => e.stopPropagation()}
-                          className="relative w-full max-w-sm overflow-hidden rounded-3xl bg-white shadow-2xl ring-1 ring-slate-200 animate-in zoom-in-95 slide-in-from-bottom-4 duration-300">
-                          {/* Gradient header */}
-                          <div className="relative overflow-hidden px-5 pt-5 pb-14 bg-gradient-to-br from-rose-500 via-red-600 to-orange-600">
-                            <div className="absolute -top-8 -right-8 w-40 h-40 rounded-full bg-white/10 blur-2xl" />
-                            <div className="absolute -bottom-10 -left-6 w-32 h-32 rounded-full bg-white/10 blur-2xl" />
+                          className="relative w-full sm:max-w-sm overflow-hidden bg-white sm:rounded-3xl rounded-t-3xl shadow-[0_-20px_80px_-10px_rgba(0,0,0,0.4)] sm:shadow-[0_30px_120px_-30px_rgba(244,63,94,0.5)] ring-1 ring-white/40 animate-in slide-in-from-bottom-8 sm:zoom-in-95 duration-300">
+                          <div className="sm:hidden flex justify-center pt-2.5 pb-1"><div className="w-10 h-1 rounded-full bg-slate-300" /></div>
+                          <div className="relative overflow-hidden px-5 pt-5 pb-16 bg-gradient-to-br from-rose-500 via-red-600 to-orange-600">
+                            <div className="absolute inset-0 opacity-30" style={{ backgroundImage: "radial-gradient(circle at 20% 20%, rgba(255,255,255,0.4) 0%, transparent 50%), radial-gradient(circle at 80% 80%, rgba(255,255,255,0.2) 0%, transparent 50%)" }} />
+                            <div className="absolute -top-10 -right-10 w-48 h-48 rounded-full bg-white/15 blur-3xl" />
+                            <div className="absolute -bottom-12 -left-8 w-40 h-40 rounded-full bg-white/10 blur-3xl" />
                             <div className="relative flex items-start justify-between">
-                              <div className="flex items-center gap-3">
-                                <div className="w-11 h-11 rounded-2xl bg-white/15 ring-2 ring-white/40 shadow-lg flex items-center justify-center">
-                                  <KeyRound className="w-5 h-5 text-white" strokeWidth={2.5} />
+                              <div className="flex items-center gap-3 min-w-0">
+                                <div className="relative flex-shrink-0">
+                                  <div className="absolute inset-0 bg-white/40 rounded-2xl blur-md" />
+                                  <div className="relative w-12 h-12 rounded-2xl bg-white/20 ring-2 ring-white/60 shadow-xl flex items-center justify-center backdrop-blur-sm">
+                                    <KeyRound className="w-5 h-5 text-white" strokeWidth={2.5} />
+                                  </div>
                                 </div>
-                                <div>
-                                  <p className="text-[9px] font-black tracking-[0.25em] text-white/70 uppercase">Reset Password</p>
-                                  <p className="text-white font-black text-base leading-tight truncate max-w-[180px]">{u.name}</p>
-                                  <p className="text-white/70 text-[10px] font-mono truncate max-w-[180px]">{u.username ? `@${u.username}` : "no username"}</p>
+                                <div className="min-w-0">
+                                  <p className="text-[9px] font-black tracking-[0.3em] text-white/80 uppercase mb-0.5">🔒 Reset Password</p>
+                                  <p className="text-white font-black text-lg leading-tight truncate">{u.name}</p>
+                                  <p className="text-white/70 text-[11px] font-mono truncate">{u.username ? `@${u.username}` : "no username"}</p>
                                 </div>
                               </div>
                               <button onClick={() => setChangingUserPass(null)}
-                                className="w-8 h-8 rounded-xl bg-white/15 hover:bg-white/25 text-white flex items-center justify-center transition-colors">
-                                <X className="w-4 h-4" />
+                                className="flex-shrink-0 w-9 h-9 rounded-2xl bg-white/20 hover:bg-white/35 text-white flex items-center justify-center transition-all active:scale-90 backdrop-blur-sm ring-1 ring-white/30">
+                                <X className="w-4 h-4" strokeWidth={2.5} />
                               </button>
                             </div>
                           </div>
-                          <div className="relative -mt-8 px-5 pb-5">
-                            <div className="bg-white rounded-2xl border border-slate-200 shadow-lg p-4 space-y-3">
+                          <div className="relative -mt-10 px-4 sm:px-5 pb-4">
+                            <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl shadow-rose-200/40 p-4 space-y-3">
                               <div>
-                                <label className="block text-[10px] font-black tracking-[0.15em] text-slate-500 uppercase mb-1.5">New Password</label>
+                                <label className="block text-[10px] font-black tracking-[0.2em] text-slate-500 uppercase mb-2">New Password</label>
                                 <PasswordInput value={userNewPass} onChange={(e) => setUserNewPass(e.target.value)}
                                   placeholder="Min 6 characters"
-                                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 pr-10 outline-none focus:ring-2 focus:ring-rose-500 focus:border-rose-500 text-sm" />
+                                  className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 pr-10 outline-none focus:ring-2 focus:ring-rose-500/30 focus:border-rose-500 text-sm font-medium" />
                               </div>
-                              <div className="flex items-start gap-2 p-2.5 rounded-xl bg-amber-50 border border-amber-200">
+                              <div className="flex items-start gap-2 p-3 rounded-xl bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200">
                                 <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
-                                <p className="text-[11px] text-amber-800 leading-relaxed">User's active sessions will remain valid. Share the new password securely.</p>
+                                <p className="text-[11px] text-amber-900 leading-relaxed font-medium">Active sessions stay valid. Share the new password securely.</p>
                               </div>
                             </div>
                           </div>
-                          <div className="border-t border-slate-100 p-3 flex gap-2 bg-slate-50/50">
+                          <div className="border-t border-slate-100 p-3 flex gap-2 bg-gradient-to-b from-white to-slate-50">
                             <button onClick={() => setChangingUserPass(null)}
-                              className="flex-1 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-700 text-sm font-bold hover:bg-slate-50 active:scale-95 transition-all">
+                              className="flex-1 py-3 rounded-2xl border-2 border-slate-200 bg-white text-slate-700 text-sm font-bold hover:bg-slate-50 hover:border-slate-300 active:scale-95 transition-all">
                               Cancel
                             </button>
                             <button onClick={() => changeUserPassword(u.id)}
-                              className="flex-[2] py-2.5 rounded-xl text-white text-sm font-black shadow-lg shadow-rose-500/30 bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-700 hover:to-red-700 active:scale-95 transition-all">
+                              className="flex-[2] py-3 rounded-2xl text-white text-sm font-black shadow-xl shadow-rose-500/40 bg-gradient-to-r from-rose-600 via-red-600 to-orange-600 hover:brightness-110 active:scale-95 transition-all">
                               Update Password
                             </button>
                           </div>
                         </div>
-                      </div>
+                      </div>,
+                      document.body
                     )}
                     </div>
                   </div>
