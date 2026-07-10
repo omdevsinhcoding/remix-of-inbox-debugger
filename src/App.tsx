@@ -5777,6 +5777,15 @@ function AdminPanel() {
 
                       {u.role !== "admin" && (
                         <div className="mt-3 flex items-center gap-0.5 sm:gap-1 p-1 rounded-xl bg-gradient-to-br from-slate-50 to-slate-100/60 border border-slate-200/80">
+                          <button onClick={() => moveUser(u.id, -1)} disabled={isFirst || reordering} title="Move up"
+                            className="flex-1 flex items-center justify-center h-9 rounded-lg text-slate-500 hover:bg-white hover:text-indigo-600 hover:shadow-sm transition-all active:scale-95 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-slate-500 disabled:cursor-not-allowed">
+                            <ChevronUp className="w-4 h-4" strokeWidth={2.5} />
+                          </button>
+                          <button onClick={() => moveUser(u.id, 1)} disabled={isLast || reordering} title="Move down"
+                            className="flex-1 flex items-center justify-center h-9 rounded-lg text-slate-500 hover:bg-white hover:text-indigo-600 hover:shadow-sm transition-all active:scale-95 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-slate-500 disabled:cursor-not-allowed">
+                            <ChevronDown className="w-4 h-4" strokeWidth={2.5} />
+                          </button>
+                          <div className="w-px h-6 bg-slate-200" />
                           <button onClick={() => togglePinnedUser(u)} title={u.pinned ? "Unpin" : "Pin to top"}
                             className={`flex-1 flex items-center justify-center h-9 rounded-lg transition-all active:scale-95 ${u.pinned ? "bg-white text-amber-600 ring-1 ring-amber-300 shadow-sm" : "text-slate-500 hover:bg-white hover:text-amber-600 hover:shadow-sm"}`}>
                             <Pin className="w-4 h-4" strokeWidth={2.5} fill={u.pinned ? "currentColor" : "none"} />
