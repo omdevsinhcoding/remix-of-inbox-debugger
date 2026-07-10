@@ -7765,22 +7765,8 @@ function AdminPanel() {
                 <p className="text-white/70 text-sm leading-relaxed">
                   {maintenanceMessage.trim() || <span className="text-white/40 italic">The site is offline for a short while so we can make it faster and safer for you. You don't need to do anything — just come back in a few minutes.</span>}
                 </p>
-                {(maintenanceStartsAt || maintenanceEndsAt) && (
-                  <div className="mt-4 flex flex-wrap gap-2 text-[11.5px]">
-                    {maintenanceStartsAt && (
-                      <span className="inline-flex items-center gap-1.5 bg-white/[0.06] border border-white/10 rounded-lg px-2.5 py-1">
-                        <span className="text-white/50">Starts:</span>
-                        <span className="text-white">{new Date(maintenanceStartsAt).toLocaleString(undefined, { hour: "numeric", minute: "2-digit", hour12: true, day: "numeric", month: "short" })}</span>
-                      </span>
-                    )}
-                    {maintenanceEndsAt && (
-                      <span className="inline-flex items-center gap-1.5 bg-white/[0.06] border border-white/10 rounded-lg px-2.5 py-1">
-                        <span className="text-white/50">Back at:</span>
-                        <span className="text-white">{new Date(maintenanceEndsAt).toLocaleString(undefined, { hour: "numeric", minute: "2-digit", hour12: true, day: "numeric", month: "short" })}</span>
-                      </span>
-                    )}
-                  </div>
-                )}
+              </div>
+
               </div>
 
               <div className="flex items-center gap-2 mt-4 flex-wrap">
