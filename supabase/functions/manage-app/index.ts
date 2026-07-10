@@ -259,6 +259,66 @@ async function decryptValue(encrypted: string, secret: string): Promise<string> 
   return new TextDecoder().decode(plain);
 }
 
+const SECRET_MASK = "••••••••";
+
+function maskSavedSecret(value: unknown): string {
+  return typeof value === "string" && value.length > 0 ? SECRET_MASK : "";
+}
+
+function maskEmailAccountsForAdmin(value: any): any[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((acc: any) => ({
+    ...acc,
+    password: maskSavedSecret(acc?.password),
+  }));
+}
+
+function findExistingAccountForSecret(existingAccounts: any[], acc: any, index: number): any | null {
+  const sameIndex = existingAccounts[index];
+  if (sameIndex && String(sameIndex.label || "") === String(acc?.label || "") && String(sameIndex.user || "") === String(acc?.user || "")) return sameIndex;
+  return existingAccounts.find((x: any) => String(x?.label || "") === String(acc?.label || "") && String(x?.user || "") === String(acc?.user || ""))
+    || existingAccounts.find((x: any) => String(x?.label || "") === String(acc?.label || ""))
+    || existingAccounts.find((x: any) => String(x?.user || "") === String(acc?.user || ""))
+    || sameIndex
+    || null;
+}
+
+async function processConfigSecrets(value: any, previous: any, encryptionSecret: string) {
+  const config = value && typeof value === "object" ? { ...value } : {};
+  const prior = previous && typeof previous === "object" ? previous : {};
+  if (config.IMAP_PASSWORD === SECRET_MASK) {
+    const saved = prior.IMAP_PASSWORD || "";
+    config.IMAP_PASSWORD = saved && typeof saved === "string" && !saved.startsWith("enc:")
+      ? await encryptValue(saved, encryptionSecret)
+      : saved;
+  } else if (config.IMAP_PASSWORD && typeof config.IMAP_PASSWORD === "string" && !config.IMAP_PASSWORD.startsWith("enc:")) {
+    config.IMAP_PASSWORD = await encryptValue(config.IMAP_PASSWORD, encryptionSecret);
+  }
+  return config;
+}
+
+async function processEmailAccountSecrets(value: any[], existingAccounts: any[], encryptionSecret: string) {
+  return await Promise.all(value.map(async (acc: any, i: number) => {
+    let password = acc.password;
+    if (password === SECRET_MASK) {
+      const existing = findExistingAccountForSecret(existingAccounts, acc, i);
+      const saved = existing?.password || "";
+      password = saved && typeof saved === "string" && !saved.startsWith("enc:")
+        ? await encryptValue(saved, encryptionSecret)
+        : saved;
+    } else if (password && typeof password === "string" && !password.startsWith("enc:")) {
+      password = await encryptValue(password, encryptionSecret);
+    }
+    return { ...acc, password };
+  }));
+}
+
+function maskConfigForAdmin(value: any) {
+  const config = value && typeof value === "object" ? { ...value } : {};
+  config.IMAP_PASSWORD = maskSavedSecret(config.IMAP_PASSWORD);
+  return config;
+}
+
 // --- Audit logging (D.3: enriched with user_agent + optional result) ---
 async function auditLog(
   supabase: any,
@@ -2634,15 +2694,25 @@ Deno.serve(async (originalReq) => {
         value = { enabled: value?.enabled === true };
       }
 
-      // Mask IMAP passwords in email_accounts for non-admin users
+      if (key === "config" && value && session?.role === "admin") {
+        value = maskConfigForAdmin(value);
+      }
+
+      // Mask IMAP passwords in email_accounts. The encrypted value must never
+      // be sent back into the admin input, otherwise a normal save can preserve
+      // ciphertext-looking text in the UI and confuse future edits.
       if (key === "email_accounts" && Array.isArray(value)) {
         const isAdmin = session?.role === "admin";
-        value = value.map((acc: any) => ({
-          ...acc,
-          password: isAdmin ? acc.password : "••••••••",
-          // Non-admin users only see cloudflare URLs and label
-          ...(isAdmin ? {} : { host: undefined, port: undefined, user: undefined }),
-        }));
+        value = isAdmin
+          ? maskEmailAccountsForAdmin(value)
+          : value.map((acc: any) => ({
+              ...acc,
+              password: SECRET_MASK,
+              // Non-admin users only see cloudflare URLs and label
+              host: undefined,
+              port: undefined,
+              user: undefined,
+            }));
       }
 
       if (key === "recaptcha" && value && session?.role !== "admin") {
@@ -2694,6 +2764,15 @@ Deno.serve(async (originalReq) => {
         processedValue = { enabled: value?.enabled === true };
       }
 
+      if (key === "config" && value && typeof value === "object") {
+        const { data: existingData } = await supabase
+          .from("app_settings")
+          .select("value")
+          .eq("key", "config")
+          .maybeSingle();
+        processedValue = await processConfigSecrets(value, existingData?.value || {}, ENCRYPTION_SECRET);
+      }
+
       // Maintenance: enforce upgrade-only version bumps + valid time window.
       if (key === "maintenance" && value && typeof value === "object") {
         const v: any = value;
@@ -2740,18 +2819,9 @@ Deno.serve(async (originalReq) => {
           .from("app_settings")
           .select("value")
           .eq("key", "email_accounts")
-          .single();
+          .maybeSingle();
         const existingAccounts = existingData?.value || [];
-
-        processedValue = await Promise.all(value.map(async (acc: any, i: number) => {
-          let password = acc.password;
-          if (password === "••••••••" && existingAccounts[i]?.password) {
-            password = existingAccounts[i].password; // Keep existing encrypted password
-          } else if (password && !password.startsWith("enc:")) {
-            password = await encryptValue(password, ENCRYPTION_SECRET); // Encrypt new password
-          }
-          return { ...acc, password };
-        }));
+        processedValue = await processEmailAccountSecrets(value, Array.isArray(existingAccounts) ? existingAccounts : [], ENCRYPTION_SECRET);
       }
 
       if (key === "email_filters") {
@@ -4072,7 +4142,9 @@ Deno.serve(async (originalReq) => {
             secretAccessKeySet: hasSecret,
           };
         } else {
-          settings[row.key] = row.value;
+          if (row.key === "config") settings[row.key] = maskConfigForAdmin(row.value);
+          else if (row.key === "email_accounts") settings[row.key] = maskEmailAccountsForAdmin(row.value);
+          else settings[row.key] = row.value;
         }
       }
 
