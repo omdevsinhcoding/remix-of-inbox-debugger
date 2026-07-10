@@ -3,9 +3,9 @@ main = "worker.js"
 compatibility_date = "2026-04-07"
 workers_dev = true
 
-# Source-of-truth binding. Wrangler 4.45+ automatically provisions this KV
-# namespace during `wrangler deploy` if it does not exist in the connected
-# Cloudflare account, so Git deploy gets a binding without manual dashboard work.
+# Source-of-truth binding. `deploy.mjs` creates/fetches this KV namespace in
+# the current Cloudflare account, injects its account-specific id into a
+# temporary Wrangler config, then deploys with EMAIL_CACHE correctly bound.
 [[kv_namespaces]]
 binding = "EMAIL_CACHE"
 
