@@ -8281,12 +8281,74 @@ function AvatarPicker({
 
   return (
     <div className="pb-4">
-      <div className="sticky top-0 z-10 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-900 border-b border-red-600/30 px-4 sm:px-5 pt-4 pb-3 space-y-3 shadow-lg shadow-black/40">
+      {/* ============ MOBILE HEADER (redesigned) ============ */}
+      <div className="sm:hidden sticky top-0 z-10 bg-gradient-to-br from-rose-950 via-slate-950 to-slate-950 border-b border-red-500/25 px-4 pt-4 pb-3 shadow-xl shadow-black/50">
+        {/* Title row */}
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <div className="min-w-0">
+            <h3 className="text-[17px] font-black text-white tracking-tight leading-none">
+              Pick your <span className="text-red-500">icon</span>
+            </h3>
+            <p className="text-[11px] text-white/60 mt-1.5 leading-none">
+              {saving ? "Saving your choice…" : pendingCategoryKey ? "Loading category…" : "Tap a category, then tap an icon"}
+            </p>
+          </div>
+          <span className="flex-shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-red-500/15 border border-red-500/30 text-[10px] font-bold text-red-300 uppercase tracking-wider">
+            <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
+            {activeCategory.files.length}
+          </span>
+        </div>
+
+        {/* Active category ribbon */}
+        <div className="flex items-center gap-2 mb-2.5">
+          <span className="text-[10px] font-black uppercase tracking-[0.14em] text-white/40">Category</span>
+          <span className="text-[12px] font-bold text-white truncate">{activeCategory.label}</span>
+        </div>
+
+        {/* Chip strip */}
+        <div className="relative -mx-4 px-4">
+          {chipEdges.left && (
+            <div className="pointer-events-none absolute inset-y-0 left-0 w-6 bg-gradient-to-r from-slate-950 to-transparent z-10" />
+          )}
+          {chipEdges.right && (
+            <div className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-slate-950 to-transparent z-10" />
+          )}
+          <div
+            ref={chipScrollRef}
+            className="flex gap-2 overflow-x-auto scrollbar-none pb-1 snap-x"
+            style={{ scrollbarWidth: "none" }}
+          >
+            {AVATAR_CATEGORIES.map((c) => {
+              const active = activeCategoryKey === c.key;
+              const pending = pendingCategoryKey === c.key;
+              return (
+                <button
+                  key={c.key}
+                  data-cat-key={c.key}
+                  onClick={() => selectCategory(c.key)}
+                  className={`snap-start flex-shrink-0 h-9 px-4 text-[12.5px] font-bold rounded-full transition-all duration-200 border active:scale-95 ${
+                    active
+                      ? "bg-gradient-to-r from-red-600 to-rose-600 text-white border-red-400 shadow-[0_6px_18px_-4px_rgba(239,68,68,0.7)]"
+                      : pending
+                      ? "bg-white text-slate-900 border-white animate-pulse"
+                      : "bg-white/[0.06] text-white/85 border-white/10"
+                  }`}
+                >
+                  {c.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* ============ DESKTOP HEADER (unchanged) ============ */}
+      <div className="hidden sm:block sticky top-0 z-10 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-900 border-b border-red-600/30 px-5 pt-4 pb-3 space-y-3 shadow-lg shadow-black/40">
         <div className="flex items-end justify-between gap-3">
           <div className="flex items-center gap-2.5">
             <span className="inline-flex h-8 w-1.5 rounded-full bg-gradient-to-b from-red-500 to-red-700 shadow-[0_0_12px_rgba(239,68,68,0.6)]" />
             <div>
-              <h3 className="text-base sm:text-lg font-black text-white tracking-tight leading-none">Choose your character</h3>
+              <h3 className="text-lg font-black text-white tracking-tight leading-none">Choose your character</h3>
               <p className="text-[11px] font-semibold text-red-400/90 mt-1 flex items-center gap-1.5">
                 <span className="inline-block h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
                 Swipe categories &nbsp;·&nbsp; {activeCategory.label}
@@ -8297,8 +8359,7 @@ function AvatarPicker({
             {saving ? "Saving…" : pendingCategoryKey ? "Preparing…" : `${activeCategory.files.length} icons`}
           </span>
         </div>
-        {/* Desktop: wrap all chips as a pill grid (no scroll, no leakage). */}
-        <div className="hidden sm:flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2">
           {AVATAR_CATEGORIES.map((c) => {
             const active = activeCategoryKey === c.key;
             const pending = pendingCategoryKey === c.key;
@@ -8321,43 +8382,8 @@ function AvatarPicker({
             );
           })}
         </div>
-        {/* Mobile: horizontal scroll, clipped and padded so chips can't leak past the panel edge. */}
-        <div className="sm:hidden relative overflow-hidden rounded-lg">
-          {chipEdges.left && (
-            <div className="pointer-events-none absolute inset-y-0 left-0 w-8 bg-gradient-to-r from-slate-900 to-transparent z-10" />
-          )}
-          {chipEdges.right && (
-            <div className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-slate-900 to-transparent z-10" />
-          )}
-          <div
-            ref={chipScrollRef}
-            className="flex gap-2 overflow-x-auto scrollbar-none px-1 pb-1 snap-x snap-mandatory"
-            style={{ scrollbarWidth: "none" }}
-          >
-            {AVATAR_CATEGORIES.map((c) => {
-              const active = activeCategoryKey === c.key;
-              const pending = pendingCategoryKey === c.key;
-              return (
-                <button
-                  key={c.key}
-                  data-cat-key={c.key}
-                  onClick={() => selectCategory(c.key)}
-                  className={`snap-start flex-shrink-0 px-3.5 py-1.5 text-[12px] font-bold rounded-full transition-all duration-200 border ${
-                    active
-                      ? "bg-gradient-to-r from-red-600 to-red-700 text-white border-red-500 shadow-[0_4px_14px_rgba(239,68,68,0.5)] scale-105"
-                      : pending
-                      ? "bg-white text-slate-900 border-white animate-pulse"
-                      : "bg-white/5 text-white/80 border-white/10 hover:bg-white/10 hover:text-white hover:border-red-500/40"
-                  }`}
-                >
-                  {c.label}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
       </div>
+
       <div className="pt-4">
         <AvatarRow
           key={activeCategory.key}
