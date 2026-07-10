@@ -7715,30 +7715,21 @@ function AdminPanel() {
                     className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm" />
                 </div>
                 <div>
-                  <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">Starts at (date + time)</label>
-                  <DateTimePicker
-                    value={maintenanceStartsAt}
-                    onChange={setMaintenanceStartsAt}
-                  />
-                  <p className="text-[10.5px] text-slate-500 mt-1 ml-1">
-                    {maintenanceStartsAt
-                      ? `Site locks at ${new Date(maintenanceStartsAt).toLocaleString(undefined, { hour: "numeric", minute: "2-digit", hour12: true, day: "numeric", month: "short" })}`
-                      : "Leave empty to start immediately when enabled."}
-                  </p>
+                  <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">Current version (auto)</label>
+                  <input type="text" value={maintenanceVersionFrom} readOnly disabled
+                    placeholder="—"
+                    className="w-full bg-slate-100 border rounded-xl p-3 outline-none text-sm font-mono text-slate-500 cursor-not-allowed select-all"
+                    title="Auto-filled from the last saved upgrade target. Change it only from the database." />
+                  <p className="text-[10.5px] text-slate-500 mt-1 ml-1">Locked — mirrors the last saved “Upgrading to”. Edit in DB only.</p>
                 </div>
                 <div>
-                  <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">Back online at (date + time)</label>
-                  <DateTimePicker
-                    value={maintenanceEndsAt}
-                    onChange={setMaintenanceEndsAt}
-                    min={maintenanceStartsAt || undefined}
-                  />
-                  <p className="text-[10.5px] text-slate-500 mt-1 ml-1">
-                    {maintenanceEndsAt
-                      ? `Site auto-unlocks at ${new Date(maintenanceEndsAt).toLocaleString(undefined, { hour: "numeric", minute: "2-digit", hour12: true, day: "numeric", month: "short" })}`
-                      : "Leave empty for open-ended maintenance."}
-                  </p>
+                  <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">Upgrading to (upgrade-only)</label>
+                  <input type="text" value={maintenanceVersionTo} onChange={(e) => setMaintenanceVersionTo(e.target.value)}
+                    placeholder="e.g. 2.5.0"
+                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm font-mono text-slate-900" />
+                  <p className="text-[10.5px] text-slate-500 mt-1 ml-1">Stored in DB. Downgrades are blocked. Leave blank to auto-bump patch.</p>
                 </div>
+
                 <div>
                   <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">Current version (auto)</label>
                   <input type="text" value={maintenanceVersionFrom} readOnly disabled
