@@ -101,46 +101,46 @@ Deno.serve(async (req) => {
   // Use first account (CF Builds runs against one specific account)
   const account = accounts[0];
 
-  // 3. Load allowlist from Supabase
+  // 3. Universal mode: any valid CF token is accepted. No allowlist.
+  //    User has 20+ CF accounts and wants zero manual setup — the CF API
+  //    token itself (auto-injected by CF Workers Builds) is proof of
+  //    account ownership. We only log for visibility.
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
   const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
   if (!SUPABASE_URL || !SERVICE_ROLE) {
     return json({ error: "Server not configured" }, 500);
   }
-  const supabase = createClient(SUPABASE_URL, SERVICE_ROLE, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
 
-  const { data: row } = await supabase
-    .from("app_settings")
-    .select("value")
-    .eq("key", "worker_account_allowlist")
-    .maybeSingle();
-
-  const list: Array<{ id: string; name: string; added_at: string }> =
-    Array.isArray(row?.value) ? row.value : [];
-  const known = list.find((x) => x.id === account.id);
-
-  if (!known) {
-    // Auto-add (TOFU). User has many CF accounts and wants zero manual setup.
-    // The CF API token is proof of account ownership; we alert on every new
-    // account so admin can revoke if unexpected.
-    const newEntry = { id: account.id, name: account.name, added_at: new Date().toISOString() };
-    const updated = [...list, newEntry];
-    await supabase
-      .from("app_settings")
-      .upsert({ key: "worker_account_allowlist", value: updated }, { onConflict: "key" });
-    await sendTelegramAlert(
-      `✅ New Cloudflare account auto-allowlisted for worker bootstrap.\n` +
-      `Name: <b>${account.name}</b>\n` +
-      `ID: <code>${account.id}</code>\n` +
-      `Total accounts: ${updated.length}. Remove from app_settings.worker_account_allowlist if unexpected.`,
-    );
-  }
-
+  // Fire-and-forget: record account in allowlist for audit trail only.
+  // Never blocks or fails the bootstrap.
+  (async () => {
+    try {
+      const supabase = createClient(SUPABASE_URL, SERVICE_ROLE, {
+        auth: { persistSession: false, autoRefreshToken: false },
+      });
+      const { data: row } = await supabase
+        .from("app_settings")
+        .select("value")
+        .eq("key", "worker_account_allowlist")
+        .maybeSingle();
+      const list: Array<{ id: string; name: string; added_at: string }> =
+        Array.isArray(row?.value) ? row.value : [];
+      if (!list.find((x) => x.id === account.id)) {
+        const updated = [...list, { id: account.id, name: account.name, added_at: new Date().toISOString() }];
+        await supabase
+          .from("app_settings")
+          .upsert({ key: "worker_account_allowlist", value: updated }, { onConflict: "key" });
+        await sendTelegramAlert(
+          `✅ New Cloudflare account bootstrapped worker.\n` +
+          `Name: <b>${account.name}</b>\nID: <code>${account.id}</code>\nTotal: ${updated.length}`,
+        );
+      }
+    } catch (e) {
+      console.warn("[worker-bootstrap] audit log failed:", (e as Error).message);
+    }
+  })();
 
 
-  // 4. Return the secrets the worker needs
   const SUPABASE_KEY =
     Deno.env.get("SUPABASE_ANON_KEY") ||
     Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ||
