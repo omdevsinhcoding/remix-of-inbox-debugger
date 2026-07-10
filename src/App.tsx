@@ -7767,20 +7767,12 @@ function AdminPanel() {
                 </p>
               </div>
 
-              </div>
-
               <div className="flex items-center gap-2 mt-4 flex-wrap">
                 <button onClick={() => saveMaintenance()} disabled={savingMaintenance}
                   className="px-4 py-2 rounded-xl bg-slate-900 text-white text-sm font-bold hover:bg-slate-800 disabled:opacity-60">
                   {savingMaintenance ? "Saving…" : "Save changes"}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => { setMaintenanceStartsAt(""); setMaintenanceEndsAt(""); }}
-                  className="px-4 py-2 rounded-xl bg-white border text-slate-700 text-sm font-semibold hover:bg-slate-50"
-                >
-                  Clear schedule
-                </button>
+
                 {maintenanceEnabled && (
                   <span className="text-[11px] px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200 inline-flex items-center gap-1.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" /> Site is in maintenance mode
