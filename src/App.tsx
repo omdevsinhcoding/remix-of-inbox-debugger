@@ -8241,6 +8241,8 @@ function EmailViewer() {
     const bust = !!opts?.bust;
     const limit = opts?.limit || 3;
     try {
+      const { ensureFreshAccess } = await import("./lib/sessionRefresh");
+      await ensureFreshAccess(30_000).catch(() => {});
       const token = getSessionToken();
       const headers: Record<string, string> = {};
       if (token) headers["X-Session-Token"] = token;
@@ -8311,6 +8313,8 @@ function EmailViewer() {
   const syncViaWorker = useCallback(async (): Promise<Email[] | null> => {
     const labels = refreshAccountLabels;
     if (labels && labels.length === 0) return null;
+    const { ensureFreshAccess } = await import("./lib/sessionRefresh");
+    await ensureFreshAccess(30_000).catch(() => {});
     const token = sessionGet("session_token" as any);
     const groups = buildWorkerRequestGroups(labels, workerUrlMap, resolvedWorkerUrls || []);
     if (groups.length === 0 || !token) {
