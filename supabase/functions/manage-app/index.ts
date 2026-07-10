@@ -39,8 +39,10 @@ async function loadGlobalLocationRequired(supabase: any): Promise<boolean> {
   }
 }
 function isProfileLocationRequired(user: any, globalRequired = true) {
-  if (!globalRequired || !user || user.role === "admin" || user.is_free === true) return false;
-  // Default true for every non-admin profile unless admin explicitly turned it off.
+  if (!globalRequired || !user || user.role === "admin") return false;
+  // Default true for every non-admin profile (including free) unless admin
+  // explicitly turned it off. Free profiles follow the same global location
+  // policy as paid profiles — captcha + GPS when policy is ON.
   return publicProfilePrefs(user.profile_prefs).locationRequired !== false;
 }
 const VIS_PASSWORD_RESET_RE = /(password (was |has been )?(changed|reset|updated)|reset your password|forgot password|password reset|new password|account recovery)/i;
