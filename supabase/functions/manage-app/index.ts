@@ -2688,15 +2688,25 @@ Deno.serve(async (originalReq) => {
         value = { enabled: value?.enabled === true };
       }
 
-      // Mask IMAP passwords in email_accounts for non-admin users
+      if (key === "config" && value && session?.role === "admin") {
+        value = maskConfigForAdmin(value);
+      }
+
+      // Mask IMAP passwords in email_accounts. The encrypted value must never
+      // be sent back into the admin input, otherwise a normal save can preserve
+      // ciphertext-looking text in the UI and confuse future edits.
       if (key === "email_accounts" && Array.isArray(value)) {
         const isAdmin = session?.role === "admin";
-        value = value.map((acc: any) => ({
-          ...acc,
-          password: isAdmin ? acc.password : "••••••••",
-          // Non-admin users only see cloudflare URLs and label
-          ...(isAdmin ? {} : { host: undefined, port: undefined, user: undefined }),
-        }));
+        value = isAdmin
+          ? maskEmailAccountsForAdmin(value)
+          : value.map((acc: any) => ({
+              ...acc,
+              password: SECRET_MASK,
+              // Non-admin users only see cloudflare URLs and label
+              host: undefined,
+              port: undefined,
+              user: undefined,
+            }));
       }
 
       if (key === "recaptcha" && value && session?.role !== "admin") {
