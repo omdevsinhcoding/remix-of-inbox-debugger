@@ -6409,6 +6409,43 @@ function AdminPanel() {
               </p>
             </section>
 
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <h2 className="font-black text-base sm:text-lg mb-2 flex items-center gap-2 text-slate-900">
+                <div className="bg-emerald-50 p-1.5 rounded-lg"><Shield className="w-4 h-4 text-emerald-600" /></div>
+                Free Profile Avatar Cooldown
+              </h2>
+              <p className="text-xs text-slate-500 mb-4">
+                Global rate limit for free profiles changing their avatar. When any free user updates
+                their icon, <span className="font-bold">all other free users</span> must wait this many
+                minutes before they can change theirs. Paid and admin accounts are unaffected.
+              </p>
+              <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
+                <div className="flex-1">
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">Cooldown (minutes)</label>
+                  <input
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={freeAvatarCooldownMin}
+                    onChange={(e) => setFreeAvatarCooldownMinState(e.target.value)}
+                    placeholder="e.g. 5"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-emerald-500 text-sm text-slate-900 placeholder:text-slate-400"
+                  />
+                </div>
+                <button
+                  onClick={saveFreeAvatarCooldown}
+                  disabled={savingFreeAvatarCooldown}
+                  className="sm:mt-5 bg-emerald-600 text-white font-bold py-3 px-6 rounded-xl hover:bg-emerald-700 transition-all disabled:opacity-50 text-sm whitespace-nowrap">
+                  {savingFreeAvatarCooldown ? "Saving..." : "Save"}
+                </button>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-3">
+                Current: every free avatar change locks the icon change globally for {freeAvatarCooldownMin || 5} min.
+              </p>
+            </section>
+
+
+
 
 
             <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
