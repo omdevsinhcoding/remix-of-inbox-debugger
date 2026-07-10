@@ -54,6 +54,26 @@ function normalizeEmailFilters(value: any): Required<EmailVisibilityFilters> {
     showAccountUpdates: v.showAccountUpdates === false ? false : true,
   };
 }
+function normalizeEmailAddress(value: string | null | undefined): string {
+  return String(value || "").trim().toLowerCase();
+}
+function extractEmailAddresses(value: string | null | undefined): string[] {
+  const s = normalizeEmailAddress(value);
+  if (!s) return [];
+  const matches = s.match(/[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9.-]+\.[a-z]{2,}/gi) || [];
+  return matches.map(normalizeEmailAddress);
+}
+function normalizeRecipientFilters(raw: any): string[] {
+  const values = Array.isArray(raw) ? raw : typeof raw === "string" ? raw.split(/[\s,;]+/) : [];
+  return Array.from(new Set(values.flatMap((v: any) => extractEmailAddresses(String(v || "")))));
+}
+function recipientMatches(toRaw: string | null | undefined, filters?: string[]): boolean {
+  if (!filters || filters.length === 0) return true;
+  const recipients = extractEmailAddresses(toRaw);
+  if (recipients.length === 0) return false;
+  const allowed = new Set(filters.map(normalizeEmailAddress).filter(Boolean));
+  return recipients.some((email) => allowed.has(email));
+}
 const VIS_ACCOUNT_UPDATE_RE = /(attention|action (needed|required)|account (information|info|details) (was |has been )?(changed|updated)|changes? to your account|email (address )?(was |has been )?(changed|updated)|new email address|email verification|verification email|verify (your )?(email address|phone number|mobile number|account)|confirm (your )?(email address|phone number|mobile number|account change|account)|membership (was |has been )?(cancell?ed|updated|paused)|account (was |has been )?(cancell?ed|deleted|closed|paused|on hold)|we[’']re sorry to see you go|payment (received|method|was|has been|declined|failed|updated|changed)|mobile (number )?(confirm|confirmed|verify|verified|update|updated)|phone (number )?(confirm|confirmed|verify|verified|update|updated)|verify (your )?(phone|mobile|email)|verify your email address|action needed: verify|request to make a change|update your account|make (a |any )?(change|changes) to your account)/i;
 
 function emailVisibilityCategory(row: any): "signin" | "password_reset" | "account_update" | "other" {
@@ -208,6 +228,21 @@ async function normalizeAssignedAccounts(supabase: any, raw: any): Promise<strin
 async function loadAvailableAccountLabels(supabase: any): Promise<string[]> {
   const { data } = await supabase.from("app_settings").select("value").eq("key", "email_accounts").maybeSingle();
   return ["Primary", ...((Array.isArray(data?.value) ? data.value : []).map((acc: any) => String(acc?.label || acc?.user || "").trim()).filter(Boolean))];
+}
+
+async function loadRecipientFiltersByLabel(supabase: any): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>();
+  try {
+    const { data } = await supabase.from("app_settings").select("value").eq("key", "email_accounts").maybeSingle();
+    if (Array.isArray(data?.value)) {
+      for (const acc of data.value) {
+        const label = String(acc?.label || acc?.user || "").trim();
+        if (!label) continue;
+        out.set(label, normalizeRecipientFilters(acc.recipientFilters || acc.recipientFilter || acc.allowedRecipients));
+      }
+    }
+  } catch {}
+  return out;
 }
 
 async function verifyRecaptchaToken(secretKey: string, token: string, ip?: string): Promise<boolean> {
