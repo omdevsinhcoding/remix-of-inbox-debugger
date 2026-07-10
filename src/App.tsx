@@ -9,7 +9,7 @@ import { ToastProvider } from "./components/toast/toast-provider";
 
 import { supabase } from "./integrations/supabase/client";
 import { AVATAR_CATEGORIES, resolveAvatar, buildAvatarId, prettyName, getAvatarCategoryUrls } from "./lib/avatars";
-import { bootstrapFromSupabase, clearSessionData, markSessionStart, readBootstrapCache, refreshBootstrap, patchBootstrapCacheUser, getEmailFilters, setEmailFilters as setEmailFiltersCache, listNotifications, markNotificationRead, markAllNotificationsRead, markNotificationSeen, deleteNotificationForMe, logNotificationEvent, getPoppedIds, markPopped, adminListRecipients, adminDeleteNotificationForUser, type EmailFilters, type AppNotification, type MaintenanceInfo, type NotificationRecipient } from "./lib/bootstrap";
+import { bootstrapFromSupabase, clearSessionData, markSessionStart, readBootstrapCache, refreshBootstrap, patchBootstrapCacheUser, getEmailFilters, setEmailFilters as setEmailFiltersCache, getFreeAvatarCooldown, setFreeAvatarCooldown, listNotifications, markNotificationRead, markAllNotificationsRead, markNotificationSeen, deleteNotificationForMe, logNotificationEvent, getPoppedIds, markPopped, adminListRecipients, adminDeleteNotificationForUser, type EmailFilters, type AppNotification, type MaintenanceInfo, type NotificationRecipient } from "./lib/bootstrap";
 import MaintenanceScreen from "./components/MaintenanceScreen";
 import DateTimePicker from "./components/DateTimePicker";
 import { sessionGet, sessionSet, sessionRemove, sessionClearAll } from "./lib/session";
@@ -4423,6 +4423,8 @@ function AdminPanel() {
   const [adminSessionTimeoutMin, setAdminSessionTimeoutMin] = useState<string>("0");
   const [concurrentSessionLimit, setConcurrentSessionLimit] = useState<string>("0");
   const [savingConcurrentSessionLimit, setSavingConcurrentSessionLimit] = useState(false);
+  const [freeAvatarCooldownMin, setFreeAvatarCooldownMinState] = useState<string>("5");
+  const [savingFreeAvatarCooldown, setSavingFreeAvatarCooldown] = useState(false);
 
   const [savingAdminSessionTimeout, setSavingAdminSessionTimeout] = useState(false);
   const [captchaEnabled, setCaptchaEnabled] = useState<boolean>(false);
@@ -4675,6 +4677,8 @@ function AdminPanel() {
         if (Number.isFinite(cs) && cs >= 0) setConcurrentSessionLimit(String(cs));
         setIpwhoAlertEnabled(s.ipwho_alert?.enabled === true);
         setLocationPolicyRequired(s.location_policy?.required === true);
+        const fac = Number(s.free_avatar_cooldown?.minutes);
+        if (Number.isFinite(fac) && fac > 0) setFreeAvatarCooldownMinState(String(Math.floor(fac)));
 
         if (s.maintenance) {
           const mnt = s.maintenance;
@@ -4788,6 +4792,28 @@ function AdminPanel() {
       setSavingConcurrentSessionLimit(false);
     }
   };
+
+  const saveFreeAvatarCooldown = async () => {
+    const m = Math.max(1, Math.floor(Number(freeAvatarCooldownMin) || 1));
+    setSavingFreeAvatarCooldown(true);
+    try {
+      await apiCall("manage-app", {
+        action: "set_settings",
+        key: "free_avatar_cooldown",
+        value: { minutes: m },
+      });
+      setFreeAvatarCooldownMinState(String(m));
+      setFreeAvatarCooldown({ ...getFreeAvatarCooldown(), minutes: m });
+      notify.success(`Free avatar cooldown set to ${m} min`);
+      refreshBootstrap().catch(() => {});
+    } catch (err) {
+      notify.error(err instanceof Error ? err.message : "Failed to save cooldown");
+    } finally {
+      setSavingFreeAvatarCooldown(false);
+    }
+  };
+
+
 
 
 
@@ -6382,6 +6408,43 @@ function AdminPanel() {
                   : "Unlimited — users can be signed in on any number of devices at once"}
               </p>
             </section>
+
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <h2 className="font-black text-base sm:text-lg mb-2 flex items-center gap-2 text-slate-900">
+                <div className="bg-emerald-50 p-1.5 rounded-lg"><Shield className="w-4 h-4 text-emerald-600" /></div>
+                Free Profile Avatar Cooldown
+              </h2>
+              <p className="text-xs text-slate-500 mb-4">
+                Global rate limit for free profiles changing their avatar. When any free user updates
+                their icon, <span className="font-bold">all other free users</span> must wait this many
+                minutes before they can change theirs. Paid and admin accounts are unaffected.
+              </p>
+              <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
+                <div className="flex-1">
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">Cooldown (minutes)</label>
+                  <input
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={freeAvatarCooldownMin}
+                    onChange={(e) => setFreeAvatarCooldownMinState(e.target.value)}
+                    placeholder="e.g. 5"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-emerald-500 text-sm text-slate-900 placeholder:text-slate-400"
+                  />
+                </div>
+                <button
+                  onClick={saveFreeAvatarCooldown}
+                  disabled={savingFreeAvatarCooldown}
+                  className="sm:mt-5 bg-emerald-600 text-white font-bold py-3 px-6 rounded-xl hover:bg-emerald-700 transition-all disabled:opacity-50 text-sm whitespace-nowrap">
+                  {savingFreeAvatarCooldown ? "Saving..." : "Save"}
+                </button>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-3">
+                Current: every free avatar change locks the icon change globally for {freeAvatarCooldownMin || 5} min.
+              </p>
+            </section>
+
+
 
 
 
@@ -8420,11 +8483,27 @@ function UserProfileModal({
 
   const saveAvatar = async (avatarId: string) => {
     if (savingAvatar) return;
+
+    // Global cooldown for free profiles: block preemptively so we don't
+    // even hit the server if the window is still open.
+    if (user.isFree) {
+      const cd = getFreeAvatarCooldown();
+      const lastMs = cd.lastAt ? Date.parse(cd.lastAt) : 0;
+      const windowMs = (cd.minutes || 5) * 60_000;
+      const remainMs = lastMs ? windowMs - (Date.now() - lastMs) : 0;
+      if (remainMs > 0) {
+        const s = Math.ceil(remainMs / 1000);
+        const label = s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`;
+        notify.info("Profile icon recently updated", {
+          description: `Please wait ${label} before changing again.`,
+        });
+        return;
+      }
+    }
+
     const nextPrefs = { ...prefs, avatarId };
     setSavingAvatar(true);
     onPrefsSaved(nextPrefs);
-    // Also update the in-session `user` object so header/other surfaces render
-    // the new avatar in micro-seconds without waiting for a network roundtrip.
     try {
       const stored = JSON.parse(sessionGet("user" as any) || "{}");
       stored.profilePrefs = nextPrefs;
@@ -8435,7 +8514,20 @@ function UserProfileModal({
       patchBootstrapCacheUser(user.id, { profile_prefs: nextPrefs, profileAvatar: avatarId });
     }
     try {
-      await apiCall("manage-app", { action: "update_profile_prefs", profile_prefs: nextPrefs });
+      const res: any = await apiCall("manage-app", { action: "update_profile_prefs", profile_prefs: nextPrefs });
+      if (res && res.success === false && res.code === "AVATAR_COOLDOWN") {
+        // Server rejected — sync local cooldown state, revert optimistic patch.
+        setFreeAvatarCooldown({ minutes: Number(res.minutes) || 5, lastAt: res.lastAt || null });
+        const s = Math.max(1, Number(res.retryAfterSec) || 1);
+        const label = s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`;
+        notify.info("Profile icon recently updated", {
+          description: `Please wait ${label} before changing again.`,
+        });
+        onPrefsSaved(prefs);
+        refreshBootstrap().catch(() => {});
+        return;
+      }
+      if (res?.freeAvatarCooldown) setFreeAvatarCooldown(res.freeAvatarCooldown);
       notify.success("Profile icon updated");
       refreshBootstrap().catch(() => {});
     } catch (err) {

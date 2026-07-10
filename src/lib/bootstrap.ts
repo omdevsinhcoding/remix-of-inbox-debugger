@@ -9,7 +9,19 @@ const BOOTSTRAP_TIMEOUT_MS = 20000;
 
 export type EmailFilters = { showSignInCodes?: boolean; showPasswordResets?: boolean; showAccountUpdates?: boolean };
 export type MaintenanceInfo = { enabled: boolean; title?: string; message?: string; eta?: string; startsAt?: string | null; endsAt?: string | null; versionFrom?: string; versionTo?: string; updated_at?: string | null };
-export type BootstrapResult = { users: any[]; recaptcha: any; workerUrls: string[]; emailFilters?: EmailFilters; maintenance?: MaintenanceInfo; avatarBaseUrl?: string };
+export type FreeAvatarCooldown = { minutes: number; lastAt: string | null };
+export type BootstrapResult = { users: any[]; recaptcha: any; workerUrls: string[]; emailFilters?: EmailFilters; maintenance?: MaintenanceInfo; avatarBaseUrl?: string; freeAvatarCooldown?: FreeAvatarCooldown };
+
+// Module-level free-avatar cooldown cache — kept in sync with bootstrap.
+let currentFreeAvatarCooldown: FreeAvatarCooldown = { minutes: 5, lastAt: null };
+export function getFreeAvatarCooldown(): FreeAvatarCooldown { return currentFreeAvatarCooldown; }
+export function setFreeAvatarCooldown(next: FreeAvatarCooldown | null | undefined) {
+  const minutes = Number(next?.minutes);
+  currentFreeAvatarCooldown = {
+    minutes: Number.isFinite(minutes) && minutes > 0 ? Math.floor(minutes) : 5,
+    lastAt: typeof next?.lastAt === "string" ? next.lastAt : null,
+  };
+}
 
 
 // Module-level filter cache — read synchronously by filterVisibleEmails.
@@ -107,7 +119,8 @@ export function readBootstrapCache(): BootstrapResult | null {
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return null;
     if (!parsed.savedAt || Date.now() - parsed.savedAt > BOOTSTRAP_CACHE_TTL_MS) return null;
-    const result = { users: sanitizeBootstrapUsers(parsed.users || []), recaptcha: parsed.recaptcha, workerUrls: parsed.workerUrls || [], emailFilters: DEFAULT_EMAIL_FILTERS, maintenance: parsed.maintenance, avatarBaseUrl: parsed.avatarBaseUrl || "" };
+    const result = { users: sanitizeBootstrapUsers(parsed.users || []), recaptcha: parsed.recaptcha, workerUrls: parsed.workerUrls || [], emailFilters: DEFAULT_EMAIL_FILTERS, maintenance: parsed.maintenance, avatarBaseUrl: parsed.avatarBaseUrl || "", freeAvatarCooldown: parsed.freeAvatarCooldown || { minutes: 5, lastAt: null } };
+    setFreeAvatarCooldown(result.freeAvatarCooldown);
     setAvatarBaseUrl(result.avatarBaseUrl);
     return result;
   } catch { return null; }
@@ -147,9 +160,10 @@ export async function bootstrapFromSupabase(opts?: { force?: boolean }): Promise
       storeWorkerUrls(data.workerUrls);
     }
 
-    const result: BootstrapResult = { users: sanitizeBootstrapUsers(data.users || []), recaptcha: data.recaptcha, workerUrls: data.workerUrls || [], emailFilters: normalizeEmailFilters(data.emailFilters), maintenance: data.maintenance || { enabled: false }, avatarBaseUrl: data.avatarBaseUrl || "" };
+    const result: BootstrapResult = { users: sanitizeBootstrapUsers(data.users || []), recaptcha: data.recaptcha, workerUrls: data.workerUrls || [], emailFilters: normalizeEmailFilters(data.emailFilters), maintenance: data.maintenance || { enabled: false }, avatarBaseUrl: data.avatarBaseUrl || "", freeAvatarCooldown: data.freeAvatarCooldown || { minutes: 5, lastAt: null } };
     setAvatarBaseUrl(result.avatarBaseUrl);
     setEmailFilters(result.emailFilters || DEFAULT_EMAIL_FILTERS);
+    setFreeAvatarCooldown(result.freeAvatarCooldown);
     writeBootstrapCache(result);
     return result;
   })();
