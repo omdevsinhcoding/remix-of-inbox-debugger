@@ -1,6 +1,6 @@
 import React, { useState, useEffect, createContext, useContext, useCallback, useRef, useMemo, Suspense, lazy } from "react";
 import { createPortal } from "react-dom";
-import { Mail, RefreshCw, ShieldCheck, Shield, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, BarChart3, Globe, Edit, Database, Wifi, Info, UserCircle, Search, ChevronLeft, ChevronRight, Bell, Send, MessageSquare, Image as ImageIcon, ExternalLink, AlertTriangle, Sparkles, Megaphone, Wrench, CreditCard, Tag, ChevronDown, HardDrive, Upload, Zap, BookOpen, GraduationCap, Film, PlayCircle, Pin, MapPin, MapPinOff } from "lucide-react";
+import { Mail, RefreshCw, ShieldCheck, Shield, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, BarChart3, Globe, Edit, Database, Wifi, Info, UserCircle, Search, ChevronLeft, ChevronRight, Bell, Send, MessageSquare, Image as ImageIcon, ExternalLink, AlertTriangle, Sparkles, Megaphone, Wrench, CreditCard, Tag, ChevronDown, ChevronUp, HardDrive, Upload, Zap, BookOpen, GraduationCap, Film, PlayCircle, Pin, MapPin, MapPinOff } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import NetflixHouseholdVerificationGuide from "./pages/NetflixHouseholdVerificationGuide";
@@ -5413,6 +5413,23 @@ function AdminPanel() {
     setDragUserId(null);
   };
 
+  const moveUser = (id: string, dir: -1 | 1) => {
+    setUsers(prev => {
+      const nonAdmin = prev.filter(u => u.role !== "admin");
+      const admins = prev.filter(u => u.role === "admin");
+      const from = nonAdmin.findIndex(u => u.id === id);
+      if (from < 0) return prev;
+      const to = from + dir;
+      if (to < 0 || to >= nonAdmin.length) return prev;
+      const moved = [...nonAdmin];
+      [moved[from], moved[to]] = [moved[to], moved[from]];
+      persistUserOrder(moved.map(u => u.id));
+      return [...admins, ...moved];
+    });
+  };
+
+
+
 
   const deleteUser = async (id: string) => {
     try {
@@ -5681,8 +5698,13 @@ function AdminPanel() {
               </div>
 
               <div className="relative space-y-2.5">
+                {(() => { return null; })()}
                 {users.map(u => {
                   const canDrag = u.role !== "admin";
+                  const nonAdminList = users.filter(x => x.role !== "admin");
+                  const idx = nonAdminList.findIndex(x => x.id === u.id);
+                  const isFirst = idx === 0;
+                  const isLast = idx === nonAdminList.length - 1;
                   const railColor = u.role === "admin" ? "from-red-500 to-red-700" : (u.isFree ? "from-emerald-400 to-emerald-600" : "from-blue-500 to-blue-700");
                   const glowColor = u.role === "admin" ? "shadow-red-500/20" : (u.isFree ? "shadow-emerald-500/20" : "shadow-blue-500/20");
                   return (
@@ -5755,6 +5777,15 @@ function AdminPanel() {
 
                       {u.role !== "admin" && (
                         <div className="mt-3 flex items-center gap-0.5 sm:gap-1 p-1 rounded-xl bg-gradient-to-br from-slate-50 to-slate-100/60 border border-slate-200/80">
+                          <button onClick={() => moveUser(u.id, -1)} disabled={isFirst || reordering} title="Move up"
+                            className="flex-1 flex items-center justify-center h-9 rounded-lg text-slate-500 hover:bg-white hover:text-indigo-600 hover:shadow-sm transition-all active:scale-95 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-slate-500 disabled:cursor-not-allowed">
+                            <ChevronUp className="w-4 h-4" strokeWidth={2.5} />
+                          </button>
+                          <button onClick={() => moveUser(u.id, 1)} disabled={isLast || reordering} title="Move down"
+                            className="flex-1 flex items-center justify-center h-9 rounded-lg text-slate-500 hover:bg-white hover:text-indigo-600 hover:shadow-sm transition-all active:scale-95 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-slate-500 disabled:cursor-not-allowed">
+                            <ChevronDown className="w-4 h-4" strokeWidth={2.5} />
+                          </button>
+                          <div className="w-px h-6 bg-slate-200" />
                           <button onClick={() => togglePinnedUser(u)} title={u.pinned ? "Unpin" : "Pin to top"}
                             className={`flex-1 flex items-center justify-center h-9 rounded-lg transition-all active:scale-95 ${u.pinned ? "bg-white text-amber-600 ring-1 ring-amber-300 shadow-sm" : "text-slate-500 hover:bg-white hover:text-amber-600 hover:shadow-sm"}`}>
                             <Pin className="w-4 h-4" strokeWidth={2.5} fill={u.pinned ? "currentColor" : "none"} />
