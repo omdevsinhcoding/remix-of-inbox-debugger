@@ -5864,7 +5864,9 @@ function AdminPanel() {
                         </button>
                       </div>
                     )}
+                    </div>
                   </div>
+
                   );
                 })}
                 {users.length === 0 && <p className="text-slate-400 text-sm text-center py-8">No users yet. Create one above.</p>}
