@@ -5906,11 +5906,14 @@ function AdminPanel() {
                                     <Mail className="w-4 h-4 text-rose-500" />
                                     Which mailboxes can they see?
                                   </label>
-                                  <button type="button" onClick={() => notify.info("Tick the mailboxes this user is allowed to open. Untick = hidden from them.")}
-                                    className="w-6 h-6 rounded-full bg-slate-100 hover:bg-rose-100 text-slate-500 hover:text-rose-600 flex items-center justify-center transition-colors" title="What is this?">
+                                  <button type="button" onClick={() => setEditHint(editHint === "mail" ? null : "mail")}
+                                    className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors ${editHint === "mail" ? "bg-rose-500 text-white" : "bg-slate-100 hover:bg-rose-100 text-slate-500 hover:text-rose-600"}`} title="What is this?">
                                     <Info className="w-3.5 h-3.5" />
                                   </button>
                                 </div>
+                                {editHint === "mail" && (
+                                  <p className="mb-2 text-[11px] text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-2.5 py-1.5 leading-snug">Tick a mailbox = user can open it. Untick = hidden from them.</p>
+                                )}
                                 <p className="text-[11px] text-slate-500 mb-2">Tap a box to allow · untap to hide</p>
                                 <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
                                   {getAvailableAccounts().map(label => {
