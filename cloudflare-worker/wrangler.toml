@@ -15,7 +15,8 @@ binding = "EMAIL_CACHE"
 # Cloudflare Workers → Create → Connect to Git:
 #   Repo:            inbox-debugger
 #   Branch:          main
-#   Root directory:  /cloudflare-worker
+#   Root directory:  (blank is OK because repo root has wrangler.toml)
+#                    OR /cloudflare-worker for isolated worker deploys
 #   Build command:   (leave empty)
 #   Deploy command:  npx wrangler deploy
 #
@@ -29,5 +30,6 @@ binding = "EMAIL_CACHE"
 #     Workers Scripts edit, Workers KV Storage edit.
 #   • Wrangler 4.45+ can deploy KV bindings without resource IDs.
 
-# Do NOT use Wrangler custom-build here. Cloudflare Workers Builds already has
-# its own command step. Default deploy command `npx wrangler deploy` is enough.
+# If Cloudflare auto-fills `npm run build`, clear it manually. That means it
+# detected the root React app instead of this Worker config. The deploy command
+# must remain `npx wrangler deploy`.

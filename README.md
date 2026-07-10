@@ -112,13 +112,15 @@ Inside app: **Admin Panel → Cron Settings** → toggle ON → pick interval (3
 
 ## ☁️ Part 2 — Cloudflare Worker Deploy
 
-Worker source lives in [`/cloudflare-worker/worker.js`](./cloudflare-worker/worker.js).
+Worker source lives in [`/cloudflare-worker/worker.js`](./cloudflare-worker/worker.js). A root-level [`wrangler.toml`](./wrangler.toml) also exists so Cloudflare can deploy correctly even when **Root directory is left blank**.
 
 **Zero runtime secrets required** — Supabase URL + anon key are baked into `worker.js` as defaults. KV auto-provisions on first deploy.
 
 ### 🎯 One-Time Setup
 
-Open **Cloudflare Dashboard → Workers & Pages → Create → Import a repository**
+Open **Cloudflare Dashboard → Workers & Pages → Create → Import a repository**.
+
+> ✅ Important: choose **Workers**, not Pages/Vite. If Cloudflare auto-fills `npm run build`, it detected the React frontend. Clear that field and keep the deploy command below.
 
 #### Step 1 — Connect Git
 
@@ -126,7 +128,9 @@ Open **Cloudflare Dashboard → Workers & Pages → Create → Import a reposito
 |---|---|
 | Repository | `inbox-debugger` (your GitHub repo) |
 | Production branch | `main` |
-| **Root directory** | `/cloudflare-worker` |
+| **Root directory** | *(leave blank — recommended)* |
+
+> Advanced option: `/cloudflare-worker` also works, but blank is now safer because the repo root has `wrangler.toml` pointing to the worker file.
 
 #### Step 2 — Build & Deploy
 
@@ -137,7 +141,7 @@ Open **Cloudflare Dashboard → Workers & Pages → Create → Import a reposito
 | Build variables | *(none)* |
 | Build secrets | *(none)* |
 
-> ⚠️ **DO NOT** put `bash setup.sh` in Build command — Cloudflare's build step doesn't forward secrets to deploy step.
+> ⚠️ If the dashboard keeps showing `npm run build`, delete it. This project is a Worker deploy; the React app build is for Vercel/Netlify/Lovable, not Cloudflare Worker.
 
 #### Step 3 — Non-Production Branches
 
@@ -162,7 +166,8 @@ Open **Cloudflare Dashboard → Workers & Pages → Create → Import a reposito
 Repository:           your-github-org/inbox-debugger
 Production branch:    main
 Root directory:       /cloudflare-worker
-Build command:        (empty)
+Root directory:       (blank)
+Build command:        (empty — delete npm run build if auto-filled)
 Deploy command:       npx wrangler deploy
 Non-prod branches:    ☐ unchecked
 Non-prod command:     (empty)
@@ -176,7 +181,17 @@ API Token:            Use default
 2. Copy that URL
 3. In app: **Admin Panel → Infrastructure → Primary Cloudflare Worker URLs** → paste → Save
 
-Done. Every push to `main` auto-deploys.
+Done. Every **new push to `main`** auto-deploys.
+
+### 🚨 Why it did not start after 5–10 minutes
+
+Cloudflare does **not** keep polling an old commit after you connect an existing Worker. It triggers when:
+
+1. you click **Save and Deploy** during initial Git import, or
+2. a **new commit** is pushed to the selected production branch, or
+3. you open **Deployments → Build history** and manually retry/start a build.
+
+If Build history says **“No builds exist yet”**, GitHub Builds has not run. Push any small commit after connecting, then it should appear there.
 
 ---
 
@@ -244,7 +259,8 @@ SPA fallback is already configured (`public/_redirects`, `netlify.toml`, `vercel
 
 | Problem | Fix |
 |---|---|
-| "No builds exist yet" in Cloudflare | Git not connected. Settings → Builds → **Connect** |
+| "No builds exist yet" in Cloudflare | Git Builds has not run yet. Use **Save and Deploy**, or push a new commit after connecting. |
+| Blank build command becomes `npm run build` | Cloudflare detected the React frontend. Clear it, choose Workers, and keep deploy command `npx wrangler deploy`. |
 | Cloudflare build fails: `wrangler.toml missing name` | Check `wrangler.toml` has `name = "netflix"` (or your chosen name) |
 | Build fails: `you need to provide a name` in deploy | Same as above — name field required |
 | Worker deployed but app shows no emails | Paste worker URL in Admin Panel → Infrastructure |
