@@ -8421,8 +8421,8 @@ function AvatarPicker({
 
   return (
     <div className="pb-4">
-      {/* ============ MOBILE HEADER (premium clean, from scratch) ============ */}
-      <div className="sm:hidden sticky top-0 z-10 bg-white border-b border-slate-100 px-4 pt-3 pb-2">
+      {/* ============ HEADER (same on mobile + desktop) ============ */}
+      <div className="sticky top-0 z-10 bg-white border-b border-slate-100 px-4 pt-3 pb-2">
         <div className="flex items-baseline justify-between mb-2.5">
           <h3 className="text-[15px] font-bold text-slate-900 tracking-tight">
             Choose an icon
@@ -8452,6 +8452,7 @@ function AvatarPicker({
                   key={c.key}
                   data-cat-key={c.key}
                   onClick={() => selectCategory(c.key)}
+                  onMouseEnter={() => warmAvatarCategory(c.key, "low")}
                   className={`flex-shrink-0 relative pb-2 pt-1 text-[13px] font-semibold whitespace-nowrap transition-colors ${
                     active ? "text-red-600" : pending ? "text-slate-900" : "text-slate-500"
                   }`}
@@ -8464,49 +8465,6 @@ function AvatarPicker({
               );
             })}
           </div>
-        </div>
-      </div>
-
-
-      {/* ============ DESKTOP HEADER (unchanged) ============ */}
-      <div className="hidden sm:block sticky top-0 z-10 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-900 border-b border-red-600/30 px-5 pt-4 pb-3 space-y-3 shadow-lg shadow-black/40">
-        <div className="flex items-end justify-between gap-3">
-          <div className="flex items-center gap-2.5">
-            <span className="inline-flex h-8 w-1.5 rounded-full bg-gradient-to-b from-red-500 to-red-700 shadow-[0_0_12px_rgba(239,68,68,0.6)]" />
-            <div>
-              <h3 className="text-lg font-black text-white tracking-tight leading-none">Choose your character</h3>
-              <p className="text-[11px] font-semibold text-red-400/90 mt-1 flex items-center gap-1.5">
-                <span className="inline-block h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
-                Swipe categories &nbsp;·&nbsp; {activeCategory.label}
-              </p>
-            </div>
-          </div>
-          <span className="text-[10px] font-bold uppercase tracking-widest text-white/60 whitespace-nowrap">
-            {saving ? "Saving…" : pendingCategoryKey ? "Preparing…" : `${activeCategory.files.length} icons`}
-          </span>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {AVATAR_CATEGORIES.map((c) => {
-            const active = activeCategoryKey === c.key;
-            const pending = pendingCategoryKey === c.key;
-            return (
-              <button
-                key={c.key}
-                data-cat-key={c.key}
-                onClick={() => selectCategory(c.key)}
-                onMouseEnter={() => warmAvatarCategory(c.key, "low")}
-                className={`px-3.5 py-1.5 text-[12px] font-bold rounded-full transition-all duration-200 border ${
-                  active
-                    ? "bg-gradient-to-r from-red-600 to-red-700 text-white border-red-500 shadow-[0_4px_14px_rgba(239,68,68,0.5)] scale-105"
-                    : pending
-                    ? "bg-white text-slate-900 border-white animate-pulse"
-                    : "bg-white/5 text-white/80 border-white/10 hover:bg-white/10 hover:text-white hover:border-red-500/40"
-                }`}
-              >
-                {c.label}
-              </button>
-            );
-          })}
         </div>
       </div>
 
