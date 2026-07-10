@@ -6930,6 +6930,7 @@ function AdminPanel() {
                     <div className="rounded-xl border-2 border-emerald-400 bg-emerald-50 p-3">
                       <p className="text-xs font-black text-emerald-900 mb-2">⚡ 1-SAAL BAAD YAAD KARNE KE LIYE — Sirf ye 8 steps</p>
                       <p className="text-[10px] text-emerald-800 mb-2">Har Cloudflare account me exact same. Bookmark kar lo.</p>
+                      <p className="text-[10.5px] text-red-800 bg-red-50 border border-red-200 rounded-lg p-2 mb-2"><b>IMPORTANT:</b> GitHub link sirf code deploy karta hai. Lovable/Supabase ke secrets Cloudflare me khud se copy nahi hote. Cloudflare Settings → Variables → Build variables me value add karoge tabhi deploy.mjs Worker Secrets banayega.</p>
                       <pre className="whitespace-pre-wrap break-words text-[10.5px] leading-relaxed font-mono bg-white rounded-lg p-2 border border-emerald-200 text-slate-800">{`1. dash.cloudflare.com → us account me login karo
 2. Workers & Pages → Create → "Import a repository"
    (NOT "Hello World")
@@ -6944,12 +6945,12 @@ function AdminPanel() {
    Permissions: Workers Scripts Edit +
                 Workers KV Storage Edit +
                 Account Settings Read
-6. (Optional) Settings → Variables → Build variables:
+6. (Signed/admin endpoints ke liye required) Settings → Variables → Build variables:
    Ye names me se jo chahiye add karo →
      SESSION_SIGNING_SECRET, SESSION_SECRET,
      CRON_SHARED_SECRET, SUPABASE_URL, SUPABASE_KEY,
      TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, DEBUG_TOKEN
-   deploy.mjs har deploy pe auto Worker Secret bana dega ✨
+   Sirf in Cloudflare Build variables se deploy.mjs Worker Secret banayega ✨
    SESSION_SIGNING_SECRET fingerprint upar "Reveal" se check karo.
 7. "Save and Deploy" → Logs me dekho:
      "Syncing N secret(s) to Worker"

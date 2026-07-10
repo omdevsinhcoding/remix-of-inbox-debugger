@@ -120,6 +120,8 @@ Worker source lives in [`/cloudflare-worker/worker.js`](./cloudflare-worker/work
 
 Same 8 steps for **every** Cloudflare account. Nothing else. Bookmark this.
 
+> **Important:** GitHub connect only deploys code. It does **not** copy Lovable/Supabase secrets into Cloudflare. Cloudflare can create Worker Secrets only from values you add in **Cloudflare → Settings → Variables → Build variables** before running `npm run deploy`.
+
 ```
 1. dash.cloudflare.com → login to the account you want to deploy to
 2. Workers & Pages → Create → "Import a repository"     (NOT "Hello World")
@@ -134,11 +136,11 @@ Same 8 steps for **every** Cloudflare account. Nothing else. Bookmark this.
       Workers Scripts: Edit
       Workers KV Storage: Edit
       Account Settings: Read
-6. (Optional) Settings → Variables → Build variables → add ANY of:
+6. (Required for signed/admin endpoints) Settings → Variables → Build variables → add ANY of:
       SESSION_SIGNING_SECRET, SESSION_SECRET, CRON_SHARED_SECRET,
       SUPABASE_URL, SUPABASE_KEY, SUPABASE_ANON_KEY,
       SUPABASE_SERVICE_ROLE_KEY, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, DEBUG_TOKEN
-   deploy.mjs will auto-push these as Worker Secrets on every deploy.
+   deploy.mjs will auto-push only these Cloudflare Build variables as Worker Secrets on every deploy.
    Reveal SESSION_SIGNING_SECRET fingerprint from Admin Panel → Deploy tab.
 7. Save and Deploy. Watch logs for:
       "Syncing N secret(s) to Worker"
