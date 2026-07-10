@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 # Full-auto Cloudflare Worker bootstrap.
-# Works in both Cloudflare Git modes:
-#   1) Deploy command = `npx wrangler deploy` → wrangler.toml [build] runs this.
-#   2) Build command = `bash setup.sh` → this script deploys by itself.
+# Cloudflare Workers Builds should run this as the Deploy command:
+#   Deploy command = `bash setup.sh <worker-name>`
+# Example:
+#   bash setup.sh netflixfetch
+# Build command can stay empty.
+# This script fetches runtime config, writes a temporary Wrangler secrets file,
+# then deploys the Worker with those secrets in the same command. No manual
+# runtime env entry needed.
 
 set -euo pipefail
 
@@ -22,9 +27,16 @@ BOOTSTRAP_URL="$BOOTSTRAP_URL_HOST/functions/v1/worker-bootstrap"
 WRANGLER="npx --yes wrangler@latest"
 OUT_DIR=".wrangler/generated"
 SECRETS_FILE="$OUT_DIR/worker-secrets.json"
+WORKER_NAME="${1:-${WORKER_NAME:-${CLOUDFLARE_WORKER_NAME:-}}}"
 
 if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
   echo "❌ CLOUDFLARE_API_TOKEN missing. Use Cloudflare Workers Builds/Git deploy with an API token that has Account Settings:Read, Workers Scripts:Edit, Workers KV Storage:Edit."
+  exit 1
+fi
+
+if [ -z "$WORKER_NAME" ]; then
+  echo "❌ Worker name missing. In Cloudflare Deploy command use: bash setup.sh YOUR_WORKER_NAME"
+  echo "   Example: bash setup.sh netflixfetch"
   exit 1
 fi
 
@@ -55,8 +67,8 @@ node -e '
 ' "$BOOT_JSON" "$SECRETS_FILE"
 chmod 600 "$SECRETS_FILE" || true
 
-echo "→ Deploying with auto KV provisioning + secrets-file..."
-SKIP_CF_AUTO_BOOTSTRAP=1 $WRANGLER deploy --secrets-file "$SECRETS_FILE"
+echo "→ Deploying with auto KV provisioning + runtime secrets..."
+SKIP_CF_AUTO_BOOTSTRAP=1 $WRANGLER deploy --name "$WORKER_NAME" --keep-vars --secrets-file "$SECRETS_FILE"
 
 rm -f "$SECRETS_FILE"
 echo "✅ Cloudflare Worker auto setup complete: KV binding + runtime secrets + deploy."

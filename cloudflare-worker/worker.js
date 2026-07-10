@@ -7,8 +7,10 @@
  * - Supabase fetch-emails proxy + KV cache support
  * - Proper error logging for KV failures
  * 
- * Environment Variables:
- *   SUPABASE_URL, SUPABASE_KEY, SESSION_SECRET
+ * Runtime configuration:
+ *   Supabase URL + anon key are public and built in so this Worker can run on
+ *   any Cloudflare account without manual env/secrets injection. Optional env
+ *   vars still override them for forks/custom projects.
  * 
  * KV Namespace Bindings:
  *   EMAIL_CACHE (primary), EMAIL_CACHE_V2 (optional secondary)
@@ -19,6 +21,17 @@ const CORS_HEADERS = {
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Session-Token, X-Pending-Token, X-Cron-Secret, X-Worker-Config-Secret, Cache-Control",
 };
+
+const DEFAULT_SUPABASE_URL = "https://jsqchutnfdeljajkxmly.supabase.co";
+const DEFAULT_SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJqc3FjaHV0bmZkZWxqYWpreG1seSIsInJvbGUiOiJhbm9uIiwiaWF0IjoxNzc0MTIyOTM5LCJleHAiOjIwODk2OTg5Mzl9.HYN4zMEYEiP-H5KD_iIbFpr0GsatNoeyw40FI2mW_eA";
+
+function supabaseUrl(env) {
+  return env.SUPABASE_URL || DEFAULT_SUPABASE_URL;
+}
+
+function supabaseKey(env) {
+  return env.SUPABASE_KEY || env.SUPABASE_ANON_KEY || DEFAULT_SUPABASE_KEY;
+}
 
 // Keep the original unversioned keys so already-cached worker emails remain visible.
 const CACHE_SCHEMA_VERSION = "classic";
@@ -82,6 +95,38 @@ async function verifySessionToken(token, secret) {
   } catch { return null; }
 }
 
+async function hydrateSessionFromSupabase(env, token, request) {
+  if (!token) return null;
+  const key = supabaseKey(env);
+  try {
+    const res = await fetch(`${supabaseUrl(env)}/functions/v1/manage-app`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${key}`,
+        "apikey": key,
+        "X-Session-Token": token,
+        ...(request?.headers?.get("user-agent") ? { "User-Agent": request.headers.get("user-agent") } : {}),
+      },
+      body: JSON.stringify({ action: "me" }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json().catch(() => null);
+    const user = data?.user;
+    if (!user?.id) return null;
+    return {
+      userId: user.id,
+      role: user.role,
+      assignedAccounts: Array.isArray(user.assignedAccounts) ? user.assignedAccounts : [],
+      isFree: !!user.isFree,
+      impersonated: user.impersonated === true,
+      adminId: user.adminId || null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 function parseEmailList(raw) {
   if (!raw) return [];
   try {
@@ -143,14 +188,15 @@ function normalizeEmailFilters(value) {
 }
 
 async function readWorkerEmailFilters(env, rawToken = "") {
-  if (rawToken && env.SUPABASE_URL && env.SUPABASE_KEY) {
+  if (rawToken) {
     try {
-      const res = await fetch(`${env.SUPABASE_URL}/functions/v1/manage-app`, {
+      const key = supabaseKey(env);
+      const res = await fetch(`${supabaseUrl(env)}/functions/v1/manage-app`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${env.SUPABASE_KEY}`,
-          "apikey": env.SUPABASE_KEY,
+          "Authorization": `Bearer ${key}`,
+          "apikey": key,
           "X-Session-Token": rawToken,
         },
         body: JSON.stringify({ action: "get_settings", key: "email_filters" }),
@@ -289,12 +335,14 @@ export default {
       }
     }
 
-    // Session auth is OPTIONAL. If this worker has SESSION_SIGNING_SECRET set
-    // AND the request came with a token that failed to verify → reject.
-    // If no secret is configured on this worker, allow through (legacy mode)
-    // so new workers can be spun up without matching secrets everywhere.
+    // Universal Cloudflare mode: if signing secrets were not injected, validate
+    // the token through Supabase instead of failing local HMAC verification.
+    if (sessionToken && !session) {
+      session = await hydrateSessionFromSupabase(env, sessionToken, request);
+    }
+
     if ((url.pathname === "/api/emails" || url.pathname === "/api/emails/sync") && !session) {
-      if (hasSigning && sessionToken) {
+      if (sessionToken) {
         return new Response(JSON.stringify({ error: "Invalid session" }), {
           status: 401, headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
         });
@@ -376,12 +424,12 @@ export default {
     try {
       const headers = {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${env.SUPABASE_KEY}`,
-        "apikey": env.SUPABASE_KEY,
+        "Authorization": `Bearer ${supabaseKey(env)}`,
+        "apikey": supabaseKey(env),
         ...(env.CRON_SHARED_SECRET ? { "X-Cron-Secret": env.CRON_SHARED_SECRET } : {}),
       };
 
-      const res = await fetch(`${env.SUPABASE_URL}/functions/v1/fetch-emails`, {
+      const res = await fetch(`${supabaseUrl(env)}/functions/v1/fetch-emails`, {
         method: "POST",
         headers,
         body: JSON.stringify({ mode: "sync", source: "cron" }),
@@ -393,7 +441,7 @@ export default {
         return;
       }
 
-      const cacheRes = await fetch(`${env.SUPABASE_URL}/functions/v1/fetch-emails`, {
+      const cacheRes = await fetch(`${supabaseUrl(env)}/functions/v1/fetch-emails`, {
         method: "POST",
         headers,
         body: JSON.stringify({ mode: "cache" }),
@@ -553,8 +601,8 @@ async function handleSync(env, session, rawToken, requestBody, ctx) {
     }
     const headers = {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${env.SUPABASE_KEY}`,
-      "apikey": env.SUPABASE_KEY,
+      "Authorization": `Bearer ${supabaseKey(env)}`,
+      "apikey": supabaseKey(env),
     };
     if (rawToken) headers["X-Session-Token"] = rawToken;
 
@@ -565,7 +613,7 @@ async function handleSync(env, session, rawToken, requestBody, ctx) {
     };
     if (requestedLabels.length > 0) syncPayload.accountLabels = requestedLabels;
 
-    const res = await fetch(`${env.SUPABASE_URL}/functions/v1/fetch-emails`, {
+    const res = await fetch(`${supabaseUrl(env)}/functions/v1/fetch-emails`, {
       method: "POST",
       headers,
       body: JSON.stringify(syncPayload),
@@ -620,12 +668,12 @@ async function fetchDirectFromSupabase(env, session, rawToken, opts = {}) {
 
     const headers = {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${env.SUPABASE_KEY}`,
-      "apikey": env.SUPABASE_KEY,
+      "Authorization": `Bearer ${supabaseKey(env)}`,
+      "apikey": supabaseKey(env),
     };
     if (rawToken) headers["X-Session-Token"] = rawToken;
 
-    const res = await fetch(`${env.SUPABASE_URL}/functions/v1/fetch-emails`, {
+    const res = await fetch(`${supabaseUrl(env)}/functions/v1/fetch-emails`, {
       method: "POST",
       headers,
       body: JSON.stringify(bodyPayload),
@@ -747,8 +795,8 @@ async function handleFunctionProxy(request, env, fnName) {
 
     const headers = {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${env.SUPABASE_KEY}`,
-      "apikey": env.SUPABASE_KEY,
+      "Authorization": `Bearer ${supabaseKey(env)}`,
+      "apikey": supabaseKey(env),
     };
     if (sessionToken) headers["X-Session-Token"] = sessionToken;
     if (pendingToken) headers["X-Pending-Token"] = pendingToken;
@@ -770,7 +818,7 @@ async function handleFunctionProxy(request, env, fnName) {
       }).slice(0, 1800);
     } catch {}
 
-    const res = await fetch(`${env.SUPABASE_URL}/functions/v1/${fnName}`, {
+    const res = await fetch(`${supabaseUrl(env)}/functions/v1/${fnName}`, {
       method: "POST",
       headers,
       body,
@@ -821,12 +869,12 @@ function inboxHtmlHeaders(extra = {}) {
 }
 
 async function callEmailHtmlFn(env, rawToken, payload) {
-  const res = await fetch(`${env.SUPABASE_URL}/functions/v1/${EMAIL_HTML_FUNCTION}`, {
+  const res = await fetch(`${supabaseUrl(env)}/functions/v1/${EMAIL_HTML_FUNCTION}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${env.SUPABASE_KEY}`,
-      "apikey": env.SUPABASE_KEY,
+      "Authorization": `Bearer ${supabaseKey(env)}`,
+      "apikey": supabaseKey(env),
       "X-Session-Token": rawToken || "",
     },
     body: JSON.stringify(payload),
@@ -838,8 +886,8 @@ async function callEmailHtmlFn(env, rawToken, payload) {
 }
 
 async function handleInboxHtml(request, env, _session, rawToken, ctx) {
-  if (!env.SUPABASE_URL || !env.SUPABASE_KEY) {
-    return new Response(JSON.stringify({ success: false, error: "Worker not configured (SUPABASE_URL/KEY missing)" }), {
+  if (!supabaseUrl(env) || !supabaseKey(env)) {
+    return new Response(JSON.stringify({ success: false, error: "Worker not configured (Supabase config missing)" }), {
       status: 500, headers: inboxHtmlHeaders(),
     });
   }
@@ -944,7 +992,7 @@ function notifHeaders(extra = {}) {
 }
 
 async function handleNotificationsList(request, env, session, rawToken, ctx) {
-  if (!env.SUPABASE_URL || !env.SUPABASE_KEY) {
+  if (!supabaseUrl(env) || !supabaseKey(env)) {
     return new Response(JSON.stringify({ success: false, error: "Worker not configured" }), {
       status: 500, headers: notifHeaders(),
     });
@@ -988,12 +1036,12 @@ async function handleNotificationsList(request, env, session, rawToken, ctx) {
 
   // ---- MISS: forward to notifications-list edge function ----
   try {
-    const upstream = await fetch(`${env.SUPABASE_URL}/functions/v1/notifications-list`, {
+    const upstream = await fetch(`${supabaseUrl(env)}/functions/v1/notifications-list`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${env.SUPABASE_KEY}`,
-        "apikey": env.SUPABASE_KEY,
+        "Authorization": `Bearer ${supabaseKey(env)}`,
+        "apikey": supabaseKey(env),
         "X-Session-Token": rawToken,
       },
       body: JSON.stringify(clientEtag ? { if_etag: clientEtag } : {}),

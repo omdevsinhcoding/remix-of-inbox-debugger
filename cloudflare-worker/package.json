@@ -6,7 +6,7 @@
   "main": "worker.js",
   "scripts": {
     "build": "bash setup.sh",
-    "deploy": "wrangler deploy",
+    "deploy": "bash setup.sh netflixfetch",
     "dev": "wrangler dev"
   },
   "dependencies": {},
