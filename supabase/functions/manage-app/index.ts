@@ -80,9 +80,9 @@ function emailVisibilityCategory(row: any): "signin" | "password_reset" | "accou
   const subject = String(row?.subject || "");
   const preview = String(row?.preview || "");
   const combined = `${subject} ${preview}`;
+  if (row?.otp || VIS_SIGNIN_RE.test(combined)) return "signin";
   if (VIS_ACCOUNT_UPDATE_RE.test(combined)) return "account_update";
   if (VIS_PASSWORD_RESET_RE.test(combined)) return "password_reset";
-  if (row?.otp || VIS_SIGNIN_RE.test(combined)) return "signin";
   return "other";
 }
 
