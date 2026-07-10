@@ -3156,6 +3156,17 @@ function ProfileSelectPage() {
         {showCaptcha && siteKey && (
           <CaptchaModal siteKey={siteKey} onVerify={(token) => { setShowCaptcha(false); executeLogin(token); }} onCancel={() => { pendingClientGeoRef.current = null; setShowCaptcha(false); }} />
         )}
+        {freeCaptchaProfile && siteKey && (
+          <CaptchaModal
+            siteKey={siteKey}
+            onVerify={(token) => {
+              const p = freeCaptchaProfile;
+              setFreeCaptchaProfile(null);
+              if (p) void executeFreeLogin(p, token);
+            }}
+            onCancel={() => setFreeCaptchaProfile(null)}
+          />
+        )}
       </AnimatePresence>
     </div>
   );
