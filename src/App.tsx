@@ -4793,6 +4793,28 @@ function AdminPanel() {
     }
   };
 
+  const saveFreeAvatarCooldown = async () => {
+    const m = Math.max(1, Math.floor(Number(freeAvatarCooldownMin) || 1));
+    setSavingFreeAvatarCooldown(true);
+    try {
+      await apiCall("manage-app", {
+        action: "set_settings",
+        key: "free_avatar_cooldown",
+        value: { minutes: m },
+      });
+      setFreeAvatarCooldownMinState(String(m));
+      setFreeAvatarCooldown({ ...getFreeAvatarCooldown(), minutes: m });
+      notify.success(`Free avatar cooldown set to ${m} min`);
+      refreshBootstrap().catch(() => {});
+    } catch (err) {
+      notify.error(err instanceof Error ? err.message : "Failed to save cooldown");
+    } finally {
+      setSavingFreeAvatarCooldown(false);
+    }
+  };
+
+
+
 
 
   const saveMaintenance = async (nextEnabled?: boolean) => {
