@@ -3924,24 +3924,27 @@ function LoginEventsPanel() {
 function AllEmailsPanel() {
   const [emails, setEmails] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [accountLabel, setAccountLabel] = useState("");
   const [labels, setLabels] = useState<string[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [viewing, setViewing] = useState<any | null>(null);
   const [offset, setOffset] = useState(0);
+  // "picker" = show account cards, "list" = show emails for chosen account (or all).
+  const [view, setView] = useState<"picker" | "list">("picker");
   const limit = 100;
 
 
-  const load = useCallback(async (nextOffset = 0) => {
+  const load = useCallback(async (nextOffset = 0, labelOverride?: string) => {
     setLoading(true);
     try {
+      const effectiveLabel = labelOverride !== undefined ? labelOverride : accountLabel;
       const res: any = await apiCall("manage-app", {
         action: "admin_list_emails",
         limit, offset: nextOffset,
         search: search || undefined,
-        accountLabel: accountLabel || undefined,
+        accountLabel: effectiveLabel || undefined,
       });
       setEmails(res?.emails || []);
       setTotal(res?.total || 0);
@@ -3959,10 +3962,23 @@ function AllEmailsPanel() {
         if (Array.isArray(data?.value)) setLabels(data.value.map((a: any) => a.label || a.user).filter(Boolean));
       } catch {}
     })();
-    load(0);
+    // Do NOT auto-load emails — admin picks an account first.
+  }, []);
 
-    // eslint-disable-next-line
-  }, [load]);
+  const openAccount = (label: string) => {
+    setAccountLabel(label);
+    setView("list");
+    setSearch("");
+    load(0, label);
+  };
+  const backToPicker = () => {
+    setView("picker");
+    setEmails([]);
+    setTotal(0);
+    setSelected(new Set());
+    setViewing(null);
+  };
+
 
 
   const openEmail = async (id: string) => {
