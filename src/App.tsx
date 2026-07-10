@@ -4792,22 +4792,7 @@ function AdminPanel() {
 
 
   const saveMaintenance = async (nextEnabled?: boolean) => {
-    // Convert local datetime-local -> ISO. Empty string means no scheduled start/end.
-    const toIso = (s: string): string | null => {
-      if (!s) return null;
-      const d = new Date(s);
-      return isNaN(d.getTime()) ? null : d.toISOString();
-    };
-    const startsAtIso = toIso(maintenanceStartsAt);
-    const endsAtIso = toIso(maintenanceEndsAt);
-    if (startsAtIso && endsAtIso && new Date(endsAtIso).getTime() <= new Date(startsAtIso).getTime()) {
-      notify.error("End time must be after start time");
-      return;
-    }
-
-    // Auto-enable when the admin fills a schedule (even without flipping the toggle).
-    const hasSchedule = !!(startsAtIso && endsAtIso);
-    const enabled = typeof nextEnabled === "boolean" ? nextEnabled : (maintenanceEnabled || hasSchedule);
+    const enabled = typeof nextEnabled === "boolean" ? nextEnabled : maintenanceEnabled;
 
     // Version auto-bump: baseline 2.4.4. Each save bumps patch +1 from the previously saved
     // versionTo unless the admin manually typed a different (higher) version.
@@ -4821,10 +4806,9 @@ function AdminPanel() {
     let nextVersionTo = maintenanceVersionTo.trim();
     let autoBumped = false;
     if (!nextVersionTo || nextVersionTo === prevTo) {
-      nextVersionTo = bumpPatch(prevTo); // auto-bump patch from previously stored versionTo
+      nextVersionTo = bumpPatch(prevTo);
       autoBumped = true;
     }
-    // Current version is ALWAYS the previously stored upgrade target — admin cannot override via UI.
     const nextVersionFrom = prevTo;
 
     setSavingMaintenance(true);
@@ -4836,8 +4820,8 @@ function AdminPanel() {
           enabled,
           title: maintenanceTitle.trim(),
           message: maintenanceMessage.trim(),
-          startsAt: startsAtIso,
-          endsAt: endsAtIso,
+          startsAt: null,
+          endsAt: null,
           versionFrom: nextVersionFrom,
           versionTo: nextVersionTo,
           updated_at: new Date().toISOString(),
@@ -4846,20 +4830,20 @@ function AdminPanel() {
       setMaintenanceEnabled(enabled);
       setMaintenanceVersionFrom(nextVersionFrom);
       setMaintenanceVersionTo(nextVersionTo);
+      setMaintenanceStartsAt("");
+      setMaintenanceEndsAt("");
       prevSavedVersionToRef.current = nextVersionTo;
       try { await refreshBootstrap(); } catch {}
       window.dispatchEvent(new Event("maintenance:changed"));
       if (autoBumped) notify.success(`Saved · version auto-bumped to v${nextVersionTo}`);
       else notify.success(enabled ? `Maintenance ON · v${nextVersionTo}` : `Maintenance OFF · v${nextVersionTo}`);
-      if (hasSchedule && !maintenanceEnabled && typeof nextEnabled !== "boolean") {
-        notify.info("Scheduled — site will auto-lock at start time and auto-unlock at end time.");
-      }
     } catch (err) {
       notify.error(err instanceof Error ? err.message : "Failed to save maintenance settings");
     } finally {
       setSavingMaintenance(false);
     }
   };
+
 
   const saveR2Config = async () => {
     setR2Saving(true);
