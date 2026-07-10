@@ -4019,57 +4019,84 @@ function AllEmailsPanel() {
   if (view === "picker") {
     const hasPrimary = !!primaryUser;
     const hasAny = hasPrimary || labels.length > 0;
+    const totalAccounts = (hasPrimary ? 1 : 0) + labels.length;
     return (
-      <section className="bg-white p-4 sm:p-6 rounded-2xl border shadow-sm">
-        <div className="flex flex-wrap items-start gap-2 mb-4">
-          <h2 className="font-black text-base sm:text-lg flex items-center gap-2 mr-auto">
-            <div className="bg-red-50 p-1.5 rounded-lg"><Mail className="w-4 h-4 text-red-600" /></div>
-            All Emails
-          </h2>
-          <p className="text-[11px] sm:text-xs text-slate-500 w-full sm:w-auto sm:text-right">Tap an account to load its mails.</p>
+      <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-5 sm:p-7 shadow-[0_25px_70px_-25px_rgba(15,23,42,0.6)] border border-slate-800/50">
+        {/* Decorative grid pattern */}
+        <div className="absolute inset-0 opacity-[0.04] pointer-events-none" style={{ backgroundImage: "linear-gradient(rgba(255,255,255,.5) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.5) 1px, transparent 1px)", backgroundSize: "24px 24px" }} />
+        {/* Red glow accent */}
+        <div className="absolute -top-24 -right-24 w-64 h-64 bg-red-500/20 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="relative flex items-end justify-between gap-3 mb-5 sm:mb-6 pb-4 border-b border-slate-800/60">
+          <div className="min-w-0">
+            <p className="text-[10px] font-black tracking-[0.2em] text-red-400/80 mb-1">MAIL ARCHIVE</p>
+            <h2 className="font-black text-xl sm:text-2xl text-white tracking-tight leading-none flex items-center gap-2.5">
+              All Emails
+              <span className="text-[10px] font-mono font-bold bg-slate-800 text-slate-300 px-2 py-0.5 rounded border border-slate-700">{totalAccounts.toString().padStart(2, "0")}</span>
+            </h2>
+          </div>
+          <p className="text-[10px] sm:text-[11px] text-slate-400 font-mono uppercase tracking-wider text-right hidden sm:block">Tap to load</p>
         </div>
+
         {!hasAny ? (
-          <div className="py-12 text-center text-slate-500 text-sm">No email accounts configured yet.</div>
+          <div className="relative py-16 text-center text-slate-500 text-sm font-mono">// no accounts configured</div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 sm:gap-3">
+          <div className="relative grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3">
+            {/* All accounts — special ghost card */}
             <button
               onClick={() => openAccount("")}
-              className="text-left p-3.5 sm:p-4 rounded-xl border-2 border-dashed border-slate-300 hover:border-red-400 hover:bg-red-50 active:scale-[0.98] transition group"
+              className="group relative overflow-hidden text-left rounded-2xl border border-dashed border-slate-700 hover:border-red-500/60 bg-slate-900/40 hover:bg-slate-900/70 active:scale-[0.99] transition-all p-4"
             >
               <div className="flex items-center gap-3">
-                <div className="bg-slate-100 group-hover:bg-red-100 p-2 rounded-lg flex-shrink-0"><Mail className="w-5 h-5 text-slate-600 group-hover:text-red-600" /></div>
-                <div className="min-w-0">
-                  <p className="font-semibold text-slate-900 truncate">All accounts</p>
-                  <p className="text-[11px] text-slate-500">Combined view (heavier query)</p>
+                <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-slate-800 to-slate-900 flex items-center justify-center flex-shrink-0 border border-slate-700 group-hover:border-red-500/50 transition-colors">
+                  <Mail className="w-5 h-5 text-slate-400 group-hover:text-red-400 transition-colors" />
                 </div>
+                <div className="min-w-0 flex-1">
+                  <p className="font-black text-white text-sm truncate">All Accounts</p>
+                  <p className="text-[10px] text-slate-500 font-mono truncate uppercase tracking-wide">combined · heavier</p>
+                </div>
+                <ChevronRight className="w-4 h-4 text-slate-600 group-hover:text-red-400 group-hover:translate-x-0.5 transition-all flex-shrink-0" />
               </div>
             </button>
+
             {hasPrimary && (
               <button
                 onClick={() => openAccount("Primary")}
-                className="text-left p-3.5 sm:p-4 rounded-xl border border-amber-200 bg-gradient-to-br from-amber-50 to-white hover:border-amber-400 hover:from-amber-100 active:scale-[0.98] transition group"
+                className="group relative overflow-hidden text-left rounded-2xl border border-amber-500/30 bg-gradient-to-br from-amber-500/10 via-slate-900/60 to-slate-900 hover:border-amber-400/70 hover:from-amber-500/20 active:scale-[0.99] transition-all p-4"
               >
-                <div className="flex items-center gap-3">
-                  <div className="bg-amber-100 group-hover:bg-amber-200 p-2 rounded-lg flex-shrink-0"><Mail className="w-5 h-5 text-amber-700" /></div>
-                  <div className="min-w-0">
-                    <p className="font-semibold text-slate-900 truncate flex items-center gap-1.5">
-                      Primary
-                      <span className="text-[9px] font-black bg-amber-200 text-amber-800 px-1.5 py-0.5 rounded">DEFAULT</span>
-                    </p>
-                    <p className="text-[11px] text-slate-500 truncate" title={primaryUser}>{primaryUser}</p>
+                <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-amber-400 to-amber-600" />
+                <div className="flex items-center gap-3 pl-1">
+                  <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center flex-shrink-0 shadow-lg shadow-amber-900/40">
+                    <Mail className="w-5 h-5 text-white" strokeWidth={2.5} />
                   </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <p className="font-black text-white text-sm truncate">Primary</p>
+                      <span className="text-[8px] font-black bg-amber-400 text-amber-950 px-1.5 py-0.5 rounded tracking-wider">DEFAULT</span>
+                    </div>
+                    <p className="text-[10px] text-amber-200/70 font-mono truncate" title={primaryUser}>{primaryUser}</p>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-amber-300/60 group-hover:text-amber-300 group-hover:translate-x-0.5 transition-all flex-shrink-0" />
                 </div>
               </button>
             )}
-            {labels.map(l => (
+
+            {labels.map((l, idx) => (
               <button key={l} onClick={() => openAccount(l)}
-                className="text-left p-3.5 sm:p-4 rounded-xl border hover:border-red-400 hover:bg-red-50/40 active:scale-[0.98] transition group">
-                <div className="flex items-center gap-3">
-                  <div className="bg-red-50 group-hover:bg-red-100 p-2 rounded-lg flex-shrink-0"><Mail className="w-5 h-5 text-red-600" /></div>
-                  <div className="min-w-0">
-                    <p className="font-semibold text-slate-900 truncate" title={l}>{l}</p>
-                    <p className="text-[11px] text-slate-500">Click to load mails</p>
+                className="group relative overflow-hidden text-left rounded-2xl border border-slate-800 bg-slate-900/60 hover:bg-slate-800/80 hover:border-red-500/40 active:scale-[0.99] transition-all p-4">
+                <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-red-500 to-red-700 opacity-70 group-hover:opacity-100 transition-opacity" />
+                <div className="flex items-center gap-3 pl-1">
+                  <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-red-500 to-red-700 flex items-center justify-center flex-shrink-0 shadow-lg shadow-red-900/40">
+                    <Mail className="w-5 h-5 text-white" strokeWidth={2.5} />
                   </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <p className="font-black text-white text-sm truncate" title={l}>{l}</p>
+                      <span className="text-[8px] font-mono text-slate-500 tracking-wider">#{String(idx + 1).padStart(2, "0")}</span>
+                    </div>
+                    <p className="text-[10px] text-slate-400 font-mono truncate uppercase tracking-wide">tap to load</p>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-slate-600 group-hover:text-red-400 group-hover:translate-x-0.5 transition-all flex-shrink-0" />
                 </div>
               </button>
             ))}
@@ -4079,6 +4106,7 @@ function AllEmailsPanel() {
     );
 
   }
+
 
   return (
     <section className="bg-white p-4 sm:p-6 rounded-2xl border shadow-sm">
@@ -5619,16 +5647,27 @@ function AdminPanel() {
               </div>
             </section>
 
-            <section className="lg:col-span-2 bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
-              <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
-                <div className="bg-blue-50 p-1.5 rounded-lg"><Users className="w-4 h-4 text-blue-600" /></div>
-                Active Users
-                <span className="bg-slate-100 text-slate-600 text-xs px-2 py-0.5 rounded-full ml-auto">{users.length}</span>
-              </h2>
-              <p className="text-[11px] text-slate-500 mb-3">Drag rows to reorder how profiles appear on the login screen. Pinned profiles always stay on top.</p>
-              <div className="space-y-3">
+            <section className="lg:col-span-2 relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-5 sm:p-7 shadow-[0_25px_70px_-25px_rgba(15,23,42,0.6)] border border-slate-800/50">
+              {/* Decorative grid */}
+              <div className="absolute inset-0 opacity-[0.04] pointer-events-none" style={{ backgroundImage: "linear-gradient(rgba(255,255,255,.5) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.5) 1px, transparent 1px)", backgroundSize: "24px 24px" }} />
+              <div className="absolute -top-24 -left-24 w-64 h-64 bg-blue-500/15 rounded-full blur-3xl pointer-events-none" />
+              <div className="absolute -bottom-24 -right-24 w-64 h-64 bg-red-500/10 rounded-full blur-3xl pointer-events-none" />
+
+              <div className="relative flex items-end justify-between gap-3 mb-5 pb-4 border-b border-slate-800/60">
+                <div className="min-w-0">
+                  <p className="text-[10px] font-black tracking-[0.2em] text-blue-400/80 mb-1">ROSTER</p>
+                  <h2 className="font-black text-xl sm:text-2xl text-white tracking-tight leading-none flex items-center gap-2.5">
+                    Active Users
+                    <span className="text-[10px] font-mono font-bold bg-slate-800 text-slate-300 px-2 py-0.5 rounded border border-slate-700">{users.length.toString().padStart(2, "0")}</span>
+                  </h2>
+                  <p className="text-[10px] sm:text-[11px] text-slate-500 mt-2 font-mono">// drag to reorder · pinned stays on top</p>
+                </div>
+              </div>
+
+              <div className="relative space-y-2.5">
                 {users.map(u => {
                   const canDrag = u.role !== "admin";
+                  const railColor = u.role === "admin" ? "from-red-500 to-red-700" : (u.isFree ? "from-emerald-400 to-emerald-600" : "from-blue-400 to-blue-600");
                   return (
                   <div
                     key={u.id}
@@ -5637,100 +5676,115 @@ function AdminPanel() {
                     onDragOver={(e) => { if (canDrag && dragUserId && dragUserId !== u.id) e.preventDefault(); }}
                     onDrop={(e) => { e.preventDefault(); if (canDrag) onDropUser(u.id); }}
                     onDragEnd={() => setDragUserId(null)}
-                    className={`group relative p-3 sm:p-4 bg-gradient-to-br from-white to-slate-50 rounded-2xl border transition-all min-w-0 ${dragUserId === u.id ? "opacity-50 border-emerald-400 ring-2 ring-emerald-200" : "border-slate-200/70 hover:border-slate-300 hover:shadow-sm"} ${canDrag ? "sm:cursor-move" : ""}`}
+                    className={`group relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900/90 to-slate-900/60 border transition-all min-w-0 backdrop-blur ${dragUserId === u.id ? "opacity-50 border-emerald-400/60 ring-2 ring-emerald-400/30" : "border-slate-800 hover:border-slate-700"} ${canDrag ? "sm:cursor-move" : ""}`}
                   >
+                    {/* Left color rail */}
+                    <div className={`absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b ${railColor}`} />
+
+                    {/* Role ribbon top-right */}
                     {u.role === "admin" && (
-                      <span className="absolute top-3 right-3 inline-flex items-center gap-1 text-[9px] font-black tracking-wide bg-red-600 text-white px-2 py-0.5 rounded-full shadow-sm">ADMIN</span>
+                      <div className="absolute top-0 right-0 bg-gradient-to-l from-red-600 to-red-500 text-white text-[9px] font-black tracking-[0.15em] px-3 py-1 rounded-bl-xl shadow-lg">ADMIN</div>
                     )}
-                    <div className="flex items-start gap-3 min-w-0">
-                      <div className="relative flex-shrink-0">
-                        <ProfileAvatar
-                          avatarId={getStableProfileAvatar(u)}
-                          name={u.name}
-                          className="w-12 h-12 sm:w-14 sm:h-14 !rounded-2xl ring-2 ring-white shadow"
-                          fallbackColor={u.role === "admin" ? "bg-red-500" : (u.isFree ? "bg-emerald-500" : "bg-blue-500")}
-                        />
-                        {u.pinned && (
-                          <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-amber-400 text-amber-900 flex items-center justify-center shadow ring-2 ring-white">
-                            <Pin className="w-3 h-3" strokeWidth={3} fill="currentColor" />
-                          </span>
-                        )}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="font-bold text-slate-900 truncate text-sm sm:text-base leading-tight">{u.name}</p>
-                        <p className="text-[11px] sm:text-xs text-slate-500 truncate mt-0.5">
-                          {u.username ? `@${u.username} • ` : ""}
-                          <span className={u.role === "admin" ? "text-red-600 font-bold" : (u.isFree ? "text-emerald-600 font-semibold" : "text-blue-600 font-semibold")}>{u.isFree ? "free" : u.role}</span>
-                        </p>
-                        <div className="flex flex-wrap gap-1 mt-1.5">
-                          {u.isFree && <span className="text-[9px] font-black bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded">FREE</span>}
-                          {isLocationRequiredForProfile(u)
-                            ? <span className="inline-flex items-center gap-1 text-[9px] font-black bg-sky-100 text-sky-700 px-1.5 py-0.5 rounded"><MapPin className="w-2.5 h-2.5" /> GPS</span>
-                            : <span className="inline-flex items-center gap-1 text-[9px] font-black bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded"><MapPinOff className="w-2.5 h-2.5" /> NO GPS</span>}
-                          {u.assignedAccounts && u.assignedAccounts.length > 0 && u.assignedAccounts.map((a: string) => (
-                            <span key={a} className="bg-blue-50 text-blue-700 text-[10px] px-1.5 py-0.5 rounded-md font-bold border border-blue-100">{a}</span>
-                          ))}
-                          {(!u.assignedAccounts || u.assignedAccounts.length === 0) && u.role !== "admin" && (
-                            <span className="text-[10px] text-amber-700 bg-amber-50 border border-amber-100 px-1.5 py-0.5 rounded font-semibold">No accounts</span>
+                    {u.isFree && (
+                      <div className="absolute top-0 right-0 bg-gradient-to-l from-emerald-600 to-emerald-500 text-white text-[9px] font-black tracking-[0.15em] px-3 py-1 rounded-bl-xl shadow-lg">FREE</div>
+                    )}
+
+                    <div className="p-4 pl-5">
+                      <div className="flex items-start gap-3.5 min-w-0">
+                        <div className="relative flex-shrink-0">
+                          <div className={`absolute inset-0 rounded-2xl bg-gradient-to-br ${railColor} blur-md opacity-40`} />
+                          <ProfileAvatar
+                            avatarId={getStableProfileAvatar(u)}
+                            name={u.name}
+                            className="relative w-14 h-14 !rounded-2xl ring-2 ring-slate-800 shadow-xl"
+                            fallbackColor={u.role === "admin" ? "bg-red-500" : (u.isFree ? "bg-emerald-500" : "bg-blue-500")}
+                          />
+                          {u.pinned && (
+                            <span className="absolute -top-1.5 -right-1.5 w-6 h-6 rounded-full bg-gradient-to-br from-amber-300 to-amber-500 text-amber-950 flex items-center justify-center shadow-lg ring-2 ring-slate-900">
+                              <Pin className="w-3 h-3" strokeWidth={3} fill="currentColor" />
+                            </span>
                           )}
                         </div>
-                        {u.role !== "admin" && !u.isFree && (u as any).session_limit != null && (
-                          <p className="text-[10px] text-emerald-700 mt-1 font-semibold">
-                            Sessions: {(u as any).session_limit === 0 ? "unlimited" : `${(u as any).session_limit}`}
+                        <div className="min-w-0 flex-1 pt-0.5">
+                          <p className="font-black text-white truncate text-base leading-tight tracking-tight">{u.name}</p>
+                          <p className="text-[11px] text-slate-400 truncate mt-1 font-mono">
+                            {u.username ? `@${u.username}` : "—"}
+                            <span className="mx-1.5 text-slate-700">·</span>
+                            <span className={u.role === "admin" ? "text-red-400 font-bold uppercase" : (u.isFree ? "text-emerald-400 font-bold uppercase" : "text-blue-400 font-bold uppercase")}>{u.isFree ? "free" : u.role}</span>
                           </p>
-                        )}
-                        {u.isFree && (u as any).expiresAt && (
-                          <p className="text-[10px] text-emerald-700 mt-1 font-semibold">
-                            Expires: {new Date((u as any).expiresAt).toLocaleString()}
-                          </p>
-                        )}
+                          <div className="flex flex-wrap gap-1 mt-2">
+                            {isLocationRequiredForProfile(u)
+                              ? <span className="inline-flex items-center gap-1 text-[9px] font-black bg-sky-500/15 text-sky-300 border border-sky-500/30 px-1.5 py-0.5 rounded"><MapPin className="w-2.5 h-2.5" /> GPS</span>
+                              : <span className="inline-flex items-center gap-1 text-[9px] font-black bg-slate-800 text-slate-500 border border-slate-700 px-1.5 py-0.5 rounded"><MapPinOff className="w-2.5 h-2.5" /> OFF</span>}
+                            {u.assignedAccounts && u.assignedAccounts.length > 0 && u.assignedAccounts.map((a: string) => (
+                              <span key={a} className="bg-blue-500/15 text-blue-300 border border-blue-500/30 text-[10px] px-1.5 py-0.5 rounded font-bold font-mono">{a}</span>
+                            ))}
+                            {(!u.assignedAccounts || u.assignedAccounts.length === 0) && u.role !== "admin" && (
+                              <span className="text-[10px] text-amber-300 bg-amber-500/10 border border-amber-500/30 px-1.5 py-0.5 rounded font-bold">no accounts</span>
+                            )}
+                          </div>
+                          {u.role !== "admin" && !u.isFree && (u as any).session_limit != null && (
+                            <p className="text-[10px] text-emerald-300 mt-1.5 font-mono">
+                              sessions: <span className="font-bold">{(u as any).session_limit === 0 ? "∞" : (u as any).session_limit}</span>
+                            </p>
+                          )}
+                          {u.isFree && (u as any).expiresAt && (
+                            <p className="text-[10px] text-emerald-300 mt-1.5 font-mono truncate">
+                              expires: <span className="font-bold">{new Date((u as any).expiresAt).toLocaleString()}</span>
+                            </p>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                    {u.role !== "admin" && (
-                      <div className="mt-3 pt-3 border-t border-slate-200/60 grid grid-cols-6 sm:flex sm:flex-wrap sm:justify-end gap-1.5">
-                        <button onClick={() => togglePinnedUser(u)} title={u.pinned ? "Unpin from top" : "Pin to top"}
-                          className={`flex items-center justify-center h-9 rounded-lg transition-all active:scale-95 ${u.pinned ? "bg-amber-100 text-amber-700 hover:bg-amber-200 ring-1 ring-amber-200" : "bg-slate-100 text-slate-500 hover:bg-amber-50 hover:text-amber-600"}`}>
-                          <Pin className="w-4 h-4" strokeWidth={2.5} fill={u.pinned ? "currentColor" : "none"} />
-                        </button>
-                        <button onClick={() => toggleProfileLocationRequired(u)} title={isLocationRequiredForProfile(u) ? "GPS required" : "GPS off"}
-                          className={`flex items-center justify-center h-9 rounded-lg transition-all active:scale-95 ${isLocationRequiredForProfile(u) ? "bg-sky-100 text-sky-700 hover:bg-sky-200 ring-1 ring-sky-200" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}>
-                          {isLocationRequiredForProfile(u) ? <MapPin className="w-4 h-4" /> : <MapPinOff className="w-4 h-4" />}
-                        </button>
-                        <button onClick={() => loginAsUser(u)} title="View as user"
-                          className="flex items-center justify-center h-9 rounded-lg bg-slate-100 text-slate-500 hover:bg-blue-50 hover:text-blue-600 transition-all active:scale-95">
-                          <Eye className="w-4 h-4" />
-                        </button>
-                        <button onClick={() => {
-                            const opening = editingUserAccounts !== u.id;
-                            setEditingUserAccounts(opening ? u.id : null);
-                            setEditUsername(u.username || "");
-                            setEditAccountsList(normalizeSelectedAccounts((u as any).assignedAccounts || []));
-                            const cur = (u as any).session_limit;
-                            setEditSessionLimit(cur === null || cur === undefined ? "" : String(cur));
-                            const exp = (u as any).expiresAt as string | null | undefined;
-                            if (exp) {
-                              const d = new Date(exp);
-                              const pad = (n: number) => String(n).padStart(2, "0");
-                              setEditExpiresAt(`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`);
-                            } else {
-                              setEditExpiresAt("");
-                            }
-                          }} title="Edit"
-                          className={`flex items-center justify-center h-9 rounded-lg transition-all active:scale-95 ${editingUserAccounts === u.id ? "bg-green-100 text-green-700 ring-1 ring-green-200" : "bg-slate-100 text-slate-500 hover:bg-green-50 hover:text-green-600"}`}>
-                          <Edit className="w-4 h-4" />
-                        </button>
-                        {!u.isFree ? (
-                          <button onClick={() => { setChangingUserPass(changingUserPass === u.id ? null : u.id); setUserNewPass(""); }} title="Change password"
-                            className={`flex items-center justify-center h-9 rounded-lg transition-all active:scale-95 ${changingUserPass === u.id ? "bg-amber-100 text-amber-700 ring-1 ring-amber-200" : "bg-slate-100 text-slate-500 hover:bg-amber-50 hover:text-amber-600"}`}>
-                            <KeyRound className="w-4 h-4" />
+
+                      {u.role !== "admin" && (
+                        <div className="mt-3.5 flex items-center gap-1 p-1 rounded-xl bg-slate-950/60 border border-slate-800/80 backdrop-blur">
+                          <button onClick={() => togglePinnedUser(u)} title={u.pinned ? "Unpin" : "Pin to top"}
+                            className={`flex-1 flex items-center justify-center h-9 rounded-lg transition-all active:scale-95 ${u.pinned ? "bg-gradient-to-br from-amber-400/25 to-amber-600/15 text-amber-300 ring-1 ring-amber-400/40 shadow-inner" : "text-slate-500 hover:bg-slate-800 hover:text-amber-300"}`}>
+                            <Pin className="w-4 h-4" strokeWidth={2.5} fill={u.pinned ? "currentColor" : "none"} />
                           </button>
-                        ) : <span className="hidden sm:block" />}
-                        <button onClick={() => deleteUser(u.id)} title="Delete user"
-                          className="flex items-center justify-center h-9 rounded-lg bg-slate-100 text-slate-500 hover:bg-red-50 hover:text-red-600 transition-all active:scale-95">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    )}
+                          <button onClick={() => toggleProfileLocationRequired(u)} title={isLocationRequiredForProfile(u) ? "GPS on" : "GPS off"}
+                            className={`flex-1 flex items-center justify-center h-9 rounded-lg transition-all active:scale-95 ${isLocationRequiredForProfile(u) ? "bg-gradient-to-br from-sky-400/25 to-sky-600/15 text-sky-300 ring-1 ring-sky-400/40 shadow-inner" : "text-slate-500 hover:bg-slate-800 hover:text-slate-300"}`}>
+                            {isLocationRequiredForProfile(u) ? <MapPin className="w-4 h-4" /> : <MapPinOff className="w-4 h-4" />}
+                          </button>
+                          <div className="w-px h-6 bg-slate-800" />
+                          <button onClick={() => loginAsUser(u)} title="View as user"
+                            className="flex-1 flex items-center justify-center h-9 rounded-lg text-slate-500 hover:bg-slate-800 hover:text-blue-300 transition-all active:scale-95">
+                            <Eye className="w-4 h-4" />
+                          </button>
+                          <button onClick={() => {
+                              const opening = editingUserAccounts !== u.id;
+                              setEditingUserAccounts(opening ? u.id : null);
+                              setEditUsername(u.username || "");
+                              setEditAccountsList(normalizeSelectedAccounts((u as any).assignedAccounts || []));
+                              const cur = (u as any).session_limit;
+                              setEditSessionLimit(cur === null || cur === undefined ? "" : String(cur));
+                              const exp = (u as any).expiresAt as string | null | undefined;
+                              if (exp) {
+                                const d = new Date(exp);
+                                const pad = (n: number) => String(n).padStart(2, "0");
+                                setEditExpiresAt(`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`);
+                              } else {
+                                setEditExpiresAt("");
+                              }
+                            }} title="Edit"
+                            className={`flex-1 flex items-center justify-center h-9 rounded-lg transition-all active:scale-95 ${editingUserAccounts === u.id ? "bg-gradient-to-br from-emerald-400/25 to-emerald-600/15 text-emerald-300 ring-1 ring-emerald-400/40 shadow-inner" : "text-slate-500 hover:bg-slate-800 hover:text-emerald-300"}`}>
+                            <Edit className="w-4 h-4" />
+                          </button>
+                          {!u.isFree && (
+                            <button onClick={() => { setChangingUserPass(changingUserPass === u.id ? null : u.id); setUserNewPass(""); }} title="Change password"
+                              className={`flex-1 flex items-center justify-center h-9 rounded-lg transition-all active:scale-95 ${changingUserPass === u.id ? "bg-gradient-to-br from-amber-400/25 to-amber-600/15 text-amber-300 ring-1 ring-amber-400/40 shadow-inner" : "text-slate-500 hover:bg-slate-800 hover:text-amber-300"}`}>
+                              <KeyRound className="w-4 h-4" />
+                            </button>
+                          )}
+                          <div className="w-px h-6 bg-slate-800" />
+                          <button onClick={() => deleteUser(u.id)} title="Delete user"
+                            className="flex-1 flex items-center justify-center h-9 rounded-lg text-slate-500 hover:bg-red-500/20 hover:text-red-300 transition-all active:scale-95">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      )}
+
+
 
 
 
@@ -5810,7 +5864,9 @@ function AdminPanel() {
                         </button>
                       </div>
                     )}
+                    </div>
                   </div>
+
                   );
                 })}
                 {users.length === 0 && <p className="text-slate-400 text-sm text-center py-8">No users yet. Create one above.</p>}
