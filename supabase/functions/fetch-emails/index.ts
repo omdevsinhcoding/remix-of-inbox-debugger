@@ -658,7 +658,7 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
 
   const allEmails: any[] = [];
   const accountErrors: Array<{ label: string; error: string }> = [];
-  const syncStats: Record<string, { fetched: number; skipped: number; error?: string }> = {};
+  const syncStats: Record<string, { fetched: number; skipped: number; recipientSkipped?: number; error?: string }> = {};
 
   settled.forEach((item, index) => {
     const label = accounts[index]?.label || `Account ${index + 1}`;
@@ -733,6 +733,7 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
     .filter(([, v]: any) => Number(v.recipientSkipped || 0) > 0)
     .map(([label, v]: any) => `${label}: ${v.recipientSkipped} Netflix email skipped by recipient filter`);
   if (recipientWarnings.length > 0) response.warnings = [...(response.warnings || []), ...recipientWarnings];
+  if (Array.isArray(response.warnings) && response.warnings.length > 0) response.warning = response.warnings.join(" • ");
   console.log(`[sync] Complete: ${allEmails.length} fetched/upserted across ${accounts.length} account(s)`);
   return response;
 }
