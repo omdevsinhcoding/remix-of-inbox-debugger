@@ -2561,7 +2561,6 @@ Deno.serve(async (originalReq) => {
     if (action === "update_profile_prefs") {
       const session = await requireSession(req);
       const { profile_prefs } = params;
-      invalidateBootstrapCache();
       if (!profile_prefs || typeof profile_prefs !== "object" || Array.isArray(profile_prefs)) {
         throw new Error("Profile settings are invalid");
       }
@@ -2577,21 +2576,70 @@ Deno.serve(async (originalReq) => {
         hiddenEmailIds: [] as string[],
       };
 
+      // Load current user row for cooldown + prefs merge.
+      const { data: currentRow } = await supabase
+        .from("app_users")
+        .select("profile_prefs, is_free")
+        .eq("id", session.userId)
+        .maybeSingle();
       try {
-        const { data: existingPrefsRow } = await supabase.from("app_users").select("profile_prefs").eq("id", session.userId).maybeSingle();
-        const existingPrefs = publicProfilePrefs(existingPrefsRow?.profile_prefs);
+        const existingPrefs = publicProfilePrefs(currentRow?.profile_prefs);
         cleanPrefs.locationRequired = existingPrefs.locationRequired;
         cleanPrefs.locationRequiredOverride = existingPrefs.locationRequiredOverride;
       } catch {}
 
+      // === Global cooldown for free-profile avatar changes ===
+      const prevAvatar: string | null = (currentRow?.profile_prefs as any)?.avatarId || null;
+      const avatarChanged = (cleanPrefs.avatarId || null) !== prevAvatar;
+      const isFree = !!currentRow?.is_free;
+      if (isFree && avatarChanged) {
+        const { data: cdRows } = await supabase
+          .from("app_settings")
+          .select("key,value")
+          .in("key", ["free_avatar_cooldown", "free_avatar_last_change"]);
+        const cdMap = new Map((cdRows || []).map((r: any) => [r.key, r.value]));
+        const minutesRaw = Number((cdMap.get("free_avatar_cooldown") as any)?.minutes);
+        const minutes = Number.isFinite(minutesRaw) && minutesRaw > 0 ? Math.floor(minutesRaw) : 5;
+        const lastAtStr = (cdMap.get("free_avatar_last_change") as any)?.at || null;
+        const lastAtMs = lastAtStr ? Date.parse(lastAtStr) : 0;
+        const elapsedMs = Date.now() - (Number.isFinite(lastAtMs) ? lastAtMs : 0);
+        const windowMs = minutes * 60_000;
+        if (lastAtMs && elapsedMs < windowMs) {
+          const retryAfterSec = Math.max(1, Math.ceil((windowMs - elapsedMs) / 1000));
+          return new Response(JSON.stringify({
+            success: false,
+            code: "AVATAR_COOLDOWN",
+            error: `Profile icon was recently updated. Try again in ${retryAfterSec}s.`,
+            retryAfterSec,
+            minutes,
+            lastAt: lastAtStr,
+          }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+      }
+
+      invalidateBootstrapCache();
       const { error } = await supabase
         .from("app_users")
         .update({ profile_prefs: cleanPrefs })
         .eq("id", session.userId);
       if (error) throw error;
 
+      let cooldownNow: { minutes: number; lastAt: string | null } | null = null;
+      if (isFree && avatarChanged) {
+        const nowIso = new Date().toISOString();
+        await supabase.from("app_settings").upsert(
+          { key: "free_avatar_last_change", value: { at: nowIso, byUserId: session.userId } },
+          { onConflict: "key" },
+        );
+        const { data: cdRow } = await supabase
+          .from("app_settings").select("value").eq("key", "free_avatar_cooldown").maybeSingle();
+        const minutesRaw = Number((cdRow?.value as any)?.minutes);
+        const minutes = Number.isFinite(minutesRaw) && minutesRaw > 0 ? Math.floor(minutesRaw) : 5;
+        cooldownNow = { minutes, lastAt: nowIso };
+      }
+
       await auditLog(supabase, "profile_prefs_updated", session.userId, session.userId, { avatarId: cleanPrefs.avatarId, hiddenBefore: cleanPrefs.hiddenBefore }, ip);
-      return new Response(JSON.stringify({ success: true, profilePrefs: cleanPrefs }), {
+      return new Response(JSON.stringify({ success: true, profilePrefs: cleanPrefs, freeAvatarCooldown: cooldownNow }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
