@@ -5970,7 +5970,7 @@ function AdminPanel() {
                                 </div>
                                 <input type="text" value={editUsername} onChange={(e) => setEditUsername(e.target.value)}
                                   placeholder={u.isFree ? "No username needed" : "e.g. john123"}
-                                  className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-3 outline-none focus:ring-2 focus:ring-rose-500/30 focus:border-rose-500 text-sm font-medium transition-all" />
+                                  className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-3 outline-none focus:ring-2 focus:ring-rose-500/30 focus:border-rose-500 text-sm font-medium text-slate-900 placeholder:text-slate-400 transition-all" />
                                 {editHint === "user" && (
                                   <p className="mt-1.5 text-[11px] text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-2.5 py-1.5 leading-snug">The name this user types to log in — like a nickname.</p>
                                 )}
