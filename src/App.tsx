@@ -1114,7 +1114,11 @@ const useAuth = () => useContext(AuthContext)!;
 // When elapsed, forces full logout: user must click their profile and re-enter password.
 function useSessionTimeoutGuard(role: "admin" | "user", enabled = true) {
   const navigate = useNavigate();
-  const { checkAuth } = useAuth();
+  const { user: authUser, checkAuth } = useAuth();
+
+  useEffect(() => {
+    if (authUser?.role === "user") navigate("/viewer", { replace: true });
+  }, [authUser?.id, authUser?.role, navigate]);
   useEffect(() => {
     if (!enabled) return;
     let timer: any;
@@ -5150,8 +5154,8 @@ function AdminPanel() {
       sessionSet("user" as any, JSON.stringify(impersonatedUser));
       if (data.sessionToken) sessionSet("session_token" as any, data.sessionToken);
       sessionRemove("admin_auth" as any);
-      checkAuth();
       navigate("/viewer", { replace: true });
+      window.setTimeout(() => checkAuth(), 0);
       notify.success(`Viewing as ${targetUser.name}`);
     } catch (err) {
       notify.dismiss("impersonate");
