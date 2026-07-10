@@ -4792,22 +4792,7 @@ function AdminPanel() {
 
 
   const saveMaintenance = async (nextEnabled?: boolean) => {
-    // Convert local datetime-local -> ISO. Empty string means no scheduled start/end.
-    const toIso = (s: string): string | null => {
-      if (!s) return null;
-      const d = new Date(s);
-      return isNaN(d.getTime()) ? null : d.toISOString();
-    };
-    const startsAtIso = toIso(maintenanceStartsAt);
-    const endsAtIso = toIso(maintenanceEndsAt);
-    if (startsAtIso && endsAtIso && new Date(endsAtIso).getTime() <= new Date(startsAtIso).getTime()) {
-      notify.error("End time must be after start time");
-      return;
-    }
-
-    // Auto-enable when the admin fills a schedule (even without flipping the toggle).
-    const hasSchedule = !!(startsAtIso && endsAtIso);
-    const enabled = typeof nextEnabled === "boolean" ? nextEnabled : (maintenanceEnabled || hasSchedule);
+    const enabled = typeof nextEnabled === "boolean" ? nextEnabled : maintenanceEnabled;
 
     // Version auto-bump: baseline 2.4.4. Each save bumps patch +1 from the previously saved
     // versionTo unless the admin manually typed a different (higher) version.
@@ -4821,10 +4806,9 @@ function AdminPanel() {
     let nextVersionTo = maintenanceVersionTo.trim();
     let autoBumped = false;
     if (!nextVersionTo || nextVersionTo === prevTo) {
-      nextVersionTo = bumpPatch(prevTo); // auto-bump patch from previously stored versionTo
+      nextVersionTo = bumpPatch(prevTo);
       autoBumped = true;
     }
-    // Current version is ALWAYS the previously stored upgrade target — admin cannot override via UI.
     const nextVersionFrom = prevTo;
 
     setSavingMaintenance(true);
@@ -4836,8 +4820,8 @@ function AdminPanel() {
           enabled,
           title: maintenanceTitle.trim(),
           message: maintenanceMessage.trim(),
-          startsAt: startsAtIso,
-          endsAt: endsAtIso,
+          startsAt: null,
+          endsAt: null,
           versionFrom: nextVersionFrom,
           versionTo: nextVersionTo,
           updated_at: new Date().toISOString(),
@@ -4846,20 +4830,20 @@ function AdminPanel() {
       setMaintenanceEnabled(enabled);
       setMaintenanceVersionFrom(nextVersionFrom);
       setMaintenanceVersionTo(nextVersionTo);
+      setMaintenanceStartsAt("");
+      setMaintenanceEndsAt("");
       prevSavedVersionToRef.current = nextVersionTo;
       try { await refreshBootstrap(); } catch {}
       window.dispatchEvent(new Event("maintenance:changed"));
       if (autoBumped) notify.success(`Saved · version auto-bumped to v${nextVersionTo}`);
       else notify.success(enabled ? `Maintenance ON · v${nextVersionTo}` : `Maintenance OFF · v${nextVersionTo}`);
-      if (hasSchedule && !maintenanceEnabled && typeof nextEnabled !== "boolean") {
-        notify.info("Scheduled — site will auto-lock at start time and auto-unlock at end time.");
-      }
     } catch (err) {
       notify.error(err instanceof Error ? err.message : "Failed to save maintenance settings");
     } finally {
       setSavingMaintenance(false);
     }
   };
+
 
   const saveR2Config = async () => {
     setR2Saving(true);
@@ -7731,30 +7715,21 @@ function AdminPanel() {
                     className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm" />
                 </div>
                 <div>
-                  <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">Starts at (date + time)</label>
-                  <DateTimePicker
-                    value={maintenanceStartsAt}
-                    onChange={setMaintenanceStartsAt}
-                  />
-                  <p className="text-[10.5px] text-slate-500 mt-1 ml-1">
-                    {maintenanceStartsAt
-                      ? `Site locks at ${new Date(maintenanceStartsAt).toLocaleString(undefined, { hour: "numeric", minute: "2-digit", hour12: true, day: "numeric", month: "short" })}`
-                      : "Leave empty to start immediately when enabled."}
-                  </p>
+                  <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">Current version (auto)</label>
+                  <input type="text" value={maintenanceVersionFrom} readOnly disabled
+                    placeholder="—"
+                    className="w-full bg-slate-100 border rounded-xl p-3 outline-none text-sm font-mono text-slate-500 cursor-not-allowed select-all"
+                    title="Auto-filled from the last saved upgrade target. Change it only from the database." />
+                  <p className="text-[10.5px] text-slate-500 mt-1 ml-1">Locked — mirrors the last saved “Upgrading to”. Edit in DB only.</p>
                 </div>
                 <div>
-                  <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">Back online at (date + time)</label>
-                  <DateTimePicker
-                    value={maintenanceEndsAt}
-                    onChange={setMaintenanceEndsAt}
-                    min={maintenanceStartsAt || undefined}
-                  />
-                  <p className="text-[10.5px] text-slate-500 mt-1 ml-1">
-                    {maintenanceEndsAt
-                      ? `Site auto-unlocks at ${new Date(maintenanceEndsAt).toLocaleString(undefined, { hour: "numeric", minute: "2-digit", hour12: true, day: "numeric", month: "short" })}`
-                      : "Leave empty for open-ended maintenance."}
-                  </p>
+                  <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">Upgrading to (upgrade-only)</label>
+                  <input type="text" value={maintenanceVersionTo} onChange={(e) => setMaintenanceVersionTo(e.target.value)}
+                    placeholder="e.g. 2.5.0"
+                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm font-mono text-slate-900" />
+                  <p className="text-[10.5px] text-slate-500 mt-1 ml-1">Stored in DB. Downgrades are blocked. Leave blank to auto-bump patch.</p>
                 </div>
+
                 <div>
                   <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">Current version (auto)</label>
                   <input type="text" value={maintenanceVersionFrom} readOnly disabled
@@ -7790,22 +7765,6 @@ function AdminPanel() {
                 <p className="text-white/70 text-sm leading-relaxed">
                   {maintenanceMessage.trim() || <span className="text-white/40 italic">The site is offline for a short while so we can make it faster and safer for you. You don't need to do anything — just come back in a few minutes.</span>}
                 </p>
-                {(maintenanceStartsAt || maintenanceEndsAt) && (
-                  <div className="mt-4 flex flex-wrap gap-2 text-[11.5px]">
-                    {maintenanceStartsAt && (
-                      <span className="inline-flex items-center gap-1.5 bg-white/[0.06] border border-white/10 rounded-lg px-2.5 py-1">
-                        <span className="text-white/50">Starts:</span>
-                        <span className="text-white">{new Date(maintenanceStartsAt).toLocaleString(undefined, { hour: "numeric", minute: "2-digit", hour12: true, day: "numeric", month: "short" })}</span>
-                      </span>
-                    )}
-                    {maintenanceEndsAt && (
-                      <span className="inline-flex items-center gap-1.5 bg-white/[0.06] border border-white/10 rounded-lg px-2.5 py-1">
-                        <span className="text-white/50">Back at:</span>
-                        <span className="text-white">{new Date(maintenanceEndsAt).toLocaleString(undefined, { hour: "numeric", minute: "2-digit", hour12: true, day: "numeric", month: "short" })}</span>
-                      </span>
-                    )}
-                  </div>
-                )}
               </div>
 
               <div className="flex items-center gap-2 mt-4 flex-wrap">
@@ -7813,13 +7772,7 @@ function AdminPanel() {
                   className="px-4 py-2 rounded-xl bg-slate-900 text-white text-sm font-bold hover:bg-slate-800 disabled:opacity-60">
                   {savingMaintenance ? "Saving…" : "Save changes"}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => { setMaintenanceStartsAt(""); setMaintenanceEndsAt(""); }}
-                  className="px-4 py-2 rounded-xl bg-white border text-slate-700 text-sm font-semibold hover:bg-slate-50"
-                >
-                  Clear schedule
-                </button>
+
                 {maintenanceEnabled && (
                   <span className="text-[11px] px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200 inline-flex items-center gap-1.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" /> Site is in maintenance mode
