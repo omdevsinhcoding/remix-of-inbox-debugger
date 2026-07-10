@@ -9581,6 +9581,114 @@ function EmailViewer() {
         </div>
       </main>
 
+      {/* ============ CHANGE PASSWORD MODAL ============ */}
+      <AnimatePresence>
+        {showChangePwd && canChangePassword && (
+          <motion.div
+            key="cp-backdrop"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            className="fixed inset-0 z-[70] bg-slate-950/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"
+            onClick={() => !cpBusy && setShowChangePwd(false)}
+          >
+            <motion.div
+              initial={{ y: 40, opacity: 0, scale: 0.98 }}
+              animate={{ y: 0, opacity: 1, scale: 1 }}
+              exit={{ y: 40, opacity: 0, scale: 0.98 }}
+              transition={{ type: "spring", stiffness: 320, damping: 30 }}
+              className="w-full sm:max-w-md bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="sm:hidden flex justify-center pt-2.5 pb-1"><div className="w-10 h-1 rounded-full bg-slate-300" /></div>
+              <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-slate-100">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-red-50 flex items-center justify-center">
+                    <KeyRound className="w-4.5 h-4.5 text-red-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900 leading-tight">Change password</h3>
+                    <p className="text-[11px] text-slate-500">Keep your account safe</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => !cpBusy && setShowChangePwd(false)}
+                  className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-500"
+                  aria-label="Close"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <form
+                onSubmit={(e) => { e.preventDefault(); void submitChangePassword(); }}
+                className="px-5 py-4 space-y-3"
+              >
+                <div>
+                  <label className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide">Current password</label>
+                  <div className="relative mt-1">
+                    <input
+                      type={cpShow ? "text" : "password"}
+                      value={cpCurrent}
+                      onChange={(e) => setCpCurrent(e.target.value)}
+                      autoComplete="current-password"
+                      className="w-full h-11 pl-10 pr-11 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:border-red-500 focus:ring-2 focus:ring-red-500/20 outline-none text-sm"
+                      placeholder="Enter current password"
+                    />
+                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <button type="button" onClick={() => setCpShow((v) => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600" tabIndex={-1} aria-label={cpShow ? "Hide" : "Show"}>
+                      {cpShow ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide">New password</label>
+                  <div className="relative mt-1">
+                    <input
+                      type={cpShow ? "text" : "password"}
+                      value={cpNext}
+                      onChange={(e) => setCpNext(e.target.value)}
+                      autoComplete="new-password"
+                      className="w-full h-11 pl-10 pr-3 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:border-red-500 focus:ring-2 focus:ring-red-500/20 outline-none text-sm"
+                      placeholder="At least 6 characters"
+                    />
+                    <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide">Confirm new password</label>
+                  <div className="relative mt-1">
+                    <input
+                      type={cpShow ? "text" : "password"}
+                      value={cpConfirm}
+                      onChange={(e) => setCpConfirm(e.target.value)}
+                      autoComplete="new-password"
+                      className="w-full h-11 pl-10 pr-3 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:border-red-500 focus:ring-2 focus:ring-red-500/20 outline-none text-sm"
+                      placeholder="Repeat the new password"
+                    />
+                    <CheckCircle2 className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${cpConfirm && cpConfirm === cpNext ? "text-emerald-500" : "text-slate-400"}`} />
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => !cpBusy && setShowChangePwd(false)}
+                    className="flex-1 h-11 rounded-xl border border-slate-200 text-slate-700 font-semibold text-sm hover:bg-slate-50"
+                    disabled={cpBusy}
+                  >Cancel</button>
+                  <button
+                    type="submit"
+                    disabled={cpBusy}
+                    className="flex-1 h-11 rounded-xl bg-red-600 text-white font-bold text-sm hover:bg-red-700 disabled:opacity-60 flex items-center justify-center gap-2"
+                  >
+                    {cpBusy ? <><RefreshCw className="w-4 h-4 animate-spin" /> Saving…</> : <>Update password</>}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+
       <style>{`
         .email-html-wrapper {
           overflow: hidden;
