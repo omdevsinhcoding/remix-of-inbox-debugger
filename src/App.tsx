@@ -8444,14 +8444,11 @@ function EmailViewer() {
       return await syncViaWorker();
     };
     try {
-      let synced: Email[] | null = null;
+      let synced: Awaited<ReturnType<typeof syncViaWorker>> = null;
       try {
         synced = await runRefresh();
       } catch (transient) {
         const tmsg = transient instanceof Error ? transient.message : String(transient);
-        // Silent one-shot retry on transient secure-transport / handshake failures
-        // so admins never see a scary "Secure connection failed" toast for a
-        // blip that would resolve itself on the next try.
         if (/Secure connection|handshake|Failed to fetch|NetworkError|busy/i.test(tmsg)) {
           await new Promise((r) => setTimeout(r, 700));
           synced = await runRefresh();
@@ -8461,7 +8458,7 @@ function EmailViewer() {
       }
       let merged: Email[] = emails;
       if (synced) {
-        merged = synced;
+        merged = synced.emails;
         setEmails(merged);
         setError(null);
         setLastUpdated(new Date());
@@ -8469,16 +8466,32 @@ function EmailViewer() {
       const visible = filterVisibleEmails(merged, profilePrefs, user);
       const newCount = visible.filter((e) => !beforeIds.has(e.id)).length;
       notify.dismiss(toastId);
-      if (newCount > 0) {
+      if (synced?.warning) {
+        // Server-side sync had a problem (IMAP down, fallback, etc.) — surface it
+        // instead of falsely claiming "Inbox is up to date".
+        notify.warning("Mail server issue", {
+          description: synced.warning,
+          duration: 4000,
+        });
+      } else if (newCount > 0) {
         notify.info(`${newCount} new email${newCount === 1 ? "" : "s"} arrived`, {
           description: "Freshly delivered to your inbox",
           duration: 2600,
         });
+      } else if (synced && synced.inserted > 0) {
+        // Server saved new rows but our visible filter hid them (assigned-account scope, etc.)
+        notify.info(`${synced.inserted} new email${synced.inserted === 1 ? "" : "s"} synced`, {
+          description: "Not visible in this inbox view",
+          duration: 3000,
+        });
+      } else if (!synced) {
+        notify.error("Sync did not run", { description: "Worker unreachable or misconfigured", duration: 3400 });
       } else {
-        notify.success(visible.length > 0 ? "Inbox is up to date" : "No Netflix emails yet", {
+        notify.success(visible.length > 0 ? "No new mail yet" : "No Netflix emails yet", {
           duration: 2000,
         });
       }
+
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to load";
       notify.dismiss(toastId);
