@@ -1117,9 +1117,6 @@ function useSessionTimeoutGuard(role: "admin" | "user", enabled = true) {
   const { user: authUser, checkAuth } = useAuth();
 
   useEffect(() => {
-    if (authUser?.role === "user") navigate("/viewer", { replace: true });
-  }, [authUser?.id, authUser?.role, navigate]);
-  useEffect(() => {
     if (!enabled) return;
     let timer: any;
     let poll: any;
@@ -5155,9 +5152,9 @@ function AdminPanel() {
       if (data.sessionToken) sessionSet("session_token" as any, data.sessionToken);
       sessionRemove("admin_auth" as any);
       checkAuth();
-      navigate("/viewer", { replace: true });
+      navigate("/admin/viewer", { replace: true });
       window.setTimeout(() => {
-        if (window.location.pathname !== "/viewer") window.location.replace("/viewer");
+        if (window.location.pathname !== "/admin/viewer") window.location.replace("/admin/viewer");
       }, 80);
       notify.success(`Viewing as ${targetUser.name}`);
     } catch (err) {
@@ -9273,4 +9270,13 @@ const ProtectedRoute = ({ children, role }: { children: React.ReactNode; role: "
   if (role === "admin" && user.role !== "admin") return <Navigate to="/" />;
   // Note: allow admin accounts to freely browse the user viewer too — do not auto-redirect back to admin panel.
   return <>{!isAdminViewingUser && <SessionCountdown role={role} />}{children}</>;
+};
+
+const AdminUserViewRoute = ({ children }: { children: React.ReactNode }) => {
+  const { user, loading } = useAuth();
+  useSessionTimeoutGuard("user", false);
+  if (loading) return <div className="min-h-screen bg-slate-950 flex items-center justify-center"><div className="w-8 h-8 border-2 border-red-500 border-t-transparent rounded-full animate-spin" /></div>;
+  if (!user) return <Navigate to="/admin" replace />;
+  if (user.role !== "user" || (user as any)?.impersonated !== true) return <Navigate to="/admin/dashboard" replace />;
+  return <>{children}</>;
 };
