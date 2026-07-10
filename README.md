@@ -114,9 +114,9 @@ Inside app: **Admin Panel → Cron Settings** → toggle ON → pick interval (3
 
 Worker source lives in [`/cloudflare-worker/worker.js`](./cloudflare-worker/worker.js).
 
-**Zero runtime secrets required** — Supabase URL + anon key are baked into `worker.js` as defaults. KV auto-provisions on first deploy.
+**Zero runtime secrets required** — Supabase URL + anon key are baked into `worker.js` as defaults. The deploy script creates/fetches the KV namespace in the current Cloudflare account, injects the correct namespace ID into a temporary Wrangler config, then deploys with `EMAIL_CACHE` bound.
 
-> 🪄 **How the auto-deploy trick works:** Cloudflare Workers Builds always runs `npm run build` when it detects a `package.json`. We've hijacked [`cloudflare-worker/package.json`](./cloudflare-worker/package.json) so its `build` script actually runs `npx wrangler deploy --keep-vars`. Result: even if you leave every field blank, the worker deploys itself.
+> 🪄 **Important fix:** Cloudflare KV bindings are account-specific. A `wrangler.toml` with only `binding = "EMAIL_CACHE"` is not enough on every account because KV needs an account-local namespace ID. [`cloudflare-worker/deploy.mjs`](./cloudflare-worker/deploy.mjs) now handles that automatically.
 
 ### 🎯 One-Time Setup
 
@@ -136,14 +136,12 @@ Open **Cloudflare Dashboard → Workers & Pages → Create → Import a reposito
 
 | Field | Value |
 |---|---|
-| **Build command** | *(leave EMPTY — Cloudflare will auto-run `npm run build`, which is our hijacked deploy script)* |
-| **Deploy command** | *(leave EMPTY — the build step already deployed)* |
+| **Build command** | *(leave EMPTY — if Cloudflare auto-runs `npm run build`/`bun run build`, it runs `node deploy.mjs`)* |
+| **Deploy command** | `npx wrangler deploy` *(Cloudflare default)* **or** *(leave empty if your account auto-detect runs build)* |
 | Build variables | *(none)* |
 | Build secrets | *(none)* |
 
-> ✅ Both fields blank = fully automatic. Cloudflare runs `npm install` → `npm run build` → our script fires `npx wrangler deploy --keep-vars` → worker is live.
->
-> If you prefer the traditional split, you can also set: **Build command:** empty, **Deploy command:** `npx wrangler deploy`. Both flows work.
+> ✅ Recommended: `Root directory=/cloudflare-worker`, Build empty, Deploy default/empty. If Cloudflare fills `npm run build` or `bun run build`, our package script still runs the Worker deploy and KV binding step.
 
 #### Step 3 — Non-Production Branches
 
@@ -158,9 +156,9 @@ Open **Cloudflare Dashboard → Workers & Pages → Create → Import a reposito
 
 | Field | Value |
 |---|---|
-| API Token | **Use default** (Cloudflare-managed) |
+| API Token | **Create new token / Use default token with KV access** |
 
-> ✅ Default token already has `Workers Scripts: Edit` + `Workers KV: Edit` + `Account Settings: Read`. **No custom token needed.**
+> ✅ The token must have **Account Settings: Read**, **Workers Scripts: Edit**, **Workers KV Storage: Edit**, **User Details: Read**, and **Memberships: Read**. If one Cloudflare account fails to create/bind KV, create a fresh token for that account instead of reusing an old restricted token.
 
 ### 📋 Copy-Paste Summary
 
@@ -168,11 +166,11 @@ Open **Cloudflare Dashboard → Workers & Pages → Create → Import a reposito
 Repository:           your-github-org/inbox-debugger
 Production branch:    main
 Root directory:       /cloudflare-worker      ← REQUIRED
-Build command:        (empty)                 ← auto-runs npm run build = wrangler deploy
-Deploy command:       (empty)                 ← already deployed in build step
+Build command:        (empty)                 ← npm/bun build also triggers node deploy.mjs
+Deploy command:       (empty or npx wrangler deploy)
 Non-prod branches:    ☐ unchecked
 Non-prod command:     (empty)
-API Token:            Use default
+API Token:            Create new token / default with KV edit access
 ```
 
 
@@ -181,7 +179,8 @@ API Token:            Use default
 1. Cloudflare gives URL: `https://netflix.<your-subdomain>.workers.dev`
    *(worker name comes from `wrangler.toml` → currently `netflix`; rename in that file if needed)*
 2. Copy that URL
-3. In app: **Admin Panel → Infrastructure → Primary Cloudflare Worker URLs** → paste → Save
+3. Confirm binding exists: Worker → **Settings → Bindings** → `EMAIL_CACHE` should be visible
+4. In app: **Admin Panel → Infrastructure → Primary Cloudflare Worker URLs** → paste → Save
 
 Done. Every **new push to `main`** auto-deploys.
 
@@ -193,7 +192,9 @@ Cloudflare does **not** keep polling an old commit after you connect an existing
 2. a **new commit** is pushed to the selected production branch, or
 3. you open **Deployments → Build history** and manually retry/start a build.
 
-If Build history says **“No builds exist yet”**, GitHub Builds has not run. Push any small commit after connecting, then it should appear there.
+If Build history says **“No builds exist yet”**, GitHub Builds has not run. Push any small commit after connecting, or open Worker → **Settings → Builds → Retry/Start build**.
+
+If logs show `KV namespace id missing`, `unauthorized`, or `permission`, the account token does not have **Workers KV Storage: Edit**. Recreate/select the token in that Cloudflare account.
 
 ---
 
@@ -201,11 +202,35 @@ If Build history says **“No builds exist yet”**, GitHub Builds has not run. 
 
 Each Cloudflare account is fully isolated — deploying to one **never** touches another.
 
+For **every Cloudflare account**, repeat these account-level steps:
+
+1. Login to that exact Cloudflare account.
+2. Workers & Pages → Create → Import repository.
+3. Authorize GitHub access to this repo for that account.
+4. Set `Root directory = /cloudflare-worker`.
+5. Use/create an API token with **Workers Scripts: Edit** + **Workers KV Storage: Edit**.
+6. Click **Save and Deploy**.
+7. Check Build logs for: `Creating KV namespace EMAIL_CACHE` or `Found existing KV namespace EMAIL_CACHE`.
+8. Check Worker → Settings → Bindings: `EMAIL_CACHE` must appear.
+9. Copy that account's `workers.dev` URL into Admin Panel → Infrastructure.
+
+No runtime env insertion is required for this app. `SUPABASE_URL` and anon key are built into `worker.js`; KV is a **binding**, not an env variable. Optional overrides only go in Worker → Settings → Variables & Secrets if you fork to another Supabase project.
+
 | Option | How |
 |---|---|
 | **A. Separate branches** | `main-acc1`, `main-acc2` — connect each account to its own branch |
 | **B. Override name** | Change deploy command to `npx wrangler deploy --name netflix-acc2` |
 | **C. Manual** | Only one account Git-connected; others via local `wrangler deploy` |
+
+### If you insist on repo-root build command
+
+Cloudflare should ideally use `/cloudflare-worker`. If you leave root blank and set `npm run build` / `bun run build` at repo root, add this **Build variable** so the root script knows this is a Worker deploy, not a frontend Vite build:
+
+```txt
+CLOUDFLARE_WORKER_BUILD=1
+```
+
+Then `npm run build`, `bun run build`, `npm run build:worker`, or `npm run deploy:worker` will call `cloudflare-worker/deploy.mjs`.
 
 Add multiple worker URLs in Admin Panel → they load-balance randomly, fall back to Supabase if all workers fail.
 
