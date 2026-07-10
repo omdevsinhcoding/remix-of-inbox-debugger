@@ -262,7 +262,8 @@ SPA fallback is already configured (`public/_redirects`, `netlify.toml`, `vercel
 | Problem | Fix |
 |---|---|
 | "No builds exist yet" in Cloudflare | Git Builds has not run yet. Use **Save and Deploy**, or push a new commit after connecting. |
-| Blank build command becomes `npm run build` | Cloudflare detected the React frontend. Clear it, choose Workers, and keep deploy command `npx wrangler deploy`. |
+| `npm run build` runs but worker never deploys | Root directory is wrong. Set it to `/cloudflare-worker` — the hijacked build script lives there. |
+| Cloudflare runs `vite build` instead of wrangler | Same fix — Root directory must be `/cloudflare-worker`, not blank. |
 | Cloudflare build fails: `wrangler.toml missing name` | Check `wrangler.toml` has `name = "netflix"` (or your chosen name) |
 | Build fails: `you need to provide a name` in deploy | Same as above — name field required |
 | Worker deployed but app shows no emails | Paste worker URL in Admin Panel → Infrastructure |
