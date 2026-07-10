@@ -8611,9 +8611,9 @@ function EmailViewer() {
         }
       }
       if (!html) {
-        const res = await apiCall("manage-app", { action: "get_email_html", id: email.id });
-        html = res?.html || "";
+        pushDiag({ ts: Date.now(), kind: "cache", endpoint: "get_email_html", error: "Cloudflare Worker required — Supabase fallback disabled" });
       }
+
       if (html) {
         setSelectedEmail((cur) => (cur && cur.id === email.id ? { ...cur, html } : cur));
         if (db) { try { await cacheEmailHtml(db, email.id, html); } catch { /* quota etc. */ } }
