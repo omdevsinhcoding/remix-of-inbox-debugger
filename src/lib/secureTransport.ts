@@ -26,6 +26,10 @@ async function gunzipBytes(input: Uint8Array): Promise<Uint8Array> {
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
+function canGunzipResponse(): boolean {
+  return typeof DecompressionStream !== "undefined";
+}
+
 type Session = { sidBytes: Uint8Array; key: CryptoKey; expiresAt: number };
 let sessionPromise: Promise<Session> | null = null;
 let serverTimeOffsetMs = 0;
@@ -201,13 +205,14 @@ export async function secureFetchJson(
     "Content-Type": CT_BINARY,
     Authorization: `Bearer ${anonKey()}`,
     apikey: anonKey(),
-    // Tell the server we can decompress gzipped payloads. This trims Supabase
-    // egress by 60-85% on JSON responses (list_delta, get_email_html,
-    // bootstrap_public, admin lists). Server only gzips when this header is
-    // present, so older clients keep working.
-    "x-accept-encoding": "gzip",
     ...(opts.headers || {}),
   };
+
+  // Only advertise gzip when this exact browser can decode it. Some Firefox /
+  // hardened browser builds don't expose DecompressionStream; if we still ask
+  // the Edge function for gzip, login/admin calls decrypt fine but fail during
+  // gunzip and show the generic secure-connection toast.
+  if (canGunzipResponse()) headers["x-accept-encoding"] = "gzip";
 
   const res = await fetch(`${fnBase()}/${functionName}`, {
     method: "POST",
