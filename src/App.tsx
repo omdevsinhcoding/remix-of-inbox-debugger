@@ -5886,14 +5886,17 @@ function AdminPanel() {
                                     <UserCircle className="w-4 h-4 text-rose-500" />
                                     Username {u.isFree && <span className="text-[10px] font-normal text-slate-400">(optional)</span>}
                                   </label>
-                                  <button type="button" onClick={() => notify.info("This is the name the user types to log in. Like their nickname.")}
-                                    className="w-6 h-6 rounded-full bg-slate-100 hover:bg-rose-100 text-slate-500 hover:text-rose-600 flex items-center justify-center transition-colors" title="What is this?">
+                                  <button type="button" onClick={() => setEditHint(editHint === "user" ? null : "user")}
+                                    className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors ${editHint === "user" ? "bg-rose-500 text-white" : "bg-slate-100 hover:bg-rose-100 text-slate-500 hover:text-rose-600"}`} title="What is this?">
                                     <Info className="w-3.5 h-3.5" />
                                   </button>
                                 </div>
                                 <input type="text" value={editUsername} onChange={(e) => setEditUsername(e.target.value)}
                                   placeholder={u.isFree ? "No username needed" : "e.g. john123"}
                                   className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-3 outline-none focus:ring-2 focus:ring-rose-500/30 focus:border-rose-500 text-sm font-medium transition-all" />
+                                {editHint === "user" && (
+                                  <p className="mt-1.5 text-[11px] text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-2.5 py-1.5 leading-snug">The name this user types to log in — like a nickname.</p>
+                                )}
                               </div>
 
                               {/* IMAP Accounts */}
