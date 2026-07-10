@@ -3037,8 +3037,20 @@ Deno.serve(async (originalReq) => {
     if (action === "login_free") {
       // Passwordless entry for admin-created "free" profiles. Everyone can
       // enter — GPS is still enforced by default unless admin disabled it.
-      const { user_id, clientGeo: freeClientGeo } = params;
+      const { user_id, clientGeo: freeClientGeo, captchaToken } = params;
       if (!user_id || typeof user_id !== "string") throw new Error("user_id required");
+
+      // Same CAPTCHA gate as paid login: if admin enabled reCAPTCHA globally,
+      // free profile entry also requires a solved captcha token.
+      const { data: recaptchaSettingFree } = await supabase
+        .from("app_settings").select("value").eq("key", "recaptcha").maybeSingle();
+      const recaptchaCfgFree: any = recaptchaSettingFree?.value || null;
+      if (recaptchaCfgFree?.enabled === true) {
+        if (!recaptchaCfgFree?.secretKey) throw new Error("CAPTCHA is misconfigured. Contact admin.");
+        if (!captchaToken || typeof captchaToken !== "string") throw new Error("CAPTCHA required. Refresh and try again.");
+        const captchaOk = await verifyRecaptchaToken(recaptchaCfgFree.secretKey, captchaToken, ip);
+        if (!captchaOk) throw new Error("CAPTCHA verification failed. Refresh and try again.");
+      }
       const { data: user, error } = await supabase
         .from("app_users")
         .select("*")
