@@ -50,46 +50,51 @@ curl -X POST \
 
 ---
 
-## 2. Cloudflare Worker Setup
+## 2. Cloudflare Worker Setup — Import & Done (zero commits, zero manual steps)
 
-### Git Auto-Deploy Setup
+There is exactly **ONE** correct way. Follow it literally — no shortcuts, no "Hello World first", no "connect Git later". Every account that fails to auto-deploy failed because they used the wrong entry point.
 
-Create the Worker from **Workers & Pages → Create → Import a repository**. Do **not** use “Start with Hello World” if you expect Git builds to run automatically.
+### The only supported flow
 
-Use these settings:
+1. Cloudflare Dashboard → **Workers & Pages** → **Create** → **Import a repository** (NOT "Create Worker", NOT "Hello World").
+2. Authorize GitHub (if first time) → pick this repo → branch **`main`**.
+3. Fill these fields **exactly** (Cloudflare will remember them on the Worker forever):
 
-| Field | Value |
-|---|---|
-| Repository | your GitHub repo |
-| Branch | `main` |
-| Root directory | `/cloudflare-worker` |
-| Build command | empty, or Cloudflare auto-filled `npm run build` / `bun run build` |
-| Deploy command | `npm run deploy` |
-| API token | token with Workers Scripts Edit + Workers KV Storage Edit |
+   | Field | Value |
+   |---|---|
+   | Project name | anything (e.g. `feeedda`) |
+   | Production branch | `main` |
+   | **Root directory** | **`/cloudflare-worker`** ← must be set, or build runs at repo root |
+   | Build command | leave empty (or accept auto-filled `npm run build`) |
+   | Deploy command | `npm run deploy` |
+   | API token | "Use default Workers CI token" (auto-created with correct scopes) |
 
-`npm run deploy` runs `cloudflare-worker/deploy.mjs`, which creates/fetches the account-local `EMAIL_CACHE` KV namespace, injects its ID into a temporary Wrangler config, and then deploys the Worker. This is required because every Cloudflare account has different KV namespace IDs. Manual Cloudflare runtime secrets are not required for email sync; when signing secrets are absent, the Worker verifies the session through Supabase and still handles email traffic through Cloudflare.
+4. Click **Save and Deploy**.
 
-If you accidentally leave Root directory blank and Cloudflare runs repo-root `npm run build`, the root smart-build script now detects official Workers Builds variables (`WORKERS_CI`, `WORKERS_CI_BUILD_UUID`, `WORKERS_CI_COMMIT_SHA`, `WORKERS_CI_BRANCH`) and routes to the Worker deploy instead of the React/Vite build.
+That's it. Cloudflare will:
+- Clone the repo
+- Run `npm install` inside `/cloudflare-worker`
+- Run `npm run deploy` → `deploy.mjs` creates the `EMAIL_CACHE` KV namespace in this account, binds it, and deploys `worker.js`
+- Give you a URL like `https://feeedda.<account>.workers.dev`
 
-### Important: first build does NOT auto-trigger on "Connect" (Cloudflare platform behavior)
+Copy that URL into **Admin Panel → Infrastructure → Worker URLs**. Done. Every future `git push` to `main` auto-deploys.
 
-Per [Cloudflare docs](https://developers.cloudflare.com/workers/ci-cd/builds/): when you connect an existing Worker to a repo, **you must push a commit to trigger the first build.** Cloudflare does not run a build at the moment you click "Connect" — Build history stays empty until a git event arrives.
+### Why other flows fail (do NOT do these)
 
-Two ways to get the first build to run:
+- ❌ **"Start with Hello World" then Settings → Git → Connect** — Cloudflare does *not* run a build on connect. Build history stays empty until you push a commit. This is a documented Cloudflare platform behavior, not our bug.
+- ❌ **"Create Worker" via `wrangler` CLI or upload** — puts the Worker in "Automatic deployment on upload" mode. The **Edit code** button appears; Git is not truly connected. Delete and redo via **Import a repository**.
+- ❌ **Root directory left blank** — Cloudflare tries to build the React app at repo root. Our root `package.json` detects `WORKERS_CI*` env vars and reroutes to the Worker deploy as a safety net, but the correct fix is to set Root directory to `/cloudflare-worker`.
 
-1. **Recommended — create the Worker via Import a repository.** Workers & Pages → Create → **Import a repository** → pick this repo. Cloudflare provisions the Worker AND runs the first build in one step. Do **not** use "Start with Hello World" and connect Git later.
-2. **Already connected an existing Worker?** Push any commit (empty commit works: `git commit --allow-empty -m "trigger build" && git push`), or open the Worker → Deployments → **Retry deployment**. Every push after that auto-builds.
+If you already created the Worker the wrong way: **delete it in Cloudflare Dashboard and recreate via Import a repository.** There is no in-place fix — Cloudflare's own docs confirm this.
 
-If the Worker overview says **"Automatic deployment on upload"** and has an **Edit code** button, that Worker is in dashboard/manual upload mode — Git isn't connected at all. Recreate it via **Import a repository**.
-
-### Manual Deploy Fallback
+### Manual Deploy Fallback (only for local testing)
 
 ```bash
 cd cloudflare-worker
 npm run deploy
 ```
 
-This deploys the worker named from `wrangler.toml`.
+
 
 ### Worker URL
 After deployment, your worker URL will be something like:
