@@ -259,6 +259,60 @@ async function decryptValue(encrypted: string, secret: string): Promise<string> 
   return new TextDecoder().decode(plain);
 }
 
+const SECRET_MASK = "••••••••";
+
+function maskSavedSecret(value: unknown): string {
+  return typeof value === "string" && value.length > 0 ? SECRET_MASK : "";
+}
+
+function maskEmailAccountsForAdmin(value: any): any[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((acc: any) => ({
+    ...acc,
+    password: maskSavedSecret(acc?.password),
+  }));
+}
+
+function findExistingAccountForSecret(existingAccounts: any[], acc: any, index: number): any | null {
+  const sameIndex = existingAccounts[index];
+  if (sameIndex && String(sameIndex.label || "") === String(acc?.label || "") && String(sameIndex.user || "") === String(acc?.user || "")) return sameIndex;
+  return existingAccounts.find((x: any) => String(x?.label || "") === String(acc?.label || "") && String(x?.user || "") === String(acc?.user || ""))
+    || existingAccounts.find((x: any) => String(x?.label || "") === String(acc?.label || ""))
+    || existingAccounts.find((x: any) => String(x?.user || "") === String(acc?.user || ""))
+    || sameIndex
+    || null;
+}
+
+async function processConfigSecrets(value: any, previous: any, encryptionSecret: string) {
+  const config = value && typeof value === "object" ? { ...value } : {};
+  const prior = previous && typeof previous === "object" ? previous : {};
+  if (config.IMAP_PASSWORD === SECRET_MASK) {
+    config.IMAP_PASSWORD = prior.IMAP_PASSWORD || "";
+  } else if (config.IMAP_PASSWORD && typeof config.IMAP_PASSWORD === "string" && !config.IMAP_PASSWORD.startsWith("enc:")) {
+    config.IMAP_PASSWORD = await encryptValue(config.IMAP_PASSWORD, encryptionSecret);
+  }
+  return config;
+}
+
+async function processEmailAccountSecrets(value: any[], existingAccounts: any[], encryptionSecret: string) {
+  return await Promise.all(value.map(async (acc: any, i: number) => {
+    let password = acc.password;
+    if (password === SECRET_MASK) {
+      const existing = findExistingAccountForSecret(existingAccounts, acc, i);
+      password = existing?.password || "";
+    } else if (password && typeof password === "string" && !password.startsWith("enc:")) {
+      password = await encryptValue(password, encryptionSecret);
+    }
+    return { ...acc, password };
+  }));
+}
+
+function maskConfigForAdmin(value: any) {
+  const config = value && typeof value === "object" ? { ...value } : {};
+  config.IMAP_PASSWORD = maskSavedSecret(config.IMAP_PASSWORD);
+  return config;
+}
+
 // --- Audit logging (D.3: enriched with user_agent + optional result) ---
 async function auditLog(
   supabase: any,
