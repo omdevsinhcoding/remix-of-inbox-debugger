@@ -2541,8 +2541,9 @@ function ProfileSelectPage() {
   const [fromCache, setFromCache] = useState(cachedUsers.length > 0);
   const [loginLoading, setLoginLoading] = useState(false);
   const [error, setError] = useState("");
-  const [siteKey, setSiteKey] = useState<string | null>(null);
-  const [captchaReady, setCaptchaReady] = useState(false);
+  const cachedSiteKey = cachedBootstrap?.recaptcha?.enabled === true && cachedBootstrap?.recaptcha?.siteKey ? String(cachedBootstrap.recaptcha.siteKey) : null;
+  const [siteKey, setSiteKey] = useState<string | null>(cachedSiteKey);
+  const [captchaReady, setCaptchaReady] = useState(!!cachedBootstrap);
   const [showCaptcha, setShowCaptcha] = useState(false);
   const [pendingLogin, setPendingLogin] = useState(false);
   const [freeLoginId, setFreeLoginId] = useState<string | null>(null);
@@ -2932,7 +2933,27 @@ function ProfileSelectPage() {
       return;
     }
     if (!captchaReady) {
-      setPendingLogin(true);
+      setFreeLoginId(profile.id);
+      setError("");
+      try {
+        const fresh = await bootstrapFromSupabase({ force: true });
+        const freshSiteKey = fresh.recaptcha?.enabled === true && fresh.recaptcha?.siteKey ? String(fresh.recaptcha.siteKey) : null;
+        setProfiles((fresh.users || []).filter((u: UserData) => u.role === "user"));
+        setSiteKey(freshSiteKey);
+        setCaptchaReady(true);
+        if (freshSiteKey) {
+          preloadRecaptchaScript();
+          setFreeCaptchaProfile(profile);
+        } else {
+          await executeFreeLogin(profile);
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Connection is busy. Please try again.";
+        setError(msg);
+        notify.error(msg);
+      } finally {
+        setFreeLoginId(null);
+      }
       return;
     }
     await executeFreeLogin(profile);
