@@ -3134,10 +3134,26 @@ function ProfileSelectPage() {
 // ==================== ADMIN LOGIN ====================
 
 function AdminLoginPage() {
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
+  const ADMIN_DRAFT_KEY = "admin_login_draft_v1";
+  const readAdminDraft = (): { u: string; p: string } => {
+    try {
+      const raw = typeof window !== "undefined" ? window.localStorage.getItem(ADMIN_DRAFT_KEY) : null;
+      if (!raw) return { u: "", p: "" };
+      const obj = JSON.parse(raw);
+      return { u: typeof obj?.u === "string" ? obj.u : "", p: typeof obj?.p === "string" ? obj.p : "" };
+    } catch { return { u: "", p: "" }; }
+  };
+  const initialDraft = readAdminDraft();
+  const [username, setUsername] = useState(initialDraft.u);
+  const [password, setPassword] = useState(initialDraft.p);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(ADMIN_DRAFT_KEY, JSON.stringify({ u: username, p: password }));
+    } catch { /* ignore quota */ }
+  }, [username, password]);
   const [siteKey, setSiteKey] = useState<string | null>(null);
   const [captchaReady, setCaptchaReady] = useState(false);
   const [showCaptcha, setShowCaptcha] = useState(false);
