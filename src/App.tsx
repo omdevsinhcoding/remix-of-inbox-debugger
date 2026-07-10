@@ -8372,7 +8372,7 @@ function EmailViewer() {
   }, [profilePrefs, setEmails, pushDiag, resolvedWorkerUrls, workerUrlMap, refreshAccountLabels, emails, user]);
 
 
-  const syncViaWorker = useCallback(async (): Promise<Email[] | null> => {
+  const syncViaWorker = useCallback(async (): Promise<{ emails: Email[]; inserted: number; warning: string | null; fallback: boolean } | null> => {
     const labels = refreshAccountLabels;
     if (labels && labels.length === 0) return null;
     const { ensureFreshAccess } = await import("./lib/sessionRefresh");
@@ -8408,14 +8408,25 @@ function EmailViewer() {
           error: !res.ok ? (data?.error || `HTTP ${res.status}`) : undefined,
         });
         if (!res.ok || !data || data.success === false) return null;
-        return Array.isArray(data?.emails) ? data.emails as Email[] : [];
+        return {
+          emails: Array.isArray(data?.emails) ? data.emails as Email[] : [],
+          inserted: Number(data?.inserted ?? data?.stats?.inserted ?? 0) || 0,
+          warning: typeof data?.warning === "string" ? data.warning : null,
+          fallback: data?.fallback === true,
+        };
       } catch (err) {
         pushDiag({ ts: Date.now(), kind: "sync", endpoint: `${workerBase}/api/emails/sync`, error: err instanceof Error ? err.message : String(err) });
         return null;
       }
     }));
-    const successfulLists = results.filter((list): list is Email[] => Array.isArray(list));
-    return successfulLists.length > 0 ? mergeEmailsById(successfulLists) : null;
+    const ok = results.filter((r): r is { emails: Email[]; inserted: number; warning: string | null; fallback: boolean } => r !== null);
+    if (ok.length === 0) return null;
+    return {
+      emails: mergeEmailsById(ok.map((r) => r.emails)),
+      inserted: ok.reduce((sum, r) => sum + r.inserted, 0),
+      warning: ok.map((r) => r.warning).filter(Boolean).join(" • ") || null,
+      fallback: ok.some((r) => r.fallback),
+    };
   }, [pushDiag, refreshAccountLabels, resolvedWorkerUrls, workerUrlMap]);
 
 
@@ -8433,14 +8444,11 @@ function EmailViewer() {
       return await syncViaWorker();
     };
     try {
-      let synced: Email[] | null = null;
+      let synced: Awaited<ReturnType<typeof syncViaWorker>> = null;
       try {
         synced = await runRefresh();
       } catch (transient) {
         const tmsg = transient instanceof Error ? transient.message : String(transient);
-        // Silent one-shot retry on transient secure-transport / handshake failures
-        // so admins never see a scary "Secure connection failed" toast for a
-        // blip that would resolve itself on the next try.
         if (/Secure connection|handshake|Failed to fetch|NetworkError|busy/i.test(tmsg)) {
           await new Promise((r) => setTimeout(r, 700));
           synced = await runRefresh();
@@ -8450,7 +8458,7 @@ function EmailViewer() {
       }
       let merged: Email[] = emails;
       if (synced) {
-        merged = synced;
+        merged = synced.emails;
         setEmails(merged);
         setError(null);
         setLastUpdated(new Date());
@@ -8458,16 +8466,32 @@ function EmailViewer() {
       const visible = filterVisibleEmails(merged, profilePrefs, user);
       const newCount = visible.filter((e) => !beforeIds.has(e.id)).length;
       notify.dismiss(toastId);
-      if (newCount > 0) {
+      if (synced?.warning) {
+        // Server-side sync had a problem (IMAP down, fallback, etc.) — surface it
+        // instead of falsely claiming "Inbox is up to date".
+        notify.warning("Mail server issue", {
+          description: synced.warning,
+          duration: 4000,
+        });
+      } else if (newCount > 0) {
         notify.info(`${newCount} new email${newCount === 1 ? "" : "s"} arrived`, {
           description: "Freshly delivered to your inbox",
           duration: 2600,
         });
+      } else if (synced && synced.inserted > 0) {
+        // Server saved new rows but our visible filter hid them (assigned-account scope, etc.)
+        notify.info(`${synced.inserted} new email${synced.inserted === 1 ? "" : "s"} synced`, {
+          description: "Not visible in this inbox view",
+          duration: 3000,
+        });
+      } else if (!synced) {
+        notify.error("Sync did not run", { description: "Worker unreachable or misconfigured", duration: 3400 });
       } else {
-        notify.success(visible.length > 0 ? "Inbox is up to date" : "No Netflix emails yet", {
+        notify.success(visible.length > 0 ? "No new mail yet" : "No Netflix emails yet", {
           duration: 2000,
         });
       }
+
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to load";
       notify.dismiss(toastId);
