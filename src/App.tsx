@@ -8309,23 +8309,43 @@ function EmailViewer() {
   const syncViaWorker = useCallback(async (): Promise<Email[] | null> => {
     const labels = refreshAccountLabels;
     if (labels && labels.length === 0) return null;
+    const workerUrls = resolvedWorkerUrls || [];
+    const token = sessionGet("session_token" as any);
+    if (workerUrls.length === 0 || !token) {
+      pushDiag({ ts: Date.now(), kind: "sync", endpoint: "worker:sync", error: "No Cloudflare Worker URL configured" });
+      return null;
+    }
+    const workerBase = workerUrls[Math.floor(Math.random() * workerUrls.length)].replace(/\/+$/, "");
     const started = performance.now();
-    const data = await apiCall("fetch-emails", {
-      mode: "user_sync",
-      source: "user_refresh",
-      limit: 200,
-      accountLabels: labels || undefined,
-    });
-    pushDiag({
-      ts: Date.now(),
-      kind: "sync",
-      endpoint: "fetch-emails:user_sync",
-      ms: Math.round(performance.now() - started),
-      note: labels ? labels.join(", ") : "all accounts",
-    });
-    if (data?.success === false) return null;
-    return Array.isArray(data?.emails) ? mergeEmailsById([data.emails as Email[]]) : null;
-  }, [pushDiag, refreshAccountLabels]);
+    try {
+      const res = await fetchWithTimeout(`${workerBase}/api/emails/sync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Session-Token": String(token) },
+        body: JSON.stringify({
+          mode: "user_sync",
+          source: "user_refresh",
+          limit: 200,
+          accountLabels: labels || undefined,
+        }),
+      }, 15000);
+      pushDiag({
+        ts: Date.now(),
+        kind: "sync",
+        endpoint: `${workerBase}/api/emails/sync`,
+        status: res.status,
+        ms: Math.round(performance.now() - started),
+        note: labels ? labels.join(", ") : "all accounts",
+      });
+      if (!res.ok) return null;
+      const data = await res.json().catch(() => null);
+      if (!data || data.success === false) return null;
+      return Array.isArray(data?.emails) ? mergeEmailsById([data.emails as Email[]]) : null;
+    } catch (err) {
+      pushDiag({ ts: Date.now(), kind: "sync", endpoint: `${workerBase}/api/emails/sync`, error: err instanceof Error ? err.message : String(err) });
+      return null;
+    }
+  }, [pushDiag, refreshAccountLabels, resolvedWorkerUrls]);
+
 
   const fetchEmails = async () => {
     if (refreshingRef.current) return;
@@ -8591,9 +8611,9 @@ function EmailViewer() {
         }
       }
       if (!html) {
-        const res = await apiCall("manage-app", { action: "get_email_html", id: email.id });
-        html = res?.html || "";
+        pushDiag({ ts: Date.now(), kind: "cache", endpoint: "get_email_html", error: "Cloudflare Worker required — Supabase fallback disabled" });
       }
+
       if (html) {
         setSelectedEmail((cur) => (cur && cur.id === email.id ? { ...cur, html } : cur));
         if (db) { try { await cacheEmailHtml(db, email.id, html); } catch { /* quota etc. */ } }
