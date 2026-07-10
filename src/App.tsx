@@ -3927,7 +3927,7 @@ function AllEmailsPanel() {
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [accountLabel, setAccountLabel] = useState("");
-  const [labels, setLabels] = useState<string[]>([]);
+  const [labels, setLabels] = useState<{ label: string; user: string }[]>([]);
   const [primaryUser, setPrimaryUser] = useState<string>("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [viewing, setViewing] = useState<any | null>(null);
@@ -3963,7 +3963,11 @@ function AllEmailsPanel() {
           apiCall("manage-app", { action: "get_settings", key: "email_accounts" }),
           apiCall("manage-app", { action: "get_settings", key: "config" }),
         ]);
-        if (Array.isArray(accData?.value)) setLabels(accData.value.map((a: any) => a.label || a.user).filter(Boolean));
+        if (Array.isArray(accData?.value)) {
+          setLabels(accData.value
+            .map((a: any) => ({ label: String(a.label || a.user || "").trim(), user: String(a.user || "").trim() }))
+            .filter((a: any) => a.label));
+        }
         const imapUser = cfgData?.value?.IMAP_USER;
         if (typeof imapUser === "string" && imapUser.trim()) setPrimaryUser(imapUser.trim());
       } catch {}
