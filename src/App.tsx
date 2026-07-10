@@ -8372,7 +8372,7 @@ function EmailViewer() {
   }, [profilePrefs, setEmails, pushDiag, resolvedWorkerUrls, workerUrlMap, refreshAccountLabels, emails, user]);
 
 
-  const syncViaWorker = useCallback(async (): Promise<Email[] | null> => {
+  const syncViaWorker = useCallback(async (): Promise<{ emails: Email[]; inserted: number; warning: string | null; fallback: boolean } | null> => {
     const labels = refreshAccountLabels;
     if (labels && labels.length === 0) return null;
     const { ensureFreshAccess } = await import("./lib/sessionRefresh");
@@ -8408,14 +8408,25 @@ function EmailViewer() {
           error: !res.ok ? (data?.error || `HTTP ${res.status}`) : undefined,
         });
         if (!res.ok || !data || data.success === false) return null;
-        return Array.isArray(data?.emails) ? data.emails as Email[] : [];
+        return {
+          emails: Array.isArray(data?.emails) ? data.emails as Email[] : [],
+          inserted: Number(data?.inserted ?? data?.stats?.inserted ?? 0) || 0,
+          warning: typeof data?.warning === "string" ? data.warning : null,
+          fallback: data?.fallback === true,
+        };
       } catch (err) {
         pushDiag({ ts: Date.now(), kind: "sync", endpoint: `${workerBase}/api/emails/sync`, error: err instanceof Error ? err.message : String(err) });
         return null;
       }
     }));
-    const successfulLists = results.filter((list): list is Email[] => Array.isArray(list));
-    return successfulLists.length > 0 ? mergeEmailsById(successfulLists) : null;
+    const ok = results.filter((r): r is { emails: Email[]; inserted: number; warning: string | null; fallback: boolean } => r !== null);
+    if (ok.length === 0) return null;
+    return {
+      emails: mergeEmailsById(ok.map((r) => r.emails)),
+      inserted: ok.reduce((sum, r) => sum + r.inserted, 0),
+      warning: ok.map((r) => r.warning).filter(Boolean).join(" • ") || null,
+      fallback: ok.some((r) => r.fallback),
+    };
   }, [pushDiag, refreshAccountLabels, resolvedWorkerUrls, workerUrlMap]);
 
 
