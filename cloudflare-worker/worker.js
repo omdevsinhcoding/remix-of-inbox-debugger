@@ -23,7 +23,7 @@ const CORS_HEADERS = {
 };
 
 const DEFAULT_SUPABASE_URL = "https://jsqchutnfdeljajkxmly.supabase.co";
-const DEFAULT_SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJqc3FjaHV0bmZkZWxqYWpreG1seSIsInJvbGUiOiJhbm9uIiwiaWF0IjoxNzc0MTIyOTM5LCJleHAiOjIwODk2OTg5Mzl9.HYN4zMEYEiP-H5KD_iIbFpr0GsatNoeyw40FI2mW_eA";
+const DEFAULT_SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpzcWNodXRuZmRlbGphamt4bWx5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxMjI5MzksImV4cCI6MjA4OTY5ODkzOX0.HYN4zMEYEiP-H5KD_iIbFpr0GsatNoeyw40FI2mW_eA";
 
 function supabaseUrl(env) {
   return env.SUPABASE_URL || DEFAULT_SUPABASE_URL;
