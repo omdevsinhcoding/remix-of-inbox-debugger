@@ -8127,11 +8127,12 @@ function AvatarRow({
 }) {
   return (
     <section id={`avatar-row-${category.key}`} className="scroll-mt-16">
-      <div className="flex items-center justify-between px-4 sm:px-5 mb-2">
-        <h4 className="text-sm sm:text-base font-black text-slate-900 tracking-tight">{category.label}</h4>
+      {/* Section title — desktop only. Mobile relies on the sticky tab strip. */}
+      <div className="hidden sm:flex items-center justify-between px-5 mb-2">
+        <h4 className="text-base font-black text-slate-900 tracking-tight">{category.label}</h4>
         <span className="text-[10px] font-bold text-slate-400">{category.files.length}</span>
       </div>
-      <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-6 gap-3 px-4 sm:px-5 pb-3">
+      <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 gap-2.5 sm:gap-3 px-3 sm:px-5 pb-3">
         {category.files.map((file) => {
           const id = buildAvatarId(category.key, file);
           const selected = selectedAvatar === id;
@@ -8141,12 +8142,22 @@ function AvatarRow({
               onClick={() => onPick(id)}
               disabled={saving}
               title={prettyName(file)}
-              className={`group relative aspect-square rounded-2xl overflow-hidden transition-shadow duration-200 active:scale-95 ${selected ? "ring-4 ring-red-500 shadow-lg shadow-red-500/40" : "ring-2 ring-transparent hover:ring-white/70"}`}
+              className={`group relative aspect-square rounded-2xl overflow-hidden transition-all duration-200 active:scale-[0.94] ${
+                selected
+                  ? "ring-[2.5px] ring-red-600 shadow-md shadow-red-500/20"
+                  : "ring-1 ring-slate-200/70 hover:ring-slate-300"
+              }`}
             >
               <ProfileAvatar avatarId={id} name={userName} className="w-full h-full !rounded-2xl" eager />
-              <span className="absolute inset-x-0 bottom-0 px-1.5 py-1 text-[9px] sm:text-[10px] font-bold text-white text-center bg-gradient-to-t from-black/85 via-black/50 to-transparent truncate">
+              {/* Name overlay — desktop only. Cleaner mobile grid. */}
+              <span className="hidden sm:block absolute inset-x-0 bottom-0 px-1.5 py-1 text-[10px] font-bold text-white text-center bg-gradient-to-t from-black/85 via-black/50 to-transparent truncate">
                 {prettyName(file)}
               </span>
+              {selected && (
+                <span className="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-600 flex items-center justify-center shadow-md ring-2 ring-white">
+                  <Check className="w-3 h-3 text-white" strokeWidth={3.5} />
+                </span>
+              )}
             </button>
           );
         })}
@@ -8154,6 +8165,7 @@ function AvatarRow({
     </section>
   );
 }
+
 
 
 function AvatarPicker({
