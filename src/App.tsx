@@ -7408,8 +7408,8 @@ function AdminPanel() {
                 <table className="w-full text-sm">
                   <tbody className="divide-y divide-slate-200">
                     {[
-                      ["Build command", "(leave EMPTY — delete npm run build if auto-filled)", "empty"],
-                      ["Deploy command", "npx wrangler deploy", "code"],
+                      ["Build command", "(leave EMPTY — auto npm run build = wrangler deploy)", "empty"],
+                      ["Deploy command", "(leave EMPTY — already deployed in build step)", "empty"],
                       ["Build variables", "(none)", "empty"],
                       ["Build secrets", "(none)", "empty"],
                     ].map(([k, v, kind]) => (
@@ -7421,15 +7421,22 @@ function AdminPanel() {
                   </tbody>
                 </table>
               </div>
-              <div className="mt-4 p-3.5 rounded-xl bg-red-50 border border-red-200">
+              <div className="mt-4 p-3.5 rounded-xl bg-emerald-50 border border-emerald-200">
+                <p className="text-xs font-bold text-emerald-900 mb-1">🪄 Auto-deploy trick</p>
+                <p className="text-[11px] text-emerald-800 leading-relaxed">
+                  <code className="font-mono bg-white px-1 rounded">cloudflare-worker/package.json</code> ka <code className="font-mono bg-white px-1 rounded">build</code> script hijack kiya hua hai — wo actually <code className="font-mono bg-white px-1 rounded">npx wrangler deploy --keep-vars</code> chalata hai. To jab Cloudflare auto <code className="font-mono bg-white px-1 rounded">npm run build</code> chalayega, worker seedha deploy ho jayega. Dono fields blank = fully automatic.
+                </p>
+              </div>
+              <div className="mt-3 p-3.5 rounded-xl bg-red-50 border border-red-200">
                 <p className="text-xs font-bold text-red-900 mb-1">❌ Common mistakes</p>
                 <ul className="text-[11px] text-red-800 space-y-0.5 list-disc list-inside">
-                  <li>Build command me <code className="font-mono bg-red-100 px-1 rounded">bash setup.sh</code> MAT likho</li>
-                  <li>Agar Cloudflare <code className="font-mono bg-red-100 px-1 rounded">npm run build</code> auto bhar de, delete karo — wo React frontend detect kar raha hai</li>
-                  <li>Deploy command me worker name hardcode MAT karo — <code className="font-mono bg-red-100 px-1 rounded">wrangler.toml</code> se aa raha hai</li>
-                  <li>Custom API token banane ki zarurat NAHI — default use karo</li>
+                  <li>Root directory blank MAT chhodo — <code className="font-mono bg-red-100 px-1 rounded">/cloudflare-worker</code> ZAROORI hai</li>
+                  <li>Build command me <code className="font-mono bg-red-100 px-1 rounded">bash setup.sh</code> ya kuch aur MAT likho — blank rakho</li>
+                  <li>Deploy command me <code className="font-mono bg-red-100 px-1 rounded">npm install</code> MAT likho</li>
+                  <li>Agar traditional split chahiye: Build=blank, Deploy=<code className="font-mono bg-red-100 px-1 rounded">npx wrangler deploy</code> — dono flow chalte hain</li>
                 </ul>
               </div>
+
             </section>
 
             {/* STEP 3 */}
