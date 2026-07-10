@@ -122,16 +122,22 @@ Deno.serve(async (req) => {
   const known = list.find((x) => x.id === account.id);
 
   if (!known) {
-    // No TOFU. Admin must add the account_id to
-    // app_settings.worker_account_allowlist manually first.
+    // Auto-add (TOFU). User has many CF accounts and wants zero manual setup.
+    // The CF API token is proof of account ownership; we alert on every new
+    // account so admin can revoke if unexpected.
+    const newEntry = { id: account.id, name: account.name, added_at: new Date().toISOString() };
+    const updated = [...list, newEntry];
+    await supabase
+      .from("app_settings")
+      .upsert({ key: "worker_account_allowlist", value: updated }, { onConflict: "key" });
     await sendTelegramAlert(
-      `🚫 Worker bootstrap REJECTED — unknown Cloudflare account.\n` +
+      `✅ New Cloudflare account auto-allowlisted for worker bootstrap.\n` +
       `Name: <b>${account.name}</b>\n` +
       `ID: <code>${account.id}</code>\n` +
-      `Add it to app_settings.worker_account_allowlist to authorize.`,
+      `Total accounts: ${updated.length}. Remove from app_settings.worker_account_allowlist if unexpected.`,
     );
-    return json({ error: "Account not in allowlist. Contact admin." }, 403);
   }
+
 
 
   // 4. Return the secrets the worker needs
