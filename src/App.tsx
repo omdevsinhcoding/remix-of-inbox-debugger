@@ -4093,8 +4093,8 @@ function AllEmailsPanel() {
               </button>
             )}
 
-            {labels.map((l, idx) => (
-              <button key={l} onClick={() => openAccount(l)}
+            {labels.map((a, idx) => (
+              <button key={a.label} onClick={() => openAccount(a.label)}
                 className="group relative overflow-hidden text-left rounded-2xl border border-slate-200 bg-white hover:border-red-300 hover:shadow-lg hover:shadow-red-500/10 active:scale-[0.99] transition-all p-4">
                 <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-red-500 to-red-700 opacity-80 group-hover:opacity-100 transition-opacity" />
                 <div className="flex items-center gap-3 pl-1">
@@ -4103,10 +4103,10 @@ function AllEmailsPanel() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
-                      <p className="font-black text-slate-900 text-sm truncate" title={l}>{l}</p>
+                      <p className="font-black text-slate-900 text-sm truncate" title={a.label}>{a.label}</p>
                       <span className="text-[8px] font-mono font-bold text-slate-400 tracking-wider">#{String(idx + 1).padStart(2, "0")}</span>
                     </div>
-                    <p className="text-[10px] text-slate-500 font-mono truncate uppercase tracking-wide mt-0.5">tap to load</p>
+                    <p className="text-[10px] text-red-700/80 font-mono truncate mt-0.5" title={a.user}>{a.user || "tap to load"}</p>
                   </div>
                   <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-red-500 group-hover:translate-x-0.5 transition-all flex-shrink-0" />
                 </div>
