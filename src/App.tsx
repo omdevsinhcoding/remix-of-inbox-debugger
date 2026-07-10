@@ -813,7 +813,7 @@ async function requireLoginLocation(preStarted?: Promise<LoginLocationPayload> |
   return { ...location, ...publicIp, device };
 }
 
-function hasGrantedLocation(location: LoginLocationPayload | null | undefined) {
+function hasGrantedLocation(location: LoginLocationPayload | null | undefined): location is LoginLocationPayload {
   return location?.status === "granted" && typeof location.latitude === "number" && typeof location.longitude === "number";
 }
 
