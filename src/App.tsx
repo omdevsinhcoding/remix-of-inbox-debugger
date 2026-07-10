@@ -9565,16 +9565,21 @@ function EmailViewer() {
             {canChangePassword && (
               <button
                 onClick={() => setShowChangePwd(true)}
-                className="flex items-center justify-center w-9 h-9 hover:bg-slate-100 text-slate-600 rounded-full transition-all active:scale-95"
+                className="flex items-center justify-center w-10 h-10 bg-indigo-600 text-white rounded-full transition-all active:scale-95 hover:bg-indigo-700 shadow-sm"
                 title="Change password"
                 aria-label="Change password"
               >
-                <KeyRound className="w-4 h-4" />
+                <KeyRound className="w-5 h-5" />
               </button>
             )}
             {!isImpersonating && (
-              <button onClick={() => { try { sessionClearAll(); } catch {} window.location.replace("/"); }} className="p-2 hover:bg-slate-100 rounded-full transition-colors" title="Logout" aria-label="Logout">
-                <LogOut className="w-5 h-5 text-slate-400" />
+              <button
+                onClick={() => { try { sessionClearAll(); } catch {} window.location.replace("/"); }}
+                className="flex items-center justify-center w-10 h-10 bg-red-600 text-white rounded-full transition-all active:scale-95 hover:bg-red-700 shadow-sm"
+                title="Logout"
+                aria-label="Logout"
+              >
+                <LogOut className="w-5 h-5" />
               </button>
             )}
           </div>
