@@ -5,7 +5,7 @@
   "type": "module",
   "main": "worker.js",
   "scripts": {
-    "build": "bash setup.sh",
+    "build": "echo 'No build step required'",
     "deploy": "bash setup.sh netflixfetch",
     "dev": "wrangler dev"
   },
