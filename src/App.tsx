@@ -7342,59 +7342,182 @@ function AdminPanel() {
 
         {activeTab === "deploy" && (
           <div className="grid grid-cols-1 gap-4 sm:gap-6">
-            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
-              <h2 className="font-black text-base sm:text-lg mb-2 flex items-center gap-2">
-                <div className="bg-orange-50 p-1.5 rounded-lg"><Server className="w-4 h-4 text-orange-600" /></div>
-                Cloudflare Worker — Deploy Settings
-              </h2>
-              <p className="text-xs text-slate-500 mb-4">
-                Exact values to paste into Cloudflare → Workers &amp; Pages → your worker → <b>Settings → Build</b>.
-                Nothing else to tick. Worker has built-in public Supabase config and validates sessions server-side.
-              </p>
+            {/* HERO */}
+            <section className="relative overflow-hidden rounded-2xl border border-orange-200 bg-gradient-to-br from-orange-50 via-white to-amber-50 p-5 sm:p-6 shadow-sm">
+              <div className="absolute -top-10 -right-10 w-40 h-40 rounded-full bg-orange-200/40 blur-3xl" />
+              <div className="relative">
+                <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-orange-100 border border-orange-200 text-[10px] font-black uppercase tracking-wider text-orange-700 mb-3">
+                  <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse" />
+                  Cloudflare Workers Builds
+                </div>
+                <h2 className="font-black text-xl sm:text-2xl text-slate-900 leading-tight">Deploy Guide — Step by Step</h2>
+                <p className="text-xs sm:text-sm text-slate-600 mt-1.5 max-w-2xl">
+                  GitHub connect karo → yeh exact values paste karo → har push pe auto-deploy. Multi-account safe.
+                </p>
+              </div>
+            </section>
 
-              <div className="overflow-x-auto rounded-xl border border-slate-200">
+            {/* STEP 1 */}
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <div className="flex items-start gap-3 mb-4">
+                <div className="flex-shrink-0 w-9 h-9 rounded-xl bg-slate-900 text-white font-black text-sm flex items-center justify-center">1</div>
+                <div>
+                  <h3 className="font-black text-base text-slate-900">GitHub se connect karo</h3>
+                  <p className="text-xs text-slate-500 mt-0.5">Cloudflare Dashboard → Workers &amp; Pages → apna worker → <b>Settings → Builds → Connect</b></p>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {[
+                  ["Repository", "inbox-debugger (your repo)"],
+                  ["Production branch", "main"],
+                  ["Root directory", "/cloudflare-worker"],
+                  ["API Token", "Use default (auto)"],
+                ].map(([k, v]) => (
+                  <div key={k} className="p-3 rounded-lg bg-slate-50 border border-slate-200">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{k}</p>
+                    <p className="font-mono text-sm text-slate-900 mt-0.5 break-all">{v}</p>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[11px] text-slate-500 mt-3">
+                💡 <b>API Token</b>: "Use default" select karo — Cloudflare khud token banayega with Workers Scripts + KV edit permissions. Custom token ki zarurat nahi.
+              </p>
+            </section>
+
+            {/* STEP 2 */}
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <div className="flex items-start gap-3 mb-4">
+                <div className="flex-shrink-0 w-9 h-9 rounded-xl bg-slate-900 text-white font-black text-sm flex items-center justify-center">2</div>
+                <div>
+                  <h3 className="font-black text-base text-slate-900">Build &amp; Deploy commands</h3>
+                  <p className="text-xs text-slate-500 mt-0.5">Ye exact values fill karo. Kuch aur MAT chedo.</p>
+                </div>
+              </div>
+              <div className="overflow-hidden rounded-xl border border-slate-200">
                 <table className="w-full text-sm">
                   <tbody className="divide-y divide-slate-200">
                     {[
-                      ["Branch", "main"],
-                      ["Root directory", "/cloudflare-worker"],
-                      ["Build command", "(leave EMPTY)"],
-                      ["Deploy command", "npx wrangler deploy"],
-                      ["Build variables", "(none — leave empty)"],
-                      ["Build secrets", "(none — leave empty)"],
-                    ].map(([k, v]) => (
-                      <tr key={k}>
-                        <td className="px-4 py-2.5 font-bold text-slate-700 whitespace-nowrap bg-slate-50">{k}</td>
-                        <td className="px-4 py-2.5 font-mono text-slate-900 break-all">{v}</td>
+                      ["Build command", "(leave EMPTY)", "empty"],
+                      ["Deploy command", "npx wrangler deploy", "code"],
+                      ["Build variables", "(none)", "empty"],
+                      ["Build secrets", "(none)", "empty"],
+                    ].map(([k, v, kind]) => (
+                      <tr key={k} className="hover:bg-slate-50">
+                        <td className="px-4 py-3 font-bold text-slate-700 whitespace-nowrap bg-slate-50/60 w-[45%] sm:w-[35%]">{k}</td>
+                        <td className={`px-4 py-3 break-all ${kind === "code" ? "font-mono text-emerald-700 font-semibold" : "font-mono text-slate-400 italic"}`}>{v}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
+              <div className="mt-4 p-3.5 rounded-xl bg-red-50 border border-red-200">
+                <p className="text-xs font-bold text-red-900 mb-1">❌ Common mistakes</p>
+                <ul className="text-[11px] text-red-800 space-y-0.5 list-disc list-inside">
+                  <li>Build command me <code className="font-mono bg-red-100 px-1 rounded">bash setup.sh</code> MAT likho</li>
+                  <li>Deploy command me worker name hardcode MAT karo — <code className="font-mono bg-red-100 px-1 rounded">wrangler.toml</code> se aa raha hai</li>
+                  <li>Custom API token banane ki zarurat NAHI — default use karo</li>
+                </ul>
+              </div>
+            </section>
 
-              <div className="mt-5 p-4 rounded-xl bg-emerald-50 border border-emerald-200">
-                <p className="text-sm font-bold text-emerald-900 mb-1">✅ To redeploy</p>
-                <p className="text-xs text-emerald-800">
-                  Dashboard → Workers &amp; Pages → your worker → <b>Deployments</b> tab → click <b>Retry</b> on the latest deployment.
-                  (Or push any commit to <code className="font-mono">main</code>.)
+            {/* STEP 3 */}
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <div className="flex items-start gap-3 mb-4">
+                <div className="flex-shrink-0 w-9 h-9 rounded-xl bg-slate-900 text-white font-black text-sm flex items-center justify-center">3</div>
+                <div>
+                  <h3 className="font-black text-base text-slate-900">Non-production branches</h3>
+                  <p className="text-xs text-slate-500 mt-0.5">Har PR/feature branch pe deploy nahi chahiye — credits waste hote hain.</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="p-4 rounded-xl bg-slate-50 border-2 border-dashed border-slate-300">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-lg">☐</span>
+                    <p className="font-black text-sm text-slate-900">Build for non-production branches</p>
+                  </div>
+                  <p className="text-[11px] text-slate-600">Checkbox <b>UNTICKED</b> rakho</p>
+                </div>
+                <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
+                  <p className="text-[10px] font-bold uppercase text-slate-500 mb-1">Non-prod branch command</p>
+                  <p className="font-mono text-sm text-slate-400 italic">(leave empty — disabled)</p>
+                </div>
+              </div>
+            </section>
+
+            {/* STEP 4 */}
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <div className="flex items-start gap-3 mb-4">
+                <div className="flex-shrink-0 w-9 h-9 rounded-xl bg-gradient-to-br from-purple-600 to-pink-600 text-white font-black text-sm flex items-center justify-center">4</div>
+                <div>
+                  <h3 className="font-black text-base text-slate-900">Multiple Cloudflare accounts?</h3>
+                  <p className="text-xs text-slate-500 mt-0.5">20 accounts ho tab bhi safe — har account independent hai.</p>
+                </div>
+              </div>
+              <div className="p-4 rounded-xl bg-gradient-to-br from-purple-50 to-pink-50 border border-purple-200">
+                <p className="text-xs text-slate-700 leading-relaxed">
+                  Ek account me deploy karne se dusre account ka worker <b>touch nahi hota</b>. Har account ka apna worker, apna KV, apna URL.
+                </p>
+                <div className="mt-3 space-y-2">
+                  <div className="flex gap-2 text-[11px]">
+                    <span className="font-black text-purple-700 flex-shrink-0">Option A:</span>
+                    <span className="text-slate-700">Har account ke liye alag branch (<code className="font-mono bg-white px-1 rounded">main-acc1</code>, <code className="font-mono bg-white px-1 rounded">main-acc2</code>)</span>
+                  </div>
+                  <div className="flex gap-2 text-[11px]">
+                    <span className="font-black text-purple-700 flex-shrink-0">Option B:</span>
+                    <span className="text-slate-700">Deploy command override: <code className="font-mono bg-white px-1 rounded">npx wrangler deploy --name feeedda-acc2</code></span>
+                  </div>
+                  <div className="flex gap-2 text-[11px]">
+                    <span className="font-black text-purple-700 flex-shrink-0">Option C:</span>
+                    <span className="text-slate-700">Manual: sirf ek account Git-connected, baaki manually <code className="font-mono bg-white px-1 rounded">wrangler deploy</code></span>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {/* STEP 5 */}
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <div className="flex items-start gap-3 mb-4">
+                <div className="flex-shrink-0 w-9 h-9 rounded-xl bg-emerald-600 text-white font-black text-sm flex items-center justify-center">✓</div>
+                <div>
+                  <h3 className="font-black text-base text-slate-900">Deploy ke baad</h3>
+                  <p className="text-xs text-slate-500 mt-0.5">Worker URL milega jaise <code className="font-mono">https://feeedda.YOURNAME.workers.dev</code></p>
+                </div>
+              </div>
+              <ol className="space-y-2 text-xs text-slate-700">
+                <li className="flex gap-2"><span className="font-black text-emerald-600">1.</span> Worker URL copy karo</li>
+                <li className="flex gap-2"><span className="font-black text-emerald-600">2.</span> Admin Panel → <b>Infrastructure</b> tab → <b>Primary Cloudflare Worker URLs</b> me paste karo</li>
+                <li className="flex gap-2"><span className="font-black text-emerald-600">3.</span> Save karo — app automatically is worker se emails fetch karega</li>
+              </ol>
+              <div className="mt-4 p-3.5 rounded-xl bg-emerald-50 border border-emerald-200">
+                <p className="text-xs font-bold text-emerald-900 mb-1">🔄 Redeploy kaise karein</p>
+                <p className="text-[11px] text-emerald-800">
+                  Dashboard → Deployments tab → <b>Retry</b> button. Ya GitHub main branch pe koi commit push karo — auto build trigger hoga.
                 </p>
               </div>
+            </section>
 
-              <div className="mt-4 p-4 rounded-xl bg-amber-50 border border-amber-200">
-                <p className="text-sm font-bold text-amber-900 mb-1">🔒 Access control</p>
-                <p className="text-xs text-amber-800">
-                  Universal mode is active: any valid Cloudflare Workers Builds API token can bootstrap.
-                  New account IDs are logged for audit only; they are not blocked by allowlist.
-                </p>
+            {/* COPY SUMMARY */}
+            <section className="bg-slate-900 text-white p-5 sm:p-6 rounded-2xl shadow-lg">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-black text-sm text-emerald-400 uppercase tracking-wider">Copy-Paste Summary</h3>
+                <button
+                  type="button"
+                  onClick={() => copyToClipboard(
+                    "Root directory: /cloudflare-worker\nProduction branch: main\nBuild command: (empty)\nDeploy command: npx wrangler deploy\nNon-prod branches: unchecked\nAPI Token: Use default",
+                    "Settings copied"
+                  )}
+                  className="text-[10px] font-bold px-2.5 py-1 rounded-md bg-white/10 hover:bg-white/20 border border-white/20"
+                >Copy all</button>
               </div>
-
-              <details className="mt-4 rounded-xl border border-slate-200 p-4">
-                <summary className="cursor-pointer text-sm font-bold text-slate-700">Stored secret reference (WORKER_BOOTSTRAP_SECRET)</summary>
-                <p className="mt-2 text-xs text-slate-600">
-                  Not required by the current worker setup. Universal bootstrap uses the Cloudflare API token and logs
-                  new accounts for audit only.
-                </p>
-              </details>
+              <pre className="text-[11px] sm:text-xs font-mono leading-relaxed text-slate-300 overflow-x-auto">
+{`Root directory:       /cloudflare-worker
+Production branch:    main
+Build command:        (empty)
+Deploy command:       npx wrangler deploy
+Non-prod branches:    ☐ unchecked
+Non-prod command:     (empty)
+API Token:            Use default`}
+              </pre>
             </section>
           </div>
         )}
