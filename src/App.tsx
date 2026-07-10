@@ -5848,11 +5848,11 @@ function AdminPanel() {
                         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
                         <div className="absolute inset-0 bg-gradient-to-br from-slate-950/70 via-slate-900/70 to-blue-950/70 backdrop-blur-xl" />
                         <div onClick={(e) => e.stopPropagation()}
-                          className="relative w-full sm:max-w-md max-h-[92vh] sm:max-h-[88vh] overflow-hidden bg-white sm:rounded-3xl rounded-t-3xl shadow-[0_-20px_80px_-10px_rgba(0,0,0,0.4)] sm:shadow-[0_30px_120px_-30px_rgba(59,130,246,0.5)] ring-1 ring-white/40 animate-in slide-in-from-bottom-8 sm:zoom-in-95 duration-300 flex flex-col">
+                          className="relative w-full sm:max-w-md max-h-[92vh] sm:max-h-[88vh] overflow-hidden bg-white sm:rounded-3xl rounded-t-3xl shadow-[0_-20px_80px_-10px_rgba(0,0,0,0.4)] sm:shadow-[0_30px_120px_-30px_rgba(244,63,94,0.5)] ring-1 ring-white/40 animate-in slide-in-from-bottom-8 sm:zoom-in-95 duration-300 flex flex-col">
                           {/* Mobile grab handle */}
                           <div className="sm:hidden flex justify-center pt-2.5 pb-1"><div className="w-10 h-1 rounded-full bg-slate-300" /></div>
                           {/* Header */}
-                          <div className={`relative overflow-hidden px-5 pt-5 pb-16 ${u.isFree ? "bg-gradient-to-br from-emerald-500 via-emerald-600 to-teal-700" : "bg-gradient-to-br from-blue-600 via-indigo-600 to-red-600"}`}>
+                          <div className="relative overflow-hidden px-5 pt-5 pb-16 bg-gradient-to-br from-rose-500 via-red-600 to-orange-600">
                             <div className="absolute inset-0 opacity-30" style={{ backgroundImage: "radial-gradient(circle at 20% 20%, rgba(255,255,255,0.4) 0%, transparent 50%), radial-gradient(circle at 80% 80%, rgba(255,255,255,0.2) 0%, transparent 50%)" }} />
                             <div className="absolute -top-10 -right-10 w-48 h-48 rounded-full bg-white/15 blur-3xl" />
                             <div className="absolute -bottom-12 -left-8 w-40 h-40 rounded-full bg-white/10 blur-3xl" />
