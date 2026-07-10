@@ -8543,7 +8543,7 @@ function UserProfileModal({
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       onClick={onClose}
-      className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center sm:p-4"
+      className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-50 flex items-end justify-center"
     >
       <motion.div
         onClick={(e) => e.stopPropagation()}
@@ -8551,13 +8551,13 @@ function UserProfileModal({
         animate={{ y: 0, opacity: 1, scale: 1 }}
         exit={{ y: "100%", opacity: 0 }}
         transition={{ type: "spring", stiffness: 380, damping: 34 }}
-        className="bg-white w-full max-w-lg rounded-t-[28px] sm:rounded-2xl shadow-2xl overflow-hidden max-h-[92vh] sm:max-h-[92vh] h-[88vh] sm:h-auto flex flex-col"
+        className="bg-white w-full max-w-lg rounded-t-[28px] shadow-2xl overflow-hidden max-h-[92vh] h-[88vh] flex flex-col"
       >
-        {/* Mobile drag-handle */}
-        <div className="sm:hidden flex justify-center pt-2.5 pb-1.5 flex-shrink-0">
+        {/* Drag-handle — shown on every device for the same look */}
+        <div className="flex justify-center pt-2.5 pb-1.5 flex-shrink-0">
           <span className="block w-10 h-1.5 rounded-full bg-slate-300" aria-hidden="true" />
         </div>
-        <div className="px-4 sm:px-5 pt-2 sm:pt-5 pb-3 sm:pb-5 border-b border-slate-100 flex items-center justify-between flex-shrink-0">
+        <div className="px-4 pt-2 pb-3 border-b border-slate-100 flex items-center justify-between flex-shrink-0">
           <div className="flex items-center gap-3 min-w-0">
             <ProfileAvatar avatarId={selectedAvatar} name={user.name} className="w-11 h-11 sm:w-12 sm:h-12" fallbackColor="bg-red-500" eager />
             <div className="min-w-0">
@@ -9498,11 +9498,13 @@ function EmailViewer() {
               <span className="ml-1.5">Profile</span>
             </button>
             {canChangePassword && (
-              <button onClick={() => setShowChangePwd(true)}
-                className="flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 text-slate-700 rounded-full text-sm font-semibold hover:bg-slate-50 hover:border-slate-300 transition-all active:scale-95"
-                title="Change password">
+              <button
+                onClick={() => setShowChangePwd(true)}
+                className="flex items-center justify-center w-9 h-9 hover:bg-slate-100 text-slate-600 rounded-full transition-all active:scale-95"
+                title="Change password"
+                aria-label="Change password"
+              >
                 <KeyRound className="w-4 h-4" />
-                <span>Password</span>
               </button>
             )}
             {!isImpersonating && (
