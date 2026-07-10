@@ -1117,9 +1117,6 @@ function useSessionTimeoutGuard(role: "admin" | "user", enabled = true) {
   const { user: authUser, checkAuth } = useAuth();
 
   useEffect(() => {
-    if (authUser?.role === "user") navigate("/viewer", { replace: true });
-  }, [authUser?.id, authUser?.role, navigate]);
-  useEffect(() => {
     if (!enabled) return;
     let timer: any;
     let poll: any;
@@ -2410,9 +2407,9 @@ function classifyEmail(e: Email): EmailCategory {
   const subject = (e.subject || "").toLowerCase();
   const preview = (e.preview || "").toLowerCase();
   const combined = `${subject} ${preview}`;
+  if (e.otp || RE_SIGNIN.test(combined) || /verification code/i.test(subject)) return "signin";
   if (RE_ACCOUNT_UPDATE.test(combined)) return "account_update";
   if (RE_PASSWORD_RESET.test(combined)) return "password_reset";
-  if (e.otp || RE_SIGNIN.test(combined) || /verification code/i.test(subject)) return "signin";
   return "other";
 }
 
@@ -2543,7 +2540,14 @@ function ProfileSelectPage() {
   const selectedLocationRequired = isLocationRequiredForProfile(selectedProfile);
   const gpsBlocked = gpsPermissionMode !== null;
   const navigate = useNavigate();
-  const { checkAuth } = useAuth();
+  const { user: authUser, checkAuth } = useAuth();
+
+  useEffect(() => {
+    if (!authUser) return;
+    if ((authUser as any)?.impersonated === true) navigate("/admin/viewer", { replace: true });
+    else if (authUser.role === "user") navigate("/viewer", { replace: true });
+    else if (authUser.role === "admin") navigate("/admin/dashboard", { replace: true });
+  }, [authUser?.id, authUser?.role, (authUser as any)?.impersonated, navigate]);
 
   useEffect(() => {
     let cancelled = false;
@@ -5155,9 +5159,9 @@ function AdminPanel() {
       if (data.sessionToken) sessionSet("session_token" as any, data.sessionToken);
       sessionRemove("admin_auth" as any);
       checkAuth();
-      navigate("/viewer", { replace: true });
+      navigate("/admin/viewer", { replace: true });
       window.setTimeout(() => {
-        if (window.location.pathname !== "/viewer") window.location.replace("/viewer");
+        if (window.location.pathname !== "/admin/viewer") window.location.replace("/admin/viewer");
       }, 80);
       notify.success(`Viewing as ${targetUser.name}`);
     } catch (err) {
@@ -9252,6 +9256,7 @@ export default function App() {
               <Route path="/admin" element={<AdminLoginPage />} />
               <Route path="/admin-auth" element={<AdminAuthPage />} />
               <Route path="/admin/dashboard" element={<ProtectedRoute role="admin"><AdminPanel /></ProtectedRoute>} />
+              <Route path="/admin/viewer" element={<AdminUserViewRoute><EmailViewer /></AdminUserViewRoute>} />
               <Route path="/viewer" element={<ProtectedRoute role="user"><EmailViewer /></ProtectedRoute>} />
               <Route path="/guides/netflix-household-verification" element={<NetflixHouseholdVerificationGuide />} />
             </Routes>
@@ -9270,7 +9275,18 @@ const ProtectedRoute = ({ children, role }: { children: React.ReactNode; role: "
   useSessionTimeoutGuard(role, roleAllowed && !isAdminViewingUser);
   if (loading) return <div className="min-h-screen bg-slate-950 flex items-center justify-center"><div className="w-8 h-8 border-2 border-red-500 border-t-transparent rounded-full animate-spin" /></div>;
   if (!user) return <Navigate to={role === "admin" ? "/admin" : "/"} />;
-  if (role === "admin" && user.role !== "admin") return <Navigate to="/" />;
+  if (role === "user" && (user as any)?.impersonated === true && window.location.pathname === "/viewer") return <Navigate to="/admin/viewer" replace />;
+  if (role === "admin" && user.role !== "admin") return <Navigate to={(user as any)?.impersonated === true ? "/admin/viewer" : "/"} replace />;
   // Note: allow admin accounts to freely browse the user viewer too — do not auto-redirect back to admin panel.
   return <>{!isAdminViewingUser && <SessionCountdown role={role} />}{children}</>;
+};
+
+const AdminUserViewRoute = ({ children }: { children: React.ReactNode }) => {
+  const { user, loading } = useAuth();
+  useSessionTimeoutGuard("user", false);
+  if (loading) return <div className="min-h-screen bg-slate-950 flex items-center justify-center"><div className="w-8 h-8 border-2 border-red-500 border-t-transparent rounded-full animate-spin" /></div>;
+  if (!user) return <Navigate to="/admin" replace />;
+  if (user.role !== "user") return <Navigate to="/admin/dashboard" replace />;
+  if ((user as any)?.impersonated !== true) return <Navigate to="/viewer" replace />;
+  return <>{children}</>;
 };

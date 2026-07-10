@@ -54,15 +54,35 @@ function normalizeEmailFilters(value: any): Required<EmailVisibilityFilters> {
     showAccountUpdates: v.showAccountUpdates === false ? false : true,
   };
 }
+function normalizeEmailAddress(value: string | null | undefined): string {
+  return String(value || "").trim().toLowerCase();
+}
+function extractEmailAddresses(value: string | null | undefined): string[] {
+  const s = normalizeEmailAddress(value);
+  if (!s) return [];
+  const matches = s.match(/[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9.-]+\.[a-z]{2,}/gi) || [];
+  return matches.map(normalizeEmailAddress);
+}
+function normalizeRecipientFilters(raw: any): string[] {
+  const values = Array.isArray(raw) ? raw : typeof raw === "string" ? raw.split(/[\s,;]+/) : [];
+  return Array.from(new Set(values.flatMap((v: any) => extractEmailAddresses(String(v || "")))));
+}
+function recipientMatches(toRaw: string | null | undefined, filters?: string[]): boolean {
+  if (!filters || filters.length === 0) return true;
+  const recipients = extractEmailAddresses(toRaw);
+  if (recipients.length === 0) return false;
+  const allowed = new Set(filters.map(normalizeEmailAddress).filter(Boolean));
+  return recipients.some((email) => allowed.has(email));
+}
 const VIS_ACCOUNT_UPDATE_RE = /(attention|action (needed|required)|account (information|info|details) (was |has been )?(changed|updated)|changes? to your account|email (address )?(was |has been )?(changed|updated)|new email address|email verification|verification email|verify (your )?(email address|phone number|mobile number|account)|confirm (your )?(email address|phone number|mobile number|account change|account)|membership (was |has been )?(cancell?ed|updated|paused)|account (was |has been )?(cancell?ed|deleted|closed|paused|on hold)|we[’']re sorry to see you go|payment (received|method|was|has been|declined|failed|updated|changed)|mobile (number )?(confirm|confirmed|verify|verified|update|updated)|phone (number )?(confirm|confirmed|verify|verified|update|updated)|verify (your )?(phone|mobile|email)|verify your email address|action needed: verify|request to make a change|update your account|make (a |any )?(change|changes) to your account)/i;
 
 function emailVisibilityCategory(row: any): "signin" | "password_reset" | "account_update" | "other" {
   const subject = String(row?.subject || "");
   const preview = String(row?.preview || "");
   const combined = `${subject} ${preview}`;
+  if (row?.otp || VIS_SIGNIN_RE.test(combined)) return "signin";
   if (VIS_ACCOUNT_UPDATE_RE.test(combined)) return "account_update";
   if (VIS_PASSWORD_RESET_RE.test(combined)) return "password_reset";
-  if (row?.otp || VIS_SIGNIN_RE.test(combined)) return "signin";
   return "other";
 }
 
@@ -208,6 +228,21 @@ async function normalizeAssignedAccounts(supabase: any, raw: any): Promise<strin
 async function loadAvailableAccountLabels(supabase: any): Promise<string[]> {
   const { data } = await supabase.from("app_settings").select("value").eq("key", "email_accounts").maybeSingle();
   return ["Primary", ...((Array.isArray(data?.value) ? data.value : []).map((acc: any) => String(acc?.label || acc?.user || "").trim()).filter(Boolean))];
+}
+
+async function loadRecipientFiltersByLabel(supabase: any): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>();
+  try {
+    const { data } = await supabase.from("app_settings").select("value").eq("key", "email_accounts").maybeSingle();
+    if (Array.isArray(data?.value)) {
+      for (const acc of data.value) {
+        const label = String(acc?.label || acc?.user || "").trim();
+        if (!label) continue;
+        out.set(label, normalizeRecipientFilters(acc.recipientFilters || acc.recipientFilter || acc.allowedRecipients));
+      }
+    }
+  } catch {}
+  return out;
 }
 
 async function verifyRecaptchaToken(secretKey: string, token: string, ip?: string): Promise<boolean> {
@@ -3397,6 +3432,7 @@ Deno.serve(async (originalReq) => {
       const labels: string[] | null = Array.isArray(u.assigned_accounts) && u.assigned_accounts.length > 0
         ? ((await normalizeAssignedAccounts(supabase, u.assigned_accounts)) || [])
         : (isAdmin ? null : []);
+      const recipientFiltersByLabel = isAdmin ? new Map<string, string[]>() : await loadRecipientFiltersByLabel(supabase);
 
       if (labels && labels.length === 0) {
         return new Response(JSON.stringify({ success: true, rows: [], removedIds: [], newCursor: cursor, hasMore: false }), {
@@ -3442,7 +3478,7 @@ Deno.serve(async (originalReq) => {
         if (Number(r.modseq) > maxModseq) maxModseq = Number(r.modseq);
         if (r.destroyed) {
           removedIds.push(r.id);
-        } else if (isAdmin || shouldExposeEmailToUser(r, visibilityFilters, !!u.is_free)) {
+        } else if ((isAdmin || recipientMatches(r.to_address, recipientFiltersByLabel.get(String(r.account_label || "").trim()))) && (isAdmin || shouldExposeEmailToUser(r, visibilityFilters, !!u.is_free))) {
           rows.push({
             id: r.id,
             subject: r.subject,
@@ -3478,10 +3514,11 @@ Deno.serve(async (originalReq) => {
       const labels: string[] | null = Array.isArray(u?.assigned_accounts) && u.assigned_accounts.length > 0
         ? ((await normalizeAssignedAccounts(supabase, u.assigned_accounts)) || [])
         : (isAdmin ? null : []);
+      const recipientFiltersByLabel = isAdmin ? new Map<string, string[]>() : await loadRecipientFiltersByLabel(supabase);
 
       const { data: row, error } = await supabase
         .from("cached_emails")
-        .select("id, html, account_label, destroyed")
+        .select("id, html, account_label, to_address, destroyed")
         .eq("id", id)
         .maybeSingle();
       if (error) throw error;
@@ -3490,6 +3527,7 @@ Deno.serve(async (originalReq) => {
         throw new Error("Not authorized");
       }
       if (labels && labels.length === 0 && !isAdmin) throw new Error("Not authorized");
+      if (!isAdmin && !recipientMatches((row as any).to_address, recipientFiltersByLabel.get(String(row.account_label || "").trim()))) throw new Error("Not authorized");
 
       // Include account_label so the Cloudflare worker cache can enforce
       // per-user authz on cache hits without a round-trip.
