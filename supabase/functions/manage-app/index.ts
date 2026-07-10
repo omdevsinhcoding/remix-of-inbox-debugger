@@ -4043,7 +4043,7 @@ Deno.serve(async (originalReq) => {
       const [{ data, error }, { count, error: countErr }] = await Promise.all([dataQ, countQ]);
       if (error) throw error;
       if (countErr) throw countErr;
-      await auditLog(supabase, "admin_list_emails", session.userId, null, { count: data?.length || 0, total: count || 0, search: search || null, accountLabel: accountLabel || null }, ip);
+      auditLog(supabase, "admin_list_emails", session.userId, null, { count: data?.length || 0, total: count || 0, search: search || null, accountLabel: accountLabel || null }, ip).catch(() => {});
       return new Response(JSON.stringify({ success: true, emails: data || [], total: count || 0 }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
