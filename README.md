@@ -1,42 +1,134 @@
 <div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
 
 # 📬 Inbox Debugger
 
-**Netflix-style email inbox** — syncs from IMAP → caches in Supabase → served fast via Cloudflare Workers + KV
+**Netflix-style email inbox** — IMAP sync → Supabase cache → Cloudflare Workers edge delivery
+
+[![Deploy Status](https://img.shields.io/badge/deploy-production-success)]() [![Stack](https://img.shields.io/badge/stack-React_+_Vite_+_Supabase_+_CF_Workers-blue)]() [![License](https://img.shields.io/badge/license-private-lightgrey)]()
 
 </div>
 
 ---
 
-## 🚀 Quick Start (Local)
+## 🏗️ Architecture
+
+```
+┌─────────────┐    ┌──────────────────┐    ┌───────────────────┐    ┌──────────┐
+│   Browser   │───▶│ Cloudflare Worker│───▶│  Supabase Edge Fn │───▶│   IMAP   │
+│  (React)    │    │  (KV cache)      │    │  (fetch-emails)   │    │  Server  │
+└─────────────┘    └──────────────────┘    └───────────────────┘    └──────────┘
+                          │                          │
+                          ▼                          ▼
+                   ┌─────────────┐         ┌──────────────────┐
+                   │ CF KV Store │         │ Supabase Postgres│
+                   │ (hot cache) │         │ (cached_emails)  │
+                   └─────────────┘         └──────────────────┘
+```
+
+---
+
+## 🚀 Local Development
 
 ```bash
 npm install
 npm run dev
 ```
 
-Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` in `.env.local`.
+**Required `.env`:**
+```
+VITE_SUPABASE_URL=https://YOUR_REF.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=eyJhbGci...
+VITE_SUPABASE_PROJECT_ID=YOUR_REF
+```
+
+App runs at `http://localhost:8080`.
 
 ---
 
-## ☁️ Cloudflare Worker — GitHub Auto-Deploy Guide
+## 🗄️ Part 1 — Supabase Setup
 
-The worker lives in [`/cloudflare-worker`](./cloudflare-worker) and auto-deploys on every push to `main`.
+### 1. Edge Functions (auto-deployed via Lovable)
 
-### 🎯 One-time Setup (5 minutes)
+| Function | Purpose |
+|---|---|
+| `fetch-emails` | IMAP sync + email retrieval |
+| `manage-app` | User/admin/session management |
+| `email-html` | Serves sanitized HTML bodies |
+| `notifications-list` | Push notifications feed |
+| `crypto-handshake` | E2E session key exchange |
+| `worker-bootstrap` | Cloudflare Worker config sync |
 
-Open **Cloudflare Dashboard → Workers & Pages → your worker → Settings → Builds → Connect**
+### 2. Required Secrets
 
-#### 1️⃣ Repository
+Go to **Supabase Dashboard → Project Settings → Edge Functions → Secrets** and add:
+
+#### Core (mandatory)
+| Secret | Value | Notes |
+|---|---|---|
+| `SUPABASE_URL` | `https://YOUR_REF.supabase.co` | Auto-set |
+| `SUPABASE_SERVICE_ROLE_KEY` | `eyJ...` | Auto-set — bypasses RLS |
+| `SUPABASE_ANON_KEY` | `eyJ...` | Auto-set |
+| `SESSION_SIGNING_SECRET` | random 64-char hex | HMAC for session tokens |
+| `CRON_SHARED_SECRET` | random 32-char hex | Protects cron endpoints |
+| `WORKER_BOOTSTRAP_SECRET` | random 32-char hex | For Cloudflare bootstrap |
+
+Generate randoms:
+```bash
+openssl rand -hex 32
+```
+
+#### IMAP (fallback account — per-account creds live in DB)
+| Secret | Example |
+|---|---|
+| `IMAP_HOST` | `imap.gmail.com` |
+| `IMAP_PORT` | `993` |
+| `IMAP_USER` | `you@gmail.com` |
+| `IMAP_PASSWORD` | Gmail **App Password** (16 chars) |
+
+> 🔒 Gmail: enable 2FA → https://myaccount.google.com/apppasswords → generate → paste.
+
+#### Telegram (login notifications)
+| Secret | Where to get |
+|---|---|
+| `TELEGRAM_BOT_TOKEN` | @BotFather → `/newbot` |
+| `TELEGRAM_CHAT_ID` | Message your bot → `https://api.telegram.org/bot<TOKEN>/getUpdates` |
+
+### 3. Bootstrap First Admin
+
+```bash
+curl -X POST \
+  https://YOUR_REF.supabase.co/functions/v1/manage-app \
+  -H "Authorization: Bearer YOUR_ANON_KEY" \
+  -H "apikey: YOUR_ANON_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"action":"create","username":"admin","password":"StrongPass123!","name":"Admin","role":"admin"}'
+```
+
+### 4. Enable Cron for Auto-Sync
+
+Inside app: **Admin Panel → Cron Settings** → toggle ON → pick interval (3 min recommended). Uses `pg_cron` + `pg_net` extensions (already enabled).
+
+---
+
+## ☁️ Part 2 — Cloudflare Worker Deploy
+
+Worker source lives in [`/cloudflare-worker/worker.js`](./cloudflare-worker/worker.js).
+
+**Zero runtime secrets required** — Supabase URL + anon key are baked into `worker.js` as defaults. KV auto-provisions on first deploy.
+
+### 🎯 One-Time Setup
+
+Open **Cloudflare Dashboard → Workers & Pages → Create → Import a repository**
+
+#### Step 1 — Connect Git
 
 | Field | Value |
 |---|---|
-| Repository | `inbox-debugger` (this repo) |
+| Repository | `inbox-debugger` (your GitHub repo) |
 | Production branch | `main` |
-| Root directory | `/cloudflare-worker` |
+| **Root directory** | `/cloudflare-worker` |
 
-#### 2️⃣ Build & Deploy commands
+#### Step 2 — Build & Deploy
 
 | Field | Value |
 |---|---|
@@ -45,32 +137,31 @@ Open **Cloudflare Dashboard → Workers & Pages → your worker → Settings →
 | Build variables | *(none)* |
 | Build secrets | *(none)* |
 
-> ⚠️ Do **NOT** put `bash setup.sh` in Build command — Cloudflare's build step doesn't pass secrets to deploy.
+> ⚠️ **DO NOT** put `bash setup.sh` in Build command — Cloudflare's build step doesn't forward secrets to deploy step.
 
-#### 3️⃣ Non-production branches
+#### Step 3 — Non-Production Branches
 
 | Field | Value |
 |---|---|
 | Build for non-production branches | ☐ **UNCHECKED** |
-| Non-prod branch command | *(empty)* |
+| Non-prod branch command | *(empty — disabled)* |
 
-> 💡 Untick this or every PR/feature branch will trigger a deploy and waste credits.
+> 💡 Untick → prevents wasteful builds on every PR/feature branch.
 
-#### 4️⃣ API Token
+#### Step 4 — API Token
 
 | Field | Value |
 |---|---|
-| API Token | **Use default** (auto-generated) |
+| API Token | **Use default** (Cloudflare-managed) |
 
-> ✅ Cloudflare's default token already has `Workers Scripts: Edit` + `Workers KV Storage: Edit` + `Account Settings: Read`. Custom token **not needed**.
-
----
+> ✅ Default token already has `Workers Scripts: Edit` + `Workers KV: Edit` + `Account Settings: Read`. **No custom token needed.**
 
 ### 📋 Copy-Paste Summary
 
 ```
-Root directory:       /cloudflare-worker
+Repository:           your-github-org/inbox-debugger
 Production branch:    main
+Root directory:       /cloudflare-worker
 Build command:        (empty)
 Deploy command:       npx wrangler deploy
 Non-prod branches:    ☐ unchecked
@@ -78,64 +169,104 @@ Non-prod command:     (empty)
 API Token:            Use default
 ```
 
----
-
 ### 🔗 After First Deploy
 
-1. Cloudflare gives you a URL like `https://feeedda.YOURNAME.workers.dev`
+1. Cloudflare gives URL: `https://netflix.<your-subdomain>.workers.dev`
+   *(worker name comes from `wrangler.toml` → currently `netflix`; rename in that file if needed)*
 2. Copy that URL
-3. In the app: **Admin Panel → Infrastructure → Primary Cloudflare Worker URLs** → paste → Save
+3. In app: **Admin Panel → Infrastructure → Primary Cloudflare Worker URLs** → paste → Save
 
-Done. Every future push to `main` auto-deploys.
+Done. Every push to `main` auto-deploys.
 
 ---
 
-### 🌐 Multiple Cloudflare Accounts?
+## 🌐 Multi-Account Cloudflare Setup
 
-Each Cloudflare account is **fully isolated** — deploying to one **never touches** another.
+Each Cloudflare account is fully isolated — deploying to one **never** touches another.
 
 | Option | How |
 |---|---|
-| **A. Separate branches** | Create `main-acc1`, `main-acc2`, etc. Connect each account to its own branch. |
-| **B. Override name** | In Cloudflare Deploy command: `npx wrangler deploy --name feeedda-acc2` |
-| **C. Manual deploys** | Only one account Git-connected; others: `cd cloudflare-worker && npx wrangler deploy` locally |
+| **A. Separate branches** | `main-acc1`, `main-acc2` — connect each account to its own branch |
+| **B. Override name** | Change deploy command to `npx wrangler deploy --name netflix-acc2` |
+| **C. Manual** | Only one account Git-connected; others via local `wrangler deploy` |
 
-You can add **multiple worker URLs** in the admin panel — they load-balance automatically and fall back to Supabase if all workers are down.
-
----
-
-### 🔄 How to Redeploy
-
-- **Auto:** Push any commit to `main`
-- **Manual:** Cloudflare Dashboard → your worker → **Deployments** tab → **Retry**
+Add multiple worker URLs in Admin Panel → they load-balance randomly, fall back to Supabase if all workers fail.
 
 ---
 
-### 🐛 Troubleshooting
+## 🔄 Redeploy
+
+| Method | How |
+|---|---|
+| Auto | `git push origin main` |
+| Manual | Cloudflare → your worker → **Deployments** tab → **Retry** |
+
+---
+
+## 📊 When KV Storage Fills Up
+
+Cloudflare free plan: 1 GB KV. When full:
+
+```bash
+cd cloudflare-worker
+npx wrangler kv namespace create EMAIL_CACHE_V2
+```
+
+Add to `wrangler.toml`:
+```toml
+[[kv_namespaces]]
+binding = "EMAIL_CACHE_V2"
+id = "NEW_NAMESPACE_ID"
+```
+
+Push. Worker automatically writes to V2, falls back to V1 on failure.
+
+---
+
+## 🌍 Frontend Deploy (Vercel / Netlify / Lovable)
+
+```bash
+npm run build
+# deploy `dist/` folder
+```
+
+Set these env vars in your host:
+```
+VITE_SUPABASE_URL=https://YOUR_REF.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=eyJ...
+```
+
+SPA fallback is already configured (`public/_redirects`, `netlify.toml`, `vercel.json`).
+
+---
+
+## 🐛 Troubleshooting
 
 | Problem | Fix |
 |---|---|
-| "No builds exist yet" | Git not connected. Go to Settings → Builds → **Connect** |
-| Build fails: "you need to provide a name" | `wrangler.toml` missing `name` field — already fixed in this repo |
-| Deploy succeeds but app can't reach worker | Paste worker URL in Admin Panel → Infrastructure |
-| KV full | `npx wrangler kv namespace create EMAIL_CACHE_V2`, add to `wrangler.toml`, redeploy |
-
-Full deployment reference: [`DEPLOYMENT.md`](./DEPLOYMENT.md)
+| "No builds exist yet" in Cloudflare | Git not connected. Settings → Builds → **Connect** |
+| Cloudflare build fails: `wrangler.toml missing name` | Check `wrangler.toml` has `name = "netflix"` (or your chosen name) |
+| Build fails: `you need to provide a name` in deploy | Same as above — name field required |
+| Worker deployed but app shows no emails | Paste worker URL in Admin Panel → Infrastructure |
+| KV full | Create `EMAIL_CACHE_V2` (see above) |
+| Emails stuck / not syncing | Admin Panel → Email Accounts → verify IMAP creds; check `fetch-emails` logs |
+| Session expired loops | Rotate `SESSION_SIGNING_SECRET` — all users forced to re-login |
+| Telegram alerts missing | Verify `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` in Supabase secrets |
 
 ---
 
-## 🏗️ Architecture
-
-```
-Browser → Cloudflare Worker (KV cache) → Supabase Edge Function → IMAP
-              ↓                                    ↓
-        Cloudflare KV                    Supabase DB (cached_emails)
-```
-
 ## 📦 Tech Stack
 
-- **Frontend:** React 18 + Vite + TypeScript + Tailwind
-- **Backend:** Supabase (Postgres + Edge Functions + Auth)
+- **Frontend:** React 18 + Vite 5 + TypeScript + Tailwind CSS v3
+- **UI:** shadcn/ui + Radix primitives
+- **Backend:** Supabase (Postgres + Edge Functions + Realtime + Auth)
 - **Edge Cache:** Cloudflare Workers + KV
-- **Email:** IMAP sync via Deno edge functions
+- **Email:** IMAP (Deno + `imapflow`) inside edge functions
 - **Notifications:** Telegram Bot API
+- **Scheduling:** `pg_cron` + `pg_net`
+
+## 📄 Additional Docs
+
+- Full deployment reference → [`DEPLOYMENT.md`](./DEPLOYMENT.md)
+- How it works → [`docs/how-it-works.md`](./docs/how-it-works.md)
+- Security policy → [`SECURITY_MEMORY.md`](./SECURITY_MEMORY.md)
