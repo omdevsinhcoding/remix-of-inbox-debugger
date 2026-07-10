@@ -265,12 +265,23 @@ function maskSavedSecret(value: unknown): string {
   return typeof value === "string" && value.length > 0 ? SECRET_MASK : "";
 }
 
-function maskEmailAccountsForAdmin(value: any): any[] {
+async function revealSavedSecret(value: unknown, encryptionSecret: string): Promise<string> {
+  if (typeof value !== "string" || value.length === 0) return "";
+  if (!value.startsWith("enc:")) return value; // legacy plaintext
+  try {
+    return await decryptValue(value, encryptionSecret);
+  } catch (e) {
+    console.warn("[reveal] decrypt failed:", (e as Error)?.message);
+    return SECRET_MASK;
+  }
+}
+
+async function revealEmailAccountsForAdmin(value: any, encryptionSecret: string): Promise<any[]> {
   if (!Array.isArray(value)) return [];
-  return value.map((acc: any) => ({
+  return await Promise.all(value.map(async (acc: any) => ({
     ...acc,
-    password: maskSavedSecret(acc?.password),
-  }));
+    password: await revealSavedSecret(acc?.password, encryptionSecret),
+  })));
 }
 
 function findExistingAccountForSecret(existingAccounts: any[], acc: any, index: number): any | null {
@@ -313,9 +324,9 @@ async function processEmailAccountSecrets(value: any[], existingAccounts: any[],
   }));
 }
 
-function maskConfigForAdmin(value: any) {
+async function revealConfigForAdmin(value: any, encryptionSecret: string) {
   const config = value && typeof value === "object" ? { ...value } : {};
-  config.IMAP_PASSWORD = maskSavedSecret(config.IMAP_PASSWORD);
+  config.IMAP_PASSWORD = await revealSavedSecret(config.IMAP_PASSWORD, encryptionSecret);
   return config;
 }
 
@@ -2695,16 +2706,16 @@ Deno.serve(async (originalReq) => {
       }
 
       if (key === "config" && value && session?.role === "admin") {
-        value = maskConfigForAdmin(value);
+        value = await revealConfigForAdmin(value, ENCRYPTION_SECRET);
       }
 
-      // Mask IMAP passwords in email_accounts. The encrypted value must never
-      // be sent back into the admin input, otherwise a normal save can preserve
-      // ciphertext-looking text in the UI and confuse future edits.
+      // For admin edit UI we decrypt IMAP passwords back to plaintext so the
+      // admin can view/edit them. Non-admins never receive host/port/user or
+      // password material.
       if (key === "email_accounts" && Array.isArray(value)) {
         const isAdmin = session?.role === "admin";
         value = isAdmin
-          ? maskEmailAccountsForAdmin(value)
+          ? await revealEmailAccountsForAdmin(value, ENCRYPTION_SECRET)
           : value.map((acc: any) => ({
               ...acc,
               password: SECRET_MASK,
@@ -4142,8 +4153,8 @@ Deno.serve(async (originalReq) => {
             secretAccessKeySet: hasSecret,
           };
         } else {
-          if (row.key === "config") settings[row.key] = maskConfigForAdmin(row.value);
-          else if (row.key === "email_accounts") settings[row.key] = maskEmailAccountsForAdmin(row.value);
+          if (row.key === "config") settings[row.key] = await revealConfigForAdmin(row.value, ENCRYPTION_SECRET);
+          else if (row.key === "email_accounts") settings[row.key] = await revealEmailAccountsForAdmin(row.value, ENCRYPTION_SECRET);
           else settings[row.key] = row.value;
         }
       }
