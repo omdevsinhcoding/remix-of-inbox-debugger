@@ -2831,7 +2831,7 @@ function ProfileSelectPage() {
       // Session timer intentionally NOT started here — EmailViewer starts it
       // after the first cached-email load finishes so users always see their
       // inbox before the countdown begins.
-      try { sessionRemove("session_started_at" as any); } catch {}
+      try { if (!sessionGet("session_started_at" as any)) markSessionStart(); } catch {}
       checkAuth();
 
       navigate("/viewer");
