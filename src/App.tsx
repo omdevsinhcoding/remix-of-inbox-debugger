@@ -9590,12 +9590,6 @@ function EmailViewer() {
                   <span className="bg-slate-200 text-slate-600 text-[10px] px-2 py-0.5 rounded-full">{emails.length}</span>
                 </h3>
               </div>
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="font-bold text-slate-800 flex items-center gap-2">
-                  Inbox
-                  <span className="bg-slate-200 text-slate-600 text-[10px] px-2 py-0.5 rounded-full">{emails.length}</span>
-                </h3>
-              </div>
 
               {error && (
                 <div className="bg-red-50 border border-red-100 rounded-xl p-3 mb-2">
