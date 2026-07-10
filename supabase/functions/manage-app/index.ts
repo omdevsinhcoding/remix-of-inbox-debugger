@@ -2748,6 +2748,15 @@ Deno.serve(async (originalReq) => {
         processedValue = { enabled: value?.enabled === true };
       }
 
+      if (key === "config" && value && typeof value === "object") {
+        const { data: existingData } = await supabase
+          .from("app_settings")
+          .select("value")
+          .eq("key", "config")
+          .maybeSingle();
+        processedValue = await processConfigSecrets(value, existingData?.value || {}, ENCRYPTION_SECRET);
+      }
+
       // Maintenance: enforce upgrade-only version bumps + valid time window.
       if (key === "maintenance" && value && typeof value === "object") {
         const v: any = value;
@@ -2794,18 +2803,9 @@ Deno.serve(async (originalReq) => {
           .from("app_settings")
           .select("value")
           .eq("key", "email_accounts")
-          .single();
+          .maybeSingle();
         const existingAccounts = existingData?.value || [];
-
-        processedValue = await Promise.all(value.map(async (acc: any, i: number) => {
-          let password = acc.password;
-          if (password === "••••••••" && existingAccounts[i]?.password) {
-            password = existingAccounts[i].password; // Keep existing encrypted password
-          } else if (password && !password.startsWith("enc:")) {
-            password = await encryptValue(password, ENCRYPTION_SECRET); // Encrypt new password
-          }
-          return { ...acc, password };
-        }));
+        processedValue = await processEmailAccountSecrets(value, Array.isArray(existingAccounts) ? existingAccounts : [], ENCRYPTION_SECRET);
       }
 
       if (key === "email_filters") {
