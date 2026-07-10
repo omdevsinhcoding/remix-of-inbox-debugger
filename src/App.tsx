@@ -9268,6 +9268,7 @@ const ProtectedRoute = ({ children, role }: { children: React.ReactNode; role: "
   useSessionTimeoutGuard(role, roleAllowed && !isAdminViewingUser);
   if (loading) return <div className="min-h-screen bg-slate-950 flex items-center justify-center"><div className="w-8 h-8 border-2 border-red-500 border-t-transparent rounded-full animate-spin" /></div>;
   if (!user) return <Navigate to={role === "admin" ? "/admin" : "/"} />;
+  if (role === "user" && (user as any)?.impersonated === true && window.location.pathname === "/viewer") return <Navigate to="/admin/viewer" replace />;
   if (role === "admin" && user.role !== "admin") return <Navigate to="/" />;
   // Note: allow admin accounts to freely browse the user viewer too — do not auto-redirect back to admin panel.
   return <>{!isAdminViewingUser && <SessionCountdown role={role} />}{children}</>;
@@ -9278,6 +9279,7 @@ const AdminUserViewRoute = ({ children }: { children: React.ReactNode }) => {
   useSessionTimeoutGuard("user", false);
   if (loading) return <div className="min-h-screen bg-slate-950 flex items-center justify-center"><div className="w-8 h-8 border-2 border-red-500 border-t-transparent rounded-full animate-spin" /></div>;
   if (!user) return <Navigate to="/admin" replace />;
-  if (user.role !== "user" || (user as any)?.impersonated !== true) return <Navigate to="/admin/dashboard" replace />;
+  if (user.role !== "user") return <Navigate to="/admin/dashboard" replace />;
+  if ((user as any)?.impersonated !== true) return <Navigate to="/viewer" replace />;
   return <>{children}</>;
 };
