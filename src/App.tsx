@@ -8522,6 +8522,29 @@ function EmailViewer() {
   const refreshAccountLabels = useMemo(() => getUserRefreshAccountLabels(user), [user]);
   const [profilePrefs, setProfilePrefs] = useState<UserProfilePrefs>(() => user.profilePrefs || {});
   const viewerAvatarId = profilePrefs.avatarId || getStableProfileAvatar(user);
+  // Change password modal (self-service, works for admin + regular users; hidden for free profiles)
+  const [showChangePwd, setShowChangePwd] = useState(false);
+  const [cpCurrent, setCpCurrent] = useState("");
+  const [cpNext, setCpNext] = useState("");
+  const [cpConfirm, setCpConfirm] = useState("");
+  const [cpShow, setCpShow] = useState(false);
+  const [cpBusy, setCpBusy] = useState(false);
+  const canChangePassword = !!user.id && !user.isFree;
+  const submitChangePassword = useCallback(async () => {
+    if (!user.id) return;
+    if (!cpCurrent.trim()) { notify.error("Enter your current password"); return; }
+    if (cpNext.length < 6) { notify.error("New password must be at least 6 characters"); return; }
+    if (cpNext !== cpConfirm) { notify.error("New passwords do not match"); return; }
+    if (cpNext === cpCurrent) { notify.error("New password must be different"); return; }
+    setCpBusy(true);
+    try {
+      await apiCall("manage-app", { action: "change_password", id: user.id, current_password: cpCurrent, new_password: cpNext });
+      notify.success("Password changed successfully");
+      setCpCurrent(""); setCpNext(""); setCpConfirm(""); setShowChangePwd(false);
+    } catch (err) {
+      notify.error(err instanceof Error ? err.message : "Failed to change password");
+    } finally { setCpBusy(false); }
+  }, [user.id, cpCurrent, cpNext, cpConfirm]);
   const saveProfilePrefsLocally = useCallback((nextPrefs: UserProfilePrefs) => {
     setProfilePrefs(nextPrefs);
     try {
