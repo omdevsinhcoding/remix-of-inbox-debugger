@@ -3417,9 +3417,10 @@ Deno.serve(async (originalReq) => {
     // ---------- Instant Inbox: delta sync (list-only, no HTML) ----------
     if (action === "list_delta") {
       const session = await requireSession(req);
-      const { since, limit } = (params || {}) as { since?: number; limit?: number };
+      const { since, limit, baseline } = (params || {}) as { since?: number; limit?: number; baseline?: boolean };
       const cursor = Math.max(0, Number(since) || 0);
       const cap = Math.min(Math.max(Number(limit) || 500, 1), 1000);
+      const baselineMode = baseline === true || cursor <= 0;
 
       const { data: u, error: uErr } = await supabase
         .from("app_users")
@@ -3462,9 +3463,12 @@ Deno.serve(async (originalReq) => {
       let q = supabase
         .from("cached_emails")
         .select("id, subject, from_address, to_address, date, otp, preview, account_label, modseq, destroyed")
-        .gt("modseq", cursor)
-        .order("modseq", { ascending: true })
-        .limit(cap);
+        .limit(baselineMode && !isAdmin ? Math.min(cap * 5, 1000) : cap);
+      if (baselineMode) {
+        q = q.eq("destroyed", false).order("date", { ascending: false });
+      } else {
+        q = q.gt("modseq", cursor).order("modseq", { ascending: true });
+      }
       if (labels && labels.length > 0) q = q.in("account_label", labels);
       if (dateCutoff) q = q.gte("date", dateCutoff);
 
@@ -3490,6 +3494,7 @@ Deno.serve(async (originalReq) => {
             account_label: r.account_label,
             modseq: Number(r.modseq),
           });
+          if (baselineMode && rows.length >= cap) break;
         }
       }
 
@@ -3498,7 +3503,7 @@ Deno.serve(async (originalReq) => {
         rows,
         removedIds,
         newCursor: maxModseq,
-        hasMore: (data?.length || 0) >= cap,
+        hasMore: !baselineMode && (data?.length || 0) >= cap,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 

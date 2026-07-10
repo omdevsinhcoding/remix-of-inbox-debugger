@@ -2156,6 +2156,7 @@ function isLocationRequiredForProfile(profile?: Partial<UserData> | null) {
 }
 
 function getUserRefreshAccountLabels(user: Partial<UserData>): string[] | null {
+  if ((user as any)?.impersonated === true && user.role === "admin") return [];
   if (Array.isArray(user.assignedAccounts)) {
     return normalizeAccountLabels(user.assignedAccounts);
   }
@@ -2544,6 +2545,8 @@ function ProfileSelectPage() {
 
   useEffect(() => {
     if (!authUser) return;
+    const path = window.location.pathname;
+    if (path.startsWith("/admin") || path === "/viewer") return;
     if ((authUser as any)?.impersonated === true) navigate("/admin/viewer", { replace: true });
     else if (authUser.role === "user") navigate("/viewer", { replace: true });
     else if (authUser.role === "admin") navigate("/admin/dashboard", { replace: true });
@@ -2836,6 +2839,11 @@ function ProfileSelectPage() {
       }
 
       sessionSet("user" as any, JSON.stringify(data.user));
+      if (data.sessionToken) sessionSet("session_token" as any, data.sessionToken);
+      try {
+        const { storeSessionPair } = await import("./lib/sessionRefresh");
+        storeSessionPair(data);
+      } catch {}
       // Session timer intentionally NOT started here — EmailViewer starts it
       // after the first cached-email load finishes so users always see their
       // inbox before the countdown begins.
@@ -8314,7 +8322,7 @@ function EmailViewer() {
   const loadCachedEmailsDirect = useCallback(async (limit = 200): Promise<Email[]> => {
     const safeLimit = Math.max(1, Math.min(Number(limit) || 200, 1000));
     const started = performance.now();
-    const delta = await apiCall("manage-app", { action: "list_delta", since: 0, limit: safeLimit });
+    const delta = await apiCall("manage-app", { action: "list_delta", since: 0, limit: safeLimit, baseline: true });
     const rows = Array.isArray(delta?.rows) ? delta.rows as Email[] : [];
     pushDiag({
       ts: Date.now(),
@@ -8347,6 +8355,13 @@ function EmailViewer() {
         setLastUpdated(new Date());
         return 0;
       }
+
+      // Source of truth first: read the signed, server-filtered inbox directly.
+      // Cloudflare workers are only a fallback cache; if they are stale/misconfigured
+      // they must not hide newly synced rows from assigned accounts.
+      const directFirst = await loadCachedEmailsDirect(limit).catch(() => null);
+      if (directFirst) return filterVisibleEmails(directFirst, profilePrefs, user).length;
+
       const groups = buildWorkerRequestGroups(labels, workerUrlMap, resolvedWorkerUrls);
       if (groups.length === 0) {
         // No usable Worker configured — load the real cached inbox directly from Supabase.
@@ -9276,8 +9291,8 @@ const ProtectedRoute = ({ children, role }: { children: React.ReactNode; role: "
   if (loading) return <div className="min-h-screen bg-slate-950 flex items-center justify-center"><div className="w-8 h-8 border-2 border-red-500 border-t-transparent rounded-full animate-spin" /></div>;
   if (!user) return <Navigate to={role === "admin" ? "/admin" : "/"} />;
   if (role === "user" && (user as any)?.impersonated === true && window.location.pathname === "/viewer") return <Navigate to="/admin/viewer" replace />;
+  if (role === "user" && user.role === "admin") return <Navigate to="/admin/dashboard" replace />;
   if (role === "admin" && user.role !== "admin") return <Navigate to={(user as any)?.impersonated === true ? "/admin/viewer" : "/"} replace />;
-  // Note: allow admin accounts to freely browse the user viewer too — do not auto-redirect back to admin panel.
   return <>{!isAdminViewingUser && <SessionCountdown role={role} />}{children}</>;
 };
 
