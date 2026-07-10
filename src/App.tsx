@@ -5839,78 +5839,151 @@ function AdminPanel() {
 
 
                     {editingUserAccounts === u.id && u.role !== "admin" && (
-                      <div className="mt-3 p-3 bg-white rounded-xl border">
-                        <div className="mb-2">
-                          <label className="block text-xs font-bold text-slate-500 mb-1">Username {u.isFree ? "(optional)" : ""}</label>
-                          <input
-                            type="text"
-                            value={editUsername}
-                            onChange={(e) => setEditUsername(e.target.value)}
-                            placeholder={u.isFree ? "No username" : "Username"}
-                            className="w-full bg-slate-50 border rounded-lg p-2 outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
-                          />
-                        </div>
-                        <p className="text-xs font-bold text-slate-500 mb-2">Assign IMAP Accounts</p>
-                        <div className="space-y-1.5 mb-2">
-                          {getAvailableAccounts().map(label => (
-                            <label key={label} className="flex items-center gap-2 p-1.5 rounded-lg cursor-pointer hover:bg-slate-50 transition-colors">
-                              <input type="checkbox" checked={editAccountsList.includes(label)}
-                                onChange={(e) => {
-                                  if (e.target.checked) setEditAccountsList([...editAccountsList, label]);
-                                  else setEditAccountsList(editAccountsList.filter(a => a !== label));
-                                }}
-                                className="w-4 h-4 rounded border-slate-300 text-red-600 focus:ring-red-500" />
-                              <span className="text-sm text-slate-700">{label}</span>
-                            </label>
-                          ))}
-                        </div>
-                        {!u.isFree && (
-                          <div className="mb-2">
-                            <label className="block text-xs font-bold text-slate-500 mb-1">Concurrent session limit</label>
-                            <input
-                              type="number"
-                              min={0}
-                              max={50}
-                              step={1}
-                              value={editSessionLimit}
-                              onChange={(e) => setEditSessionLimit(e.target.value)}
-                              placeholder="Blank = use global default"
-                              className="w-full bg-slate-50 border rounded-lg p-2 outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
-                            />
-                            <p className="text-[10px] text-slate-400 mt-1">
-                              How many devices this user can be signed in on at once. <b>Blank</b> = use the global limit set under Security. <b>0</b> = unlimited for this user. <b>1, 2, …</b> = cap; extra logins kick the oldest device out.
-                            </p>
+                      <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-200" onClick={() => setEditingUserAccounts(null)}>
+                        <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-md" />
+                        <div onClick={(e) => e.stopPropagation()}
+                          className="relative w-full max-w-md max-h-[92vh] overflow-hidden rounded-3xl bg-white shadow-2xl ring-1 ring-slate-200 animate-in zoom-in-95 slide-in-from-bottom-4 duration-300 flex flex-col">
+                          {/* Gradient header */}
+                          <div className={`relative overflow-hidden px-5 pt-5 pb-14 ${u.isFree ? "bg-gradient-to-br from-emerald-500 via-emerald-600 to-teal-700" : "bg-gradient-to-br from-blue-600 via-indigo-600 to-violet-700"}`}>
+                            <div className="absolute -top-8 -right-8 w-40 h-40 rounded-full bg-white/10 blur-2xl" />
+                            <div className="absolute -bottom-10 -left-6 w-32 h-32 rounded-full bg-white/10 blur-2xl" />
+                            <div className="relative flex items-start justify-between">
+                              <div className="flex items-center gap-3">
+                                <ProfileAvatar avatarId={getStableProfileAvatar(u)} name={u.name}
+                                  className="w-11 h-11 !rounded-2xl ring-2 ring-white/40 shadow-lg" />
+                                <div>
+                                  <p className="text-[9px] font-black tracking-[0.25em] text-white/70 uppercase">Edit Profile</p>
+                                  <p className="text-white font-black text-base leading-tight truncate max-w-[180px]">{u.name}</p>
+                                  <p className="text-white/70 text-[10px] font-mono truncate max-w-[180px]">{u.username ? `@${u.username}` : "no username"}</p>
+                                </div>
+                              </div>
+                              <button onClick={() => setEditingUserAccounts(null)}
+                                className="w-8 h-8 rounded-xl bg-white/15 hover:bg-white/25 text-white flex items-center justify-center transition-colors">
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
                           </div>
-                        )}
-                        {u.isFree && (
-                          <div className="mb-2">
-                            <label className="block text-xs font-bold text-slate-500 mb-1">Expires at</label>
-                            <DateTimePicker value={editExpiresAt} onChange={setEditExpiresAt} />
-                            <div className="flex items-center justify-between mt-1">
-                              <p className="text-[10px] text-slate-400">Auto-deletes after this time. Leave empty = never.</p>
-                              {editExpiresAt && (
-                                <button type="button" onClick={() => setEditExpiresAt("")}
-                                  className="text-[11px] text-emerald-700 hover:underline">Clear</button>
+                          {/* Body */}
+                          <div className="relative -mt-8 flex-1 overflow-y-auto px-5 pb-5">
+                            <div className="bg-white rounded-2xl border border-slate-200 shadow-lg p-4 space-y-4">
+                              <div>
+                                <label className="block text-[10px] font-black tracking-[0.15em] text-slate-500 uppercase mb-1.5">Username {u.isFree ? "(optional)" : ""}</label>
+                                <input type="text" value={editUsername} onChange={(e) => setEditUsername(e.target.value)}
+                                  placeholder={u.isFree ? "No username" : "Username"}
+                                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm transition-all" />
+                              </div>
+                              <div>
+                                <label className="block text-[10px] font-black tracking-[0.15em] text-slate-500 uppercase mb-1.5">Assigned IMAP Accounts</label>
+                                <div className="space-y-1 max-h-48 overflow-y-auto pr-1">
+                                  {getAvailableAccounts().map(label => {
+                                    const checked = editAccountsList.includes(label);
+                                    return (
+                                      <label key={label} className={`flex items-center gap-2.5 p-2 rounded-xl cursor-pointer transition-all border ${checked ? "bg-indigo-50 border-indigo-200" : "bg-slate-50 border-transparent hover:bg-slate-100"}`}>
+                                        <input type="checkbox" checked={checked}
+                                          onChange={(e) => {
+                                            if (e.target.checked) setEditAccountsList([...editAccountsList, label]);
+                                            else setEditAccountsList(editAccountsList.filter(a => a !== label));
+                                          }}
+                                          className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+                                        <span className={`text-sm font-mono truncate ${checked ? "text-indigo-900 font-bold" : "text-slate-700"}`}>{label}</span>
+                                      </label>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                              {!u.isFree && (
+                                <div>
+                                  <label className="block text-[10px] font-black tracking-[0.15em] text-slate-500 uppercase mb-1.5">Concurrent Session Limit</label>
+                                  <input type="number" min={0} max={50} step={1} value={editSessionLimit}
+                                    onChange={(e) => setEditSessionLimit(e.target.value)}
+                                    placeholder="Blank = global default"
+                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm" />
+                                  <p className="text-[10px] text-slate-400 mt-1.5 leading-relaxed">
+                                    <b>Blank</b> = global limit · <b>0</b> = unlimited · <b>1+</b> = cap; extra logins kick oldest device.
+                                  </p>
+                                </div>
+                              )}
+                              {u.isFree && (
+                                <div>
+                                  <label className="block text-[10px] font-black tracking-[0.15em] text-slate-500 uppercase mb-1.5">Expires At</label>
+                                  <DateTimePicker value={editExpiresAt} onChange={setEditExpiresAt} />
+                                  <div className="flex items-center justify-between mt-1.5">
+                                    <p className="text-[10px] text-slate-400">Auto-deletes after this time. Empty = never.</p>
+                                    {editExpiresAt && (
+                                      <button type="button" onClick={() => setEditExpiresAt("")}
+                                        className="text-[11px] text-emerald-700 font-bold hover:underline">Clear</button>
+                                    )}
+                                  </div>
+                                </div>
                               )}
                             </div>
                           </div>
-                        )}
-                        <button onClick={() => updateUserAccounts(u.id)}
-                          className="w-full bg-green-600 text-white text-xs font-bold py-2 rounded-lg hover:bg-green-700 transition-all">
-                          Save Settings
-                        </button>
+                          {/* Footer actions */}
+                          <div className="border-t border-slate-100 p-3 flex gap-2 bg-slate-50/50">
+                            <button onClick={() => setEditingUserAccounts(null)}
+                              className="flex-1 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-700 text-sm font-bold hover:bg-slate-50 active:scale-95 transition-all">
+                              Cancel
+                            </button>
+                            <button onClick={() => updateUserAccounts(u.id)}
+                              className={`flex-[2] py-2.5 rounded-xl text-white text-sm font-black shadow-lg active:scale-95 transition-all ${u.isFree ? "bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 shadow-emerald-500/30" : "bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 shadow-indigo-500/30"}`}>
+                              Save Changes
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     )}
 
                     {changingUserPass === u.id && u.role !== "admin" && (
-                      <div className="mt-3 flex flex-col sm:flex-row gap-2">
-                        <PasswordInput value={userNewPass} onChange={(e) => setUserNewPass(e.target.value)}
-                          placeholder="New password (min 6)"
-                          className="flex-1 bg-white border rounded-lg p-2 pr-10 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
-                        <button onClick={() => changeUserPassword(u.id)}
-                          className="px-4 py-2 bg-red-600 text-white text-xs font-bold rounded-lg hover:bg-red-700 transition-all">
-                          Save
-                        </button>
+                      <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-200" onClick={() => setChangingUserPass(null)}>
+                        <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-md" />
+                        <div onClick={(e) => e.stopPropagation()}
+                          className="relative w-full max-w-sm overflow-hidden rounded-3xl bg-white shadow-2xl ring-1 ring-slate-200 animate-in zoom-in-95 slide-in-from-bottom-4 duration-300">
+                          {/* Gradient header */}
+                          <div className="relative overflow-hidden px-5 pt-5 pb-14 bg-gradient-to-br from-rose-500 via-red-600 to-orange-600">
+                            <div className="absolute -top-8 -right-8 w-40 h-40 rounded-full bg-white/10 blur-2xl" />
+                            <div className="absolute -bottom-10 -left-6 w-32 h-32 rounded-full bg-white/10 blur-2xl" />
+                            <div className="relative flex items-start justify-between">
+                              <div className="flex items-center gap-3">
+                                <div className="w-11 h-11 rounded-2xl bg-white/15 ring-2 ring-white/40 shadow-lg flex items-center justify-center">
+                                  <KeyRound className="w-5 h-5 text-white" strokeWidth={2.5} />
+                                </div>
+                                <div>
+                                  <p className="text-[9px] font-black tracking-[0.25em] text-white/70 uppercase">Reset Password</p>
+                                  <p className="text-white font-black text-base leading-tight truncate max-w-[180px]">{u.name}</p>
+                                  <p className="text-white/70 text-[10px] font-mono truncate max-w-[180px]">{u.username ? `@${u.username}` : "no username"}</p>
+                                </div>
+                              </div>
+                              <button onClick={() => setChangingUserPass(null)}
+                                className="w-8 h-8 rounded-xl bg-white/15 hover:bg-white/25 text-white flex items-center justify-center transition-colors">
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                          <div className="relative -mt-8 px-5 pb-5">
+                            <div className="bg-white rounded-2xl border border-slate-200 shadow-lg p-4 space-y-3">
+                              <div>
+                                <label className="block text-[10px] font-black tracking-[0.15em] text-slate-500 uppercase mb-1.5">New Password</label>
+                                <PasswordInput value={userNewPass} onChange={(e) => setUserNewPass(e.target.value)}
+                                  placeholder="Min 6 characters"
+                                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 pr-10 outline-none focus:ring-2 focus:ring-rose-500 focus:border-rose-500 text-sm" />
+                              </div>
+                              <div className="flex items-start gap-2 p-2.5 rounded-xl bg-amber-50 border border-amber-200">
+                                <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                                <p className="text-[11px] text-amber-800 leading-relaxed">User's active sessions will remain valid. Share the new password securely.</p>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="border-t border-slate-100 p-3 flex gap-2 bg-slate-50/50">
+                            <button onClick={() => setChangingUserPass(null)}
+                              className="flex-1 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-700 text-sm font-bold hover:bg-slate-50 active:scale-95 transition-all">
+                              Cancel
+                            </button>
+                            <button onClick={() => changeUserPassword(u.id)}
+                              className="flex-[2] py-2.5 rounded-xl text-white text-sm font-black shadow-lg shadow-rose-500/30 bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-700 hover:to-red-700 active:scale-95 transition-all">
+                              Update Password
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     )}
                     </div>
