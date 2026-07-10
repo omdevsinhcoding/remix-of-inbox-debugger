@@ -7361,7 +7361,7 @@ function AdminPanel() {
                 </div>
                 <h2 className="font-black text-xl sm:text-2xl text-slate-900 leading-tight">Deploy Guide — Step by Step</h2>
                 <p className="text-xs sm:text-sm text-slate-600 mt-1.5 max-w-2xl">
-                  GitHub connect karo → yeh exact values paste karo → har push pe auto-deploy. Multi-account safe.
+                  GitHub connect karo → yeh exact values paste karo → har account me KV auto-create + bind. Multi-account safe.
                 </p>
               </div>
             </section>
@@ -7372,7 +7372,7 @@ function AdminPanel() {
                 <div className="flex-shrink-0 w-9 h-9 rounded-xl bg-slate-900 text-white font-black text-sm flex items-center justify-center">1</div>
                 <div>
                   <h3 className="font-black text-base text-slate-900">GitHub se connect karo</h3>
-                  <p className="text-xs text-slate-500 mt-0.5">Cloudflare Dashboard → Workers &amp; Pages → <b>Workers</b> import/connect. Pages/Vite preset select mat karo.</p>
+                  <p className="text-xs text-slate-500 mt-0.5">Cloudflare Dashboard → Workers &amp; Pages → <b>Workers</b> import/connect. Har Cloudflare account me GitHub repo authorize karna padega.</p>
                 </div>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -7389,10 +7389,10 @@ function AdminPanel() {
                 ))}
               </div>
               <p className="text-[11px] text-slate-500 mt-3">
-                💡 <b>API Token</b>: "Use default" select karo — Cloudflare khud token banayega with Workers Scripts + KV edit permissions.
+                💡 <b>API Token</b>: Create new/default token select karo, but permissions me Workers Scripts Edit + Workers KV Storage Edit zaroor hona chahiye.
               </p>
               <p className="text-[11px] text-rose-600 mt-1 font-semibold">
-                ⚠️ Root directory <b>MUST</b> be <code className="font-mono bg-rose-50 px-1 rounded">/cloudflare-worker</code>. Blank chhoda to Cloudflare React frontend detect karega aur <code className="font-mono bg-rose-50 px-1 rounded">vite build</code> chala dega — worker deploy nahi hoga.
+                ⚠️ Root directory <b>MUST</b> be <code className="font-mono bg-rose-50 px-1 rounded">/cloudflare-worker</code>. Blank chhoda to Cloudflare frontend detect kar sakta hai; agar root use karo to build variable <code className="font-mono bg-rose-50 px-1 rounded">CLOUDFLARE_WORKER_BUILD=1</code> lagao.
               </p>
 
             </section>
@@ -7410,8 +7410,8 @@ function AdminPanel() {
                 <table className="w-full text-sm">
                   <tbody className="divide-y divide-slate-200">
                     {[
-                      ["Build command", "(leave EMPTY — auto npm run build = wrangler deploy)", "empty"],
-                      ["Deploy command", "(leave EMPTY — already deployed in build step)", "empty"],
+                      ["Build command", "(leave EMPTY — npm/bun build bhi node deploy.mjs trigger karega)", "empty"],
+                      ["Deploy command", "(leave EMPTY or keep default npx wrangler deploy)", "empty"],
                       ["Build variables", "(none)", "empty"],
                       ["Build secrets", "(none)", "empty"],
                     ].map(([k, v, kind]) => (
@@ -7426,8 +7426,18 @@ function AdminPanel() {
               <div className="mt-4 p-3.5 rounded-xl bg-emerald-50 border border-emerald-200">
                 <p className="text-xs font-bold text-emerald-900 mb-1">🪄 Auto-deploy trick</p>
                 <p className="text-[11px] text-emerald-800 leading-relaxed">
-                  <code className="font-mono bg-white px-1 rounded">cloudflare-worker/package.json</code> ka <code className="font-mono bg-white px-1 rounded">build</code> script hijack kiya hua hai — wo actually <code className="font-mono bg-white px-1 rounded">npx wrangler deploy --keep-vars</code> chalata hai. To jab Cloudflare auto <code className="font-mono bg-white px-1 rounded">npm run build</code> chalayega, worker seedha deploy ho jayega. Dono fields blank = fully automatic.
+                  <code className="font-mono bg-white px-1 rounded">cloudflare-worker/package.json</code> ka <code className="font-mono bg-white px-1 rounded">build/deploy/start</code> sab <code className="font-mono bg-white px-1 rounded">node deploy.mjs</code> chalate hain. Script har Cloudflare account me <code className="font-mono bg-white px-1 rounded">EMAIL_CACHE</code> KV dhundta/create karta hai, binding id inject karta hai, fir deploy karta hai. Isliye <code className="font-mono bg-white px-1 rounded">npm run build</code> ho ya <code className="font-mono bg-white px-1 rounded">bun run build</code> — trigger same hai.
                 </p>
+              </div>
+              <div className="mt-3 p-3.5 rounded-xl bg-sky-50 border border-sky-200">
+                <p className="text-xs font-bold text-sky-900 mb-1">🔐 Har Cloudflare account me allow kaise karna hai</p>
+                <ul className="text-[11px] text-sky-800 space-y-0.5 list-disc list-inside">
+                  <li>Us exact Cloudflare account me login karo → Workers &amp; Pages → Import repository</li>
+                  <li>GitHub authorization me repo allow karo; org repo ho to org owner ko access approve karna padega</li>
+                  <li>API token naya banao/select karo with Account Settings Read, Workers Scripts Edit, Workers KV Storage Edit, User Details Read, Memberships Read</li>
+                  <li>Deploy logs me <code className="font-mono bg-white px-1 rounded">Creating KV namespace EMAIL_CACHE</code> ya <code className="font-mono bg-white px-1 rounded">Found existing KV namespace EMAIL_CACHE</code> aana chahiye</li>
+                  <li>Worker → Settings → Bindings me <code className="font-mono bg-white px-1 rounded">EMAIL_CACHE</code> dikhe tab binding sahi hai</li>
+                </ul>
               </div>
               <div className="mt-3 p-3.5 rounded-xl bg-red-50 border border-red-200">
                 <p className="text-xs font-bold text-red-900 mb-1">❌ Common mistakes</p>
@@ -7435,7 +7445,8 @@ function AdminPanel() {
                   <li>Root directory blank MAT chhodo — <code className="font-mono bg-red-100 px-1 rounded">/cloudflare-worker</code> ZAROORI hai</li>
                   <li>Build command me <code className="font-mono bg-red-100 px-1 rounded">bash setup.sh</code> ya kuch aur MAT likho — blank rakho</li>
                   <li>Deploy command me <code className="font-mono bg-red-100 px-1 rounded">npm install</code> MAT likho</li>
-                  <li>Agar traditional split chahiye: Build=blank, Deploy=<code className="font-mono bg-red-100 px-1 rounded">npx wrangler deploy</code> — dono flow chalte hain</li>
+                  <li>Purana restricted API token mat use karo — KV ke liye <code className="font-mono bg-red-100 px-1 rounded">Workers KV Storage Edit</code> chahiye</li>
+                  <li>Agar root directory blank rakhna hi hai: Build variable <code className="font-mono bg-red-100 px-1 rounded">CLOUDFLARE_WORKER_BUILD=1</code> add karo</li>
                 </ul>
               </div>
 
