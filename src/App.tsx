@@ -5877,51 +5877,109 @@ function AdminPanel() {
                           </div>
                           {/* Body */}
                           <div className="relative -mt-10 flex-1 overflow-y-auto px-4 sm:px-5 pb-4">
-                            <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl shadow-slate-300/40 p-4 space-y-4">
+                            <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl shadow-slate-300/40 p-4 space-y-5">
+                              {/* Username */}
                               <div>
-                                <label className="block text-[10px] font-black tracking-[0.2em] text-slate-500 uppercase mb-2">Username {u.isFree ? "(optional)" : ""}</label>
+                                <div className="flex items-center justify-between mb-2">
+                                  <label className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
+                                    <UserCircle className="w-4 h-4 text-rose-500" />
+                                    Username {u.isFree && <span className="text-[10px] font-normal text-slate-400">(optional)</span>}
+                                  </label>
+                                  <button type="button" onClick={() => notify.info("This is the name the user types to log in. Like their nickname.")}
+                                    className="w-6 h-6 rounded-full bg-slate-100 hover:bg-rose-100 text-slate-500 hover:text-rose-600 flex items-center justify-center transition-colors" title="What is this?">
+                                    <Info className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
                                 <input type="text" value={editUsername} onChange={(e) => setEditUsername(e.target.value)}
-                                  placeholder={u.isFree ? "No username" : "Username"}
-                                  className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-rose-500/30 focus:border-rose-500 text-sm font-medium transition-all" />
+                                  placeholder={u.isFree ? "No username needed" : "e.g. john123"}
+                                  className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-3 outline-none focus:ring-2 focus:ring-rose-500/30 focus:border-rose-500 text-sm font-medium transition-all" />
                               </div>
+
+                              {/* IMAP Accounts */}
                               <div>
-                                <label className="block text-[10px] font-black tracking-[0.2em] text-slate-500 uppercase mb-2">Assigned IMAP Accounts</label>
+                                <div className="flex items-center justify-between mb-2">
+                                  <label className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
+                                    <Mail className="w-4 h-4 text-rose-500" />
+                                    Which mailboxes can they see?
+                                  </label>
+                                  <button type="button" onClick={() => notify.info("Tick the mailboxes this user is allowed to open. Untick = hidden from them.")}
+                                    className="w-6 h-6 rounded-full bg-slate-100 hover:bg-rose-100 text-slate-500 hover:text-rose-600 flex items-center justify-center transition-colors" title="What is this?">
+                                    <Info className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                                <p className="text-[11px] text-slate-500 mb-2">Tap a box to allow · untap to hide</p>
                                 <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
                                   {getAvailableAccounts().map(label => {
                                     const checked = editAccountsList.includes(label);
                                     return (
-                                      <label key={label} className={`flex items-center gap-2.5 p-2.5 rounded-xl cursor-pointer transition-all border-2 ${checked ? "bg-gradient-to-r from-rose-50 to-red-50 border-rose-300 shadow-sm" : "bg-slate-50 border-transparent hover:bg-slate-100"}`}>
+                                      <label key={label} className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all border-2 ${checked ? "bg-gradient-to-r from-rose-50 to-red-50 border-rose-300 shadow-sm" : "bg-slate-50 border-transparent hover:bg-slate-100"}`}>
                                         <input type="checkbox" checked={checked}
                                           onChange={(e) => {
                                             if (e.target.checked) setEditAccountsList([...editAccountsList, label]);
                                             else setEditAccountsList(editAccountsList.filter(a => a !== label));
                                           }}
-                                          className="w-4 h-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500" />
-                                        <span className={`text-sm font-mono truncate ${checked ? "text-rose-900 font-bold" : "text-slate-700"}`}>{label}</span>
+                                          className="w-5 h-5 rounded border-slate-300 text-rose-600 focus:ring-rose-500" />
+                                        <span className={`text-sm truncate flex-1 ${checked ? "text-rose-900 font-bold" : "text-slate-700 font-medium"}`}>{label}</span>
+                                        {checked && <span className="text-[10px] font-black text-rose-600 bg-white px-2 py-0.5 rounded-full ring-1 ring-rose-200">ALLOWED</span>}
                                       </label>
                                     );
                                   })}
                                 </div>
                               </div>
+
+                              {/* Session Limit */}
                               {!u.isFree && (
                                 <div>
-                                  <label className="block text-[10px] font-black tracking-[0.2em] text-slate-500 uppercase mb-2">Concurrent Session Limit</label>
+                                  <div className="flex items-center justify-between mb-2">
+                                    <label className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
+                                      <Users className="w-4 h-4 text-rose-500" />
+                                      How many devices at once?
+                                    </label>
+                                    <button type="button" onClick={() => notify.info("If you set 2, this user can log in on max 2 devices (phone + laptop). A 3rd login kicks out the oldest one.")}
+                                      className="w-6 h-6 rounded-full bg-slate-100 hover:bg-rose-100 text-slate-500 hover:text-rose-600 flex items-center justify-center transition-colors" title="What is this?">
+                                      <Info className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
                                   <input type="number" min={0} max={50} step={1} value={editSessionLimit}
                                     onChange={(e) => setEditSessionLimit(e.target.value)}
-                                    placeholder="Blank = global default"
-                                    className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-rose-500/30 focus:border-rose-500 text-sm font-medium" />
-                                  <p className="text-[10px] text-slate-500 mt-2 leading-relaxed"><b>Blank</b> = global · <b>0</b> = unlimited · <b>1+</b> = cap.</p>
+                                    placeholder="Leave empty for default"
+                                    className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-3 outline-none focus:ring-2 focus:ring-rose-500/30 focus:border-rose-500 text-sm font-medium" />
+                                  <div className="grid grid-cols-3 gap-1.5 mt-2">
+                                    <button type="button" onClick={() => setEditSessionLimit("")}
+                                      className={`text-[10px] font-bold py-2 rounded-lg border transition-all ${editSessionLimit === "" ? "bg-rose-100 border-rose-300 text-rose-700" : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"}`}>
+                                      Default
+                                    </button>
+                                    <button type="button" onClick={() => setEditSessionLimit("0")}
+                                      className={`text-[10px] font-bold py-2 rounded-lg border transition-all ${editSessionLimit === "0" ? "bg-rose-100 border-rose-300 text-rose-700" : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"}`}>
+                                      Unlimited
+                                    </button>
+                                    <button type="button" onClick={() => setEditSessionLimit("1")}
+                                      className={`text-[10px] font-bold py-2 rounded-lg border transition-all ${editSessionLimit === "1" ? "bg-rose-100 border-rose-300 text-rose-700" : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"}`}>
+                                      Only 1
+                                    </button>
+                                  </div>
                                 </div>
                               )}
+
+                              {/* Free profile expiry */}
                               {u.isFree && (
                                 <div>
-                                  <label className="block text-[10px] font-black tracking-[0.2em] text-slate-500 uppercase mb-2">Expires At</label>
+                                  <div className="flex items-center justify-between mb-2">
+                                    <label className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
+                                      <Clock className="w-4 h-4 text-rose-500" />
+                                      Auto-delete this profile on
+                                    </label>
+                                    <button type="button" onClick={() => notify.info("Pick a date & time. This free profile will vanish automatically after that. Leave empty for never.")}
+                                      className="w-6 h-6 rounded-full bg-slate-100 hover:bg-rose-100 text-slate-500 hover:text-rose-600 flex items-center justify-center transition-colors" title="What is this?">
+                                      <Info className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
                                   <DateTimePicker value={editExpiresAt} onChange={setEditExpiresAt} />
                                   <div className="flex items-center justify-between mt-1.5">
-                                    <p className="text-[10px] text-slate-400">Empty = never.</p>
+                                    <p className="text-[11px] text-slate-500">Empty = keeps forever</p>
                                     {editExpiresAt && (
                                       <button type="button" onClick={() => setEditExpiresAt("")}
-                                        className="text-[11px] text-emerald-700 font-bold hover:underline">Clear</button>
+                                        className="text-[11px] text-rose-600 font-bold hover:underline">Clear date</button>
                                     )}
                                   </div>
                                 </div>
