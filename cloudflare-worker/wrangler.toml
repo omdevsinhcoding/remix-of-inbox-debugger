@@ -1,6 +1,4 @@
-# NOTE: no `name` field on purpose — Cloudflare Workers Builds injects the
-# service name from the dashboard automatically, so renaming the worker in
-# Cloudflare never causes a wrangler.toml mismatch warning.
+name = "feeedda"
 main = "worker.js"
 compatibility_date = "2026-04-07"
 workers_dev = true
@@ -19,11 +17,11 @@ binding = "EMAIL_CACHE"
 #   Branch:          main
 #   Root directory:  /cloudflare-worker
 #   Build command:   (leave empty)
-#   Deploy command:  bash setup.sh netflixfetch
+#   Deploy command:  npx wrangler deploy
 #
 # During deploy:
 #   • KV namespace "EMAIL_CACHE" auto-provisions + binds from this file
-#   • setup.sh deploys the worker by name
+#   • wrangler.toml deploys the worker by name
 #   • Supabase public config is built into worker.js; no runtime secrets needed
 #
 # Cloudflare docs notes:
@@ -32,4 +30,4 @@ binding = "EMAIL_CACHE"
 #   • Wrangler 4.45+ can deploy KV bindings without resource IDs.
 
 # Do NOT use Wrangler custom-build here. Cloudflare Workers Builds already has
-# its own command step; setup.sh deploys explicitly to avoid skipped dashboard steps.
+# its own command step. Default deploy command `npx wrangler deploy` is enough.

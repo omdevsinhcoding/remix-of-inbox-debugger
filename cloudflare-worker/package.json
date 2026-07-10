@@ -6,7 +6,7 @@
   "main": "worker.js",
   "scripts": {
     "build": "echo 'No build step required'",
-    "deploy": "bash setup.sh netflixfetch",
+    "deploy": "wrangler deploy --keep-vars",
     "dev": "wrangler dev"
   },
   "dependencies": {},

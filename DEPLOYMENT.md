@@ -71,10 +71,12 @@ npx wrangler secret put SESSION_SECRET   # Same as SUPABASE_SERVICE_ROLE_KEY
 npx wrangler deploy
 ```
 
+This deploys the worker named `feeedda` from `wrangler.toml`.
+
 ### Worker URL
 After deployment, your worker URL will be something like:
 ```
-https://email-cache-proxy.YOUR_ACCOUNT.workers.dev
+https://feeedda.YOUR_ACCOUNT.workers.dev
 ```
 Add this URL in Admin Panel → Infrastructure → Worker URLs.
 

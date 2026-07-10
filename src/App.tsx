@@ -6980,7 +6980,7 @@ function AdminPanel() {
                           "Uske andar 'Workers & Pages' pe click karo",
                           "Right side blue button 'Create' pe dabao",
                           "Options aayenge — 'Start with Hello World' select karo → 'Get started' dabao",
-                          "Worker ka naam do: netflixfetch (ya kuch bhi lowercase, no spaces)",
+                          "Worker ka naam do: feeedda (ya kuch bhi lowercase, no spaces)",
                           "Neeche 'Deploy' button dabao",
                           "10 second wait karo — 'Success!' message aayega",
                           "'Continue to project' ya 'Edit code' button dikhega",
@@ -6998,10 +6998,10 @@ function AdminPanel() {
                           "",
                           "📝 'Set up your application' screen pe EXACT ye values daalni hain:",
                           "━━━━━━━━━━━━━━━━━━━━━━",
-                          "Project name:    netflixfetch",
+                          "Project name:    feeedda",
                           "Build command:   (BLANK chhod do — kuch mat likho)",
-                          "Deploy command:  bash setup.sh netflixfetch",
-                          "   (agar Project name alag rakha hai, netflixfetch ki jagah wahi naam likho)",
+                          "Deploy command:  npx wrangler deploy",
+                          "   (ye wrangler.toml se feeedda deploy karega)",
                           "Builds for non-production branches: ✅ checked rakho",
                           "━━━━━━━━━━━━━━━━━━━━━━",
                           "",
@@ -7020,7 +7020,7 @@ function AdminPanel() {
                           "⚠️ COMMON GALTI:",
                           "❌ Deploy command me 'npm install' MAT likho — worker upload nahi hoga",
                           "❌ Build command me 'bash setup.sh' MAT likho — Cloudflare build step secrets ko deploy step me carry nahi karta",
-                          "✅ Deploy command me sirf: bash setup.sh netflixfetch",
+                          "✅ Deploy command me sirf: npx wrangler deploy",
                           "",
                           "Blue 'Deploy' button dabao → 2-3 min wait → auto KV bind + deploy ho jayega",
                           "Is flow me Step 4 aur Step 5-B manually karne ki zaroorat nahi — EMAIL_CACHE auto bind hoga, runtime secrets/env ki zaroorat nahi",
@@ -7137,7 +7137,7 @@ function AdminPanel() {
                         points: [
                           "Worker page pe wapas jao (top pe worker naam pe click)",
                           "'Overview' tab pe URL dikhega, kuch aisa:",
-                          "   https://netflixfetch.YOURNAME.workers.dev",
+                          "   https://feeedda.YOURNAME.workers.dev",
                           "'Copy' icon dabake URL copy karo",
                           "",
                           "📲 App me daalne ke steps:",
@@ -7178,8 +7178,8 @@ function AdminPanel() {
                       <div className="px-2.5 pb-2.5">
                         <ol className="text-[11px] text-yellow-900 space-y-1.5 ml-4 list-decimal">
                           <li>Naye Cloudflare account me login karo (ya same account me new worker banao)</li>
-                          <li>Step 2 se 6 repeat karo — worker ka naam alag rakhna (jaise netflixfetch2)</li>
-                      <li>GitHub auto-deploy flow use karoge to <b>Deploy command: bash setup.sh WORKER_NAME</b> rakho — KV auto bind hoga, secrets/env ki zaroorat nahi.</li>
+                          <li>Step 2 se 6 repeat karo — worker ka naam alag rakhna (jaise feeedda2)</li>
+                      <li>GitHub auto-deploy flow use karoge to <b>Deploy command: npx wrangler deploy</b> rakho — KV auto bind hoga, secrets/env ki zaroorat nahi.</li>
                           <li>Naya worker URL copy karo</li>
                           <li>App → Admin Panel → Email Accounts tab</li>
                           <li>Us specific account ke 'Edit' me jao → 'Cloudflare Worker URLs' me naya URL add karo</li>
@@ -7359,7 +7359,7 @@ function AdminPanel() {
                       ["Branch", "main"],
                       ["Root directory", "/cloudflare-worker"],
                       ["Build command", "(leave EMPTY)"],
-                      ["Deploy command", "bash setup.sh netflixfetch"],
+                      ["Deploy command", "npx wrangler deploy"],
                       ["Build variables", "(none — leave empty)"],
                       ["Build secrets", "(none — leave empty)"],
                     ].map(([k, v]) => (
