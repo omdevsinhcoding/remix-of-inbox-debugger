@@ -324,12 +324,19 @@ function normalizeRecipientFilters(raw: any): string[] {
   return Array.from(new Set(values.flatMap((v: any) => extractEmailAddresses(String(v || "")))));
 }
 
+function gmailBaseAddress(email: string): string {
+  const normalized = normalizeEmail(email);
+  const m = normalized.match(/^([^@+]+)(?:\+[^@]*)?@(gmail\.com|googlemail\.com)$/i);
+  return m ? `${m[1]}@${m[2]}` : normalized;
+}
+
 function recipientMatches(toRaw: string | null | undefined, filters?: string[]): boolean {
   if (!filters || filters.length === 0) return true;
   const recipients = extractEmailAddresses(toRaw);
   if (recipients.length === 0) return false;
   const allowed = new Set(filters.map(normalizeEmail).filter(Boolean));
-  return recipients.some((email) => allowed.has(email));
+  const allowedGmailBases = new Set(filters.map(gmailBaseAddress).filter(Boolean));
+  return recipients.some((email) => allowed.has(email) || allowedGmailBases.has(gmailBaseAddress(email)));
 }
 
 function parseFastEmail(rawSource: Uint8Array, envelope: any, accountLabel: string, uid: number) {
@@ -409,9 +416,10 @@ async function fetchFromAccount(
   maxMessages = FULL_SYNC_MAX_UIDS,
   quickRefresh = false,
   recipientFilters: string[] = [],
-): Promise<{ emails: any[]; fetched: number; skipped: number }> {
+): Promise<{ emails: any[]; fetched: number; skipped: number; recipientSkipped: number }> {
   const emails: any[] = [];
   let skipped = 0;
+  let recipientSkipped = 0;
   let timedOut = false;
   const startedAt = Date.now();
   const budgetMs = quickRefresh ? FAST_REFRESH_TIMEOUT_MS : PER_ACCOUNT_TIMEOUT_MS;
@@ -456,16 +464,17 @@ async function fetchFromAccount(
         if (netflixUids.length > 0) console.log(`[${accountLabel}] Latest inbox scan found ${netflixUids.length}`);
       }
 
-      if (!quickRefresh && netflixUids.length === 0 && hasBudget()) {
+      if (!quickRefresh && hasBudget()) {
         const since = new Date();
         since.setDate(since.getDate() - 7);
         for (const term of ["netflix.com", "netflix"]) {
-          if (netflixUids.length > 0 || !hasBudget()) break;
+          if (!hasBudget()) break;
           try {
             const searchResults = await client.search({ from: term, since }, { uid: true });
             if (searchResults?.length > 0) {
-              netflixUids = searchResults as number[];
+              netflixUids.push(...(searchResults as number[]));
               console.log(`[${accountLabel}] Search "${term}" found ${netflixUids.length}`);
+              break;
             }
           } catch (searchErr) {
             console.log(`[${accountLabel}] Search "${term}" failed:`, searchErr);
@@ -510,6 +519,7 @@ async function fetchFromAccount(
           }
           const toText = parsed.to ? (Array.isArray(parsed.to) ? parsed.to[0]?.text : parsed.to.text) : undefined;
           if (!recipientMatches(toText, recipientFilters)) {
+            recipientSkipped++;
             console.log(`[${accountLabel}] Skipping UID ${uid}: recipient not allowed (${toText || "none"})`);
             continue;
           }
@@ -547,7 +557,7 @@ async function fetchFromAccount(
     }
   }
 
-  return { emails, fetched: emails.length, skipped };
+  return { emails, fetched: emails.length, skipped, recipientSkipped };
 }
 
 async function loadAccounts(supabase: any, secret: string, accountLabels: string[] | null): Promise<Account[]> {
@@ -649,12 +659,12 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
 
   const allEmails: any[] = [];
   const accountErrors: Array<{ label: string; error: string }> = [];
-  const syncStats: Record<string, { fetched: number; skipped: number; error?: string }> = {};
+  const syncStats: Record<string, { fetched: number; skipped: number; recipientSkipped?: number; error?: string }> = {};
 
   settled.forEach((item, index) => {
     const label = accounts[index]?.label || `Account ${index + 1}`;
     if (item.status === "fulfilled") {
-      syncStats[label] = { fetched: item.value.result.fetched, skipped: item.value.result.skipped };
+      syncStats[label] = { fetched: item.value.result.fetched, skipped: item.value.result.skipped, recipientSkipped: item.value.result.recipientSkipped };
       allEmails.push(...item.value.result.emails);
     } else {
       const errMsg = item.reason instanceof Error ? item.reason.message : String(item.reason);
@@ -720,6 +730,11 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
       duplicatesSkipped: Object.values(syncStats).reduce((s: number, v: any) => s + (v.skipped || 0), 0),
   };
   if (accountErrors.length > 0) response.warnings = accountErrors.map(e => e.error);
+  const recipientWarnings = Object.entries(syncStats)
+    .filter(([, v]: any) => Number(v.recipientSkipped || 0) > 0)
+    .map(([label, v]: any) => `${label}: ${v.recipientSkipped} Netflix email skipped by recipient filter`);
+  if (recipientWarnings.length > 0) response.warnings = [...(response.warnings || []), ...recipientWarnings];
+  if (Array.isArray(response.warnings) && response.warnings.length > 0) response.warning = response.warnings.join(" • ");
   console.log(`[sync] Complete: ${allEmails.length} fetched/upserted across ${accounts.length} account(s)`);
   return response;
 }
