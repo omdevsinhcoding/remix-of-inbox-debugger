@@ -5149,9 +5149,8 @@ function AdminPanel() {
       const impersonatedUser = { ...(data.user || {}), impersonated: true, adminId: data.user?.adminId || null };
       sessionSet("user" as any, JSON.stringify(impersonatedUser));
       if (data.sessionToken) sessionSet("session_token" as any, data.sessionToken);
-      // Impersonation: also defer session timer until EmailViewer loads inbox.
-      try { sessionRemove("session_started_at" as any); } catch {}
       sessionRemove("admin_auth" as any);
+      checkAuth();
       navigate("/viewer", { replace: true });
       notify.success(`Viewing as ${targetUser.name}`);
     } catch (err) {
