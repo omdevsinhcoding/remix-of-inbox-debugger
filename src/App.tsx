@@ -8420,11 +8420,27 @@ function UserProfileModal({
 
   const saveAvatar = async (avatarId: string) => {
     if (savingAvatar) return;
+
+    // Global cooldown for free profiles: block preemptively so we don't
+    // even hit the server if the window is still open.
+    if (user.isFree) {
+      const cd = getFreeAvatarCooldown();
+      const lastMs = cd.lastAt ? Date.parse(cd.lastAt) : 0;
+      const windowMs = (cd.minutes || 5) * 60_000;
+      const remainMs = lastMs ? windowMs - (Date.now() - lastMs) : 0;
+      if (remainMs > 0) {
+        const s = Math.ceil(remainMs / 1000);
+        const label = s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`;
+        notify.info("Profile icon recently updated", {
+          description: `Please wait ${label} before changing again.`,
+        });
+        return;
+      }
+    }
+
     const nextPrefs = { ...prefs, avatarId };
     setSavingAvatar(true);
     onPrefsSaved(nextPrefs);
-    // Also update the in-session `user` object so header/other surfaces render
-    // the new avatar in micro-seconds without waiting for a network roundtrip.
     try {
       const stored = JSON.parse(sessionGet("user" as any) || "{}");
       stored.profilePrefs = nextPrefs;
@@ -8435,7 +8451,20 @@ function UserProfileModal({
       patchBootstrapCacheUser(user.id, { profile_prefs: nextPrefs, profileAvatar: avatarId });
     }
     try {
-      await apiCall("manage-app", { action: "update_profile_prefs", profile_prefs: nextPrefs });
+      const res: any = await apiCall("manage-app", { action: "update_profile_prefs", profile_prefs: nextPrefs });
+      if (res && res.success === false && res.code === "AVATAR_COOLDOWN") {
+        // Server rejected — sync local cooldown state, revert optimistic patch.
+        setFreeAvatarCooldown({ minutes: Number(res.minutes) || 5, lastAt: res.lastAt || null });
+        const s = Math.max(1, Number(res.retryAfterSec) || 1);
+        const label = s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`;
+        notify.info("Profile icon recently updated", {
+          description: `Please wait ${label} before changing again.`,
+        });
+        onPrefsSaved(prefs);
+        refreshBootstrap().catch(() => {});
+        return;
+      }
+      if (res?.freeAvatarCooldown) setFreeAvatarCooldown(res.freeAvatarCooldown);
       notify.success("Profile icon updated");
       refreshBootstrap().catch(() => {});
     } catch (err) {
