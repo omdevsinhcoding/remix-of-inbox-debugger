@@ -52,11 +52,13 @@ function cleanTransportError(err: unknown): Error {
 }
 
 function fnBase(): string {
-  const url = import.meta.env.VITE_SUPABASE_URL || SUPABASE_URL_FALLBACK;
+  const configuredUrl = import.meta.env.VITE_SUPABASE_URL;
+  const url = configuredUrl && configuredUrl !== "undefined" && configuredUrl !== "null" ? configuredUrl : SUPABASE_URL_FALLBACK;
   return `${url.replace(/\/+$/, "")}/functions/v1`;
 }
 function anonKey(): string {
-  return import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || SUPABASE_ANON_KEY_FALLBACK;
+  const configuredKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+  return configuredKey && configuredKey !== "undefined" && configuredKey !== "null" ? configuredKey : SUPABASE_ANON_KEY_FALLBACK;
 }
 
 function toB64(bytes: Uint8Array): string {
