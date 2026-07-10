@@ -95,8 +95,13 @@ function emailVisibilityCategory(row: any): "signin" | "password_reset" | "accou
   const subject = String(row?.subject || "");
   const preview = String(row?.preview || "");
   const combined = `${subject} ${preview}`;
-  if (row?.otp || VIS_SIGNIN_RE.test(combined)) return "signin";
+  // Account-update detection MUST run before sign-in detection: Netflix sends
+  // "Your verification code" as the subject for BOTH sign-in codes and
+  // account-change confirmations. If we matched sign-in first, an account
+  // change (e.g. "Confirm your account change with this code") would leak to
+  // free profiles and let them lock the paying user out. Body text distinguishes.
   if (VIS_ACCOUNT_UPDATE_RE.test(combined)) return "account_update";
+  if (row?.otp || VIS_SIGNIN_RE.test(combined)) return "signin";
   if (VIS_PASSWORD_RESET_RE.test(combined)) return "password_reset";
   return "other";
 }
