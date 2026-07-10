@@ -4153,8 +4153,8 @@ Deno.serve(async (originalReq) => {
             secretAccessKeySet: hasSecret,
           };
         } else {
-          if (row.key === "config") settings[row.key] = maskConfigForAdmin(row.value);
-          else if (row.key === "email_accounts") settings[row.key] = maskEmailAccountsForAdmin(row.value);
+          if (row.key === "config") settings[row.key] = await revealConfigForAdmin(row.value, ENCRYPTION_SECRET);
+          else if (row.key === "email_accounts") settings[row.key] = await revealEmailAccountsForAdmin(row.value, ENCRYPTION_SECRET);
           else settings[row.key] = row.value;
         }
       }
