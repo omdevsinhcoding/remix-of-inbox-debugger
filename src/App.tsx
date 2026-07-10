@@ -8472,8 +8472,9 @@ function EmailViewer() {
     const runRefresh = async () => {
       await refreshEmailFiltersForViewer();
       await loadCachedEmails({ limit: 200 });
-      // Fast path: worker sync returns fresh emails directly — no second round-trip.
-      return (await syncViaWorker()) || (await syncDirectFromSupabase());
+      // Manual refresh must not depend on Cloudflare Worker health/config.
+      // Use the Supabase IMAP sync first; Worker is only a last-resort cache path.
+      return (await syncDirectFromSupabase()) || (await syncViaWorker());
     };
     try {
       let synced: Awaited<ReturnType<typeof syncViaWorker>> = null;
