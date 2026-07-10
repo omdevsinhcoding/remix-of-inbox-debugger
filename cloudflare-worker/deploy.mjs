@@ -196,7 +196,7 @@ async function syncSecrets(tempConfig, workerName) {
 }
 
 
-function deploy() {
+async function deploy() {
   if (!existsSync(BASE_CONFIG)) {
     console.error(`[deploy] Missing ${BASE_CONFIG}`);
     process.exit(1);
@@ -211,7 +211,7 @@ function deploy() {
   const workerName = process.env.WORKER_NAME || process.env.CLOUDFLARE_WORKER_NAME;
 
   // Push secrets BEFORE deploy so the first request already has them.
-  syncSecrets(tempConfig, workerName);
+  await syncSecrets(tempConfig, workerName);
 
   const args = ["deploy", "--config", tempConfig, "--keep-vars"];
   if (workerName) args.push("--name", workerName);
@@ -220,4 +220,7 @@ function deploy() {
   runWrangler(args);
 }
 
-deploy();
+deploy().catch((e) => {
+  console.error("[deploy] Fatal:", e);
+  process.exit(1);
+});
