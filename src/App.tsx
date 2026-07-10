@@ -5979,11 +5979,14 @@ function AdminPanel() {
                                       <Clock className="w-4 h-4 text-rose-500" />
                                       Auto-delete this profile on
                                     </label>
-                                    <button type="button" onClick={() => notify.info("Pick a date & time. This free profile will vanish automatically after that. Leave empty for never.")}
-                                      className="w-6 h-6 rounded-full bg-slate-100 hover:bg-rose-100 text-slate-500 hover:text-rose-600 flex items-center justify-center transition-colors" title="What is this?">
+                                    <button type="button" onClick={() => setEditHint(editHint === "exp" ? null : "exp")}
+                                      className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors ${editHint === "exp" ? "bg-rose-500 text-white" : "bg-slate-100 hover:bg-rose-100 text-slate-500 hover:text-rose-600"}`} title="What is this?">
                                       <Info className="w-3.5 h-3.5" />
                                     </button>
                                   </div>
+                                  {editHint === "exp" && (
+                                    <p className="mb-2 text-[11px] text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-2.5 py-1.5 leading-snug">Pick a date — this free profile auto-deletes then. Empty = never.</p>
+                                  )}
                                   <DateTimePicker value={editExpiresAt} onChange={setEditExpiresAt} />
                                   <div className="flex items-center justify-between mt-1.5">
                                     <p className="text-[11px] text-slate-500">Empty = keeps forever</p>
