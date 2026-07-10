@@ -5,7 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "node scripts/smart-build.mjs",
+    "build:app": "vite build",
+    "build:worker": "node cloudflare-worker/deploy.mjs",
+    "deploy:worker": "node cloudflare-worker/deploy.mjs",
     "build:dev": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist",

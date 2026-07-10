@@ -29,7 +29,7 @@ if [ -z "$WORKER_NAME" ]; then
   exit 1
 fi
 
-echo "→ Deploying universal Worker with auto KV provisioning..."
-SKIP_CF_AUTO_BOOTSTRAP=1 $WRANGLER deploy --name "$WORKER_NAME" --keep-vars
+echo "→ Deploying universal Worker with KV auto-create + binding..."
+CLOUDFLARE_WORKER_NAME="$WORKER_NAME" node deploy.mjs
 
 echo "✅ Cloudflare Worker deploy complete: KV binding + built-in Supabase config."

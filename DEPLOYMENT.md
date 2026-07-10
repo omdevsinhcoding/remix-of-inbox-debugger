@@ -68,8 +68,10 @@ npx wrangler secret put SESSION_SECRET   # Same as SUPABASE_SERVICE_ROLE_KEY
 
 ### Deploy
 ```bash
-npx wrangler deploy
+npm run deploy
 ```
+
+`npm run deploy` runs `cloudflare-worker/deploy.mjs`, which creates/fetches the account-local `EMAIL_CACHE` KV namespace, injects its ID into a temporary Wrangler config, and then deploys the Worker. This is required because every Cloudflare account has different KV namespace IDs.
 
 This deploys the worker named `feeedda` from `wrangler.toml`.
 
@@ -127,7 +129,7 @@ Edit `wrangler.toml`:
 [triggers]
 crons = ["*/5 * * * *"]   # Every 5 minutes
 ```
-Then `npx wrangler deploy`.
+Then `npm run deploy` from `/cloudflare-worker`.
 
 ### Option B: External Cron
 Call the sync endpoint periodically:
