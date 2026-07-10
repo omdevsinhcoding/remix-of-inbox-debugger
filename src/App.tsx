@@ -7380,7 +7380,7 @@ function AdminPanel() {
                   ["Repository", "inbox-debugger (your repo)"],
                   ["Production branch", "main"],
                   ["Root directory", "/cloudflare-worker  (REQUIRED)"],
-                  ["API Token", "Use default (auto)"],
+                  ["API Token", "Create new/default with KV edit"],
                 ].map(([k, v]) => (
                   <div key={k} className="p-3 rounded-lg bg-slate-50 border border-slate-200">
                     <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{k}</p>
