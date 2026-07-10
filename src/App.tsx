@@ -9337,6 +9337,16 @@ function EmailViewer() {
             >
               <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`} />
             </button>
+            {canChangePassword && (
+              <button
+                onClick={() => setShowChangePwd(true)}
+                className="flex items-center justify-center w-9 h-9 hover:bg-slate-100 text-slate-600 rounded-full transition-all active:scale-95"
+                title="Change password"
+                aria-label="Change password"
+              >
+                <KeyRound className="w-4 h-4" />
+              </button>
+            )}
             {!isImpersonating && (
               <button
                 onClick={() => { try { sessionClearAll(); } catch {} window.location.replace("/"); }}
