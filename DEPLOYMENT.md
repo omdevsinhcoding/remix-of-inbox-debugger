@@ -52,28 +52,35 @@ curl -X POST \
 
 ## 2. Cloudflare Worker Setup
 
-### Create KV Namespace
-```bash
-cd cloudflare-worker
-npx wrangler kv namespace create EMAIL_CACHE
-```
-Copy the namespace ID into `wrangler.toml`.
+### Git Auto-Deploy Setup
 
-### Set Secrets
-```bash
-npx wrangler secret put SUPABASE_URL
-npx wrangler secret put SUPABASE_KEY     # Use anon key
-npx wrangler secret put SESSION_SECRET   # Same as SUPABASE_SERVICE_ROLE_KEY
-```
+Create the Worker from **Workers & Pages → Create → Import a repository**. Do **not** use “Start with Hello World” if you expect Git builds to run automatically.
 
-### Deploy
-```bash
-npm run deploy
-```
+Use these settings:
+
+| Field | Value |
+|---|---|
+| Repository | your GitHub repo |
+| Branch | `main` |
+| Root directory | `/cloudflare-worker` |
+| Build command | empty, or Cloudflare auto-filled `npm run build` / `bun run build` |
+| Deploy command | `npm run deploy` |
+| API token | token with Workers Scripts Edit + Workers KV Storage Edit |
 
 `npm run deploy` runs `cloudflare-worker/deploy.mjs`, which creates/fetches the account-local `EMAIL_CACHE` KV namespace, injects its ID into a temporary Wrangler config, and then deploys the Worker. This is required because every Cloudflare account has different KV namespace IDs.
 
-This deploys the worker named `feeedda` from `wrangler.toml`.
+### Important: “Automatic deployment on upload” means Git is not connected
+
+If the Worker overview says **“Automatic deployment on upload”** and has an **Edit code** button, that Worker is in dashboard/manual upload mode. No Git build will start there, even after 110 minutes. Recreate it via **Import a repository**, or connect Git from **Settings → Builds** if the option appears.
+
+### Manual Deploy Fallback
+
+```bash
+cd cloudflare-worker
+npm run deploy
+```
+
+This deploys the worker named from `wrangler.toml`.
 
 ### Worker URL
 After deployment, your worker URL will be something like:

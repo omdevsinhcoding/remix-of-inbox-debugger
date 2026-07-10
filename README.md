@@ -122,6 +122,8 @@ Worker source lives in [`/cloudflare-worker/worker.js`](./cloudflare-worker/work
 
 Open **Cloudflare Dashboard → Workers & Pages → Create → Import a repository** and choose **Workers** (not Pages).
 
+> 🚨 If your Worker overview says **“Automatic deployment on upload”** and shows **“Edit code”**, then this Worker was created by dashboard/manual upload. **Git Builds is not connected**, so `npm run build`, `bun run build`, KV auto-binding, and deploy logs will never start from Git for that Worker. Delete/recreate it with **Import a repository**, or open **Settings → Builds → Connect Git** if Cloudflare shows that option.
+
 #### Step 1 — Connect Git
 
 | Field | Value |
@@ -195,6 +197,8 @@ Cloudflare does **not** keep polling an old commit after you connect an existing
 3. you open **Deployments → Build history** and manually retry/start a build.
 
 If Build history says **“No builds exist yet”**, GitHub Builds has not run. Push any small commit after connecting, or open Worker → **Settings → Builds → Retry/Start build**.
+
+If the overview says **“Automatic deployment on upload”**, there is no Git build pipeline attached to that Worker. That page will only deploy when you manually upload code from **Edit code** / Wrangler. For automatic deploy, create a **new Worker from Import repository** and click **Save and Deploy** on the setup screen.
 
 If logs show `KV namespace id missing`, `unauthorized`, or `permission`, the account token does not have **Workers KV Storage: Edit**. Recreate/select the token in that Cloudflare account.
 
