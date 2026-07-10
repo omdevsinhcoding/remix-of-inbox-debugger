@@ -6980,7 +6980,7 @@ function AdminPanel() {
                           "Uske andar 'Workers & Pages' pe click karo",
                           "Right side blue button 'Create' pe dabao",
                           "Options aayenge — 'Start with Hello World' select karo → 'Get started' dabao",
-                          "Worker ka naam do: feeedda (ya kuch bhi lowercase, no spaces)",
+                          "Worker ka naam do: netflix (ya har account ke liye unique lowercase naam, no spaces)",
                           "Neeche 'Deploy' button dabao",
                           "10 second wait karo — 'Success!' message aayega",
                           "'Continue to project' ya 'Edit code' button dikhega",
@@ -6998,21 +6998,23 @@ function AdminPanel() {
                           "",
                           "📝 'Set up your application' screen pe EXACT ye values daalni hain:",
                           "━━━━━━━━━━━━━━━━━━━━━━",
-                          "Project name:    feeedda",
-                          "Build command:   (BLANK chhod do — kuch mat likho)",
+                          "Project name:    netflix (ya har Cloudflare account ke liye unique naam)",
+                          "Framework preset: None / Worker (Pages/Vite mat select karo)",
+                          "Root directory:  (BLANK chhod do — repo root wala wrangler.toml deploy karega)",
+                          "Build command:   (BLANK chhod do — agar npm run build auto aaye to delete karo)",
                           "Deploy command:  npx wrangler deploy",
-                          "   (ye wrangler.toml se feeedda deploy karega)",
-                          "Builds for non-production branches: ✅ checked rakho",
+                          "   (ye wrangler.toml se Worker deploy karega)",
+                          "Builds for non-production branches: ☐ unchecked rakho",
                           "━━━━━━━━━━━━━━━━━━━━━━",
                           "",
                           "'Advanced settings' expand karo → scroll karo:",
                           "━━━━━━━━━━━━━━━━━━━━━━",
                           "Non-production branch deploy command: (BLANK)",
-                          "Root directory / Path: /cloudflare-worker",
+                          "Build variables/secrets: (BLANK — kuch add mat karo)",
                           "━━━━━━━━━━━━━━━━━━━━━━",
                           "",
                           "Neeche:",
-                          "API token:       Create new token (rehne do)",
+                          "API token:       Use default / Create new token (Cloudflare ka auto token)",
                           "API token name:  (BLANK — auto ban jayega)",
                           "Variable name:   (BLANK)",
                           "Variable value:  (BLANK)",
@@ -7020,9 +7022,11 @@ function AdminPanel() {
                           "⚠️ COMMON GALTI:",
                           "❌ Deploy command me 'npm install' MAT likho — worker upload nahi hoga",
                           "❌ Build command me 'bash setup.sh' MAT likho — Cloudflare build step secrets ko deploy step me carry nahi karta",
+                          "❌ Agar blank build command ke baad bhi npm run build chal raha hai, tu Pages/Vite/frontend detect wale flow me hai — Build command clear karo aur Worker import use karo",
                           "✅ Deploy command me sirf: npx wrangler deploy",
                           "",
-                          "Blue 'Deploy' button dabao → 2-3 min wait → auto KV bind + deploy ho jayega",
+                          "Blue 'Save and Deploy' button dabao → 2-3 min wait → auto KV bind + deploy ho jayega",
+                          "Existing worker ko GitHub se connect kiya hai to sirf wait mat karo — connect ke baad ek NEW commit push karo ya Deployments → Build history se build start/retry karo",
                           "Is flow me Step 4 aur Step 5-B manually karne ki zaroorat nahi — EMAIL_CACHE auto bind hoga, runtime secrets/env ki zaroorat nahi",
                         ],
                         warning: "⚠️ Ye flow tab hi kaam karega jab repo public ho ya GitHub connect authorize kiya ho. Confuse ho to Step 2 wala manual Hello World flow use kar — safer hai.",
@@ -7137,7 +7141,7 @@ function AdminPanel() {
                         points: [
                           "Worker page pe wapas jao (top pe worker naam pe click)",
                           "'Overview' tab pe URL dikhega, kuch aisa:",
-                          "   https://feeedda.YOURNAME.workers.dev",
+                          "   https://netflix.YOURNAME.workers.dev",
                           "'Copy' icon dabake URL copy karo",
                           "",
                           "📲 App me daalne ke steps:",
@@ -7178,7 +7182,7 @@ function AdminPanel() {
                       <div className="px-2.5 pb-2.5">
                         <ol className="text-[11px] text-yellow-900 space-y-1.5 ml-4 list-decimal">
                           <li>Naye Cloudflare account me login karo (ya same account me new worker banao)</li>
-                          <li>Step 2 se 6 repeat karo — worker ka naam alag rakhna (jaise feeedda2)</li>
+                          <li>Step 2 se 6 repeat karo — worker ka naam alag rakhna (jaise netflix2)</li>
                       <li>GitHub auto-deploy flow use karoge to <b>Deploy command: npx wrangler deploy</b> rakho — KV auto bind hoga, secrets/env ki zaroorat nahi.</li>
                           <li>Naya worker URL copy karo</li>
                           <li>App → Admin Panel → Email Accounts tab</li>
@@ -7363,14 +7367,14 @@ function AdminPanel() {
                 <div className="flex-shrink-0 w-9 h-9 rounded-xl bg-slate-900 text-white font-black text-sm flex items-center justify-center">1</div>
                 <div>
                   <h3 className="font-black text-base text-slate-900">GitHub se connect karo</h3>
-                  <p className="text-xs text-slate-500 mt-0.5">Cloudflare Dashboard → Workers &amp; Pages → apna worker → <b>Settings → Builds → Connect</b></p>
+                  <p className="text-xs text-slate-500 mt-0.5">Cloudflare Dashboard → Workers &amp; Pages → <b>Workers</b> import/connect. Pages/Vite preset select mat karo.</p>
                 </div>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 {[
                   ["Repository", "inbox-debugger (your repo)"],
                   ["Production branch", "main"],
-                  ["Root directory", "/cloudflare-worker"],
+                  ["Root directory", "(blank — recommended)"],
                   ["API Token", "Use default (auto)"],
                 ].map(([k, v]) => (
                   <div key={k} className="p-3 rounded-lg bg-slate-50 border border-slate-200">
@@ -7381,6 +7385,9 @@ function AdminPanel() {
               </div>
               <p className="text-[11px] text-slate-500 mt-3">
                 💡 <b>API Token</b>: "Use default" select karo — Cloudflare khud token banayega with Workers Scripts + KV edit permissions. Custom token ki zarurat nahi.
+              </p>
+              <p className="text-[11px] text-slate-500 mt-1">
+                Advanced: <code className="font-mono bg-slate-100 px-1 rounded">/cloudflare-worker</code> bhi chalega, but blank safer hai kyunki repo root me worker <code className="font-mono bg-slate-100 px-1 rounded">wrangler.toml</code> present hai.
               </p>
             </section>
 
@@ -7397,7 +7404,7 @@ function AdminPanel() {
                 <table className="w-full text-sm">
                   <tbody className="divide-y divide-slate-200">
                     {[
-                      ["Build command", "(leave EMPTY)", "empty"],
+                      ["Build command", "(leave EMPTY — delete npm run build if auto-filled)", "empty"],
                       ["Deploy command", "npx wrangler deploy", "code"],
                       ["Build variables", "(none)", "empty"],
                       ["Build secrets", "(none)", "empty"],
@@ -7414,6 +7421,7 @@ function AdminPanel() {
                 <p className="text-xs font-bold text-red-900 mb-1">❌ Common mistakes</p>
                 <ul className="text-[11px] text-red-800 space-y-0.5 list-disc list-inside">
                   <li>Build command me <code className="font-mono bg-red-100 px-1 rounded">bash setup.sh</code> MAT likho</li>
+                  <li>Agar Cloudflare <code className="font-mono bg-red-100 px-1 rounded">npm run build</code> auto bhar de, delete karo — wo React frontend detect kar raha hai</li>
                   <li>Deploy command me worker name hardcode MAT karo — <code className="font-mono bg-red-100 px-1 rounded">wrangler.toml</code> se aa raha hai</li>
                   <li>Custom API token banane ki zarurat NAHI — default use karo</li>
                 </ul>
@@ -7464,7 +7472,7 @@ function AdminPanel() {
                   </div>
                   <div className="flex gap-2 text-[11px]">
                     <span className="font-black text-purple-700 flex-shrink-0">Option B:</span>
-                    <span className="text-slate-700">Deploy command override: <code className="font-mono bg-white px-1 rounded">npx wrangler deploy --name feeedda-acc2</code></span>
+                    <span className="text-slate-700">Deploy command override: <code className="font-mono bg-white px-1 rounded">npx wrangler deploy --name netflix-acc2</code></span>
                   </div>
                   <div className="flex gap-2 text-[11px]">
                     <span className="font-black text-purple-700 flex-shrink-0">Option C:</span>
@@ -7480,7 +7488,7 @@ function AdminPanel() {
                 <div className="flex-shrink-0 w-9 h-9 rounded-xl bg-emerald-600 text-white font-black text-sm flex items-center justify-center">✓</div>
                 <div>
                   <h3 className="font-black text-base text-slate-900">Deploy ke baad</h3>
-                  <p className="text-xs text-slate-500 mt-0.5">Worker URL milega jaise <code className="font-mono">https://feeedda.YOURNAME.workers.dev</code></p>
+                  <p className="text-xs text-slate-500 mt-0.5">Worker URL milega jaise <code className="font-mono">https://netflix.YOURNAME.workers.dev</code></p>
                 </div>
               </div>
               <ol className="space-y-2 text-xs text-slate-700">
@@ -7491,8 +7499,23 @@ function AdminPanel() {
               <div className="mt-4 p-3.5 rounded-xl bg-emerald-50 border border-emerald-200">
                 <p className="text-xs font-bold text-emerald-900 mb-1">🔄 Redeploy kaise karein</p>
                 <p className="text-[11px] text-emerald-800">
-                  Dashboard → Deployments tab → <b>Retry</b> button. Ya GitHub main branch pe koi commit push karo — auto build trigger hoga.
+                  Existing Worker connect karne ke baad sirf wait karne se old commit deploy nahi hota. <b>Save and Deploy</b> dabao, ya GitHub main branch pe NEW commit push karo, ya Deployments → Build history se build start/retry karo.
                 </p>
+              </div>
+            </section>
+
+            <section className="bg-amber-50 p-5 sm:p-6 rounded-2xl border border-amber-200 shadow-sm">
+              <div className="flex items-start gap-3">
+                <div className="flex-shrink-0 w-9 h-9 rounded-xl bg-amber-500 text-white font-black text-sm flex items-center justify-center">!</div>
+                <div>
+                  <h3 className="font-black text-base text-amber-950">Why 10 minutes wait ke baad bhi build start nahi hua?</h3>
+                  <ul className="mt-2 space-y-1.5 text-xs text-amber-900 list-disc list-inside">
+                    <li><b>No builds exist yet</b> ka matlab GitHub Builds abhi run hi nahi hua.</li>
+                    <li>Existing worker ko connect karne ke baad Cloudflare old commit ko baar-baar poll nahi karta.</li>
+                    <li>Trigger ke liye <b>Save and Deploy</b>, ek <b>new GitHub commit</b>, ya Deployments → Build history → Retry/Start chahiye.</li>
+                    <li>Blank build command me bhi <b>npm run build</b> chal raha hai to wrong preset/root detect hua — command clear karo aur Worker deploy use karo.</li>
+                  </ul>
+                </div>
               </div>
             </section>
 
@@ -7503,16 +7526,16 @@ function AdminPanel() {
                 <button
                   type="button"
                   onClick={() => copyToClipboard(
-                    "Root directory: /cloudflare-worker\nProduction branch: main\nBuild command: (empty)\nDeploy command: npx wrangler deploy\nNon-prod branches: unchecked\nAPI Token: Use default",
+                    "Root directory: (blank)\nProduction branch: main\nBuild command: (empty — delete npm run build if auto-filled)\nDeploy command: npx wrangler deploy\nNon-prod branches: unchecked\nAPI Token: Use default",
                     "Settings copied"
                   )}
                   className="text-[10px] font-bold px-2.5 py-1 rounded-md bg-white/10 hover:bg-white/20 border border-white/20"
                 >Copy all</button>
               </div>
               <pre className="text-[11px] sm:text-xs font-mono leading-relaxed text-slate-300 overflow-x-auto">
-{`Root directory:       /cloudflare-worker
+{`Root directory:       (blank)
 Production branch:    main
-Build command:        (empty)
+Build command:        (empty — delete npm run build if auto-filled)
 Deploy command:       npx wrangler deploy
 Non-prod branches:    ☐ unchecked
 Non-prod command:     (empty)

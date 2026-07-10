@@ -1,0 +1,11 @@
+name = "netflix"
+main = "cloudflare-worker/worker.js"
+compatibility_date = "2026-04-07"
+workers_dev = true
+
+# Root-level Worker config for Cloudflare GitHub Builds.
+# This makes repo-root deploys work even if Cloudflare's Root directory is left blank.
+# The mirrored config in cloudflare-worker/wrangler.toml still supports isolated deploys
+# from the /cloudflare-worker directory.
+[[kv_namespaces]]
+binding = "EMAIL_CACHE"
