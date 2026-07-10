@@ -6980,7 +6980,7 @@ function AdminPanel() {
                           "Uske andar 'Workers & Pages' pe click karo",
                           "Right side blue button 'Create' pe dabao",
                           "Options aayenge — 'Start with Hello World' select karo → 'Get started' dabao",
-                          "Worker ka naam do: feeedda (ya kuch bhi lowercase, no spaces)",
+                          "Worker ka naam do: netflix (ya har account ke liye unique lowercase naam, no spaces)",
                           "Neeche 'Deploy' button dabao",
                           "10 second wait karo — 'Success!' message aayega",
                           "'Continue to project' ya 'Edit code' button dikhega",
@@ -7141,7 +7141,7 @@ function AdminPanel() {
                         points: [
                           "Worker page pe wapas jao (top pe worker naam pe click)",
                           "'Overview' tab pe URL dikhega, kuch aisa:",
-                          "   https://feeedda.YOURNAME.workers.dev",
+                          "   https://netflix.YOURNAME.workers.dev",
                           "'Copy' icon dabake URL copy karo",
                           "",
                           "📲 App me daalne ke steps:",
@@ -7182,7 +7182,7 @@ function AdminPanel() {
                       <div className="px-2.5 pb-2.5">
                         <ol className="text-[11px] text-yellow-900 space-y-1.5 ml-4 list-decimal">
                           <li>Naye Cloudflare account me login karo (ya same account me new worker banao)</li>
-                          <li>Step 2 se 6 repeat karo — worker ka naam alag rakhna (jaise feeedda2)</li>
+                          <li>Step 2 se 6 repeat karo — worker ka naam alag rakhna (jaise netflix2)</li>
                       <li>GitHub auto-deploy flow use karoge to <b>Deploy command: npx wrangler deploy</b> rakho — KV auto bind hoga, secrets/env ki zaroorat nahi.</li>
                           <li>Naya worker URL copy karo</li>
                           <li>App → Admin Panel → Email Accounts tab</li>
@@ -7472,7 +7472,7 @@ function AdminPanel() {
                   </div>
                   <div className="flex gap-2 text-[11px]">
                     <span className="font-black text-purple-700 flex-shrink-0">Option B:</span>
-                    <span className="text-slate-700">Deploy command override: <code className="font-mono bg-white px-1 rounded">npx wrangler deploy --name feeedda-acc2</code></span>
+                    <span className="text-slate-700">Deploy command override: <code className="font-mono bg-white px-1 rounded">npx wrangler deploy --name netflix-acc2</code></span>
                   </div>
                   <div className="flex gap-2 text-[11px]">
                     <span className="font-black text-purple-700 flex-shrink-0">Option C:</span>
@@ -7488,7 +7488,7 @@ function AdminPanel() {
                 <div className="flex-shrink-0 w-9 h-9 rounded-xl bg-emerald-600 text-white font-black text-sm flex items-center justify-center">✓</div>
                 <div>
                   <h3 className="font-black text-base text-slate-900">Deploy ke baad</h3>
-                  <p className="text-xs text-slate-500 mt-0.5">Worker URL milega jaise <code className="font-mono">https://feeedda.YOURNAME.workers.dev</code></p>
+                  <p className="text-xs text-slate-500 mt-0.5">Worker URL milega jaise <code className="font-mono">https://netflix.YOURNAME.workers.dev</code></p>
                 </div>
               </div>
               <ol className="space-y-2 text-xs text-slate-700">

@@ -165,7 +165,6 @@ Open **Cloudflare Dashboard → Workers & Pages → Create → Import a reposito
 ```
 Repository:           your-github-org/inbox-debugger
 Production branch:    main
-Root directory:       /cloudflare-worker
 Root directory:       (blank)
 Build command:        (empty — delete npm run build if auto-filled)
 Deploy command:       npx wrangler deploy
