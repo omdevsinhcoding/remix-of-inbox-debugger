@@ -9581,12 +9581,15 @@ function EmailViewer() {
 
 
       <main className="max-w-6xl mx-auto px-2 sm:px-4 h-[calc(100vh-3.5rem)] sm:h-[calc(100vh-4rem)] overflow-hidden">
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-4 sm:gap-8 h-full py-4 sm:py-8">
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-4 sm:gap-8 h-full py-2 sm:py-4">
           <div className={`${selectedEmail ? "hidden md:block" : "block"} md:col-span-5 xl:col-span-4 flex flex-col overflow-hidden h-full`}>
-
-
-
-            <section className="mt-4 flex-1 overflow-y-auto min-h-0 flex flex-col">
+            <section className="flex-1 overflow-y-auto min-h-0 flex flex-col">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                  Inbox
+                  <span className="bg-slate-200 text-slate-600 text-[10px] px-2 py-0.5 rounded-full">{emails.length}</span>
+                </h3>
+              </div>
               <div className="flex items-center justify-between mb-2">
                 <h3 className="font-bold text-slate-800 flex items-center gap-2">
                   Inbox
