@@ -8784,8 +8784,20 @@ function EmailViewer() {
         }
       }
       if (!html) {
-        pushDiag({ ts: Date.now(), kind: "cache", endpoint: "get_email_html", error: "Cloudflare Worker required — Supabase fallback disabled" });
+        // Supabase fallback when the Cloudflare Worker is unreachable/unset.
+        // Without this, users see only the tiny preview text instead of the
+        // full HTML email (Netflix logo, buttons, etc.) — matching Gmail.
+        try {
+          const res: any = await apiCall("manage-app", { action: "get_email_html", id: email.id });
+          if (res?.success && typeof res.html === "string") {
+            html = res.html;
+            pushDiag({ ts: Date.now(), kind: "cache", endpoint: "get_email_html", status: 200 });
+          }
+        } catch (e) {
+          pushDiag({ ts: Date.now(), kind: "cache", endpoint: "get_email_html", error: e instanceof Error ? e.message : String(e) });
+        }
       }
+
 
       if (html) {
         setSelectedEmail((cur) => (cur && cur.id === email.id ? { ...cur, html } : cur));
