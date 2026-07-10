@@ -8446,14 +8446,30 @@ function UserProfileModal({
   };
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <motion.div initial={{ scale: 0.94, opacity: 0, y: 12 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.94, opacity: 0, y: 12 }}
-        className="bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden max-h-[92vh] flex flex-col">
-        <div className="p-5 border-b border-slate-100 flex items-center justify-between">
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      onClick={onClose}
+      className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center sm:p-4"
+    >
+      <motion.div
+        onClick={(e) => e.stopPropagation()}
+        initial={{ y: "100%", opacity: 0, scale: 1 }}
+        animate={{ y: 0, opacity: 1, scale: 1 }}
+        exit={{ y: "100%", opacity: 0 }}
+        transition={{ type: "spring", stiffness: 380, damping: 34 }}
+        className="bg-white w-full max-w-lg rounded-t-[28px] sm:rounded-2xl shadow-2xl overflow-hidden max-h-[92vh] sm:max-h-[92vh] h-[88vh] sm:h-auto flex flex-col"
+      >
+        {/* Mobile drag-handle */}
+        <div className="sm:hidden flex justify-center pt-2.5 pb-1.5 flex-shrink-0">
+          <span className="block w-10 h-1.5 rounded-full bg-slate-300" aria-hidden="true" />
+        </div>
+        <div className="px-4 sm:px-5 pt-2 sm:pt-5 pb-3 sm:pb-5 border-b border-slate-100 flex items-center justify-between flex-shrink-0">
           <div className="flex items-center gap-3 min-w-0">
-            <ProfileAvatar avatarId={selectedAvatar} name={user.name} className="w-12 h-12" fallbackColor="bg-red-500" eager />
+            <ProfileAvatar avatarId={selectedAvatar} name={user.name} className="w-11 h-11 sm:w-12 sm:h-12" fallbackColor="bg-red-500" eager />
             <div className="min-w-0">
-              <h2 className="text-lg font-black text-slate-900 leading-tight truncate">{user.name}</h2>
+              <h2 className="text-base sm:text-lg font-black text-slate-900 leading-tight truncate">{user.name}</h2>
               {user.username ? (
                 <p className="text-xs text-slate-500 truncate">@{user.username}</p>
               ) : user.isFree ? (
@@ -8461,10 +8477,11 @@ function UserProfileModal({
               ) : null}
             </div>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full transition-colors" aria-label="Close profile">
+          <button onClick={onClose} className="p-2 -mr-1 hover:bg-slate-100 rounded-full transition-colors" aria-label="Close profile">
             <X className="w-5 h-5 text-slate-500" />
           </button>
         </div>
+
 
         <div className="flex-1 overflow-y-auto">
           <AvatarPicker
