@@ -2706,16 +2706,16 @@ Deno.serve(async (originalReq) => {
       }
 
       if (key === "config" && value && session?.role === "admin") {
-        value = maskConfigForAdmin(value);
+        value = await revealConfigForAdmin(value, ENCRYPTION_SECRET);
       }
 
-      // Mask IMAP passwords in email_accounts. The encrypted value must never
-      // be sent back into the admin input, otherwise a normal save can preserve
-      // ciphertext-looking text in the UI and confuse future edits.
+      // For admin edit UI we decrypt IMAP passwords back to plaintext so the
+      // admin can view/edit them. Non-admins never receive host/port/user or
+      // password material.
       if (key === "email_accounts" && Array.isArray(value)) {
         const isAdmin = session?.role === "admin";
         value = isAdmin
-          ? maskEmailAccountsForAdmin(value)
+          ? await revealEmailAccountsForAdmin(value, ENCRYPTION_SECRET)
           : value.map((acc: any) => ({
               ...acc,
               password: SECRET_MASK,
