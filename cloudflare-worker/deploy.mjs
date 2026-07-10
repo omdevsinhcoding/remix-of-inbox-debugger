@@ -195,6 +195,13 @@ async function syncSecrets(tempConfig, workerName) {
   }
 }
 
+function deployWorker(tempConfig, workerName, reason) {
+  const args = ["deploy", "--config", tempConfig, "--keep-vars"];
+  if (workerName) args.push("--name", workerName);
+  console.log(`[deploy] ${reason}`);
+  runWrangler(args);
+}
+
 
 async function deploy() {
   if (!existsSync(BASE_CONFIG)) {
@@ -210,14 +217,15 @@ async function deploy() {
 
   const workerName = process.env.WORKER_NAME || process.env.CLOUDFLARE_WORKER_NAME;
 
-  // Push secrets BEFORE deploy so the first request already has them.
+  // New Cloudflare accounts often do not have the Worker script yet. `wrangler
+  // secret put` can fail before the first script exists, so deploy once to
+  // create/bind the Worker, then sync secrets, then deploy again to make the
+  // first Git build fully automatic and repeatable.
+  deployWorker(tempConfig, workerName, "Creating/updating Worker with KV binding EMAIL_CACHE...");
+
   await syncSecrets(tempConfig, workerName);
 
-  const args = ["deploy", "--config", tempConfig, "--keep-vars"];
-  if (workerName) args.push("--name", workerName);
-
-  console.log("[deploy] Deploying Worker with KV binding EMAIL_CACHE...");
-  runWrangler(args);
+  deployWorker(tempConfig, workerName, "Finalizing Worker deploy with synced secrets...");
 }
 
 deploy().catch((e) => {

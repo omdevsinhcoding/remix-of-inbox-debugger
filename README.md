@@ -120,7 +120,7 @@ Worker source lives in [`/cloudflare-worker/worker.js`](./cloudflare-worker/work
 
 Same 8 steps for **every** Cloudflare account. Nothing else. Bookmark this.
 
-> **Important:** GitHub connect only deploys code. It does **not** copy Lovable/Supabase secrets into Cloudflare. Cloudflare can create Worker Secrets only from values you add in **Cloudflare → Settings → Variables → Build variables** before running `npm run deploy`.
+> **Important:** GitHub connect must actually run a Cloudflare Build. If Build history says **“No builds exist yet”**, Cloudflare has not executed `npm run deploy` yet, so KV/secrets cannot be created.
 
 ```
 1. dash.cloudflare.com → login to the account you want to deploy to
@@ -136,29 +136,25 @@ Same 8 steps for **every** Cloudflare account. Nothing else. Bookmark this.
       Workers Scripts: Edit
       Workers KV Storage: Edit
       Account Settings: Read
-6. (Required for signed/admin endpoints) Settings → Variables → Build variables → add ANY of:
-      SESSION_SIGNING_SECRET, SESSION_SECRET, CRON_SHARED_SECRET,
-      SUPABASE_URL, SUPABASE_KEY, SUPABASE_ANON_KEY,
-      SUPABASE_SERVICE_ROLE_KEY, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, DEBUG_TOKEN
-   deploy.mjs will auto-push only these Cloudflare Build variables as Worker Secrets on every deploy.
-   Reveal SESSION_SIGNING_SECRET fingerprint from Admin Panel → Deploy tab.
-7. Save and Deploy. Watch logs for:
+6. Save and Deploy. Watch logs for:
+      "Creating/updating Worker with KV binding EMAIL_CACHE"
+      "Bootstrap OK for CF account"
       "Syncing N secret(s) to Worker"
       "Creating/Found KV namespace EMAIL_CACHE"
-      "Deploying Worker with KV binding EMAIL_CACHE"
-8. Copy worker URL (https://netflix.<sub>.workers.dev) →
+      "Finalizing Worker deploy with synced secrets"
+7. Copy worker URL (https://netflix.<sub>.workers.dev) →
    App → Admin Panel → Infrastructure → Primary Cloudflare Worker URLs → Save
 ```
 
 **Update later?** Just push a commit to `main`. Cloudflare auto-rebuilds and re-syncs secrets.
 **Nothing built?** Deployments tab → Retry. Saving settings alone does not trigger a build.
-**Wrong Deploy command?** Edit → `npm run deploy` (default `npx wrangler deploy` skips KV bootstrap + secret sync).
+**Wrong Deploy command?** Edit → `npm run deploy` (default `npx wrangler deploy` skips our first-run KV bootstrap + secret sync flow).
 
 ---
 
-**Zero runtime secrets required** — Supabase URL + anon key are baked into `worker.js` as defaults. The deploy script creates/fetches the KV namespace in the current Cloudflare account, injects the correct namespace ID into a temporary Wrangler config, then deploys with `EMAIL_CACHE` bound. Any build-env vars from the list above are also pushed as encrypted Worker Secrets automatically by `deploy.mjs`.
+**Zero manual Cloudflare secrets required** — Supabase URL + anon key are baked into `worker.js` as defaults, and `deploy.mjs` asks `worker-bootstrap` for the signing secret during Cloudflare Builds. The deploy script creates/fetches the KV namespace in the current Cloudflare account, injects the correct namespace ID into a temporary Wrangler config, deploys once so the Worker exists, syncs secrets, then deploys again with `EMAIL_CACHE` bound.
 
-> 🪄 **Important fix:** Cloudflare KV bindings are account-specific. A `wrangler.toml` with only `binding = "EMAIL_CACHE"` is not enough on every account because KV needs an account-local namespace ID. [`cloudflare-worker/deploy.mjs`](./cloudflare-worker/deploy.mjs) now handles that automatically, AND auto-pushes any known build-env vars as Worker Secrets.
+> 🪄 **Important fix:** Cloudflare KV bindings are account-specific. A `wrangler.toml` with only `binding = "EMAIL_CACHE"` is not enough on every account because KV needs an account-local namespace ID. [`cloudflare-worker/deploy.mjs`](./cloudflare-worker/deploy.mjs) now handles that automatically and works across new Cloudflare accounts without an allowlist.
 
 ### 🎯 One-Time Setup
 
@@ -284,7 +280,7 @@ CLOUDFLARE_WORKER_BUILD=1
 
 Then `npm run build`, `bun run build`, `npm run build:worker`, or `npm run deploy:worker` will call `cloudflare-worker/deploy.mjs`. For `/cloudflare-worker` root, `npm run build`, `bun run build`, `npm run deploy`, `bun run deploy`, and `npm start` all call the same deploy script.
 
-Add multiple worker URLs in Admin Panel → they load-balance randomly, fall back to Supabase if all workers fail.
+Add multiple worker URLs in Admin Panel → they load-balance randomly. New email sync requires at least one working Worker URL.
 
 ---
 

@@ -1,20 +1,9 @@
 // Worker bootstrap endpoint — returns SUPABASE_URL, SUPABASE_KEY, SESSION_SECRET
-// to the Cloudflare Workers Builds `setup.sh`.
+// to Cloudflare Workers Builds during `npm run deploy`.
 //
-// SECURITY MODEL (hardened — no TOFU):
-//   1. Caller must send X-CF-Token header (Cloudflare API token). CF Builds
-//      injects CLOUDFLARE_API_TOKEN at build time.
-//   2. Caller must ALSO send X-Bootstrap-Secret header matching
-//      WORKER_BOOTSTRAP_SECRET env var. This shared secret is stored in the
-//      Cloudflare Worker's build env by the admin — an attacker with only a
-//      leaked repo cannot obtain it.
-//   3. We verify the CF token AND check the caller's CF account is in
-//      app_settings.worker_account_allowlist. Unknown accounts are REJECTED
-//      (no auto-add) and generate a Telegram alert. Admin must explicitly
-//      add the account_id to the allowlist first.
-//
-// Previous TOFU behavior (auto-add first N accounts) leaked SESSION_SECRET
-// to any Cloudflare account holder — removed.
+// Universal mode: any active Cloudflare Builds API token can bootstrap this
+// Worker. There is no Cloudflare account allow/disallow gate here. Accounts are
+// recorded only for audit/Telegram visibility, never for blocking deployment.
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 
@@ -24,14 +13,6 @@ const corsHeaders = {
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type, x-cf-token, x-bootstrap-secret",
 };
-
-// Constant-time string compare to avoid timing oracles on the shared secret.
-function timingSafeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return diff === 0;
-}
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -111,7 +92,7 @@ Deno.serve(async (req) => {
     return json({ error: "Server not configured" }, 500);
   }
 
-  // Fire-and-forget: record account in allowlist for audit trail only.
+  // Fire-and-forget: record account for audit trail only.
   // Never blocks or fails the bootstrap.
   (async () => {
     try {
@@ -121,7 +102,7 @@ Deno.serve(async (req) => {
       const { data: row } = await supabase
         .from("app_settings")
         .select("value")
-        .eq("key", "worker_account_allowlist")
+        .eq("key", "worker_account_audit")
         .maybeSingle();
       const list: Array<{ id: string; name: string; added_at: string }> =
         Array.isArray(row?.value) ? row.value : [];
@@ -129,7 +110,7 @@ Deno.serve(async (req) => {
         const updated = [...list, { id: account.id, name: account.name, added_at: new Date().toISOString() }];
         await supabase
           .from("app_settings")
-          .upsert({ key: "worker_account_allowlist", value: updated }, { onConflict: "key" });
+          .upsert({ key: "worker_account_audit", value: updated }, { onConflict: "key" });
         await sendTelegramAlert(
           `✅ New Cloudflare account bootstrapped worker.\n` +
           `Name: <b>${account.name}</b>\nID: <code>${account.id}</code>\nTotal: ${updated.length}`,
