@@ -218,6 +218,8 @@ For **every Cloudflare account**, repeat these account-level steps:
 
 No runtime env insertion is required for this app. `SUPABASE_URL` and anon key are built into `worker.js`; KV is a **binding**, not an env variable. Optional overrides only go in Worker → Settings → Variables & Secrets if you fork to another Supabase project.
 
+Cloudflare GitHub Builds does **not** auto-copy Supabase secrets or Lovable env vars into each Cloudflare account. Only the code deploys automatically. If you need runtime secrets, add them manually in that account under Worker → Settings → Variables & Secrets.
+
 | Option | How |
 |---|---|
 | **A. Separate branches** | `main-acc1`, `main-acc2` — connect each account to its own branch |

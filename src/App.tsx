@@ -7437,6 +7437,7 @@ function AdminPanel() {
                   <li>API token naya banao/select karo with Account Settings Read, Workers Scripts Edit, Workers KV Storage Edit, User Details Read, Memberships Read</li>
                   <li>Deploy logs me <code className="font-mono bg-white px-1 rounded">Creating KV namespace EMAIL_CACHE</code> ya <code className="font-mono bg-white px-1 rounded">Found existing KV namespace EMAIL_CACHE</code> aana chahiye</li>
                   <li>Worker → Settings → Bindings me <code className="font-mono bg-white px-1 rounded">EMAIL_CACHE</code> dikhe tab binding sahi hai</li>
+                  <li>Cloudflare GitHub Builds env/secrets auto-insert nahi karta — runtime secrets chahiye to us account me Variables &amp; Secrets me manually add karo</li>
                 </ul>
               </div>
               <div className="mt-3 p-3.5 rounded-xl bg-red-50 border border-red-200">
