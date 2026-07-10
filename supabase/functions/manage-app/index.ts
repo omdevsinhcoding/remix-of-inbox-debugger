@@ -324,9 +324,9 @@ async function processEmailAccountSecrets(value: any[], existingAccounts: any[],
   }));
 }
 
-function maskConfigForAdmin(value: any) {
+async function revealConfigForAdmin(value: any, encryptionSecret: string) {
   const config = value && typeof value === "object" ? { ...value } : {};
-  config.IMAP_PASSWORD = maskSavedSecret(config.IMAP_PASSWORD);
+  config.IMAP_PASSWORD = await revealSavedSecret(config.IMAP_PASSWORD, encryptionSecret);
   return config;
 }
 
