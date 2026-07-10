@@ -3924,24 +3924,27 @@ function LoginEventsPanel() {
 function AllEmailsPanel() {
   const [emails, setEmails] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [accountLabel, setAccountLabel] = useState("");
   const [labels, setLabels] = useState<string[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [viewing, setViewing] = useState<any | null>(null);
   const [offset, setOffset] = useState(0);
+  // "picker" = show account cards, "list" = show emails for chosen account (or all).
+  const [view, setView] = useState<"picker" | "list">("picker");
   const limit = 100;
 
 
-  const load = useCallback(async (nextOffset = 0) => {
+  const load = useCallback(async (nextOffset = 0, labelOverride?: string) => {
     setLoading(true);
     try {
+      const effectiveLabel = labelOverride !== undefined ? labelOverride : accountLabel;
       const res: any = await apiCall("manage-app", {
         action: "admin_list_emails",
         limit, offset: nextOffset,
         search: search || undefined,
-        accountLabel: accountLabel || undefined,
+        accountLabel: effectiveLabel || undefined,
       });
       setEmails(res?.emails || []);
       setTotal(res?.total || 0);
@@ -3959,10 +3962,23 @@ function AllEmailsPanel() {
         if (Array.isArray(data?.value)) setLabels(data.value.map((a: any) => a.label || a.user).filter(Boolean));
       } catch {}
     })();
-    load(0);
+    // Do NOT auto-load emails — admin picks an account first.
+  }, []);
 
-    // eslint-disable-next-line
-  }, [load]);
+  const openAccount = (label: string) => {
+    setAccountLabel(label);
+    setView("list");
+    setSearch("");
+    load(0, label);
+  };
+  const backToPicker = () => {
+    setView("picker");
+    setEmails([]);
+    setTotal(0);
+    setSelected(new Set());
+    setViewing(null);
+  };
+
 
 
   const openEmail = async (id: string) => {
@@ -3993,19 +4009,60 @@ function AllEmailsPanel() {
     else setSelected(new Set(emails.map(e => e.id)));
   };
 
+  if (view === "picker") {
+    return (
+      <section className="bg-white p-4 sm:p-6 rounded-2xl border shadow-sm">
+        <div className="flex flex-wrap items-center gap-2 mb-4">
+          <h2 className="font-black text-base sm:text-lg flex items-center gap-2 mr-auto">
+            <div className="bg-red-50 p-1.5 rounded-lg"><Mail className="w-4 h-4 text-red-600" /></div>
+            All Emails
+          </h2>
+          <p className="text-xs text-slate-500 w-full sm:w-auto">Pick an email account to load its mails.</p>
+        </div>
+        {labels.length === 0 ? (
+          <div className="py-12 text-center text-slate-500 text-sm">No email accounts configured yet.</div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            <button
+              onClick={() => openAccount("")}
+              className="text-left p-4 rounded-xl border-2 border-dashed border-slate-300 hover:border-red-400 hover:bg-red-50 transition group"
+            >
+              <div className="flex items-center gap-3">
+                <div className="bg-slate-100 group-hover:bg-red-100 p-2 rounded-lg"><Mail className="w-5 h-5 text-slate-600 group-hover:text-red-600" /></div>
+                <div className="min-w-0">
+                  <p className="font-semibold text-slate-900 truncate">All accounts</p>
+                  <p className="text-[11px] text-slate-500">Combined view (heavier query)</p>
+                </div>
+              </div>
+            </button>
+            {labels.map(l => (
+              <button key={l} onClick={() => openAccount(l)}
+                className="text-left p-4 rounded-xl border hover:border-red-400 hover:bg-red-50/40 transition group">
+                <div className="flex items-center gap-3">
+                  <div className="bg-red-50 group-hover:bg-red-100 p-2 rounded-lg"><Mail className="w-5 h-5 text-red-600" /></div>
+                  <div className="min-w-0">
+                    <p className="font-semibold text-slate-900 truncate" title={l}>{l}</p>
+                    <p className="text-[11px] text-slate-500">Click to load mails</p>
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
+    );
+  }
+
   return (
     <section className="bg-white p-4 sm:p-6 rounded-2xl border shadow-sm">
       <div className="flex flex-wrap items-center gap-2 mb-4">
+        <button onClick={backToPicker} className="px-2 py-1 rounded-lg hover:bg-slate-100 text-slate-600 text-sm font-semibold" title="Back to accounts">← Accounts</button>
         <h2 className="font-black text-base sm:text-lg flex items-center gap-2 mr-auto">
           <div className="bg-red-50 p-1.5 rounded-lg"><Mail className="w-4 h-4 text-red-600" /></div>
-          All Emails <span className="text-xs font-normal text-slate-500">({total})</span>
+          {accountLabel || "All accounts"} <span className="text-xs font-normal text-slate-500">({total})</span>
         </h2>
         <input value={search} onChange={e => setSearch(e.target.value)} onKeyDown={e => e.key === "Enter" && load(0)}
           placeholder="Search subject / from / to / OTP…" aria-label="Search all emails" className="border rounded-lg px-3 py-1.5 text-sm w-56 text-slate-900" />
-        <select value={accountLabel} onChange={e => setAccountLabel(e.target.value)} className="border rounded-lg px-2 py-1.5 text-sm text-slate-900">
-          <option value="">All accounts</option>
-          {labels.map(l => <option key={l} value={l}>{l}</option>)}
-        </select>
         <button onClick={() => load(0)} className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm font-semibold">Search</button>
         {selected.size > 0 && (
           <button onClick={() => deleteIds(Array.from(selected))} className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-semibold flex items-center gap-1">
@@ -4013,6 +4070,7 @@ function AllEmailsPanel() {
           </button>
         )}
       </div>
+
 
       {loading ? (
         <div className="py-12 text-center text-slate-500 text-sm">Loading…</div>
