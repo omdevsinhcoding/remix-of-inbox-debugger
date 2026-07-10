@@ -28,6 +28,7 @@ async function gunzipBytes(input: Uint8Array): Promise<Uint8Array> {
 
 type Session = { sidBytes: Uint8Array; key: CryptoKey; expiresAt: number };
 let sessionPromise: Promise<Session> | null = null;
+let serverTimeOffsetMs = 0;
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -103,6 +104,10 @@ async function doHandshake(): Promise<Session> {
   }
   if (!res) throw (lastErr instanceof Error ? lastErr : new Error("handshake failed"));
   if (!res.ok) throw new Error(`handshake ${res.status}`);
+  const serverTime = Number(res.headers.get("x-server-time"));
+  if (Number.isFinite(serverTime) && serverTime > 0) {
+    serverTimeOffsetMs = serverTime - Date.now();
+  }
   const buf = new Uint8Array(await res.arrayBuffer());
   // Support both legacy (no expiresAt) and v2 (with 8-byte expiresAt suffix).
   const legacyLen = 1 + SESSION_ID_BYTES + 65;
@@ -169,7 +174,7 @@ async function wrapV2(body: any): Promise<any> {
   return {
     __v: 2,
     n: makeNonceB64(),
-    t: Date.now(),
+    t: Date.now() + serverTimeOffsetMs,
     o: await getOriginHash(),
     b: body ?? null,
   };

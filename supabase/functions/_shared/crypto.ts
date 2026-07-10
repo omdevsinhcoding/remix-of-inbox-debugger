@@ -23,7 +23,7 @@ const VERSION = 0x01;
 const VERSION_GZIP = 0x02;
 const SESSION_ID_BYTES = 16;
 const IV_BYTES = 12;
-const REPLAY_WINDOW_MS = 30_000;
+const REPLAY_WINDOW_MS = 5 * 60_000;
 // Only gzip payloads above this size — small responses (auth, empty deltas)
 // don't benefit and pay the CPU cost.
 const GZIP_MIN_BYTES = 512;
@@ -43,8 +43,9 @@ async function gunzipBytes(input: Uint8Array): Promise<Uint8Array> {
 export const cryptoCorsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-session-token, x-pending-token, x-crypto-session, x-cron-secret",
+    "authorization, x-client-info, apikey, content-type, x-session-token, x-pending-token, x-crypto-session, x-cron-secret, x-accept-encoding",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Expose-Headers": "x-server-time",
 };
 
 function admin() {
@@ -359,6 +360,6 @@ export async function handleHandshake(req: Request): Promise<Response> {
   dv.setBigUint64(0, expMs, false);
   return new Response(out, {
     status: 200,
-    headers: { ...cryptoCorsHeaders, "Content-Type": CT_BINARY },
+    headers: { ...cryptoCorsHeaders, "Content-Type": CT_BINARY, "x-server-time": String(Date.now()) },
   });
 }
