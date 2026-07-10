@@ -5698,8 +5698,13 @@ function AdminPanel() {
               </div>
 
               <div className="relative space-y-2.5">
+                {(() => { return null; })()}
                 {users.map(u => {
                   const canDrag = u.role !== "admin";
+                  const nonAdminList = users.filter(x => x.role !== "admin");
+                  const idx = nonAdminList.findIndex(x => x.id === u.id);
+                  const isFirst = idx === 0;
+                  const isLast = idx === nonAdminList.length - 1;
                   const railColor = u.role === "admin" ? "from-red-500 to-red-700" : (u.isFree ? "from-emerald-400 to-emerald-600" : "from-blue-500 to-blue-700");
                   const glowColor = u.role === "admin" ? "shadow-red-500/20" : (u.isFree ? "shadow-emerald-500/20" : "shadow-blue-500/20");
                   return (
