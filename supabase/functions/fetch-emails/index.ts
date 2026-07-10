@@ -334,10 +334,21 @@ function normalizeRecipientFilters(raw: any): string[] {
   return Array.from(new Set(values.flatMap((v: any) => extractEmailAddresses(String(v || "")))));
 }
 
+function isPlusAliasAddress(email: string): boolean {
+  const at = email.indexOf("@");
+  if (at <= 0) return false;
+  const local = email.slice(0, at);
+  const plus = local.indexOf("+");
+  return plus > 0 && plus < local.length - 1;
+}
 function recipientMatches(toRaw: string | null | undefined, filters?: string[]): boolean {
-  if (!filters || filters.length === 0) return true;
   const recipients = extractEmailAddresses(toRaw);
-  if (recipients.length === 0) return false;
+  if (recipients.length === 0) return !filters || filters.length === 0;
+  if (!filters || filters.length === 0) {
+    // No explicit filters: treat plus-aliases (foo+tag@domain) as separate
+    // mailboxes that must be explicitly assigned via recipientFilters.
+    return recipients.some((email) => !isPlusAliasAddress(email));
+  }
   const allowed = new Set(filters.map(normalizeEmail).filter(Boolean));
   return recipients.some((email) => allowed.has(email));
 }
