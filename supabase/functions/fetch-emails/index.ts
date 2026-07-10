@@ -178,8 +178,18 @@ async function deriveEncKey(secret: string): Promise<CryptoKey> {
   const keyMaterial = await crypto.subtle.importKey("raw", encoder.encode(secret), "PBKDF2", false, ["deriveKey"]);
   return crypto.subtle.deriveKey(
     { name: "PBKDF2", salt: encoder.encode("imap-enc-salt-v1"), iterations: 100000, hash: "SHA-256" },
-    keyMaterial, { name: "AES-GCM", length: 256 }, false, ["decrypt"]
+    keyMaterial, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]
   );
+}
+
+async function encryptValue(plaintext: string, secret: string): Promise<string> {
+  const key = await deriveEncKey(secret);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const encoded = new TextEncoder().encode(plaintext);
+  const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, encoded);
+  const ivHex = Array.from(iv).map(b => b.toString(16).padStart(2, "0")).join("");
+  const ctHex = Array.from(new Uint8Array(ciphertext)).map(b => b.toString(16).padStart(2, "0")).join("");
+  return `enc:${ivHex}:${ctHex}`;
 }
 
 async function decryptValue(encrypted: string, secret: string): Promise<string> {
@@ -571,13 +581,23 @@ async function loadAccounts(supabase: any, secret: string, accountLabels: string
     try {
       const { data: accountsData } = await supabase.from("app_settings").select("value").eq("key", "email_accounts").single();
       if (Array.isArray(accountsData?.value)) {
+        const healedAccounts = await Promise.all(accountsData.value.map(async (acc: any) => {
+          const password = acc?.password;
+          if (typeof password === "string" && password.length > 0 && !password.startsWith("enc:")) {
+            return { ...acc, password: await encryptValue(password, secret) };
+          }
+          return acc;
+        }));
+        if (JSON.stringify(healedAccounts) !== JSON.stringify(accountsData.value)) {
+          await supabase.from("app_settings").upsert({ key: "email_accounts", value: healedAccounts }, { onConflict: "key" });
+        }
         const availableLabels = ["Primary", ...accountsData.value.map((acc: any) => String(acc.label || acc.user || "").trim()).filter(Boolean)];
         if (accountLabels && accountLabels.length > 0) {
           requested = new Set(normalizeAccountLabels(accountLabels, availableLabels));
         }
         const accountRows = requested
-          ? accountsData.value.filter((acc: any) => requested.has(String(acc.label || acc.user || "").trim()))
-          : accountsData.value;
+          ? healedAccounts.filter((acc: any) => requested.has(String(acc.label || acc.user || "").trim()))
+          : healedAccounts;
         const decrypted = await Promise.all(accountRows.map(async (acc: any) => {
           if (!acc.user || !acc.password) return null;
           return {
@@ -606,7 +626,10 @@ async function loadAccounts(supabase: any, secret: string, accountLabels: string
         primaryPort = parseInt(config.IMAP_PORT) || 993;
         primaryUser = config.IMAP_USER || "";
         primaryPassword = config.IMAP_PASSWORD || "";
-        if (primaryPassword?.startsWith?.("enc:")) primaryPassword = await decryptValue(primaryPassword, secret);
+        if (primaryPassword && !primaryPassword?.startsWith?.("enc:")) {
+          const healedConfig = { ...config, IMAP_PASSWORD: await encryptValue(primaryPassword, secret) };
+          await supabase.from("app_settings").upsert({ key: "config", value: healedConfig }, { onConflict: "key" });
+        } else if (primaryPassword?.startsWith?.("enc:")) primaryPassword = await decryptValue(primaryPassword, secret);
       }
     } catch {}
 
