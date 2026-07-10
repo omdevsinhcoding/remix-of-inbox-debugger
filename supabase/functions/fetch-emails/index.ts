@@ -334,19 +334,12 @@ function normalizeRecipientFilters(raw: any): string[] {
   return Array.from(new Set(values.flatMap((v: any) => extractEmailAddresses(String(v || "")))));
 }
 
-function gmailBaseAddress(email: string): string {
-  const normalized = normalizeEmail(email);
-  const m = normalized.match(/^([^@+]+)(?:\+[^@]*)?@(gmail\.com|googlemail\.com)$/i);
-  return m ? `${m[1]}@${m[2]}` : normalized;
-}
-
 function recipientMatches(toRaw: string | null | undefined, filters?: string[]): boolean {
   if (!filters || filters.length === 0) return true;
   const recipients = extractEmailAddresses(toRaw);
   if (recipients.length === 0) return false;
   const allowed = new Set(filters.map(normalizeEmail).filter(Boolean));
-  const allowedGmailBases = new Set(filters.map(gmailBaseAddress).filter(Boolean));
-  return recipients.some((email) => allowed.has(email) || allowedGmailBases.has(gmailBaseAddress(email)));
+  return recipients.some((email) => allowed.has(email));
 }
 
 function parseFastEmail(rawSource: Uint8Array, envelope: any, accountLabel: string, uid: number) {
@@ -411,9 +404,24 @@ async function readCache(supabase: any, accountFilter: string[] | null, filterSi
     account_label: e.account_label,
     cached_at: e.cached_at,
   }));
+  let scopedEmails = emails;
+  if (session && session.role !== "admin") {
+    try {
+      const { data: accountsData } = await supabase.from("app_settings").select("value").eq("key", "email_accounts").maybeSingle();
+      const filtersByLabel = new Map<string, string[]>();
+      if (Array.isArray(accountsData?.value)) {
+        for (const acc of accountsData.value) {
+          const label = String(acc?.label || acc?.user || "").trim();
+          if (!label) continue;
+          filtersByLabel.set(label, normalizeRecipientFilters(acc.recipientFilters || acc.recipientFilter || acc.allowedRecipients));
+        }
+      }
+      scopedEmails = emails.filter((e: any) => recipientMatches(e.to, filtersByLabel.get(String(e.account_label || "").trim())));
+    } catch {}
+  }
   // Apply promo block for everyone when admin turned it on. Default = OFF (all Netflix mail shows).
   const blockPromo = await shouldBlockPromo(supabase);
-  return applyEmailFilters(emails, filterSignInCodes, filterPasswordResets, filterAccountUpdates, blockPromo);
+  return applyEmailFilters(scopedEmails, filterSignInCodes, filterPasswordResets, filterAccountUpdates, blockPromo);
 }
 
 async function fetchFromAccount(
