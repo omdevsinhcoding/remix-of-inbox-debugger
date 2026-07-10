@@ -3518,7 +3518,7 @@ Deno.serve(async (originalReq) => {
 
       const { data: row, error } = await supabase
         .from("cached_emails")
-        .select("id, html, account_label, destroyed")
+        .select("id, html, account_label, to_address, destroyed")
         .eq("id", id)
         .maybeSingle();
       if (error) throw error;
