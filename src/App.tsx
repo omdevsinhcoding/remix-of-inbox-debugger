@@ -2867,18 +2867,16 @@ function ProfileSelectPage() {
     }
   };
 
-  const loginFreeProfile = async (profile: UserData) => {
+  const executeFreeLogin = async (profile: UserData, captchaToken?: string) => {
     if (freeLoginId) return;
     const locationRequired = isLocationRequiredForProfile(profile);
-    // For free profiles too, capture GPS immediately on the profile tap when
-    // admin has not explicitly disabled GPS for that profile.
     const geoPromise = locationRequired ? beginGeolocationCapture() : null;
     const devicePromise = locationRequired ? beginDeviceFingerprintCapture() : null;
     setFreeLoginId(profile.id);
     setError("");
     try {
       const clientGeo = locationRequired ? await requireLoginLocation(geoPromise, devicePromise) : null;
-      const data: any = await apiCall("manage-app", { action: "login_free", user_id: profile.id, clientGeo });
+      const data: any = await apiCall("manage-app", { action: "login_free", user_id: profile.id, clientGeo, captchaToken });
       if (!data?.success) throw new Error(data?.error || "Failed to enter profile");
       if (data.workerUrls && Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
         storeWorkerUrls(data.workerUrls);
@@ -2906,6 +2904,19 @@ function ProfileSelectPage() {
       setFreeLoginId(null);
     }
   };
+
+  const loginFreeProfile = async (profile: UserData) => {
+    if (freeLoginId) return;
+    // If admin has enabled reCAPTCHA globally, free profile entry also
+    // requires the user to solve a captcha in a popup first.
+    if (siteKey && captchaReady) {
+      setError("");
+      setFreeCaptchaProfile(profile);
+      return;
+    }
+    await executeFreeLogin(profile);
+  };
+
 
 
   return (
