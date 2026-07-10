@@ -8865,9 +8865,11 @@ function EmailViewer() {
       const visible = filterVisibleEmails(merged, profilePrefs, user);
       const newCount = visible.filter((e) => !beforeIds.has(e.id)).length;
       notify.dismiss(toastId);
-      if (synced?.warning) {
-        // Server-side sync had a problem (IMAP down, fallback, etc.) — surface it
-        // instead of falsely claiming "Inbox is up to date".
+      // "skipped by recipient filter" just means the mail belongs to a different
+      // mailbox account — it's not an error, silently ignore that warning.
+      const benignWarning = synced?.warning && /skipped by recipient filter/i.test(synced.warning);
+      if (synced?.warning && !benignWarning) {
+        // Server-side sync had a real problem (IMAP down, fallback, etc.).
         notify.warning("Mail server issue", {
           description: synced.warning,
           duration: 4000,
