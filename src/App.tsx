@@ -4021,82 +4021,90 @@ function AllEmailsPanel() {
     const hasAny = hasPrimary || labels.length > 0;
     const totalAccounts = (hasPrimary ? 1 : 0) + labels.length;
     return (
-      <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-5 sm:p-7 shadow-[0_25px_70px_-25px_rgba(15,23,42,0.6)] border border-slate-800/50">
-        {/* Decorative grid pattern */}
-        <div className="absolute inset-0 opacity-[0.04] pointer-events-none" style={{ backgroundImage: "linear-gradient(rgba(255,255,255,.5) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.5) 1px, transparent 1px)", backgroundSize: "24px 24px" }} />
-        {/* Red glow accent */}
-        <div className="absolute -top-24 -right-24 w-64 h-64 bg-red-500/20 rounded-full blur-3xl pointer-events-none" />
+      <section className="relative overflow-hidden rounded-3xl bg-white p-5 sm:p-7 border border-slate-200/70 shadow-[0_20px_60px_-30px_rgba(220,38,38,0.25)]">
+        {/* Soft brand blush */}
+        <div className="absolute -top-32 -right-32 w-72 h-72 bg-gradient-to-br from-red-100 to-transparent rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-32 -left-32 w-72 h-72 bg-gradient-to-tr from-amber-50 to-transparent rounded-full blur-3xl pointer-events-none" />
 
-        <div className="relative flex items-end justify-between gap-3 mb-5 sm:mb-6 pb-4 border-b border-slate-800/60">
-          <div className="min-w-0">
-            <p className="text-[10px] font-black tracking-[0.2em] text-red-400/80 mb-1">MAIL ARCHIVE</p>
-            <h2 className="font-black text-xl sm:text-2xl text-white tracking-tight leading-none flex items-center gap-2.5">
-              All Emails
-              <span className="text-[10px] font-mono font-bold bg-slate-800 text-slate-300 px-2 py-0.5 rounded border border-slate-700">{totalAccounts.toString().padStart(2, "0")}</span>
-            </h2>
+        {/* Header */}
+        <div className="relative flex items-end justify-between gap-3 mb-5 sm:mb-6 pb-4 border-b border-slate-100">
+          <div className="min-w-0 flex items-center gap-3">
+            <div className="relative flex-shrink-0">
+              <div className="absolute inset-0 bg-red-500 rounded-2xl blur-md opacity-30" />
+              <div className="relative w-11 h-11 rounded-2xl bg-gradient-to-br from-red-500 to-red-700 flex items-center justify-center shadow-lg shadow-red-500/30">
+                <Mail className="w-5 h-5 text-white" strokeWidth={2.5} />
+              </div>
+            </div>
+            <div className="min-w-0">
+              <p className="text-[10px] font-black tracking-[0.2em] text-red-600 mb-0.5">MAIL ARCHIVE</p>
+              <h2 className="font-black text-xl sm:text-2xl text-slate-900 tracking-tight leading-none flex items-center gap-2">
+                All Emails
+                <span className="text-[10px] font-mono font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md border border-slate-200">{totalAccounts.toString().padStart(2, "0")}</span>
+              </h2>
+            </div>
           </div>
           <p className="text-[10px] sm:text-[11px] text-slate-400 font-mono uppercase tracking-wider text-right hidden sm:block">Tap to load</p>
         </div>
 
         {!hasAny ? (
-          <div className="relative py-16 text-center text-slate-500 text-sm font-mono">// no accounts configured</div>
+          <div className="relative py-16 text-center text-slate-400 text-sm font-mono">// no accounts configured</div>
         ) : (
           <div className="relative grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3">
-            {/* All accounts — special ghost card */}
+            {/* All accounts — ghost card */}
             <button
               onClick={() => openAccount("")}
-              className="group relative overflow-hidden text-left rounded-2xl border border-dashed border-slate-700 hover:border-red-500/60 bg-slate-900/40 hover:bg-slate-900/70 active:scale-[0.99] transition-all p-4"
+              className="group relative overflow-hidden text-left rounded-2xl border-2 border-dashed border-slate-200 hover:border-red-400 bg-slate-50/50 hover:bg-red-50/60 active:scale-[0.99] transition-all p-4"
             >
               <div className="flex items-center gap-3">
-                <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-slate-800 to-slate-900 flex items-center justify-center flex-shrink-0 border border-slate-700 group-hover:border-red-500/50 transition-colors">
-                  <Mail className="w-5 h-5 text-slate-400 group-hover:text-red-400 transition-colors" />
+                <div className="w-11 h-11 rounded-xl bg-white border border-slate-200 group-hover:border-red-300 flex items-center justify-center flex-shrink-0 shadow-sm transition-colors">
+                  <Mail className="w-5 h-5 text-slate-500 group-hover:text-red-600 transition-colors" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="font-black text-white text-sm truncate">All Accounts</p>
+                  <p className="font-black text-slate-900 text-sm truncate">All Accounts</p>
                   <p className="text-[10px] text-slate-500 font-mono truncate uppercase tracking-wide">combined · heavier</p>
                 </div>
-                <ChevronRight className="w-4 h-4 text-slate-600 group-hover:text-red-400 group-hover:translate-x-0.5 transition-all flex-shrink-0" />
+                <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-red-500 group-hover:translate-x-0.5 transition-all flex-shrink-0" />
               </div>
             </button>
 
             {hasPrimary && (
               <button
                 onClick={() => openAccount("Primary")}
-                className="group relative overflow-hidden text-left rounded-2xl border border-amber-500/30 bg-gradient-to-br from-amber-500/10 via-slate-900/60 to-slate-900 hover:border-amber-400/70 hover:from-amber-500/20 active:scale-[0.99] transition-all p-4"
+                className="group relative overflow-hidden text-left rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 via-white to-white hover:border-amber-400 hover:shadow-lg hover:shadow-amber-500/10 active:scale-[0.99] transition-all p-4"
               >
                 <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-amber-400 to-amber-600" />
                 <div className="flex items-center gap-3 pl-1">
-                  <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center flex-shrink-0 shadow-lg shadow-amber-900/40">
+                  <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center flex-shrink-0 shadow-md shadow-amber-500/40">
                     <Mail className="w-5 h-5 text-white" strokeWidth={2.5} />
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
-                      <p className="font-black text-white text-sm truncate">Primary</p>
-                      <span className="text-[8px] font-black bg-amber-400 text-amber-950 px-1.5 py-0.5 rounded tracking-wider">DEFAULT</span>
+                      <p className="font-black text-slate-900 text-sm truncate">Primary</p>
+                      <span className="text-[8px] font-black bg-amber-500 text-white px-1.5 py-0.5 rounded tracking-wider shadow-sm">DEFAULT</span>
                     </div>
-                    <p className="text-[10px] text-amber-200/70 font-mono truncate" title={primaryUser}>{primaryUser}</p>
+                    <p className="text-[10px] text-amber-700 font-mono truncate mt-0.5" title={primaryUser}>{primaryUser}</p>
                   </div>
-                  <ChevronRight className="w-4 h-4 text-amber-300/60 group-hover:text-amber-300 group-hover:translate-x-0.5 transition-all flex-shrink-0" />
+                  <ChevronRight className="w-4 h-4 text-amber-400 group-hover:text-amber-600 group-hover:translate-x-0.5 transition-all flex-shrink-0" />
                 </div>
               </button>
             )}
 
             {labels.map((l, idx) => (
               <button key={l} onClick={() => openAccount(l)}
-                className="group relative overflow-hidden text-left rounded-2xl border border-slate-800 bg-slate-900/60 hover:bg-slate-800/80 hover:border-red-500/40 active:scale-[0.99] transition-all p-4">
-                <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-red-500 to-red-700 opacity-70 group-hover:opacity-100 transition-opacity" />
+                className="group relative overflow-hidden text-left rounded-2xl border border-slate-200 bg-white hover:border-red-300 hover:shadow-lg hover:shadow-red-500/10 active:scale-[0.99] transition-all p-4">
+                <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-red-500 to-red-700 opacity-80 group-hover:opacity-100 transition-opacity" />
                 <div className="flex items-center gap-3 pl-1">
-                  <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-red-500 to-red-700 flex items-center justify-center flex-shrink-0 shadow-lg shadow-red-900/40">
+                  <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-red-500 to-red-700 flex items-center justify-center flex-shrink-0 shadow-md shadow-red-500/40">
                     <Mail className="w-5 h-5 text-white" strokeWidth={2.5} />
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
-                      <p className="font-black text-white text-sm truncate" title={l}>{l}</p>
-                      <span className="text-[8px] font-mono text-slate-500 tracking-wider">#{String(idx + 1).padStart(2, "0")}</span>
+                      <p className="font-black text-slate-900 text-sm truncate" title={l}>{l}</p>
+                      <span className="text-[8px] font-mono font-bold text-slate-400 tracking-wider">#{String(idx + 1).padStart(2, "0")}</span>
                     </div>
-                    <p className="text-[10px] text-slate-400 font-mono truncate uppercase tracking-wide">tap to load</p>
+                    <p className="text-[10px] text-slate-500 font-mono truncate uppercase tracking-wide mt-0.5">tap to load</p>
                   </div>
-                  <ChevronRight className="w-4 h-4 text-slate-600 group-hover:text-red-400 group-hover:translate-x-0.5 transition-all flex-shrink-0" />
+                  <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-red-500 group-hover:translate-x-0.5 transition-all flex-shrink-0" />
                 </div>
               </button>
             ))}
@@ -4106,6 +4114,7 @@ function AllEmailsPanel() {
     );
 
   }
+
 
 
   return (
