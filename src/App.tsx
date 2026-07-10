@@ -2883,16 +2883,17 @@ function ProfileSelectPage() {
 
   const executeFreeLogin = async (profile: UserData, captchaToken?: string) => {
     if (freeLoginId) return;
+    if (siteKey && !captchaToken) {
+      setError("");
+      setFreeCaptchaProfile(profile);
+      return;
+    }
     const locationRequired = isLocationRequiredForProfile(profile);
     const geoPromise = locationRequired ? beginGeolocationCapture() : null;
     const devicePromise = locationRequired ? beginDeviceFingerprintCapture() : null;
     setFreeLoginId(profile.id);
     setError("");
     try {
-      if (siteKey && !captchaToken) {
-        setFreeCaptchaProfile(profile);
-        return;
-      }
       const clientGeo = locationRequired ? await requireLoginLocation(geoPromise, devicePromise) : null;
       const data: any = await apiCall("manage-app", { action: "login_free", user_id: profile.id, clientGeo, captchaToken });
       if (!data?.success) throw new Error(data?.error || "Failed to enter profile");
