@@ -287,7 +287,10 @@ async function processConfigSecrets(value: any, previous: any, encryptionSecret:
   const config = value && typeof value === "object" ? { ...value } : {};
   const prior = previous && typeof previous === "object" ? previous : {};
   if (config.IMAP_PASSWORD === SECRET_MASK) {
-    config.IMAP_PASSWORD = prior.IMAP_PASSWORD || "";
+    const saved = prior.IMAP_PASSWORD || "";
+    config.IMAP_PASSWORD = saved && typeof saved === "string" && !saved.startsWith("enc:")
+      ? await encryptValue(saved, encryptionSecret)
+      : saved;
   } else if (config.IMAP_PASSWORD && typeof config.IMAP_PASSWORD === "string" && !config.IMAP_PASSWORD.startsWith("enc:")) {
     config.IMAP_PASSWORD = await encryptValue(config.IMAP_PASSWORD, encryptionSecret);
   }
@@ -299,7 +302,10 @@ async function processEmailAccountSecrets(value: any[], existingAccounts: any[],
     let password = acc.password;
     if (password === SECRET_MASK) {
       const existing = findExistingAccountForSecret(existingAccounts, acc, i);
-      password = existing?.password || "";
+      const saved = existing?.password || "";
+      password = saved && typeof saved === "string" && !saved.startsWith("enc:")
+        ? await encryptValue(saved, encryptionSecret)
+        : saved;
     } else if (password && typeof password === "string" && !password.startsWith("enc:")) {
       password = await encryptValue(password, encryptionSecret);
     }
