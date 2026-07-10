@@ -4423,6 +4423,8 @@ function AdminPanel() {
   const [adminSessionTimeoutMin, setAdminSessionTimeoutMin] = useState<string>("0");
   const [concurrentSessionLimit, setConcurrentSessionLimit] = useState<string>("0");
   const [savingConcurrentSessionLimit, setSavingConcurrentSessionLimit] = useState(false);
+  const [freeAvatarCooldownMin, setFreeAvatarCooldownMinState] = useState<string>("5");
+  const [savingFreeAvatarCooldown, setSavingFreeAvatarCooldown] = useState(false);
 
   const [savingAdminSessionTimeout, setSavingAdminSessionTimeout] = useState(false);
   const [captchaEnabled, setCaptchaEnabled] = useState<boolean>(false);
