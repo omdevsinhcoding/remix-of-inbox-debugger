@@ -7000,12 +7000,18 @@ function AdminPanel() {
                           "━━━━━━━━━━━━━━━━━━━━━━",
                           "Project name:    netflix (ya har Cloudflare account ke liye unique naam)",
                           "Framework preset: None / Worker (Pages/Vite mat select karo)",
-                          "Root directory:  (BLANK chhod do — repo root wala wrangler.toml deploy karega)",
-                          "Build command:   (BLANK chhod do — agar npm run build auto aaye to delete karo)",
-                          "Deploy command:  npx wrangler deploy",
-                          "   (ye wrangler.toml se Worker deploy karega)",
+                          "Root directory:  /cloudflare-worker  ← ZAROORI (blank chhoda to React frontend detect ho jayega)",
+                          "Build command:   (BLANK chhod do — Cloudflare khud npm run build chalayega, aur wo command actually wrangler deploy karti hai — hijack kiya hua hai package.json me)",
+                          "Deploy command:  (BLANK chhod do — build step me hi deploy ho gaya)",
+                          "                 (agar chahe to 'npx wrangler deploy' bhi daal sakta hai — idempotent hai)",
                           "Builds for non-production branches: ☐ unchecked rakho",
                           "━━━━━━━━━━━━━━━━━━━━━━",
+                          "",
+                          "🪄 Trick kaise kaam karta hai:",
+                          "cloudflare-worker/package.json ka 'build' script hijack kiya hua hai →",
+                          "   \"build\": \"npx wrangler deploy --keep-vars\"",
+                          "Cloudflare Workers Builds hamesha npm run build chalata hai jab package.json milta hai.",
+                          "To blank fields = full auto: npm install → npm run build → wrangler deploy → live ✅",
                           "",
                           "'Advanced settings' expand karo → scroll karo:",
                           "━━━━━━━━━━━━━━━━━━━━━━",
@@ -7015,19 +7021,16 @@ function AdminPanel() {
                           "",
                           "Neeche:",
                           "API token:       Use default / Create new token (Cloudflare ka auto token)",
-                          "API token name:  (BLANK — auto ban jayega)",
-                          "Variable name:   (BLANK)",
-                          "Variable value:  (BLANK)",
                           "",
                           "⚠️ COMMON GALTI:",
-                          "❌ Deploy command me 'npm install' MAT likho — worker upload nahi hoga",
-                          "❌ Build command me 'bash setup.sh' MAT likho — Cloudflare build step secrets ko deploy step me carry nahi karta",
-                          "❌ Agar blank build command ke baad bhi npm run build chal raha hai, tu Pages/Vite/frontend detect wale flow me hai — Build command clear karo aur Worker import use karo",
-                          "✅ Deploy command me sirf: npx wrangler deploy",
+                          "❌ Root directory blank MAT chhodo — /cloudflare-worker set karo, warna vite build chalega",
+                          "❌ Build command me 'bash setup.sh' MAT likho",
+                          "❌ Deploy command me 'npm install' MAT likho",
+                          "✅ Best setup: Root=/cloudflare-worker, Build=blank, Deploy=blank",
                           "",
                           "Blue 'Save and Deploy' button dabao → 2-3 min wait → auto KV bind + deploy ho jayega",
-                          "Existing worker ko GitHub se connect kiya hai to sirf wait mat karo — connect ke baad ek NEW commit push karo ya Deployments → Build history se build start/retry karo",
-                          "Is flow me Step 4 aur Step 5-B manually karne ki zaroorat nahi — EMAIL_CACHE auto bind hoga, runtime secrets/env ki zaroorat nahi",
+                          "Existing worker ko GitHub se connect kiya hai to connect ke baad ek NEW commit push karo ya Deployments → Retry karo",
+
                         ],
                         warning: "⚠️ Ye flow tab hi kaam karega jab repo public ho ya GitHub connect authorize kiya ho. Confuse ho to Step 2 wala manual Hello World flow use kar — safer hai.",
                       },
@@ -7374,7 +7377,7 @@ function AdminPanel() {
                 {[
                   ["Repository", "inbox-debugger (your repo)"],
                   ["Production branch", "main"],
-                  ["Root directory", "(blank — recommended)"],
+                  ["Root directory", "/cloudflare-worker  (REQUIRED)"],
                   ["API Token", "Use default (auto)"],
                 ].map(([k, v]) => (
                   <div key={k} className="p-3 rounded-lg bg-slate-50 border border-slate-200">
@@ -7384,11 +7387,12 @@ function AdminPanel() {
                 ))}
               </div>
               <p className="text-[11px] text-slate-500 mt-3">
-                💡 <b>API Token</b>: "Use default" select karo — Cloudflare khud token banayega with Workers Scripts + KV edit permissions. Custom token ki zarurat nahi.
+                💡 <b>API Token</b>: "Use default" select karo — Cloudflare khud token banayega with Workers Scripts + KV edit permissions.
               </p>
-              <p className="text-[11px] text-slate-500 mt-1">
-                Advanced: <code className="font-mono bg-slate-100 px-1 rounded">/cloudflare-worker</code> bhi chalega, but blank safer hai kyunki repo root me worker <code className="font-mono bg-slate-100 px-1 rounded">wrangler.toml</code> present hai.
+              <p className="text-[11px] text-rose-600 mt-1 font-semibold">
+                ⚠️ Root directory <b>MUST</b> be <code className="font-mono bg-rose-50 px-1 rounded">/cloudflare-worker</code>. Blank chhoda to Cloudflare React frontend detect karega aur <code className="font-mono bg-rose-50 px-1 rounded">vite build</code> chala dega — worker deploy nahi hoga.
               </p>
+
             </section>
 
             {/* STEP 2 */}
@@ -7404,8 +7408,8 @@ function AdminPanel() {
                 <table className="w-full text-sm">
                   <tbody className="divide-y divide-slate-200">
                     {[
-                      ["Build command", "(leave EMPTY — delete npm run build if auto-filled)", "empty"],
-                      ["Deploy command", "npx wrangler deploy", "code"],
+                      ["Build command", "(leave EMPTY — auto npm run build = wrangler deploy)", "empty"],
+                      ["Deploy command", "(leave EMPTY — already deployed in build step)", "empty"],
                       ["Build variables", "(none)", "empty"],
                       ["Build secrets", "(none)", "empty"],
                     ].map(([k, v, kind]) => (
@@ -7417,15 +7421,22 @@ function AdminPanel() {
                   </tbody>
                 </table>
               </div>
-              <div className="mt-4 p-3.5 rounded-xl bg-red-50 border border-red-200">
+              <div className="mt-4 p-3.5 rounded-xl bg-emerald-50 border border-emerald-200">
+                <p className="text-xs font-bold text-emerald-900 mb-1">🪄 Auto-deploy trick</p>
+                <p className="text-[11px] text-emerald-800 leading-relaxed">
+                  <code className="font-mono bg-white px-1 rounded">cloudflare-worker/package.json</code> ka <code className="font-mono bg-white px-1 rounded">build</code> script hijack kiya hua hai — wo actually <code className="font-mono bg-white px-1 rounded">npx wrangler deploy --keep-vars</code> chalata hai. To jab Cloudflare auto <code className="font-mono bg-white px-1 rounded">npm run build</code> chalayega, worker seedha deploy ho jayega. Dono fields blank = fully automatic.
+                </p>
+              </div>
+              <div className="mt-3 p-3.5 rounded-xl bg-red-50 border border-red-200">
                 <p className="text-xs font-bold text-red-900 mb-1">❌ Common mistakes</p>
                 <ul className="text-[11px] text-red-800 space-y-0.5 list-disc list-inside">
-                  <li>Build command me <code className="font-mono bg-red-100 px-1 rounded">bash setup.sh</code> MAT likho</li>
-                  <li>Agar Cloudflare <code className="font-mono bg-red-100 px-1 rounded">npm run build</code> auto bhar de, delete karo — wo React frontend detect kar raha hai</li>
-                  <li>Deploy command me worker name hardcode MAT karo — <code className="font-mono bg-red-100 px-1 rounded">wrangler.toml</code> se aa raha hai</li>
-                  <li>Custom API token banane ki zarurat NAHI — default use karo</li>
+                  <li>Root directory blank MAT chhodo — <code className="font-mono bg-red-100 px-1 rounded">/cloudflare-worker</code> ZAROORI hai</li>
+                  <li>Build command me <code className="font-mono bg-red-100 px-1 rounded">bash setup.sh</code> ya kuch aur MAT likho — blank rakho</li>
+                  <li>Deploy command me <code className="font-mono bg-red-100 px-1 rounded">npm install</code> MAT likho</li>
+                  <li>Agar traditional split chahiye: Build=blank, Deploy=<code className="font-mono bg-red-100 px-1 rounded">npx wrangler deploy</code> — dono flow chalte hain</li>
                 </ul>
               </div>
+
             </section>
 
             {/* STEP 3 */}
@@ -7526,17 +7537,17 @@ function AdminPanel() {
                 <button
                   type="button"
                   onClick={() => copyToClipboard(
-                    "Root directory: (blank)\nProduction branch: main\nBuild command: (empty — delete npm run build if auto-filled)\nDeploy command: npx wrangler deploy\nNon-prod branches: unchecked\nAPI Token: Use default",
+                    "Root directory: /cloudflare-worker  (REQUIRED)\nProduction branch: main\nBuild command: (empty — auto npm run build = wrangler deploy)\nDeploy command: (empty — already deployed in build step)\nNon-prod branches: unchecked\nAPI Token: Use default",
                     "Settings copied"
                   )}
                   className="text-[10px] font-bold px-2.5 py-1 rounded-md bg-white/10 hover:bg-white/20 border border-white/20"
                 >Copy all</button>
               </div>
               <pre className="text-[11px] sm:text-xs font-mono leading-relaxed text-slate-300 overflow-x-auto">
-{`Root directory:       (blank)
+{`Root directory:       /cloudflare-worker   ← REQUIRED
 Production branch:    main
-Build command:        (empty — delete npm run build if auto-filled)
-Deploy command:       npx wrangler deploy
+Build command:        (empty)              ← auto npm run build = wrangler deploy
+Deploy command:       (empty)              ← already deployed in build step
 Non-prod branches:    ☐ unchecked
 Non-prod command:     (empty)
 API Token:            Use default`}

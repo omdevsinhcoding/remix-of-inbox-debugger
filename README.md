@@ -112,15 +112,15 @@ Inside app: **Admin Panel → Cron Settings** → toggle ON → pick interval (3
 
 ## ☁️ Part 2 — Cloudflare Worker Deploy
 
-Worker source lives in [`/cloudflare-worker/worker.js`](./cloudflare-worker/worker.js). A root-level [`wrangler.toml`](./wrangler.toml) also exists so Cloudflare can deploy correctly even when **Root directory is left blank**.
+Worker source lives in [`/cloudflare-worker/worker.js`](./cloudflare-worker/worker.js).
 
 **Zero runtime secrets required** — Supabase URL + anon key are baked into `worker.js` as defaults. KV auto-provisions on first deploy.
 
+> 🪄 **How the auto-deploy trick works:** Cloudflare Workers Builds always runs `npm run build` when it detects a `package.json`. We've hijacked [`cloudflare-worker/package.json`](./cloudflare-worker/package.json) so its `build` script actually runs `npx wrangler deploy --keep-vars`. Result: even if you leave every field blank, the worker deploys itself.
+
 ### 🎯 One-Time Setup
 
-Open **Cloudflare Dashboard → Workers & Pages → Create → Import a repository**.
-
-> ✅ Important: choose **Workers**, not Pages/Vite. If Cloudflare auto-fills `npm run build`, it detected the React frontend. Clear that field and keep the deploy command below.
+Open **Cloudflare Dashboard → Workers & Pages → Create → Import a repository** and choose **Workers** (not Pages).
 
 #### Step 1 — Connect Git
 
@@ -128,20 +128,22 @@ Open **Cloudflare Dashboard → Workers & Pages → Create → Import a reposito
 |---|---|
 | Repository | `inbox-debugger` (your GitHub repo) |
 | Production branch | `main` |
-| **Root directory** | *(leave blank — recommended)* |
+| **Root directory** | `/cloudflare-worker` ← **REQUIRED** |
 
-> Advanced option: `/cloudflare-worker` also works, but blank is now safer because the repo root has `wrangler.toml` pointing to the worker file.
+> ⚠️ Root directory **must** be `/cloudflare-worker`. If you leave it blank, Cloudflare detects the React frontend at repo root and runs `vite build` instead of the worker deploy.
 
 #### Step 2 — Build & Deploy
 
 | Field | Value |
 |---|---|
-| **Build command** | *(leave EMPTY)* |
-| **Deploy command** | `npx wrangler deploy` |
+| **Build command** | *(leave EMPTY — Cloudflare will auto-run `npm run build`, which is our hijacked deploy script)* |
+| **Deploy command** | *(leave EMPTY — the build step already deployed)* |
 | Build variables | *(none)* |
 | Build secrets | *(none)* |
 
-> ⚠️ If the dashboard keeps showing `npm run build`, delete it. This project is a Worker deploy; the React app build is for Vercel/Netlify/Lovable, not Cloudflare Worker.
+> ✅ Both fields blank = fully automatic. Cloudflare runs `npm install` → `npm run build` → our script fires `npx wrangler deploy --keep-vars` → worker is live.
+>
+> If you prefer the traditional split, you can also set: **Build command:** empty, **Deploy command:** `npx wrangler deploy`. Both flows work.
 
 #### Step 3 — Non-Production Branches
 
@@ -165,13 +167,14 @@ Open **Cloudflare Dashboard → Workers & Pages → Create → Import a reposito
 ```
 Repository:           your-github-org/inbox-debugger
 Production branch:    main
-Root directory:       (blank)
-Build command:        (empty — delete npm run build if auto-filled)
-Deploy command:       npx wrangler deploy
+Root directory:       /cloudflare-worker      ← REQUIRED
+Build command:        (empty)                 ← auto-runs npm run build = wrangler deploy
+Deploy command:       (empty)                 ← already deployed in build step
 Non-prod branches:    ☐ unchecked
 Non-prod command:     (empty)
 API Token:            Use default
 ```
+
 
 ### 🔗 After First Deploy
 
@@ -259,7 +262,8 @@ SPA fallback is already configured (`public/_redirects`, `netlify.toml`, `vercel
 | Problem | Fix |
 |---|---|
 | "No builds exist yet" in Cloudflare | Git Builds has not run yet. Use **Save and Deploy**, or push a new commit after connecting. |
-| Blank build command becomes `npm run build` | Cloudflare detected the React frontend. Clear it, choose Workers, and keep deploy command `npx wrangler deploy`. |
+| `npm run build` runs but worker never deploys | Root directory is wrong. Set it to `/cloudflare-worker` — the hijacked build script lives there. |
+| Cloudflare runs `vite build` instead of wrangler | Same fix — Root directory must be `/cloudflare-worker`, not blank. |
 | Cloudflare build fails: `wrangler.toml missing name` | Check `wrangler.toml` has `name = "netflix"` (or your chosen name) |
 | Build fails: `you need to provide a name` in deploy | Same as above — name field required |
 | Worker deployed but app shows no emails | Paste worker URL in Admin Panel → Infrastructure |
