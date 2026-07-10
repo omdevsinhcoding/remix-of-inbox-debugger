@@ -136,12 +136,12 @@ Open **Cloudflare Dashboard → Workers & Pages → Create → Import a reposito
 
 | Field | Value |
 |---|---|
-| **Build command** | *(leave EMPTY — if Cloudflare auto-runs `npm run build`/`bun run build`, it runs `node deploy.mjs`)* |
-| **Deploy command** | `npx wrangler deploy` *(Cloudflare default)* **or** *(leave empty if your account auto-detect runs build)* |
+| **Build command** | *(leave EMPTY — if Cloudflare auto-fills `npm run build`/`bun run build`, it still runs `node deploy.mjs`)* |
+| **Deploy command** | `npm run deploy` ← **REQUIRED / safest** |
 | Build variables | *(none)* |
 | Build secrets | *(none)* |
 
-> ✅ Recommended: `Root directory=/cloudflare-worker`, Build empty, Deploy default/empty. If Cloudflare fills `npm run build` or `bun run build`, our package script still runs the Worker deploy and KV binding step.
+> ✅ Recommended: `Root directory=/cloudflare-worker`, Build empty, Deploy `npm run deploy`. If Cloudflare auto-fills Build as `npm run build` or `bun run build`, it is still safe because both scripts run the same Worker deploy + KV binding step.
 
 #### Step 3 — Non-Production Branches
 
@@ -166,8 +166,8 @@ Open **Cloudflare Dashboard → Workers & Pages → Create → Import a reposito
 Repository:           your-github-org/inbox-debugger
 Production branch:    main
 Root directory:       /cloudflare-worker      ← REQUIRED
-Build command:        (empty)                 ← npm/bun build also triggers node deploy.mjs
-Deploy command:       (empty or npx wrangler deploy)
+Build command:        (empty)                 ← if auto-filled npm/bun build, still OK
+Deploy command:       npm run deploy          ← REQUIRED / safest
 Non-prod branches:    ☐ unchecked
 Non-prod command:     (empty)
 API Token:            Create new token / default with KV edit access
@@ -230,7 +230,7 @@ Cloudflare should ideally use `/cloudflare-worker`. If you leave root blank and 
 CLOUDFLARE_WORKER_BUILD=1
 ```
 
-Then `npm run build`, `bun run build`, `npm run build:worker`, or `npm run deploy:worker` will call `cloudflare-worker/deploy.mjs`.
+Then `npm run build`, `bun run build`, `npm run build:worker`, or `npm run deploy:worker` will call `cloudflare-worker/deploy.mjs`. For `/cloudflare-worker` root, `npm run build`, `bun run build`, `npm run deploy`, `bun run deploy`, and `npm start` all call the same deploy script.
 
 Add multiple worker URLs in Admin Panel → they load-balance randomly, fall back to Supabase if all workers fail.
 

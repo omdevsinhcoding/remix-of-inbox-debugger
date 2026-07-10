@@ -15,14 +15,14 @@ binding = "EMAIL_CACHE"
 # Cloudflare Workers → Create → Connect to Git:
 #   Repo:            inbox-debugger
 #   Branch:          main
-#   Root directory:  (blank is OK because repo root has wrangler.toml)
-#                    OR /cloudflare-worker for isolated worker deploys
-#   Build command:   (leave empty)
-#   Deploy command:  npx wrangler deploy
+#   Root directory:  /cloudflare-worker
+#   Build command:   (leave empty; if Cloudflare auto-fills npm/bun build, OK)
+#   Deploy command:  npm run deploy
 #
 # During deploy:
-#   • KV namespace "EMAIL_CACHE" auto-provisions + binds from this file
-#   • wrangler.toml deploys the worker by name
+#   • deploy.mjs creates/finds KV namespace "EMAIL_CACHE" in this account
+#   • deploy.mjs injects that account-specific KV id into a temp config
+#   • Worker deploys with EMAIL_CACHE correctly bound
 #   • Supabase public config is built into worker.js; no runtime secrets needed
 #
 # Cloudflare docs notes:
@@ -30,6 +30,5 @@ binding = "EMAIL_CACHE"
 #     Workers Scripts edit, Workers KV Storage edit.
 #   • Wrangler 4.45+ can deploy KV bindings without resource IDs.
 
-# If Cloudflare auto-fills `npm run build`, clear it manually. That means it
-# detected the root React app instead of this Worker config. The deploy command
-# must remain `npx wrangler deploy`.
+# If Cloudflare auto-fills `npm run build` or `bun run build`, keep it only if
+# Root directory is `/cloudflare-worker`; both scripts call `node deploy.mjs`.

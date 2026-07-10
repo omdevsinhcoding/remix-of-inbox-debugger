@@ -7002,8 +7002,8 @@ function AdminPanel() {
                           "Framework preset: None / Worker (Pages/Vite mat select karo)",
                           "Root directory:  /cloudflare-worker  ← ZAROORI (blank chhoda to React frontend detect ho sakta hai)",
                           "Build command:   (BLANK chhod do — agar Cloudflare npm/bun run build auto chalaye to bhi node deploy.mjs chalega)",
-                          "Deploy command:  (BLANK ya default npx wrangler deploy — dono ok)",
-                          "                 Best: Root=/cloudflare-worker, build blank, deploy default/blank",
+                          "Deploy command:  npm run deploy  ← REQUIRED / safest",
+                          "                 Best: Root=/cloudflare-worker, Build blank, Deploy=npm run deploy",
                           "Builds for non-production branches: ☐ unchecked rakho",
                           "━━━━━━━━━━━━━━━━━━━━━━",
                           "",
@@ -7027,7 +7027,7 @@ function AdminPanel() {
                           "❌ Build command me 'bash setup.sh' MAT likho",
                           "❌ Deploy command me 'npm install' MAT likho",
                           "❌ Purana/restricted API token mat use karo — KV bind/create ke liye Workers KV Storage Edit chahiye",
-                          "✅ Best setup: Root=/cloudflare-worker, Build=blank, Deploy=blank",
+                          "✅ Best setup: Root=/cloudflare-worker, Build=blank, Deploy=npm run deploy",
                           "",
                           "Blue 'Save and Deploy' button dabao → logs me 'Creating/Found KV namespace EMAIL_CACHE' aana chahiye → Settings → Bindings me EMAIL_CACHE dikhega",
                           "Existing worker ko GitHub se connect kiya hai to connect ke baad ek NEW commit push karo ya Deployments → Retry karo",
@@ -7411,7 +7411,7 @@ function AdminPanel() {
                   <tbody className="divide-y divide-slate-200">
                     {[
                       ["Build command", "(leave EMPTY — npm/bun build bhi node deploy.mjs trigger karega)", "empty"],
-                      ["Deploy command", "(leave EMPTY or keep default npx wrangler deploy)", "empty"],
+                      ["Deploy command", "npm run deploy", "code"],
                       ["Build variables", "(none)", "empty"],
                       ["Build secrets", "(none)", "empty"],
                     ].map(([k, v, kind]) => (
@@ -7444,7 +7444,7 @@ function AdminPanel() {
                 <ul className="text-[11px] text-red-800 space-y-0.5 list-disc list-inside">
                   <li>Root directory blank MAT chhodo — <code className="font-mono bg-red-100 px-1 rounded">/cloudflare-worker</code> ZAROORI hai</li>
                   <li>Build command me <code className="font-mono bg-red-100 px-1 rounded">bash setup.sh</code> ya kuch aur MAT likho — blank rakho</li>
-                  <li>Deploy command me <code className="font-mono bg-red-100 px-1 rounded">npm install</code> MAT likho</li>
+                  <li>Deploy command blank/default mat chhodo agar binding nahi ban rahi — <code className="font-mono bg-red-100 px-1 rounded">npm run deploy</code> set karo</li>
                   <li>Purana restricted API token mat use karo — KV ke liye <code className="font-mono bg-red-100 px-1 rounded">Workers KV Storage Edit</code> chahiye</li>
                   <li>Agar root directory blank rakhna hi hai: Build variable <code className="font-mono bg-red-100 px-1 rounded">CLOUDFLARE_WORKER_BUILD=1</code> add karo</li>
                 </ul>
