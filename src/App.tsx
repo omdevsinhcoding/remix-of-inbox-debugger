@@ -5401,7 +5401,7 @@ function AdminPanel() {
             <span className="hidden sm:inline">Admin Control Panel</span>
             <span className="sm:hidden">Admin</span>
           </h2>
-          <button onClick={() => { sessionClearAll(); navigate("/"); }} className="p-2 hover:bg-slate-100 rounded-full transition-colors" title="Logout" aria-label="Logout">
+          <button onClick={() => { try { sessionClearAll(); } catch {} window.location.replace("/"); }} className="p-2 hover:bg-slate-100 rounded-full transition-colors" title="Logout" aria-label="Logout">
             <LogOut className="w-5 h-5 text-slate-400" aria-hidden="true" />
           </button>
         </div>
@@ -8850,7 +8850,7 @@ function EmailViewer() {
               <span className="hidden sm:inline ml-1.5">Profile</span>
             </button>
             {!isImpersonating && (
-              <button onClick={() => { sessionClearAll(); navigate("/"); }} className="p-2 hover:bg-slate-100 rounded-full transition-colors" title="Logout" aria-label="Logout">
+              <button onClick={() => { try { sessionClearAll(); } catch {} window.location.replace("/"); }} className="p-2 hover:bg-slate-100 rounded-full transition-colors" title="Logout" aria-label="Logout">
                 <LogOut className="w-5 h-5 text-slate-400" />
               </button>
             )}
