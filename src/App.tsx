@@ -5882,7 +5882,7 @@ function AdminPanel() {
                                 <label className="block text-[10px] font-black tracking-[0.2em] text-slate-500 uppercase mb-2">Username {u.isFree ? "(optional)" : ""}</label>
                                 <input type="text" value={editUsername} onChange={(e) => setEditUsername(e.target.value)}
                                   placeholder={u.isFree ? "No username" : "Username"}
-                                  className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 text-sm font-medium transition-all" />
+                                  className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-rose-500/30 focus:border-rose-500 text-sm font-medium transition-all" />
                               </div>
                               <div>
                                 <label className="block text-[10px] font-black tracking-[0.2em] text-slate-500 uppercase mb-2">Assigned IMAP Accounts</label>
@@ -5890,14 +5890,14 @@ function AdminPanel() {
                                   {getAvailableAccounts().map(label => {
                                     const checked = editAccountsList.includes(label);
                                     return (
-                                      <label key={label} className={`flex items-center gap-2.5 p-2.5 rounded-xl cursor-pointer transition-all border-2 ${checked ? "bg-gradient-to-r from-indigo-50 to-blue-50 border-indigo-300 shadow-sm" : "bg-slate-50 border-transparent hover:bg-slate-100"}`}>
+                                      <label key={label} className={`flex items-center gap-2.5 p-2.5 rounded-xl cursor-pointer transition-all border-2 ${checked ? "bg-gradient-to-r from-rose-50 to-red-50 border-rose-300 shadow-sm" : "bg-slate-50 border-transparent hover:bg-slate-100"}`}>
                                         <input type="checkbox" checked={checked}
                                           onChange={(e) => {
                                             if (e.target.checked) setEditAccountsList([...editAccountsList, label]);
                                             else setEditAccountsList(editAccountsList.filter(a => a !== label));
                                           }}
-                                          className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
-                                        <span className={`text-sm font-mono truncate ${checked ? "text-indigo-900 font-bold" : "text-slate-700"}`}>{label}</span>
+                                          className="w-4 h-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500" />
+                                        <span className={`text-sm font-mono truncate ${checked ? "text-rose-900 font-bold" : "text-slate-700"}`}>{label}</span>
                                       </label>
                                     );
                                   })}
@@ -5909,7 +5909,7 @@ function AdminPanel() {
                                   <input type="number" min={0} max={50} step={1} value={editSessionLimit}
                                     onChange={(e) => setEditSessionLimit(e.target.value)}
                                     placeholder="Blank = global default"
-                                    className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 text-sm font-medium" />
+                                    className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-rose-500/30 focus:border-rose-500 text-sm font-medium" />
                                   <p className="text-[10px] text-slate-500 mt-2 leading-relaxed"><b>Blank</b> = global · <b>0</b> = unlimited · <b>1+</b> = cap.</p>
                                 </div>
                               )}
@@ -5935,7 +5935,7 @@ function AdminPanel() {
                               Cancel
                             </button>
                             <button onClick={() => updateUserAccounts(u.id)}
-                              className={`flex-[2] py-3 rounded-2xl text-white text-sm font-black shadow-xl active:scale-95 transition-all ${u.isFree ? "bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 shadow-emerald-500/40" : "bg-gradient-to-r from-blue-600 via-indigo-600 to-red-600 hover:brightness-110 shadow-indigo-500/40"}`}>
+                              className={`flex-[2] py-3 rounded-2xl text-white text-sm font-black shadow-xl active:scale-95 transition-all ${u.isFree ? "bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 shadow-emerald-500/40" : "bg-gradient-to-r from-rose-600 via-red-600 to-orange-600 hover:brightness-110 shadow-rose-500/40"}`}>
                               Save Changes
                             </button>
                           </div>
