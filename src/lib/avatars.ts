@@ -44,8 +44,6 @@ export const AVATAR_CATEGORIES: AvatarCategory[] = [
     files: ["Creature","Dark-Angel","Elizabeth","Heinrich","Victor","William"] },
   { key: "heeramandi", label: "Heeramandi", folder: "Heeramandi-The-Diamond-Bazaar",
     files: ["Alamzeb","Alastair-Cartwright","Bibbojaan","Fareedan","Lajjo","Mallikajaan","Qudsia-Begum","Tajdar-Baloch","Ustaadji","Waheeda","Wali-Mohammad","Zorawar","Zulfikar"] },
-  { key: "history", label: "History", folder: "History",
-    files: ["Front-Man","Profile-Avatar"] },
   { key: "kpop-demon-hunters", label: "KPop Demon Hunters", folder: "KPop-Demon-Hunters",
     files: ["Abby-Saja","Baby-Saja","Bobby","Derpy","Jinu","Mira","Mystery-Saja","Romance-Saja","Rumi","Sussie","Zoey"] },
   { key: "leo", label: "Leo", folder: "Leo",

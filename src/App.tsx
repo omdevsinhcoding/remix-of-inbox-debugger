@@ -8127,11 +8127,12 @@ function AvatarRow({
 }) {
   return (
     <section id={`avatar-row-${category.key}`} className="scroll-mt-16">
-      <div className="flex items-center justify-between px-4 sm:px-5 mb-2">
-        <h4 className="text-sm sm:text-base font-black text-slate-900 tracking-tight">{category.label}</h4>
+      {/* Section title — desktop only. Mobile relies on the sticky tab strip. */}
+      <div className="hidden sm:flex items-center justify-between px-5 mb-2">
+        <h4 className="text-base font-black text-slate-900 tracking-tight">{category.label}</h4>
         <span className="text-[10px] font-bold text-slate-400">{category.files.length}</span>
       </div>
-      <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-6 gap-3 px-4 sm:px-5 pb-3">
+      <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 gap-2.5 sm:gap-3 px-3 sm:px-5 pb-3">
         {category.files.map((file) => {
           const id = buildAvatarId(category.key, file);
           const selected = selectedAvatar === id;
@@ -8141,12 +8142,22 @@ function AvatarRow({
               onClick={() => onPick(id)}
               disabled={saving}
               title={prettyName(file)}
-              className={`group relative aspect-square rounded-2xl overflow-hidden transition-shadow duration-200 active:scale-95 ${selected ? "ring-4 ring-red-500 shadow-lg shadow-red-500/40" : "ring-2 ring-transparent hover:ring-white/70"}`}
+              className={`group relative aspect-square rounded-2xl overflow-hidden transition-all duration-200 active:scale-[0.94] ${
+                selected
+                  ? "ring-[2.5px] ring-red-600 shadow-md shadow-red-500/20"
+                  : "ring-1 ring-slate-200/70 hover:ring-slate-300"
+              }`}
             >
               <ProfileAvatar avatarId={id} name={userName} className="w-full h-full !rounded-2xl" eager />
-              <span className="absolute inset-x-0 bottom-0 px-1.5 py-1 text-[9px] sm:text-[10px] font-bold text-white text-center bg-gradient-to-t from-black/85 via-black/50 to-transparent truncate">
+              {/* Name overlay — desktop only. Cleaner mobile grid. */}
+              <span className="hidden sm:block absolute inset-x-0 bottom-0 px-1.5 py-1 text-[10px] font-bold text-white text-center bg-gradient-to-t from-black/85 via-black/50 to-transparent truncate">
                 {prettyName(file)}
               </span>
+              {selected && (
+                <span className="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-600 flex items-center justify-center shadow-md ring-2 ring-white">
+                  <Check className="w-3 h-3 text-white" strokeWidth={3.5} />
+                </span>
+              )}
             </button>
           );
         })}
@@ -8154,6 +8165,7 @@ function AvatarRow({
     </section>
   );
 }
+
 
 
 function AvatarPicker({
@@ -8281,41 +8293,27 @@ function AvatarPicker({
 
   return (
     <div className="pb-4">
-      {/* ============ MOBILE HEADER (redesigned) ============ */}
-      <div className="sm:hidden sticky top-0 z-10 bg-gradient-to-br from-rose-950 via-slate-950 to-slate-950 border-b border-red-500/25 px-4 pt-4 pb-3 shadow-xl shadow-black/50">
-        {/* Title row */}
-        <div className="flex items-center justify-between gap-3 mb-3">
-          <div className="min-w-0">
-            <h3 className="text-[17px] font-black text-white tracking-tight leading-none">
-              Pick your <span className="text-red-500">icon</span>
-            </h3>
-            <p className="text-[11px] text-white/60 mt-1.5 leading-none">
-              {saving ? "Saving your choice…" : pendingCategoryKey ? "Loading category…" : "Tap a category, then tap an icon"}
-            </p>
-          </div>
-          <span className="flex-shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-red-500/15 border border-red-500/30 text-[10px] font-bold text-red-300 uppercase tracking-wider">
-            <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
-            {activeCategory.files.length}
+      {/* ============ MOBILE HEADER (premium clean, from scratch) ============ */}
+      <div className="sm:hidden sticky top-0 z-10 bg-white border-b border-slate-100 px-4 pt-3 pb-2">
+        <div className="flex items-baseline justify-between mb-2.5">
+          <h3 className="text-[15px] font-bold text-slate-900 tracking-tight">
+            Choose an icon
+          </h3>
+          <span className="text-[11px] font-semibold text-slate-400">
+            {saving ? "Saving…" : pendingCategoryKey ? "Loading…" : `${activeCategory.files.length} icons`}
           </span>
         </div>
-
-        {/* Active category ribbon */}
-        <div className="flex items-center gap-2 mb-2.5">
-          <span className="text-[10px] font-black uppercase tracking-[0.14em] text-white/40">Category</span>
-          <span className="text-[12px] font-bold text-white truncate">{activeCategory.label}</span>
-        </div>
-
-        {/* Chip strip */}
-        <div className="relative -mx-4 px-4">
+        {/* Underline tab strip — Instagram / iOS style */}
+        <div className="relative -mx-4">
           {chipEdges.left && (
-            <div className="pointer-events-none absolute inset-y-0 left-0 w-6 bg-gradient-to-r from-slate-950 to-transparent z-10" />
+            <div className="pointer-events-none absolute inset-y-0 left-0 w-6 bg-gradient-to-r from-white to-transparent z-10" />
           )}
           {chipEdges.right && (
-            <div className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-slate-950 to-transparent z-10" />
+            <div className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-white to-transparent z-10" />
           )}
           <div
             ref={chipScrollRef}
-            className="flex gap-2 overflow-x-auto scrollbar-none pb-1 snap-x"
+            className="flex gap-5 overflow-x-auto scrollbar-none px-4"
             style={{ scrollbarWidth: "none" }}
           >
             {AVATAR_CATEGORIES.map((c) => {
@@ -8326,21 +8324,21 @@ function AvatarPicker({
                   key={c.key}
                   data-cat-key={c.key}
                   onClick={() => selectCategory(c.key)}
-                  className={`snap-start flex-shrink-0 h-9 px-4 text-[12.5px] font-bold rounded-full transition-all duration-200 border active:scale-95 ${
-                    active
-                      ? "bg-gradient-to-r from-red-600 to-rose-600 text-white border-red-400 shadow-[0_6px_18px_-4px_rgba(239,68,68,0.7)]"
-                      : pending
-                      ? "bg-white text-slate-900 border-white animate-pulse"
-                      : "bg-white/[0.06] text-white/85 border-white/10"
+                  className={`flex-shrink-0 relative pb-2 pt-1 text-[13px] font-semibold whitespace-nowrap transition-colors ${
+                    active ? "text-red-600" : pending ? "text-slate-900" : "text-slate-500"
                   }`}
                 >
                   {c.label}
+                  {active && (
+                    <span className="absolute inset-x-0 -bottom-px h-[2.5px] bg-red-600 rounded-full" />
+                  )}
                 </button>
               );
             })}
           </div>
         </div>
       </div>
+
 
       {/* ============ DESKTOP HEADER (unchanged) ============ */}
       <div className="hidden sm:block sticky top-0 z-10 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-900 border-b border-red-600/30 px-5 pt-4 pb-3 space-y-3 shadow-lg shadow-black/40">
@@ -8448,14 +8446,30 @@ function UserProfileModal({
   };
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <motion.div initial={{ scale: 0.94, opacity: 0, y: 12 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.94, opacity: 0, y: 12 }}
-        className="bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden max-h-[92vh] flex flex-col">
-        <div className="p-5 border-b border-slate-100 flex items-center justify-between">
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      onClick={onClose}
+      className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center sm:p-4"
+    >
+      <motion.div
+        onClick={(e) => e.stopPropagation()}
+        initial={{ y: "100%", opacity: 0, scale: 1 }}
+        animate={{ y: 0, opacity: 1, scale: 1 }}
+        exit={{ y: "100%", opacity: 0 }}
+        transition={{ type: "spring", stiffness: 380, damping: 34 }}
+        className="bg-white w-full max-w-lg rounded-t-[28px] sm:rounded-2xl shadow-2xl overflow-hidden max-h-[92vh] sm:max-h-[92vh] h-[88vh] sm:h-auto flex flex-col"
+      >
+        {/* Mobile drag-handle */}
+        <div className="sm:hidden flex justify-center pt-2.5 pb-1.5 flex-shrink-0">
+          <span className="block w-10 h-1.5 rounded-full bg-slate-300" aria-hidden="true" />
+        </div>
+        <div className="px-4 sm:px-5 pt-2 sm:pt-5 pb-3 sm:pb-5 border-b border-slate-100 flex items-center justify-between flex-shrink-0">
           <div className="flex items-center gap-3 min-w-0">
-            <ProfileAvatar avatarId={selectedAvatar} name={user.name} className="w-12 h-12" fallbackColor="bg-red-500" eager />
+            <ProfileAvatar avatarId={selectedAvatar} name={user.name} className="w-11 h-11 sm:w-12 sm:h-12" fallbackColor="bg-red-500" eager />
             <div className="min-w-0">
-              <h2 className="text-lg font-black text-slate-900 leading-tight truncate">{user.name}</h2>
+              <h2 className="text-base sm:text-lg font-black text-slate-900 leading-tight truncate">{user.name}</h2>
               {user.username ? (
                 <p className="text-xs text-slate-500 truncate">@{user.username}</p>
               ) : user.isFree ? (
@@ -8463,10 +8477,11 @@ function UserProfileModal({
               ) : null}
             </div>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full transition-colors" aria-label="Close profile">
+          <button onClick={onClose} className="p-2 -mr-1 hover:bg-slate-100 rounded-full transition-colors" aria-label="Close profile">
             <X className="w-5 h-5 text-slate-500" />
           </button>
         </div>
+
 
         <div className="flex-1 overflow-y-auto">
           <AvatarPicker
