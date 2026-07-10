@@ -9,6 +9,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const BASE_CONFIG = join(__dirname, "wrangler.toml");
 const BINDING = "EMAIL_CACHE";
 const WRANGLER = ["--yes", "wrangler@latest"];
+const WORKER_MAIN = join(__dirname, "worker.js").replace(/\\/g, "/");
 
 function runWrangler(args, { capture = false, allowFailure = false } = {}) {
   const result = spawnSync("npx", [...WRANGLER, ...args], {
@@ -46,9 +47,12 @@ function parseCreatedNamespaceId(output) {
 }
 
 function patchKvId(configSource, namespaceId) {
+  const withMain = /^main\s*=\s*["'][^"']+["']/m.test(configSource)
+    ? configSource.replace(/^main\s*=\s*["'][^"']+["']/m, `main = "${WORKER_MAIN}"`)
+    : `main = "${WORKER_MAIN}"\n${configSource}`;
   const blockRe = /\[\[kv_namespaces\]\][\s\S]*?(?=\n\[[^\[]|\n\[\[|$)/g;
   let patched = false;
-  const next = configSource.replace(blockRe, (block) => {
+  const next = withMain.replace(blockRe, (block) => {
     if (!new RegExp(`binding\\s*=\\s*["']${BINDING}["']`).test(block)) return block;
     patched = true;
     if (/\nid\s*=/.test(block)) return block.replace(/\nid\s*=\s*["'][^"']*["']/, `\nid = "${namespaceId}"`);
