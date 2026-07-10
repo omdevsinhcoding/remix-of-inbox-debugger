@@ -21,7 +21,7 @@ const HKDF_INFO = "lovable-transport-v1";
 const ROTATE_BEFORE_EXPIRY_MS = 60_000; // rotate 1 min before expiry
 const FALLBACK_TTL_MS = 14 * 60_000; // if server omits expiresAt, assume 14min
 const SUPABASE_URL_FALLBACK = "https://jsqchutnfdeljajkxmly.supabase.co";
-const SUPABASE_ANON_KEY_FALLBACK = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJIUzI1NiIsInJlZiI6ImpzcWNodXRuZmRlbGphamt4bWx5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxMjI5MzksImV4cCI6MjA4OTY5ODkzOX0.HYN4zMEYEiP-H5KD_iIbFpr0GsatNoeyw40FI2mW_eA";
+const SUPABASE_ANON_KEY_FALLBACK = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpzcWNodXRuZmRlbGphamt4bWx5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxMjI5MzksImV4cCI6MjA4OTY5ODkzOX0.HYN4zMEYEiP-H5KD_iIbFpr0GsatNoeyw40FI2mW_eA";
 
 async function gunzipBytes(input: Uint8Array): Promise<Uint8Array> {
   const stream = new Blob([input as BlobPart]).stream().pipeThrough(new DecompressionStream("gzip"));
