@@ -8429,13 +8429,12 @@ function EmailViewer() {
   };
 
 
-  // On mount/login: ONE silent auto-refresh via the worker POST sync path.
-  // No browser-persistent email cache, no background polling, no GET /api/emails.
+  // On mount/login: load cached emails only. NO auto sync — sync happens
+  // exclusively when the user clicks the Refresh button (fetchEmails).
   const didAutoRefreshRef = useRef(false);
   useEffect(() => {
     setLoading(false);
 
-    // Fire ONE silent auto-refresh once worker URLs are known — per component mount/login.
     if (workerUrlsLoading) return;
     if (didAutoRefreshRef.current) return;
     didAutoRefreshRef.current = true;
@@ -8444,20 +8443,14 @@ function EmailViewer() {
       try {
         await refreshEmailFiltersForViewer();
         await loadCachedEmails({ limit: 200 });
-        const synced = await syncViaWorker();
-        if (synced) {
-          setEmails(synced);
-          setError(null);
-          setLastUpdated(new Date());
-        }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err || "");
-        pushDiag({ ts: Date.now(), kind: "sync", endpoint: "login auto-refresh", error: msg });
-        await loadCachedEmails({ limit: 200 });
+        pushDiag({ ts: Date.now(), kind: "sync", endpoint: "login cache load", error: msg });
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workerUrlsLoading]);
+
 
   // F7: listen for iframe self-report messages verifying that the link/button
   // click hijack is actually attached inside the sandboxed email preview.
