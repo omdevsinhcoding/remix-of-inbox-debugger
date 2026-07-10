@@ -2449,9 +2449,22 @@ function filterVisibleEmails(list: Email[], _prefs?: UserProfilePrefs | null, vi
 function CaptchaModal({ siteKey, onVerify, onCancel }: { siteKey: string; onVerify: (token: string) => void; onCancel: () => void }) {
   const [token, setToken] = useState<string | null>(null);
   const [loadError, setLoadError] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const submit = useCallback(() => {
-    if (token) onVerify(token);
-  }, [token, onVerify]);
+    if (token && !submitting) {
+      setSubmitting(true);
+      onVerify(token);
+    }
+  }, [token, submitting, onVerify]);
+
+  const handleToken = useCallback((nextToken: string | null) => {
+    setLoadError(false);
+    setToken(nextToken);
+    if (nextToken) {
+      setSubmitting(true);
+      onVerify(nextToken);
+    }
+  }, [onVerify]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -2474,7 +2487,7 @@ function CaptchaModal({ siteKey, onVerify, onCancel }: { siteKey: string; onVeri
             </div>
             <div>
               <h3 className="font-black text-slate-900 text-lg">Security Check</h3>
-              <p className="text-slate-500 text-xs">Verify you're human, then press Login</p>
+              <p className="text-slate-500 text-xs">Verify you're human to continue</p>
             </div>
           </div>
         </div>
@@ -2482,7 +2495,7 @@ function CaptchaModal({ siteKey, onVerify, onCancel }: { siteKey: string; onVeri
           <Suspense fallback={<div className="h-[78px] w-[304px] rounded-lg bg-slate-100 animate-pulse" />}>
             <ReCAPTCHA
               sitekey={siteKey}
-              onChange={(t) => { setLoadError(false); setToken(t); }}
+                onChange={handleToken}
               onExpired={() => setToken(null)}
               onErrored={() => { setToken(null); setLoadError(true); }}
             />
@@ -2502,9 +2515,9 @@ function CaptchaModal({ siteKey, onVerify, onCancel }: { siteKey: string; onVeri
           <div className="w-px bg-slate-100" />
           <button
             onClick={submit}
-            disabled={!token}
+            disabled={!token || submitting}
             className="flex-1 py-4 text-sm font-bold text-red-600 hover:bg-red-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent">
-            Login
+            {submitting ? "Continuing..." : token ? "Continue" : "Waiting..."}
           </button>
         </div>
 
