@@ -16,6 +16,11 @@ const isFrontendHost = Boolean(
 const isCloudflareBuild = Boolean(
   isTruthy(env.CLOUDFLARE_WORKER_BUILD) ||
     isTruthy(env.CF_WORKER_BUILD) ||
+    env.WORKERS_CI === "1" ||
+    env.WORKERS_CI === "true" ||
+    env.WORKERS_CI_BUILD_UUID ||
+    env.WORKERS_CI_COMMIT_SHA ||
+    env.WORKERS_CI_BRANCH ||
     env.CLOUDFLARE_ACCOUNT_ID ||
     env.CF_ACCOUNT_ID ||
     env.CLOUDFLARE_API_TOKEN ||

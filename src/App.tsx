@@ -2222,7 +2222,12 @@ async function isUsableEmailWorker(url: string) {
     const res = await fetchWithTimeout(`${url.replace(/\/+$/, "")}/api/health`, { cache: "no-store" }, 5000);
     if (!res.ok) return false;
     const data = await res.json().catch(() => null);
-    return data?.ok === true && data?.kv === true && data?.signing === true;
+    // Universal Cloudflare mode: a new account may have no Worker runtime
+    // secrets yet. Email APIs still work because the Worker validates the
+    // session through Supabase and then fetches via Cloudflare. Requiring
+    // `signing=true` here made fresh GitHub-connected Workers look unusable,
+    // so the browser never hit them.
+    return data?.ok === true && data?.kv === true;
   } catch {
     return false;
   }
@@ -6930,7 +6935,7 @@ function AdminPanel() {
                     <div className="rounded-xl border-2 border-emerald-400 bg-emerald-50 p-3">
                       <p className="text-xs font-black text-emerald-900 mb-2">⚡ 1-SAAL BAAD YAAD KARNE KE LIYE — Sirf ye 8 steps</p>
                       <p className="text-[10px] text-emerald-800 mb-2">Har Cloudflare account me exact same. Bookmark kar lo.</p>
-                      <p className="text-[10.5px] text-red-800 bg-red-50 border border-red-200 rounded-lg p-2 mb-2"><b>IMPORTANT:</b> GitHub link sirf code deploy karta hai. Lovable/Supabase ke secrets Cloudflare me khud se copy nahi hote. Cloudflare Settings → Variables → Build variables me value add karoge tabhi deploy.mjs Worker Secrets banayega.</p>
+                      <p className="text-[10.5px] text-red-800 bg-red-50 border border-red-200 rounded-lg p-2 mb-2"><b>IMPORTANT:</b> Naye Cloudflare account me manual env/secrets required nahi. Worker health me KV true hote hi app us Worker ko hit karega; signing secret missing ho to Worker session verify Supabase ke through karega.</p>
                       <pre className="whitespace-pre-wrap break-words text-[10.5px] leading-relaxed font-mono bg-white rounded-lg p-2 border border-emerald-200 text-slate-800">{`1. dash.cloudflare.com → us account me login karo
 2. Workers & Pages → Create → "Import a repository"
    (NOT "Hello World")
@@ -6945,17 +6950,14 @@ function AdminPanel() {
    Permissions: Workers Scripts Edit +
                 Workers KV Storage Edit +
                 Account Settings Read
-6. (Signed/admin endpoints ke liye required) Settings → Variables → Build variables:
-   Ye names me se jo chahiye add karo →
-     SESSION_SIGNING_SECRET, SESSION_SECRET,
-     CRON_SHARED_SECRET, SUPABASE_URL, SUPABASE_KEY,
-     TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, DEBUG_TOKEN
-   Sirf in Cloudflare Build variables se deploy.mjs Worker Secret banayega ✨
-   SESSION_SIGNING_SECRET fingerprint upar "Reveal" se check karo.
+6. Build variables/secrets blank chhodo.
+   deploy.mjs KV auto-create/bind karega.
+   Agar Cloudflare token env expose kare to signing secret auto-sync hoga;
+   nahi hua tab bhi email sync Worker se chalega.
 7. "Save and Deploy" → Logs me dekho:
-     "Syncing N secret(s) to Worker"
+     "Creating/updating Worker with KV binding EMAIL_CACHE"
      "Creating/Found KV namespace EMAIL_CACHE"
-     "Deploying Worker with KV binding EMAIL_CACHE"
+     "Finalizing Worker deploy with synced secrets"
 8. Worker URL copy karo (https://netflix.xxx.workers.dev)
    → Admin Panel → Cloudflare Workers →
      "Primary Cloudflare Worker URLs" me paste → Save`}</pre>
