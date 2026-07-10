@@ -5942,11 +5942,14 @@ function AdminPanel() {
                                       <Users className="w-4 h-4 text-rose-500" />
                                       How many devices at once?
                                     </label>
-                                    <button type="button" onClick={() => notify.info("If you set 2, this user can log in on max 2 devices (phone + laptop). A 3rd login kicks out the oldest one.")}
-                                      className="w-6 h-6 rounded-full bg-slate-100 hover:bg-rose-100 text-slate-500 hover:text-rose-600 flex items-center justify-center transition-colors" title="What is this?">
+                                    <button type="button" onClick={() => setEditHint(editHint === "sess" ? null : "sess")}
+                                      className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors ${editHint === "sess" ? "bg-rose-500 text-white" : "bg-slate-100 hover:bg-rose-100 text-slate-500 hover:text-rose-600"}`} title="What is this?">
                                       <Info className="w-3.5 h-3.5" />
                                     </button>
                                   </div>
+                                  {editHint === "sess" && (
+                                    <p className="mb-2 text-[11px] text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-2.5 py-1.5 leading-snug">Set 2 = user can log in on max 2 devices. A 3rd login kicks out the oldest.</p>
+                                  )}
                                   <input type="number" min={0} max={50} step={1} value={editSessionLimit}
                                     onChange={(e) => setEditSessionLimit(e.target.value)}
                                     placeholder="Leave empty for default"
