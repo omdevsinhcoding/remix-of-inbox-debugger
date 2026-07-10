@@ -122,11 +122,11 @@
   position: fixed;
   z-index: 2147483647;
   right: max(22px, env(safe-area-inset-right));
-  top: max(22px, env(safe-area-inset-top));
+  bottom: max(56px, calc(env(safe-area-inset-bottom) + 56px));
   width: max-content;
   max-width: min(600px, calc(100vw - 32px));
   display: flex;
-  flex-direction: column;
+  flex-direction: column-reverse;
   align-items: flex-end;
   gap: 10px;
   pointer-events: none;
