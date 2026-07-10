@@ -6539,8 +6539,8 @@ function AdminPanel() {
               </h2>
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="text-sm font-semibold text-slate-800">Require GPS for paid user logins</p>
-                  <p className="text-xs text-slate-500 mt-1">When OFF, user profiles sign in without the browser location popup. Free profiles never require GPS.</p>
+                  <p className="text-sm font-semibold text-slate-800">Require GPS for user logins</p>
+                  <p className="text-xs text-slate-500 mt-1">When ON, both paid and free profiles must solve CAPTCHA and grant location before entering. When OFF, profiles sign in without the browser location popup.</p>
                 </div>
                 <button onClick={toggleLocationPolicy} disabled={savingLocationPolicy}
                   className={`relative w-12 h-6 rounded-full transition-colors flex-shrink-0 ${locationPolicyRequired ? "bg-green-500" : "bg-slate-300"}`}
