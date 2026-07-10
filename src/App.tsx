@@ -2831,7 +2831,7 @@ function ProfileSelectPage() {
       // Session timer intentionally NOT started here — EmailViewer starts it
       // after the first cached-email load finishes so users always see their
       // inbox before the countdown begins.
-      try { if (!sessionGet("session_started_at" as any)) markSessionStart(); } catch {}
+      try { sessionRemove("session_started_at" as any); } catch {}
       checkAuth();
 
       navigate("/viewer");
@@ -8225,7 +8225,7 @@ function EmailViewer() {
       if (data?.sessionToken) sessionSet("session_token" as any, data.sessionToken);
       if (data?.user) sessionSet("user" as any, JSON.stringify(data.user));
       try { sessionRemove("admin_backup" as any); } catch {}
-      try { sessionRemove("session_started_at" as any); } catch {}
+      try { if (!sessionGet("session_started_at" as any)) markSessionStart(); } catch {}
       checkAuth();
       navigate("/admin/dashboard");
       return;
