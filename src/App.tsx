@@ -9254,72 +9254,65 @@ function EmailViewer() {
         )}
       </AnimatePresence>
 
-      {/* ============ MOBILE HEADER (redesigned) ============ */}
-      <header className="sm:hidden sticky top-0 z-20 bg-gradient-to-br from-red-600 via-red-600 to-rose-700 text-white shadow-lg shadow-red-900/20">
-        <div className="px-3 pt-3 pb-3">
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => setShowProfile(true)}
-              className="relative flex-shrink-0 rounded-2xl focus:outline-none focus:ring-2 focus:ring-white/70 active:scale-95 transition-transform"
-              aria-label="Open profile settings"
-              title="Profile settings"
-            >
-              <ProfileAvatar
-                avatarId={viewerAvatarId}
-                name={user.name}
-                className="w-11 h-11 rounded-2xl overflow-hidden ring-2 ring-white/80 shadow-md"
-                fallbackColor="bg-white/10"
-                eager
-              />
-              <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-400 ring-2 ring-red-600" aria-hidden="true" />
-            </button>
-            <div className="min-w-0 flex-1">
-              <h2 className="font-extrabold text-[15px] leading-tight tracking-tight truncate">
-                Netflix Mail
-              </h2>
-              <div className="flex items-center gap-1.5 mt-0.5">
-                <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider bg-white/15 backdrop-blur-sm px-1.5 py-0.5 rounded-md">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-300 animate-pulse" />
-                  Live
-                </span>
-                <span className="text-[11px] text-white/85 truncate">{user.name}</span>
-              </div>
-            </div>
-            <div className="flex items-center gap-1.5 flex-shrink-0">
-              {isImpersonating && (
-                <button
-                  onClick={backToAdmin}
-                  className="flex items-center gap-1 px-2.5 h-9 bg-amber-400 text-amber-950 rounded-full text-[11px] font-bold shadow-sm active:scale-95"
-                >
-                  <ArrowLeft className="w-3.5 h-3.5" />
-                  Admin
-                </button>
-              )}
-              <NotificationBell />
+      {/* ============ MOBILE HEADER (clean white) ============ */}
+      <header className="sm:hidden sticky top-0 z-20 bg-white/95 backdrop-blur border-b border-slate-200 shadow-sm">
+        <div className="px-3 h-14 flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setShowProfile(true)}
+            className="relative flex-shrink-0 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/60 active:scale-95 transition-transform"
+            aria-label="Open profile settings"
+            title="Profile settings"
+          >
+            <ProfileAvatar
+              avatarId={viewerAvatarId}
+              name={user.name}
+              className="w-9 h-9 rounded-xl overflow-hidden ring-1 ring-slate-200"
+              fallbackColor="bg-red-600"
+              eager
+            />
+            <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-white" aria-hidden="true" />
+          </button>
+          <div className="min-w-0 flex-1">
+            <h2 className="font-black text-[15px] leading-tight tracking-tight text-red-600 truncate">
+              Netflix Mail
+            </h2>
+            <span className="text-[11px] text-slate-500 truncate block">{user.name}</span>
+          </div>
+          <div className="flex items-center gap-1 flex-shrink-0">
+            {isImpersonating && (
               <button
-                onClick={() => fetchEmails()}
-                disabled={refreshing}
-                className="flex items-center justify-center w-10 h-10 bg-white/15 hover:bg-white/25 backdrop-blur-sm text-white rounded-full transition-all active:scale-95 disabled:opacity-60 shadow-sm"
-                aria-label="Refresh inbox"
-                title="Refresh"
+                onClick={backToAdmin}
+                className="flex items-center gap-1 px-2.5 h-8 bg-amber-500 text-white rounded-full text-[11px] font-bold shadow-sm active:scale-95"
               >
-                <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`} />
+                <ArrowLeft className="w-3.5 h-3.5" />
+                Admin
               </button>
-              {!isImpersonating && (
-                <button
-                  onClick={() => { try { sessionClearAll(); } catch {} window.location.replace("/"); }}
-                  className="flex items-center justify-center w-10 h-10 bg-white/10 hover:bg-white/20 text-white rounded-full transition-all active:scale-95"
-                  title="Logout"
-                  aria-label="Logout"
-                >
-                  <LogOut className="w-4 h-4" />
-                </button>
-              )}
-            </div>
+            )}
+            <NotificationBell />
+            <button
+              onClick={() => fetchEmails()}
+              disabled={refreshing}
+              className="flex items-center justify-center w-9 h-9 bg-slate-900 text-white rounded-full transition-all active:scale-95 disabled:opacity-60"
+              aria-label="Refresh inbox"
+              title="Refresh"
+            >
+              <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`} />
+            </button>
+            {!isImpersonating && (
+              <button
+                onClick={() => { try { sessionClearAll(); } catch {} window.location.replace("/"); }}
+                className="flex items-center justify-center w-9 h-9 hover:bg-slate-100 text-slate-500 rounded-full transition-all active:scale-95"
+                title="Logout"
+                aria-label="Logout"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            )}
           </div>
         </div>
       </header>
+
 
       {/* ============ DESKTOP HEADER ============ */}
       <header className="hidden sm:block bg-white border-b border-slate-200 sticky top-0 z-20 shadow-sm">
