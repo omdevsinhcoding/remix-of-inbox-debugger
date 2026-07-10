@@ -9497,7 +9497,7 @@ function EmailViewer() {
             {canChangePassword && (
               <button
                 onClick={() => setShowChangePwd(true)}
-                className="flex items-center justify-center w-9 h-9 hover:bg-slate-100 text-slate-600 rounded-full transition-all active:scale-95"
+                className="flex items-center justify-center w-9 h-9 bg-indigo-600 text-white rounded-full transition-all active:scale-95 hover:bg-indigo-700"
                 title="Change password"
                 aria-label="Change password"
               >
@@ -9507,7 +9507,7 @@ function EmailViewer() {
             {!isImpersonating && (
               <button
                 onClick={() => { try { sessionClearAll(); } catch {} window.location.replace("/"); }}
-                className="flex items-center justify-center w-9 h-9 hover:bg-slate-100 text-slate-500 rounded-full transition-all active:scale-95"
+                className="flex items-center justify-center w-9 h-9 bg-red-600 text-white rounded-full transition-all active:scale-95 hover:bg-red-700"
                 title="Logout"
                 aria-label="Logout"
               >
