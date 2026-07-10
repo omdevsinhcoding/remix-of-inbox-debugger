@@ -2,14 +2,14 @@
 
 ## Quick Summary
 
-This is a Netflix-style email inbox that syncs from IMAP servers, caches in Supabase, and optionally uses Cloudflare Workers + KV for fast edge caching.
+This is a Netflix-style email inbox that syncs email through Cloudflare Worker URLs and caches responses in Cloudflare KV.
 
 ---
 
 ## Architecture
 
 ```
-User Browser → Cloudflare Worker (optional cache) → Supabase Edge Function → IMAP Server
+User Browser → Cloudflare Worker → Supabase Edge Function → IMAP Server
                         ↓                                    ↓
                Cloudflare KV (cache)              Supabase DB (cached_emails)
 ```
@@ -124,7 +124,7 @@ The worker automatically uses V2 first, falls back to V1. If V2 write fails, it 
 
 You can configure multiple worker endpoints in Admin Panel → Infrastructure.
 The app tries each URL in order until one responds successfully.
-If all worker URLs fail, it falls back to direct Supabase backend calls.
+If all worker URLs fail, new email sync does not run; configure at least one Worker URL in Admin Panel → Infrastructure.
 
 ---
 
