@@ -7537,17 +7537,17 @@ function AdminPanel() {
                 <button
                   type="button"
                   onClick={() => copyToClipboard(
-                    "Root directory: (blank)\nProduction branch: main\nBuild command: (empty — delete npm run build if auto-filled)\nDeploy command: npx wrangler deploy\nNon-prod branches: unchecked\nAPI Token: Use default",
+                    "Root directory: /cloudflare-worker  (REQUIRED)\nProduction branch: main\nBuild command: (empty — auto npm run build = wrangler deploy)\nDeploy command: (empty — already deployed in build step)\nNon-prod branches: unchecked\nAPI Token: Use default",
                     "Settings copied"
                   )}
                   className="text-[10px] font-bold px-2.5 py-1 rounded-md bg-white/10 hover:bg-white/20 border border-white/20"
                 >Copy all</button>
               </div>
               <pre className="text-[11px] sm:text-xs font-mono leading-relaxed text-slate-300 overflow-x-auto">
-{`Root directory:       (blank)
+{`Root directory:       /cloudflare-worker   ← REQUIRED
 Production branch:    main
-Build command:        (empty — delete npm run build if auto-filled)
-Deploy command:       npx wrangler deploy
+Build command:        (empty)              ← auto npm run build = wrangler deploy
+Deploy command:       (empty)              ← already deployed in build step
 Non-prod branches:    ☐ unchecked
 Non-prod command:     (empty)
 API Token:            Use default`}
