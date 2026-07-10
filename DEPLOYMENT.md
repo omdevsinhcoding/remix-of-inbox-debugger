@@ -69,9 +69,16 @@ Use these settings:
 
 `npm run deploy` runs `cloudflare-worker/deploy.mjs`, which creates/fetches the account-local `EMAIL_CACHE` KV namespace, injects its ID into a temporary Wrangler config, and then deploys the Worker. This is required because every Cloudflare account has different KV namespace IDs.
 
-### Important: “Automatic deployment on upload” means Git is not connected
+### Important: first build does NOT auto-trigger on "Connect" (Cloudflare platform behavior)
 
-If the Worker overview says **“Automatic deployment on upload”** and has an **Edit code** button, that Worker is in dashboard/manual upload mode. No Git build will start there, even after 110 minutes. Recreate it via **Import a repository**, or connect Git from **Settings → Builds** if the option appears.
+Per [Cloudflare docs](https://developers.cloudflare.com/workers/ci-cd/builds/): when you connect an existing Worker to a repo, **you must push a commit to trigger the first build.** Cloudflare does not run a build at the moment you click "Connect" — Build history stays empty until a git event arrives.
+
+Two ways to get the first build to run:
+
+1. **Recommended — create the Worker via Import a repository.** Workers & Pages → Create → **Import a repository** → pick this repo. Cloudflare provisions the Worker AND runs the first build in one step. Do **not** use "Start with Hello World" and connect Git later.
+2. **Already connected an existing Worker?** Push any commit (empty commit works: `git commit --allow-empty -m "trigger build" && git push`), or open the Worker → Deployments → **Retry deployment**. Every push after that auto-builds.
+
+If the Worker overview says **"Automatic deployment on upload"** and has an **Edit code** button, that Worker is in dashboard/manual upload mode — Git isn't connected at all. Recreate it via **Import a repository**.
 
 ### Manual Deploy Fallback
 
