@@ -5532,7 +5532,7 @@ function AdminPanel() {
       });
       const nextAccounts = normalizeSelectedAccounts(editAccountsList).length > 0 ? normalizeSelectedAccounts(editAccountsList) : null;
       const nextUsername = editUsername.trim() || null;
-      setEditingUserAccounts(null);
+      setEditingUserAccounts(null); setEditHint(null);
       setUsers(prev => prev.map(u => u.id === userId ? { ...u, username: nextUsername as any, assignedAccounts: nextAccounts, session_limit, ...(expires_at !== undefined ? { expiresAt: expires_at } as any : {}) } : u));
       notify.success("User settings updated!");
     } catch (err) {
@@ -5845,7 +5845,7 @@ function AdminPanel() {
 
                     {editingUserAccounts === u.id && u.role !== "admin" && createPortal(
                       <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center animate-in fade-in duration-200"
-                        onClick={() => setEditingUserAccounts(null)}
+                        onClick={() => setEditingUserAccounts(null); setEditHint(null)}
                         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
                         <div className="absolute inset-0 bg-gradient-to-br from-slate-950/70 via-rose-950/60 to-slate-950/70 backdrop-blur-xl" />
                         <div onClick={(e) => e.stopPropagation()}
@@ -5870,7 +5870,7 @@ function AdminPanel() {
                                   <p className="text-white/70 text-[11px] font-mono truncate">{u.username ? `@${u.username}` : "no username"}</p>
                                 </div>
                               </div>
-                              <button onClick={() => setEditingUserAccounts(null)}
+                              <button onClick={() => setEditingUserAccounts(null); setEditHint(null)}
                                 className="flex-shrink-0 w-9 h-9 rounded-2xl bg-white/20 hover:bg-white/35 text-white flex items-center justify-center transition-all active:scale-90 backdrop-blur-sm ring-1 ring-white/30">
                                 <X className="w-4 h-4" strokeWidth={2.5} />
                               </button>
@@ -6001,7 +6001,7 @@ function AdminPanel() {
                           </div>
                           {/* Footer */}
                           <div className="border-t border-slate-100 p-3 flex gap-2 bg-gradient-to-b from-white to-slate-50">
-                            <button onClick={() => setEditingUserAccounts(null)}
+                            <button onClick={() => setEditingUserAccounts(null); setEditHint(null)}
                               className="flex-1 py-3 rounded-2xl border-2 border-slate-200 bg-white text-slate-700 text-sm font-bold hover:bg-slate-50 hover:border-slate-300 active:scale-95 transition-all">
                               Cancel
                             </button>
