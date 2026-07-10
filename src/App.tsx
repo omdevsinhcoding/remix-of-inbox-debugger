@@ -5637,92 +5637,102 @@ function AdminPanel() {
                     onDragOver={(e) => { if (canDrag && dragUserId && dragUserId !== u.id) e.preventDefault(); }}
                     onDrop={(e) => { e.preventDefault(); if (canDrag) onDropUser(u.id); }}
                     onDragEnd={() => setDragUserId(null)}
-                    className={`p-3 sm:p-4 bg-slate-50 rounded-2xl border transition-colors min-w-0 ${dragUserId === u.id ? "opacity-50 border-emerald-400" : "border-slate-100 hover:border-slate-200"} ${canDrag ? "cursor-move" : ""}`}
+                    className={`group relative p-3 sm:p-4 bg-gradient-to-br from-white to-slate-50 rounded-2xl border transition-all min-w-0 ${dragUserId === u.id ? "opacity-50 border-emerald-400 ring-2 ring-emerald-200" : "border-slate-200/70 hover:border-slate-300 hover:shadow-sm"} ${canDrag ? "sm:cursor-move" : ""}`}
                   >
-                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                      <div className="flex items-center gap-3 min-w-0">
+                    {u.role === "admin" && (
+                      <span className="absolute top-3 right-3 inline-flex items-center gap-1 text-[9px] font-black tracking-wide bg-red-600 text-white px-2 py-0.5 rounded-full shadow-sm">ADMIN</span>
+                    )}
+                    <div className="flex items-start gap-3 min-w-0">
+                      <div className="relative flex-shrink-0">
                         <ProfileAvatar
                           avatarId={getStableProfileAvatar(u)}
                           name={u.name}
-                          className="w-10 h-10 !rounded-xl"
+                          className="w-12 h-12 sm:w-14 sm:h-14 !rounded-2xl ring-2 ring-white shadow"
                           fallbackColor={u.role === "admin" ? "bg-red-500" : (u.isFree ? "bg-emerald-500" : "bg-blue-500")}
                         />
-                        <div className="min-w-0">
-                          <p className="font-bold text-slate-900 truncate flex items-center gap-1.5">
-                            {u.name}
-                            {u.isFree && <span className="text-[9px] font-black bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded">FREE</span>}
-                            {u.pinned && <span className="inline-flex items-center gap-1 text-[9px] font-black bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded"><Pin className="w-3 h-3" fill="currentColor" /> PINNED</span>}
-                            {isLocationRequiredForProfile(u) ? <span className="inline-flex items-center gap-1 text-[9px] font-black bg-sky-100 text-sky-700 px-1.5 py-0.5 rounded"><MapPin className="w-3 h-3" /> GPS REQUIRED</span> : <span className="inline-flex items-center gap-1 text-[9px] font-black bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded"><MapPinOff className="w-3 h-3" /> NO GPS</span>}
-                          </p>
-                          <p className="text-xs text-slate-500 truncate">{u.username ? `@${u.username} • ` : ""}<span className={u.role === "admin" ? "text-red-600 font-bold" : (u.isFree ? "text-emerald-600 font-semibold" : "text-blue-600")}>{u.isFree ? "free" : u.role}</span></p>
-                          {u.assignedAccounts && u.assignedAccounts.length > 0 && (
-                            <div className="flex flex-wrap gap-1 mt-1">
-                              {u.assignedAccounts.map((a: string) => (
-                                <span key={a} className="bg-blue-100 text-blue-700 text-[10px] px-1.5 py-0.5 rounded-md font-bold">{a}</span>
-                              ))}
-                            </div>
-                          )}
-                          {u.role !== "admin" && !u.isFree && (u as any).session_limit != null && (
-                            <p className="text-[10px] text-emerald-700 mt-0.5 font-semibold">
-                              Session limit: {(u as any).session_limit === 0 ? "unlimited" : `${(u as any).session_limit} device${(u as any).session_limit === 1 ? "" : "s"}`}
-                            </p>
-                          )}
-                          {u.isFree && (u as any).expiresAt && (
-                            <p className="text-[10px] text-emerald-700 mt-0.5 font-semibold">
-                              Expires: {new Date((u as any).expiresAt).toLocaleString()}
-                            </p>
-                          )}
-                          {(!u.assignedAccounts || u.assignedAccounts.length === 0) && u.role !== "admin" && (
-                            <p className="text-[10px] text-amber-600 mt-0.5 font-semibold">No accounts assigned</p>
-                          )}
-                        </div>
+                        {u.pinned && (
+                          <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-amber-400 text-amber-900 flex items-center justify-center shadow ring-2 ring-white">
+                            <Pin className="w-3 h-3" strokeWidth={3} fill="currentColor" />
+                          </span>
+                        )}
                       </div>
-                      {u.role !== "admin" && (
-                        <div className="flex items-center gap-1 self-end sm:self-auto">
-                          <button onClick={() => togglePinnedUser(u)} title={u.pinned ? "Unpin from top" : "Pin to top"}
-                            className={`p-2 rounded-lg transition-colors ${u.pinned ? "bg-amber-100 text-amber-700 hover:bg-amber-200" : "hover:bg-amber-50 text-amber-400 hover:text-amber-600"}`}>
-                            <Pin className="w-4 h-4" strokeWidth={2.5} fill={u.pinned ? "currentColor" : "none"} />
-                          </button>
-                          <button onClick={() => toggleProfileLocationRequired(u)} title={isLocationRequiredForProfile(u) ? "Location required" : "Location not required"}
-                            className={`p-2 rounded-lg transition-colors ${isLocationRequiredForProfile(u) ? "bg-sky-100 text-sky-700 hover:bg-sky-200" : "hover:bg-slate-100 text-slate-400 hover:text-slate-600"}`}>
-                            {isLocationRequiredForProfile(u) ? <MapPin className="w-4 h-4" /> : <MapPinOff className="w-4 h-4" />}
-                          </button>
-                          <button onClick={() => loginAsUser(u)} title="View as user"
-                            className="p-2 hover:bg-blue-50 text-blue-400 hover:text-blue-600 rounded-lg transition-colors">
-                            <Eye className="w-4 h-4" />
-                          </button>
-                          <button onClick={() => {
-                              const opening = editingUserAccounts !== u.id;
-                              setEditingUserAccounts(opening ? u.id : null);
-                              setEditUsername(u.username || "");
-                              setEditAccountsList(normalizeSelectedAccounts((u as any).assignedAccounts || []));
-                              const cur = (u as any).session_limit;
-                              setEditSessionLimit(cur === null || cur === undefined ? "" : String(cur));
-                              const exp = (u as any).expiresAt as string | null | undefined;
-                              if (exp) {
-                                const d = new Date(exp);
-                                const pad = (n: number) => String(n).padStart(2, "0");
-                                setEditExpiresAt(`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`);
-                              } else {
-                                setEditExpiresAt("");
-                              }
-                            }} title="Edit accounts & session limit"
-                            className="p-2 hover:bg-green-50 text-green-400 hover:text-green-600 rounded-lg transition-colors">
-                            <Edit className="w-4 h-4" />
-                          </button>
-                          {!u.isFree && (
-                            <button onClick={() => { setChangingUserPass(changingUserPass === u.id ? null : u.id); setUserNewPass(""); }} title="Change password"
-                              className="p-2 hover:bg-amber-50 text-amber-400 hover:text-amber-600 rounded-lg transition-colors">
-                              <KeyRound className="w-4 h-4" />
-                            </button>
+                      <div className="min-w-0 flex-1">
+                        <p className="font-bold text-slate-900 truncate text-sm sm:text-base leading-tight">{u.name}</p>
+                        <p className="text-[11px] sm:text-xs text-slate-500 truncate mt-0.5">
+                          {u.username ? `@${u.username} • ` : ""}
+                          <span className={u.role === "admin" ? "text-red-600 font-bold" : (u.isFree ? "text-emerald-600 font-semibold" : "text-blue-600 font-semibold")}>{u.isFree ? "free" : u.role}</span>
+                        </p>
+                        <div className="flex flex-wrap gap-1 mt-1.5">
+                          {u.isFree && <span className="text-[9px] font-black bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded">FREE</span>}
+                          {isLocationRequiredForProfile(u)
+                            ? <span className="inline-flex items-center gap-1 text-[9px] font-black bg-sky-100 text-sky-700 px-1.5 py-0.5 rounded"><MapPin className="w-2.5 h-2.5" /> GPS</span>
+                            : <span className="inline-flex items-center gap-1 text-[9px] font-black bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded"><MapPinOff className="w-2.5 h-2.5" /> NO GPS</span>}
+                          {u.assignedAccounts && u.assignedAccounts.length > 0 && u.assignedAccounts.map((a: string) => (
+                            <span key={a} className="bg-blue-50 text-blue-700 text-[10px] px-1.5 py-0.5 rounded-md font-bold border border-blue-100">{a}</span>
+                          ))}
+                          {(!u.assignedAccounts || u.assignedAccounts.length === 0) && u.role !== "admin" && (
+                            <span className="text-[10px] text-amber-700 bg-amber-50 border border-amber-100 px-1.5 py-0.5 rounded font-semibold">No accounts</span>
                           )}
-                          <button onClick={() => deleteUser(u.id)} title="Delete user"
-                            className="p-2 hover:bg-red-50 text-red-400 hover:text-red-600 rounded-lg transition-colors">
-                            <Trash2 className="w-4 h-4" />
-                          </button>
                         </div>
-                      )}
+                        {u.role !== "admin" && !u.isFree && (u as any).session_limit != null && (
+                          <p className="text-[10px] text-emerald-700 mt-1 font-semibold">
+                            Sessions: {(u as any).session_limit === 0 ? "unlimited" : `${(u as any).session_limit}`}
+                          </p>
+                        )}
+                        {u.isFree && (u as any).expiresAt && (
+                          <p className="text-[10px] text-emerald-700 mt-1 font-semibold">
+                            Expires: {new Date((u as any).expiresAt).toLocaleString()}
+                          </p>
+                        )}
+                      </div>
                     </div>
+                    {u.role !== "admin" && (
+                      <div className="mt-3 pt-3 border-t border-slate-200/60 grid grid-cols-6 sm:flex sm:flex-wrap sm:justify-end gap-1.5">
+                        <button onClick={() => togglePinnedUser(u)} title={u.pinned ? "Unpin from top" : "Pin to top"}
+                          className={`flex items-center justify-center h-9 rounded-lg transition-all active:scale-95 ${u.pinned ? "bg-amber-100 text-amber-700 hover:bg-amber-200 ring-1 ring-amber-200" : "bg-slate-100 text-slate-500 hover:bg-amber-50 hover:text-amber-600"}`}>
+                          <Pin className="w-4 h-4" strokeWidth={2.5} fill={u.pinned ? "currentColor" : "none"} />
+                        </button>
+                        <button onClick={() => toggleProfileLocationRequired(u)} title={isLocationRequiredForProfile(u) ? "GPS required" : "GPS off"}
+                          className={`flex items-center justify-center h-9 rounded-lg transition-all active:scale-95 ${isLocationRequiredForProfile(u) ? "bg-sky-100 text-sky-700 hover:bg-sky-200 ring-1 ring-sky-200" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}>
+                          {isLocationRequiredForProfile(u) ? <MapPin className="w-4 h-4" /> : <MapPinOff className="w-4 h-4" />}
+                        </button>
+                        <button onClick={() => loginAsUser(u)} title="View as user"
+                          className="flex items-center justify-center h-9 rounded-lg bg-slate-100 text-slate-500 hover:bg-blue-50 hover:text-blue-600 transition-all active:scale-95">
+                          <Eye className="w-4 h-4" />
+                        </button>
+                        <button onClick={() => {
+                            const opening = editingUserAccounts !== u.id;
+                            setEditingUserAccounts(opening ? u.id : null);
+                            setEditUsername(u.username || "");
+                            setEditAccountsList(normalizeSelectedAccounts((u as any).assignedAccounts || []));
+                            const cur = (u as any).session_limit;
+                            setEditSessionLimit(cur === null || cur === undefined ? "" : String(cur));
+                            const exp = (u as any).expiresAt as string | null | undefined;
+                            if (exp) {
+                              const d = new Date(exp);
+                              const pad = (n: number) => String(n).padStart(2, "0");
+                              setEditExpiresAt(`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`);
+                            } else {
+                              setEditExpiresAt("");
+                            }
+                          }} title="Edit"
+                          className={`flex items-center justify-center h-9 rounded-lg transition-all active:scale-95 ${editingUserAccounts === u.id ? "bg-green-100 text-green-700 ring-1 ring-green-200" : "bg-slate-100 text-slate-500 hover:bg-green-50 hover:text-green-600"}`}>
+                          <Edit className="w-4 h-4" />
+                        </button>
+                        {!u.isFree ? (
+                          <button onClick={() => { setChangingUserPass(changingUserPass === u.id ? null : u.id); setUserNewPass(""); }} title="Change password"
+                            className={`flex items-center justify-center h-9 rounded-lg transition-all active:scale-95 ${changingUserPass === u.id ? "bg-amber-100 text-amber-700 ring-1 ring-amber-200" : "bg-slate-100 text-slate-500 hover:bg-amber-50 hover:text-amber-600"}`}>
+                            <KeyRound className="w-4 h-4" />
+                          </button>
+                        ) : <span className="hidden sm:block" />}
+                        <button onClick={() => deleteUser(u.id)} title="Delete user"
+                          className="flex items-center justify-center h-9 rounded-lg bg-slate-100 text-slate-500 hover:bg-red-50 hover:text-red-600 transition-all active:scale-95">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    )}
+
+
 
 
                     {editingUserAccounts === u.id && u.role !== "admin" && (
