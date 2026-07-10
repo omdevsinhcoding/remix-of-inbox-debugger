@@ -8784,8 +8784,20 @@ function EmailViewer() {
         }
       }
       if (!html) {
-        pushDiag({ ts: Date.now(), kind: "cache", endpoint: "get_email_html", error: "Cloudflare Worker required — Supabase fallback disabled" });
+        // Supabase fallback when the Cloudflare Worker is unreachable/unset.
+        // Without this, users see only the tiny preview text instead of the
+        // full HTML email (Netflix logo, buttons, etc.) — matching Gmail.
+        try {
+          const res: any = await apiCall("manage-app", { action: "get_email_html", id: email.id });
+          if (res?.success && typeof res.html === "string") {
+            html = res.html;
+            pushDiag({ ts: Date.now(), kind: "cache", endpoint: "get_email_html", status: 200 });
+          }
+        } catch (e) {
+          pushDiag({ ts: Date.now(), kind: "cache", endpoint: "get_email_html", error: e instanceof Error ? e.message : String(e) });
+        }
       }
+
 
       if (html) {
         setSelectedEmail((cur) => (cur && cur.id === email.id ? { ...cur, html } : cur));
@@ -9069,6 +9081,22 @@ function EmailViewer() {
                 </div>
 
                 <div className="flex-1 overflow-auto p-2 sm:p-6 bg-white">
+                  {selectedEmail.otp && (
+                    <div className="mb-4 sm:mb-8 bg-slate-900 rounded-xl sm:rounded-2xl p-4 sm:p-6 text-center shadow-xl shadow-slate-200 relative overflow-hidden">
+                      <div className="relative z-10">
+                        <p className="text-slate-400 text-[10px] sm:text-xs font-bold uppercase tracking-[0.15em] mb-1 sm:mb-2">Detected OTP Code</p>
+                        <div className="text-3xl sm:text-5xl font-mono font-black text-white tracking-wider sm:tracking-widest mb-2 sm:mb-4">{selectedEmail.otp}</div>
+                        <button onClick={() => copyOtp(selectedEmail.otp!)}
+                          className="flex items-center gap-1.5 mx-auto px-4 py-1.5 sm:px-6 sm:py-2 bg-red-600 hover:bg-red-700 text-white rounded-full font-bold text-xs sm:text-sm transition-all active:scale-95">
+                          {otpCopied ? <><Check className="w-4 h-4" />Copied!</> : <><Copy className="w-4 h-4" />Copy Code</>}
+                        </button>
+                      </div>
+                      <div className="absolute top-0 right-0 p-2 sm:p-4 opacity-10">
+                        <ShieldCheck className="w-16 h-16 sm:w-24 sm:h-24 text-white" />
+                      </div>
+                    </div>
+                  )}
+
                   <div className="email-html-wrapper">
                     {!selectedEmail.html && loadingEmailHtmlId === selectedEmail.id ? (
                       <div className="min-h-[320px] flex items-center justify-center text-center text-slate-400">
