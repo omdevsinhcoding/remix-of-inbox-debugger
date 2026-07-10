@@ -106,15 +106,19 @@ function emailVisibilityCategory(row: any): "signin" | "password_reset" | "accou
   return "other";
 }
 
-function shouldExposeEmailToUser(row: any, filters: EmailVisibilityFilters, isFree: boolean) {
+function shouldExposeEmailToUser(row: any, filters: EmailVisibilityFilters, _isFree: boolean) {
+  // Uniform policy for paid AND free profiles — admin toggles are the single
+  // source of truth. If admin turns a category OFF in the admin panel, no
+  // user (paid or free) sees emails in that category. If ON, both see them.
   const hideSignin = filters.showSignInCodes === false;
-  const hideReset = filters.showPasswordResets !== true;
-  const hideAccountUpdate = filters.showAccountUpdates !== true;
+  const hideReset = filters.showPasswordResets === false;
+  const hideAccountUpdate = filters.showAccountUpdates === false;
   const category = emailVisibilityCategory(row);
-  if (isFree && category !== "signin") return false;
   if (hideSignin && category === "signin") return false;
   if (hideReset && category === "password_reset") return false;
   if (hideAccountUpdate && category === "account_update") return false;
+  // "other" (uncategorized) is hidden only when BOTH reset+account-update are hidden,
+  // matching the previous conservative default.
   if (hideReset && hideAccountUpdate && category === "other") return false;
   return true;
 }
