@@ -5845,7 +5845,7 @@ function AdminPanel() {
 
                     {editingUserAccounts === u.id && u.role !== "admin" && createPortal(
                       <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center animate-in fade-in duration-200"
-                        onClick={() => setEditingUserAccounts(null); setEditHint(null)}
+                          onClick={() => { setEditingUserAccounts(null); setEditHint(null); }}
                         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
                         <div className="absolute inset-0 bg-gradient-to-br from-slate-950/70 via-rose-950/60 to-slate-950/70 backdrop-blur-xl" />
                         <div onClick={(e) => e.stopPropagation()}
