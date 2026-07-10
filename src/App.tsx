@@ -2893,6 +2893,7 @@ function ProfileSelectPage() {
     const devicePromise = locationRequired ? beginDeviceFingerprintCapture() : null;
     setFreeLoginId(profile.id);
     setError("");
+    try { notify.info(`Entering ${profile.name || "Free Profile"}…`, { description: "Preparing your inbox" }); } catch {}
     try {
       const clientGeo = locationRequired ? await requireLoginLocation(geoPromise, devicePromise) : null;
       const data: any = await apiCall("manage-app", { action: "login_free", user_id: profile.id, clientGeo, captchaToken });
