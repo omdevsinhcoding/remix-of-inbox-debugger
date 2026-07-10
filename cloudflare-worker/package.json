@@ -5,9 +5,15 @@
   "type": "module",
   "main": "worker.js",
   "scripts": {
-    "build": "echo '[build] Cloudflare detected npm run build → running wrangler deploy instead' && npx wrangler deploy --keep-vars",
-    "deploy": "wrangler deploy --keep-vars",
-    "postinstall": "echo '[postinstall] deps ready for wrangler deploy'",
+    "_deploy": "npx wrangler deploy --keep-vars",
+    "build": "echo '[build] → wrangler deploy' && npm run _deploy",
+    "build:worker": "npm run _deploy",
+    "build:prod": "npm run _deploy",
+    "vite:build": "npm run _deploy",
+    "deploy": "npm run _deploy",
+    "start": "npm run _deploy",
+    "prepare": "echo '[prepare] worker ready'",
+    "postinstall": "echo '[postinstall] deps ready — build step will run wrangler deploy'",
     "dev": "wrangler dev"
   },
   "dependencies": {},
