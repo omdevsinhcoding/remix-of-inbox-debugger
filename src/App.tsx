@@ -4017,36 +4017,55 @@ function AllEmailsPanel() {
   };
 
   if (view === "picker") {
+    const hasPrimary = !!primaryUser;
+    const hasAny = hasPrimary || labels.length > 0;
     return (
       <section className="bg-white p-4 sm:p-6 rounded-2xl border shadow-sm">
-        <div className="flex flex-wrap items-center gap-2 mb-4">
+        <div className="flex flex-wrap items-start gap-2 mb-4">
           <h2 className="font-black text-base sm:text-lg flex items-center gap-2 mr-auto">
             <div className="bg-red-50 p-1.5 rounded-lg"><Mail className="w-4 h-4 text-red-600" /></div>
             All Emails
           </h2>
-          <p className="text-xs text-slate-500 w-full sm:w-auto">Pick an email account to load its mails.</p>
+          <p className="text-[11px] sm:text-xs text-slate-500 w-full sm:w-auto sm:text-right">Tap an account to load its mails.</p>
         </div>
-        {labels.length === 0 ? (
+        {!hasAny ? (
           <div className="py-12 text-center text-slate-500 text-sm">No email accounts configured yet.</div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 sm:gap-3">
             <button
               onClick={() => openAccount("")}
-              className="text-left p-4 rounded-xl border-2 border-dashed border-slate-300 hover:border-red-400 hover:bg-red-50 transition group"
+              className="text-left p-3.5 sm:p-4 rounded-xl border-2 border-dashed border-slate-300 hover:border-red-400 hover:bg-red-50 active:scale-[0.98] transition group"
             >
               <div className="flex items-center gap-3">
-                <div className="bg-slate-100 group-hover:bg-red-100 p-2 rounded-lg"><Mail className="w-5 h-5 text-slate-600 group-hover:text-red-600" /></div>
+                <div className="bg-slate-100 group-hover:bg-red-100 p-2 rounded-lg flex-shrink-0"><Mail className="w-5 h-5 text-slate-600 group-hover:text-red-600" /></div>
                 <div className="min-w-0">
                   <p className="font-semibold text-slate-900 truncate">All accounts</p>
                   <p className="text-[11px] text-slate-500">Combined view (heavier query)</p>
                 </div>
               </div>
             </button>
+            {hasPrimary && (
+              <button
+                onClick={() => openAccount("Primary")}
+                className="text-left p-3.5 sm:p-4 rounded-xl border border-amber-200 bg-gradient-to-br from-amber-50 to-white hover:border-amber-400 hover:from-amber-100 active:scale-[0.98] transition group"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="bg-amber-100 group-hover:bg-amber-200 p-2 rounded-lg flex-shrink-0"><Mail className="w-5 h-5 text-amber-700" /></div>
+                  <div className="min-w-0">
+                    <p className="font-semibold text-slate-900 truncate flex items-center gap-1.5">
+                      Primary
+                      <span className="text-[9px] font-black bg-amber-200 text-amber-800 px-1.5 py-0.5 rounded">DEFAULT</span>
+                    </p>
+                    <p className="text-[11px] text-slate-500 truncate" title={primaryUser}>{primaryUser}</p>
+                  </div>
+                </div>
+              </button>
+            )}
             {labels.map(l => (
               <button key={l} onClick={() => openAccount(l)}
-                className="text-left p-4 rounded-xl border hover:border-red-400 hover:bg-red-50/40 transition group">
+                className="text-left p-3.5 sm:p-4 rounded-xl border hover:border-red-400 hover:bg-red-50/40 active:scale-[0.98] transition group">
                 <div className="flex items-center gap-3">
-                  <div className="bg-red-50 group-hover:bg-red-100 p-2 rounded-lg"><Mail className="w-5 h-5 text-red-600" /></div>
+                  <div className="bg-red-50 group-hover:bg-red-100 p-2 rounded-lg flex-shrink-0"><Mail className="w-5 h-5 text-red-600" /></div>
                   <div className="min-w-0">
                     <p className="font-semibold text-slate-900 truncate" title={l}>{l}</p>
                     <p className="text-[11px] text-slate-500">Click to load mails</p>
@@ -4058,6 +4077,7 @@ function AllEmailsPanel() {
         )}
       </section>
     );
+
   }
 
   return (
