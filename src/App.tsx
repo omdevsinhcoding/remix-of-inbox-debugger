@@ -5656,27 +5656,35 @@ function AdminPanel() {
               </div>
             </section>
 
-            <section className="lg:col-span-2 relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-5 sm:p-7 shadow-[0_25px_70px_-25px_rgba(15,23,42,0.6)] border border-slate-800/50">
-              {/* Decorative grid */}
-              <div className="absolute inset-0 opacity-[0.04] pointer-events-none" style={{ backgroundImage: "linear-gradient(rgba(255,255,255,.5) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.5) 1px, transparent 1px)", backgroundSize: "24px 24px" }} />
-              <div className="absolute -top-24 -left-24 w-64 h-64 bg-blue-500/15 rounded-full blur-3xl pointer-events-none" />
-              <div className="absolute -bottom-24 -right-24 w-64 h-64 bg-red-500/10 rounded-full blur-3xl pointer-events-none" />
+            <section className="lg:col-span-2 relative overflow-hidden rounded-3xl bg-white p-5 sm:p-7 border border-slate-200/70 shadow-[0_20px_60px_-30px_rgba(59,130,246,0.25)]">
+              {/* Soft blush accents */}
+              <div className="absolute -top-32 -left-32 w-72 h-72 bg-gradient-to-br from-blue-100 to-transparent rounded-full blur-3xl pointer-events-none" />
+              <div className="absolute -bottom-32 -right-32 w-72 h-72 bg-gradient-to-tl from-red-50 to-transparent rounded-full blur-3xl pointer-events-none" />
 
-              <div className="relative flex items-end justify-between gap-3 mb-5 pb-4 border-b border-slate-800/60">
-                <div className="min-w-0">
-                  <p className="text-[10px] font-black tracking-[0.2em] text-blue-400/80 mb-1">ROSTER</p>
-                  <h2 className="font-black text-xl sm:text-2xl text-white tracking-tight leading-none flex items-center gap-2.5">
-                    Active Users
-                    <span className="text-[10px] font-mono font-bold bg-slate-800 text-slate-300 px-2 py-0.5 rounded border border-slate-700">{users.length.toString().padStart(2, "0")}</span>
-                  </h2>
-                  <p className="text-[10px] sm:text-[11px] text-slate-500 mt-2 font-mono">// drag to reorder · pinned stays on top</p>
+              <div className="relative flex items-end justify-between gap-3 mb-5 pb-4 border-b border-slate-100">
+                <div className="min-w-0 flex items-center gap-3">
+                  <div className="relative flex-shrink-0">
+                    <div className="absolute inset-0 bg-blue-500 rounded-2xl blur-md opacity-30" />
+                    <div className="relative w-11 h-11 rounded-2xl bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center shadow-lg shadow-blue-500/30">
+                      <Users className="w-5 h-5 text-white" strokeWidth={2.5} />
+                    </div>
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-black tracking-[0.2em] text-blue-600 mb-0.5">ROSTER</p>
+                    <h2 className="font-black text-xl sm:text-2xl text-slate-900 tracking-tight leading-none flex items-center gap-2">
+                      Active Users
+                      <span className="text-[10px] font-mono font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md border border-slate-200">{users.length.toString().padStart(2, "0")}</span>
+                    </h2>
+                    <p className="text-[10px] sm:text-[11px] text-slate-400 mt-1.5 font-mono hidden sm:block">// drag to reorder · pinned stays on top</p>
+                  </div>
                 </div>
               </div>
 
               <div className="relative space-y-2.5">
                 {users.map(u => {
                   const canDrag = u.role !== "admin";
-                  const railColor = u.role === "admin" ? "from-red-500 to-red-700" : (u.isFree ? "from-emerald-400 to-emerald-600" : "from-blue-400 to-blue-600");
+                  const railColor = u.role === "admin" ? "from-red-500 to-red-700" : (u.isFree ? "from-emerald-400 to-emerald-600" : "from-blue-500 to-blue-700");
+                  const glowColor = u.role === "admin" ? "shadow-red-500/20" : (u.isFree ? "shadow-emerald-500/20" : "shadow-blue-500/20");
                   return (
                   <div
                     key={u.id}
@@ -5685,60 +5693,60 @@ function AdminPanel() {
                     onDragOver={(e) => { if (canDrag && dragUserId && dragUserId !== u.id) e.preventDefault(); }}
                     onDrop={(e) => { e.preventDefault(); if (canDrag) onDropUser(u.id); }}
                     onDragEnd={() => setDragUserId(null)}
-                    className={`group relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900/90 to-slate-900/60 border transition-all min-w-0 backdrop-blur ${dragUserId === u.id ? "opacity-50 border-emerald-400/60 ring-2 ring-emerald-400/30" : "border-slate-800 hover:border-slate-700"} ${canDrag ? "sm:cursor-move" : ""}`}
+                    className={`group relative overflow-hidden rounded-2xl bg-white border transition-all min-w-0 ${dragUserId === u.id ? "opacity-50 border-emerald-400 ring-2 ring-emerald-200" : `border-slate-200 hover:border-slate-300 hover:shadow-lg ${glowColor}`} ${canDrag ? "sm:cursor-move" : ""}`}
                   >
                     {/* Left color rail */}
                     <div className={`absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b ${railColor}`} />
 
                     {/* Role ribbon top-right */}
                     {u.role === "admin" && (
-                      <div className="absolute top-0 right-0 bg-gradient-to-l from-red-600 to-red-500 text-white text-[9px] font-black tracking-[0.15em] px-3 py-1 rounded-bl-xl shadow-lg">ADMIN</div>
+                      <div className="absolute top-0 right-0 bg-gradient-to-l from-red-600 to-red-500 text-white text-[9px] font-black tracking-[0.15em] px-3 py-1 rounded-bl-xl shadow-md">ADMIN</div>
                     )}
                     {u.isFree && (
-                      <div className="absolute top-0 right-0 bg-gradient-to-l from-emerald-600 to-emerald-500 text-white text-[9px] font-black tracking-[0.15em] px-3 py-1 rounded-bl-xl shadow-lg">FREE</div>
+                      <div className="absolute top-0 right-0 bg-gradient-to-l from-emerald-600 to-emerald-500 text-white text-[9px] font-black tracking-[0.15em] px-3 py-1 rounded-bl-xl shadow-md">FREE</div>
                     )}
 
-                    <div className="p-4 pl-5">
-                      <div className="flex items-start gap-3.5 min-w-0">
+                    <div className="p-3.5 sm:p-4 pl-4 sm:pl-5">
+                      <div className="flex items-start gap-3 sm:gap-3.5 min-w-0">
                         <div className="relative flex-shrink-0">
-                          <div className={`absolute inset-0 rounded-2xl bg-gradient-to-br ${railColor} blur-md opacity-40`} />
+                          <div className={`absolute inset-0 rounded-2xl bg-gradient-to-br ${railColor} blur-md opacity-25`} />
                           <ProfileAvatar
                             avatarId={getStableProfileAvatar(u)}
                             name={u.name}
-                            className="relative w-14 h-14 !rounded-2xl ring-2 ring-slate-800 shadow-xl"
+                            className="relative w-12 h-12 sm:w-14 sm:h-14 !rounded-2xl ring-2 ring-white shadow-md"
                             fallbackColor={u.role === "admin" ? "bg-red-500" : (u.isFree ? "bg-emerald-500" : "bg-blue-500")}
                           />
                           {u.pinned && (
-                            <span className="absolute -top-1.5 -right-1.5 w-6 h-6 rounded-full bg-gradient-to-br from-amber-300 to-amber-500 text-amber-950 flex items-center justify-center shadow-lg ring-2 ring-slate-900">
+                            <span className="absolute -top-1.5 -right-1.5 w-6 h-6 rounded-full bg-gradient-to-br from-amber-300 to-amber-500 text-amber-950 flex items-center justify-center shadow-md ring-2 ring-white">
                               <Pin className="w-3 h-3" strokeWidth={3} fill="currentColor" />
                             </span>
                           )}
                         </div>
-                        <div className="min-w-0 flex-1 pt-0.5">
-                          <p className="font-black text-white truncate text-base leading-tight tracking-tight">{u.name}</p>
-                          <p className="text-[11px] text-slate-400 truncate mt-1 font-mono">
+                        <div className="min-w-0 flex-1 pt-0.5 pr-16 sm:pr-0">
+                          <p className="font-black text-slate-900 truncate text-sm sm:text-base leading-tight tracking-tight">{u.name}</p>
+                          <p className="text-[11px] text-slate-500 truncate mt-0.5 sm:mt-1 font-mono">
                             {u.username ? `@${u.username}` : "—"}
-                            <span className="mx-1.5 text-slate-700">·</span>
-                            <span className={u.role === "admin" ? "text-red-400 font-bold uppercase" : (u.isFree ? "text-emerald-400 font-bold uppercase" : "text-blue-400 font-bold uppercase")}>{u.isFree ? "free" : u.role}</span>
+                            <span className="mx-1.5 text-slate-300">·</span>
+                            <span className={u.role === "admin" ? "text-red-600 font-bold uppercase" : (u.isFree ? "text-emerald-600 font-bold uppercase" : "text-blue-600 font-bold uppercase")}>{u.isFree ? "free" : u.role}</span>
                           </p>
-                          <div className="flex flex-wrap gap-1 mt-2">
+                          <div className="flex flex-wrap gap-1 mt-1.5 sm:mt-2">
                             {isLocationRequiredForProfile(u)
-                              ? <span className="inline-flex items-center gap-1 text-[9px] font-black bg-sky-500/15 text-sky-300 border border-sky-500/30 px-1.5 py-0.5 rounded"><MapPin className="w-2.5 h-2.5" /> GPS</span>
-                              : <span className="inline-flex items-center gap-1 text-[9px] font-black bg-slate-800 text-slate-500 border border-slate-700 px-1.5 py-0.5 rounded"><MapPinOff className="w-2.5 h-2.5" /> OFF</span>}
+                              ? <span className="inline-flex items-center gap-1 text-[9px] font-black bg-sky-50 text-sky-700 border border-sky-200 px-1.5 py-0.5 rounded"><MapPin className="w-2.5 h-2.5" /> GPS</span>
+                              : <span className="inline-flex items-center gap-1 text-[9px] font-black bg-slate-100 text-slate-500 border border-slate-200 px-1.5 py-0.5 rounded"><MapPinOff className="w-2.5 h-2.5" /> OFF</span>}
                             {u.assignedAccounts && u.assignedAccounts.length > 0 && u.assignedAccounts.map((a: string) => (
-                              <span key={a} className="bg-blue-500/15 text-blue-300 border border-blue-500/30 text-[10px] px-1.5 py-0.5 rounded font-bold font-mono">{a}</span>
+                              <span key={a} className="bg-blue-50 text-blue-700 border border-blue-200 text-[10px] px-1.5 py-0.5 rounded font-bold font-mono">{a}</span>
                             ))}
                             {(!u.assignedAccounts || u.assignedAccounts.length === 0) && u.role !== "admin" && (
-                              <span className="text-[10px] text-amber-300 bg-amber-500/10 border border-amber-500/30 px-1.5 py-0.5 rounded font-bold">no accounts</span>
+                              <span className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded font-bold">no accounts</span>
                             )}
                           </div>
                           {u.role !== "admin" && !u.isFree && (u as any).session_limit != null && (
-                            <p className="text-[10px] text-emerald-300 mt-1.5 font-mono">
+                            <p className="text-[10px] text-emerald-700 mt-1.5 font-mono">
                               sessions: <span className="font-bold">{(u as any).session_limit === 0 ? "∞" : (u as any).session_limit}</span>
                             </p>
                           )}
                           {u.isFree && (u as any).expiresAt && (
-                            <p className="text-[10px] text-emerald-300 mt-1.5 font-mono truncate">
+                            <p className="text-[10px] text-emerald-700 mt-1.5 font-mono truncate">
                               expires: <span className="font-bold">{new Date((u as any).expiresAt).toLocaleString()}</span>
                             </p>
                           )}
@@ -5746,18 +5754,18 @@ function AdminPanel() {
                       </div>
 
                       {u.role !== "admin" && (
-                        <div className="mt-3.5 flex items-center gap-1 p-1 rounded-xl bg-slate-950/60 border border-slate-800/80 backdrop-blur">
+                        <div className="mt-3 flex items-center gap-0.5 sm:gap-1 p-1 rounded-xl bg-gradient-to-br from-slate-50 to-slate-100/60 border border-slate-200/80">
                           <button onClick={() => togglePinnedUser(u)} title={u.pinned ? "Unpin" : "Pin to top"}
-                            className={`flex-1 flex items-center justify-center h-9 rounded-lg transition-all active:scale-95 ${u.pinned ? "bg-gradient-to-br from-amber-400/25 to-amber-600/15 text-amber-300 ring-1 ring-amber-400/40 shadow-inner" : "text-slate-500 hover:bg-slate-800 hover:text-amber-300"}`}>
+                            className={`flex-1 flex items-center justify-center h-9 rounded-lg transition-all active:scale-95 ${u.pinned ? "bg-white text-amber-600 ring-1 ring-amber-300 shadow-sm" : "text-slate-500 hover:bg-white hover:text-amber-600 hover:shadow-sm"}`}>
                             <Pin className="w-4 h-4" strokeWidth={2.5} fill={u.pinned ? "currentColor" : "none"} />
                           </button>
                           <button onClick={() => toggleProfileLocationRequired(u)} title={isLocationRequiredForProfile(u) ? "GPS on" : "GPS off"}
-                            className={`flex-1 flex items-center justify-center h-9 rounded-lg transition-all active:scale-95 ${isLocationRequiredForProfile(u) ? "bg-gradient-to-br from-sky-400/25 to-sky-600/15 text-sky-300 ring-1 ring-sky-400/40 shadow-inner" : "text-slate-500 hover:bg-slate-800 hover:text-slate-300"}`}>
+                            className={`flex-1 flex items-center justify-center h-9 rounded-lg transition-all active:scale-95 ${isLocationRequiredForProfile(u) ? "bg-white text-sky-600 ring-1 ring-sky-300 shadow-sm" : "text-slate-500 hover:bg-white hover:text-sky-600 hover:shadow-sm"}`}>
                             {isLocationRequiredForProfile(u) ? <MapPin className="w-4 h-4" /> : <MapPinOff className="w-4 h-4" />}
                           </button>
-                          <div className="w-px h-6 bg-slate-800" />
+                          <div className="w-px h-6 bg-slate-200" />
                           <button onClick={() => loginAsUser(u)} title="View as user"
-                            className="flex-1 flex items-center justify-center h-9 rounded-lg text-slate-500 hover:bg-slate-800 hover:text-blue-300 transition-all active:scale-95">
+                            className="flex-1 flex items-center justify-center h-9 rounded-lg text-slate-500 hover:bg-white hover:text-blue-600 hover:shadow-sm transition-all active:scale-95">
                             <Eye className="w-4 h-4" />
                           </button>
                           <button onClick={() => {
@@ -5776,18 +5784,19 @@ function AdminPanel() {
                                 setEditExpiresAt("");
                               }
                             }} title="Edit"
-                            className={`flex-1 flex items-center justify-center h-9 rounded-lg transition-all active:scale-95 ${editingUserAccounts === u.id ? "bg-gradient-to-br from-emerald-400/25 to-emerald-600/15 text-emerald-300 ring-1 ring-emerald-400/40 shadow-inner" : "text-slate-500 hover:bg-slate-800 hover:text-emerald-300"}`}>
+                            className={`flex-1 flex items-center justify-center h-9 rounded-lg transition-all active:scale-95 ${editingUserAccounts === u.id ? "bg-white text-emerald-600 ring-1 ring-emerald-300 shadow-sm" : "text-slate-500 hover:bg-white hover:text-emerald-600 hover:shadow-sm"}`}>
                             <Edit className="w-4 h-4" />
                           </button>
                           {!u.isFree && (
                             <button onClick={() => { setChangingUserPass(changingUserPass === u.id ? null : u.id); setUserNewPass(""); }} title="Change password"
-                              className={`flex-1 flex items-center justify-center h-9 rounded-lg transition-all active:scale-95 ${changingUserPass === u.id ? "bg-gradient-to-br from-amber-400/25 to-amber-600/15 text-amber-300 ring-1 ring-amber-400/40 shadow-inner" : "text-slate-500 hover:bg-slate-800 hover:text-amber-300"}`}>
+                              className={`flex-1 flex items-center justify-center h-9 rounded-lg transition-all active:scale-95 ${changingUserPass === u.id ? "bg-white text-amber-600 ring-1 ring-amber-300 shadow-sm" : "text-slate-500 hover:bg-white hover:text-amber-600 hover:shadow-sm"}`}>
                               <KeyRound className="w-4 h-4" />
                             </button>
                           )}
-                          <div className="w-px h-6 bg-slate-800" />
+                          <div className="w-px h-6 bg-slate-200" />
                           <button onClick={() => deleteUser(u.id)} title="Delete user"
-                            className="flex-1 flex items-center justify-center h-9 rounded-lg text-slate-500 hover:bg-red-500/20 hover:text-red-300 transition-all active:scale-95">
+                            className="flex-1 flex items-center justify-center h-9 rounded-lg text-slate-500 hover:bg-red-50 hover:text-red-600 hover:shadow-sm transition-all active:scale-95">
+
                             <Trash2 className="w-4 h-4" />
                           </button>
                         </div>
