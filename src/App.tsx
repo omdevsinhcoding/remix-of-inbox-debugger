@@ -3928,6 +3928,7 @@ function AllEmailsPanel() {
   const [search, setSearch] = useState("");
   const [accountLabel, setAccountLabel] = useState("");
   const [labels, setLabels] = useState<string[]>([]);
+  const [primaryUser, setPrimaryUser] = useState<string>("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [viewing, setViewing] = useState<any | null>(null);
   const [offset, setOffset] = useState(0);
@@ -3958,12 +3959,18 @@ function AllEmailsPanel() {
   useEffect(() => {
     (async () => {
       try {
-        const data = await apiCall("manage-app", { action: "get_settings", key: "email_accounts" });
-        if (Array.isArray(data?.value)) setLabels(data.value.map((a: any) => a.label || a.user).filter(Boolean));
+        const [accData, cfgData] = await Promise.all([
+          apiCall("manage-app", { action: "get_settings", key: "email_accounts" }),
+          apiCall("manage-app", { action: "get_settings", key: "config" }),
+        ]);
+        if (Array.isArray(accData?.value)) setLabels(accData.value.map((a: any) => a.label || a.user).filter(Boolean));
+        const imapUser = cfgData?.value?.IMAP_USER;
+        if (typeof imapUser === "string" && imapUser.trim()) setPrimaryUser(imapUser.trim());
       } catch {}
     })();
     // Do NOT auto-load emails — admin picks an account first.
   }, []);
+
 
   const openAccount = (label: string) => {
     setAccountLabel(label);
