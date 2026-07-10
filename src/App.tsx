@@ -5846,7 +5846,7 @@ function AdminPanel() {
                       <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center animate-in fade-in duration-200"
                         onClick={() => setEditingUserAccounts(null)}
                         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
-                        <div className="absolute inset-0 bg-gradient-to-br from-slate-950/70 via-slate-900/70 to-blue-950/70 backdrop-blur-xl" />
+                        <div className="absolute inset-0 bg-gradient-to-br from-slate-950/70 via-rose-950/60 to-slate-950/70 backdrop-blur-xl" />
                         <div onClick={(e) => e.stopPropagation()}
                           className="relative w-full sm:max-w-md max-h-[92vh] sm:max-h-[88vh] overflow-hidden bg-white sm:rounded-3xl rounded-t-3xl shadow-[0_-20px_80px_-10px_rgba(0,0,0,0.4)] sm:shadow-[0_30px_120px_-30px_rgba(244,63,94,0.5)] ring-1 ring-white/40 animate-in slide-in-from-bottom-8 sm:zoom-in-95 duration-300 flex flex-col">
                           {/* Mobile grab handle */}
