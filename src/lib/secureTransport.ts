@@ -20,10 +20,16 @@ const CT_BINARY = "application/octet-stream";
 const HKDF_INFO = "lovable-transport-v1";
 const ROTATE_BEFORE_EXPIRY_MS = 60_000; // rotate 1 min before expiry
 const FALLBACK_TTL_MS = 14 * 60_000; // if server omits expiresAt, assume 14min
+const SUPABASE_URL_FALLBACK = "https://jsqchutnfdeljajkxmly.supabase.co";
+const SUPABASE_ANON_KEY_FALLBACK = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpzcWNodXRuZmRlbGphamt4bWx5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxMjI5MzksImV4cCI6MjA4OTY5ODkzOX0.HYN4zMEYEiP-H5KD_iIbFpr0GsatNoeyw40FI2mW_eA";
 
 async function gunzipBytes(input: Uint8Array): Promise<Uint8Array> {
   const stream = new Blob([input as BlobPart]).stream().pipeThrough(new DecompressionStream("gzip"));
   return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+function canGunzipResponse(): boolean {
+  return typeof DecompressionStream !== "undefined";
 }
 
 type Session = { sidBytes: Uint8Array; key: CryptoKey; expiresAt: number };
@@ -46,10 +52,13 @@ function cleanTransportError(err: unknown): Error {
 }
 
 function fnBase(): string {
-  return `${import.meta.env.VITE_SUPABASE_URL}/functions/v1`;
+  const configuredUrl = import.meta.env.VITE_SUPABASE_URL;
+  const url = configuredUrl && configuredUrl !== "undefined" && configuredUrl !== "null" ? configuredUrl : SUPABASE_URL_FALLBACK;
+  return `${url.replace(/\/+$/, "")}/functions/v1`;
 }
 function anonKey(): string {
-  return import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+  const configuredKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+  return configuredKey && configuredKey !== "undefined" && configuredKey !== "null" ? configuredKey : SUPABASE_ANON_KEY_FALLBACK;
 }
 
 function toB64(bytes: Uint8Array): string {
@@ -201,13 +210,14 @@ export async function secureFetchJson(
     "Content-Type": CT_BINARY,
     Authorization: `Bearer ${anonKey()}`,
     apikey: anonKey(),
-    // Tell the server we can decompress gzipped payloads. This trims Supabase
-    // egress by 60-85% on JSON responses (list_delta, get_email_html,
-    // bootstrap_public, admin lists). Server only gzips when this header is
-    // present, so older clients keep working.
-    "x-accept-encoding": "gzip",
     ...(opts.headers || {}),
   };
+
+  // Only advertise gzip when this exact browser can decode it. Some Firefox /
+  // hardened browser builds don't expose DecompressionStream; if we still ask
+  // the Edge function for gzip, login/admin calls decrypt fine but fail during
+  // gunzip and show the generic secure-connection toast.
+  if (canGunzipResponse()) headers["x-accept-encoding"] = "gzip";
 
   const res = await fetch(`${fnBase()}/${functionName}`, {
     method: "POST",
