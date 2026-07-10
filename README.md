@@ -143,6 +143,8 @@ Open **Cloudflare Dashboard → Workers & Pages → Create → Import a reposito
 
 > ✅ Recommended: `Root directory=/cloudflare-worker`, Build empty, Deploy `npm run deploy`. If Cloudflare auto-fills Build as `npm run build` or `bun run build`, it is still safe because both scripts run the same Worker deploy + KV binding step.
 
+> ⚠️ Cloudflare Workers Builds has **two separate steps**: Build command and Deploy command. Build command alone is not reliable for production deploy. Keep Deploy command as `npm run deploy` so the KV bootstrap always runs.
+
 #### Step 3 — Non-Production Branches
 
 | Field | Value |
