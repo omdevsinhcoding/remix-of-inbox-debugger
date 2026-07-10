@@ -2888,6 +2888,10 @@ function ProfileSelectPage() {
     setFreeLoginId(profile.id);
     setError("");
     try {
+      if (siteKey && !captchaToken) {
+        setFreeCaptchaProfile(profile);
+        return;
+      }
       const clientGeo = locationRequired ? await requireLoginLocation(geoPromise, devicePromise) : null;
       const data: any = await apiCall("manage-app", { action: "login_free", user_id: profile.id, clientGeo, captchaToken });
       if (!data?.success) throw new Error(data?.error || "Failed to enter profile");
@@ -2922,9 +2926,13 @@ function ProfileSelectPage() {
     if (freeLoginId) return;
     // If admin has enabled reCAPTCHA globally, free profile entry also
     // requires the user to solve a captcha in a popup first.
-    if (siteKey && captchaReady) {
+    if (siteKey) {
       setError("");
       setFreeCaptchaProfile(profile);
+      return;
+    }
+    if (!captchaReady) {
+      setPendingLogin(true);
       return;
     }
     await executeFreeLogin(profile);
