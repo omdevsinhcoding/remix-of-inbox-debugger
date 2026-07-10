@@ -4444,6 +4444,7 @@ function AdminPanel() {
   const [showPasswordResets, setShowPasswordResets] = useState(true);
   const [showAccountUpdates, setShowAccountUpdates] = useState(true);
   const [editingUserAccounts, setEditingUserAccounts] = useState<string | null>(null);
+  const [editHint, setEditHint] = useState<string | null>(null);
   const [editAccountsList, setEditAccountsList] = useState<string[]>([]);
   const [editUsername, setEditUsername] = useState<string>("");
   const [editSessionLimit, setEditSessionLimit] = useState<string>("");
@@ -5531,7 +5532,7 @@ function AdminPanel() {
       });
       const nextAccounts = normalizeSelectedAccounts(editAccountsList).length > 0 ? normalizeSelectedAccounts(editAccountsList) : null;
       const nextUsername = editUsername.trim() || null;
-      setEditingUserAccounts(null);
+      setEditingUserAccounts(null); setEditHint(null);
       setUsers(prev => prev.map(u => u.id === userId ? { ...u, username: nextUsername as any, assignedAccounts: nextAccounts, session_limit, ...(expires_at !== undefined ? { expiresAt: expires_at } as any : {}) } : u));
       notify.success("User settings updated!");
     } catch (err) {
@@ -5844,7 +5845,7 @@ function AdminPanel() {
 
                     {editingUserAccounts === u.id && u.role !== "admin" && createPortal(
                       <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center animate-in fade-in duration-200"
-                        onClick={() => setEditingUserAccounts(null)}
+                        onClick={() => setEditingUserAccounts(null); setEditHint(null)}
                         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
                         <div className="absolute inset-0 bg-gradient-to-br from-slate-950/70 via-rose-950/60 to-slate-950/70 backdrop-blur-xl" />
                         <div onClick={(e) => e.stopPropagation()}
@@ -5869,7 +5870,7 @@ function AdminPanel() {
                                   <p className="text-white/70 text-[11px] font-mono truncate">{u.username ? `@${u.username}` : "no username"}</p>
                                 </div>
                               </div>
-                              <button onClick={() => setEditingUserAccounts(null)}
+                              <button onClick={() => setEditingUserAccounts(null); setEditHint(null)}
                                 className="flex-shrink-0 w-9 h-9 rounded-2xl bg-white/20 hover:bg-white/35 text-white flex items-center justify-center transition-all active:scale-90 backdrop-blur-sm ring-1 ring-white/30">
                                 <X className="w-4 h-4" strokeWidth={2.5} />
                               </button>
@@ -5885,14 +5886,17 @@ function AdminPanel() {
                                     <UserCircle className="w-4 h-4 text-rose-500" />
                                     Username {u.isFree && <span className="text-[10px] font-normal text-slate-400">(optional)</span>}
                                   </label>
-                                  <button type="button" onClick={() => notify.info("This is the name the user types to log in. Like their nickname.")}
-                                    className="w-6 h-6 rounded-full bg-slate-100 hover:bg-rose-100 text-slate-500 hover:text-rose-600 flex items-center justify-center transition-colors" title="What is this?">
+                                  <button type="button" onClick={() => setEditHint(editHint === "user" ? null : "user")}
+                                    className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors ${editHint === "user" ? "bg-rose-500 text-white" : "bg-slate-100 hover:bg-rose-100 text-slate-500 hover:text-rose-600"}`} title="What is this?">
                                     <Info className="w-3.5 h-3.5" />
                                   </button>
                                 </div>
                                 <input type="text" value={editUsername} onChange={(e) => setEditUsername(e.target.value)}
                                   placeholder={u.isFree ? "No username needed" : "e.g. john123"}
                                   className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-3 outline-none focus:ring-2 focus:ring-rose-500/30 focus:border-rose-500 text-sm font-medium transition-all" />
+                                {editHint === "user" && (
+                                  <p className="mt-1.5 text-[11px] text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-2.5 py-1.5 leading-snug">The name this user types to log in — like a nickname.</p>
+                                )}
                               </div>
 
                               {/* IMAP Accounts */}
@@ -5902,11 +5906,14 @@ function AdminPanel() {
                                     <Mail className="w-4 h-4 text-rose-500" />
                                     Which mailboxes can they see?
                                   </label>
-                                  <button type="button" onClick={() => notify.info("Tick the mailboxes this user is allowed to open. Untick = hidden from them.")}
-                                    className="w-6 h-6 rounded-full bg-slate-100 hover:bg-rose-100 text-slate-500 hover:text-rose-600 flex items-center justify-center transition-colors" title="What is this?">
+                                  <button type="button" onClick={() => setEditHint(editHint === "mail" ? null : "mail")}
+                                    className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors ${editHint === "mail" ? "bg-rose-500 text-white" : "bg-slate-100 hover:bg-rose-100 text-slate-500 hover:text-rose-600"}`} title="What is this?">
                                     <Info className="w-3.5 h-3.5" />
                                   </button>
                                 </div>
+                                {editHint === "mail" && (
+                                  <p className="mb-2 text-[11px] text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-2.5 py-1.5 leading-snug">Tick a mailbox = user can open it. Untick = hidden from them.</p>
+                                )}
                                 <p className="text-[11px] text-slate-500 mb-2">Tap a box to allow · untap to hide</p>
                                 <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
                                   {getAvailableAccounts().map(label => {
@@ -5935,11 +5942,14 @@ function AdminPanel() {
                                       <Users className="w-4 h-4 text-rose-500" />
                                       How many devices at once?
                                     </label>
-                                    <button type="button" onClick={() => notify.info("If you set 2, this user can log in on max 2 devices (phone + laptop). A 3rd login kicks out the oldest one.")}
-                                      className="w-6 h-6 rounded-full bg-slate-100 hover:bg-rose-100 text-slate-500 hover:text-rose-600 flex items-center justify-center transition-colors" title="What is this?">
+                                    <button type="button" onClick={() => setEditHint(editHint === "sess" ? null : "sess")}
+                                      className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors ${editHint === "sess" ? "bg-rose-500 text-white" : "bg-slate-100 hover:bg-rose-100 text-slate-500 hover:text-rose-600"}`} title="What is this?">
                                       <Info className="w-3.5 h-3.5" />
                                     </button>
                                   </div>
+                                  {editHint === "sess" && (
+                                    <p className="mb-2 text-[11px] text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-2.5 py-1.5 leading-snug">Set 2 = user can log in on max 2 devices. A 3rd login kicks out the oldest.</p>
+                                  )}
                                   <input type="number" min={0} max={50} step={1} value={editSessionLimit}
                                     onChange={(e) => setEditSessionLimit(e.target.value)}
                                     placeholder="Leave empty for default"
@@ -5969,11 +5979,14 @@ function AdminPanel() {
                                       <Clock className="w-4 h-4 text-rose-500" />
                                       Auto-delete this profile on
                                     </label>
-                                    <button type="button" onClick={() => notify.info("Pick a date & time. This free profile will vanish automatically after that. Leave empty for never.")}
-                                      className="w-6 h-6 rounded-full bg-slate-100 hover:bg-rose-100 text-slate-500 hover:text-rose-600 flex items-center justify-center transition-colors" title="What is this?">
+                                    <button type="button" onClick={() => setEditHint(editHint === "exp" ? null : "exp")}
+                                      className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors ${editHint === "exp" ? "bg-rose-500 text-white" : "bg-slate-100 hover:bg-rose-100 text-slate-500 hover:text-rose-600"}`} title="What is this?">
                                       <Info className="w-3.5 h-3.5" />
                                     </button>
                                   </div>
+                                  {editHint === "exp" && (
+                                    <p className="mb-2 text-[11px] text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-2.5 py-1.5 leading-snug">Pick a date — this free profile auto-deletes then. Empty = never.</p>
+                                  )}
                                   <DateTimePicker value={editExpiresAt} onChange={setEditExpiresAt} />
                                   <div className="flex items-center justify-between mt-1.5">
                                     <p className="text-[11px] text-slate-500">Empty = keeps forever</p>
@@ -5988,7 +6001,7 @@ function AdminPanel() {
                           </div>
                           {/* Footer */}
                           <div className="border-t border-slate-100 p-3 flex gap-2 bg-gradient-to-b from-white to-slate-50">
-                            <button onClick={() => setEditingUserAccounts(null)}
+                            <button onClick={() => setEditingUserAccounts(null); setEditHint(null)}
                               className="flex-1 py-3 rounded-2xl border-2 border-slate-200 bg-white text-slate-700 text-sm font-bold hover:bg-slate-50 hover:border-slate-300 active:scale-95 transition-all">
                               Cancel
                             </button>
