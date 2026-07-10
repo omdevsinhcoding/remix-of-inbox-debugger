@@ -5154,8 +5154,11 @@ function AdminPanel() {
       sessionSet("user" as any, JSON.stringify(impersonatedUser));
       if (data.sessionToken) sessionSet("session_token" as any, data.sessionToken);
       sessionRemove("admin_auth" as any);
+      checkAuth();
       navigate("/viewer", { replace: true });
-      window.setTimeout(() => checkAuth(), 0);
+      window.setTimeout(() => {
+        if (window.location.pathname !== "/viewer") window.location.replace("/viewer");
+      }, 80);
       notify.success(`Viewing as ${targetUser.name}`);
     } catch (err) {
       notify.dismiss("impersonate");
@@ -8304,6 +8307,25 @@ function EmailViewer() {
     })();
   }, []);
 
+  const loadCachedEmailsDirect = useCallback(async (limit = 200): Promise<Email[]> => {
+    const safeLimit = Math.max(1, Math.min(Number(limit) || 200, 1000));
+    const started = performance.now();
+    const delta = await apiCall("manage-app", { action: "list_delta", since: 0, limit: safeLimit });
+    const rows = Array.isArray(delta?.rows) ? delta.rows as Email[] : [];
+    pushDiag({
+      ts: Date.now(),
+      kind: "sync",
+      endpoint: "list_delta:baseline",
+      ms: Math.round(performance.now() - started),
+      note: `${rows.length} cached rows`,
+      error: delta?.success === false ? (delta?.error || "Cache load failed") : undefined,
+    });
+    setEmails(rows);
+    setError(null);
+    setLastUpdated(new Date());
+    return rows;
+  }, [pushDiag, setEmails]);
+
   const loadCachedEmails = useCallback(async (opts?: { bust?: boolean; limit?: number }) => {
     const bust = !!opts?.bust;
     const limit = opts?.limit || 3;
@@ -8323,8 +8345,9 @@ function EmailViewer() {
       }
       const groups = buildWorkerRequestGroups(labels, workerUrlMap, resolvedWorkerUrls);
       if (groups.length === 0) {
-        // No worker configured — keep whatever we already show, don't nuke inbox.
-        return filterVisibleEmails(emails, profilePrefs, user).length;
+        // No usable Worker configured — load the real cached inbox directly from Supabase.
+        const direct = await loadCachedEmailsDirect(limit).catch(() => null);
+        return direct ? filterVisibleEmails(direct, profilePrefs, user).length : filterVisibleEmails(emails, profilePrefs, user).length;
       }
 
       const lists = await Promise.all(groups.map(async (group) => {
@@ -8358,11 +8381,13 @@ function EmailViewer() {
 
       const okCount = lists.filter((item) => item.ok).length;
       if (okCount === 0) {
-        return filterVisibleEmails(emails, profilePrefs, user).length;
+        const direct = await loadCachedEmailsDirect(limit).catch(() => null);
+        return direct ? filterVisibleEmails(direct, profilePrefs, user).length : filterVisibleEmails(emails, profilePrefs, user).length;
       }
       const emailList = mergeEmailsById(lists.map((item) => item.emails));
       if (emailList.length === 0 && emails.length > 0) {
-        return filterVisibleEmails(emails, profilePrefs, user).length;
+        const direct = await loadCachedEmailsDirect(limit).catch(() => null);
+        return direct ? filterVisibleEmails(direct, profilePrefs, user).length : filterVisibleEmails(emails, profilePrefs, user).length;
       }
       setEmails(emailList);
       setError(null);
@@ -8374,7 +8399,7 @@ function EmailViewer() {
       // Preserve currently-shown emails; do not blank the inbox on transient error.
       return filterVisibleEmails(emails, profilePrefs, user).length;
     }
-  }, [profilePrefs, setEmails, pushDiag, resolvedWorkerUrls, workerUrlMap, refreshAccountLabels, emails, user]);
+  }, [profilePrefs, setEmails, pushDiag, resolvedWorkerUrls, workerUrlMap, refreshAccountLabels, emails, user, loadCachedEmailsDirect]);
 
 
   const syncViaWorker = useCallback(async (): Promise<{ emails: Email[]; inserted: number; warning: string | null; fallback: boolean } | null> => {
@@ -8495,7 +8520,10 @@ function EmailViewer() {
       }
       let merged: Email[] = emails;
       if (synced) {
-        merged = synced.emails;
+        // fetch-emails returns only newly fetched rows. Repaint from the full
+        // cached inbox after sync so a zero-new refresh never blanks the inbox.
+        const cachedAfterSync = await loadCachedEmailsDirect(200).catch(() => null);
+        merged = cachedAfterSync || (synced.emails.length > 0 ? mergeEmailsById([synced.emails, emails]) : emails);
         setEmails(merged);
         setError(null);
         setLastUpdated(new Date());
