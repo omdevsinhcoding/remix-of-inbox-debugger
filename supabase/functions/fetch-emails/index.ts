@@ -505,15 +505,20 @@ async function fetchFromAccount(
       // Only ever process confirmed Netflix UIDs. Never fall back to newestUids —
       // that fetched arbitrary third-party mail (Reddit, etc.) during quick refresh.
       const candidates = netflixUids;
-      const uidsToFetch = candidates.slice(0, quickRefresh ? USER_REFRESH_MAX_UIDS : clampLimit(maxMessages, USER_REFRESH_MAX_UIDS, FULL_SYNC_MAX_UIDS));
+      // Scan deeper than the final fetch limit. If the newest 50 Netflix UIDs
+      // are already cached, older missed UIDs would otherwise never backfill.
+      const scanLimit = quickRefresh ? USER_REFRESH_MAX_UIDS : Math.min(Math.max(candidates.length, maxMessages * 3), 250);
+      const uidsToCheck = candidates.slice(0, scanLimit);
       const uncachedUids: number[] = [];
-      for (const uid of uidsToFetch) {
+      const fetchLimit = quickRefresh ? USER_REFRESH_MAX_UIDS : clampLimit(maxMessages, USER_REFRESH_MAX_UIDS, FULL_SYNC_MAX_UIDS);
+      for (const uid of uidsToCheck) {
         const plainId = String(uid);
         const prefixedId = `${accountLabel}:${uid}`;
         if (cachedIds.has(plainId) || cachedIds.has(prefixedId)) skipped++;
         else uncachedUids.push(uid);
+        if (uncachedUids.length >= fetchLimit) break;
       }
-      console.log(`[${accountLabel}] Fetching ${uncachedUids.length} uncached candidate UIDs, ${skipped} already cached`);
+      console.log(`[${accountLabel}] Fetching ${uncachedUids.length} uncached candidate UIDs, ${skipped} already cached (${uidsToCheck.length}/${candidates.length} scanned)`);
 
       for (const uid of uncachedUids) {
         if (!hasBudget()) {
