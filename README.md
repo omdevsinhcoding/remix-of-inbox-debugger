@@ -147,6 +147,8 @@ Open **Cloudflare Dashboard → Workers & Pages → Create → Import a reposito
 
 > ⚠️ Cloudflare Workers Builds has **two separate steps**: Build command and Deploy command. Build command alone is not reliable for production deploy. Keep Deploy command as `npm run deploy` so the KV bootstrap always runs.
 
+> 📸 If your settings show **Build command: None**, **Deploy command: `npx wrangler deploy`**, **Root directory: `/cloudflare-worker`**: Git is connected, but Cloudflare will run plain Wrangler, not `deploy.mjs`. It should work on Wrangler `4.45+` through automatic KV provisioning, but for this project's custom KV bootstrap logs/use **edit Deploy command to `npm run deploy`**.
+
 #### Step 3 — Non-Production Branches
 
 | Field | Value |
@@ -196,7 +198,7 @@ Cloudflare does **not** keep polling an old commit after you connect an existing
 2. a **new commit** is pushed to the selected production branch, or
 3. you open **Deployments → Build history** and manually retry/start a build.
 
-If Build history says **“No builds exist yet”**, GitHub Builds has not run. Push any small commit after connecting, or open Worker → **Settings → Builds → Retry/Start build**.
+If Build history says **“No builds exist yet”**, GitHub Builds has not run. Push any small commit after connecting, or open Worker → **Deployments → Create deployment / Retry latest build**. Saving Settings alone does **not** start a build; Cloudflare applies those settings on the **next** build.
 
 If the overview says **“Automatic deployment on upload”**, there is no Git build pipeline attached to that Worker. That page will only deploy when you manually upload code from **Edit code** / Wrangler. For automatic deploy, create a **new Worker from Import repository** and click **Save and Deploy** on the setup screen.
 
