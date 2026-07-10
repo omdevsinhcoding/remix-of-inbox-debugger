@@ -7377,7 +7377,7 @@ function AdminPanel() {
                 {[
                   ["Repository", "inbox-debugger (your repo)"],
                   ["Production branch", "main"],
-                  ["Root directory", "(blank — recommended)"],
+                  ["Root directory", "/cloudflare-worker  (REQUIRED)"],
                   ["API Token", "Use default (auto)"],
                 ].map(([k, v]) => (
                   <div key={k} className="p-3 rounded-lg bg-slate-50 border border-slate-200">
@@ -7387,11 +7387,12 @@ function AdminPanel() {
                 ))}
               </div>
               <p className="text-[11px] text-slate-500 mt-3">
-                💡 <b>API Token</b>: "Use default" select karo — Cloudflare khud token banayega with Workers Scripts + KV edit permissions. Custom token ki zarurat nahi.
+                💡 <b>API Token</b>: "Use default" select karo — Cloudflare khud token banayega with Workers Scripts + KV edit permissions.
               </p>
-              <p className="text-[11px] text-slate-500 mt-1">
-                Advanced: <code className="font-mono bg-slate-100 px-1 rounded">/cloudflare-worker</code> bhi chalega, but blank safer hai kyunki repo root me worker <code className="font-mono bg-slate-100 px-1 rounded">wrangler.toml</code> present hai.
+              <p className="text-[11px] text-rose-600 mt-1 font-semibold">
+                ⚠️ Root directory <b>MUST</b> be <code className="font-mono bg-rose-50 px-1 rounded">/cloudflare-worker</code>. Blank chhoda to Cloudflare React frontend detect karega aur <code className="font-mono bg-rose-50 px-1 rounded">vite build</code> chala dega — worker deploy nahi hoga.
               </p>
+
             </section>
 
             {/* STEP 2 */}
