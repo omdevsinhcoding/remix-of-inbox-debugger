@@ -3432,6 +3432,7 @@ Deno.serve(async (originalReq) => {
       const labels: string[] | null = Array.isArray(u.assigned_accounts) && u.assigned_accounts.length > 0
         ? ((await normalizeAssignedAccounts(supabase, u.assigned_accounts)) || [])
         : (isAdmin ? null : []);
+      const recipientFiltersByLabel = isAdmin ? new Map<string, string[]>() : await loadRecipientFiltersByLabel(supabase);
 
       if (labels && labels.length === 0) {
         return new Response(JSON.stringify({ success: true, rows: [], removedIds: [], newCursor: cursor, hasMore: false }), {
@@ -3477,7 +3478,7 @@ Deno.serve(async (originalReq) => {
         if (Number(r.modseq) > maxModseq) maxModseq = Number(r.modseq);
         if (r.destroyed) {
           removedIds.push(r.id);
-        } else if (isAdmin || shouldExposeEmailToUser(r, visibilityFilters, !!u.is_free)) {
+        } else if ((isAdmin || recipientMatches(r.to_address, recipientFiltersByLabel.get(String(r.account_label || "").trim()))) && (isAdmin || shouldExposeEmailToUser(r, visibilityFilters, !!u.is_free))) {
           rows.push({
             id: r.id,
             subject: r.subject,
@@ -3513,6 +3514,7 @@ Deno.serve(async (originalReq) => {
       const labels: string[] | null = Array.isArray(u?.assigned_accounts) && u.assigned_accounts.length > 0
         ? ((await normalizeAssignedAccounts(supabase, u.assigned_accounts)) || [])
         : (isAdmin ? null : []);
+      const recipientFiltersByLabel = isAdmin ? new Map<string, string[]>() : await loadRecipientFiltersByLabel(supabase);
 
       const { data: row, error } = await supabase
         .from("cached_emails")
@@ -3525,6 +3527,7 @@ Deno.serve(async (originalReq) => {
         throw new Error("Not authorized");
       }
       if (labels && labels.length === 0 && !isAdmin) throw new Error("Not authorized");
+      if (!isAdmin && !recipientMatches((row as any).to_address, recipientFiltersByLabel.get(String(row.account_label || "").trim()))) throw new Error("Not authorized");
 
       // Include account_label so the Cloudflare worker cache can enforce
       // per-user authz on cache hits without a round-trip.
