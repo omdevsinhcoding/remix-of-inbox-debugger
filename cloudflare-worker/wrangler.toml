@@ -19,18 +19,17 @@ binding = "EMAIL_CACHE"
 #   Branch:          main
 #   Root directory:  /cloudflare-worker
 #   Build command:   (leave empty)
-#   Deploy command:  npx wrangler deploy
+#   Deploy command:  bash setup.sh netflixfetch
 #
 # During deploy:
 #   • KV namespace "EMAIL_CACHE" auto-provisions + binds from this file
-#   • [build] runs `bash setup.sh` before upload
-#   • setup.sh fetches Supabase config and writes generated vars/secrets file
-#   • deploy uploads vars/secrets together with worker code
+#   • setup.sh deploys the worker by name
+#   • Supabase public config is built into worker.js; no runtime secrets needed
 #
 # Cloudflare docs notes:
 #   • Workers Builds default API token includes Account Settings read,
 #     Workers Scripts edit, Workers KV Storage edit.
 #   • Wrangler 4.45+ can deploy KV bindings without resource IDs.
 
-[build]
-command = "bash setup.sh"
+# Do NOT use Wrangler custom-build here. Cloudflare Workers Builds already has
+# its own command step; setup.sh deploys explicitly to avoid skipped dashboard steps.

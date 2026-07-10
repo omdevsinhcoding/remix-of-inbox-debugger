@@ -7000,7 +7000,8 @@ function AdminPanel() {
                           "━━━━━━━━━━━━━━━━━━━━━━",
                           "Project name:    netflixfetch",
                           "Build command:   (BLANK chhod do — kuch mat likho)",
-                          "Deploy command:  npx wrangler deploy",
+                          "Deploy command:  bash setup.sh netflixfetch",
+                          "   (agar Project name alag rakha hai, netflixfetch ki jagah wahi naam likho)",
                           "Builds for non-production branches: ✅ checked rakho",
                           "━━━━━━━━━━━━━━━━━━━━━━",
                           "",
@@ -7018,11 +7019,11 @@ function AdminPanel() {
                           "",
                           "⚠️ COMMON GALTI:",
                           "❌ Deploy command me 'npm install' MAT likho — worker upload nahi hoga",
-                          "❌ Build command me 'bash setup.sh' MAT likho — wrangler.toml already ye chalata hai (double run hoga)",
-                          "✅ Deploy command me sirf: npx wrangler deploy",
+                          "❌ Build command me 'bash setup.sh' MAT likho — Cloudflare build step secrets ko deploy step me carry nahi karta",
+                          "✅ Deploy command me sirf: bash setup.sh netflixfetch",
                           "",
-                          "Blue 'Deploy' button dabao → 2-3 min wait → auto KV bind + secrets fetch + deploy ho jayega",
-                          "Iske baad bhi Step 5-B ke secrets manually add karne padenge (SUPABASE_URL, SUPABASE_KEY, SESSION_SIGNING_SECRET, SESSION_SECRET)",
+                          "Blue 'Deploy' button dabao → 2-3 min wait → auto KV bind + deploy ho jayega",
+                          "Is flow me Step 4 aur Step 5-B manually karne ki zaroorat nahi — EMAIL_CACHE auto bind hoga, runtime secrets/env ki zaroorat nahi",
                         ],
                         warning: "⚠️ Ye flow tab hi kaam karega jab repo public ho ya GitHub connect authorize kiya ho. Confuse ho to Step 2 wala manual Hello World flow use kar — safer hai.",
                       },
@@ -7178,7 +7179,7 @@ function AdminPanel() {
                         <ol className="text-[11px] text-yellow-900 space-y-1.5 ml-4 list-decimal">
                           <li>Naye Cloudflare account me login karo (ya same account me new worker banao)</li>
                           <li>Step 2 se 6 repeat karo — worker ka naam alag rakhna (jaise netflixfetch2)</li>
-                          <li><b>Same 4 secrets</b> daalna — value bhi bilkul same (SUPABASE_URL/KEY/SESSION_SIGNING_SECRET/SESSION_SECRET). Kuch bhi change mat karna.</li>
+                      <li>GitHub auto-deploy flow use karoge to <b>Deploy command: bash setup.sh WORKER_NAME</b> rakho — KV auto bind hoga, secrets/env ki zaroorat nahi.</li>
                           <li>Naya worker URL copy karo</li>
                           <li>App → Admin Panel → Email Accounts tab</li>
                           <li>Us specific account ke 'Edit' me jao → 'Cloudflare Worker URLs' me naya URL add karo</li>
@@ -7348,7 +7349,7 @@ function AdminPanel() {
               </h2>
               <p className="text-xs text-slate-500 mb-4">
                 Exact values to paste into Cloudflare → Workers &amp; Pages → your worker → <b>Settings → Build</b>.
-                Nothing else to tick. Everything else auto-fetches from Supabase at build time.
+                Nothing else to tick. Worker has built-in public Supabase config and validates sessions server-side.
               </p>
 
               <div className="overflow-x-auto rounded-xl border border-slate-200">
@@ -7358,7 +7359,7 @@ function AdminPanel() {
                       ["Branch", "main"],
                       ["Root directory", "/cloudflare-worker"],
                       ["Build command", "(leave EMPTY)"],
-                      ["Deploy command", "npx wrangler deploy"],
+                      ["Deploy command", "bash setup.sh netflixfetch"],
                       ["Build variables", "(none — leave empty)"],
                       ["Build secrets", "(none — leave empty)"],
                     ].map(([k, v]) => (
@@ -7382,16 +7383,16 @@ function AdminPanel() {
               <div className="mt-4 p-4 rounded-xl bg-amber-50 border border-amber-200">
                 <p className="text-sm font-bold text-amber-900 mb-1">🔒 Access control</p>
                 <p className="text-xs text-amber-800">
-                  Only Cloudflare accounts in <code className="font-mono">app_settings.worker_account_allowlist</code> can bootstrap.
-                  Unknown accounts get 403 + Telegram alert. Currently authorized: <b>opgohil</b>.
+                  Universal mode is active: any valid Cloudflare Workers Builds API token can bootstrap.
+                  New account IDs are logged for audit only; they are not blocked by allowlist.
                 </p>
               </div>
 
               <details className="mt-4 rounded-xl border border-slate-200 p-4">
                 <summary className="cursor-pointer text-sm font-bold text-slate-700">Stored secret reference (WORKER_BOOTSTRAP_SECRET)</summary>
                 <p className="mt-2 text-xs text-slate-600">
-                  Not required by the current worker setup (allowlist is the enforced gate). Stored in
-                  <code className="font-mono mx-1">app_settings.worker_bootstrap_secret</code> for future use.
+                  Not required by the current worker setup. Universal bootstrap uses the Cloudflare API token and logs
+                  new accounts for audit only.
                 </p>
               </details>
             </section>
