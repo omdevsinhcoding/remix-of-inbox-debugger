@@ -8241,6 +8241,8 @@ function EmailViewer() {
     const bust = !!opts?.bust;
     const limit = opts?.limit || 3;
     try {
+      const { ensureFreshAccess } = await import("./lib/sessionRefresh");
+      await ensureFreshAccess(30_000).catch(() => {});
       const token = getSessionToken();
       const headers: Record<string, string> = {};
       if (token) headers["X-Session-Token"] = token;
@@ -8311,42 +8313,48 @@ function EmailViewer() {
   const syncViaWorker = useCallback(async (): Promise<Email[] | null> => {
     const labels = refreshAccountLabels;
     if (labels && labels.length === 0) return null;
-    const workerUrls = resolvedWorkerUrls || [];
+    const { ensureFreshAccess } = await import("./lib/sessionRefresh");
+    await ensureFreshAccess(30_000).catch(() => {});
     const token = sessionGet("session_token" as any);
-    if (workerUrls.length === 0 || !token) {
+    const groups = buildWorkerRequestGroups(labels, workerUrlMap, resolvedWorkerUrls || []);
+    if (groups.length === 0 || !token) {
       pushDiag({ ts: Date.now(), kind: "sync", endpoint: "worker:sync", error: "No Cloudflare Worker URL configured" });
       return null;
     }
-    const workerBase = workerUrls[Math.floor(Math.random() * workerUrls.length)].replace(/\/+$/, "");
-    const started = performance.now();
-    try {
-      const res = await fetchWithTimeout(`${workerBase}/api/emails/sync`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Session-Token": String(token) },
-        body: JSON.stringify({
-          mode: "user_sync",
-          source: "user_refresh",
-          limit: 200,
-          accountLabels: labels || undefined,
-        }),
-      }, 15000);
-      pushDiag({
-        ts: Date.now(),
-        kind: "sync",
-        endpoint: `${workerBase}/api/emails/sync`,
-        status: res.status,
-        ms: Math.round(performance.now() - started),
-        note: labels ? labels.join(", ") : "all accounts",
-      });
-      if (!res.ok) return null;
-      const data = await res.json().catch(() => null);
-      if (!data || data.success === false) return null;
-      return Array.isArray(data?.emails) ? mergeEmailsById([data.emails as Email[]]) : null;
-    } catch (err) {
-      pushDiag({ ts: Date.now(), kind: "sync", endpoint: `${workerBase}/api/emails/sync`, error: err instanceof Error ? err.message : String(err) });
-      return null;
-    }
-  }, [pushDiag, refreshAccountLabels, resolvedWorkerUrls]);
+    const results = await Promise.all(groups.map(async (group) => {
+      const workerBase = group.url.replace(/\/+$/, "");
+      const started = performance.now();
+      try {
+        const res = await fetchWithTimeout(`${workerBase}/api/emails/sync`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Session-Token": String(token) },
+          body: JSON.stringify({
+            mode: "user_sync",
+            source: "user_refresh",
+            limit: 200,
+            accountLabels: group.labels || undefined,
+          }),
+        }, 15000);
+        const data = await res.json().catch(() => null);
+        pushDiag({
+          ts: Date.now(),
+          kind: "sync",
+          endpoint: `${workerBase}/api/emails/sync`,
+          status: res.status,
+          ms: Math.round(performance.now() - started),
+          note: group.labels ? group.labels.join(", ") : "all accounts",
+          error: !res.ok ? (data?.error || `HTTP ${res.status}`) : undefined,
+        });
+        if (!res.ok || !data || data.success === false) return null;
+        return Array.isArray(data?.emails) ? data.emails as Email[] : [];
+      } catch (err) {
+        pushDiag({ ts: Date.now(), kind: "sync", endpoint: `${workerBase}/api/emails/sync`, error: err instanceof Error ? err.message : String(err) });
+        return null;
+      }
+    }));
+    const successfulLists = results.filter((list): list is Email[] => Array.isArray(list));
+    return successfulLists.length > 0 ? mergeEmailsById(successfulLists) : null;
+  }, [pushDiag, refreshAccountLabels, resolvedWorkerUrls, workerUrlMap]);
 
 
   const fetchEmails = async () => {
