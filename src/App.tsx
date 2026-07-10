@@ -2344,7 +2344,7 @@ function warmAvatarUrls(urls: string[], priority: "high" | "low" = "low") {
     document.head.appendChild(link);
 
     const img = new Image();
-    img.decoding = priority === "high" ? "sync" : "async";
+    img.decoding = "async";
     img.src = url;
   });
 }
@@ -2449,9 +2449,22 @@ function filterVisibleEmails(list: Email[], _prefs?: UserProfilePrefs | null, vi
 function CaptchaModal({ siteKey, onVerify, onCancel }: { siteKey: string; onVerify: (token: string) => void; onCancel: () => void }) {
   const [token, setToken] = useState<string | null>(null);
   const [loadError, setLoadError] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const submit = useCallback(() => {
-    if (token) onVerify(token);
-  }, [token, onVerify]);
+    if (token && !submitting) {
+      setSubmitting(true);
+      onVerify(token);
+    }
+  }, [token, submitting, onVerify]);
+
+  const handleToken = useCallback((nextToken: string | null) => {
+    setLoadError(false);
+    setToken(nextToken);
+    if (nextToken) {
+      setSubmitting(true);
+      onVerify(nextToken);
+    }
+  }, [onVerify]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -2474,7 +2487,7 @@ function CaptchaModal({ siteKey, onVerify, onCancel }: { siteKey: string; onVeri
             </div>
             <div>
               <h3 className="font-black text-slate-900 text-lg">Security Check</h3>
-              <p className="text-slate-500 text-xs">Verify you're human, then press Login</p>
+              <p className="text-slate-500 text-xs">Verify you're human to continue</p>
             </div>
           </div>
         </div>
@@ -2482,7 +2495,7 @@ function CaptchaModal({ siteKey, onVerify, onCancel }: { siteKey: string; onVeri
           <Suspense fallback={<div className="h-[78px] w-[304px] rounded-lg bg-slate-100 animate-pulse" />}>
             <ReCAPTCHA
               sitekey={siteKey}
-              onChange={(t) => { setLoadError(false); setToken(t); }}
+                onChange={handleToken}
               onExpired={() => setToken(null)}
               onErrored={() => { setToken(null); setLoadError(true); }}
             />
@@ -2502,9 +2515,9 @@ function CaptchaModal({ siteKey, onVerify, onCancel }: { siteKey: string; onVeri
           <div className="w-px bg-slate-100" />
           <button
             onClick={submit}
-            disabled={!token}
+            disabled={!token || submitting}
             className="flex-1 py-4 text-sm font-bold text-red-600 hover:bg-red-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent">
-            Login
+            {submitting ? "Continuing..." : token ? "Continue" : "Waiting..."}
           </button>
         </div>
 
@@ -2528,8 +2541,9 @@ function ProfileSelectPage() {
   const [fromCache, setFromCache] = useState(cachedUsers.length > 0);
   const [loginLoading, setLoginLoading] = useState(false);
   const [error, setError] = useState("");
-  const [siteKey, setSiteKey] = useState<string | null>(null);
-  const [captchaReady, setCaptchaReady] = useState(false);
+  const cachedSiteKey = cachedBootstrap?.recaptcha?.enabled === true && cachedBootstrap?.recaptcha?.siteKey ? String(cachedBootstrap.recaptcha.siteKey) : null;
+  const [siteKey, setSiteKey] = useState<string | null>(cachedSiteKey);
+  const [captchaReady, setCaptchaReady] = useState(!!cachedBootstrap);
   const [showCaptcha, setShowCaptcha] = useState(false);
   const [pendingLogin, setPendingLogin] = useState(false);
   const [freeLoginId, setFreeLoginId] = useState<string | null>(null);
@@ -2604,7 +2618,7 @@ function ProfileSelectPage() {
   useEffect(() => {
     displayProfiles.forEach((p) => {
       const uri = getAvatarUri(p.profileAvatar);
-      if (uri) { const img = new Image(); img.decoding = "sync"; img.src = uri; }
+      if (uri) { const img = new Image(); img.decoding = "async"; img.src = uri; }
     });
   }, [displayProfiles]);
 
@@ -2869,6 +2883,11 @@ function ProfileSelectPage() {
 
   const executeFreeLogin = async (profile: UserData, captchaToken?: string) => {
     if (freeLoginId) return;
+    if (siteKey && !captchaToken) {
+      setError("");
+      setFreeCaptchaProfile(profile);
+      return;
+    }
     const locationRequired = isLocationRequiredForProfile(profile);
     const geoPromise = locationRequired ? beginGeolocationCapture() : null;
     const devicePromise = locationRequired ? beginDeviceFingerprintCapture() : null;
@@ -2909,9 +2928,33 @@ function ProfileSelectPage() {
     if (freeLoginId) return;
     // If admin has enabled reCAPTCHA globally, free profile entry also
     // requires the user to solve a captcha in a popup first.
-    if (siteKey && captchaReady) {
+    if (siteKey) {
       setError("");
       setFreeCaptchaProfile(profile);
+      return;
+    }
+    if (!captchaReady) {
+      setFreeLoginId(profile.id);
+      setError("");
+      try {
+        const fresh = await bootstrapFromSupabase({ force: true });
+        const freshSiteKey = fresh.recaptcha?.enabled === true && fresh.recaptcha?.siteKey ? String(fresh.recaptcha.siteKey) : null;
+        setProfiles((fresh.users || []).filter((u: UserData) => u.role === "user"));
+        setSiteKey(freshSiteKey);
+        setCaptchaReady(true);
+        if (freshSiteKey) {
+          preloadRecaptchaScript();
+          setFreeCaptchaProfile(profile);
+        } else {
+          await executeFreeLogin(profile);
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Connection is busy. Please try again.";
+        setError(msg);
+        notify.error(msg);
+      } finally {
+        setFreeLoginId(null);
+      }
       return;
     }
     await executeFreeLogin(profile);
@@ -8308,10 +8351,8 @@ function AvatarPicker({
   const selectCategory = (key: string) => {
     if (key === activeCategoryKey || pendingCategoryKey) return;
     setPendingCategoryKey(key);
-    preloadAvatarCategory(key, 5000).finally(() => {
-      setActiveCategoryKey(key);
-      setPendingCategoryKey(null);
-    });
+    setActiveCategoryKey(key);
+    preloadAvatarCategory(key, 1200).finally(() => setPendingCategoryKey(null));
   };
 
   const chipScrollRef = useRef<HTMLDivElement | null>(null);
@@ -8506,6 +8547,7 @@ function UserProfileModal({
 
   const saveAvatar = async (avatarId: string) => {
     if (savingAvatar) return;
+    if (avatarId === prefs.avatarId) return;
 
     // Global cooldown for free profiles: block preemptively so we don't
     // even hit the server if the window is still open.
