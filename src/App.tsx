@@ -5413,6 +5413,23 @@ function AdminPanel() {
     setDragUserId(null);
   };
 
+  const moveUser = (id: string, dir: -1 | 1) => {
+    setUsers(prev => {
+      const nonAdmin = prev.filter(u => u.role !== "admin");
+      const admins = prev.filter(u => u.role === "admin");
+      const from = nonAdmin.findIndex(u => u.id === id);
+      if (from < 0) return prev;
+      const to = from + dir;
+      if (to < 0 || to >= nonAdmin.length) return prev;
+      const moved = [...nonAdmin];
+      [moved[from], moved[to]] = [moved[to], moved[from]];
+      persistUserOrder(moved.map(u => u.id));
+      return [...admins, ...moved];
+    });
+  };
+
+
+
 
   const deleteUser = async (id: string) => {
     try {
