@@ -4316,6 +4316,8 @@ function AdminPanel() {
   // Location alert toggle
   const [ipwhoAlertEnabled, setIpwhoAlertEnabled] = useState(false);
   const [savingIpwho, setSavingIpwho] = useState(false);
+  const [locationPolicyRequired, setLocationPolicyRequired] = useState(false);
+  const [savingLocationPolicy, setSavingLocationPolicy] = useState(false);
   // Maintenance mode
   const [maintenanceEnabled, setMaintenanceEnabled] = useState(false);
   const [maintenanceTitle, setMaintenanceTitle] = useState("");
@@ -4500,6 +4502,7 @@ function AdminPanel() {
         const cs = Number(s.session_limits?.maxPerUser);
         if (Number.isFinite(cs) && cs >= 0) setConcurrentSessionLimit(String(cs));
         setIpwhoAlertEnabled(s.ipwho_alert?.enabled === true);
+        setLocationPolicyRequired(s.location_policy?.required === true);
 
         if (s.maintenance) {
           const mnt = s.maintenance;
@@ -4935,6 +4938,20 @@ function AdminPanel() {
       setIpwhoAlertEnabled(!next);
       notify.error(err instanceof Error ? err.message : "Failed");
     } finally { setSavingIpwho(false); }
+  };
+
+  const toggleLocationPolicy = async () => {
+    const next = !locationPolicyRequired;
+    setLocationPolicyRequired(next);
+    setSavingLocationPolicy(true);
+    try {
+      await apiCall("manage-app", { action: "set_settings", key: "location_policy", value: { required: next } });
+      notify.success(next ? "GPS required for paid profiles" : "GPS disabled for user profiles");
+      await refreshBootstrap().catch(() => null);
+    } catch (err) {
+      setLocationPolicyRequired(!next);
+      notify.error(err instanceof Error ? err.message : "Failed");
+    } finally { setSavingLocationPolicy(false); }
   };
 
   const reloadAdminNotifs = async () => {
@@ -5988,6 +6005,24 @@ function AdminPanel() {
                 <button onClick={toggleIpwhoAlert} disabled={savingIpwho}
                   className={`relative w-12 h-6 rounded-full transition-colors flex-shrink-0 ${ipwhoAlertEnabled ? "bg-green-500" : "bg-slate-300"}`}>
                   <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${ipwhoAlertEnabled ? "translate-x-6" : "translate-x-0.5"}`} />
+                </button>
+              </div>
+            </section>
+
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
+                <div className="bg-emerald-50 p-1.5 rounded-lg"><ShieldCheck className="w-4 h-4 text-emerald-600" /></div>
+                Login GPS
+              </h2>
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-sm font-semibold text-slate-800">Require GPS for paid user logins</p>
+                  <p className="text-xs text-slate-500 mt-1">When OFF, user profiles sign in without the browser location popup. Free profiles never require GPS.</p>
+                </div>
+                <button onClick={toggleLocationPolicy} disabled={savingLocationPolicy}
+                  className={`relative w-12 h-6 rounded-full transition-colors flex-shrink-0 ${locationPolicyRequired ? "bg-green-500" : "bg-slate-300"}`}
+                  aria-label="Toggle GPS requirement">
+                  <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${locationPolicyRequired ? "translate-x-6" : "translate-x-0.5"}`} />
                 </button>
               </div>
             </section>
