@@ -321,6 +321,8 @@ type WorkerUrlMap = {
   byAccount: Record<string, string[]>;
 };
 
+type EmailSyncResult = { emails: Email[]; inserted: number; warning: string | null; fallback: boolean };
+
 function shuffleArray<T>(arr: T[]): T[] {
   const shuffled = [...arr];
   for (let i = shuffled.length - 1; i > 0; i--) {
@@ -5147,9 +5149,8 @@ function AdminPanel() {
       const impersonatedUser = { ...(data.user || {}), impersonated: true, adminId: data.user?.adminId || null };
       sessionSet("user" as any, JSON.stringify(impersonatedUser));
       if (data.sessionToken) sessionSet("session_token" as any, data.sessionToken);
-      // Impersonation: also defer session timer until EmailViewer loads inbox.
-      try { sessionRemove("session_started_at" as any); } catch {}
       sessionRemove("admin_auth" as any);
+      checkAuth();
       navigate("/viewer", { replace: true });
       notify.success(`Viewing as ${targetUser.name}`);
     } catch (err) {
@@ -8224,7 +8225,7 @@ function EmailViewer() {
       if (data?.sessionToken) sessionSet("session_token" as any, data.sessionToken);
       if (data?.user) sessionSet("user" as any, JSON.stringify(data.user));
       try { sessionRemove("admin_backup" as any); } catch {}
-      try { sessionRemove("session_started_at" as any); } catch {}
+      try { if (!sessionGet("session_started_at" as any)) markSessionStart(); } catch {}
       checkAuth();
       navigate("/admin/dashboard");
       return;
@@ -8429,6 +8430,37 @@ function EmailViewer() {
     };
   }, [pushDiag, refreshAccountLabels, resolvedWorkerUrls, workerUrlMap]);
 
+  const syncDirectFromSupabase = useCallback(async (): Promise<EmailSyncResult | null> => {
+    const labels = refreshAccountLabels;
+    if (labels && labels.length === 0) return null;
+    try {
+      const data: any = await apiCall("fetch-emails", {
+        mode: "user_sync",
+        source: "user_refresh_direct",
+        limit: 200,
+        accountLabels: labels || undefined,
+      });
+      pushDiag({
+        ts: Date.now(),
+        kind: "sync",
+        endpoint: "supabase:functions/fetch-emails",
+        status: data?.success === false ? 502 : 200,
+        note: labels ? labels.join(", ") : "all accounts",
+        error: data?.success === false ? (data?.error || "Sync failed") : undefined,
+      });
+      if (!data || data.success === false) return null;
+      return {
+        emails: Array.isArray(data?.emails) ? data.emails as Email[] : [],
+        inserted: Number(data?.inserted ?? data?.stats?.inserted ?? 0) || 0,
+        warning: typeof data?.warning === "string" ? data.warning : null,
+        fallback: data?.fallback === true,
+      };
+    } catch (err) {
+      pushDiag({ ts: Date.now(), kind: "sync", endpoint: "supabase:functions/fetch-emails", error: err instanceof Error ? err.message : String(err) });
+      return null;
+    }
+  }, [pushDiag, refreshAccountLabels]);
+
 
   const fetchEmails = async () => {
     if (refreshingRef.current) return;
@@ -8441,7 +8473,7 @@ function EmailViewer() {
       await refreshEmailFiltersForViewer();
       await loadCachedEmails({ limit: 200 });
       // Fast path: worker sync returns fresh emails directly — no second round-trip.
-      return await syncViaWorker();
+      return (await syncViaWorker()) || (await syncDirectFromSupabase());
     };
     try {
       let synced: Awaited<ReturnType<typeof syncViaWorker>> = null;
@@ -8485,7 +8517,7 @@ function EmailViewer() {
           duration: 3000,
         });
       } else if (!synced) {
-        notify.error("Sync did not run", { description: "Worker unreachable or misconfigured", duration: 3400 });
+        notify.error("Sync did not run", { description: "Worker and direct email function both failed", duration: 3400 });
       } else {
         notify.success(visible.length > 0 ? "No new mail yet" : "No Netflix emails yet", {
           duration: 2000,

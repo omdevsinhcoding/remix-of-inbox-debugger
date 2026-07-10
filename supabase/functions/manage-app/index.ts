@@ -276,11 +276,11 @@ async function revealSavedSecret(value: unknown, encryptionSecret: string): Prom
   }
 }
 
-async function revealEmailAccountsForAdmin(value: any, encryptionSecret: string): Promise<any[]> {
+async function maskEmailAccountsForAdmin(value: any): Promise<any[]> {
   if (!Array.isArray(value)) return [];
   return await Promise.all(value.map(async (acc: any) => ({
     ...acc,
-    password: await revealSavedSecret(acc?.password, encryptionSecret),
+    password: maskSavedSecret(acc?.password),
   })));
 }
 
@@ -324,10 +324,32 @@ async function processEmailAccountSecrets(value: any[], existingAccounts: any[],
   }));
 }
 
-async function revealConfigForAdmin(value: any, encryptionSecret: string) {
+async function maskConfigForAdmin(value: any) {
   const config = value && typeof value === "object" ? { ...value } : {};
-  config.IMAP_PASSWORD = await revealSavedSecret(config.IMAP_PASSWORD, encryptionSecret);
+  config.IMAP_PASSWORD = maskSavedSecret(config.IMAP_PASSWORD);
   return config;
+}
+
+async function ensureSettingsSecretsEncrypted(supabase: any, key: string, value: any, encryptionSecret: string): Promise<any> {
+  try {
+    if (key === "config" && value && typeof value === "object") {
+      const processed = await processConfigSecrets(value, value, encryptionSecret);
+      if (JSON.stringify(processed) !== JSON.stringify(value)) {
+        await supabase.from("app_settings").upsert({ key, value: processed }, { onConflict: "key" });
+      }
+      return processed;
+    }
+    if (key === "email_accounts" && Array.isArray(value)) {
+      const processed = await processEmailAccountSecrets(value, value, encryptionSecret);
+      if (JSON.stringify(processed) !== JSON.stringify(value)) {
+        await supabase.from("app_settings").upsert({ key, value: processed }, { onConflict: "key" });
+      }
+      return processed;
+    }
+  } catch (e) {
+    console.warn("[secrets] self-heal encryption skipped:", (e as Error)?.message || e);
+  }
+  return value;
 }
 
 // --- Audit logging (D.3: enriched with user_agent + optional result) ---
@@ -2700,22 +2722,22 @@ Deno.serve(async (originalReq) => {
         .single();
 
       let value = key === "email_filters" ? normalizeEmailFilters(data?.value) : (data?.value || null);
+      value = await ensureSettingsSecretsEncrypted(supabase, key, value, ENCRYPTION_SECRET);
 
       if (key === "ipwho_alert") {
         value = { enabled: value?.enabled === true };
       }
 
       if (key === "config" && value && session?.role === "admin") {
-        value = await revealConfigForAdmin(value, ENCRYPTION_SECRET);
+        value = await maskConfigForAdmin(value);
       }
 
-      // For admin edit UI we decrypt IMAP passwords back to plaintext so the
-      // admin can view/edit them. Non-admins never receive host/port/user or
-      // password material.
+      // Never send stored IMAP passwords to the browser. The DB stores encrypted
+      // values; the edge function decrypts internally only when logging in to IMAP.
       if (key === "email_accounts" && Array.isArray(value)) {
         const isAdmin = session?.role === "admin";
         value = isAdmin
-          ? await revealEmailAccountsForAdmin(value, ENCRYPTION_SECRET)
+          ? await maskEmailAccountsForAdmin(value)
           : value.map((acc: any) => ({
               ...acc,
               password: SECRET_MASK,
@@ -4153,9 +4175,10 @@ Deno.serve(async (originalReq) => {
             secretAccessKeySet: hasSecret,
           };
         } else {
-          if (row.key === "config") settings[row.key] = await revealConfigForAdmin(row.value, ENCRYPTION_SECRET);
-          else if (row.key === "email_accounts") settings[row.key] = await revealEmailAccountsForAdmin(row.value, ENCRYPTION_SECRET);
-          else settings[row.key] = row.value;
+          const safeValue = await ensureSettingsSecretsEncrypted(supabase, row.key, row.value, ENCRYPTION_SECRET);
+          if (row.key === "config") settings[row.key] = await maskConfigForAdmin(safeValue);
+          else if (row.key === "email_accounts") settings[row.key] = await maskEmailAccountsForAdmin(safeValue);
+          else settings[row.key] = safeValue;
         }
       }
 
