@@ -100,9 +100,15 @@ function ensureNamespaceId() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Auto-sync Worker secrets from Cloudflare build-time env vars.
-// Set these in Cloudflare → Worker → Settings → Variables → Build variables
-// (any that exist will be pushed as encrypted Worker secrets on every deploy).
+// Auto-sync Worker secrets.
+//
+// PRIMARY (zero-setup): if CLOUDFLARE_API_TOKEN is present (Cloudflare Workers
+// Builds auto-injects it), call the worker-bootstrap Supabase edge function.
+// It returns SUPABASE_URL / SUPABASE_KEY / SESSION_SECRET so we can push them
+// as Worker Secrets without the user ever touching Cloudflare env vars.
+//
+// FALLBACK: any secrets explicitly set as Cloudflare Build variables also get
+// pushed (overrides bootstrap values).
 // ─────────────────────────────────────────────────────────────
 const AUTO_SECRET_NAMES = [
   "SUPABASE_URL",
@@ -117,10 +123,60 @@ const AUTO_SECRET_NAMES = [
   "DEBUG_TOKEN",
 ];
 
-function syncSecrets(tempConfig, workerName) {
-  const present = AUTO_SECRET_NAMES.filter((n) => process.env[n] && process.env[n].trim());
+const BOOTSTRAP_URL =
+  process.env.WORKER_BOOTSTRAP_URL ||
+  "https://jsqchutnfdeljajkxmly.supabase.co/functions/v1/worker-bootstrap";
+const BOOTSTRAP_ANON_KEY =
+  process.env.WORKER_BOOTSTRAP_ANON_KEY ||
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpzcWNodXRuZmRlbGphamt4bWx5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxMjI5MzksImV4cCI6MjA4OTY5ODkzOX0.HYN4zMEYEiP-H5KD_iIbFpr0GsatNoeyw40FI2mW_eA";
+
+async function fetchBootstrapSecrets() {
+  const cfToken = process.env.CLOUDFLARE_API_TOKEN;
+  if (!cfToken) {
+    console.log("[deploy] CLOUDFLARE_API_TOKEN not present; skipping bootstrap fetch.");
+    return {};
+  }
+  console.log("[deploy] Fetching secrets from worker-bootstrap...");
+  try {
+    const res = await fetch(BOOTSTRAP_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CF-Token": cfToken,
+        Authorization: `Bearer ${BOOTSTRAP_ANON_KEY}`,
+        apikey: BOOTSTRAP_ANON_KEY,
+      },
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      console.warn(`[deploy] Bootstrap fetch failed [${res.status}]:`, body);
+      return {};
+    }
+    console.log(`[deploy] Bootstrap OK for CF account: ${body?.account?.name || "?"}`);
+    const map = {};
+    if (body.SUPABASE_URL) map.SUPABASE_URL = body.SUPABASE_URL;
+    if (body.SUPABASE_KEY) map.SUPABASE_KEY = body.SUPABASE_KEY;
+    if (body.SESSION_SECRET) {
+      map.SESSION_SECRET = body.SESSION_SECRET;
+      map.SESSION_SIGNING_SECRET = body.SESSION_SECRET;
+    }
+    return map;
+  } catch (e) {
+    console.warn("[deploy] Bootstrap fetch error:", e.message);
+    return {};
+  }
+}
+
+async function syncSecrets(tempConfig, workerName) {
+  const bootstrap = await fetchBootstrapSecrets();
+  const merged = { ...bootstrap };
+  for (const name of AUTO_SECRET_NAMES) {
+    const v = process.env[name];
+    if (v && v.trim()) merged[name] = v; // Build variables override bootstrap
+  }
+  const present = Object.keys(merged);
   if (!present.length) {
-    console.log("[deploy] No build-env secrets found to sync. (Set them in Worker → Settings → Variables → Build variables)");
+    console.log("[deploy] No secrets to sync (bootstrap empty and no build vars).");
     return;
   }
   console.log(`[deploy] Syncing ${present.length} secret(s) to Worker: ${present.join(", ")}`);
@@ -129,7 +185,7 @@ function syncSecrets(tempConfig, workerName) {
     if (workerName) args.push("--name", workerName);
     const res = spawnSync("npx", [...WRANGLER, ...args], {
       cwd: __dirname,
-      input: process.env[name],
+      input: merged[name],
       stdio: ["pipe", "inherit", "inherit"],
       shell: process.platform === "win32",
     });
@@ -139,7 +195,8 @@ function syncSecrets(tempConfig, workerName) {
   }
 }
 
-function deploy() {
+
+async function deploy() {
   if (!existsSync(BASE_CONFIG)) {
     console.error(`[deploy] Missing ${BASE_CONFIG}`);
     process.exit(1);
@@ -154,7 +211,7 @@ function deploy() {
   const workerName = process.env.WORKER_NAME || process.env.CLOUDFLARE_WORKER_NAME;
 
   // Push secrets BEFORE deploy so the first request already has them.
-  syncSecrets(tempConfig, workerName);
+  await syncSecrets(tempConfig, workerName);
 
   const args = ["deploy", "--config", tempConfig, "--keep-vars"];
   if (workerName) args.push("--name", workerName);
@@ -163,4 +220,7 @@ function deploy() {
   runWrangler(args);
 }
 
-deploy();
+deploy().catch((e) => {
+  console.error("[deploy] Fatal:", e);
+  process.exit(1);
+});
