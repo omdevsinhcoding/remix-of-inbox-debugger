@@ -7022,8 +7022,8 @@ function AdminPanel() {
                           "❌ Build command me 'bash setup.sh' MAT likho — Cloudflare build step secrets ko deploy step me carry nahi karta",
                           "✅ Deploy command me sirf: bash setup.sh netflixfetch",
                           "",
-                          "Blue 'Deploy' button dabao → 2-3 min wait → auto KV bind + secrets fetch + deploy ho jayega",
-                          "Is flow me Step 4 aur Step 5-B manually karne ki zaroorat nahi — EMAIL_CACHE + runtime secrets auto inject honge",
+                          "Blue 'Deploy' button dabao → 2-3 min wait → auto KV bind + deploy ho jayega",
+                          "Is flow me Step 4 aur Step 5-B manually karne ki zaroorat nahi — EMAIL_CACHE auto bind hoga, runtime secrets/env ki zaroorat nahi",
                         ],
                         warning: "⚠️ Ye flow tab hi kaam karega jab repo public ho ya GitHub connect authorize kiya ho. Confuse ho to Step 2 wala manual Hello World flow use kar — safer hai.",
                       },
@@ -7179,7 +7179,7 @@ function AdminPanel() {
                         <ol className="text-[11px] text-yellow-900 space-y-1.5 ml-4 list-decimal">
                           <li>Naye Cloudflare account me login karo (ya same account me new worker banao)</li>
                           <li>Step 2 se 6 repeat karo — worker ka naam alag rakhna (jaise netflixfetch2)</li>
-                      <li>GitHub auto-deploy flow use karoge to <b>Deploy command: bash setup.sh WORKER_NAME</b> rakho — secrets/KV auto inject honge.</li>
+                      <li>GitHub auto-deploy flow use karoge to <b>Deploy command: bash setup.sh WORKER_NAME</b> rakho — KV auto bind hoga, secrets/env ki zaroorat nahi.</li>
                           <li>Naya worker URL copy karo</li>
                           <li>App → Admin Panel → Email Accounts tab</li>
                           <li>Us specific account ke 'Edit' me jao → 'Cloudflare Worker URLs' me naya URL add karo</li>
@@ -7349,7 +7349,7 @@ function AdminPanel() {
               </h2>
               <p className="text-xs text-slate-500 mb-4">
                 Exact values to paste into Cloudflare → Workers &amp; Pages → your worker → <b>Settings → Build</b>.
-                Nothing else to tick. Everything else auto-fetches from Supabase at build time.
+                Nothing else to tick. Worker has built-in public Supabase config and validates sessions server-side.
               </p>
 
               <div className="overflow-x-auto rounded-xl border border-slate-200">

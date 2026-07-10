@@ -23,9 +23,8 @@ binding = "EMAIL_CACHE"
 #
 # During deploy:
 #   • KV namespace "EMAIL_CACHE" auto-provisions + binds from this file
-#   • setup.sh fetches Supabase config
-#   • setup.sh deploys with a temporary Wrangler --secrets-file
-#   • runtime secrets are uploaded together with worker code
+#   • setup.sh deploys the worker by name
+#   • Supabase public config is built into worker.js; no runtime secrets needed
 #
 # Cloudflare docs notes:
 #   • Workers Builds default API token includes Account Settings read,
@@ -33,4 +32,4 @@ binding = "EMAIL_CACHE"
 #   • Wrangler 4.45+ can deploy KV bindings without resource IDs.
 
 # Do NOT use Wrangler custom-build here. Cloudflare Workers Builds already has
-# its own command step; setup.sh deploys explicitly to avoid skipped injection.
+# its own command step; setup.sh deploys explicitly to avoid skipped dashboard steps.
