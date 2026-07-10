@@ -5870,7 +5870,7 @@ function AdminPanel() {
                                   <p className="text-white/70 text-[11px] font-mono truncate">{u.username ? `@${u.username}` : "no username"}</p>
                                 </div>
                               </div>
-                              <button onClick={() => setEditingUserAccounts(null); setEditHint(null)}
+                              <button onClick={() => { setEditingUserAccounts(null); setEditHint(null); }}
                                 className="flex-shrink-0 w-9 h-9 rounded-2xl bg-white/20 hover:bg-white/35 text-white flex items-center justify-center transition-all active:scale-90 backdrop-blur-sm ring-1 ring-white/30">
                                 <X className="w-4 h-4" strokeWidth={2.5} />
                               </button>
@@ -6001,7 +6001,7 @@ function AdminPanel() {
                           </div>
                           {/* Footer */}
                           <div className="border-t border-slate-100 p-3 flex gap-2 bg-gradient-to-b from-white to-slate-50">
-                            <button onClick={() => setEditingUserAccounts(null); setEditHint(null)}
+                            <button onClick={() => { setEditingUserAccounts(null); setEditHint(null); }}
                               className="flex-1 py-3 rounded-2xl border-2 border-slate-200 bg-white text-slate-700 text-sm font-bold hover:bg-slate-50 hover:border-slate-300 active:scale-95 transition-all">
                               Cancel
                             </button>
