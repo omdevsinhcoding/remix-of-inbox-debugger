@@ -138,10 +138,11 @@ Same 8 steps for **every** Cloudflare account. Nothing else. Bookmark this.
       Account Settings: Read
 6. Save and Deploy. Watch logs for:
       "Creating/updating Worker with KV binding EMAIL_CACHE"
-      "Bootstrap OK for CF account"
-      "Syncing N secret(s) to Worker"
       "Creating/Found KV namespace EMAIL_CACHE"
       "Finalizing Worker deploy with synced secrets"
+   Note: "Bootstrap OK" / "Syncing N secret(s)" may appear only when
+   Cloudflare exposes the build API token to the process. Email sync still
+   works without those secrets; Worker validates sessions through Supabase.
 7. Copy worker URL (https://netflix.<sub>.workers.dev) →
    App → Admin Panel → Infrastructure → Primary Cloudflare Worker URLs → Save
 ```
@@ -152,7 +153,7 @@ Same 8 steps for **every** Cloudflare account. Nothing else. Bookmark this.
 
 ---
 
-**Zero manual Cloudflare secrets required** — Supabase URL + anon key are baked into `worker.js` as defaults, and `deploy.mjs` asks `worker-bootstrap` for the signing secret during Cloudflare Builds. The deploy script creates/fetches the KV namespace in the current Cloudflare account, injects the correct namespace ID into a temporary Wrangler config, deploys once so the Worker exists, syncs secrets, then deploys again with `EMAIL_CACHE` bound.
+**Zero manual Cloudflare secrets required** — Supabase URL + anon key are baked into `worker.js` as defaults. The deploy script creates/fetches the KV namespace in the current Cloudflare account, injects the correct namespace ID into a temporary Wrangler config, deploys once so the Worker exists, optionally syncs secrets if Cloudflare exposes the build API token, then deploys again with `EMAIL_CACHE` bound. If signing secrets are not present, email APIs still work because the Worker validates the session through Supabase before syncing mail.
 
 > 🪄 **Important fix:** Cloudflare KV bindings are account-specific. A `wrangler.toml` with only `binding = "EMAIL_CACHE"` is not enough on every account because KV needs an account-local namespace ID. [`cloudflare-worker/deploy.mjs`](./cloudflare-worker/deploy.mjs) now handles that automatically and works across new Cloudflare accounts without an allowlist.
 
@@ -170,7 +171,7 @@ Open **Cloudflare Dashboard → Workers & Pages → Create → Import a reposito
 | Production branch | `main` |
 | **Root directory** | `/cloudflare-worker` ← **REQUIRED** |
 
-> ⚠️ Root directory **must** be `/cloudflare-worker`. If you leave it blank, Cloudflare detects the React frontend at repo root and runs `vite build` instead of the worker deploy.
+> ✅ Best: Root directory `/cloudflare-worker`. Safety net: if you accidentally leave root blank and Cloudflare runs repo-root `npm run build`, `scripts/smart-build.mjs` now detects official Workers Builds env vars (`WORKERS_CI*`) and routes to `cloudflare-worker/deploy.mjs` instead of Vite.
 
 #### Step 2 — Build & Deploy
 
@@ -272,7 +273,7 @@ Cloudflare GitHub Builds does **not** auto-copy Supabase secrets or Lovable env 
 
 ### If you insist on repo-root build command
 
-Cloudflare should ideally use `/cloudflare-worker`. If you leave root blank and set `npm run build` / `bun run build` at repo root, add this **Build variable** so the root script knows this is a Worker deploy, not a frontend Vite build:
+Cloudflare should ideally use `/cloudflare-worker`. If you leave root blank and Cloudflare runs `npm run build` / `bun run build` at repo root, the root smart-build script now detects Cloudflare Workers Builds automatically via `WORKERS_CI*` env vars and deploys the Worker. If your Cloudflare account uses an unusual build image and detection fails, add this **Build variable** as an override:
 
 ```txt
 CLOUDFLARE_WORKER_BUILD=1
@@ -335,8 +336,8 @@ SPA fallback is already configured (`public/_redirects`, `netlify.toml`, `vercel
 | Problem | Fix |
 |---|---|
 | "No builds exist yet" in Cloudflare | Git Builds has not run yet. Use **Save and Deploy**, or push a new commit after connecting. |
-| `npm run build` runs but worker never deploys | Root directory is wrong. Set it to `/cloudflare-worker` — the hijacked build script lives there. |
-| Cloudflare runs `vite build` instead of wrangler | Same fix — Root directory must be `/cloudflare-worker`, not blank. |
+| `npm run build` runs but worker never deploys | Old code missed Cloudflare's official `WORKERS_CI*` env vars. Current `scripts/smart-build.mjs` detects them and routes repo-root builds to Worker deploy. |
+| Cloudflare runs `vite build` instead of wrangler | Pull latest code, then retry build. Safer setup is still Root directory `/cloudflare-worker`. |
 | Cloudflare build fails: `wrangler.toml missing name` | Check `wrangler.toml` has `name = "netflix"` (or your chosen name) |
 | Build fails: `you need to provide a name` in deploy | Same as above — name field required |
 | Worker deployed but app shows no emails | Paste worker URL in Admin Panel → Infrastructure |

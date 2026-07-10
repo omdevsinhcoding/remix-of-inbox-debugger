@@ -67,7 +67,9 @@ Use these settings:
 | Deploy command | `npm run deploy` |
 | API token | token with Workers Scripts Edit + Workers KV Storage Edit |
 
-`npm run deploy` runs `cloudflare-worker/deploy.mjs`, which creates/fetches the account-local `EMAIL_CACHE` KV namespace, injects its ID into a temporary Wrangler config, and then deploys the Worker. This is required because every Cloudflare account has different KV namespace IDs.
+`npm run deploy` runs `cloudflare-worker/deploy.mjs`, which creates/fetches the account-local `EMAIL_CACHE` KV namespace, injects its ID into a temporary Wrangler config, and then deploys the Worker. This is required because every Cloudflare account has different KV namespace IDs. Manual Cloudflare runtime secrets are not required for email sync; when signing secrets are absent, the Worker verifies the session through Supabase and still handles email traffic through Cloudflare.
+
+If you accidentally leave Root directory blank and Cloudflare runs repo-root `npm run build`, the root smart-build script now detects official Workers Builds variables (`WORKERS_CI`, `WORKERS_CI_BUILD_UUID`, `WORKERS_CI_COMMIT_SHA`, `WORKERS_CI_BRANCH`) and routes to the Worker deploy instead of the React/Vite build.
 
 ### Important: first build does NOT auto-trigger on "Connect" (Cloudflare platform behavior)
 
