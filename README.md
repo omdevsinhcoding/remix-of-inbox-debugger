@@ -114,9 +114,49 @@ Inside app: **Admin Panel → Cron Settings** → toggle ON → pick interval (3
 
 Worker source lives in [`/cloudflare-worker/worker.js`](./cloudflare-worker/worker.js).
 
-**Zero runtime secrets required** — Supabase URL + anon key are baked into `worker.js` as defaults. The deploy script creates/fetches the KV namespace in the current Cloudflare account, injects the correct namespace ID into a temporary Wrangler config, then deploys with `EMAIL_CACHE` bound.
+---
 
-> 🪄 **Important fix:** Cloudflare KV bindings are account-specific. A `wrangler.toml` with only `binding = "EMAIL_CACHE"` is not enough on every account because KV needs an account-local namespace ID. [`cloudflare-worker/deploy.mjs`](./cloudflare-worker/deploy.mjs) now handles that automatically.
+### ⚡ QUICK REFERENCE (for future-you, 1 year later)
+
+Same 8 steps for **every** Cloudflare account. Nothing else. Bookmark this.
+
+```
+1. dash.cloudflare.com → login to the account you want to deploy to
+2. Workers & Pages → Create → "Import a repository"     (NOT "Hello World")
+3. Pick repo: inbox-debugger      Branch: main
+4. Fill EXACT:
+      Project name    = netflix   (unique per account, e.g. netflix2, netflix3)
+      Root directory  = /cloudflare-worker
+      Build command   = (blank)
+      Deploy command  = npm run deploy
+      Non-prod branch = unchecked
+5. API token → "Create new" → default template. Must have:
+      Workers Scripts: Edit
+      Workers KV Storage: Edit
+      Account Settings: Read
+6. (Optional) Settings → Variables → Build variables → add ANY of:
+      SESSION_SIGNING_SECRET, SESSION_SECRET, CRON_SHARED_SECRET,
+      SUPABASE_URL, SUPABASE_KEY, SUPABASE_ANON_KEY,
+      SUPABASE_SERVICE_ROLE_KEY, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, DEBUG_TOKEN
+   deploy.mjs will auto-push these as Worker Secrets on every deploy.
+   Reveal SESSION_SIGNING_SECRET fingerprint from Admin Panel → Deploy tab.
+7. Save and Deploy. Watch logs for:
+      "Syncing N secret(s) to Worker"
+      "Creating/Found KV namespace EMAIL_CACHE"
+      "Deploying Worker with KV binding EMAIL_CACHE"
+8. Copy worker URL (https://netflix.<sub>.workers.dev) →
+   App → Admin Panel → Infrastructure → Primary Cloudflare Worker URLs → Save
+```
+
+**Update later?** Just push a commit to `main`. Cloudflare auto-rebuilds and re-syncs secrets.
+**Nothing built?** Deployments tab → Retry. Saving settings alone does not trigger a build.
+**Wrong Deploy command?** Edit → `npm run deploy` (default `npx wrangler deploy` skips KV bootstrap + secret sync).
+
+---
+
+**Zero runtime secrets required** — Supabase URL + anon key are baked into `worker.js` as defaults. The deploy script creates/fetches the KV namespace in the current Cloudflare account, injects the correct namespace ID into a temporary Wrangler config, then deploys with `EMAIL_CACHE` bound. Any build-env vars from the list above are also pushed as encrypted Worker Secrets automatically by `deploy.mjs`.
+
+> 🪄 **Important fix:** Cloudflare KV bindings are account-specific. A `wrangler.toml` with only `binding = "EMAIL_CACHE"` is not enough on every account because KV needs an account-local namespace ID. [`cloudflare-worker/deploy.mjs`](./cloudflare-worker/deploy.mjs) now handles that automatically, AND auto-pushes any known build-env vars as Worker Secrets.
 
 ### 🎯 One-Time Setup
 

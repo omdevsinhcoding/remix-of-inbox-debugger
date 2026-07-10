@@ -6926,6 +6926,46 @@ function AdminPanel() {
                   <div className="px-2.5 pb-3 space-y-2">
                     <p className="text-[11px] text-blue-800 bg-blue-100 rounded-lg p-2">✅ Sab kuch phone browser se hoga — koi terminal ya PC ki zaroorat nahi!</p>
 
+                    {/* ⚡ 1-YEAR-LATER QUICK REFERENCE — read this first, everything else is detail */}
+                    <div className="rounded-xl border-2 border-emerald-400 bg-emerald-50 p-3">
+                      <p className="text-xs font-black text-emerald-900 mb-2">⚡ 1-SAAL BAAD YAAD KARNE KE LIYE — Sirf ye 8 steps</p>
+                      <p className="text-[10px] text-emerald-800 mb-2">Har Cloudflare account me exact same. Bookmark kar lo.</p>
+                      <pre className="whitespace-pre-wrap break-words text-[10.5px] leading-relaxed font-mono bg-white rounded-lg p-2 border border-emerald-200 text-slate-800">{`1. dash.cloudflare.com → us account me login karo
+2. Workers & Pages → Create → "Import a repository"
+   (NOT "Hello World")
+3. Repo: inbox-debugger    Branch: main
+4. EXACT ye fields:
+     Project name    = netflix (unique: netflix2, netflix3...)
+     Root directory  = /cloudflare-worker
+     Build command   = (blank chhodo)
+     Deploy command  = npm run deploy
+     Non-prod branch = ☐ uncheck
+5. API token → "Create new" → default template.
+   Permissions: Workers Scripts Edit +
+                Workers KV Storage Edit +
+                Account Settings Read
+6. (Optional) Settings → Variables → Build variables:
+   Ye names me se jo chahiye add karo →
+     SESSION_SIGNING_SECRET, SESSION_SECRET,
+     CRON_SHARED_SECRET, SUPABASE_URL, SUPABASE_KEY,
+     TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, DEBUG_TOKEN
+   deploy.mjs har deploy pe auto Worker Secret bana dega ✨
+   SESSION_SIGNING_SECRET fingerprint upar "Reveal" se check karo.
+7. "Save and Deploy" → Logs me dekho:
+     "Syncing N secret(s) to Worker"
+     "Creating/Found KV namespace EMAIL_CACHE"
+     "Deploying Worker with KV binding EMAIL_CACHE"
+8. Worker URL copy karo (https://netflix.xxx.workers.dev)
+   → Admin Panel → Cloudflare Workers →
+     "Primary Cloudflare Worker URLs" me paste → Save`}</pre>
+                      <div className="mt-2 space-y-1 text-[10.5px] text-emerald-900">
+                        <p><b>Update code?</b> GitHub main pe commit push → auto rebuild + secret re-sync.</p>
+                        <p><b>Build start nahi hua?</b> Deployments tab → Retry. Settings save karne se build nahi chalta.</p>
+                        <p><b>Deploy command galat?</b> Edit → <code className="bg-white px-1 rounded">npm run deploy</code>. Default <code className="bg-white px-1 rounded">npx wrangler deploy</code> se KV bootstrap + secret sync skip ho jata hai.</p>
+                      </div>
+                    </div>
+
+
                     <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 space-y-2">
                       <div className="flex items-start justify-between gap-2">
                         <div>
