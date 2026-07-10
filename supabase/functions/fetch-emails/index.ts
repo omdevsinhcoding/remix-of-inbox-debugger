@@ -464,16 +464,17 @@ async function fetchFromAccount(
         if (netflixUids.length > 0) console.log(`[${accountLabel}] Latest inbox scan found ${netflixUids.length}`);
       }
 
-      if (!quickRefresh && netflixUids.length === 0 && hasBudget()) {
+      if (!quickRefresh && hasBudget()) {
         const since = new Date();
         since.setDate(since.getDate() - 7);
         for (const term of ["netflix.com", "netflix"]) {
-          if (netflixUids.length > 0 || !hasBudget()) break;
+          if (!hasBudget()) break;
           try {
             const searchResults = await client.search({ from: term, since }, { uid: true });
             if (searchResults?.length > 0) {
-              netflixUids = searchResults as number[];
+              netflixUids.push(...(searchResults as number[]));
               console.log(`[${accountLabel}] Search "${term}" found ${netflixUids.length}`);
+              break;
             }
           } catch (searchErr) {
             console.log(`[${accountLabel}] Search "${term}" failed:`, searchErr);
