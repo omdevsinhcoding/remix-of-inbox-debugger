@@ -99,6 +99,46 @@ function ensureNamespaceId() {
   return namespaceId;
 }
 
+// ─────────────────────────────────────────────────────────────
+// Auto-sync Worker secrets from Cloudflare build-time env vars.
+// Set these in Cloudflare → Worker → Settings → Variables → Build variables
+// (any that exist will be pushed as encrypted Worker secrets on every deploy).
+// ─────────────────────────────────────────────────────────────
+const AUTO_SECRET_NAMES = [
+  "SUPABASE_URL",
+  "SUPABASE_KEY",
+  "SUPABASE_ANON_KEY",
+  "SUPABASE_SERVICE_ROLE_KEY",
+  "SESSION_SECRET",
+  "SESSION_SIGNING_SECRET",
+  "CRON_SHARED_SECRET",
+  "TELEGRAM_BOT_TOKEN",
+  "TELEGRAM_CHAT_ID",
+  "DEBUG_TOKEN",
+];
+
+function syncSecrets(tempConfig, workerName) {
+  const present = AUTO_SECRET_NAMES.filter((n) => process.env[n] && process.env[n].trim());
+  if (!present.length) {
+    console.log("[deploy] No build-env secrets found to sync. (Set them in Worker → Settings → Variables → Build variables)");
+    return;
+  }
+  console.log(`[deploy] Syncing ${present.length} secret(s) to Worker: ${present.join(", ")}`);
+  for (const name of present) {
+    const args = ["secret", "put", name, "--config", tempConfig];
+    if (workerName) args.push("--name", workerName);
+    const res = spawnSync("npx", [...WRANGLER, ...args], {
+      cwd: __dirname,
+      input: process.env[name],
+      stdio: ["pipe", "inherit", "inherit"],
+      shell: process.platform === "win32",
+    });
+    if (res.status !== 0) {
+      console.error(`[deploy] Failed to set secret ${name} (continuing).`);
+    }
+  }
+}
+
 function deploy() {
   if (!existsSync(BASE_CONFIG)) {
     console.error(`[deploy] Missing ${BASE_CONFIG}`);
@@ -111,8 +151,12 @@ function deploy() {
   const tempConfig = join(tempDir, "wrangler.toml");
   writeFileSync(tempConfig, patchKvId(source, namespaceId));
 
-  const args = ["deploy", "--config", tempConfig, "--keep-vars"];
   const workerName = process.env.WORKER_NAME || process.env.CLOUDFLARE_WORKER_NAME;
+
+  // Push secrets BEFORE deploy so the first request already has them.
+  syncSecrets(tempConfig, workerName);
+
+  const args = ["deploy", "--config", tempConfig, "--keep-vars"];
   if (workerName) args.push("--name", workerName);
 
   console.log("[deploy] Deploying Worker with KV binding EMAIL_CACHE...");
