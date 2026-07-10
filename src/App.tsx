@@ -9582,15 +9582,8 @@ function EmailViewer() {
       <main className="max-w-6xl mx-auto px-2 sm:px-4 h-[calc(100vh-3.5rem)] sm:h-[calc(100vh-4rem)] overflow-hidden">
         <div className="grid grid-cols-1 md:grid-cols-12 gap-4 sm:gap-8 h-full py-4 sm:py-8">
           <div className={`${selectedEmail ? "hidden md:block" : "block"} md:col-span-5 xl:col-span-4 flex flex-col overflow-hidden h-full`}>
-            <section className="bg-white rounded-2xl shadow-sm border border-slate-200 p-3 sm:p-5 flex items-center gap-3 sm:gap-4 flex-shrink-0">
-              <div className="bg-green-100 p-2 sm:p-3 rounded-xl flex-shrink-0">
-                <ShieldCheck className="text-green-600 w-6 h-6" />
-              </div>
-              <div>
-                <h2 className="text-sm font-bold text-slate-800">System Active</h2>
-                <p className="text-xs text-slate-500">Monitoring emails securely</p>
-              </div>
-            </section>
+
+
 
             <section className="mt-4 flex-1 overflow-y-auto min-h-0 flex flex-col">
               <div className="flex items-center justify-between mb-2">
