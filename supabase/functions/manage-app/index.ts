@@ -265,17 +265,6 @@ function maskSavedSecret(value: unknown): string {
   return typeof value === "string" && value.length > 0 ? SECRET_MASK : "";
 }
 
-async function revealSavedSecret(value: unknown, encryptionSecret: string): Promise<string> {
-  if (typeof value !== "string" || value.length === 0) return "";
-  if (!value.startsWith("enc:")) return value; // legacy plaintext
-  try {
-    return await decryptValue(value, encryptionSecret);
-  } catch (e) {
-    console.warn("[reveal] decrypt failed:", (e as Error)?.message);
-    return SECRET_MASK;
-  }
-}
-
 async function maskEmailAccountsForAdmin(value: any): Promise<any[]> {
   if (!Array.isArray(value)) return [];
   return await Promise.all(value.map(async (acc: any) => ({
