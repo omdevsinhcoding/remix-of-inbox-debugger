@@ -2344,7 +2344,7 @@ function warmAvatarUrls(urls: string[], priority: "high" | "low" = "low") {
     document.head.appendChild(link);
 
     const img = new Image();
-    img.decoding = priority === "high" ? "sync" : "async";
+    img.decoding = "async";
     img.src = url;
   });
 }
@@ -2618,7 +2618,7 @@ function ProfileSelectPage() {
   useEffect(() => {
     displayProfiles.forEach((p) => {
       const uri = getAvatarUri(p.profileAvatar);
-      if (uri) { const img = new Image(); img.decoding = "sync"; img.src = uri; }
+      if (uri) { const img = new Image(); img.decoding = "async"; img.src = uri; }
     });
   }, [displayProfiles]);
 
@@ -8351,10 +8351,8 @@ function AvatarPicker({
   const selectCategory = (key: string) => {
     if (key === activeCategoryKey || pendingCategoryKey) return;
     setPendingCategoryKey(key);
-    preloadAvatarCategory(key, 5000).finally(() => {
-      setActiveCategoryKey(key);
-      setPendingCategoryKey(null);
-    });
+    setActiveCategoryKey(key);
+    preloadAvatarCategory(key, 1200).finally(() => setPendingCategoryKey(null));
   };
 
   const chipScrollRef = useRef<HTMLDivElement | null>(null);
@@ -8549,6 +8547,7 @@ function UserProfileModal({
 
   const saveAvatar = async (avatarId: string) => {
     if (savingAvatar) return;
+    if (avatarId === prefs.avatarId) return;
 
     // Global cooldown for free profiles: block preemptively so we don't
     // even hit the server if the window is still open.
