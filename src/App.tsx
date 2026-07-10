@@ -9498,11 +9498,13 @@ function EmailViewer() {
               <span className="ml-1.5">Profile</span>
             </button>
             {canChangePassword && (
-              <button onClick={() => setShowChangePwd(true)}
-                className="flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 text-slate-700 rounded-full text-sm font-semibold hover:bg-slate-50 hover:border-slate-300 transition-all active:scale-95"
-                title="Change password">
+              <button
+                onClick={() => setShowChangePwd(true)}
+                className="flex items-center justify-center w-9 h-9 hover:bg-slate-100 text-slate-600 rounded-full transition-all active:scale-95"
+                title="Change password"
+                aria-label="Change password"
+              >
                 <KeyRound className="w-4 h-4" />
-                <span>Password</span>
               </button>
             )}
             {!isImpersonating && (
