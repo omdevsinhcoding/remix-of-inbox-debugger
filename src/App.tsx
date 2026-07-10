@@ -4019,57 +4019,84 @@ function AllEmailsPanel() {
   if (view === "picker") {
     const hasPrimary = !!primaryUser;
     const hasAny = hasPrimary || labels.length > 0;
+    const totalAccounts = (hasPrimary ? 1 : 0) + labels.length;
     return (
-      <section className="bg-white p-4 sm:p-6 rounded-2xl border shadow-sm">
-        <div className="flex flex-wrap items-start gap-2 mb-4">
-          <h2 className="font-black text-base sm:text-lg flex items-center gap-2 mr-auto">
-            <div className="bg-red-50 p-1.5 rounded-lg"><Mail className="w-4 h-4 text-red-600" /></div>
-            All Emails
-          </h2>
-          <p className="text-[11px] sm:text-xs text-slate-500 w-full sm:w-auto sm:text-right">Tap an account to load its mails.</p>
+      <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-5 sm:p-7 shadow-[0_25px_70px_-25px_rgba(15,23,42,0.6)] border border-slate-800/50">
+        {/* Decorative grid pattern */}
+        <div className="absolute inset-0 opacity-[0.04] pointer-events-none" style={{ backgroundImage: "linear-gradient(rgba(255,255,255,.5) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.5) 1px, transparent 1px)", backgroundSize: "24px 24px" }} />
+        {/* Red glow accent */}
+        <div className="absolute -top-24 -right-24 w-64 h-64 bg-red-500/20 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="relative flex items-end justify-between gap-3 mb-5 sm:mb-6 pb-4 border-b border-slate-800/60">
+          <div className="min-w-0">
+            <p className="text-[10px] font-black tracking-[0.2em] text-red-400/80 mb-1">MAIL ARCHIVE</p>
+            <h2 className="font-black text-xl sm:text-2xl text-white tracking-tight leading-none flex items-center gap-2.5">
+              All Emails
+              <span className="text-[10px] font-mono font-bold bg-slate-800 text-slate-300 px-2 py-0.5 rounded border border-slate-700">{totalAccounts.toString().padStart(2, "0")}</span>
+            </h2>
+          </div>
+          <p className="text-[10px] sm:text-[11px] text-slate-400 font-mono uppercase tracking-wider text-right hidden sm:block">Tap to load</p>
         </div>
+
         {!hasAny ? (
-          <div className="py-12 text-center text-slate-500 text-sm">No email accounts configured yet.</div>
+          <div className="relative py-16 text-center text-slate-500 text-sm font-mono">// no accounts configured</div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 sm:gap-3">
+          <div className="relative grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3">
+            {/* All accounts — special ghost card */}
             <button
               onClick={() => openAccount("")}
-              className="text-left p-3.5 sm:p-4 rounded-xl border-2 border-dashed border-slate-300 hover:border-red-400 hover:bg-red-50 active:scale-[0.98] transition group"
+              className="group relative overflow-hidden text-left rounded-2xl border border-dashed border-slate-700 hover:border-red-500/60 bg-slate-900/40 hover:bg-slate-900/70 active:scale-[0.99] transition-all p-4"
             >
               <div className="flex items-center gap-3">
-                <div className="bg-slate-100 group-hover:bg-red-100 p-2 rounded-lg flex-shrink-0"><Mail className="w-5 h-5 text-slate-600 group-hover:text-red-600" /></div>
-                <div className="min-w-0">
-                  <p className="font-semibold text-slate-900 truncate">All accounts</p>
-                  <p className="text-[11px] text-slate-500">Combined view (heavier query)</p>
+                <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-slate-800 to-slate-900 flex items-center justify-center flex-shrink-0 border border-slate-700 group-hover:border-red-500/50 transition-colors">
+                  <Mail className="w-5 h-5 text-slate-400 group-hover:text-red-400 transition-colors" />
                 </div>
+                <div className="min-w-0 flex-1">
+                  <p className="font-black text-white text-sm truncate">All Accounts</p>
+                  <p className="text-[10px] text-slate-500 font-mono truncate uppercase tracking-wide">combined · heavier</p>
+                </div>
+                <ChevronRight className="w-4 h-4 text-slate-600 group-hover:text-red-400 group-hover:translate-x-0.5 transition-all flex-shrink-0" />
               </div>
             </button>
+
             {hasPrimary && (
               <button
                 onClick={() => openAccount("Primary")}
-                className="text-left p-3.5 sm:p-4 rounded-xl border border-amber-200 bg-gradient-to-br from-amber-50 to-white hover:border-amber-400 hover:from-amber-100 active:scale-[0.98] transition group"
+                className="group relative overflow-hidden text-left rounded-2xl border border-amber-500/30 bg-gradient-to-br from-amber-500/10 via-slate-900/60 to-slate-900 hover:border-amber-400/70 hover:from-amber-500/20 active:scale-[0.99] transition-all p-4"
               >
-                <div className="flex items-center gap-3">
-                  <div className="bg-amber-100 group-hover:bg-amber-200 p-2 rounded-lg flex-shrink-0"><Mail className="w-5 h-5 text-amber-700" /></div>
-                  <div className="min-w-0">
-                    <p className="font-semibold text-slate-900 truncate flex items-center gap-1.5">
-                      Primary
-                      <span className="text-[9px] font-black bg-amber-200 text-amber-800 px-1.5 py-0.5 rounded">DEFAULT</span>
-                    </p>
-                    <p className="text-[11px] text-slate-500 truncate" title={primaryUser}>{primaryUser}</p>
+                <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-amber-400 to-amber-600" />
+                <div className="flex items-center gap-3 pl-1">
+                  <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center flex-shrink-0 shadow-lg shadow-amber-900/40">
+                    <Mail className="w-5 h-5 text-white" strokeWidth={2.5} />
                   </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <p className="font-black text-white text-sm truncate">Primary</p>
+                      <span className="text-[8px] font-black bg-amber-400 text-amber-950 px-1.5 py-0.5 rounded tracking-wider">DEFAULT</span>
+                    </div>
+                    <p className="text-[10px] text-amber-200/70 font-mono truncate" title={primaryUser}>{primaryUser}</p>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-amber-300/60 group-hover:text-amber-300 group-hover:translate-x-0.5 transition-all flex-shrink-0" />
                 </div>
               </button>
             )}
-            {labels.map(l => (
+
+            {labels.map((l, idx) => (
               <button key={l} onClick={() => openAccount(l)}
-                className="text-left p-3.5 sm:p-4 rounded-xl border hover:border-red-400 hover:bg-red-50/40 active:scale-[0.98] transition group">
-                <div className="flex items-center gap-3">
-                  <div className="bg-red-50 group-hover:bg-red-100 p-2 rounded-lg flex-shrink-0"><Mail className="w-5 h-5 text-red-600" /></div>
-                  <div className="min-w-0">
-                    <p className="font-semibold text-slate-900 truncate" title={l}>{l}</p>
-                    <p className="text-[11px] text-slate-500">Click to load mails</p>
+                className="group relative overflow-hidden text-left rounded-2xl border border-slate-800 bg-slate-900/60 hover:bg-slate-800/80 hover:border-red-500/40 active:scale-[0.99] transition-all p-4">
+                <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-red-500 to-red-700 opacity-70 group-hover:opacity-100 transition-opacity" />
+                <div className="flex items-center gap-3 pl-1">
+                  <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-red-500 to-red-700 flex items-center justify-center flex-shrink-0 shadow-lg shadow-red-900/40">
+                    <Mail className="w-5 h-5 text-white" strokeWidth={2.5} />
                   </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <p className="font-black text-white text-sm truncate" title={l}>{l}</p>
+                      <span className="text-[8px] font-mono text-slate-500 tracking-wider">#{String(idx + 1).padStart(2, "0")}</span>
+                    </div>
+                    <p className="text-[10px] text-slate-400 font-mono truncate uppercase tracking-wide">tap to load</p>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-slate-600 group-hover:text-red-400 group-hover:translate-x-0.5 transition-all flex-shrink-0" />
                 </div>
               </button>
             ))}
@@ -4079,6 +4106,7 @@ function AllEmailsPanel() {
     );
 
   }
+
 
   return (
     <section className="bg-white p-4 sm:p-6 rounded-2xl border shadow-sm">
