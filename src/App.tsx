@@ -5846,13 +5846,13 @@ function AdminPanel() {
                       <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center animate-in fade-in duration-200"
                         onClick={() => setEditingUserAccounts(null)}
                         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
-                        <div className="absolute inset-0 bg-gradient-to-br from-slate-950/70 via-slate-900/70 to-blue-950/70 backdrop-blur-xl" />
+                        <div className="absolute inset-0 bg-gradient-to-br from-slate-950/70 via-rose-950/60 to-slate-950/70 backdrop-blur-xl" />
                         <div onClick={(e) => e.stopPropagation()}
-                          className="relative w-full sm:max-w-md max-h-[92vh] sm:max-h-[88vh] overflow-hidden bg-white sm:rounded-3xl rounded-t-3xl shadow-[0_-20px_80px_-10px_rgba(0,0,0,0.4)] sm:shadow-[0_30px_120px_-30px_rgba(59,130,246,0.5)] ring-1 ring-white/40 animate-in slide-in-from-bottom-8 sm:zoom-in-95 duration-300 flex flex-col">
+                          className="relative w-full sm:max-w-md max-h-[92vh] sm:max-h-[88vh] overflow-hidden bg-white sm:rounded-3xl rounded-t-3xl shadow-[0_-20px_80px_-10px_rgba(0,0,0,0.4)] sm:shadow-[0_30px_120px_-30px_rgba(244,63,94,0.5)] ring-1 ring-white/40 animate-in slide-in-from-bottom-8 sm:zoom-in-95 duration-300 flex flex-col">
                           {/* Mobile grab handle */}
                           <div className="sm:hidden flex justify-center pt-2.5 pb-1"><div className="w-10 h-1 rounded-full bg-slate-300" /></div>
                           {/* Header */}
-                          <div className={`relative overflow-hidden px-5 pt-5 pb-16 ${u.isFree ? "bg-gradient-to-br from-emerald-500 via-emerald-600 to-teal-700" : "bg-gradient-to-br from-blue-600 via-indigo-600 to-red-600"}`}>
+                          <div className="relative overflow-hidden px-5 pt-5 pb-16 bg-gradient-to-br from-rose-500 via-red-600 to-orange-600">
                             <div className="absolute inset-0 opacity-30" style={{ backgroundImage: "radial-gradient(circle at 20% 20%, rgba(255,255,255,0.4) 0%, transparent 50%), radial-gradient(circle at 80% 80%, rgba(255,255,255,0.2) 0%, transparent 50%)" }} />
                             <div className="absolute -top-10 -right-10 w-48 h-48 rounded-full bg-white/15 blur-3xl" />
                             <div className="absolute -bottom-12 -left-8 w-40 h-40 rounded-full bg-white/10 blur-3xl" />
@@ -5882,7 +5882,7 @@ function AdminPanel() {
                                 <label className="block text-[10px] font-black tracking-[0.2em] text-slate-500 uppercase mb-2">Username {u.isFree ? "(optional)" : ""}</label>
                                 <input type="text" value={editUsername} onChange={(e) => setEditUsername(e.target.value)}
                                   placeholder={u.isFree ? "No username" : "Username"}
-                                  className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 text-sm font-medium transition-all" />
+                                  className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-rose-500/30 focus:border-rose-500 text-sm font-medium transition-all" />
                               </div>
                               <div>
                                 <label className="block text-[10px] font-black tracking-[0.2em] text-slate-500 uppercase mb-2">Assigned IMAP Accounts</label>
@@ -5890,14 +5890,14 @@ function AdminPanel() {
                                   {getAvailableAccounts().map(label => {
                                     const checked = editAccountsList.includes(label);
                                     return (
-                                      <label key={label} className={`flex items-center gap-2.5 p-2.5 rounded-xl cursor-pointer transition-all border-2 ${checked ? "bg-gradient-to-r from-indigo-50 to-blue-50 border-indigo-300 shadow-sm" : "bg-slate-50 border-transparent hover:bg-slate-100"}`}>
+                                      <label key={label} className={`flex items-center gap-2.5 p-2.5 rounded-xl cursor-pointer transition-all border-2 ${checked ? "bg-gradient-to-r from-rose-50 to-red-50 border-rose-300 shadow-sm" : "bg-slate-50 border-transparent hover:bg-slate-100"}`}>
                                         <input type="checkbox" checked={checked}
                                           onChange={(e) => {
                                             if (e.target.checked) setEditAccountsList([...editAccountsList, label]);
                                             else setEditAccountsList(editAccountsList.filter(a => a !== label));
                                           }}
-                                          className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
-                                        <span className={`text-sm font-mono truncate ${checked ? "text-indigo-900 font-bold" : "text-slate-700"}`}>{label}</span>
+                                          className="w-4 h-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500" />
+                                        <span className={`text-sm font-mono truncate ${checked ? "text-rose-900 font-bold" : "text-slate-700"}`}>{label}</span>
                                       </label>
                                     );
                                   })}
@@ -5909,7 +5909,7 @@ function AdminPanel() {
                                   <input type="number" min={0} max={50} step={1} value={editSessionLimit}
                                     onChange={(e) => setEditSessionLimit(e.target.value)}
                                     placeholder="Blank = global default"
-                                    className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 text-sm font-medium" />
+                                    className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-rose-500/30 focus:border-rose-500 text-sm font-medium" />
                                   <p className="text-[10px] text-slate-500 mt-2 leading-relaxed"><b>Blank</b> = global · <b>0</b> = unlimited · <b>1+</b> = cap.</p>
                                 </div>
                               )}
@@ -5935,7 +5935,7 @@ function AdminPanel() {
                               Cancel
                             </button>
                             <button onClick={() => updateUserAccounts(u.id)}
-                              className={`flex-[2] py-3 rounded-2xl text-white text-sm font-black shadow-xl active:scale-95 transition-all ${u.isFree ? "bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 shadow-emerald-500/40" : "bg-gradient-to-r from-blue-600 via-indigo-600 to-red-600 hover:brightness-110 shadow-indigo-500/40"}`}>
+                              className={`flex-[2] py-3 rounded-2xl text-white text-sm font-black shadow-xl active:scale-95 transition-all ${u.isFree ? "bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 shadow-emerald-500/40" : "bg-gradient-to-r from-rose-600 via-red-600 to-orange-600 hover:brightness-110 shadow-rose-500/40"}`}>
                               Save Changes
                             </button>
                           </div>
