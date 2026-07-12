@@ -2221,15 +2221,20 @@ function isLocationRequiredForProfile(profile?: Partial<UserData> | null) {
   return true;
 }
 
-function getUserRefreshAccountLabels(user: Partial<UserData>): string[] | null {
+function getUserRefreshAccountLabels(user: Partial<UserData>): string[] | null | undefined {
   if ((user as any)?.impersonated === true && user.role === "admin") return [];
   if (Array.isArray(user.assignedAccounts)) {
     return normalizeAccountLabels(user.assignedAccounts);
   }
+  // During a hard refresh the auth shell can render before `/me` has hydrated
+  // assignedAccounts. That state is UNKNOWN, not "no accounts". Returning []
+  // here made the inbox clear itself and purge IndexedDB, causing the visible
+  // show → vanish → show behavior users saw.
+  if (!user.id || user.role !== "admin") return undefined;
   return user.role === "admin" ? null : [];
 }
 
-function buildWorkerRequestGroups(labels: string[] | null, map: WorkerUrlMap, primaryUrls: string[]) {
+function buildWorkerRequestGroups(labels: string[] | null | undefined, map: WorkerUrlMap, primaryUrls: string[]) {
   const norm = (u: string) => u.trim().replace(/\/+$/, "");
   const primary = Array.from(new Set([...(map.primary || []), ...primaryUrls].map(norm).filter(Boolean)));
 
