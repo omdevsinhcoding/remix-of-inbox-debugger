@@ -3544,10 +3544,13 @@ Deno.serve(async (originalReq) => {
       if (uErr || !u) throw new Error("User not found");
 
       const isAdmin = u.role === "admin";
-      const labels: string[] | null = Array.isArray(u.assigned_accounts) && u.assigned_accounts.length > 0
-        ? ((await normalizeAssignedAccounts(supabase, u.assigned_accounts)) || [])
-        : (isAdmin ? null : []);
-      const recipientFiltersByLabel = isAdmin ? new Map<string, string[]>() : await loadRecipientFiltersByLabel(supabase);
+      const bypass = BYPASS_EMAIL_FILTERS && !isAdmin;
+      const labels: string[] | null = bypass
+        ? null
+        : (Array.isArray(u.assigned_accounts) && u.assigned_accounts.length > 0
+          ? ((await normalizeAssignedAccounts(supabase, u.assigned_accounts)) || [])
+          : (isAdmin ? null : []));
+      const recipientFiltersByLabel = (isAdmin || bypass) ? new Map<string, string[]>() : await loadRecipientFiltersByLabel(supabase);
 
       if (labels && labels.length === 0) {
         return new Response(JSON.stringify({ success: true, rows: [], removedIds: [], newCursor: cursor, hasMore: false }), {
@@ -3556,7 +3559,7 @@ Deno.serve(async (originalReq) => {
       }
 
       let visibilityFilters: EmailVisibilityFilters = DEFAULT_EMAIL_FILTERS;
-      if (!isAdmin) {
+      if (!isAdmin && !bypass) {
         try {
           const { data: filterRow } = await supabase.from("app_settings").select("value").eq("key", "email_filters").maybeSingle();
           visibilityFilters = normalizeEmailFilters(filterRow?.value);
@@ -3564,7 +3567,7 @@ Deno.serve(async (originalReq) => {
       }
 
       let dateCutoff: string | null = null;
-      if (!isAdmin) {
+      if (!isAdmin && !bypass) {
         const { data: visRow } = await supabase.from("app_settings").select("value").eq("key", "email_visibility").maybeSingle();
         const vis = (visRow?.value || {}) as { enabled?: boolean; days?: number };
         if (vis?.enabled && Number(vis.days) > 0) {
@@ -3596,8 +3599,9 @@ Deno.serve(async (originalReq) => {
         if (Number(r.modseq) > maxModseq) maxModseq = Number(r.modseq);
         if (r.destroyed) {
           removedIds.push(r.id);
-        } else if ((isAdmin || recipientMatches(r.to_address, recipientFiltersByLabel.get(String(r.account_label || "").trim()))) && (isAdmin || shouldExposeEmailToUser(r, visibilityFilters, !!u.is_free))) {
+        } else if (bypass || (isAdmin || recipientMatches(r.to_address, recipientFiltersByLabel.get(String(r.account_label || "").trim()))) && (isAdmin || shouldExposeEmailToUser(r, visibilityFilters, !!u.is_free))) {
           rows.push({
+
             id: r.id,
             subject: r.subject,
             from: r.from_address,
