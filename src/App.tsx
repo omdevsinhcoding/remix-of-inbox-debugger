@@ -2429,13 +2429,10 @@ function filterVisibleEmails(list: Email[], _prefs?: UserProfilePrefs | null, vi
   // ready to watch", etc. Only OTP/sign-in mail should reach the user.
   const strictSigninOnly = hideReset && hideAccountUpdate;
   const nonAdmin = viewer?.role !== "admin";
-  const allowedLabels = nonAdmin ? getUserRefreshAccountLabels(viewer || {}) : null;
-  const allowedSet = Array.isArray(allowedLabels) ? new Set(allowedLabels) : null;
   return list.filter((email) => {
-    if (allowedSet) {
-      const label = String(email.account_label || "").trim();
-      if (!label || !allowedSet.has(label)) return false;
-    }
+    // Account ownership is enforced by manage-app/fetch-emails using fresh DB
+    // assignments. Do not re-filter here from tab/session user data: stale
+    // assignedAccounts can hide newly-visible Primary household emails.
     const cat = classifyEmail(email);
     if (nonAdmin && viewer?.isFree && cat !== "signin") return false;
     if (hideSignin && cat === "signin") return false;
