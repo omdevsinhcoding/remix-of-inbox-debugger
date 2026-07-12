@@ -2221,15 +2221,20 @@ function isLocationRequiredForProfile(profile?: Partial<UserData> | null) {
   return true;
 }
 
-function getUserRefreshAccountLabels(user: Partial<UserData>): string[] | null {
+function getUserRefreshAccountLabels(user: Partial<UserData>): string[] | null | undefined {
   if ((user as any)?.impersonated === true && user.role === "admin") return [];
   if (Array.isArray(user.assignedAccounts)) {
     return normalizeAccountLabels(user.assignedAccounts);
   }
+  // During a hard refresh the auth shell can render before `/me` has hydrated
+  // assignedAccounts. That state is UNKNOWN, not "no accounts". Returning []
+  // here made the inbox clear itself and purge IndexedDB, causing the visible
+  // show → vanish → show behavior users saw.
+  if (!user.id || user.role !== "admin") return undefined;
   return user.role === "admin" ? null : [];
 }
 
-function buildWorkerRequestGroups(labels: string[] | null, map: WorkerUrlMap, primaryUrls: string[]) {
+function buildWorkerRequestGroups(labels: string[] | null | undefined, map: WorkerUrlMap, primaryUrls: string[]) {
   const norm = (u: string) => u.trim().replace(/\/+$/, "");
   const primary = Array.from(new Set([...(map.primary || []), ...primaryUrls].map(norm).filter(Boolean)));
 
@@ -2239,6 +2244,8 @@ function buildWorkerRequestGroups(labels: string[] | null, map: WorkerUrlMap, pr
     const url = pool.length > 0 ? pool[0] : "";
     return url ? [{ url, labels: null as string[] | null }] : [];
   }
+
+  if (labels === undefined) return [];
 
   if (labels.length === 0) return [];
 
@@ -8894,11 +8901,15 @@ function EmailViewer() {
       note: `${rows.length} cached rows`,
       error: delta?.success === false ? (delta?.error || "Cache load failed") : undefined,
     });
+    if (rows.length === 0 && emails.length > 0) {
+      pushDiag({ ts: Date.now(), kind: "sync", endpoint: "list_delta:baseline", note: "empty response ignored; preserving visible inbox" });
+      return emails;
+    }
     setEmails(rows);
     setError(null);
     setLastUpdated(new Date());
     return rows;
-  }, [pushDiag, setEmails]);
+  }, [pushDiag, setEmails, emails]);
 
   const loadCachedEmails = useCallback(async (opts?: { bust?: boolean; limit?: number }) => {
     const bust = !!opts?.bust;
@@ -8911,6 +8922,10 @@ function EmailViewer() {
       if (token) headers["X-Session-Token"] = token;
 
       const labels = refreshAccountLabels;
+      if (labels === undefined) {
+        pushDiag({ ts: Date.now(), kind: "cache", endpoint: "loadCachedEmails", note: "account scope hydrating; keeping current inbox" });
+        return filterVisibleEmails(emails, profilePrefs, user).length;
+      }
       if (labels && labels.length === 0) {
         setEmails([]);
         setError(null);
@@ -9216,7 +9231,9 @@ function EmailViewer() {
   const idbRef = useRef<Awaited<ReturnType<typeof openInboxDB>> | null>(null);
   const instantInboxRunKeyRef = useRef("");
   const instantInboxAccountKey = useMemo(
-    () => JSON.stringify(refreshAccountLabels === null ? null : [...(refreshAccountLabels || [])].sort()),
+    () => refreshAccountLabels === undefined
+      ? "unknown"
+      : JSON.stringify(refreshAccountLabels === null ? null : [...refreshAccountLabels].sort()),
     [refreshAccountLabels],
   );
   useEffect(() => {
@@ -9225,6 +9242,25 @@ function EmailViewer() {
     console.log("[inbox] effect fired", { userId: user?.id, runKey, alreadyRan: instantInboxRunKeyRef.current === runKey });
     if (instantInboxRunKeyRef.current === runKey) return;
     if (!user?.id) { console.log("[inbox] no user.id, skipping"); return; }
+    if (refreshAccountLabels === undefined) {
+      console.log("[inbox] account scope hydrating, painting local cache only");
+      (async () => {
+        try {
+          const db = await openInboxDB(user.id);
+          idbRef.current = db;
+          const cached = await readLatestEmails(db, 200, undefined);
+          if (cached.length > 0) {
+            setEmails(cached as unknown as Email[]);
+            setLastUpdated(new Date());
+            markInboxReady();
+            pushDiag({ ts: Date.now(), kind: "cache", endpoint: "idb:instant-paint", note: `${cached.length} rows while account scope hydrates` });
+          }
+        } catch (err) {
+          pushDiag({ ts: Date.now(), kind: "cache", endpoint: "idb:instant-paint", error: err instanceof Error ? err.message : String(err) });
+        }
+      })();
+      return;
+    }
     instantInboxRunKeyRef.current = runKey;
 
     const t0 = performance.now();
@@ -9282,8 +9318,12 @@ function EmailViewer() {
           await writeDelta(db, { rows, removedIds, newCursor });
           const fresh = await readLatestEmails(db, 200, refreshAccountLabels);
           console.log(`[inbox] after writeDelta, IDB has ${fresh.length} rows → repaint`);
-          setEmails(fresh as unknown as Email[]);
-          setLastUpdated(new Date());
+          if (fresh.length > 0 || cached.length === 0) {
+            setEmails(fresh as unknown as Email[]);
+            setLastUpdated(new Date());
+          } else {
+            pushDiag({ ts: Date.now(), kind: "cache", endpoint: "idb:post-delta", note: "empty local result ignored; preserving visible inbox" });
+          }
           if (fresh.length > 0) markInboxReady();
         }
         setError(null);
