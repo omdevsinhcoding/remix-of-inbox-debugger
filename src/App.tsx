@@ -8931,7 +8931,7 @@ function EmailViewer() {
       const labels = refreshAccountLabels;
       if (labels === undefined) {
         pushDiag({ ts: Date.now(), kind: "cache", endpoint: "loadCachedEmails", note: "account scope hydrating; keeping current inbox" });
-        return filterVisibleEmails(emails, profilePrefs, user).length;
+        return filterVisibleEmails(emailsRef.current, profilePrefs, user).length;
       }
       if (labels && labels.length === 0) {
         setEmails([]);
@@ -8950,7 +8950,7 @@ function EmailViewer() {
       if (groups.length === 0) {
         // No usable Worker configured — load the real cached inbox directly from Supabase.
         const direct = await loadCachedEmailsDirect(limit).catch(() => null);
-        return direct ? filterVisibleEmails(direct, profilePrefs, user).length : filterVisibleEmails(emails, profilePrefs, user).length;
+        return direct ? filterVisibleEmails(direct, profilePrefs, user).length : filterVisibleEmails(emailsRef.current, profilePrefs, user).length;
       }
 
       const lists = await Promise.all(groups.map(async (group) => {
@@ -8985,7 +8985,7 @@ function EmailViewer() {
       const okCount = lists.filter((item) => item.ok).length;
       if (okCount === 0) {
         const direct = await loadCachedEmailsDirect(limit).catch(() => null);
-        return direct ? filterVisibleEmails(direct, profilePrefs, user).length : filterVisibleEmails(emails, profilePrefs, user).length;
+        return direct ? filterVisibleEmails(direct, profilePrefs, user).length : filterVisibleEmails(emailsRef.current, profilePrefs, user).length;
       }
       const currentEmails = emailsRef.current;
       const emailList = mergeEmailsById([...lists.map((item) => item.emails), currentEmails]);
@@ -9001,9 +9001,9 @@ function EmailViewer() {
       const msg = err instanceof Error ? err.message : "Failed to load emails";
       pushDiag({ ts: Date.now(), kind: "cache", endpoint: "loadCachedEmails", error: msg });
       // Preserve currently-shown emails; do not blank the inbox on transient error.
-      return filterVisibleEmails(emails, profilePrefs, user).length;
+      return filterVisibleEmails(emailsRef.current, profilePrefs, user).length;
     }
-  }, [profilePrefs, setEmails, pushDiag, resolvedWorkerUrls, workerUrlMap, refreshAccountLabels, emails, user, loadCachedEmailsDirect]);
+  }, [profilePrefs, setEmails, pushDiag, resolvedWorkerUrls, workerUrlMap, refreshAccountLabels, user, loadCachedEmailsDirect]);
 
 
   const syncViaWorker = useCallback(async (): Promise<{ emails: Email[]; inserted: number; warning: string | null; fallback: boolean } | null> => {
@@ -9122,12 +9122,13 @@ function EmailViewer() {
           throw transient;
         }
       }
-      let merged: Email[] = emails;
+      let merged: Email[] = emailsRef.current;
       if (synced) {
         // fetch-emails returns only newly fetched rows. Repaint from the full
         // cached inbox after sync so a zero-new refresh never blanks the inbox.
         const cachedAfterSync = await loadCachedEmailsDirect(200).catch(() => null);
-        merged = cachedAfterSync || (synced.emails.length > 0 ? mergeEmailsById([synced.emails, emails]) : emails);
+        const currentEmails = emailsRef.current;
+        merged = cachedAfterSync || (synced.emails.length > 0 ? mergeEmailsById([synced.emails, currentEmails]) : currentEmails);
         setEmails(merged);
         setError(null);
         setLastUpdated(new Date());
@@ -9329,7 +9330,7 @@ function EmailViewer() {
           if (fresh.length > 0) {
             setEmails(fresh as unknown as Email[]);
             setLastUpdated(new Date());
-          } else if (cached.length === 0 && emails.length === 0) {
+          } else if (cached.length === 0 && emailsRef.current.length === 0) {
             setEmails([]);
             setLastUpdated(new Date());
           } else {
