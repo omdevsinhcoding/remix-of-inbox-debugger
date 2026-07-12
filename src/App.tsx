@@ -8744,9 +8744,11 @@ function EmailViewer() {
     } catch {}
   }, []);
   const [emails, setEmailsRaw] = useState<Email[]>([]);
+  const emailsRef = useRef<Email[]>([]);
   const setEmails = useCallback((next: Email[]) => {
     const visible = filterVisibleEmails(next, profilePrefs, user)
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    emailsRef.current = visible;
     setEmailsRaw(visible);
   }, [profilePrefs, user]);
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
@@ -8901,14 +8903,15 @@ function EmailViewer() {
       note: `${rows.length} cached rows`,
       error: delta?.success === false ? (delta?.error || "Cache load failed") : undefined,
     });
-    if (rows.length === 0 && emails.length > 0) {
+    const currentEmails = emailsRef.current;
+    if (rows.length === 0 && currentEmails.length > 0) {
       pushDiag({ ts: Date.now(), kind: "sync", endpoint: "list_delta:baseline", note: "empty response ignored; preserving visible inbox" });
-      return emails;
+      return currentEmails;
     }
     // Baseline reads are a snapshot of what the server returned right now, not
     // an explicit delete list. Never let a shorter/filtered baseline erase rows
     // already painted from IndexedDB; only delta removedIds may remove emails.
-    const merged = emails.length > 0 ? mergeEmailsById([rows, emails]) : rows;
+    const merged = currentEmails.length > 0 ? mergeEmailsById([rows, currentEmails]) : rows;
     setEmails(merged);
     setError(null);
     setLastUpdated(new Date());
@@ -8984,10 +8987,11 @@ function EmailViewer() {
         const direct = await loadCachedEmailsDirect(limit).catch(() => null);
         return direct ? filterVisibleEmails(direct, profilePrefs, user).length : filterVisibleEmails(emails, profilePrefs, user).length;
       }
-      const emailList = mergeEmailsById([...lists.map((item) => item.emails), emails]);
-      if (emailList.length === 0 && emails.length > 0) {
+      const currentEmails = emailsRef.current;
+      const emailList = mergeEmailsById([...lists.map((item) => item.emails), currentEmails]);
+      if (emailList.length === 0 && currentEmails.length > 0) {
         const direct = await loadCachedEmailsDirect(limit).catch(() => null);
-        return direct ? filterVisibleEmails(direct, profilePrefs, user).length : filterVisibleEmails(emails, profilePrefs, user).length;
+        return direct ? filterVisibleEmails(direct, profilePrefs, user).length : filterVisibleEmails(currentEmails, profilePrefs, user).length;
       }
       setEmails(emailList);
       setError(null);
