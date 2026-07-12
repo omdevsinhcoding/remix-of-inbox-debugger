@@ -91,17 +91,27 @@ function recipientMatches(toRaw: string | null | undefined, filters?: string[]):
 }
 const VIS_ACCOUNT_UPDATE_RE = /(attention|action (needed|required)|account (information|info|details) (was |has been )?(changed|updated)|changes? to your account|email (address )?(was |has been )?(changed|updated)|new email address|email verification|verification email|verify (your )?(email address|phone number|mobile number|account)|confirm (your )?(email address|phone number|mobile number|account change|account)|membership (was |has been )?(cancell?ed|updated|paused)|account (was |has been )?(cancell?ed|deleted|closed|paused|on hold)|we[’']re sorry to see you go|payment (received|method|was|has been|declined|failed|updated|changed)|mobile (number )?(confirm|confirmed|verify|verified|update|updated)|phone (number )?(confirm|confirmed|verify|verified|update|updated)|verify (your )?(phone|mobile|email)|verify your email address|action needed: verify|request to make a change|update your account|make (a |any )?(change|changes) to your account)/i;
 
+// Strong account-change signal — only fires on explicit "confirm your account change"
+// style copy. Kept narrow so household-verify / sign-in codes never match.
+const VIS_ACCOUNT_CHANGE_STRONG_RE = /(confirm (your )?(account change|email address change|change to your account)|your (account (information|info|details)|email address) (was |has been )(changed|updated)|changes? to your account (was|has been) made|make (a |any )?(change|changes) to your account|request to make a change|password (was |has been )?(changed|reset|updated))/i;
+
 function emailVisibilityCategory(row: any): "signin" | "password_reset" | "account_update" | "other" {
   const subject = String(row?.subject || "");
   const preview = String(row?.preview || "");
   const combined = `${subject} ${preview}`;
-  // Account-update detection MUST run before sign-in detection: Netflix sends
-  // "Your verification code" as the subject for BOTH sign-in codes and
-  // account-change confirmations. If we matched sign-in first, an account
-  // change (e.g. "Confirm your account change with this code") would leak to
-  // free profiles and let them lock the paying user out. Body text distinguishes.
+  // 1. Emails with an OTP are ALWAYS sign-in / household-verify style — Netflix
+  //    account-change confirmations use a link, not a code. This keeps household
+  //    verification codes reaching users even when the subject contains generic
+  //    "action needed" / "verify" language that would otherwise match account_update.
+  if (row?.otp) return "signin";
+  // 2. Strong account-change wording (body-level "confirm your account change",
+  //    "password was changed", etc.) — hide from users when admin toggles it off.
+  if (VIS_ACCOUNT_CHANGE_STRONG_RE.test(combined)) return "account_update";
+  // 3. Sign-in / new-device / temporary-access-code copy without an OTP field
+  //    (rare, but keep the classification).
+  if (VIS_SIGNIN_RE.test(combined)) return "signin";
+  // 4. Broader account-update surface (membership paused, payment failed, etc.).
   if (VIS_ACCOUNT_UPDATE_RE.test(combined)) return "account_update";
-  if (row?.otp || VIS_SIGNIN_RE.test(combined)) return "signin";
   if (VIS_PASSWORD_RESET_RE.test(combined)) return "password_reset";
   return "other";
 }
