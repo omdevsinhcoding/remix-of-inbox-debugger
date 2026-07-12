@@ -91,6 +91,9 @@ function recipientMatches(toRaw: string | null | undefined, filters?: string[]):
 }
 const VIS_ACCOUNT_UPDATE_RE = /(attention|action (needed|required)|account (information|info|details) (was |has been )?(changed|updated)|changes? to your account|email (address )?(was |has been )?(changed|updated)|new email address|email verification|verification email|verify (your )?(email address|phone number|mobile number|account)|confirm (your )?(email address|phone number|mobile number|account change|account)|membership (was |has been )?(cancell?ed|updated|paused)|account (was |has been )?(cancell?ed|deleted|closed|paused|on hold)|we[’']re sorry to see you go|payment (received|method|was|has been|declined|failed|updated|changed)|mobile (number )?(confirm|confirmed|verify|verified|update|updated)|phone (number )?(confirm|confirmed|verify|verified|update|updated)|verify (your )?(phone|mobile|email)|verify your email address|action needed: verify|request to make a change|update your account|make (a |any )?(change|changes) to your account)/i;
 
+// Netflix household / new-device / "is this you?" emails — link-based (no OTP)
+// but MUST reach the user so they can complete verification.
+const VIS_HOUSEHOLD_RE = /(netflix household|your household|update your household|part of your (netflix )?household|watching on a tv|traveling|travelling|new device|new sign[\s-]?in|signed in on|is this you|confirm (this|your) device|approve (this|your) device|watch instead|yes,? this was me)/i;
 // Strong account-change signal — only fires on explicit "confirm your account change"
 // style copy. Kept narrow so household-verify / sign-in codes never match.
 const VIS_ACCOUNT_CHANGE_STRONG_RE = /(confirm (your )?(account change|email address change|change to your account)|your (account (information|info|details)|email address) (was |has been )(changed|updated)|changes? to your account (was|has been) made|make (a |any )?(change|changes) to your account|request to make a change|password (was |has been )?(changed|reset|updated))/i;
@@ -104,6 +107,9 @@ function emailVisibilityCategory(row: any): "signin" | "password_reset" | "accou
   //    verification codes reaching users even when the subject contains generic
   //    "action needed" / "verify" language that would otherwise match account_update.
   if (row?.otp) return "signin";
+  // 2. Household / new-device / "is this you?" emails (link-based, no OTP).
+  //    Must reach the user — classified as signin so `showSignInCodes` controls it.
+  if (VIS_HOUSEHOLD_RE.test(combined)) return "signin";
   // 2. Strong account-change wording (body-level "confirm your account change",
   //    "password was changed", etc.) — hide from users when admin toggles it off.
   if (VIS_ACCOUNT_CHANGE_STRONG_RE.test(combined)) return "account_update";
