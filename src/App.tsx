@@ -9729,35 +9729,30 @@ function EmailViewer() {
                   )}
 
                   <div className="email-html-wrapper">
-                    {!selectedEmail.html && loadingEmailHtmlId === selectedEmail.id ? (
-                      <div className="min-h-[320px] flex items-center justify-center text-center text-slate-400">
-                        <div className="flex flex-col items-center gap-3">
-                          <RefreshCw className="w-6 h-6 animate-spin" />
-                          <span className="text-xs font-bold uppercase tracking-[0.14em]">Loading full email</span>
-                        </div>
+                    {loadingEmailHtmlId === selectedEmail.id && (
+                      <div className="mb-3 flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        Loading full email
                       </div>
-                    ) : (
-                      <>
-                      {emailHtmlLoadError && !selectedEmail.html && (
-                        <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
-                          {emailHtmlLoadError}
-                        </div>
-                      )}
-                      <iframe
-                        srcDoc={`<!DOCTYPE html><html><head><base target="_blank"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0;padding:8px;font-family:sans-serif;font-size:14px;color:#334155;overflow-x:hidden;word-break:break-word}img{max-width:100%!important;height:auto!important}table{max-width:100%!important;width:100%!important}td,th{max-width:100%!important;overflow:hidden}a{color:#e11d48}pre{white-space:pre-wrap;word-break:break-word;font-family:ui-sans-serif,system-ui,sans-serif;line-height:1.45}*{box-sizing:border-box}</style></head><body>${emailHtmlForDisplay(selectedEmail)}<script>(function(){function force(a){try{a.setAttribute('target','_blank');a.setAttribute('rel','noopener noreferrer');}catch(e){}}function scan(){document.querySelectorAll('a,button').forEach(force);}document.addEventListener('click',function(e){var a=e.target.closest('a,button');if(!a)return;var href=a.getAttribute('href')||a.dataset.href;if(href){e.preventDefault();window.open(href,'_blank','noopener,noreferrer');}},true);document.addEventListener('contextmenu',function(e){e.preventDefault();});scan();try{new MutationObserver(scan).observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['href','target']});}catch(e){}try{var links=document.querySelectorAll('a').length;var buttons=document.querySelectorAll('button').length;var base=document.querySelector('base');window.parent&&window.parent.postMessage({__nf:'iframe-links',links:links,buttons:buttons,hijack:true,baseTarget:(base&&base.getAttribute('target'))||''}, '*');}catch(e){}})();<\/script></body></html>`}
-                        sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-scripts"
-                        className="w-full border-0"
-                        style={{ minHeight: "400px" }}
-                        title="Email content"
-                        onLoad={(e) => {
-                          const iframe = e.target as HTMLIFrameElement;
-                          if (iframe.contentDocument?.body) {
-                            iframe.style.height = iframe.contentDocument.body.scrollHeight + 20 + "px";
-                          }
-                        }}
-                      />
-                      </>
                     )}
+                    {emailHtmlLoadError && !selectedEmail.html && (
+                      <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+                        {emailHtmlLoadError}
+                      </div>
+                    )}
+                    <iframe
+                      srcDoc={`<!DOCTYPE html><html><head><base target="_blank"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0;padding:8px;font-family:sans-serif;font-size:14px;color:#334155;overflow-x:hidden;word-break:break-word}img{max-width:100%!important;height:auto!important}table{max-width:100%!important;width:100%!important}td,th{max-width:100%!important;overflow:hidden}a{color:#e11d48}pre{white-space:pre-wrap;word-break:break-word;font-family:ui-sans-serif,system-ui,sans-serif;line-height:1.45}*{box-sizing:border-box}</style></head><body>${emailHtmlForDisplay(selectedEmail)}<script>(function(){function force(a){try{a.setAttribute('target','_blank');a.setAttribute('rel','noopener noreferrer');}catch(e){}}function scan(){document.querySelectorAll('a,button').forEach(force);}document.addEventListener('click',function(e){var a=e.target.closest('a,button');if(!a)return;var href=a.getAttribute('href')||a.dataset.href;if(href){e.preventDefault();window.open(href,'_blank','noopener,noreferrer');}},true);document.addEventListener('contextmenu',function(e){e.preventDefault();});scan();try{new MutationObserver(scan).observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['href','target']});}catch(e){}try{var links=document.querySelectorAll('a').length;var buttons=document.querySelectorAll('button').length;var base=document.querySelector('base');window.parent&&window.parent.postMessage({__nf:'iframe-links',links:links,buttons:buttons,hijack:true,baseTarget:(base&&base.getAttribute('target'))||''}, '*');}catch(e){}})();<\/script></body></html>`}
+                      sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-scripts"
+                      className="w-full border-0"
+                      style={{ minHeight: "400px" }}
+                      title="Email content"
+                      onLoad={(e) => {
+                        const iframe = e.target as HTMLIFrameElement;
+                        if (iframe.contentDocument?.body) {
+                          iframe.style.height = iframe.contentDocument.body.scrollHeight + 20 + "px";
+                        }
+                      }}
+                    />
                   </div>
                 </div>
               </motion.div>
