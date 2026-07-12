@@ -107,6 +107,9 @@ function emailVisibilityCategory(row: any): "signin" | "password_reset" | "accou
   //    verification codes reaching users even when the subject contains generic
   //    "action needed" / "verify" language that would otherwise match account_update.
   if (row?.otp) return "signin";
+  // 2. Household / new-device / "is this you?" emails (link-based, no OTP).
+  //    Must reach the user — classified as signin so `showSignInCodes` controls it.
+  if (VIS_HOUSEHOLD_RE.test(combined)) return "signin";
   // 2. Strong account-change wording (body-level "confirm your account change",
   //    "password was changed", etc.) — hide from users when admin toggles it off.
   if (VIS_ACCOUNT_CHANGE_STRONG_RE.test(combined)) return "account_update";
