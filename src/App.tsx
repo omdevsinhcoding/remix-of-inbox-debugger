@@ -8918,6 +8918,10 @@ function EmailViewer() {
       if (token) headers["X-Session-Token"] = token;
 
       const labels = refreshAccountLabels;
+      if (labels === undefined) {
+        pushDiag({ ts: Date.now(), kind: "cache", endpoint: "loadCachedEmails", note: "account scope hydrating; keeping current inbox" });
+        return filterVisibleEmails(emails, profilePrefs, user).length;
+      }
       if (labels && labels.length === 0) {
         setEmails([]);
         setError(null);
@@ -9234,6 +9238,7 @@ function EmailViewer() {
     console.log("[inbox] effect fired", { userId: user?.id, runKey, alreadyRan: instantInboxRunKeyRef.current === runKey });
     if (instantInboxRunKeyRef.current === runKey) return;
     if (!user?.id) { console.log("[inbox] no user.id, skipping"); return; }
+    if (refreshAccountLabels === undefined) { console.log("[inbox] account scope hydrating, skipping cache purge/load"); return; }
     instantInboxRunKeyRef.current = runKey;
 
     const t0 = performance.now();
