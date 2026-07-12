@@ -2116,6 +2116,72 @@ function unwrapPreWrapper(input = "") {
   return decodeHtmlEntities(m[1]);
 }
 
+function isLikelyCssJunkText(value = "") {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (text.length < 80) return false;
+  const cssSignals = [
+    /@media\b/i,
+    /@font-face\b/i,
+    /!important\b/i,
+    /\.(mobile|desktop|ios|content|container|footer|hide-link)[-_a-z0-9]*\s*[,{]/i,
+    /\b(display|padding(?:-left|-right)?|margin|font-family|table-layout|border-collapse)\s*:/i,
+    /webkit-min-device-pixel-ratio/i,
+  ];
+  return cssSignals.filter((re) => re.test(text)).length >= 2;
+}
+
+function stripVisibleCssTextNodes(doc: Document) {
+  const body = doc.body;
+  if (!body) return;
+  const walker = doc.createTreeWalker(body, 4);
+  const nodes: Text[] = [];
+  let node = walker.nextNode();
+  while (node) {
+    nodes.push(node as Text);
+    node = walker.nextNode();
+  }
+  const messageStart = /(this link expires|did you request|your netflix household|household has been confirmed|a new device is using|please review|enter this code|temporary access code|hi\s+[^,]{0,40},)/i;
+  nodes.forEach((textNode) => {
+    const value = textNode.nodeValue || "";
+    if (!isLikelyCssJunkText(value)) return;
+    const start = value.search(messageStart);
+    if (start > 0) textNode.nodeValue = value.slice(start).trimStart();
+    else textNode.parentNode?.removeChild(textNode);
+  });
+}
+
+function sanitizeEmailHtmlFragment(input = "", preview = "") {
+  const raw = String(input || "");
+  if (!raw.trim()) {
+    return `<pre style="white-space:pre-wrap;font-family:ui-sans-serif,system-ui,sans-serif">${escapeEmailHtml(String(preview || ""))}</pre>`;
+  }
+
+  if (typeof DOMParser === "undefined") return raw;
+
+  try {
+    const doc = new DOMParser().parseFromString(raw, "text/html");
+    doc.querySelectorAll("script, style, noscript, meta, link, title, base, object, embed, iframe").forEach((el) => el.remove());
+    stripVisibleCssTextNodes(doc);
+    doc.querySelectorAll("*").forEach((el) => {
+      Array.from(el.attributes).forEach((attr) => {
+        const name = attr.name.toLowerCase();
+        const value = attr.value || "";
+        if (name.startsWith("on")) el.removeAttribute(attr.name);
+        if ((name === "href" || name === "src") && /^\s*javascript:/i.test(value)) el.removeAttribute(attr.name);
+      });
+      if (el.tagName.toLowerCase() === "a") {
+        el.setAttribute("target", "_blank");
+        el.setAttribute("rel", "noopener noreferrer");
+      }
+    });
+    const bodyHtml = (doc.body?.innerHTML || "").trim();
+    if (bodyHtml) return bodyHtml;
+  } catch {}
+
+  const cleaned = stripRawMimeNoise(decodeQuotedPrintableText(raw));
+  return `<pre style="white-space:pre-wrap;font-family:ui-sans-serif,system-ui,sans-serif;line-height:1.45">${escapeEmailHtml(cleaned || String(preview || ""))}</pre>`;
+}
+
 function normalizeEmailHtmlForDisplay(rawHtml = "", preview = "") {
   let raw = String(rawHtml || "");
   if (!raw) {
@@ -2126,11 +2192,11 @@ function normalizeEmailHtmlForDisplay(rawHtml = "", preview = "") {
   const unwrapped = unwrapPreWrapper(raw);
   if (unwrapped !== raw) raw = unwrapped;
 
-  if (!looksLikeRawMime(raw)) return raw;
+  if (!looksLikeRawMime(raw)) return sanitizeEmailHtmlFragment(raw, preview);
 
   const extracted = extractDisplayableMimePart(raw);
   if (/<\s*(html|body|table|div|p|span|a|img)\b/i.test(extracted) && !looksLikeRawMime(extracted.replace(/<[^>]+>/g, " "))) {
-    return extracted;
+    return sanitizeEmailHtmlFragment(extracted, preview);
   }
   const cleaned = stripRawMimeNoise(decodeQuotedPrintableText(extracted || raw));
   return `<pre style="white-space:pre-wrap;font-family:ui-sans-serif,system-ui,sans-serif;line-height:1.45">${escapeEmailHtml(cleaned || String(preview || ""))}</pre>`;
