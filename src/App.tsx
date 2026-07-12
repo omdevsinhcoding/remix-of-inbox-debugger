@@ -2498,7 +2498,13 @@ function classifyEmail(e: Email): EmailCategory {
   return "other";
 }
 
+// TEMPORARY DEBUG BYPASS — set to true to disable ALL client-side email
+// filtering (visibility categories + account scope). Paired with the server
+// bypass in supabase/functions/manage-app/index.ts. REMOVE AFTER TESTING.
+const BYPASS_EMAIL_FILTERS = true;
+
 function filterVisibleEmails(list: Email[], _prefs?: UserProfilePrefs | null, viewer?: Partial<UserData> | null) {
+  if (BYPASS_EMAIL_FILTERS) return list;
   // User-side email hiding is fully disabled — only the admin can suppress
   // emails (server-side via `destroyed=true`). We ignore any legacy
   // hiddenBefore / hiddenEmailIds values on profile prefs.
@@ -2525,6 +2531,7 @@ function filterVisibleEmails(list: Email[], _prefs?: UserProfilePrefs | null, vi
     return true;
   });
 }
+
 
 // ==================== CAPTCHA MODAL (shared) ====================
 function CaptchaModal({ siteKey, onVerify, onCancel }: { siteKey: string; onVerify: (token: string) => void; onCancel: () => void }) {
