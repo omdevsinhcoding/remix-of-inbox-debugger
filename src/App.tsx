@@ -2245,6 +2245,8 @@ function buildWorkerRequestGroups(labels: string[] | null | undefined, map: Work
     return url ? [{ url, labels: null as string[] | null }] : [];
   }
 
+  if (labels === undefined) return [];
+
   if (labels.length === 0) return [];
 
   // Build per-label URL pool (dedicated overrides primary).
@@ -9221,7 +9223,9 @@ function EmailViewer() {
   const idbRef = useRef<Awaited<ReturnType<typeof openInboxDB>> | null>(null);
   const instantInboxRunKeyRef = useRef("");
   const instantInboxAccountKey = useMemo(
-    () => JSON.stringify(refreshAccountLabels === null ? null : [...(refreshAccountLabels || [])].sort()),
+    () => refreshAccountLabels === undefined
+      ? "unknown"
+      : JSON.stringify(refreshAccountLabels === null ? null : [...refreshAccountLabels].sort()),
     [refreshAccountLabels],
   );
   useEffect(() => {
