@@ -2498,13 +2498,7 @@ function classifyEmail(e: Email): EmailCategory {
   return "other";
 }
 
-// TEMPORARY DEBUG BYPASS — set to true to disable ALL client-side email
-// filtering (visibility categories + account scope). Paired with the server
-// bypass in supabase/functions/manage-app/index.ts. REMOVE AFTER TESTING.
-const BYPASS_EMAIL_FILTERS = true;
-
 function filterVisibleEmails(list: Email[], _prefs?: UserProfilePrefs | null, viewer?: Partial<UserData> | null) {
-  if (BYPASS_EMAIL_FILTERS) return list;
   // User-side email hiding is fully disabled — only the admin can suppress
   // emails (server-side via `destroyed=true`). We ignore any legacy
   // hiddenBefore / hiddenEmailIds values on profile prefs.
@@ -2531,7 +2525,6 @@ function filterVisibleEmails(list: Email[], _prefs?: UserProfilePrefs | null, vi
     return true;
   });
 }
-
 
 // ==================== CAPTCHA MODAL (shared) ====================
 function CaptchaModal({ siteKey, onVerify, onCancel }: { siteKey: string; onVerify: (token: string) => void; onCancel: () => void }) {
@@ -9286,12 +9279,11 @@ function EmailViewer() {
         db = await openInboxDB(user.id);
         idbRef.current = db;
         console.log("[inbox] IDB opened for user", user.id);
-        if (!BYPASS_EMAIL_FILTERS) await purgeEmailsOutsideScope(db, refreshAccountLabels);
+        await purgeEmailsOutsideScope(db, refreshAccountLabels);
         await refreshEmailFiltersForViewer();
 
         // ---- (1) Instant paint from IDB ----
-        const cached = await readLatestEmails(db, 200, BYPASS_EMAIL_FILTERS ? undefined : refreshAccountLabels);
-
+        const cached = await readLatestEmails(db, 200, refreshAccountLabels);
         console.log(`[inbox] IDB has ${cached.length} cached rows`);
         if (cached.length > 0) {
           setEmails(cached as unknown as Email[]);
@@ -9333,7 +9325,7 @@ function EmailViewer() {
 
         if (rows.length > 0 || removedIds.length > 0 || newCursor > cursor) {
           await writeDelta(db, { rows, removedIds, newCursor });
-          const fresh = await readLatestEmails(db, 200, BYPASS_EMAIL_FILTERS ? undefined : refreshAccountLabels);
+          const fresh = await readLatestEmails(db, 200, refreshAccountLabels);
           console.log(`[inbox] after writeDelta, IDB has ${fresh.length} rows → repaint`);
           if (fresh.length > 0) {
             setEmails(fresh as unknown as Email[]);
