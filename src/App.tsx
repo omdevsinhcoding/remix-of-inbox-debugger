@@ -8905,10 +8905,14 @@ function EmailViewer() {
       pushDiag({ ts: Date.now(), kind: "sync", endpoint: "list_delta:baseline", note: "empty response ignored; preserving visible inbox" });
       return emails;
     }
-    setEmails(rows);
+    // Baseline reads are a snapshot of what the server returned right now, not
+    // an explicit delete list. Never let a shorter/filtered baseline erase rows
+    // already painted from IndexedDB; only delta removedIds may remove emails.
+    const merged = emails.length > 0 ? mergeEmailsById([rows, emails]) : rows;
+    setEmails(merged);
     setError(null);
     setLastUpdated(new Date());
-    return rows;
+    return merged;
   }, [pushDiag, setEmails, emails]);
 
   const loadCachedEmails = useCallback(async (opts?: { bust?: boolean; limit?: number }) => {
@@ -8980,7 +8984,7 @@ function EmailViewer() {
         const direct = await loadCachedEmailsDirect(limit).catch(() => null);
         return direct ? filterVisibleEmails(direct, profilePrefs, user).length : filterVisibleEmails(emails, profilePrefs, user).length;
       }
-      const emailList = mergeEmailsById(lists.map((item) => item.emails));
+      const emailList = mergeEmailsById([...lists.map((item) => item.emails), emails]);
       if (emailList.length === 0 && emails.length > 0) {
         const direct = await loadCachedEmailsDirect(limit).catch(() => null);
         return direct ? filterVisibleEmails(direct, profilePrefs, user).length : filterVisibleEmails(emails, profilePrefs, user).length;
