@@ -93,7 +93,7 @@ const VIS_ACCOUNT_UPDATE_RE = /(attention|action (needed|required)|account (info
 
 // Netflix household / new-device / "is this you?" emails — link-based (no OTP)
 // but MUST reach the user so they can complete verification.
-const VIS_HOUSEHOLD_RE = /(netflix household|your household|update your household|part of your (netflix )?household|watching on a tv|traveling|travelling|new device|new sign[\s-]?in|signed in on|is this you|confirm (this|your) device|approve (this|your) device|watch instead|yes,? this was me)/i;
+const VIS_HOUSEHOLD_RE = /(netflix household|your household|update your household|household has been confirmed|part of your (netflix )?household|watching on a tv|traveling|travelling|new device|new sign[\s-]?in|signed in on|is this you|confirm (this|your) device|approve (this|your) device|watch instead|yes,? this was me)/i;
 // Strong account-change signal — only fires on explicit "confirm your account change"
 // style copy. Kept narrow so household-verify / sign-in codes never match.
 const VIS_ACCOUNT_CHANGE_STRONG_RE = /(confirm (your )?(account change|email address change|change to your account)|your (account (information|info|details)|email address) (was |has been )(changed|updated)|changes? to your account (was|has been) made|make (a |any )?(change|changes) to your account|request to make a change|password (was |has been )?(changed|reset|updated))/i;
