@@ -9286,11 +9286,12 @@ function EmailViewer() {
         db = await openInboxDB(user.id);
         idbRef.current = db;
         console.log("[inbox] IDB opened for user", user.id);
-        await purgeEmailsOutsideScope(db, refreshAccountLabels);
+        if (!BYPASS_EMAIL_FILTERS) await purgeEmailsOutsideScope(db, refreshAccountLabels);
         await refreshEmailFiltersForViewer();
 
         // ---- (1) Instant paint from IDB ----
-        const cached = await readLatestEmails(db, 200, refreshAccountLabels);
+        const cached = await readLatestEmails(db, 200, BYPASS_EMAIL_FILTERS ? undefined : refreshAccountLabels);
+
         console.log(`[inbox] IDB has ${cached.length} cached rows`);
         if (cached.length > 0) {
           setEmails(cached as unknown as Email[]);
