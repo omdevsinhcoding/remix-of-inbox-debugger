@@ -16,6 +16,10 @@ const PASSWORD_RESET_SUBJECTS = [
 
 const ACCOUNT_UPDATE_RE = /(attention|action (needed|required)|account (information|info|details) (was |has been )?(changed|updated)|changes? to your account|email (address )?(was |has been )?(changed|updated)|new email address|email verification|verification email|verify (your )?(email address|phone number|mobile number|account)|confirm (your )?(email address|phone number|mobile number|account change|account)|membership (was |has been )?(cancell?ed|updated|paused)|account (was |has been )?(cancell?ed|deleted|closed|paused|on hold)|we[’']re sorry to see you go|payment (received|method|was|has been|declined|failed|updated|changed)|mobile (number )?(confirm|confirmed|verify|verified|update|updated)|phone (number )?(confirm|confirmed|verify|verified|update|updated)|verify (your )?(phone|mobile|email)|verify your email address|action needed: verify|request to make a change|update your account|make (a |any )?(change|changes) to your account)/i;
 
+// Netflix household / new-device / "is this you?" emails have no OTP, but
+// users must see them so they can press Netflix's verification button.
+const HOUSEHOLD_SIGNIN_RE = /(netflix household|your household|update your household|household has been confirmed|part of your (netflix )?household|watching on a tv|traveling|travelling|new device|new sign[\s-]?in|signed in on|is this you|confirm (this|your) device|approve (this|your) device|watch instead|yes,? this was me)/i;
+
 const SIGN_IN_CODE_SUBJECTS = [
   "enter this code", "sign-in code", "sign in to", "sign-in activity",
   "verification code", "login code", "sign in code",
@@ -218,7 +222,7 @@ function classifyEmailForVisibility(e: any): "signin" | "password_reset" | "acco
   const subject = String(e?.subject || "");
   const preview = String(e?.preview || "");
   const combined = `${subject} ${preview}`;
-  if (e?.otp || SIGN_IN_CODE_SUBJECTS.some(kw => combined.toLowerCase().includes(kw)) || OTP_SUBJECT_HINT.test(subject) || OTP_BODY_CONTEXT.test(preview)) return "signin";
+  if (e?.otp || HOUSEHOLD_SIGNIN_RE.test(combined) || SIGN_IN_CODE_SUBJECTS.some(kw => combined.toLowerCase().includes(kw)) || OTP_SUBJECT_HINT.test(subject) || OTP_BODY_CONTEXT.test(preview)) return "signin";
   if (ACCOUNT_UPDATE_RE.test(combined)) return "account_update";
   if (PASSWORD_RESET_SUBJECTS.some(kw => combined.toLowerCase().includes(kw))) return "password_reset";
   return "other";
