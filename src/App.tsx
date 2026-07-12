@@ -2284,6 +2284,16 @@ async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}
   }
 }
 
+function withTimeout<T>(work: Promise<T>, timeoutMs: number, message = "Request timed out"): Promise<T> {
+  let timer: number | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = window.setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+  return Promise.race([work, timeout]).finally(() => {
+    if (timer !== undefined) window.clearTimeout(timer);
+  }) as Promise<T>;
+}
+
 async function isUsableEmailWorker(url: string) {
   try {
     const res = await fetchWithTimeout(`${url.replace(/\/+$/, "")}/api/health`, { cache: "no-store" }, 5000);
@@ -8734,6 +8744,7 @@ function EmailViewer() {
   }, [profilePrefs, user]);
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
   const [loadingEmailHtmlId, setLoadingEmailHtmlId] = useState<string | null>(null);
+  const [emailHtmlLoadError, setEmailHtmlLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
@@ -9296,13 +9307,14 @@ function EmailViewer() {
   //  3) otherwise call get_email_html, cache to IDB + update state
   const openEmail = useCallback(async (email: Email) => {
     setSelectedEmail(email);
+    setEmailHtmlLoadError(null);
     if (email.html && email.html.length > 0) return;
     setLoadingEmailHtmlId(email.id);
     try {
       const db = idbRef.current || (user?.id ? await openInboxDB(user.id) : null);
       if (db) {
         idbRef.current = db;
-        const localHtml = await getEmailHtml(db, email.id);
+        const localHtml = await withTimeout(getEmailHtml(db, email.id), 1200, "Local email cache timed out").catch(() => null);
         if (localHtml) {
           setSelectedEmail({ ...email, html: localHtml });
           setLoadingEmailHtmlId((id) => (id === email.id ? null : id));
@@ -9310,44 +9322,46 @@ function EmailViewer() {
         }
       }
 
-      // Worker-first: /api/inbox/html serves email HTML from Cloudflare KV
-      // (1 year TTL, immutable per email id). This offloads the single
-      // biggest Supabase egress path — HTML bodies can be 50–500 KB each.
-      // Any failure (network, 401, 5xx) falls back to the encrypted edge call.
+      // Source of truth first. The full-email view must never depend on a
+      // possibly stale/hanging Worker response; Worker is only a cache fallback.
       let html = "";
+      try {
+        const res: any = await withTimeout(
+          apiCall("manage-app", { action: "get_email_html", id: email.id }),
+          10_000,
+          "Full email request timed out",
+        );
+        if (res?.success && typeof res.html === "string") {
+          html = res.html;
+          pushDiag({ ts: Date.now(), kind: "cache", endpoint: "get_email_html", status: 200, note: `${html.length} chars` });
+        }
+      } catch (e) {
+        pushDiag({ ts: Date.now(), kind: "cache", endpoint: "get_email_html", error: e instanceof Error ? e.message : String(e) });
+      }
+
       const token = sessionGet("session_token" as any);
       const workerUrls = resolvedWorkerUrls || [];
-      if (workerUrls.length > 0 && token) {
+      if (!html && workerUrls.length > 0 && token) {
         const workerBase = workerUrls[Math.floor(Math.random() * workerUrls.length)];
         try {
-          const wRes = await fetchWithTimeout(`${workerBase}/api/inbox/html`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "X-Session-Token": token },
-            body: JSON.stringify({ id: email.id }),
-          }, 8000);
+          const wRes = await withTimeout(
+            fetchWithTimeout(`${workerBase}/api/inbox/html`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "X-Session-Token": token },
+              body: JSON.stringify({ id: email.id }),
+            }, 8000),
+            9_000,
+            "Worker email cache timed out",
+          );
           if (wRes.ok) {
-            const wJson = await wRes.json().catch(() => null);
+            const wJson = await withTimeout(wRes.json(), 2500, "Worker email body timed out").catch(() => null);
             if (wJson?.success && typeof wJson.html === "string") {
               html = wJson.html;
               pushDiag({ ts: Date.now(), kind: "cache", endpoint: `${workerBase}/api/inbox/html`, status: wRes.status, cacheStatus: wRes.headers.get("X-Cache-Status") || undefined, cacheAge: wRes.headers.get("X-Cache-Age") || undefined });
             }
           }
-        } catch {
-          // fall through to encrypted edge call
-        }
-      }
-      if (!html) {
-        // Supabase fallback when the Cloudflare Worker is unreachable/unset.
-        // Without this, users see only the tiny preview text instead of the
-        // full HTML email (Netflix logo, buttons, etc.) — matching Gmail.
-        try {
-          const res: any = await apiCall("manage-app", { action: "get_email_html", id: email.id });
-          if (res?.success && typeof res.html === "string") {
-            html = res.html;
-            pushDiag({ ts: Date.now(), kind: "cache", endpoint: "get_email_html", status: 200 });
-          }
         } catch (e) {
-          pushDiag({ ts: Date.now(), kind: "cache", endpoint: "get_email_html", error: e instanceof Error ? e.message : String(e) });
+          pushDiag({ ts: Date.now(), kind: "cache", endpoint: `${workerBase}/api/inbox/html`, error: e instanceof Error ? e.message : String(e) });
         }
       }
 
@@ -9355,9 +9369,12 @@ function EmailViewer() {
       if (html) {
         setSelectedEmail((cur) => (cur && cur.id === email.id ? { ...cur, html } : cur));
         if (db) { try { await cacheEmailHtml(db, email.id, html); } catch { /* quota etc. */ } }
+      } else {
+        setEmailHtmlLoadError("Full email could not load. Showing saved preview.");
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err || "");
+      setEmailHtmlLoadError("Full email could not load. Showing saved preview.");
       pushDiag({ ts: Date.now(), kind: "cache", endpoint: "get_email_html", error: msg });
     } finally {
       setLoadingEmailHtmlId((id) => (id === email.id ? null : id));
@@ -9720,6 +9737,12 @@ function EmailViewer() {
                         </div>
                       </div>
                     ) : (
+                      <>
+                      {emailHtmlLoadError && !selectedEmail.html && (
+                        <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+                          {emailHtmlLoadError}
+                        </div>
+                      )}
                       <iframe
                         srcDoc={`<!DOCTYPE html><html><head><base target="_blank"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0;padding:8px;font-family:sans-serif;font-size:14px;color:#334155;overflow-x:hidden;word-break:break-word}img{max-width:100%!important;height:auto!important}table{max-width:100%!important;width:100%!important}td,th{max-width:100%!important;overflow:hidden}a{color:#e11d48}pre{white-space:pre-wrap;word-break:break-word;font-family:ui-sans-serif,system-ui,sans-serif;line-height:1.45}*{box-sizing:border-box}</style></head><body>${emailHtmlForDisplay(selectedEmail)}<script>(function(){function force(a){try{a.setAttribute('target','_blank');a.setAttribute('rel','noopener noreferrer');}catch(e){}}function scan(){document.querySelectorAll('a,button').forEach(force);}document.addEventListener('click',function(e){var a=e.target.closest('a,button');if(!a)return;var href=a.getAttribute('href')||a.dataset.href;if(href){e.preventDefault();window.open(href,'_blank','noopener,noreferrer');}},true);document.addEventListener('contextmenu',function(e){e.preventDefault();});scan();try{new MutationObserver(scan).observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['href','target']});}catch(e){}try{var links=document.querySelectorAll('a').length;var buttons=document.querySelectorAll('button').length;var base=document.querySelector('base');window.parent&&window.parent.postMessage({__nf:'iframe-links',links:links,buttons:buttons,hijack:true,baseTarget:(base&&base.getAttribute('target'))||''}, '*');}catch(e){}})();<\/script></body></html>`}
                         sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-scripts"
@@ -9733,6 +9756,7 @@ function EmailViewer() {
                           }
                         }}
                       />
+                      </>
                     )}
                   </div>
                 </div>
