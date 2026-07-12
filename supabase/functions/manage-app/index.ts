@@ -3619,16 +3619,23 @@ Deno.serve(async (originalReq) => {
       if (!id || typeof id !== "string") throw new Error("id required");
 
       const { data: u } = await supabase
-        .from("app_users").select("assigned_accounts, role").eq("id", session.userId).single();
+        .from("app_users").select("assigned_accounts, role, is_free").eq("id", session.userId).single();
       const isAdmin = u?.role === "admin";
       const labels: string[] | null = Array.isArray(u?.assigned_accounts) && u.assigned_accounts.length > 0
         ? ((await normalizeAssignedAccounts(supabase, u.assigned_accounts)) || [])
         : (isAdmin ? null : []);
       const recipientFiltersByLabel = isAdmin ? new Map<string, string[]>() : await loadRecipientFiltersByLabel(supabase);
+      let visibilityFilters: EmailVisibilityFilters = DEFAULT_EMAIL_FILTERS;
+      if (!isAdmin) {
+        try {
+          const { data: filterRow } = await supabase.from("app_settings").select("value").eq("key", "email_filters").maybeSingle();
+          visibilityFilters = normalizeEmailFilters(filterRow?.value);
+        } catch {}
+      }
 
       const { data: row, error } = await supabase
         .from("cached_emails")
-        .select("id, html, account_label, to_address, destroyed")
+        .select("id, subject, preview, otp, html, account_label, to_address, destroyed")
         .eq("id", id)
         .maybeSingle();
       if (error) throw error;
@@ -3638,6 +3645,7 @@ Deno.serve(async (originalReq) => {
       }
       if (labels && labels.length === 0 && !isAdmin) throw new Error("Not authorized");
       if (!isAdmin && !recipientMatches((row as any).to_address, recipientFiltersByLabel.get(String(row.account_label || "").trim()))) throw new Error("Not authorized");
+      if (!isAdmin && !shouldExposeEmailToUser(row, visibilityFilters, !!u?.is_free)) throw new Error("Email not found");
 
       // Include account_label so the Cloudflare worker cache can enforce
       // per-user authz on cache hits without a round-trip.
