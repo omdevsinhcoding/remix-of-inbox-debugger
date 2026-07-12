@@ -9318,7 +9318,7 @@ function EmailViewer() {
           await writeDelta(db, { rows, removedIds, newCursor });
           const fresh = await readLatestEmails(db, 200, refreshAccountLabels);
           console.log(`[inbox] after writeDelta, IDB has ${fresh.length} rows → repaint`);
-          if (fresh.length > 0 || emails.length === 0) {
+          if (fresh.length > 0 || cached.length === 0) {
             setEmails(fresh as unknown as Email[]);
             setLastUpdated(new Date());
           } else {
