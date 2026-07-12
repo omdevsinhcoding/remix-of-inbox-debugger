@@ -7,6 +7,15 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-session-token, x-pending-token, x-client-ip, x-crypto-session, x-accept-encoding, x-cron-secret",
 };
 
+// ============================================================================
+// TEMPORARY DEBUG BYPASS — set to true to disable ALL server-side email
+// filtering (recipient allow-list, visibility filters, account scope). Used
+// to prove where household emails are being dropped. REMOVE AFTER TESTING.
+// ============================================================================
+const BYPASS_EMAIL_FILTERS = true;
+
+
+
 // Warm-instance memo for bootstrap_public. Deno edge instances stay warm for
 // ~15 min; 10-second TTL means at 5k concurrent users we serve most calls from
 // this in-memory cache, dropping DB reads + egress on the public bootstrap
