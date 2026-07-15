@@ -53,7 +53,13 @@ async function loadLocationPolicy(supabase: any): Promise<{ required: boolean; a
     return { required: true, adminRequired: false };
   }
 }
-function isProfileLocationRequired(user: any, globalRequired = true, adminRequired = false) {
+function isProfileLocationRequired(
+  user: any,
+  globalRequiredOrPolicy: boolean | { required: boolean; adminRequired: boolean } = true,
+  adminRequiredArg = false,
+) {
+  const globalRequired = typeof globalRequiredOrPolicy === "boolean" ? globalRequiredOrPolicy : globalRequiredOrPolicy.required;
+  const adminRequired = typeof globalRequiredOrPolicy === "boolean" ? adminRequiredArg : globalRequiredOrPolicy.adminRequired;
   if (!user) return false;
   // Admin: only requires GPS when both global policy is ON AND admin toggle is ON.
   if (user.role === "admin") return globalRequired && adminRequired;
