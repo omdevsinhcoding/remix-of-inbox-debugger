@@ -2049,20 +2049,37 @@ function FreeExpiryPill() {
 
   const urgent = rem <= 60 * 60_000; // < 1h
   const warn = !urgent && rem <= 24 * 60 * 60_000; // < 24h
-  const cls = urgent
-    ? "bg-red-500/95 text-white ring-2 ring-red-300 animate-pulse"
+  const style = urgent
+    ? {
+        bg: "linear-gradient(135deg, #ff2d55 0%, #d10036 55%, #7a0022 100%)",
+        ring: "0 0 0 1px rgba(255,120,140,0.55), 0 10px 32px -8px rgba(255,45,85,0.6), inset 0 1px 0 rgba(255,255,255,0.25)",
+        dot: "#ffd6de",
+      }
     : warn
-    ? "bg-amber-500/95 text-white"
-    : "bg-emerald-600/95 text-white";
+    ? {
+        bg: "linear-gradient(135deg, #f59e0b 0%, #ea580c 55%, #9a3412 100%)",
+        ring: "0 0 0 1px rgba(255,200,120,0.5), 0 10px 32px -8px rgba(234,88,12,0.55), inset 0 1px 0 rgba(255,255,255,0.22)",
+        dot: "#fde68a",
+      }
+    : {
+        bg: "linear-gradient(135deg, #8b5cf6 0%, #6366f1 45%, #0ea5e9 100%)",
+        ring: "0 0 0 1px rgba(180,170,255,0.45), 0 10px 32px -8px rgba(99,102,241,0.55), inset 0 1px 0 rgba(255,255,255,0.22)",
+        dot: "#e9d5ff",
+      };
 
   const full = new Date(expMs).toLocaleString();
   return (
     <div
-      title={`This profile will be automatically deleted on ${full}. No action needed — deletion happens on our server even if you're offline.`}
-      className={`fixed z-40 left-3 sm:left-4 bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:bottom-4 h-7 sm:h-8 px-3 sm:px-3.5 rounded-full text-[11px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1.5 pointer-events-auto select-none`}
+      title={`This profile expires on ${full}.`}
+      className={`fixed z-40 right-3 sm:right-4 top-[calc(env(safe-area-inset-top)+0.75rem)] sm:top-4 h-8 sm:h-9 pl-2.5 pr-3.5 sm:pl-3 sm:pr-4 rounded-full text-[11px] sm:text-xs font-bold text-white flex items-center gap-2 pointer-events-auto select-none ${urgent ? "animate-pulse" : ""}`}
+      style={{ background: style.bg, boxShadow: style.ring, backdropFilter: "blur(10px) saturate(1.2)" }}
     >
-      <span aria-hidden>⏳</span>
-      Auto-delete in {short}
+      <span
+        aria-hidden
+        className="w-2 h-2 rounded-full"
+        style={{ background: style.dot, boxShadow: `0 0 8px ${style.dot}` }}
+      />
+      <span className="tracking-wide">Expires in {short}</span>
     </div>
   );
 }
