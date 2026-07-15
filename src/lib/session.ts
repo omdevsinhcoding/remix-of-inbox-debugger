@@ -75,6 +75,43 @@ export function sessionClearAll() {
   for (const k of KEYS) sessionRemove(k);
 }
 
+// Netflix-style cookie purge. Expires every readable cookie across the current
+// path, root path, current hostname, and every parent domain (e.g. sub.example.com,
+// .sub.example.com, .example.com). HttpOnly cookies set by the server cannot be
+// touched from JS — those are cleared server-side via manage-app `logout`.
+export function clearSiteCookies() {
+  try {
+    if (typeof document === "undefined") return;
+    const raw = document.cookie ? document.cookie.split(";") : [];
+    const names = new Set<string>();
+    for (const chunk of raw) {
+      const eq = chunk.indexOf("=");
+      const n = (eq >= 0 ? chunk.slice(0, eq) : chunk).trim();
+      if (n) names.add(n);
+    }
+    const host = typeof location !== "undefined" ? location.hostname : "";
+    const parts = host.split(".").filter(Boolean);
+    const domains: string[] = [""];
+    if (host) { domains.push(host); domains.push("." + host); }
+    for (let i = 1; i < parts.length; i++) {
+      const d = parts.slice(i).join(".");
+      if (d) { domains.push(d); domains.push("." + d); }
+    }
+    const paths = ["/", (typeof location !== "undefined" && location.pathname) || "/"];
+    const expired = "Thu, 01 Jan 1970 00:00:00 GMT";
+    for (const name of names) {
+      for (const p of paths) {
+        for (const d of domains) {
+          try {
+            document.cookie = `${name}=; expires=${expired}; path=${p}${d ? `; domain=${d}` : ""}; SameSite=Lax`;
+            document.cookie = `${name}=; expires=${expired}; path=${p}${d ? `; domain=${d}` : ""}; SameSite=None; Secure`;
+          } catch {}
+        }
+      }
+    }
+  } catch {}
+}
+
 // Convenience getters.
 export const getSessionToken = () => sessionGet("session_token");
 export const getUserRaw = () => sessionGet("user");
