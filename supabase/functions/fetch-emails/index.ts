@@ -893,6 +893,15 @@ Deno.serve(async (originalReq) => {
       }
     } catch {}
 
+    // ⚠️ HARD BLOCK — for any non-admin session, account-change and
+    //    password-reset mails are ALWAYS filtered out. Admin toggle
+    //    irrelevant. See banner near ACCOUNT_CHANGE_STRONG_RE. DO NOT TOUCH.
+    if (session && session.role !== "admin") {
+      filterAccountUpdates = true;
+      filterPasswordResets = true;
+    }
+
+
     const isLegacyPgCron = !session && !isCronSecret && hasServerSideBearer && mode === "sync" && source === "cron";
     const isCron = isCronSecret || isLegacyPgCron;
     if (isLegacyPgCron) repairCronScheduleIfNeeded(supabase, CRON_SHARED_SECRET).catch(() => {});
