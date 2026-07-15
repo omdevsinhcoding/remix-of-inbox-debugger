@@ -9493,16 +9493,7 @@ function EmailViewer() {
         // changes after that cursor. Otherwise old emails can never backfill.
         const cursor = cached.length === 0 ? 0 : storedCursor;
         const started = performance.now();
-        console.log(`[inbox] calling list_delta since=${cursor}${storedCursor && cursor === 0 ? ` (reset stale cursor ${storedCursor})` : ""}`);
         const delta = await apiCall("manage-app", { action: "list_delta", since: cursor, limit: cursor === 0 ? 1000 : 500 });
-        console.log("[inbox] list_delta response", {
-          success: delta?.success,
-          mode: delta?.mode,
-          rows: delta?.rows?.length || 0,
-          removed: delta?.removedIds?.length || 0,
-          newCursor: delta?.newCursor,
-          sample: delta?.rows?.[0],
-        });
         pushDiag({
           ts: Date.now(),
           kind: "sync",
