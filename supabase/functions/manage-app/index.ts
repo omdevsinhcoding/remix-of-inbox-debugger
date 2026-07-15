@@ -3215,6 +3215,8 @@ Deno.serve(async (originalReq) => {
           profilePrefs: publicProfilePrefs(user.profile_prefs),
           profileAvatar: user.profile_prefs?.avatarId || null,
           isFree: true,
+          expiresAt: user.expires_at || null,
+          autoDelete: (user as any).auto_delete !== false,
           locationRequired: freeLocationRequired,
         },
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
