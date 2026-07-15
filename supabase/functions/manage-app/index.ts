@@ -94,28 +94,47 @@ const VIS_ACCOUNT_UPDATE_RE = /(attention|action (needed|required)|account (info
 // Netflix household / new-device / "is this you?" emails — link-based (no OTP)
 // but MUST reach the user so they can complete verification.
 const VIS_HOUSEHOLD_RE = /(netflix household|your household|update your household|household has been confirmed|part of your (netflix )?household|watching on a tv|traveling|travelling|new device|new sign[\s-]?in|signed in on|is this you|confirm (this|your) device|approve (this|your) device|watch instead|yes,? this was me)/i;
-// Strong account-change signal — only fires on explicit "confirm your account change"
-// style copy. Kept narrow so household-verify / sign-in codes never match.
-const VIS_ACCOUNT_CHANGE_STRONG_RE = /(confirm (your )?(account change|email address change|change to your account)|your (account (information|info|details)|email address) (was |has been )(changed|updated)|changes? to your account (was|has been) made|make (a |any )?(change|changes) to your account|request to make a change|password (was |has been )?(changed|reset|updated))/i;
+// ============================================================================
+// ⚠️  DO NOT TOUCH — HARD BLOCK: Netflix account-change emails ⚠️
+// ----------------------------------------------------------------------------
+// Netflix sends a mail whenever ANYONE modifies the account: email address
+// change, phone number add/update/remove, password change, profile
+// add/remove/rename, payment-method update, membership pause/cancel,
+// "Confirm your account change with this code: XXXXXX", "Confirm your email
+// address change", "Your account information was updated", etc.
+//
+// These MUST NEVER reach the end user — chahe admin toggle ON ho ya OFF,
+// chahe mail ke andar OTP ho ya link ho, chahe kisi bhi wording mein aaye.
+// Only the admin sees them. This is a hard product rule — no filter, no
+// override, no "showAccountUpdates" toggle. If you're tempted to add an
+// exception here, DON'T — talk to the product owner first.
+//
+// The strong regex below matches every known Netflix account-change subject
+// line (researched from Netflix Help Center + real user reports). It runs
+// BEFORE OTP/signin detection so account-change mails with a code (like
+// email-change confirmation codes) are still classified as account_update
+// and hard-blocked.
+// ============================================================================
+const VIS_ACCOUNT_CHANGE_STRONG_RE = /(confirm (your )?(account change|email address change|change to your account|new email|phone (number )?change)|your (account (information|info|details)|email address|phone number|password) (was |has been |is )?(changed|updated|added|removed|reset)|(email address|phone number|password|payment method|payment info|billing info|account information) (was |has been )?(changed|updated|added|removed|reset|verified)|changes? to your account (was|has been|were) (made|updated)|make (a |any )?(change|changes) to your account|request to make a change|password (was |has been )?(changed|reset|updated)|(a )?new profile (was |has been )?(added|created)|profile (was |has been )?(added|created|removed|deleted|renamed|updated|modified)|(a )?profile (has been|was) (added|removed|deleted|renamed)|added a (new )?(phone|mobile|email|profile)|(mobile|phone) number (was |has been )?(added|updated|changed|removed|verified|confirmed)|membership (was |has been )?(cancell?ed|updated|paused|on hold|restarted|resumed|reactivated)|account (was |has been )?(cancell?ed|deleted|closed|paused|on hold|reactivated)|we[’']re sorry to see you go|payment (method|info|information) (was |has been )?(updated|changed|added|removed)|update your account (information|info|details)|action needed: (verify|update|confirm))/i;
+
+// Netflix household / new-device / "is this you?" emails — link-based (no OTP)
+// but MUST reach the user so they can complete verification.
+const VIS_HOUSEHOLD_RE = /(netflix household|your household|update your household|household has been confirmed|part of your (netflix )?household|watching on a tv|traveling|travelling|new device|new sign[\s-]?in|signed in on|is this you|confirm (this|your) device|approve (this|your) device|watch instead|yes,? this was me)/i;
 
 function emailVisibilityCategory(row: any): "signin" | "password_reset" | "account_update" | "other" {
   const subject = String(row?.subject || "");
   const preview = String(row?.preview || "");
   const combined = `${subject} ${preview}`;
-  // 1. Strong account-change wording ("confirm your account change",
-  //    "your email address was changed", "password was changed", etc.)
-  //    ALWAYS wins — even if the email carries an OTP. Netflix's
-  //    "Confirm your account change with this code: XXXXXX" is exactly
-  //    this case and must respect the admin's account-update toggle.
+  // 1. HARD-BLOCK zone (see banner above): any Netflix account-modification mail
+  //    is classified as account_update and later hard-hidden from users. This
+  //    runs BEFORE the OTP shortcut so "Confirm your account change with this
+  //    code: XXXXXX" is caught even though it contains a 6-digit code.
   if (VIS_ACCOUNT_CHANGE_STRONG_RE.test(combined)) return "account_update";
-  // 2. Emails with an OTP (that aren't account-change) are sign-in /
-  //    household-verify style — Netflix new-device / household codes.
+  // 2. Emails with an OTP (not account-change) are sign-in / household-verify.
   if (row?.otp) return "signin";
   // 3. Household / new-device / "is this you?" emails (link-based, no OTP).
-  //    Must reach the user — classified as signin so `showSignInCodes` controls it.
   if (VIS_HOUSEHOLD_RE.test(combined)) return "signin";
-  // 4. Sign-in / new-device / temporary-access-code copy without an OTP field
-  //    (rare, but keep the classification).
+  // 4. Sign-in / new-device / temporary-access-code copy without an OTP field.
   if (VIS_SIGNIN_RE.test(combined)) return "signin";
   // 5. Broader account-update surface (membership paused, payment failed, etc.).
   if (VIS_ACCOUNT_UPDATE_RE.test(combined)) return "account_update";
@@ -124,21 +143,20 @@ function emailVisibilityCategory(row: any): "signin" | "password_reset" | "accou
 }
 
 function shouldExposeEmailToUser(row: any, filters: EmailVisibilityFilters, _isFree: boolean) {
-  // Uniform policy for paid AND free profiles — admin toggles are the single
-  // source of truth. If admin turns a category OFF in the admin panel, no
-  // user (paid or free) sees emails in that category. If ON, both see them.
   const hideSignin = filters.showSignInCodes === false;
   const hideReset = filters.showPasswordResets === false;
-  const hideAccountUpdate = filters.showAccountUpdates === false;
   const category = emailVisibilityCategory(row);
+  // ⚠️ HARD BLOCK — account-change mails are NEVER shown to users, regardless
+  //    of any admin toggle. See banner above. DO NOT wire this to a filter.
+  if (category === "account_update") return false;
+  // Password-reset mails are also account-modification signals — same rule.
+  if (category === "password_reset") return false;
   if (hideSignin && category === "signin") return false;
-  if (hideReset && category === "password_reset") return false;
-  if (hideAccountUpdate && category === "account_update") return false;
-  // "other" (uncategorized) is hidden only when BOTH reset+account-update are hidden,
-  // matching the previous conservative default.
-  if (hideReset && hideAccountUpdate && category === "other") return false;
+  // "other" (uncategorized) is hidden when reset is hidden — conservative default.
+  if (hideReset && category === "other") return false;
   return true;
 }
+
 
 // --- Crypto helpers ---
 async function hashPassword(password: string): Promise<string> {
