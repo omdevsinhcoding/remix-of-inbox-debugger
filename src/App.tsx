@@ -2001,8 +2001,9 @@ function TvAutoLoginButton() {
                     <defs>
                       <linearGradient id="tvHeroScreen" x1="0" y1="0" x2="1" y2="1">
                         <stop offset="0%" stopColor="#f43f5e" />
-                        <stop offset="100%" stopColor="#a855f7" />
+                        <stop offset="100%" stopColor="#b91c1c" />
                       </linearGradient>
+
                     </defs>
                     <path d="M8 3l4 4 4-4" stroke="#f1f5f9" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
                     <rect x="2.5" y="7.5" width="19" height="12" rx="2.4" fill="url(#tvHeroScreen)" stroke="#f1f5f9" strokeWidth="1.2" />
