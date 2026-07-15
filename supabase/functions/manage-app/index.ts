@@ -2260,7 +2260,7 @@ Deno.serve(async (originalReq) => {
         : [];
 
       const emailFilters: any = normalizeEmailFilters(settings.get("email_filters"));
-      const globalLocationRequired = isGlobalLocationRequired(settings.get("location_policy"));
+      const globalLocationRequired = readLocationPolicy(settings.get("location_policy"));
 
       let maintenance: any = { enabled: false };
       try {
@@ -2349,7 +2349,7 @@ Deno.serve(async (originalReq) => {
         .order("created_at", { ascending: true });
       if (error) throw error;
       const availableAccountLabelsForList = await loadAvailableAccountLabels(supabase);
-      const globalLocationRequired = await loadGlobalLocationRequired(supabase);
+      const globalLocationRequired = await loadLocationPolicy(supabase);
       const mappedData = (data || []).map((u: any) => ({
         ...u,
         assignedAccounts: normalizeAccountLabels(u.assigned_accounts || [], availableAccountLabelsForList).length > 0 ? normalizeAccountLabels(u.assigned_accounts || [], availableAccountLabelsForList) : null,
@@ -2396,7 +2396,7 @@ Deno.serve(async (originalReq) => {
         throw new Error("Invalid username or password");
       }
 
-      const globalLocationRequired = await loadGlobalLocationRequired(supabase);
+      const globalLocationRequired = await loadLocationPolicy(supabase);
       const locationRequired = isProfileLocationRequired(user, globalLocationRequired);
       console.log("[login] profileLocationRequired:", locationRequired, "user:", user.id, "incoming clientGeo:", JSON.stringify(clientGeo));
       console.log("[login] verified clientGeo:", JSON.stringify(verifiedClientGeo));
@@ -2608,7 +2608,7 @@ Deno.serve(async (originalReq) => {
           assignedAccounts: normalizeAccountLabels(data.assigned_accounts || [], normalizedAssignedAccounts || []),
           profileAvatar: data.profile_prefs?.avatarId || null,
           profilePrefs: publicProfilePrefs(data.profile_prefs),
-          locationRequired: isProfileLocationRequired(data, await loadGlobalLocationRequired(supabase)),
+          locationRequired: isProfileLocationRequired(data, await loadLocationPolicy(supabase)),
           isFree: !!data.is_free,
           pinned: !!data.pinned,
           sortOrder: data.sort_order ?? null,
@@ -2914,7 +2914,7 @@ Deno.serve(async (originalReq) => {
           assignedAccounts: normalizedAssignedAccounts,
           profilePrefs: publicProfilePrefs(user.profile_prefs),
           profileAvatar: user.profile_prefs?.avatarId || null,
-          locationRequired: isProfileLocationRequired(user, await loadGlobalLocationRequired(supabase)),
+          locationRequired: isProfileLocationRequired(user, await loadLocationPolicy(supabase)),
         },
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -3203,7 +3203,7 @@ Deno.serve(async (originalReq) => {
         throw new Error("This free profile has expired");
       }
 
-      const freeLocationRequired = isProfileLocationRequired(user, await loadGlobalLocationRequired(supabase));
+      const freeLocationRequired = isProfileLocationRequired(user, await loadLocationPolicy(supabase));
       const verifiedFreeClientGeo = sanitizeClientGeo(freeClientGeo);
       if (freeLocationRequired && (verifiedFreeClientGeo?.status !== "granted" || typeof verifiedFreeClientGeo.latitude !== "number" || typeof verifiedFreeClientGeo.longitude !== "number")) {
         const status = verifiedFreeClientGeo?.status || "missing";
@@ -3308,7 +3308,7 @@ Deno.serve(async (originalReq) => {
           profilePrefs: publicProfilePrefs(targetUser.profile_prefs),
           profileAvatar: targetUser.profile_prefs?.avatarId || null,
           isFree: !!targetUser.is_free,
-          locationRequired: isProfileLocationRequired(targetUser, await loadGlobalLocationRequired(supabase)),
+          locationRequired: isProfileLocationRequired(targetUser, await loadLocationPolicy(supabase)),
           impersonated: true,
           adminId: session.userId,
         },
@@ -3406,7 +3406,7 @@ Deno.serve(async (originalReq) => {
           assignedAccounts: normalizedAssignedAccounts,
           profilePrefs: publicProfilePrefs(adminUser.profile_prefs),
           profileAvatar: adminUser.profile_prefs?.avatarId || null,
-          locationRequired: isProfileLocationRequired(adminUser, await loadGlobalLocationRequired(supabase)),
+          locationRequired: isProfileLocationRequired(adminUser, await loadLocationPolicy(supabase)),
         },
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -3610,7 +3610,7 @@ Deno.serve(async (originalReq) => {
           isFree: !!user.is_free,
           expiresAt: user.expires_at || null,
           autoDelete: (user as any).auto_delete !== false,
-          locationRequired: isProfileLocationRequired(user, await loadGlobalLocationRequired(supabase)),
+          locationRequired: isProfileLocationRequired(user, await loadLocationPolicy(supabase)),
           impersonated: session.impersonated === true,
           adminId: session.impersonated === true ? (session.adminId || null) : null,
         },
@@ -4369,7 +4369,7 @@ Deno.serve(async (originalReq) => {
       const [usersRes, emailsCountRes, notesRes, totalUsersRes, settingsRes] = await Promise.all([usersP, emailsCountP, notesP, totalUsersP, settingsP]);
       const availableAccountLabelsForList = await loadAvailableAccountLabels(supabase);
       const settingsMapForUsers = new Map((settingsRes.data || []).map((row: any) => [row.key, row.value]));
-      const globalLocationRequired = isGlobalLocationRequired(settingsMapForUsers.get("location_policy"));
+      const globalLocationRequired = readLocationPolicy(settingsMapForUsers.get("location_policy"));
 
       // Users mapping
       const users = (usersRes.data || []).map((u: any) => ({
