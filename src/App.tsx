@@ -3673,10 +3673,11 @@ function AdminLoginPage() {
   const [loginStage, setLoginStage] = useState<CaptchaStage | null>(null);
   const [gpsRequesting, setGpsRequesting] = useState(false);
   const [gpsPermissionMode, setGpsPermissionMode] = useState<GpsPermissionMode | null>(null);
+  const [locationRequired, setLocationRequired] = useState(true);
   const pendingClientGeoRef = useRef<LoginLocationPayload | null>(null);
   const armedGeoRef = useRef<Promise<LoginLocationPayload> | null>(null);
   const armedDeviceRef = useRef<Promise<DeviceFingerprint> | null>(null);
-  const gpsBlocked = gpsPermissionMode !== null;
+  const gpsBlocked = locationRequired && gpsPermissionMode !== null;
   const navigate = useNavigate();
   const { checkAuth } = useAuth();
 
