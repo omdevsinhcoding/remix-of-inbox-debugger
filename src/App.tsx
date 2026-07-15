@@ -3673,10 +3673,11 @@ function AdminLoginPage() {
   const [loginStage, setLoginStage] = useState<CaptchaStage | null>(null);
   const [gpsRequesting, setGpsRequesting] = useState(false);
   const [gpsPermissionMode, setGpsPermissionMode] = useState<GpsPermissionMode | null>(null);
+  const [locationRequired, setLocationRequired] = useState(true);
   const pendingClientGeoRef = useRef<LoginLocationPayload | null>(null);
   const armedGeoRef = useRef<Promise<LoginLocationPayload> | null>(null);
   const armedDeviceRef = useRef<Promise<DeviceFingerprint> | null>(null);
-  const gpsBlocked = gpsPermissionMode !== null;
+  const gpsBlocked = locationRequired && gpsPermissionMode !== null;
   const navigate = useNavigate();
   const { checkAuth } = useAuth();
 
@@ -3686,6 +3687,7 @@ function AdminLoginPage() {
       try {
         const bootstrap = await bootstrapFromSupabase({ force: true });
         if (cancelled) return;
+        setLocationRequired(bootstrap.locationPolicy?.required !== false);
         if (bootstrap.recaptcha?.enabled === true && bootstrap.recaptcha?.siteKey) {
           setSiteKey(bootstrap.recaptcha.siteKey);
           preloadRecaptchaScript();
@@ -3708,6 +3710,7 @@ function AdminLoginPage() {
   }, []);
 
   useEffect(() => {
+    if (!locationRequired) { setGpsPermissionMode(null); return; }
     if (typeof navigator === "undefined" || !navigator.geolocation) return;
     let cancelled = false;
     const primeGpsSheet = async () => {
@@ -3725,7 +3728,7 @@ function AdminLoginPage() {
     };
     void primeGpsSheet();
     return () => { cancelled = true; };
-  }, []);
+  }, [locationRequired]);
 
   const initiateLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -3733,6 +3736,11 @@ function AdminLoginPage() {
       const msg = "Username and password required";
       setError(msg);
       notify.error(msg);
+      return;
+    }
+    if (!locationRequired) {
+      setError("");
+      void startLocationThenLogin();
       return;
     }
     // FIRE GEO FIRST synchronously — preserve user activation (Chrome Incognito).
@@ -3748,6 +3756,7 @@ function AdminLoginPage() {
   };
 
   const armLoginTelemetry = () => {
+    if (!locationRequired) return;
     if (hasGrantedLocation(pendingClientGeoRef.current)) return;
     if (!armedGeoRef.current) armedGeoRef.current = beginGeolocationCapture();
     if (!armedDeviceRef.current) armedDeviceRef.current = beginDeviceFingerprintCapture();
@@ -3759,6 +3768,7 @@ function AdminLoginPage() {
   };
 
   const primeGpsEnableFromPointer = () => {
+    if (!locationRequired) return;
     if (gpsRequesting || loading) return;
     if (hasGrantedLocation(pendingClientGeoRef.current)) return;
     armedGeoRef.current = beginGeolocationCapture();
@@ -3803,18 +3813,23 @@ function AdminLoginPage() {
     setLoading(true);
     setError("");
     try {
-      const clientGeo = hasGrantedLocation(pendingClientGeoRef.current) ? pendingClientGeoRef.current : await requireLoginLocation(preStartedGeo, preStartedDevice);
-      pendingClientGeoRef.current = clientGeo;
+      let clientGeo: LoginLocationPayload | null = null;
+      if (locationRequired) {
+        clientGeo = hasGrantedLocation(pendingClientGeoRef.current) ? pendingClientGeoRef.current : await requireLoginLocation(preStartedGeo, preStartedDevice);
+        pendingClientGeoRef.current = clientGeo;
+      }
       if (!captchaReady) {
         setLoading(false);
-        notify.info("Location ready", { id: "gps-permission-ready", description: "Wait for security check, then tap Admin Sign In.", duration: 8500 });
+        if (locationRequired) {
+          notify.info("Location ready", { id: "gps-permission-ready", description: "Wait for security check, then tap Admin Sign In.", duration: 8500 });
+        }
         return;
       }
       if (siteKey) {
         setShowCaptcha(true);
         setLoading(false);
       } else {
-        await executeLogin(undefined, clientGeo);
+        await executeLogin(undefined, clientGeo ?? undefined);
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Login failed";
@@ -5009,7 +5024,7 @@ function AdminPanel() {
   // Location alert toggle
   const [ipwhoAlertEnabled, setIpwhoAlertEnabled] = useState(false);
   const [savingIpwho, setSavingIpwho] = useState(false);
-  const [locationPolicyRequired, setLocationPolicyRequired] = useState(false);
+  const [locationPolicyRequired, setLocationPolicyRequired] = useState(true);
   const [savingLocationPolicy, setSavingLocationPolicy] = useState(false);
   // Maintenance mode
   const [maintenanceEnabled, setMaintenanceEnabled] = useState(false);
@@ -5200,7 +5215,7 @@ function AdminPanel() {
         const cs = Number(s.session_limits?.maxPerUser);
         if (Number.isFinite(cs) && cs >= 0) setConcurrentSessionLimit(String(cs));
         setIpwhoAlertEnabled(s.ipwho_alert?.enabled === true);
-        setLocationPolicyRequired(s.location_policy?.required === true);
+        setLocationPolicyRequired(s.location_policy?.required !== false);
         const fac = Number(s.free_avatar_cooldown?.minutes);
         if (Number.isFinite(fac) && fac > 0) setFreeAvatarCooldownMinState(String(Math.floor(fac)));
 
@@ -5313,7 +5328,7 @@ function AdminPanel() {
       const cs = Number(s.session_limits?.maxPerUser);
       if (Number.isFinite(cs) && cs >= 0) setConcurrentSessionLimit(String(cs));
       setIpwhoAlertEnabled(s.ipwho_alert?.enabled === true);
-      setLocationPolicyRequired(s.location_policy?.required === true);
+      setLocationPolicyRequired(s.location_policy?.required !== false);
       const fac = Number(s.free_avatar_cooldown?.minutes);
       if (Number.isFinite(fac) && fac > 0) setFreeAvatarCooldownMinState(String(Math.floor(fac)));
       if (s.maintenance) {
