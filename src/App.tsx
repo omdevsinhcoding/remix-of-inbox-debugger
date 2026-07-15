@@ -3176,6 +3176,8 @@ function ProfileSelectPage() {
     if (!selectedProfile) return;
     setLoginLoading(true);
     setError("");
+    const perf = startPerfTimer("login.user");
+    if (captchaToken) perf.mark("captcha_token_received");
 
     try {
       if (!checkRateLimit(`user_${selectedProfile.username}`)) {
@@ -3186,6 +3188,17 @@ function ProfileSelectPage() {
         ? (preparedGeo || pendingClientGeoRef.current || await requireLoginLocation())
         : (preparedGeo || pendingClientGeoRef.current || null);
       pendingClientGeoRef.current = null;
+      perf.mark("geo_ready");
+
+      // Warm handshake in parallel with any pre-login work (no-op if already
+      // warmed by the captcha modal). Then flip stage to "connecting" so the
+      // user sees an active step while the encrypted request is in flight.
+      const { warmupSession } = await import("./lib/secureTransport");
+      setLoginStage("connecting");
+      await warmupSession();
+      perf.mark("handshake_ready");
+
+      setLoginStage("authenticating");
       const data: any = await apiCall("manage-app", {
         action: "login",
         username: selectedProfile.username,
@@ -3193,6 +3206,7 @@ function ProfileSelectPage() {
         clientGeo,
         captchaToken,
       });
+      perf.mark("manage_app_login_ok");
 
       if (data.workerUrls && Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
         storeWorkerUrls(data.workerUrls);
@@ -3210,9 +3224,11 @@ function ProfileSelectPage() {
       try { sessionRemove("session_started_at" as any); } catch {}
       checkAuth();
 
+      perf.end("navigate_viewer");
       navigate("/viewer");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Login failed";
+      perf.end(`failed: ${msg.slice(0, 60)}`);
       if (isGpsPermissionDeniedMessage(msg)) {
         setError("");
         setGpsPermissionMode(getGpsPermissionMode(msg));
@@ -3223,6 +3239,8 @@ function ProfileSelectPage() {
       }
     } finally {
       setLoginLoading(false);
+      setLoginStage(null);
+      setShowCaptcha(false);
     }
   };
 
@@ -3233,6 +3251,8 @@ function ProfileSelectPage() {
       setFreeCaptchaProfile(profile);
       return;
     }
+    const perf = startPerfTimer("login.free");
+    if (captchaToken) perf.mark("captcha_token_received");
     const locationRequired = isLocationRequiredForProfile(profile);
     const geoPromise = locationRequired ? beginGeolocationCapture() : null;
     const devicePromise = locationRequired ? beginDeviceFingerprintCapture() : null;
@@ -3241,7 +3261,14 @@ function ProfileSelectPage() {
     try { notify.info(`Entering ${profile.name || "Free Profile"}…`, { description: "Preparing your inbox" }); } catch {}
     try {
       const clientGeo = locationRequired ? await requireLoginLocation(geoPromise, devicePromise) : null;
+      perf.mark("geo_ready");
+      const { warmupSession } = await import("./lib/secureTransport");
+      setLoginStage("connecting");
+      await warmupSession();
+      perf.mark("handshake_ready");
+      setLoginStage("authenticating");
       const data: any = await apiCall("manage-app", { action: "login_free", user_id: profile.id, clientGeo, captchaToken });
+      perf.mark("manage_app_login_free_ok");
       if (!data?.success) throw new Error(data?.error || "Failed to enter profile");
       if (data.workerUrls && Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
         storeWorkerUrls(data.workerUrls);
@@ -3254,9 +3281,11 @@ function ProfileSelectPage() {
       } catch {}
       try { sessionRemove("session_started_at" as any); } catch {}
       checkAuth();
+      perf.end("navigate_viewer");
       navigate("/viewer");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to enter profile";
+      perf.end(`failed: ${msg.slice(0, 60)}`);
       if (isGpsPermissionDeniedMessage(msg)) {
         setError("");
         setGpsPermissionMode(getGpsPermissionMode(msg));
@@ -3267,8 +3296,10 @@ function ProfileSelectPage() {
       }
     } finally {
       setFreeLoginId(null);
+      setLoginStage(null);
     }
   };
+
 
   const loginFreeProfile = async (profile: UserData) => {
     if (freeLoginId) return;
