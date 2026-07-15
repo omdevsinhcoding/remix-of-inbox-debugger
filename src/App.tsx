@@ -1974,14 +1974,14 @@ function TvAutoLoginButton() {
 
   const popup = open ? createPortal(
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/50 animate-in fade-in duration-150"
+      className="fixed inset-0 z-[100] animate-in fade-in duration-150"
       onClick={() => setOpen(false)}
       role="dialog"
       aria-modal="true"
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-xs max-h-[calc(100svh-2rem)] overflow-y-auto rounded-2xl bg-white shadow-2xl border border-slate-200 p-5 animate-in zoom-in-95 duration-150"
+        className="absolute right-3 sm:right-4 top-[calc(env(safe-area-inset-top)+3.75rem)] w-[min(20rem,calc(100vw-1.5rem))] max-h-[calc(100svh-6rem)] overflow-y-auto rounded-2xl bg-white shadow-2xl border border-slate-200 p-5 animate-in zoom-in-95 slide-in-from-top-2 duration-150 origin-top-right"
       >
         <div className="flex items-center gap-2 mb-3">
           <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-rose-100 text-rose-600">
@@ -2010,6 +2010,7 @@ function TvAutoLoginButton() {
     </div>,
     document.body,
   ) : null;
+
 
   return (
     <>
