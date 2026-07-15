@@ -14,6 +14,8 @@ import MaintenanceScreen from "./components/MaintenanceScreen";
 import DateTimePicker from "./components/DateTimePicker";
 import { sessionGet, sessionSet, sessionRemove, sessionClearAll, nukeBrowserIdentity, clearSiteCookies } from "./lib/session";
 import { openInboxDB, readLatestEmails, writeDelta, getSyncCursor, cacheEmailHtml, getEmailHtml, purgeEmailsOutsideScope, type CachedEmail } from "./lib/inboxCache";
+import { readAdminCache, writeAdminCache, isCacheFresh, reconcileVersion, emitSyncStatus } from "./lib/adminSettingsCache";
+import { AdminSyncStatus } from "./components/AdminSyncStatus";
 
 
 // Lazy-loaded heavy auth-only libs — kept out of the public first-load chunk.
@@ -5085,7 +5087,9 @@ function AdminPanel() {
   const { user: currentUser, checkAuth } = useAuth();
 
   const STATS_CACHE_KEY = "admin_stats_cache_v1";
-  const ADMIN_SETTINGS_CACHE_KEY = "admin_settings_cache_v1";
+  // Admin settings cache — versioned, refresh-safe. Delete flows do NOT touch
+  // this cache (silent refresh branch below skips the write), so removing a
+  // user cannot wipe CAPTCHA keys or other admin settings.
   const [stats, setStats] = useState<{ totalUsers: number; totalEmails: number }>(() => {
     // Hydrate instantly from cache so the dashboard never flashes 0.
     try {
@@ -5232,15 +5236,20 @@ function AdminPanel() {
         // Cache settings + r2 so a page refresh shows the saved values
         // instantly instead of flashing empty inputs while the server load runs.
         try {
-          localStorage.setItem(ADMIN_SETTINGS_CACHE_KEY, JSON.stringify({
-            settings: res.settings,
-            r2: res.r2 || null,
-            cached_at: Date.now(),
-          }));
-        } catch {}
+          const serverVersion = Number(res.settings?.settings_version) || Date.now();
+          const prev = readAdminCache();
+          reconcileVersion(prev?.version ?? 0, serverVersion);
+          writeAdminCache({ version: serverVersion, settings: res.settings, r2: res.r2 || null });
+          emitSyncStatus({ kind: "saved" });
+        } catch (e) {
+          emitSyncStatus({ kind: "error", message: "Cache write failed" });
+        }
       }
     } catch (err) {
-      if (!silent) console.warn("[admin] dashboard load failed:", err);
+      if (!silent) {
+        console.warn("[admin] dashboard load failed:", err);
+        emitSyncStatus({ kind: "error", message: err instanceof Error ? err.message : "Server sync failed" });
+      }
     }
   }, [r2Dirty]);
 
@@ -5248,11 +5257,13 @@ function AdminPanel() {
   // flash empty CAPTCHA/site-key/etc. fields before the server round-trip.
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(ADMIN_SETTINGS_CACHE_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw);
-      const s = parsed?.settings;
-      if (!s) return;
+      emitSyncStatus({ kind: "loading-local" });
+      const parsed = readAdminCache();
+      if (!parsed) { emitSyncStatus({ kind: "syncing-server" }); return; }
+      const s = parsed.settings;
+      if (!s) { emitSyncStatus({ kind: "syncing-server" }); return; }
+      if (!isCacheFresh(parsed)) emitSyncStatus({ kind: "stale-refetching" });
+      else emitSyncStatus({ kind: "syncing-server" });
       if (s.recaptcha) {
         setSiteKey(s.recaptcha.siteKey || "");
         setSecretKeyVal(s.recaptcha.secretKey || "");
@@ -10698,6 +10709,7 @@ export default function App() {
     <Router>
       <AuthProvider>
         <ToastProvider />
+        <AdminSyncStatus />
         <ErrorBoundary>
           <MaintenanceGate>
             <Routes>
