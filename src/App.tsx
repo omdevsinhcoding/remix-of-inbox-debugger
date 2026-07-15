@@ -2729,10 +2729,30 @@ function filterVisibleEmails(list: Email[], _prefs?: UserProfilePrefs | null, vi
 }
 
 // ==================== CAPTCHA MODAL (shared) ====================
-function CaptchaModal({ siteKey, onVerify, onCancel }: { siteKey: string; onVerify: (token: string) => void; onCancel: () => void }) {
+export type CaptchaStage = "verifying" | "connecting" | "authenticating";
+
+function CaptchaModal({ siteKey, onVerify, onCancel, stage }: {
+  siteKey: string;
+  onVerify: (token: string) => void;
+  onCancel: () => void;
+  /** When set, hides captcha widget and shows a stepper — the login is in-flight. */
+  stage?: CaptchaStage | null;
+}) {
   const [token, setToken] = useState<string | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  // Warm the ECDH handshake in parallel while the user solves the captcha,
+  // so we don't pay 400–1500ms of TLS+ECDH+HKDF after they click Continue.
+  useEffect(() => {
+    let cancelled = false;
+    import("../src/lib/secureTransport")
+      .catch(() => import("./lib/secureTransport"))
+      .then((m) => { if (!cancelled) void m.warmupSession(); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
   const submit = useCallback(() => {
     if (token && !submitting) {
       setSubmitting(true);
@@ -2752,11 +2772,19 @@ function CaptchaModal({ siteKey, onVerify, onCancel }: { siteKey: string; onVeri
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Enter" && token) { e.preventDefault(); onVerify(token); }
-      else if (e.key === "Escape") { e.preventDefault(); onCancel(); }
+      else if (e.key === "Escape" && !stage) { e.preventDefault(); onCancel(); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [token, onVerify, onCancel]);
+  }, [token, onVerify, onCancel, stage]);
+
+  const busy = !!stage;
+  const steps: Array<{ id: CaptchaStage; label: string }> = [
+    { id: "verifying", label: "Verifying you're human" },
+    { id: "connecting", label: "Securing connection" },
+    { id: "authenticating", label: "Signing you in" },
+  ];
+  const activeIdx = stage ? steps.findIndex((s) => s.id === stage) : -1;
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -2769,45 +2797,77 @@ function CaptchaModal({ siteKey, onVerify, onCancel }: { siteKey: string; onVeri
               <ShieldCheck className="text-white w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-black text-slate-900 text-lg">Security Check</h3>
-              <p className="text-slate-500 text-xs">Verify you're human to continue</p>
+              <h3 className="font-black text-slate-900 text-lg">{busy ? "Signing you in" : "Security Check"}</h3>
+              <p className="text-slate-500 text-xs">{busy ? "This takes a moment — hang tight." : "Verify you're human to continue"}</p>
             </div>
           </div>
         </div>
-        <div className="flex justify-center px-6 pb-4 min-h-[78px]">
-          <Suspense fallback={<div className="h-[78px] w-[304px] rounded-lg bg-slate-100 animate-pulse" />}>
-            <ReCAPTCHA
-              sitekey={siteKey}
-                onChange={handleToken}
-              onExpired={() => setToken(null)}
-              onErrored={() => { setToken(null); setLoadError(true); }}
-            />
-          </Suspense>
-        </div>
-        {loadError && (
-          <p className="px-6 pb-4 text-xs font-bold text-red-600 text-center">
-            CAPTCHA domain/key is not allowed for this site. Add this domain in Google reCAPTCHA settings, then refresh.
-          </p>
+
+        {busy ? (
+          <div className="px-6 pb-5" aria-live="polite">
+            <ol className="space-y-2.5">
+              {steps.map((s, i) => {
+                const done = i < activeIdx;
+                const active = i === activeIdx;
+                return (
+                  <li key={s.id} className="flex items-center gap-3 text-sm">
+                    <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                      done ? "bg-emerald-500 text-white" : active ? "bg-blue-600 text-white" : "bg-slate-200 text-slate-500"
+                    }`}>
+                      {done ? <Check className="w-3 h-3" /> : active ? (
+                        <span className="w-2 h-2 bg-white rounded-full animate-pulse" />
+                      ) : (i + 1)}
+                    </span>
+                    <span className={done ? "text-slate-400 line-through" : active ? "text-slate-900 font-bold" : "text-slate-500"}>
+                      {s.label}
+                    </span>
+                  </li>
+                );
+              })}
+            </ol>
+            <div className="mt-4 h-1 w-full bg-slate-100 rounded-full overflow-hidden">
+              <div className="h-full bg-blue-600 rounded-full transition-all duration-500"
+                style={{ width: `${Math.max(15, Math.min(100, ((activeIdx + 1) / steps.length) * 100))}%` }} />
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="flex justify-center px-6 pb-4 min-h-[78px]">
+              <Suspense fallback={<div className="h-[78px] w-[304px] rounded-lg bg-slate-100 animate-pulse" />}>
+                <ReCAPTCHA
+                  sitekey={siteKey}
+                  onChange={handleToken}
+                  onExpired={() => setToken(null)}
+                  onErrored={() => { setToken(null); setLoadError(true); }}
+                />
+              </Suspense>
+            </div>
+            {loadError && (
+              <p className="px-6 pb-4 text-xs font-bold text-red-600 text-center">
+                CAPTCHA domain/key is not allowed for this site. Add this domain in Google reCAPTCHA settings, then refresh.
+              </p>
+            )}
+
+            <div className="flex border-t border-slate-100">
+              <button onClick={onCancel}
+                className="flex-1 py-4 text-sm font-bold text-slate-500 hover:bg-slate-50 transition-colors">
+                Cancel
+              </button>
+              <div className="w-px bg-slate-100" />
+              <button
+                onClick={submit}
+                disabled={!token || submitting}
+                className="flex-1 py-4 text-sm font-bold text-red-600 hover:bg-red-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent">
+                {submitting ? "Continuing..." : token ? "Continue" : "Waiting..."}
+              </button>
+            </div>
+          </>
         )}
-
-        <div className="flex border-t border-slate-100">
-          <button onClick={onCancel}
-            className="flex-1 py-4 text-sm font-bold text-slate-500 hover:bg-slate-50 transition-colors">
-            Cancel
-          </button>
-          <div className="w-px bg-slate-100" />
-          <button
-            onClick={submit}
-            disabled={!token || submitting}
-            className="flex-1 py-4 text-sm font-bold text-red-600 hover:bg-red-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent">
-            {submitting ? "Continuing..." : token ? "Continue" : "Waiting..."}
-          </button>
-        </div>
-
       </motion.div>
     </motion.div>
   );
 }
+
 
 // ==================== NETFLIX-STYLE PROFILE LOGIN ====================
 function ProfileSelectPage() {
