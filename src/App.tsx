@@ -12,7 +12,7 @@ import { AVATAR_CATEGORIES, resolveAvatar, buildAvatarId, prettyName, getAvatarC
 import { bootstrapFromSupabase, clearSessionData, performSignOut, markSessionStart, readBootstrapCache, refreshBootstrap, patchBootstrapCacheUser, getEmailFilters, setEmailFilters as setEmailFiltersCache, getFreeAvatarCooldown, setFreeAvatarCooldown, listNotifications, markNotificationRead, markAllNotificationsRead, markNotificationSeen, deleteNotificationForMe, logNotificationEvent, getPoppedIds, markPopped, adminListRecipients, adminDeleteNotificationForUser, type EmailFilters, type AppNotification, type MaintenanceInfo, type NotificationRecipient } from "./lib/bootstrap";
 import MaintenanceScreen from "./components/MaintenanceScreen";
 import DateTimePicker from "./components/DateTimePicker";
-import { sessionGet, sessionSet, sessionRemove, sessionClearAll } from "./lib/session";
+import { sessionGet, sessionSet, sessionRemove, sessionClearAll, nukeBrowserIdentity, clearSiteCookies } from "./lib/session";
 import { openInboxDB, readLatestEmails, writeDelta, getSyncCursor, cacheEmailHtml, getEmailHtml, purgeEmailsOutsideScope, type CachedEmail } from "./lib/inboxCache";
 
 
