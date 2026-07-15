@@ -9440,11 +9440,9 @@ function EmailViewer() {
     [refreshAccountLabels],
   );
   useEffect(() => {
-    // eslint-disable-next-line no-console
     const runKey = `${user?.id || ""}:${instantInboxAccountKey}`;
-    console.log("[inbox] effect fired", { userId: user?.id, runKey, alreadyRan: instantInboxRunKeyRef.current === runKey });
     if (instantInboxRunKeyRef.current === runKey) return;
-    if (!user?.id) { console.log("[inbox] no user.id, skipping"); return; }
+    if (!user?.id) return;
     if (refreshAccountLabels === undefined) {
       console.log("[inbox] account scope hydrating, painting local cache only");
       (async () => {
