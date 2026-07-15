@@ -1,6 +1,6 @@
 import React, { useState, useEffect, createContext, useContext, useCallback, useRef, useMemo, Suspense, lazy } from "react";
 import { createPortal } from "react-dom";
-import { Mail, RefreshCw, ShieldCheck, Shield, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, BarChart3, Globe, Edit, Database, Wifi, Info, UserCircle, Search, ChevronLeft, ChevronRight, Bell, Send, MessageSquare, Image as ImageIcon, ExternalLink, AlertTriangle, Sparkles, Megaphone, Wrench, CreditCard, Tag, ChevronDown, ChevronUp, HardDrive, Upload, Zap, BookOpen, GraduationCap, Film, PlayCircle, Pin, MapPin, MapPinOff, Tv, Rocket } from "lucide-react";
+import { Mail, RefreshCw, ShieldCheck, Shield, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, Globe, Edit, Info, UserCircle, Search, ChevronRight, Bell, Send, MessageSquare, Image as ImageIcon, ExternalLink, AlertTriangle, Sparkles, Megaphone, Wrench, CreditCard, Tag, ChevronDown, ChevronUp, HardDrive, Upload, Zap, BookOpen, GraduationCap, Film, PlayCircle, Pin, MapPin, MapPinOff, Tv } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import NetflixHouseholdVerificationGuide from "./pages/NetflixHouseholdVerificationGuide";
@@ -9,7 +9,7 @@ import { ToastProvider } from "./components/toast/toast-provider";
 
 import { supabase } from "./integrations/supabase/client";
 import { AVATAR_CATEGORIES, resolveAvatar, buildAvatarId, prettyName, getAvatarCategoryUrls } from "./lib/avatars";
-import { bootstrapFromSupabase, clearSessionData, performSignOut, markSessionStart, readBootstrapCache, refreshBootstrap, patchBootstrapCacheUser, getEmailFilters, setEmailFilters as setEmailFiltersCache, getFreeAvatarCooldown, setFreeAvatarCooldown, listNotifications, markNotificationRead, markAllNotificationsRead, markNotificationSeen, deleteNotificationForMe, logNotificationEvent, getPoppedIds, markPopped, adminListRecipients, adminDeleteNotificationForUser, type EmailFilters, type AppNotification, type MaintenanceInfo, type NotificationRecipient } from "./lib/bootstrap";
+import { bootstrapFromSupabase, performSignOut, markSessionStart, readBootstrapCache, refreshBootstrap, patchBootstrapCacheUser, getEmailFilters, setEmailFilters as setEmailFiltersCache, getFreeAvatarCooldown, setFreeAvatarCooldown, listNotifications, markNotificationRead, markAllNotificationsRead, markNotificationSeen, deleteNotificationForMe, logNotificationEvent, getPoppedIds, markPopped, adminListRecipients, adminDeleteNotificationForUser, type EmailFilters, type AppNotification, type MaintenanceInfo, type NotificationRecipient } from "./lib/bootstrap";
 import MaintenanceScreen from "./components/MaintenanceScreen";
 import DateTimePicker from "./components/DateTimePicker";
 import { sessionGet, sessionSet, sessionRemove, sessionClearAll, nukeBrowserIdentity, clearSiteCookies } from "./lib/session";
@@ -126,73 +126,6 @@ const logPlatformLogoFailure = ({ platform, url, status, reason }: { platform: s
   });
 };
 
-type LogoAuditResult = { ok: boolean; status?: number | string; reason?: string; contentType?: string };
-
-const verifyPlatformLogo = async (platform: PlatformOption): Promise<LogoAuditResult> => {
-  const url = getPlatformLogoUrl(platform);
-  try {
-    const response = await fetch(url, { method: "GET", cache: "no-store" });
-    const contentType = response.headers.get("content-type") || "";
-    if (!response.ok) {
-      return { ok: false, status: response.status, contentType, reason: `HTTP ${response.status}` };
-    }
-    if (!contentType.startsWith("image/")) {
-      return { ok: false, status: response.status, contentType, reason: `Invalid MIME type: ${contentType || "missing"}` };
-    }
-
-    await new Promise<void>((resolve, reject) => {
-      const image = new Image();
-      image.decoding = "async";
-      image.referrerPolicy = "no-referrer";
-      image.onload = () => resolve();
-      image.onerror = () => reject(new Error("Browser image decode/load failed"));
-      image.src = url;
-    });
-
-    return { ok: true, status: response.status, contentType };
-  } catch (error) {
-    return { ok: false, status: "network/decode", reason: error instanceof Error ? error.message : String(error) };
-  }
-};
-
-const usePlatformLogoAudit = (enabled = false) => {
-  const [ready, setReady] = React.useState(!enabled);
-  const [results, setResults] = React.useState<Record<string, LogoAuditResult>>({});
-
-  React.useEffect(() => {
-    if (!enabled) {
-      setReady(true);
-      return;
-    }
-    let alive = true;
-
-    (async () => {
-      const entries = await Promise.all(
-        PLATFORM_OPTIONS.map(async (platform) => {
-          const result = await verifyPlatformLogo(platform);
-          if (!result.ok) {
-            logPlatformLogoFailure({
-              platform: platform.label,
-              url: getPlatformLogoUrl(platform),
-              status: result.status,
-              reason: result.reason || "Image request failed",
-            });
-          }
-          return [platform.id || "__custom", result] as const;
-        }),
-      );
-
-      if (!alive) return;
-      setResults(Object.fromEntries(entries));
-      setReady(true);
-    })();
-
-    return () => { alive = false; };
-  }, [enabled]);
-
-  return { ready, results };
-};
-
 // --- Notification templates (guided types) ---
 type TemplateOption = { id: string; label: string; color: string; hint: string };
 const TEMPLATE_OPTIONS: TemplateOption[] = [
@@ -207,7 +140,7 @@ const TEMPLATE_OPTIONS: TemplateOption[] = [
   { id: "event",        label: "Live Event",     color: "#06B6D4", hint: "Match/premiere/live" },
 ];
 
-const PlatformChipVisual: React.FC<{ id?: string | null; size?: number; audit?: LogoAuditResult }> = ({ id, size = 32, audit }) => {
+const PlatformChipVisual: React.FC<{ id?: string | null; size?: number }> = ({ id, size = 32 }) => {
   const p = resolvePlatformOption(id);
   const logoUrl = getPlatformLogoUrl(p);
   const [src, setSrc] = React.useState(logoUrl);
@@ -220,8 +153,7 @@ const PlatformChipVisual: React.FC<{ id?: string | null; size?: number; audit?: 
     logPlatformLogoFailure({
       platform: p.label,
       url: logoUrl,
-      status: audit?.status,
-      reason: audit?.reason || "<img> onError fired while rendering logo",
+      reason: "<img> onError fired while rendering logo",
     });
     if (src !== DEFAULT_PLATFORM_LOGO) setSrc(DEFAULT_PLATFORM_LOGO);
   };
@@ -4936,7 +4868,17 @@ function RecipientsDrawer({ notification, onClose, onChanged }: { notification: 
 
 function AdminPanel() {
   usePageHead("Admin Dashboard — Netflix Mail", "Admin control panel for managing users, sessions, notifications, and email accounts.", "/admin/dashboard");
-  const [activeTab, setActiveTab] = useState<"users" | "security" | "emails" | "settings" | "notifications" | "inbox" | "logins" | "allmails" | "deploy">("users");
+  const ADMIN_ACTIVE_TAB_KEY = "admin_active_tab_v1";
+  const [activeTab, setActiveTab] = useState<"users" | "security" | "emails" | "settings" | "notifications" | "inbox" | "logins" | "allmails" | "deploy">(() => {
+    try {
+      const raw = sessionStorage.getItem(ADMIN_ACTIVE_TAB_KEY);
+      if (!raw) return "users";
+      const allowed = new Set(["users", "security", "emails", "settings", "notifications", "inbox", "logins", "allmails", "deploy"]);
+      return allowed.has(raw) ? (raw as any) : "users";
+    } catch {
+      return "users";
+    }
+  });
   const [users, setUsers] = useState<UserData[]>(() => {
     // Instant hydrate from bootstrap cache so the users list renders on first paint.
     try {
@@ -5059,7 +5001,10 @@ function AdminPanel() {
   const [notifPlatformIcon, setNotifPlatformIcon] = useState<string>("");
   const [notifTemplate, setNotifTemplate] = useState<string>("");
   const [platformSearch, setPlatformSearch] = useState("");
-  const { ready: platformLogosReady, results: platformLogoResults } = usePlatformLogoAudit(false);
+  const filteredPlatformOptions = useMemo(
+    () => PLATFORM_OPTIONS.filter((p) => platformMatchesSearch(p, platformSearch)),
+    [platformSearch],
+  );
   const [notifLocked, setNotifLocked] = useState(false);
   const [notifShowFrequency, setNotifShowFrequency] = useState<"once" | "always" | "session" | "daily">("once");
   const [notifMode, setNotifMode] = useState<"popup" | "silent" | "banner">("popup");
@@ -5125,14 +5070,18 @@ function AdminPanel() {
     try { localStorage.setItem(STATS_CACHE_KEY, JSON.stringify(stats)); } catch {}
   }, [stats]);
 
-  const getAvailableAccounts = (): string[] => {
+  useEffect(() => {
+    try { sessionStorage.setItem(ADMIN_ACTIVE_TAB_KEY, activeTab); } catch {}
+  }, [activeTab]);
+
+  const availableAccounts = useMemo<string[]>(() => {
     const labels = ["Primary"];
     emailAccounts.forEach(acc => {
       if (acc.label && !labels.includes(acc.label)) labels.push(acc.label);
     });
     return labels;
-  };
-  const normalizeSelectedAccounts = (raw: unknown) => normalizeAccountLabels(raw, getAvailableAccounts());
+  }, [emailAccounts]);
+  const normalizeSelectedAccounts = useCallback((raw: unknown) => normalizeAccountLabels(raw, availableAccounts), [availableAccounts]);
 
   const parseRecipientFilters = (value: string): string[] => Array.from(new Set(
     value
@@ -5143,15 +5092,30 @@ function AdminPanel() {
 
   const loadAdminData = useCallback(async (opts?: { silent?: boolean }) => {
     const silent = !!opts?.silent;
+    const isTransientAdminLoadError = (value: unknown) => /Secure connection|handshake|Failed to fetch|NetworkError|busy|timeout|temporar|unknown session|bad frame|non-binary|stale request|replay|origin mismatch/i.test(
+      value instanceof Error ? value.message : String(value || ""),
+    );
     // ONE composite server call replaces the 12 individual apiCalls.
     // - Bootstrap: users + emails count + notifications (+counts) + all settings + r2  → 1 HTTP request
     // - Refresh (silent): only the 3 live datasets, no settings → still 1 request
     // This keeps Supabase egress + edge-function invocations minimal so
     // free-tier limits don't get eaten by the admin panel.
     try {
-      const res: any = await apiCall("manage-app", {
-        action: silent ? "admin_dashboard_refresh" : "admin_dashboard_bootstrap",
-      });
+      let res: any;
+      try {
+        res = await apiCall("manage-app", {
+          action: silent ? "admin_dashboard_refresh" : "admin_dashboard_bootstrap",
+        });
+      } catch (err) {
+        if (!silent && isTransientAdminLoadError(err)) {
+          await new Promise((r) => setTimeout(r, 700));
+          res = await apiCall("manage-app", {
+            action: "admin_dashboard_bootstrap",
+          });
+        } else {
+          throw err;
+        }
+      }
       if (Array.isArray(res?.users)) {
         setUsers(res.users);
         setStats(prev => ({ ...prev, totalUsers: res.users.length }));
@@ -6209,6 +6173,13 @@ function AdminPanel() {
     { id: "deploy" as const, label: "Deploy", icon: Server },
   ];
 
+  const nonAdminOrder = useMemo(() => users.filter((u) => u.role !== "admin").map((u) => u.id), [users]);
+  const nonAdminIndexById = useMemo(() => {
+    const map = new Map<string, number>();
+    nonAdminOrder.forEach((id, idx) => map.set(id, idx));
+    return map;
+  }, [nonAdminOrder]);
+
 
   return (
     <div className="admin-panel min-h-[100dvh] bg-slate-50 overflow-x-hidden text-slate-900">
@@ -6299,7 +6270,7 @@ function AdminPanel() {
                 <div>
                   <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Assign IMAP Accounts</label>
                   <div className="space-y-1.5">
-                    {getAvailableAccounts().map(label => (
+                    {availableAccounts.map(label => (
                       <label key={label} className="flex items-center gap-2 p-2 bg-slate-50 rounded-lg cursor-pointer hover:bg-slate-100 transition-colors">
                         <input type="checkbox" checked={newUserAccounts.includes(label)}
                           onChange={(e) => {
@@ -6363,10 +6334,9 @@ function AdminPanel() {
                 {(() => { return null; })()}
                 {users.map(u => {
                   const canDrag = u.role !== "admin";
-                  const nonAdminList = users.filter(x => x.role !== "admin");
-                  const idx = nonAdminList.findIndex(x => x.id === u.id);
+                  const idx = nonAdminIndexById.get(u.id) ?? -1;
                   const isFirst = idx === 0;
-                  const isLast = idx === nonAdminList.length - 1;
+                  const isLast = idx === nonAdminOrder.length - 1;
                   const railColor = u.role === "admin" ? "from-red-500 to-red-700" : (u.isFree ? "from-emerald-400 to-emerald-600" : "from-blue-500 to-blue-700");
                   const glowColor = u.role === "admin" ? "shadow-red-500/20" : (u.isFree ? "shadow-emerald-500/20" : "shadow-blue-500/20");
                   return (
@@ -6676,7 +6646,7 @@ function AdminPanel() {
                                 )}
                                 <p className="text-[11px] text-slate-500 mb-2">Tap a box to allow · untap to hide</p>
                                 <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-                                  {getAvailableAccounts().map(label => {
+                                  {availableAccounts.map(label => {
                                     const checked = editAccountsList.includes(label);
                                     return (
                                       <label key={label} className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all border-2 ${checked ? "bg-gradient-to-r from-rose-50 to-red-50 border-rose-300 shadow-sm" : "bg-slate-50 border-transparent hover:bg-slate-100"}`}>
@@ -7458,21 +7428,18 @@ function AdminPanel() {
                     </div>
                     <div className="bg-black/30 border border-white/[0.06] rounded-xl p-2 max-h-[240px] overflow-y-auto [scrollbar-width:thin] [scrollbar-color:rgba(255,255,255,0.15)_transparent]">
                       <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5">
-                        {!platformLogosReady && (
-                          <div className="col-span-3 sm:col-span-4 py-8 text-center text-[11px] font-semibold text-slate-500">Loading platform logos…</div>
-                        )}
-                        {platformLogosReady && PLATFORM_OPTIONS.filter((p) => platformMatchesSearch(p, platformSearch)).map((p) => {
+                        {filteredPlatformOptions.map((p) => {
                           const active = resolvePlatformOption(notifPlatformIcon).id === p.id;
                           return (
                             <button key={p.id || "none"} type="button" onClick={() => setNotifPlatformIcon(p.id)}
                               className={`group relative flex flex-col items-center justify-center gap-1.5 py-2.5 px-1.5 rounded-lg border transition-all min-h-[74px] ${active ? "bg-orange-500/10 border-orange-500/60 shadow-md shadow-orange-500/10" : "bg-white/[0.02] border-white/[0.05] hover:bg-white/[0.05] hover:border-white/15"}`}>
-                              <PlatformChipVisual id={p.id} size={40} audit={platformLogoResults[p.id || "__custom"]} />
+                              <PlatformChipVisual id={p.id} size={40} />
                               <span className={`text-[9.5px] font-medium text-center leading-tight px-0.5 line-clamp-2 ${active ? "text-white" : "text-slate-400 group-hover:text-slate-200"}`}>{p.label}</span>
                             </button>
                           );
                         })}
                       </div>
-                      {platformLogosReady && PLATFORM_OPTIONS.filter((p) => platformMatchesSearch(p, platformSearch)).length === 0 && (
+                      {filteredPlatformOptions.length === 0 && (
                         <p className="text-center text-[11px] text-slate-500 py-4">No platform matches "{platformSearch}"</p>
                       )}
                     </div>
@@ -7643,7 +7610,7 @@ function AdminPanel() {
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
-                            {n.platform_icon ? <PlatformChipVisual id={n.platform_icon} size={20} audit={platformLogoResults[resolvePlatformOption(n.platform_icon).id || "__custom"]} /> : null}
+                            {n.platform_icon ? <PlatformChipVisual id={n.platform_icon} size={20} /> : null}
                             <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-semibold ${n.locked ? "bg-amber-50 text-amber-700 border border-amber-200" : "bg-emerald-50 text-emerald-700 border border-emerald-200"}`}>
                               {n.locked ? "🔒 Locked" : "🔓 User delete OK"}
                             </span>
@@ -7714,15 +7681,12 @@ function AdminPanel() {
                 <div>
                   <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1.5 block">Platform / Icon</label>
                   <div className="grid grid-cols-5 gap-1.5">
-                    {!platformLogosReady && (
-                      <div className="col-span-5 py-6 text-center text-[11px] font-semibold text-slate-500">Loading platform logos…</div>
-                    )}
-                    {platformLogosReady && PLATFORM_OPTIONS.map((p) => {
+                    {PLATFORM_OPTIONS.map((p) => {
                       const active = resolvePlatformOption(editingNotif.platform_icon).id === p.id;
                       return (
                         <button key={p.id || "none"} type="button" onClick={() => setEditingNotif({ ...editingNotif, platform_icon: p.id })}
                           className={`flex flex-col items-center gap-1.5 py-2.5 px-1 rounded-lg border transition-all ${active ? "border-orange-500 bg-orange-50" : "border-slate-200 hover:border-slate-300"}`}>
-                          <PlatformChipVisual id={p.id} size={40} audit={platformLogoResults[p.id || "__custom"]} />
+                          <PlatformChipVisual id={p.id} size={40} />
                           <span className="text-[9px] font-medium text-slate-600 text-center leading-tight">{p.label}</span>
                         </button>
                       );
@@ -10559,11 +10523,6 @@ function EmailViewer() {
 // everyone. The only carve-out is /admin* routes so admins can still sign in
 // and toggle maintenance off from the panel.
 
-function hasActiveAdminImpersonationBackup(): boolean {
-  try { sessionRemove("admin_backup" as any); } catch {}
-  return false;
-}
-
 function MaintenanceGate({ children }: { children: React.ReactNode }) {
   const { user, loading: authLoading, checkAuth } = useAuth();
   const navigate = useNavigate();
@@ -10587,7 +10546,7 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
     // Admin impersonating a user: keep the session alive so they can QA the
     // real user experience during maintenance. Source of truth is the
     // server-signed `impersonated` flag backed by the parent admin session row.
-    if (user.impersonated === true || hasActiveAdminImpersonationBackup()) return;
+    if (user.impersonated === true) return;
     const path = typeof window !== "undefined" ? window.location.pathname : "/";
     if (path.startsWith("/admin")) return;
     notify.info("🛠 Maintenance started", {
@@ -10609,7 +10568,7 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
       } catch {}
     };
     const isAdminPath = window.location.pathname.startsWith("/admin");
-    const adminLike = user?.role === "admin" || user?.impersonated === true || hasActiveAdminImpersonationBackup();
+    const adminLike = user?.role === "admin" || user?.impersonated === true;
     if (!isAdminPath && !adminLike) load();
     const interval = window.setInterval(() => {
       if (document.visibilityState === "visible" && !window.location.pathname.startsWith("/admin")) load();
@@ -10648,8 +10607,7 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
   const isAdminRoute = path.startsWith("/admin");
   const isAdminImpersonating =
     user?.role === "admin" ||
-    user?.impersonated === true ||
-    hasActiveAdminImpersonationBackup();
+    user?.impersonated === true;
 
   const screenProps = {
     title: maint.title,
@@ -10743,6 +10701,7 @@ export default function App() {
               <Route path="/viewer" element={<ProtectedRoute role="user"><EmailViewer /></ProtectedRoute>} />
               <Route path="/guides/netflix-household-verification" element={<NetflixHouseholdVerificationGuide />} />
               <Route path="/clearcookies" element={<ClearCookiesPage />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
 
 
