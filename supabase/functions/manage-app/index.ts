@@ -2856,15 +2856,15 @@ Deno.serve(async (originalReq) => {
       }
 
       if (key === "config" && value && session?.role === "admin") {
-        value = await maskConfigForAdmin(value);
+        value = await maskConfigForAdmin(value, ENCRYPTION_SECRET);
       }
 
-      // Never send stored IMAP passwords to the browser. The DB stores encrypted
-      // values; the edge function decrypts internally only when logging in to IMAP.
+      // Admin gets REAL decrypted IMAP passwords (transport is E2E encrypted).
+      // Non-admin users only see cloudflare URLs and label; password is masked.
       if (key === "email_accounts" && Array.isArray(value)) {
         const isAdmin = session?.role === "admin";
         value = isAdmin
-          ? await maskEmailAccountsForAdmin(value)
+          ? await maskEmailAccountsForAdmin(value, ENCRYPTION_SECRET)
           : value.map((acc: any) => ({
               ...acc,
               password: SECRET_MASK,
