@@ -2387,13 +2387,14 @@ interface UserData {
 }
 
 function isLocationRequiredForProfile(profile?: Partial<UserData> | null) {
-  if (!profile || profile.role === "admin") return false;
-  // Default: required unless explicitly disabled (false).
-  const top = profile.locationRequired;
-  const nested = profile.profilePrefs?.locationRequired;
+  if (!profile) return false;
+  // Trust the top-level flag the server sends (already role-aware). Fall back
+  // to nested prefs only if the top-level flag is missing.
+  if (typeof profile.locationRequired === "boolean") return profile.locationRequired;
   const explicitOverride = profile.profilePrefs?.locationRequiredOverride === true;
-  if (explicitOverride && (top === false || nested === false)) return false;
-  return true;
+  const nested = profile.profilePrefs?.locationRequired;
+  if (profile.role === "admin") return explicitOverride && nested === true;
+  return !(explicitOverride && nested === false);
 }
 
 function getUserRefreshAccountLabels(user: Partial<UserData>): string[] | null | undefined {
@@ -3624,7 +3625,16 @@ function AdminLoginPage() {
   const [loginStage, setLoginStage] = useState<CaptchaStage | null>(null);
   const [gpsRequesting, setGpsRequesting] = useState(false);
   const [gpsPermissionMode, setGpsPermissionMode] = useState<GpsPermissionMode | null>(null);
-  const [locationRequired, setLocationRequired] = useState(true);
+  // Per-admin GPS policy: default OFF. Only ON if the admin card toggle was
+  // explicitly enabled by another admin. Resolved from the bootstrap user list
+  // once the typed username matches a known admin — same flag the card shows.
+  const [adminUsers, setAdminUsers] = useState<any[]>([]);
+  const matchedAdmin = useMemo(() => {
+    const u = username.trim().toLowerCase();
+    if (!u) return null;
+    return adminUsers.find((x: any) => x?.role === "admin" && typeof x?.username === "string" && x.username.toLowerCase() === u) || null;
+  }, [username, adminUsers]);
+  const locationRequired = matchedAdmin ? isLocationRequiredForProfile(matchedAdmin) : false;
   const pendingClientGeoRef = useRef<LoginLocationPayload | null>(null);
   const armedGeoRef = useRef<Promise<LoginLocationPayload> | null>(null);
   const armedDeviceRef = useRef<Promise<DeviceFingerprint> | null>(null);
@@ -3638,7 +3648,7 @@ function AdminLoginPage() {
       try {
         const bootstrap = await bootstrapFromSupabase({ force: true });
         if (cancelled) return;
-        setLocationRequired(bootstrap.locationPolicy?.required !== false);
+        setAdminUsers(Array.isArray(bootstrap.users) ? bootstrap.users : []);
         if (bootstrap.recaptcha?.enabled === true && bootstrap.recaptcha?.siteKey) {
           setSiteKey(bootstrap.recaptcha.siteKey);
           preloadRecaptchaScript();
