@@ -3082,6 +3082,7 @@ Deno.serve(async (originalReq) => {
           patch.expires_at = new Date(t).toISOString();
         }
       }
+      if (auto_delete !== undefined) patch.auto_delete = !!auto_delete;
       if (session_limit !== undefined) {
         // null | "" -> clear (fall back to global). Otherwise clamp to a sane non-negative int.
         if (session_limit === null || session_limit === "") {
