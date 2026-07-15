@@ -7428,9 +7428,6 @@ function AdminPanel() {
                     </div>
                     <div className="bg-black/30 border border-white/[0.06] rounded-xl p-2 max-h-[240px] overflow-y-auto [scrollbar-width:thin] [scrollbar-color:rgba(255,255,255,0.15)_transparent]">
                       <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5">
-                        {!platformLogosReady && (
-                          <div className="col-span-3 sm:col-span-4 py-8 text-center text-[11px] font-semibold text-slate-500">Loading platform logos…</div>
-                        )}
                         {filteredPlatformOptions.map((p) => {
                           const active = resolvePlatformOption(notifPlatformIcon).id === p.id;
                           return (
@@ -7684,10 +7681,7 @@ function AdminPanel() {
                 <div>
                   <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1.5 block">Platform / Icon</label>
                   <div className="grid grid-cols-5 gap-1.5">
-                    {!platformLogosReady && (
-                      <div className="col-span-5 py-6 text-center text-[11px] font-semibold text-slate-500">Loading platform logos…</div>
-                    )}
-                    {platformLogosReady && PLATFORM_OPTIONS.map((p) => {
+                    {PLATFORM_OPTIONS.map((p) => {
                       const active = resolvePlatformOption(editingNotif.platform_icon).id === p.id;
                       return (
                         <button key={p.id || "none"} type="button" onClick={() => setEditingNotif({ ...editingNotif, platform_icon: p.id })}
