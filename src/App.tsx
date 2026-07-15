@@ -10442,31 +10442,47 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
 }
 
 
-// Netflix-style /clearcookies endpoint. Awaits server-side session revocation,
-// then wipes every browser storage surface for this origin (cookies, local &
-// session storage, IndexedDB, Cache Storage, service workers) and hard-reloads
-// to "/" so the app boots with a fresh identity.
+// ============================================================================
+// ⚠️  Netflix-style /clearcookies endpoint — site storage → 0 B ⚠️
+// ----------------------------------------------------------------------------
+// PRIMARY mechanism: the /clearcookies route ships with a `Clear-Site-Data: "*"`
+// response header (see netlify.toml + vercel.json). Merely LOADING this URL
+// tells the browser to purge cookies (incl. httpOnly), localStorage,
+// sessionStorage, IndexedDB, Cache Storage, service workers, HTTP cache, and
+// running execution contexts at the HTTP layer. That's the same trick
+// netflix.com/clearcookies uses.
+//
+// SECONDARY (JS fallback via nukeBrowserIdentity): for local dev / hosts that
+// strip the header, we also wipe every surface from JavaScript. Both run.
+// ============================================================================
 function ClearCookiesPage() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      // 1. Best-effort server logout — await it so the httpOnly session cookie
-      //    is actually invalidated before we navigate away.
+      // 1. Best-effort server logout — invalidate the httpOnly session cookie
+      //    on the DB side before we navigate away.
       try {
         const token = sessionGet("session_token" as any);
         if (token) {
           const { invokeEdge } = await import("./lib/secureTransport");
           await Promise.race([
             invokeEdge("manage-app", { action: "logout" }, { headers: { "X-Session-Token": token } }),
-            new Promise((r) => setTimeout(r, 2500)),
+            new Promise((r) => setTimeout(r, 2000)),
           ]).catch(() => {});
         }
       } catch {}
-      // 2. Full client-side identity wipe.
+      // 2. Ping /clearcookies as a plain HEAD/GET so the browser processes
+      //    the `Clear-Site-Data: "*"` response header on hosts that serve it.
+      //    This alone forces site storage to 0 B on Netlify/Vercel.
+      try {
+        await fetch("/clearcookies", { method: "GET", cache: "no-store", credentials: "same-origin" }).catch(() => {});
+      } catch {}
+      // 3. JS fallback wipe — covers local dev + any host that strips the header.
       try { await nukeBrowserIdentity(); } catch {}
       if (cancelled) return;
-      // 3. Hard reload to "/" so no in-memory React state survives.
-      try { window.location.replace("/"); } catch { window.location.href = "/"; }
+      // 4. Hard reload to "/" with a cache-buster so nothing in-memory survives
+      //    and any CDN edge cache is bypassed.
+      try { window.location.replace("/?_cc=" + Date.now()); } catch { window.location.href = "/"; }
     })();
     return () => { cancelled = true; };
   }, []);
@@ -10476,6 +10492,7 @@ function ClearCookiesPage() {
     </div>
   );
 }
+
 
 // ==================== MAIN APP ====================
 export default function App() {

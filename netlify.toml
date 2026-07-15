@@ -50,3 +50,21 @@
   [headers.values]
     Content-Type = "text/plain; charset=utf-8"
     Cache-Control = "public, max-age=86400"
+
+# ============================================================================
+# ⚠️  DO NOT TOUCH — Netflix-style /clearcookies endpoint ⚠️
+# ----------------------------------------------------------------------------
+# The `Clear-Site-Data` response header tells the BROWSER to purge every
+# storage surface for this origin at the HTTP layer — cookies (incl. httpOnly),
+# localStorage, sessionStorage, IndexedDB, Cache Storage, service workers,
+# HTTP cache, and running execution contexts. Result: site storage → 0 B.
+# This is exactly what Netflix's /clearcookies does. The JS fallback in
+# nukeBrowserIdentity() is a belt-and-suspenders for local dev / hosts that
+# strip this header.
+# ============================================================================
+[[headers]]
+  for = "/clearcookies"
+  [headers.values]
+    Clear-Site-Data = "\"*\""
+    Cache-Control = "no-store, max-age=0"
+
