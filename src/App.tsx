@@ -2032,7 +2032,8 @@ function FreeExpiryPill() {
   if (hidden) return null;
   const isFree = !!(user as any)?.isFree;
   const expIso = (user as any)?.expiresAt as string | null | undefined;
-  if (!isFree || !expIso) return null;
+  const autoDelete = (user as any)?.autoDelete !== false;
+  if (!isFree || !expIso || !autoDelete) return null;
   const expMs = Date.parse(expIso);
   if (!Number.isFinite(expMs)) return null;
   const rem = expMs - now;
@@ -4657,6 +4658,7 @@ function AdminPanel() {
   const [editUsername, setEditUsername] = useState<string>("");
   const [editSessionLimit, setEditSessionLimit] = useState<string>("");
   const [editExpiresAt, setEditExpiresAt] = useState<string>(""); // "YYYY-MM-DDTHH:mm" for free users only
+  const [editAutoDelete, setEditAutoDelete] = useState<boolean>(true);
   const [newIsFree, setNewIsFree] = useState(false);
   const [newFreeExpiresAt, setNewFreeExpiresAt] = useState<string>(""); // "YYYY-MM-DDTHH:mm"
   const [dragUserId, setDragUserId] = useState<string | null>(null);
@@ -5745,11 +5747,12 @@ function AdminPanel() {
         assigned_accounts: normalizeSelectedAccounts(editAccountsList).length > 0 ? normalizeSelectedAccounts(editAccountsList) : null,
         session_limit,
         ...(expires_at !== undefined ? { expires_at } : {}),
+        ...(isFreeTarget ? { auto_delete: editAutoDelete } : {}),
       });
       const nextAccounts = normalizeSelectedAccounts(editAccountsList).length > 0 ? normalizeSelectedAccounts(editAccountsList) : null;
       const nextUsername = editUsername.trim() || null;
       setEditingUserAccounts(null); setEditHint(null);
-      setUsers(prev => prev.map(u => u.id === userId ? { ...u, username: nextUsername as any, assignedAccounts: nextAccounts, session_limit, ...(expires_at !== undefined ? { expiresAt: expires_at } as any : {}) } : u));
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, username: nextUsername as any, assignedAccounts: nextAccounts, session_limit, ...(expires_at !== undefined ? { expiresAt: expires_at } as any : {}), ...(isFreeTarget ? { autoDelete: editAutoDelete } as any : {}) } : u));
       notify.success("User settings updated!");
     } catch (err) {
       notify.error(err instanceof Error ? err.message : "Failed to update");
@@ -6035,6 +6038,7 @@ function AdminPanel() {
                               } else {
                                 setEditExpiresAt("");
                               }
+                              setEditAutoDelete((u as any).autoDelete !== false);
                             }} title="Edit"
                             className={`flex-1 flex items-center justify-center h-9 rounded-lg transition-all active:scale-95 ${editingUserAccounts === u.id ? "bg-white text-emerald-600 ring-1 ring-emerald-300 shadow-sm" : "text-slate-500 hover:bg-white hover:text-emerald-600 hover:shadow-sm"}`}>
                             <Edit className="w-4 h-4" />
@@ -6210,6 +6214,31 @@ function AdminPanel() {
                                       <button type="button" onClick={() => setEditExpiresAt("")}
                                         className="text-[11px] text-rose-600 font-bold hover:underline">Clear date</button>
                                     )}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Free profile auto-delete toggle */}
+                              {u.isFree && (
+                                <div>
+                                  <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5">
+                                    <div className="min-w-0">
+                                      <div className="text-xs font-bold text-slate-800">Auto-delete on expiry</div>
+                                      <div className="text-[11px] text-slate-500 leading-snug">
+                                        {editAutoDelete
+                                          ? "Profile deletes automatically at the date above. User sees a countdown pill."
+                                          : "Off — profile stays after expiry. User will NOT see the countdown pill."}
+                                      </div>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => setEditAutoDelete((v) => !v)}
+                                      aria-pressed={editAutoDelete}
+                                      className={`relative shrink-0 w-11 h-6 rounded-full transition-colors ${editAutoDelete ? "bg-emerald-500" : "bg-slate-300"}`}
+                                      title="Toggle auto-delete"
+                                    >
+                                      <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${editAutoDelete ? "translate-x-5" : ""}`} />
+                                    </button>
                                   </div>
                                 </div>
                               )}

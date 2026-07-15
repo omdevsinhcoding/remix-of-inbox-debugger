@@ -156,6 +156,7 @@ export type Database = {
       app_users: {
         Row: {
           assigned_accounts: Json | null
+          auto_delete: boolean
           created_at: string
           expires_at: string | null
           id: string
@@ -173,6 +174,7 @@ export type Database = {
         }
         Insert: {
           assigned_accounts?: Json | null
+          auto_delete?: boolean
           created_at?: string
           expires_at?: string | null
           id?: string
@@ -190,6 +192,7 @@ export type Database = {
         }
         Update: {
           assigned_accounts?: Json | null
+          auto_delete?: boolean
           created_at?: string
           expires_at?: string | null
           id?: string

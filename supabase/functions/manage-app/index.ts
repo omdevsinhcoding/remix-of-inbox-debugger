@@ -2299,7 +2299,7 @@ Deno.serve(async (originalReq) => {
       await requireAdmin(req);
       const { data, error } = await supabase
         .from("app_users")
-        .select("id, username, name, role, assigned_accounts, profile_prefs, session_limit, is_free, pinned, sort_order, expires_at")
+        .select("id, username, name, role, assigned_accounts, profile_prefs, session_limit, is_free, pinned, sort_order, expires_at, auto_delete")
         .order("pinned", { ascending: false })
         .order("sort_order", { ascending: true, nullsFirst: false })
         .order("created_at", { ascending: true });
@@ -2316,6 +2316,7 @@ Deno.serve(async (originalReq) => {
         pinned: !!u.pinned,
         sortOrder: u.sort_order ?? null,
         expiresAt: u.expires_at || null,
+        autoDelete: u.auto_delete !== false,
       }));
       return new Response(JSON.stringify({ success: true, users: mappedData }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -2485,6 +2486,7 @@ Deno.serve(async (originalReq) => {
           profileAvatar: user.profile_prefs?.avatarId || null,
           isFree: !!user.is_free,
           expiresAt: user.expires_at || null,
+          autoDelete: (user as any).auto_delete !== false,
           locationRequired,
         },
       }), {
@@ -3051,7 +3053,7 @@ Deno.serve(async (originalReq) => {
 
     if (action === "update_user") {
       const session = await requireAdmin(req);
-      const { id, assigned_accounts, session_limit, pinned, is_free, name, username, expires_at, location_required } = params;
+      const { id, assigned_accounts, session_limit, pinned, is_free, name, username, expires_at, location_required, auto_delete } = params;
       if (!id) throw new Error("User ID required");
       const patch: Record<string, any> = {};
       if (assigned_accounts !== undefined) patch.assigned_accounts = await normalizeAssignedAccounts(supabase, assigned_accounts);
@@ -3082,6 +3084,7 @@ Deno.serve(async (originalReq) => {
           patch.expires_at = new Date(t).toISOString();
         }
       }
+      if (auto_delete !== undefined) patch.auto_delete = !!auto_delete;
       if (session_limit !== undefined) {
         // null | "" -> clear (fall back to global). Otherwise clamp to a sane non-negative int.
         if (session_limit === null || session_limit === "") {
@@ -3543,7 +3546,7 @@ Deno.serve(async (originalReq) => {
       const session = await requireSession(req);
       const { data: user, error } = await supabase
         .from("app_users")
-        .select("id, username, name, role, must_change_password, assigned_accounts, profile_prefs, is_free, expires_at")
+        .select("id, username, name, role, must_change_password, assigned_accounts, profile_prefs, is_free, expires_at, auto_delete")
         .eq("id", session.userId)
         .single();
       if (error || !user) throw new Error("Account not found");
@@ -3560,6 +3563,7 @@ Deno.serve(async (originalReq) => {
           profileAvatar: user.profile_prefs?.avatarId || null,
           isFree: !!user.is_free,
           expiresAt: user.expires_at || null,
+          autoDelete: (user as any).auto_delete !== false,
           locationRequired: isProfileLocationRequired(user, await loadGlobalLocationRequired(supabase)),
           impersonated: session.impersonated === true,
           adminId: session.impersonated === true ? (session.adminId || null) : null,
