@@ -5228,11 +5228,107 @@ function AdminPanel() {
             secretAccessKeySet: res.r2.secretAccessKeySet === true,
           }));
         }
+        // Cache settings + r2 so a page refresh shows the saved values
+        // instantly instead of flashing empty inputs while the server load runs.
+        try {
+          localStorage.setItem(ADMIN_SETTINGS_CACHE_KEY, JSON.stringify({
+            settings: res.settings,
+            r2: res.r2 || null,
+            cached_at: Date.now(),
+          }));
+        } catch {}
       }
     } catch (err) {
       if (!silent) console.warn("[admin] dashboard load failed:", err);
     }
   }, [r2Dirty]);
+
+  // Hydrate settings state instantly from cache on mount so a refresh doesn't
+  // flash empty CAPTCHA/site-key/etc. fields before the server round-trip.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(ADMIN_SETTINGS_CACHE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      const s = parsed?.settings;
+      if (!s) return;
+      if (s.recaptcha) {
+        setSiteKey(s.recaptcha.siteKey || "");
+        setSecretKeyVal(s.recaptcha.secretKey || "");
+        setCaptchaEnabled(s.recaptcha.enabled === true);
+      }
+      if (s.email_visibility) {
+        setEmailVisibilityEnabled(s.email_visibility.enabled === true);
+        if (Number(s.email_visibility.days) > 0) setEmailVisibilityDays(String(s.email_visibility.days));
+      }
+      if (s.email_auto_delete) {
+        setEmailAutoDeleteEnabled(s.email_auto_delete.enabled === true);
+        if (Number(s.email_auto_delete.days) > 0) setEmailAutoDeleteDays(String(s.email_auto_delete.days));
+        if (Number.isFinite(Number(s.email_auto_delete.hour))) setEmailAutoDeleteHour(String(s.email_auto_delete.hour));
+      }
+      if (s.netflix_promo) setBlockNetflixPromo(s.netflix_promo.block === true);
+      if (s.config) {
+        const c = s.config as any;
+        setServerConfig({
+          TELEGRAM_BOT_TOKEN: c.TELEGRAM_BOT_TOKEN || "",
+          TELEGRAM_CHAT_ID: c.TELEGRAM_CHAT_ID || "",
+          IMAP_HOST: c.IMAP_HOST || "",
+          IMAP_PORT: c.IMAP_PORT || "",
+          IMAP_USER: c.IMAP_USER || "",
+          IMAP_PASSWORD: c.IMAP_PASSWORD || "",
+        });
+      }
+      if (Array.isArray(s.primary_cloudflare_urls)) setPrimaryCfUrls(s.primary_cloudflare_urls);
+      if (s.email_filters) {
+        setShowSignInCodes(s.email_filters.showSignInCodes !== false);
+        setShowPasswordResets(s.email_filters.showPasswordResets === true);
+        setShowAccountUpdates(s.email_filters.showAccountUpdates === true);
+      }
+      if (Array.isArray(s.email_accounts)) {
+        const migrated = s.email_accounts.map((acc: any) => {
+          if (acc.cloudflareUrls && Array.isArray(acc.cloudflareUrls)) return { ...acc, recipientFilters: Array.isArray(acc.recipientFilters) ? acc.recipientFilters : [] };
+          const urls: string[] = [];
+          if (acc.cloudflareUrl && acc.cloudflareUrl.trim()) urls.push(acc.cloudflareUrl.trim());
+          const { cloudflareUrl, ...rest } = acc;
+          return { ...rest, cloudflareUrls: urls, recipientFilters: Array.isArray(acc.recipientFilters) ? acc.recipientFilters : [] };
+        });
+        setEmailAccounts(migrated);
+      }
+      const m1 = Number(s.session_config?.timeoutMinutes);
+      if (Number.isFinite(m1) && m1 >= 0) setSessionTimeoutMin(String(m1));
+      const m2 = Number(s.admin_session_config?.timeoutMinutes);
+      if (Number.isFinite(m2) && m2 >= 0) setAdminSessionTimeoutMin(String(m2));
+      const cs = Number(s.session_limits?.maxPerUser);
+      if (Number.isFinite(cs) && cs >= 0) setConcurrentSessionLimit(String(cs));
+      setIpwhoAlertEnabled(s.ipwho_alert?.enabled === true);
+      setLocationPolicyRequired(s.location_policy?.required === true);
+      const fac = Number(s.free_avatar_cooldown?.minutes);
+      if (Number.isFinite(fac) && fac > 0) setFreeAvatarCooldownMinState(String(Math.floor(fac)));
+      if (s.maintenance) {
+        const mnt = s.maintenance;
+        setMaintenanceEnabled(mnt.enabled === true);
+        setMaintenanceTitle(mnt.title || "");
+        setMaintenanceMessage(mnt.message || "");
+        setMaintenanceVersionFrom(mnt.versionFrom || "");
+        setMaintenanceVersionTo(mnt.versionTo || "");
+        prevSavedVersionToRef.current = mnt.versionTo || "";
+      }
+      const r2 = parsed?.r2;
+      if (r2) {
+        setR2Cfg({
+          accountId: r2.accountId || "",
+          accessKeyId: r2.accessKeyId || "",
+          secretAccessKey: r2.secretAccessKey || "",
+          bucket: r2.bucket || "",
+          publicBaseUrl: r2.publicBaseUrl || "",
+          pathPrefix: r2.pathPrefix || "notifications/",
+          enabled: r2.enabled === true,
+          secretAccessKeySet: r2.secretAccessKeySet === true,
+        });
+      }
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     // Initial full load
