@@ -577,11 +577,29 @@ async function handleCachePurge(env, session) {
   const userAccountsKey = session?.assignedAccounts ? JSON.stringify(session.assignedAccounts.sort()) : "all";
   const keys = candidateCacheKeys(userAccountsKey, 200);
   const tsKeys = cachePrefixes().map(({ ts }) => `${ts}:${userAccountsKey}`);
+  let htmlPurged = 0;
   try {
     await Promise.all([...keys, ...tsKeys].map((key) => kv.delete(key)));
-    return new Response(JSON.stringify({ ok: true, purged: keys.length + tsKeys.length, keys }), { headers: diagHeaders({ "X-Cache-Status": "PURGED" }) });
+    // Admin-only: also flush the cross-user email-HTML cache. Bulk-lists both
+    // the legacy v1 prefix (raw addresses) and the current v2 prefix and
+    // deletes every match. list() paginates in 1000-key batches.
+    if (session.role === "admin") {
+      for (const prefix of ["email_html:v1:", "email_html:v2:"]) {
+        let cursor = undefined;
+        for (let i = 0; i < 20; i++) {
+          const page = await kv.list({ prefix, cursor, limit: 1000 });
+          if (page.keys?.length) {
+            await Promise.all(page.keys.map((k) => kv.delete(k.name)));
+            htmlPurged += page.keys.length;
+          }
+          if (page.list_complete || !page.cursor) break;
+          cursor = page.cursor;
+        }
+      }
+    }
+    return new Response(JSON.stringify({ ok: true, purged: keys.length + tsKeys.length, htmlPurged, keys }), { headers: diagHeaders({ "X-Cache-Status": "PURGED" }) });
   } catch (err) {
-    return new Response(JSON.stringify({ ok: false, error: err.message }), { status: 500, headers: diagHeaders() });
+    return new Response(JSON.stringify({ ok: false, error: err.message, htmlPurged }), { status: 500, headers: diagHeaders() });
   }
 }
 
