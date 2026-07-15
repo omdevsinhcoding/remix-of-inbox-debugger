@@ -1929,6 +1929,112 @@ function NotificationBell() {
   );
 }
 
+// --- TV Auto-Login header button + Coming Soon popup ---
+function TvAutoLoginButton() {
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    window.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [open]);
+
+  return (
+    <>
+      <button
+        onClick={() => setOpen(true)}
+        className="relative flex items-center justify-center p-2.5 rounded-full text-white bg-gradient-to-br from-indigo-600 via-violet-600 to-fuchsia-600 hover:from-indigo-500 hover:via-violet-500 hover:to-fuchsia-500 shadow-md shadow-violet-500/30 transition-all active:scale-95"
+        title="TV Auto-Login"
+        aria-label="TV Auto-Login"
+      >
+        <Tv className="w-4 h-4 sm:w-5 sm:h-5" />
+        <span className="absolute -top-1 -right-1 px-1 h-4 rounded-full bg-amber-400 text-[8px] font-black text-slate-900 flex items-center justify-center leading-none ring-2 ring-white">SOON</span>
+      </button>
+
+      {open && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-md animate-in fade-in duration-200"
+          onClick={() => setOpen(false)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="relative w-full max-w-sm rounded-3xl overflow-hidden shadow-2xl border border-white/10 animate-in zoom-in-95 slide-in-from-bottom-4 duration-300"
+            style={{
+              background: "linear-gradient(160deg, #0b1220 0%, #17123a 45%, #2a0f3d 100%)",
+            }}
+          >
+            {/* subtle animated glow */}
+            <div aria-hidden className="pointer-events-none absolute -top-24 -left-24 w-72 h-72 rounded-full blur-3xl opacity-40" style={{ background: "radial-gradient(circle, #8b5cf6 0%, transparent 70%)" }} />
+            <div aria-hidden className="pointer-events-none absolute -bottom-28 -right-16 w-72 h-72 rounded-full blur-3xl opacity-40" style={{ background: "radial-gradient(circle, #ec4899 0%, transparent 70%)" }} />
+
+            <button
+              onClick={() => setOpen(false)}
+              className="absolute top-3 right-3 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white/80 hover:text-white transition"
+              aria-label="Close"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            <div className="relative px-6 pt-8 pb-7 text-center">
+              <div className="mx-auto mb-5 w-20 h-20 rounded-2xl bg-gradient-to-br from-indigo-500 via-violet-500 to-fuchsia-500 flex items-center justify-center shadow-lg shadow-fuchsia-500/40 ring-1 ring-white/20">
+                <Tv className="w-10 h-10 text-white" strokeWidth={2.2} />
+              </div>
+
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-400/15 border border-amber-300/30 text-amber-200 text-[10px] font-black tracking-widest uppercase mb-3">
+                <Sparkles className="w-3 h-3" />
+                Coming Soon
+              </div>
+
+              <h3 className="text-white text-xl font-extrabold tracking-tight">
+                Auto Login on TV
+              </h3>
+              <p className="mt-2 text-sm text-slate-300 leading-relaxed">
+                One-tap Netflix TV activation is on the way. Just pick your account, tap the
+                TV code — and you're in. No typing, no waiting.
+              </p>
+
+              <div className="mt-5 grid grid-cols-3 gap-2 text-[10px] text-slate-300/90">
+                <div className="rounded-xl bg-white/5 border border-white/10 p-2.5 flex flex-col items-center gap-1">
+                  <Zap className="w-4 h-4 text-amber-300" />
+                  <span className="font-semibold">Instant</span>
+                </div>
+                <div className="rounded-xl bg-white/5 border border-white/10 p-2.5 flex flex-col items-center gap-1">
+                  <ShieldCheck className="w-4 h-4 text-emerald-300" />
+                  <span className="font-semibold">Secure</span>
+                </div>
+                <div className="rounded-xl bg-white/5 border border-white/10 p-2.5 flex flex-col items-center gap-1">
+                  <Rocket className="w-4 h-4 text-fuchsia-300" />
+                  <span className="font-semibold">1-Tap</span>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setOpen(false)}
+                className="mt-6 w-full h-11 rounded-xl bg-white text-slate-900 font-bold text-sm hover:bg-slate-100 active:scale-[0.98] transition shadow-lg"
+              >
+                Got it — Notify me
+              </button>
+              <p className="mt-2 text-[10px] text-slate-400">
+                We'll ping you here the moment it goes live.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+
+
 
 
 
