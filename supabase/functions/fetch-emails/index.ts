@@ -218,10 +218,16 @@ async function getAssignedAccountFilter(supabase: any, session: Session | null):
   return Array.isArray(userData?.assigned_accounts) ? normalizeAccountLabels(userData.assigned_accounts, labels) : [];
 }
 
+// Strong account-change signal — overrides OTP/signin so Netflix
+// "Confirm your account change with this code" mails obey the admin
+// account-update toggle instead of leaking through as sign-in codes.
+const ACCOUNT_CHANGE_STRONG_RE = /(confirm (your )?(account change|email address change|change to your account)|your (account (information|info|details)|email address) (was |has been )(changed|updated)|changes? to your account (was|has been) made|make (a |any )?(change|changes) to your account|request to make a change|password (was |has been )?(changed|reset|updated))/i;
+
 function classifyEmailForVisibility(e: any): "signin" | "password_reset" | "account_update" | "other" {
   const subject = String(e?.subject || "");
   const preview = String(e?.preview || "");
   const combined = `${subject} ${preview}`;
+  if (ACCOUNT_CHANGE_STRONG_RE.test(combined)) return "account_update";
   if (e?.otp || HOUSEHOLD_SIGNIN_RE.test(combined) || SIGN_IN_CODE_SUBJECTS.some(kw => combined.toLowerCase().includes(kw)) || OTP_SUBJECT_HINT.test(subject) || OTP_BODY_CONTEXT.test(preview)) return "signin";
   if (ACCOUNT_UPDATE_RE.test(combined)) return "account_update";
   if (PASSWORD_RESET_SUBJECTS.some(kw => combined.toLowerCase().includes(kw))) return "password_reset";
