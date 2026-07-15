@@ -6399,9 +6399,16 @@ function AdminPanel() {
                             <span className={u.role === "admin" ? "text-red-600 font-bold uppercase" : (u.isFree ? "text-emerald-600 font-bold uppercase" : "text-blue-600 font-bold uppercase")}>{u.isFree ? "free" : u.role}</span>
                           </p>
                           <div className="flex flex-wrap gap-1 mt-1.5 sm:mt-2">
-                            {isLocationRequiredForProfile(u)
-                              ? <span className="inline-flex items-center gap-1 text-[9px] font-black bg-sky-50 text-sky-700 border border-sky-200 px-1.5 py-0.5 rounded"><MapPin className="w-2.5 h-2.5" /> GPS</span>
-                              : <span className="inline-flex items-center gap-1 text-[9px] font-black bg-slate-100 text-slate-500 border border-slate-200 px-1.5 py-0.5 rounded"><MapPinOff className="w-2.5 h-2.5" /> OFF</span>}
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); toggleProfileLocationRequired(u); }}
+                              title={isLocationRequiredForProfile(u) ? "GPS required — tap to turn OFF" : "GPS off — tap to turn ON"}
+                              className={`inline-flex items-center gap-1 text-[9px] font-black px-1.5 py-0.5 rounded border transition-all active:scale-95 ${isLocationRequiredForProfile(u) ? "bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100" : "bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200"}`}
+                            >
+                              {isLocationRequiredForProfile(u)
+                                ? <><MapPin className="w-2.5 h-2.5" /> GPS</>
+                                : <><MapPinOff className="w-2.5 h-2.5" /> OFF</>}
+                            </button>
                             {u.assignedAccounts && u.assignedAccounts.length > 0 && u.assignedAccounts.map((a: string) => (
                               <span key={a} className="bg-blue-50 text-blue-700 border border-blue-200 text-[10px] px-1.5 py-0.5 rounded font-bold font-mono">{a}</span>
                             ))}
