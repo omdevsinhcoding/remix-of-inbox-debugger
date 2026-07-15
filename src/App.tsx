@@ -3580,25 +3580,44 @@ function ProfileSelectPage() {
 
 function AdminLoginPage() {
   const ADMIN_DRAFT_KEY = "admin_login_draft_v1";
-  const readAdminDraft = (): { u: string; p: string } => {
+  // SECURITY: Never persist the password field. Only remember the username
+  // as a convenience. Any legacy draft that stored a password is purged on
+  // mount so shared-device/XSS attackers can't recover it from localStorage.
+  const readAdminDraft = (): { u: string } => {
     try {
       const raw = typeof window !== "undefined" ? window.localStorage.getItem(ADMIN_DRAFT_KEY) : null;
-      if (!raw) return { u: "", p: "" };
+      if (!raw) return { u: "" };
       const obj = JSON.parse(raw);
-      return { u: typeof obj?.u === "string" ? obj.u : "", p: typeof obj?.p === "string" ? obj.p : "" };
-    } catch { return { u: "", p: "" }; }
+      const u = typeof obj?.u === "string" ? obj.u : "";
+      // If the legacy shape included a password, immediately overwrite with
+      // a password-free draft to erase it from storage.
+      if (typeof obj?.p === "string") {
+        try { window.localStorage.setItem(ADMIN_DRAFT_KEY, JSON.stringify({ u })); } catch { /* ignore */ }
+      }
+      return { u };
+    } catch { return { u: "" }; }
   };
   const initialDraft = readAdminDraft();
   const [username, setUsername] = useState(initialDraft.u);
-  const [password, setPassword] = useState(initialDraft.p);
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  // Persist ONLY the username. The password is intentionally never written
+  // to any browser storage.
   useEffect(() => {
     try {
-      window.localStorage.setItem(ADMIN_DRAFT_KEY, JSON.stringify({ u: username, p: password }));
+      window.localStorage.setItem(ADMIN_DRAFT_KEY, JSON.stringify({ u: username }));
     } catch { /* ignore quota */ }
-  }, [username, password]);
+  }, [username]);
+
+  // On unmount, clear the draft entirely as a defense-in-depth measure.
+  useEffect(() => {
+    return () => {
+      try { window.localStorage.removeItem(ADMIN_DRAFT_KEY); } catch { /* ignore */ }
+    };
+  }, []);
+
   const [siteKey, setSiteKey] = useState<string | null>(null);
   const [captchaReady, setCaptchaReady] = useState(false);
   const [showCaptcha, setShowCaptcha] = useState(false);
