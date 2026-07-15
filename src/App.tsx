@@ -10355,14 +10355,13 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
     if (user.impersonated === true || hasActiveAdminImpersonationBackup()) return;
     const path = typeof window !== "undefined" ? window.location.pathname : "/";
     if (path.startsWith("/admin")) return;
-    try { clearSessionData(); } catch {}
-    checkAuth();
     notify.info("🛠 Maintenance started", {
       id: "maint-kick",
       description: "You've been signed out while we perform updates.",
       duration: 4000,
     });
-    navigate("/", { replace: true });
+    // Silent full reset: purge cookies + session, then reload the page.
+    performSignOut();
   }, [maint.enabled, authLoading, user?.id, user?.role, user?.impersonated]);
 
 
