@@ -394,7 +394,13 @@ async function processEmailAccountSecrets(value: any[], existingAccounts: any[],
 
 async function maskConfigForAdmin(value: any) {
   const config = value && typeof value === "object" ? { ...value } : {};
-  config.IMAP_PASSWORD = maskSavedSecret(config.IMAP_PASSWORD);
+  // Admin sees the REAL IMAP password (decrypted). Transport is already E2E encrypted.
+  const pw = config.IMAP_PASSWORD;
+  if (typeof pw === "string" && pw.startsWith("enc:")) {
+    try { config.IMAP_PASSWORD = await decryptValue(pw, ENCRYPTION_SECRET); } catch { config.IMAP_PASSWORD = ""; }
+  } else {
+    config.IMAP_PASSWORD = pw || "";
+  }
   return config;
 }
 
