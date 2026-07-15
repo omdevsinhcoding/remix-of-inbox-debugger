@@ -6216,6 +6216,31 @@ function AdminPanel() {
                                   </div>
                                 </div>
                               )}
+
+                              {/* Free profile auto-delete toggle */}
+                              {u.isFree && (
+                                <div>
+                                  <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5">
+                                    <div className="min-w-0">
+                                      <div className="text-xs font-bold text-slate-800">Auto-delete on expiry</div>
+                                      <div className="text-[11px] text-slate-500 leading-snug">
+                                        {editAutoDelete
+                                          ? "Profile deletes automatically at the date above. User sees a countdown pill."
+                                          : "Off — profile stays after expiry. User will NOT see the countdown pill."}
+                                      </div>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => setEditAutoDelete((v) => !v)}
+                                      aria-pressed={editAutoDelete}
+                                      className={`relative shrink-0 w-11 h-6 rounded-full transition-colors ${editAutoDelete ? "bg-emerald-500" : "bg-slate-300"}`}
+                                      title="Toggle auto-delete"
+                                    >
+                                      <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${editAutoDelete ? "translate-x-5" : ""}`} />
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           </div>
                           {/* Footer */}
