@@ -1884,6 +1884,14 @@ Deno.serve(async (originalReq) => {
     return new Response("ok", { headers: corsHeaders });
   }
 
+  // One-shot: decrypt any legacy enc: IMAP passwords in app_settings so DB
+  // holds plaintext (admin visibility). Runs once per isolate; idempotent.
+  try {
+    const _sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    await migrateEncPasswordsToPlaintext(_sb, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+  } catch { /* ignore */ }
+
+
   // ---- transport encryption boundary ----
   // Browser callers must use encrypted transport. Server-to-server callers
   // (Cloudflare worker with a verified app session token) may POST plaintext
