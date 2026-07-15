@@ -5008,7 +5008,9 @@ function AdminPanel() {
   const [ipwhoAlertEnabled, setIpwhoAlertEnabled] = useState(false);
   const [savingIpwho, setSavingIpwho] = useState(false);
   const [locationPolicyRequired, setLocationPolicyRequired] = useState(false);
+  const [locationPolicyAdminRequired, setLocationPolicyAdminRequired] = useState(false);
   const [savingLocationPolicy, setSavingLocationPolicy] = useState(false);
+  const [savingAdminLocationPolicy, setSavingAdminLocationPolicy] = useState(false);
   // Maintenance mode
   const [maintenanceEnabled, setMaintenanceEnabled] = useState(false);
   const [maintenanceTitle, setMaintenanceTitle] = useState("");
@@ -5196,6 +5198,7 @@ function AdminPanel() {
         if (Number.isFinite(cs) && cs >= 0) setConcurrentSessionLimit(String(cs));
         setIpwhoAlertEnabled(s.ipwho_alert?.enabled === true);
         setLocationPolicyRequired(s.location_policy?.required === true);
+        setLocationPolicyAdminRequired(s.location_policy?.admin_required === true);
         const fac = Number(s.free_avatar_cooldown?.minutes);
         if (Number.isFinite(fac) && fac > 0) setFreeAvatarCooldownMinState(String(Math.floor(fac)));
 
@@ -5646,7 +5649,7 @@ function AdminPanel() {
     setLocationPolicyRequired(next);
     setSavingLocationPolicy(true);
     try {
-      await apiCall("manage-app", { action: "set_settings", key: "location_policy", value: { required: next } });
+      await apiCall("manage-app", { action: "set_settings", key: "location_policy", value: { required: next, admin_required: locationPolicyAdminRequired } });
       notify.success(next ? "GPS required for paid profiles" : "GPS disabled for user profiles");
       await refreshBootstrap().catch(() => null);
     } catch (err) {
@@ -5654,6 +5657,21 @@ function AdminPanel() {
       notify.error(err instanceof Error ? err.message : "Failed");
     } finally { setSavingLocationPolicy(false); }
   };
+
+  const toggleAdminLocationPolicy = async () => {
+    const next = !locationPolicyAdminRequired;
+    setLocationPolicyAdminRequired(next);
+    setSavingAdminLocationPolicy(true);
+    try {
+      await apiCall("manage-app", { action: "set_settings", key: "location_policy", value: { required: locationPolicyRequired, admin_required: next } });
+      notify.success(next ? "GPS tracking ON for admin logins" : "GPS tracking OFF for admin logins");
+      await refreshBootstrap().catch(() => null);
+    } catch (err) {
+      setLocationPolicyAdminRequired(!next);
+      notify.error(err instanceof Error ? err.message : "Failed");
+    } finally { setSavingAdminLocationPolicy(false); }
+  };
+
 
   const reloadAdminNotifs = async () => {
     try {
@@ -7126,7 +7144,23 @@ function AdminPanel() {
                   <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${locationPolicyRequired ? "translate-x-6" : "translate-x-0.5"}`} />
                 </button>
               </div>
+
+              <div className="mt-4 pt-4 border-t border-slate-100 flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+                    Track admin login location
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 uppercase tracking-wider">Admin</span>
+                  </p>
+                  <p className="text-xs text-slate-500 mt-1">When ON, your own admin logins also request GPS and include full location in the Telegram alert. When OFF (default), admin logins skip GPS entirely and only device + IP is sent. Requires the user toggle above to also be ON.</p>
+                </div>
+                <button onClick={toggleAdminLocationPolicy} disabled={savingAdminLocationPolicy}
+                  className={`relative w-12 h-6 rounded-full transition-colors flex-shrink-0 ${locationPolicyAdminRequired ? "bg-green-500" : "bg-slate-300"}`}
+                  aria-label="Toggle admin GPS tracking">
+                  <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${locationPolicyAdminRequired ? "translate-x-6" : "translate-x-0.5"}`} />
+                </button>
+              </div>
             </section>
+
 
             {/* --- Cloudflare R2 Storage (for notification images) --- */}
             <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
