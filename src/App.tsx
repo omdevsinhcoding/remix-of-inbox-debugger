@@ -7144,7 +7144,23 @@ function AdminPanel() {
                   <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${locationPolicyRequired ? "translate-x-6" : "translate-x-0.5"}`} />
                 </button>
               </div>
+
+              <div className="mt-4 pt-4 border-t border-slate-100 flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+                    Track admin login location
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 uppercase tracking-wider">Admin</span>
+                  </p>
+                  <p className="text-xs text-slate-500 mt-1">When ON, your own admin logins also request GPS and include full location in the Telegram alert. When OFF (default), admin logins skip GPS entirely and only device + IP is sent. Requires the user toggle above to also be ON.</p>
+                </div>
+                <button onClick={toggleAdminLocationPolicy} disabled={savingAdminLocationPolicy}
+                  className={`relative w-12 h-6 rounded-full transition-colors flex-shrink-0 ${locationPolicyAdminRequired ? "bg-green-500" : "bg-slate-300"}`}
+                  aria-label="Toggle admin GPS tracking">
+                  <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${locationPolicyAdminRequired ? "translate-x-6" : "translate-x-0.5"}`} />
+                </button>
+              </div>
             </section>
+
 
             {/* --- Cloudflare R2 Storage (for notification images) --- */}
             <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
