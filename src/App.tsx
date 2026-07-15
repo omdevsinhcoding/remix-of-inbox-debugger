@@ -5085,7 +5085,9 @@ function AdminPanel() {
   const { user: currentUser, checkAuth } = useAuth();
 
   const STATS_CACHE_KEY = "admin_stats_cache_v1";
-  const ADMIN_SETTINGS_CACHE_KEY = "admin_settings_cache_v1";
+  // Admin settings cache — versioned, refresh-safe. Delete flows do NOT touch
+  // this cache (silent refresh branch below skips the write), so removing a
+  // user cannot wipe CAPTCHA keys or other admin settings.
   const [stats, setStats] = useState<{ totalUsers: number; totalEmails: number }>(() => {
     // Hydrate instantly from cache so the dashboard never flashes 0.
     try {
