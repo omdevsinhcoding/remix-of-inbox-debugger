@@ -6240,11 +6240,11 @@ function AdminPanel() {
                                 <div>
                                   <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5">
                                     <div className="min-w-0">
-                                      <div className="text-xs font-bold text-slate-800">Auto-delete on expiry</div>
+                                      <div className="text-xs font-bold text-slate-800">Show expiry pill to user</div>
                                       <div className="text-[11px] text-slate-500 leading-snug">
                                         {editAutoDelete
-                                          ? "Profile deletes automatically at the date above. User sees a countdown pill."
-                                          : "Off — profile stays after expiry. User will NOT see the countdown pill."}
+                                          ? "User sees a live countdown pill until expiry."
+                                          : "Pill hidden — user won't see any countdown."}
                                       </div>
                                     </div>
                                     <button
