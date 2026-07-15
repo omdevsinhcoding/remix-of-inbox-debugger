@@ -126,73 +126,6 @@ const logPlatformLogoFailure = ({ platform, url, status, reason }: { platform: s
   });
 };
 
-type LogoAuditResult = { ok: boolean; status?: number | string; reason?: string; contentType?: string };
-
-const verifyPlatformLogo = async (platform: PlatformOption): Promise<LogoAuditResult> => {
-  const url = getPlatformLogoUrl(platform);
-  try {
-    const response = await fetch(url, { method: "GET", cache: "no-store" });
-    const contentType = response.headers.get("content-type") || "";
-    if (!response.ok) {
-      return { ok: false, status: response.status, contentType, reason: `HTTP ${response.status}` };
-    }
-    if (!contentType.startsWith("image/")) {
-      return { ok: false, status: response.status, contentType, reason: `Invalid MIME type: ${contentType || "missing"}` };
-    }
-
-    await new Promise<void>((resolve, reject) => {
-      const image = new Image();
-      image.decoding = "async";
-      image.referrerPolicy = "no-referrer";
-      image.onload = () => resolve();
-      image.onerror = () => reject(new Error("Browser image decode/load failed"));
-      image.src = url;
-    });
-
-    return { ok: true, status: response.status, contentType };
-  } catch (error) {
-    return { ok: false, status: "network/decode", reason: error instanceof Error ? error.message : String(error) };
-  }
-};
-
-const usePlatformLogoAudit = (enabled = false) => {
-  const [ready, setReady] = React.useState(!enabled);
-  const [results, setResults] = React.useState<Record<string, LogoAuditResult>>({});
-
-  React.useEffect(() => {
-    if (!enabled) {
-      setReady(true);
-      return;
-    }
-    let alive = true;
-
-    (async () => {
-      const entries = await Promise.all(
-        PLATFORM_OPTIONS.map(async (platform) => {
-          const result = await verifyPlatformLogo(platform);
-          if (!result.ok) {
-            logPlatformLogoFailure({
-              platform: platform.label,
-              url: getPlatformLogoUrl(platform),
-              status: result.status,
-              reason: result.reason || "Image request failed",
-            });
-          }
-          return [platform.id || "__custom", result] as const;
-        }),
-      );
-
-      if (!alive) return;
-      setResults(Object.fromEntries(entries));
-      setReady(true);
-    })();
-
-    return () => { alive = false; };
-  }, [enabled]);
-
-  return { ready, results };
-};
-
 // --- Notification templates (guided types) ---
 type TemplateOption = { id: string; label: string; color: string; hint: string };
 const TEMPLATE_OPTIONS: TemplateOption[] = [
@@ -207,7 +140,7 @@ const TEMPLATE_OPTIONS: TemplateOption[] = [
   { id: "event",        label: "Live Event",     color: "#06B6D4", hint: "Match/premiere/live" },
 ];
 
-const PlatformChipVisual: React.FC<{ id?: string | null; size?: number; audit?: LogoAuditResult }> = ({ id, size = 32, audit }) => {
+const PlatformChipVisual: React.FC<{ id?: string | null; size?: number }> = ({ id, size = 32 }) => {
   const p = resolvePlatformOption(id);
   const logoUrl = getPlatformLogoUrl(p);
   const [src, setSrc] = React.useState(logoUrl);
@@ -220,8 +153,7 @@ const PlatformChipVisual: React.FC<{ id?: string | null; size?: number; audit?: 
     logPlatformLogoFailure({
       platform: p.label,
       url: logoUrl,
-      status: audit?.status,
-      reason: audit?.reason || "<img> onError fired while rendering logo",
+      reason: "<img> onError fired while rendering logo",
     });
     if (src !== DEFAULT_PLATFORM_LOGO) setSrc(DEFAULT_PLATFORM_LOGO);
   };
@@ -5069,7 +5001,10 @@ function AdminPanel() {
   const [notifPlatformIcon, setNotifPlatformIcon] = useState<string>("");
   const [notifTemplate, setNotifTemplate] = useState<string>("");
   const [platformSearch, setPlatformSearch] = useState("");
-  const { ready: platformLogosReady, results: platformLogoResults } = usePlatformLogoAudit(false);
+  const filteredPlatformOptions = useMemo(
+    () => PLATFORM_OPTIONS.filter((p) => platformMatchesSearch(p, platformSearch)),
+    [platformSearch],
+  );
   const [notifLocked, setNotifLocked] = useState(false);
   const [notifShowFrequency, setNotifShowFrequency] = useState<"once" | "always" | "session" | "daily">("once");
   const [notifMode, setNotifMode] = useState<"popup" | "silent" | "banner">("popup");
@@ -7496,18 +7431,18 @@ function AdminPanel() {
                         {!platformLogosReady && (
                           <div className="col-span-3 sm:col-span-4 py-8 text-center text-[11px] font-semibold text-slate-500">Loading platform logos…</div>
                         )}
-                        {platformLogosReady && PLATFORM_OPTIONS.filter((p) => platformMatchesSearch(p, platformSearch)).map((p) => {
+                        {filteredPlatformOptions.map((p) => {
                           const active = resolvePlatformOption(notifPlatformIcon).id === p.id;
                           return (
                             <button key={p.id || "none"} type="button" onClick={() => setNotifPlatformIcon(p.id)}
                               className={`group relative flex flex-col items-center justify-center gap-1.5 py-2.5 px-1.5 rounded-lg border transition-all min-h-[74px] ${active ? "bg-orange-500/10 border-orange-500/60 shadow-md shadow-orange-500/10" : "bg-white/[0.02] border-white/[0.05] hover:bg-white/[0.05] hover:border-white/15"}`}>
-                              <PlatformChipVisual id={p.id} size={40} audit={platformLogoResults[p.id || "__custom"]} />
+                              <PlatformChipVisual id={p.id} size={40} />
                               <span className={`text-[9.5px] font-medium text-center leading-tight px-0.5 line-clamp-2 ${active ? "text-white" : "text-slate-400 group-hover:text-slate-200"}`}>{p.label}</span>
                             </button>
                           );
                         })}
                       </div>
-                      {platformLogosReady && PLATFORM_OPTIONS.filter((p) => platformMatchesSearch(p, platformSearch)).length === 0 && (
+                      {filteredPlatformOptions.length === 0 && (
                         <p className="text-center text-[11px] text-slate-500 py-4">No platform matches "{platformSearch}"</p>
                       )}
                     </div>
@@ -7678,7 +7613,7 @@ function AdminPanel() {
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
-                            {n.platform_icon ? <PlatformChipVisual id={n.platform_icon} size={20} audit={platformLogoResults[resolvePlatformOption(n.platform_icon).id || "__custom"]} /> : null}
+                            {n.platform_icon ? <PlatformChipVisual id={n.platform_icon} size={20} /> : null}
                             <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-semibold ${n.locked ? "bg-amber-50 text-amber-700 border border-amber-200" : "bg-emerald-50 text-emerald-700 border border-emerald-200"}`}>
                               {n.locked ? "🔒 Locked" : "🔓 User delete OK"}
                             </span>
@@ -7757,7 +7692,7 @@ function AdminPanel() {
                       return (
                         <button key={p.id || "none"} type="button" onClick={() => setEditingNotif({ ...editingNotif, platform_icon: p.id })}
                           className={`flex flex-col items-center gap-1.5 py-2.5 px-1 rounded-lg border transition-all ${active ? "border-orange-500 bg-orange-50" : "border-slate-200 hover:border-slate-300"}`}>
-                          <PlatformChipVisual id={p.id} size={40} audit={platformLogoResults[p.id || "__custom"]} />
+                          <PlatformChipVisual id={p.id} size={40} />
                           <span className="text-[9px] font-medium text-slate-600 text-center leading-tight">{p.label}</span>
                         </button>
                       );
