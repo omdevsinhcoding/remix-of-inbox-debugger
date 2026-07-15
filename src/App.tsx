@@ -12,7 +12,7 @@ import { AVATAR_CATEGORIES, resolveAvatar, buildAvatarId, prettyName, getAvatarC
 import { bootstrapFromSupabase, clearSessionData, performSignOut, markSessionStart, readBootstrapCache, refreshBootstrap, patchBootstrapCacheUser, getEmailFilters, setEmailFilters as setEmailFiltersCache, getFreeAvatarCooldown, setFreeAvatarCooldown, listNotifications, markNotificationRead, markAllNotificationsRead, markNotificationSeen, deleteNotificationForMe, logNotificationEvent, getPoppedIds, markPopped, adminListRecipients, adminDeleteNotificationForUser, type EmailFilters, type AppNotification, type MaintenanceInfo, type NotificationRecipient } from "./lib/bootstrap";
 import MaintenanceScreen from "./components/MaintenanceScreen";
 import DateTimePicker from "./components/DateTimePicker";
-import { sessionGet, sessionSet, sessionRemove, sessionClearAll } from "./lib/session";
+import { sessionGet, sessionSet, sessionRemove, sessionClearAll, nukeBrowserIdentity, clearSiteCookies } from "./lib/session";
 import { openInboxDB, readLatestEmails, writeDelta, getSyncCursor, cacheEmailHtml, getEmailHtml, purgeEmailsOutsideScope, type CachedEmail } from "./lib/inboxCache";
 
 
@@ -10438,16 +10438,33 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
 }
 
 
-// Netflix-style /clearcookies endpoint. Purges every JS-readable cookie for
-// this origin plus tab session state, then bounces to "/". Safe to hit while
-// signed out — it's a no-op if there's nothing to clear.
+// Netflix-style /clearcookies endpoint. Awaits server-side session revocation,
+// then wipes every browser storage surface for this origin (cookies, local &
+// session storage, IndexedDB, Cache Storage, service workers) and hard-reloads
+// to "/" so the app boots with a fresh identity.
 function ClearCookiesPage() {
   useEffect(() => {
-    performSignOut({ reload: false });
-    const t = setTimeout(() => {
-      try { window.location.replace("/"); } catch {}
-    }, 60);
-    return () => clearTimeout(t);
+    let cancelled = false;
+    (async () => {
+      // 1. Best-effort server logout — await it so the httpOnly session cookie
+      //    is actually invalidated before we navigate away.
+      try {
+        const token = sessionGet("session_token" as any);
+        if (token) {
+          const { invokeEdge } = await import("./lib/secureTransport");
+          await Promise.race([
+            invokeEdge("manage-app", { action: "logout" }, { headers: { "X-Session-Token": token } }),
+            new Promise((r) => setTimeout(r, 2500)),
+          ]).catch(() => {});
+        }
+      } catch {}
+      // 2. Full client-side identity wipe.
+      try { await nukeBrowserIdentity(); } catch {}
+      if (cancelled) return;
+      // 3. Hard reload to "/" so no in-memory React state survives.
+      try { window.location.replace("/"); } catch { window.location.href = "/"; }
+    })();
+    return () => { cancelled = true; };
   }, []);
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-950 text-slate-200">

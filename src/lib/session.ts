@@ -97,19 +97,67 @@ export function clearSiteCookies() {
       const d = parts.slice(i).join(".");
       if (d) { domains.push(d); domains.push("." + d); }
     }
-    const paths = ["/", (typeof location !== "undefined" && location.pathname) || "/"];
+    const paths = new Set<string>(["/"]);
+    try {
+      const p = (typeof location !== "undefined" && location.pathname) || "/";
+      paths.add(p);
+      const segs = p.split("/").filter(Boolean);
+      let acc = "";
+      for (const s of segs) { acc += "/" + s; paths.add(acc); }
+    } catch {}
     const expired = "Thu, 01 Jan 1970 00:00:00 GMT";
     for (const name of names) {
       for (const p of paths) {
         for (const d of domains) {
-          try {
-            document.cookie = `${name}=; expires=${expired}; path=${p}${d ? `; domain=${d}` : ""}; SameSite=Lax`;
-            document.cookie = `${name}=; expires=${expired}; path=${p}${d ? `; domain=${d}` : ""}; SameSite=None; Secure`;
-          } catch {}
+          const base = `${name}=; expires=${expired}; Max-Age=0; path=${p}${d ? `; domain=${d}` : ""}`;
+          try { document.cookie = base; } catch {}
+          try { document.cookie = `${base}; SameSite=Lax`; } catch {}
+          try { document.cookie = `${base}; SameSite=Strict`; } catch {}
+          try { document.cookie = `${base}; SameSite=None; Secure`; } catch {}
         }
       }
     }
   } catch {}
+}
+
+// Netflix-style full identity wipe. Purges every client-visible storage
+// surface for this origin: JS-readable cookies, localStorage, sessionStorage,
+// IndexedDB databases, Cache Storage, and any registered service workers.
+// HttpOnly cookies must be cleared server-side (manage-app logout) — this
+// helper is the browser half of that flow.
+export async function nukeBrowserIdentity(): Promise<void> {
+  try { clearSiteCookies(); } catch {}
+  try { localStorage.clear(); } catch {}
+  try { sessionStorage.clear(); } catch {}
+  mem.clear();
+  try {
+    const idb: any = (typeof indexedDB !== "undefined" ? indexedDB : null);
+    if (idb) {
+      const dbs: Array<{ name?: string }> = typeof idb.databases === "function"
+        ? await idb.databases().catch(() => [])
+        : [];
+      await Promise.all(dbs.map((db) => new Promise<void>((resolve) => {
+        if (!db?.name) return resolve();
+        try {
+          const req = idb.deleteDatabase(db.name);
+          req.onsuccess = req.onerror = req.onblocked = () => resolve();
+        } catch { resolve(); }
+      })));
+    }
+  } catch {}
+  try {
+    if (typeof caches !== "undefined") {
+      const keys = await caches.keys().catch(() => [] as string[]);
+      await Promise.all(keys.map((k) => caches.delete(k).catch(() => false)));
+    }
+  } catch {}
+  try {
+    if (typeof navigator !== "undefined" && navigator.serviceWorker?.getRegistrations) {
+      const regs = await navigator.serviceWorker.getRegistrations().catch(() => []);
+      await Promise.all(regs.map((r) => r.unregister().catch(() => false)));
+    }
+  } catch {}
+  try { clearSiteCookies(); } catch {}
 }
 
 // Convenience getters.
