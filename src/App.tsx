@@ -3710,6 +3710,7 @@ function AdminLoginPage() {
   }, []);
 
   useEffect(() => {
+    if (!locationRequired) { setGpsPermissionMode(null); return; }
     if (typeof navigator === "undefined" || !navigator.geolocation) return;
     let cancelled = false;
     const primeGpsSheet = async () => {
@@ -3727,7 +3728,7 @@ function AdminLoginPage() {
     };
     void primeGpsSheet();
     return () => { cancelled = true; };
-  }, []);
+  }, [locationRequired]);
 
   const initiateLogin = (e: React.FormEvent) => {
     e.preventDefault();
