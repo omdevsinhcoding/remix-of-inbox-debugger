@@ -9483,7 +9483,7 @@ function EmailViewer() {
           markInboxReady();
           const dt = performance.now() - t0;
           pushDiag({ ts: Date.now(), kind: "cache", endpoint: "idb:instant-paint", ms: Math.round(dt), note: `${cached.length} rows` });
-          console.log(`[inbox] instant paint in ${dt.toFixed(1)}ms (${cached.length} rows from IDB)`);
+          
         }
 
         // ---- (2) Delta sync via Supabase edge function ----
