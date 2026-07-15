@@ -1975,14 +1975,14 @@ function TvAutoLoginButton() {
 
       {open && (
         <div
-          className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-6 bg-black/70 backdrop-blur-md animate-in fade-in duration-200"
+          className="fixed inset-0 z-[100] bg-black/75 backdrop-blur-md animate-in fade-in duration-200 flex sm:items-center sm:justify-center sm:p-6"
           onClick={() => setOpen(false)}
           role="dialog"
           aria-modal="true"
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="relative w-full sm:w-[min(92vw,28rem)] md:w-[min(90vw,32rem)] lg:w-[min(80vw,34rem)] max-h-[92vh] sm:max-h-[85vh] overflow-hidden rounded-t-3xl sm:rounded-3xl shadow-2xl border-t border-white/[0.08] sm:border animate-in slide-in-from-bottom-6 sm:zoom-in-95 duration-300 flex flex-col"
+            className="relative w-full h-full sm:h-auto sm:w-[min(92vw,28rem)] md:w-[min(80vw,32rem)] lg:w-[min(70vw,34rem)] sm:max-h-[85vh] overflow-hidden sm:rounded-3xl shadow-2xl sm:border sm:border-white/[0.08] animate-in slide-in-from-bottom-6 sm:zoom-in-95 duration-300 flex flex-col"
             style={{ background: "linear-gradient(180deg, #0a0a0b 0%, #0d0d10 100%)" }}
           >
             {/* ambient glows */}
