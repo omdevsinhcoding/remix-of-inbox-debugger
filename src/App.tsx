@@ -2144,14 +2144,14 @@ function FreeExpiryPill() {
 
       {showInfo && (
         <div
-          className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in duration-150"
+          className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-slate-950/50 animate-in fade-in duration-150"
           onClick={() => setShowInfo(false)}
           role="dialog"
           aria-modal="true"
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-xs rounded-2xl bg-white shadow-2xl border border-slate-200 p-5 animate-in zoom-in-95 slide-in-from-bottom-4 duration-200"
+            className="w-full max-w-xs rounded-2xl bg-white shadow-2xl border border-slate-200 p-5 animate-in zoom-in-95 duration-150"
           >
             <div className="flex items-center gap-2 mb-3">
               <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${urgent ? "bg-red-100 text-red-600" : warn ? "bg-amber-100 text-amber-600" : "bg-emerald-100 text-emerald-600"}`}>
