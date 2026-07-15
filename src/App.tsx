@@ -5019,6 +5019,8 @@ function AdminPanel() {
   const [maintenanceVersionTo, setMaintenanceVersionTo] = useState("");
   const [savingMaintenance, setSavingMaintenance] = useState(false);
   const [creatingUser, setCreatingUser] = useState(false);
+  const [deleteConfirmUser, setDeleteConfirmUser] = useState<UserData | null>(null);
+  const [deletingUser, setDeletingUser] = useState(false);
   const prevSavedVersionToRef = useRef<string>("");
 
 
