@@ -340,12 +340,16 @@ function maskSavedSecret(value: unknown): string {
   return typeof value === "string" && value.length > 0 ? SECRET_MASK : "";
 }
 
-async function maskEmailAccountsForAdmin(value: any): Promise<any[]> {
+async function maskEmailAccountsForAdmin(value: any, encryptionSecret: string): Promise<any[]> {
   if (!Array.isArray(value)) return [];
-  return await Promise.all(value.map(async (acc: any) => ({
-    ...acc,
-    password: maskSavedSecret(acc?.password),
-  })));
+  // Admin sees the REAL password (decrypted). Transport is already E2E encrypted.
+  return await Promise.all(value.map(async (acc: any) => {
+    let pw = acc?.password || "";
+    if (typeof pw === "string" && pw.startsWith("enc:")) {
+      try { pw = await decryptValue(pw, encryptionSecret); } catch { pw = ""; }
+    }
+    return { ...acc, password: pw };
+  }));
 }
 
 function findExistingAccountForSecret(existingAccounts: any[], acc: any, index: number): any | null {
@@ -388,9 +392,15 @@ async function processEmailAccountSecrets(value: any[], existingAccounts: any[],
   }));
 }
 
-async function maskConfigForAdmin(value: any) {
+async function maskConfigForAdmin(value: any, encryptionSecret: string) {
   const config = value && typeof value === "object" ? { ...value } : {};
-  config.IMAP_PASSWORD = maskSavedSecret(config.IMAP_PASSWORD);
+  // Admin sees the REAL IMAP password (decrypted). Transport is already E2E encrypted.
+  const pw = config.IMAP_PASSWORD;
+  if (typeof pw === "string" && pw.startsWith("enc:")) {
+    try { config.IMAP_PASSWORD = await decryptValue(pw, encryptionSecret); } catch { config.IMAP_PASSWORD = ""; }
+  } else {
+    config.IMAP_PASSWORD = pw || "";
+  }
   return config;
 }
 
@@ -2846,15 +2856,15 @@ Deno.serve(async (originalReq) => {
       }
 
       if (key === "config" && value && session?.role === "admin") {
-        value = await maskConfigForAdmin(value);
+        value = await maskConfigForAdmin(value, ENCRYPTION_SECRET);
       }
 
-      // Never send stored IMAP passwords to the browser. The DB stores encrypted
-      // values; the edge function decrypts internally only when logging in to IMAP.
+      // Admin gets REAL decrypted IMAP passwords (transport is E2E encrypted).
+      // Non-admin users only see cloudflare URLs and label; password is masked.
       if (key === "email_accounts" && Array.isArray(value)) {
         const isAdmin = session?.role === "admin";
         value = isAdmin
-          ? await maskEmailAccountsForAdmin(value)
+          ? await maskEmailAccountsForAdmin(value, ENCRYPTION_SECRET)
           : value.map((acc: any) => ({
               ...acc,
               password: SECRET_MASK,
