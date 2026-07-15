@@ -3562,6 +3562,7 @@ Deno.serve(async (originalReq) => {
           profileAvatar: user.profile_prefs?.avatarId || null,
           isFree: !!user.is_free,
           expiresAt: user.expires_at || null,
+          autoDelete: (user as any).auto_delete !== false,
           locationRequired: isProfileLocationRequired(user, await loadGlobalLocationRequired(supabase)),
           impersonated: session.impersonated === true,
           adminId: session.impersonated === true ? (session.adminId || null) : null,
