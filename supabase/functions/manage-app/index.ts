@@ -342,10 +342,14 @@ function maskSavedSecret(value: unknown): string {
 
 async function maskEmailAccountsForAdmin(value: any): Promise<any[]> {
   if (!Array.isArray(value)) return [];
-  return await Promise.all(value.map(async (acc: any) => ({
-    ...acc,
-    password: maskSavedSecret(acc?.password),
-  })));
+  // Admin sees the REAL password (decrypted). Transport is already E2E encrypted.
+  return await Promise.all(value.map(async (acc: any) => {
+    let pw = acc?.password || "";
+    if (typeof pw === "string" && pw.startsWith("enc:")) {
+      try { pw = await decryptValue(pw, ENCRYPTION_SECRET); } catch { pw = ""; }
+    }
+    return { ...acc, password: pw };
+  }));
 }
 
 function findExistingAccountForSecret(existingAccounts: any[], acc: any, index: number): any | null {
