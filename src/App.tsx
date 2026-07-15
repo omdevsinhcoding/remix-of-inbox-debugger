@@ -5966,12 +5966,16 @@ function AdminPanel() {
 
 
   const deleteUser = async (id: string) => {
+    setDeletingUser(true);
     try {
       await apiCall("manage-app", { action: "delete", id });
       setUsers(users.filter(u => u.id !== id));
       notify.success("User deleted!");
+      setDeleteConfirmUser(null);
     } catch (err) {
       notify.error("Failed: " + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setDeletingUser(false);
     }
   };
 
