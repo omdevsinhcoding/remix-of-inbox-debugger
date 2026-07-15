@@ -1931,10 +1931,6 @@ Deno.serve(async (originalReq) => {
   const LEGACY_SIGNING = ENCRYPTION_SECRET;
   const IMPERSONATION_SESSION_TTL_MS = 365 * 24 * 60 * 60 * 1000;
 
-  // One-shot: decrypt any legacy enc: IMAP passwords in app_settings so DB
-  // holds plaintext (admin visibility). Runs once per isolate; idempotent.
-  await migrateEncPasswordsToPlaintext(supabase, ENCRYPTION_SECRET);
-
   const ip = getClientIp(req);
 
   // C.3 device binding: sha256(ua + accept-language + ip/24). /24 (not /32) so
