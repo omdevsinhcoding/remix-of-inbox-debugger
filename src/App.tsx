@@ -2000,6 +2000,53 @@ function TvAutoLoginButton() {
 }
 
 
+function TvPopupVerificationPage() {
+  return (
+    <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
+      <header className="sm:hidden sticky top-0 z-20 bg-white/95 backdrop-blur border-b border-slate-200 shadow-sm">
+        <div className="px-3 h-14 flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-red-600 text-white flex items-center justify-center font-black">N</div>
+          <div className="min-w-0 flex-1">
+            <h2 className="font-black text-[15px] leading-tight tracking-tight text-red-600 truncate">Netflix Mail</h2>
+            <span className="text-[11px] text-slate-500 truncate block">mobile verification</span>
+          </div>
+          <div className="flex items-center gap-1 flex-shrink-0">
+            <TvAutoLoginButton />
+            <button className="relative flex items-center justify-center p-2.5 bg-slate-900 text-white rounded-full"><Bell className="w-4 h-4" /></button>
+            <button className="flex items-center justify-center w-9 h-9 bg-slate-900 text-white rounded-full"><RefreshCw className="w-4 h-4" /></button>
+          </div>
+        </div>
+      </header>
+      <main className="p-4 space-y-4">
+        <div className="flex items-center gap-2">
+          <h2 className="text-xl font-black">Inbox</h2>
+          <span className="px-3 py-1 rounded-full bg-slate-200 text-sm font-bold text-slate-700">40</span>
+        </div>
+        {Array.from({ length: 8 }).map((_, i) => (
+          <div key={i} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-red-700 text-xs font-black">&quot;NETFLIX&quot;</div>
+                <div className="mt-3 text-lg font-black truncate">{i === 2 ? "A new device is using your account" : "Netflix: your sign-in code"}</div>
+                <div className="mt-2 text-slate-500 truncate">Enter this code to sign in Enter this code to sign in {1602 + i}...</div>
+              </div>
+              <div className="text-sm text-slate-400 flex-shrink-0">03:{19 + i} pm</div>
+            </div>
+            {i !== 2 && <div className="mt-3 flex items-center gap-3"><span className="rounded-md bg-slate-950 px-3 py-1.5 text-white text-sm font-mono">OTP: {1602 + i}</span><span className="text-slate-400 text-sm font-black">READY</span></div>}
+          </div>
+        ))}
+      </main>
+      <button className="fixed z-40 right-3 bottom-[calc(env(safe-area-inset-bottom)+0.75rem+2.25rem)] h-7 px-3 rounded-full text-[11px] font-semibold shadow-lg bg-emerald-600/90 text-white flex items-center gap-1.5">
+        <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" />Deletes in: 30d 17:37:06
+      </button>
+      <button className="fixed z-40 right-3 bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] h-7 px-3 rounded-full text-[11px] font-semibold shadow-lg bg-slate-800 text-white flex items-center gap-1.5">
+        <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" />Session: 04:46
+      </button>
+    </div>
+  );
+}
+
+
 
 
 
