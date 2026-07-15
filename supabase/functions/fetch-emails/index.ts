@@ -401,8 +401,8 @@ function parseFastEmail(rawSource: Uint8Array, envelope: any, accountLabel: stri
     to,
     date: envelope?.date || new Date(),
     otp: extractOtpCode(subject, bodyText),
-    preview,
-    html: `<pre>${escapeHtml(bodyText)}</pre>`,
+    preview: redactEmailsText(preview),
+    html: redactEmailsHtml(`<pre>${escapeHtml(bodyText)}</pre>`),
     account_label: accountLabel,
   };
 }
