@@ -10438,6 +10438,24 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
 }
 
 
+// Netflix-style /clearcookies endpoint. Purges every JS-readable cookie for
+// this origin plus tab session state, then bounces to "/". Safe to hit while
+// signed out — it's a no-op if there's nothing to clear.
+function ClearCookiesPage() {
+  useEffect(() => {
+    performSignOut({ reload: false });
+    const t = setTimeout(() => {
+      try { window.location.replace("/"); } catch {}
+    }, 60);
+    return () => clearTimeout(t);
+  }, []);
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-950 text-slate-200">
+      <div className="text-sm opacity-80">Clearing cookies…</div>
+    </div>
+  );
+}
+
 // ==================== MAIN APP ====================
 export default function App() {
   return (
