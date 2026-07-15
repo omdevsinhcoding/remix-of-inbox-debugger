@@ -5255,11 +5255,13 @@ function AdminPanel() {
   // flash empty CAPTCHA/site-key/etc. fields before the server round-trip.
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(ADMIN_SETTINGS_CACHE_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw);
-      const s = parsed?.settings;
-      if (!s) return;
+      emitSyncStatus({ kind: "loading-local" });
+      const parsed = readAdminCache();
+      if (!parsed) { emitSyncStatus({ kind: "syncing-server" }); return; }
+      const s = parsed.settings;
+      if (!s) { emitSyncStatus({ kind: "syncing-server" }); return; }
+      if (!isCacheFresh(parsed)) emitSyncStatus({ kind: "stale-refetching" });
+      else emitSyncStatus({ kind: "syncing-server" });
       if (s.recaptcha) {
         setSiteKey(s.recaptcha.siteKey || "");
         setSecretKeyVal(s.recaptcha.secretKey || "");
