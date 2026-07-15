@@ -1971,7 +1971,7 @@ function TvAutoLoginButton() {
           >
             {/* ambient glows */}
             <div aria-hidden className="pointer-events-none absolute -top-24 -left-16 w-72 h-72 rounded-full blur-3xl opacity-25" style={{ background: "radial-gradient(circle, #e11d48 0%, transparent 70%)" }} />
-            <div aria-hidden className="pointer-events-none absolute -bottom-24 -right-16 w-72 h-72 rounded-full blur-3xl opacity-20" style={{ background: "radial-gradient(circle, #6366f1 0%, transparent 70%)" }} />
+            <div aria-hidden className="pointer-events-none absolute -bottom-24 -right-16 w-72 h-72 rounded-full blur-3xl opacity-15" style={{ background: "radial-gradient(circle, #e11d48 0%, transparent 70%)" }} />
 
             {/* Header */}
             <div className="relative px-4 sm:px-5 pt-4 sm:pt-5 pb-3 border-b border-white/[0.06] flex items-center justify-between flex-shrink-0">
