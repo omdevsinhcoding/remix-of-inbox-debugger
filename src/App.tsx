@@ -1959,110 +1959,42 @@ function TvAutoLoginButton() {
 
       {open && (
         <div
-          className="fixed inset-0 z-[100] bg-black/75 backdrop-blur-md animate-in fade-in duration-200 flex sm:items-center sm:justify-center sm:p-6"
+          className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in duration-150"
           onClick={() => setOpen(false)}
           role="dialog"
           aria-modal="true"
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="relative w-full h-full sm:h-auto sm:w-[min(92vw,28rem)] md:w-[min(80vw,32rem)] lg:w-[min(70vw,34rem)] sm:max-h-[85vh] overflow-hidden sm:rounded-3xl shadow-2xl sm:border sm:border-white/[0.08] animate-in slide-in-from-bottom-6 sm:zoom-in-95 duration-300 flex flex-col"
-            style={{ background: "linear-gradient(180deg, #0a0a0b 0%, #0d0d10 100%)" }}
+            className="w-full max-w-xs rounded-2xl bg-white shadow-2xl border border-slate-200 p-5 animate-in zoom-in-95 slide-in-from-bottom-4 duration-200"
           >
-            {/* ambient glows */}
-            <div aria-hidden className="pointer-events-none absolute -top-24 -left-16 w-72 h-72 rounded-full blur-3xl opacity-25" style={{ background: "radial-gradient(circle, #e11d48 0%, transparent 70%)" }} />
-            <div aria-hidden className="pointer-events-none absolute -bottom-24 -right-16 w-72 h-72 rounded-full blur-3xl opacity-15" style={{ background: "radial-gradient(circle, #e11d48 0%, transparent 70%)" }} />
-
-            {/* Header */}
-            <div className="relative px-4 sm:px-5 pt-4 sm:pt-5 pb-3 border-b border-white/[0.06] flex items-center justify-between flex-shrink-0">
-              <div className="flex items-baseline gap-2.5 min-w-0">
-                <h3
-                  className="text-white text-[20px] sm:text-[22px] leading-none truncate"
-                  style={{ fontFamily: "'Instrument Serif', 'Cormorant Garamond', ui-serif, Georgia, serif", letterSpacing: "-0.015em" }}
-                >
-                  TV Auto-Login
-                </h3>
-                <span className="text-[10px] sm:text-[10.5px] font-medium text-rose-300/90 tracking-wider uppercase whitespace-nowrap">Coming soon</span>
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-rose-100 text-rose-600">
+                <Tv className="w-5 h-5" />
               </div>
-              <button
-                onClick={() => setOpen(false)}
-                className="p-2 rounded-lg text-zinc-400 hover:text-white hover:bg-white/[0.06] transition-colors flex-shrink-0"
-                aria-label="Close"
-              >
-                <X className="w-4 h-4" />
-              </button>
+              <div className="min-w-0">
+                <div className="text-sm font-extrabold text-slate-900 leading-tight">TV Auto-Login</div>
+                <div className="text-[10px] text-slate-500">One-tap Netflix TV activation</div>
+              </div>
             </div>
-
-            {/* Body */}
-            <div className="relative px-4 sm:px-5 py-5 sm:py-6 overflow-y-auto overscroll-contain flex-1">
-              <div className="flex items-start gap-3 sm:gap-4">
-                <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center flex-shrink-0 ring-1 ring-white/10 shadow-lg relative overflow-hidden" style={{ background: "linear-gradient(135deg, #1a1a1f 0%, #0f0f13 100%)" }}>
-                  <svg viewBox="0 0 24 24" className="w-8 h-8 sm:w-9 sm:h-9" fill="none" aria-hidden>
-                    <defs>
-                      <linearGradient id="tvHeroScreen" x1="0" y1="0" x2="1" y2="1">
-                        <stop offset="0%" stopColor="#f43f5e" />
-                        <stop offset="100%" stopColor="#b91c1c" />
-                      </linearGradient>
-
-                    </defs>
-                    <path d="M8 3l4 4 4-4" stroke="#f1f5f9" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-                    <rect x="2.5" y="7.5" width="19" height="12" rx="2.4" fill="url(#tvHeroScreen)" stroke="#f1f5f9" strokeWidth="1.2" />
-                    <path d="M10.5 11.2v4.6l4-2.3z" fill="#fff" />
-                    <path d="M8.5 21.5h7" stroke="#f1f5f9" strokeWidth="1.4" strokeLinecap="round" />
-                  </svg>
-                </div>
-                <div className="min-w-0">
-                  <p className="text-white text-[14px] sm:text-[15px] font-medium leading-snug">One-tap Netflix TV activation</p>
-                  <p className="text-zinc-400 text-[12px] sm:text-[12.5px] mt-1 leading-relaxed font-light">
-                    Pick your account, tap the code — you're in. No typing, no waiting.
-                  </p>
-                </div>
-              </div>
-
-              {/* Feature list */}
-              <ul className="mt-5 sm:mt-6 space-y-2.5 sm:space-y-3">
-                {[
-                  { icon: Zap, tone: "text-amber-300", title: "Instant activation", body: "TV code auto-filled the moment you tap your account." },
-                  { icon: ShieldCheck, tone: "text-emerald-300", title: "Secure by design", body: "Uses official Netflix activation flow — nothing stored on device." },
-                  { icon: Rocket, tone: "text-rose-300", title: "Works on any TV", body: "Smart TVs, Fire Stick, Chromecast, Apple TV — one tap." },
-                ].map(({ icon: Icon, tone, title, body }) => (
-                  <li key={title} className="flex items-start gap-3 p-2.5 sm:p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
-                    <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-white/[0.04] border border-white/[0.06] flex items-center justify-center flex-shrink-0">
-                      <Icon className={`w-4 h-4 ${tone}`} strokeWidth={1.75} />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-white text-[12.5px] font-medium">{title}</p>
-                      <p className="text-zinc-500 text-[11.5px] mt-0.5 leading-relaxed font-light">{body}</p>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-
-              {/* Status card */}
-              <div className="mt-5 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3.5 sm:px-4 py-3 flex items-center gap-3">
-                <div className="relative flex items-center justify-center w-8 h-8 rounded-full bg-rose-500/10 border border-rose-400/20 flex-shrink-0">
-                  <span className="absolute inline-flex h-2 w-2 rounded-full bg-rose-400 opacity-75 animate-ping" />
-                  <span className="relative inline-flex h-2 w-2 rounded-full bg-rose-400" />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-[10px] sm:text-[11px] uppercase tracking-[0.14em] text-zinc-500 font-medium">Status</p>
-                  <p className="text-white text-[12px] sm:text-[12.5px] font-medium truncate">In development — rolling out soon</p>
-                </div>
-              </div>
-
-              <button
-                onClick={() => setOpen(false)}
-                className="mt-5 sm:mt-6 w-full h-11 rounded-xl bg-white text-black font-semibold text-[13px] hover:bg-zinc-100 active:scale-[0.98] transition"
-              >
-                Got it — notify me
-              </button>
-              <p className="mt-2 text-center text-[10.5px] text-zinc-500 font-light">
-                We'll ping you the moment it goes live.
-              </p>
+            <p className="text-xs text-slate-700 leading-relaxed">
+              TV function is a feature that gives you <span className="font-bold">direct login to Netflix on your TV</span> — no typing codes, no waiting.
+            </p>
+            <div className="mt-3 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
+              <div className="text-[10px] uppercase tracking-wide text-slate-500 font-bold">Status</div>
+              <div className="text-xs font-semibold text-slate-900">Coming soon</div>
+              <div className="text-[10px] text-slate-500 mt-1">This feature is currently in development and will roll out shortly.</div>
             </div>
+            <button
+              onClick={() => setOpen(false)}
+              className="mt-4 w-full h-9 rounded-lg bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 active:scale-[0.98] transition"
+            >
+              Got it
+            </button>
           </div>
         </div>
       )}
+
     </>
   );
 }
