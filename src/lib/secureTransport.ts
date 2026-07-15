@@ -170,6 +170,23 @@ async function getSession(): Promise<Session> {
 
 function resetSession() { sessionPromise = null; }
 
+// Eagerly warm the ECDH handshake so the first real request doesn't pay
+// its cost. Safe to call multiple times — no-ops if a live session exists.
+// Callers may await it, but nothing depends on the result (fire-and-forget
+// is fine). Errors are swallowed so a failed warmup never blocks UI.
+export async function warmupSession(): Promise<void> {
+  try {
+    const start = (typeof performance !== "undefined" ? performance.now() : Date.now());
+    await getSession();
+    const dur = Math.round((typeof performance !== "undefined" ? performance.now() : Date.now()) - start);
+    // eslint-disable-next-line no-console
+    console.info(`[perf] secureTransport.warmupSession ready in ${dur}ms`);
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn("[perf] secureTransport.warmupSession failed:", e instanceof Error ? e.message : e);
+  }
+}
+
 export interface SecureInvokeOptions {
   headers?: Record<string, string>;
 }
