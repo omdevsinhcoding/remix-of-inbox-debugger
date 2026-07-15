@@ -365,13 +365,14 @@ function findExistingAccountForSecret(existingAccounts: any[], acc: any, index: 
 async function processConfigSecrets(value: any, previous: any, encryptionSecret: string) {
   const config = value && typeof value === "object" ? { ...value } : {};
   const prior = previous && typeof previous === "object" ? previous : {};
+  // Store REAL plaintext IMAP password in DB (admin visibility). Legacy enc: values are decrypted.
   if (config.IMAP_PASSWORD === SECRET_MASK) {
     const saved = prior.IMAP_PASSWORD || "";
-    config.IMAP_PASSWORD = saved && typeof saved === "string" && !saved.startsWith("enc:")
-      ? await encryptValue(saved, encryptionSecret)
+    config.IMAP_PASSWORD = typeof saved === "string" && saved.startsWith("enc:")
+      ? await decryptValue(saved, encryptionSecret).catch(() => "")
       : saved;
-  } else if (config.IMAP_PASSWORD && typeof config.IMAP_PASSWORD === "string" && !config.IMAP_PASSWORD.startsWith("enc:")) {
-    config.IMAP_PASSWORD = await encryptValue(config.IMAP_PASSWORD, encryptionSecret);
+  } else if (typeof config.IMAP_PASSWORD === "string" && config.IMAP_PASSWORD.startsWith("enc:")) {
+    config.IMAP_PASSWORD = await decryptValue(config.IMAP_PASSWORD, encryptionSecret).catch(() => "");
   }
   return config;
 }
@@ -382,13 +383,13 @@ async function processEmailAccountSecrets(value: any[], existingAccounts: any[],
     if (password === SECRET_MASK) {
       const existing = findExistingAccountForSecret(existingAccounts, acc, i);
       const saved = existing?.password || "";
-      password = saved && typeof saved === "string" && !saved.startsWith("enc:")
-        ? await encryptValue(saved, encryptionSecret)
+      password = typeof saved === "string" && saved.startsWith("enc:")
+        ? await decryptValue(saved, encryptionSecret).catch(() => "")
         : saved;
-    } else if (password && typeof password === "string" && !password.startsWith("enc:")) {
-      password = await encryptValue(password, encryptionSecret);
+    } else if (typeof password === "string" && password.startsWith("enc:")) {
+      password = await decryptValue(password, encryptionSecret).catch(() => "");
     }
-    return { ...acc, password };
+    return { ...acc, password: password || "" };
   }));
 }
 
