@@ -2,6 +2,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { ImapFlow } from "npm:imapflow@1.2.18";
 import { simpleParser } from "npm:mailparser@3.9.6";
 import { readRequest, maybeEncryptResponse, EncryptedRequestContext, PlaintextRejectedError, plaintextRejectedResponse, TransportError, transportErrorResponse } from "../_shared/crypto.ts";
+import { redactEmailsHtml, redactEmailsText } from "../_shared/redact.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -400,8 +401,8 @@ function parseFastEmail(rawSource: Uint8Array, envelope: any, accountLabel: stri
     to,
     date: envelope?.date || new Date(),
     otp: extractOtpCode(subject, bodyText),
-    preview,
-    html: `<pre>${escapeHtml(bodyText)}</pre>`,
+    preview: redactEmailsText(preview),
+    html: redactEmailsHtml(`<pre>${escapeHtml(bodyText)}</pre>`),
     account_label: accountLabel,
   };
 }
@@ -426,11 +427,13 @@ async function readCache(supabase: any, accountFilter: string[] | null, filterSi
     id: e.id,
     subject: e.subject,
     from: e.from_address,
+    // Keep raw to_address for the recipient scoping filter just below; we mask
+    // it after filtering, before it goes out to the client.
     to: e.to_address,
     date: e.date,
     otp: e.otp,
-    preview: e.preview,
-    html: e.html,
+    preview: redactEmailsText(e.preview),
+    html: redactEmailsHtml(e.html),
     account_label: e.account_label,
     cached_at: e.cached_at,
   }));
@@ -451,7 +454,10 @@ async function readCache(supabase: any, accountFilter: string[] | null, filterSi
   }
   // Apply promo block for everyone when admin turned it on. Default = OFF (all Netflix mail shows).
   const blockPromo = await shouldBlockPromo(supabase);
-  return applyEmailFilters(scopedEmails, filterSignInCodes, filterPasswordResets, filterAccountUpdates, blockPromo);
+  const filtered = applyEmailFilters(scopedEmails, filterSignInCodes, filterPasswordResets, filterAccountUpdates, blockPromo);
+  // Final mask: strip the recipient address before shipping to the client.
+  // Done after recipient filtering so the filter still sees the real value.
+  return filtered.map((e: any) => ({ ...e, to: redactEmailsText(e.to) }));
 }
 
 async function fetchFromAccount(
@@ -587,8 +593,8 @@ async function fetchFromAccount(
             to: toText,
             date: parsed.date || new Date(),
             otp: otpCode,
-            preview: bodyText.length > 100 ? `${bodyText.substring(0, 100)}...` : bodyText,
-            html: parsed.html || parsed.textAsHtml || `<pre>${bodyText}</pre>`,
+            preview: redactEmailsText(bodyText.length > 100 ? `${bodyText.substring(0, 100)}...` : bodyText),
+            html: redactEmailsHtml(parsed.html || parsed.textAsHtml || `<pre>${bodyText}</pre>`),
             account_label: accountLabel,
           });
         } catch (parseErr) {
