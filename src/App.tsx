@@ -5085,6 +5085,7 @@ function AdminPanel() {
   const { user: currentUser, checkAuth } = useAuth();
 
   const STATS_CACHE_KEY = "admin_stats_cache_v1";
+  const ADMIN_SETTINGS_CACHE_KEY = "admin_settings_cache_v1";
   const [stats, setStats] = useState<{ totalUsers: number; totalEmails: number }>(() => {
     // Hydrate instantly from cache so the dashboard never flashes 0.
     try {
