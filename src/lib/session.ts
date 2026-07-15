@@ -122,41 +122,74 @@ export function clearSiteCookies() {
 
 // Netflix-style full identity wipe. Purges every client-visible storage
 // surface for this origin: JS-readable cookies, localStorage, sessionStorage,
-// IndexedDB databases, Cache Storage, and any registered service workers.
-// HttpOnly cookies must be cleared server-side (manage-app logout) — this
-// helper is the browser half of that flow.
+// IndexedDB, Cache Storage, service workers, and OPFS. HttpOnly cookies must
+// be cleared server-side (manage-app logout) — this helper is the browser
+// half of that flow.
+//
+// NOTE: The primary purge mechanism is the `Clear-Site-Data: "*"` HTTP header
+// on the /clearcookies route (see netlify.toml / vercel.json). This JS wipe
+// is a belt-and-suspenders fallback for local dev and hosts that strip the
+// header. Order matters: unregister service workers FIRST so nothing can
+// re-populate caches while we're clearing them.
 export async function nukeBrowserIdentity(): Promise<void> {
-  try { clearSiteCookies(); } catch {}
-  try { localStorage.clear(); } catch {}
-  try { sessionStorage.clear(); } catch {}
-  mem.clear();
-  try {
-    const idb: any = (typeof indexedDB !== "undefined" ? indexedDB : null);
-    if (idb) {
-      const dbs: Array<{ name?: string }> = typeof idb.databases === "function"
-        ? await idb.databases().catch(() => [])
-        : [];
-      await Promise.all(dbs.map((db) => new Promise<void>((resolve) => {
-        if (!db?.name) return resolve();
-        try {
-          const req = idb.deleteDatabase(db.name);
-          req.onsuccess = req.onerror = req.onblocked = () => resolve();
-        } catch { resolve(); }
-      })));
-    }
-  } catch {}
-  try {
-    if (typeof caches !== "undefined") {
-      const keys = await caches.keys().catch(() => [] as string[]);
-      await Promise.all(keys.map((k) => caches.delete(k).catch(() => false)));
-    }
-  } catch {}
+  // 1. Kill service workers first — otherwise a live SW can re-cache assets
+  //    (and hold onto IDB handles) while we're wiping.
   try {
     if (typeof navigator !== "undefined" && navigator.serviceWorker?.getRegistrations) {
       const regs = await navigator.serviceWorker.getRegistrations().catch(() => []);
       await Promise.all(regs.map((r) => r.unregister().catch(() => false)));
     }
   } catch {}
+  // 2. Cookies (JS-readable) — first pass, before storage wipes so cookies
+  //    that only appear after state changes are still enumerable.
+  try { clearSiteCookies(); } catch {}
+  // 3. localStorage / sessionStorage / in-memory session mirror.
+  try { localStorage.clear(); } catch {}
+  try { sessionStorage.clear(); } catch {}
+  mem.clear();
+  // 4. IndexedDB — enumerate via `databases()` (Chromium/Safari) and fall
+  //    back to a known-name list for Firefox (which doesn't implement it).
+  try {
+    const idb: any = (typeof indexedDB !== "undefined" ? indexedDB : null);
+    if (idb) {
+      let names = new Set<string>();
+      if (typeof idb.databases === "function") {
+        const dbs: Array<{ name?: string }> = await idb.databases().catch(() => []);
+        for (const db of dbs) if (db?.name) names.add(db.name);
+      }
+      // Firefox fallback + any app-specific DBs we've ever created.
+      ["inbox-cache-v1", "inbox-cache", "keyval-store", "localforage", "workbox-precache-v2", "workbox-runtime"].forEach((n) => names.add(n));
+      await Promise.all(Array.from(names).map((name) => new Promise<void>((resolve) => {
+        try {
+          const req = idb.deleteDatabase(name);
+          req.onsuccess = req.onerror = req.onblocked = () => resolve();
+          setTimeout(resolve, 1500); // never hang the wipe
+        } catch { resolve(); }
+      })));
+    }
+  } catch {}
+  // 5. Cache Storage (SW-managed HTTP cache).
+  try {
+    if (typeof caches !== "undefined") {
+      const keys = await caches.keys().catch(() => [] as string[]);
+      await Promise.all(keys.map((k) => caches.delete(k).catch(() => false)));
+    }
+  } catch {}
+  // 6. Origin Private File System — modern browsers store files here that
+  //    don't show up in localStorage/IDB. Purge recursively.
+  try {
+    const storage: any = (typeof navigator !== "undefined" ? (navigator as any).storage : null);
+    if (storage?.getDirectory) {
+      const root: any = await storage.getDirectory().catch(() => null);
+      if (root?.entries) {
+        for await (const [name] of root.entries()) {
+          try { await root.removeEntry(name, { recursive: true }); } catch {}
+        }
+      }
+    }
+  } catch {}
+  // 7. Final cookie sweep — catches any cookies that became visible only
+  //    after storage wipes cleared their partitioning contexts.
   try { clearSiteCookies(); } catch {}
 }
 
