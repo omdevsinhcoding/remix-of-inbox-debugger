@@ -10,7 +10,8 @@ const BOOTSTRAP_TIMEOUT_MS = 20000;
 export type EmailFilters = { showSignInCodes?: boolean; showPasswordResets?: boolean; showAccountUpdates?: boolean };
 export type MaintenanceInfo = { enabled: boolean; title?: string; message?: string; eta?: string; startsAt?: string | null; endsAt?: string | null; versionFrom?: string; versionTo?: string; updated_at?: string | null };
 export type FreeAvatarCooldown = { minutes: number; lastAt: string | null };
-export type BootstrapResult = { users: any[]; recaptcha: any; workerUrls: string[]; emailFilters?: EmailFilters; maintenance?: MaintenanceInfo; avatarBaseUrl?: string; freeAvatarCooldown?: FreeAvatarCooldown };
+export type LocationPolicy = { required: boolean };
+export type BootstrapResult = { users: any[]; recaptcha: any; workerUrls: string[]; emailFilters?: EmailFilters; maintenance?: MaintenanceInfo; avatarBaseUrl?: string; freeAvatarCooldown?: FreeAvatarCooldown; locationPolicy?: LocationPolicy };
 
 // Module-level free-avatar cooldown cache — kept in sync with bootstrap.
 let currentFreeAvatarCooldown: FreeAvatarCooldown = { minutes: 5, lastAt: null };
