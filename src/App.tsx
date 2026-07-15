@@ -9444,7 +9444,7 @@ function EmailViewer() {
     if (instantInboxRunKeyRef.current === runKey) return;
     if (!user?.id) return;
     if (refreshAccountLabels === undefined) {
-      console.log("[inbox] account scope hydrating, painting local cache only");
+      pushDiag({ ts: Date.now(), kind: "cache", endpoint: "idb:instant-paint", note: "account scope hydrating, painting local cache only" });
       (async () => {
         try {
           const db = await openInboxDB(user.id);
