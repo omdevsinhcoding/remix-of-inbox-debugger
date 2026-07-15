@@ -1138,14 +1138,13 @@ function useSessionTimeoutGuard(role: "admin" | "user", enabled = true) {
     let poll: any;
     let cancelled = false;
     const doLogout = () => {
-      clearSessionData();
-      checkAuth();
       notify.info("🔒 Session timed out", {
         id: "session-timed-out",
         description: "Tap your profile and enter password again.",
         duration: 3000,
       });
-      navigate(role === "admin" ? "/admin" : "/", { replace: true });
+      // Silent full reset: purge cookies + session, then reload the page.
+      performSignOut();
     };
     (async () => {
       let minutes = 0;
