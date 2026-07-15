@@ -6361,7 +6361,7 @@ function AdminPanel() {
                             </button>
                           )}
                           <div className="w-px h-6 bg-slate-200" />
-                          <button onClick={() => deleteUser(u.id)} title="Delete user"
+                          <button onClick={() => setDeleteConfirmUser(u)} title="Delete user"
                             className="flex-1 flex items-center justify-center h-9 rounded-lg text-slate-500 hover:bg-red-50 hover:text-red-600 hover:shadow-sm transition-all active:scale-95">
 
                             <Trash2 className="w-4 h-4" />
