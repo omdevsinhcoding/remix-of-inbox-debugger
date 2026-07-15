@@ -59,7 +59,6 @@
       ]
     },
     {
-      "//": "⚠️ DO NOT TOUCH — Netflix-style /clearcookies. Browser purges cookies + all storage + cache + SW + execution contexts at HTTP layer → site storage 0 B. JS fallback in nukeBrowserIdentity() is belt-and-suspenders.",
       "source": "/clearcookies",
       "headers": [
         { "key": "Clear-Site-Data", "value": "\"*\"" },
