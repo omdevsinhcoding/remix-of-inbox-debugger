@@ -14,6 +14,8 @@ import MaintenanceScreen from "./components/MaintenanceScreen";
 import DateTimePicker from "./components/DateTimePicker";
 import { sessionGet, sessionSet, sessionRemove, sessionClearAll, nukeBrowserIdentity, clearSiteCookies } from "./lib/session";
 import { openInboxDB, readLatestEmails, writeDelta, getSyncCursor, cacheEmailHtml, getEmailHtml, purgeEmailsOutsideScope, type CachedEmail } from "./lib/inboxCache";
+import { readAdminCache, writeAdminCache, isCacheFresh, reconcileVersion, emitSyncStatus } from "./lib/adminSettingsCache";
+import { AdminSyncStatus } from "./components/AdminSyncStatus";
 
 
 // Lazy-loaded heavy auth-only libs — kept out of the public first-load chunk.
