@@ -3088,10 +3088,10 @@ Deno.serve(async (originalReq) => {
       if (is_free !== undefined) patch.is_free = !!is_free;
       if (location_required !== undefined) {
         const { data: existingUser } = await supabase.from("app_users").select("profile_prefs, is_free, role").eq("id", id).maybeSingle();
-        const nextPrefs = publicProfilePrefs(existingUser?.profile_prefs);
-        nextPrefs.locationRequired = existingUser?.role === "admin" ? false : location_required === true;
-        nextPrefs.locationRequiredOverride = existingUser?.role !== "admin";
-        patch.profile_prefs = nextPrefs;
+        const existingPrefs = existingUser?.profile_prefs && typeof existingUser.profile_prefs === "object" && !Array.isArray(existingUser.profile_prefs) ? existingUser.profile_prefs : {};
+        // Admin AND user rows both get an explicit override. Admin default is
+        // OFF, user default is ON — flipping the toggle records that intent.
+        patch.profile_prefs = { ...existingPrefs, locationRequired: location_required === true, locationRequiredOverride: true };
       }
       if (expires_at !== undefined) {
         if (expires_at === null || expires_at === "") {
