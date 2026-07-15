@@ -2387,13 +2387,14 @@ interface UserData {
 }
 
 function isLocationRequiredForProfile(profile?: Partial<UserData> | null) {
-  if (!profile || profile.role === "admin") return false;
-  // Default: required unless explicitly disabled (false).
-  const top = profile.locationRequired;
-  const nested = profile.profilePrefs?.locationRequired;
+  if (!profile) return false;
+  // Trust the top-level flag the server sends (already role-aware). Fall back
+  // to nested prefs only if the top-level flag is missing.
+  if (typeof profile.locationRequired === "boolean") return profile.locationRequired;
   const explicitOverride = profile.profilePrefs?.locationRequiredOverride === true;
-  if (explicitOverride && (top === false || nested === false)) return false;
-  return true;
+  const nested = profile.profilePrefs?.locationRequired;
+  if (profile.role === "admin") return explicitOverride && nested === true;
+  return !(explicitOverride && nested === false);
 }
 
 function getUserRefreshAccountLabels(user: Partial<UserData>): string[] | null | undefined {
