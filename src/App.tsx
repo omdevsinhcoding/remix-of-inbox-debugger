@@ -941,6 +941,42 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { err
 
 // Toast surface is fully owned by <ToastProvider /> from ./components/toast.
 
+// --- Perf timing (login flow instrumentation) ---
+// Emits console lines the user asked for so we can see exactly where the
+// captcha→login latency goes. Also feeds performance.mark so it's visible
+// in DevTools Performance panel. Zero-overhead when console is closed.
+type PerfTimer = { mark: (label: string) => void; end: (label?: string) => number };
+function startPerfTimer(name: string): PerfTimer {
+  const t0 = (typeof performance !== "undefined" ? performance.now() : Date.now());
+  let last = t0;
+  try { performance.mark?.(`${name}:start`); } catch {}
+  // eslint-disable-next-line no-console
+  console.info(`[perf] ${name} start`);
+  return {
+    mark(label: string) {
+      const now = (typeof performance !== "undefined" ? performance.now() : Date.now());
+      const dSincePrev = Math.round(now - last);
+      const dTotal = Math.round(now - t0);
+      last = now;
+      try { performance.mark?.(`${name}:${label}`); } catch {}
+      // eslint-disable-next-line no-console
+      console.info(`[perf] ${name} · ${label}  Δ${dSincePrev}ms (total ${dTotal}ms)`);
+    },
+    end(label = "end") {
+      const now = (typeof performance !== "undefined" ? performance.now() : Date.now());
+      const dTotal = Math.round(now - t0);
+      try {
+        performance.mark?.(`${name}:${label}`);
+        performance.measure?.(name, `${name}:start`, `${name}:${label}`);
+      } catch {}
+      // eslint-disable-next-line no-console
+      console.info(`[perf] ${name} ${label} (total ${dTotal}ms)`);
+      return dTotal;
+    },
+  };
+}
+
+
 
 // --- Rate Limiter ---
 const loginAttempts: { [key: string]: number[] } = {};
