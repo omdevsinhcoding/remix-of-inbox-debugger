@@ -1945,6 +1945,45 @@ function TvAutoLoginButton() {
     };
   }, [open]);
 
+  const popup = open ? createPortal(
+    <div
+      className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in duration-150"
+      onClick={() => setOpen(false)}
+      role="dialog"
+      aria-modal="true"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-xs max-h-[calc(100svh-2rem)] overflow-y-auto rounded-2xl bg-white shadow-2xl border border-slate-200 p-5 mb-[env(safe-area-inset-bottom)] animate-in zoom-in-95 slide-in-from-bottom-4 duration-200"
+      >
+        <div className="flex items-center gap-2 mb-3">
+          <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-rose-100 text-rose-600">
+            <Tv className="w-5 h-5" />
+          </div>
+          <div className="min-w-0">
+            <div className="text-sm font-extrabold text-slate-900 leading-tight">TV Auto-Login</div>
+            <div className="text-[10px] text-slate-500">One-tap Netflix TV activation</div>
+          </div>
+        </div>
+        <p className="text-xs text-slate-700 leading-relaxed">
+          TV function is a feature that gives you <span className="font-bold">direct login to Netflix on your TV</span> — no typing codes, no waiting.
+        </p>
+        <div className="mt-3 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
+          <div className="text-[10px] uppercase tracking-wide text-slate-500 font-bold">Status</div>
+          <div className="text-xs font-semibold text-slate-900">Coming soon</div>
+          <div className="text-[10px] text-slate-500 mt-1">This feature is currently in development and will roll out shortly.</div>
+        </div>
+        <button
+          onClick={() => setOpen(false)}
+          className="mt-4 w-full h-9 rounded-lg bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 active:scale-[0.98] transition"
+        >
+          Got it
+        </button>
+      </div>
+    </div>,
+    document.body,
+  ) : null;
+
   return (
     <>
       <button
@@ -1955,46 +1994,7 @@ function TvAutoLoginButton() {
       >
         <Tv className="w-4 h-4 sm:w-5 sm:h-5" />
       </button>
-
-
-      {open && (
-        <div
-          className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in duration-150"
-          onClick={() => setOpen(false)}
-          role="dialog"
-          aria-modal="true"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-xs rounded-2xl bg-white shadow-2xl border border-slate-200 p-5 animate-in zoom-in-95 slide-in-from-bottom-4 duration-200"
-          >
-            <div className="flex items-center gap-2 mb-3">
-              <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-rose-100 text-rose-600">
-                <Tv className="w-5 h-5" />
-              </div>
-              <div className="min-w-0">
-                <div className="text-sm font-extrabold text-slate-900 leading-tight">TV Auto-Login</div>
-                <div className="text-[10px] text-slate-500">One-tap Netflix TV activation</div>
-              </div>
-            </div>
-            <p className="text-xs text-slate-700 leading-relaxed">
-              TV function is a feature that gives you <span className="font-bold">direct login to Netflix on your TV</span> — no typing codes, no waiting.
-            </p>
-            <div className="mt-3 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
-              <div className="text-[10px] uppercase tracking-wide text-slate-500 font-bold">Status</div>
-              <div className="text-xs font-semibold text-slate-900">Coming soon</div>
-              <div className="text-[10px] text-slate-500 mt-1">This feature is currently in development and will roll out shortly.</div>
-            </div>
-            <button
-              onClick={() => setOpen(false)}
-              className="mt-4 w-full h-9 rounded-lg bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 active:scale-[0.98] transition"
-            >
-              Got it
-            </button>
-          </div>
-        </div>
-      )}
-
+      {popup}
     </>
   );
 }
