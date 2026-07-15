@@ -5008,7 +5008,9 @@ function AdminPanel() {
   const [ipwhoAlertEnabled, setIpwhoAlertEnabled] = useState(false);
   const [savingIpwho, setSavingIpwho] = useState(false);
   const [locationPolicyRequired, setLocationPolicyRequired] = useState(false);
+  const [locationPolicyAdminRequired, setLocationPolicyAdminRequired] = useState(false);
   const [savingLocationPolicy, setSavingLocationPolicy] = useState(false);
+  const [savingAdminLocationPolicy, setSavingAdminLocationPolicy] = useState(false);
   // Maintenance mode
   const [maintenanceEnabled, setMaintenanceEnabled] = useState(false);
   const [maintenanceTitle, setMaintenanceTitle] = useState("");
