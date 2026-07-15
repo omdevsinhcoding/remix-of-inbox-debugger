@@ -2746,12 +2746,12 @@ function CaptchaModal({ siteKey, onVerify, onCancel, stage }: {
   // so we don't pay 400–1500ms of TLS+ECDH+HKDF after they click Continue.
   useEffect(() => {
     let cancelled = false;
-    import("../src/lib/secureTransport")
-      .catch(() => import("./lib/secureTransport"))
+    import("./lib/secureTransport")
       .then((m) => { if (!cancelled) void m.warmupSession(); })
       .catch(() => {});
     return () => { cancelled = true; };
   }, []);
+
 
   const submit = useCallback(() => {
     if (token && !submitting) {
