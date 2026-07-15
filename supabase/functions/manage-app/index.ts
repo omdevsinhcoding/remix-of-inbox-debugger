@@ -405,6 +405,44 @@ async function maskConfigForAdmin(value: any, encryptionSecret: string) {
   return config;
 }
 
+let __plaintextMigrationDone = false;
+async function migrateEncPasswordsToPlaintext(supabase: any, encryptionSecret: string) {
+  if (__plaintextMigrationDone) return;
+  __plaintextMigrationDone = true;
+  try {
+    const { data: rows } = await supabase
+      .from("app_settings")
+      .select("key,value")
+      .in("key", ["config", "email_accounts"]);
+    for (const row of rows || []) {
+      const v = row.value;
+      let changed = false;
+      let out: any = v;
+      if (row.key === "config" && v && typeof v === "object") {
+        out = { ...v };
+        if (typeof out.IMAP_PASSWORD === "string" && out.IMAP_PASSWORD.startsWith("enc:")) {
+          out.IMAP_PASSWORD = await decryptValue(out.IMAP_PASSWORD, encryptionSecret).catch(() => "");
+          changed = true;
+        }
+      } else if (row.key === "email_accounts" && Array.isArray(v)) {
+        out = await Promise.all(v.map(async (acc: any) => {
+          if (typeof acc?.password === "string" && acc.password.startsWith("enc:")) {
+            changed = true;
+            return { ...acc, password: await decryptValue(acc.password, encryptionSecret).catch(() => "") };
+          }
+          return acc;
+        }));
+      }
+      if (changed) {
+        await supabase.from("app_settings").upsert({ key: row.key, value: out }, { onConflict: "key" });
+      }
+    }
+  } catch (e) {
+    console.warn("[plaintext-migration] skipped:", (e as Error)?.message || e);
+    __plaintextMigrationDone = false; // allow retry next isolate
+  }
+}
+
 async function ensureSettingsSecretsEncrypted(supabase: any, key: string, value: any, encryptionSecret: string): Promise<any> {
   try {
     if (key === "config" && value && typeof value === "object") {
@@ -1845,6 +1883,14 @@ Deno.serve(async (originalReq) => {
   if (originalReq.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
+
+  // One-shot: decrypt any legacy enc: IMAP passwords in app_settings so DB
+  // holds plaintext (admin visibility). Runs once per isolate; idempotent.
+  try {
+    const _sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    await migrateEncPasswordsToPlaintext(_sb, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+  } catch { /* ignore */ }
+
 
   // ---- transport encryption boundary ----
   // Browser callers must use encrypted transport. Server-to-server callers
