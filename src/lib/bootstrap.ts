@@ -111,6 +111,27 @@ export function clearSessionData() {
 
 }
 
+// Netflix-style unified sign-out.
+// Revokes the server session (best effort), wipes tab session state, and
+// purges every JS-readable cookie for this origin — then silently reloads
+// the current page so any in-flight state (workers, portals, polling,
+// subscriptions) resets cleanly. Used for BOTH manual logout and any
+// automatic sign-out (timeout, remote revoke, maintenance kick, etc.).
+export function performSignOut(opts?: { reload?: boolean; reason?: string }) {
+  const shouldReload = opts?.reload !== false;
+  try { clearSessionData(); } catch {}
+  try { sessionClearAll(); } catch {}
+  try { clearSiteCookies(); } catch {}
+  if (!shouldReload) return;
+  // Silent reload — no navigation flash, no toast interference.
+  try {
+    setTimeout(() => {
+      try { window.location.reload(); } catch { try { window.location.href = "/"; } catch {} }
+    }, 50);
+  } catch {}
+}
+
+
 
 export function readBootstrapCache(): BootstrapResult | null {
   try {
