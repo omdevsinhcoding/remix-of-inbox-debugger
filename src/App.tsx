@@ -5234,15 +5234,20 @@ function AdminPanel() {
         // Cache settings + r2 so a page refresh shows the saved values
         // instantly instead of flashing empty inputs while the server load runs.
         try {
-          localStorage.setItem(ADMIN_SETTINGS_CACHE_KEY, JSON.stringify({
-            settings: res.settings,
-            r2: res.r2 || null,
-            cached_at: Date.now(),
-          }));
-        } catch {}
+          const serverVersion = Number(res.settings?.settings_version) || Date.now();
+          const prev = readAdminCache();
+          reconcileVersion(prev?.version ?? 0, serverVersion);
+          writeAdminCache({ version: serverVersion, settings: res.settings, r2: res.r2 || null });
+          emitSyncStatus({ kind: "saved" });
+        } catch (e) {
+          emitSyncStatus({ kind: "error", message: "Cache write failed" });
+        }
       }
     } catch (err) {
-      if (!silent) console.warn("[admin] dashboard load failed:", err);
+      if (!silent) {
+        console.warn("[admin] dashboard load failed:", err);
+        emitSyncStatus({ kind: "error", message: err instanceof Error ? err.message : "Server sync failed" });
+      }
     }
   }, [r2Dirty]);
 
