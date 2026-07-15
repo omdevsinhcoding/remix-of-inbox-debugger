@@ -1949,81 +1949,102 @@ function TvAutoLoginButton() {
     <>
       <button
         onClick={() => setOpen(true)}
-        className="relative flex items-center justify-center p-2.5 rounded-full text-white bg-gradient-to-br from-indigo-600 via-violet-600 to-fuchsia-600 hover:from-indigo-500 hover:via-violet-500 hover:to-fuchsia-500 shadow-md shadow-violet-500/30 transition-all active:scale-95"
+        className="relative flex items-center justify-center p-2.5 bg-slate-900 text-white rounded-full hover:bg-slate-800 transition-all active:scale-95"
         title="TV Auto-Login"
         aria-label="TV Auto-Login"
       >
         <Tv className="w-4 h-4 sm:w-5 sm:h-5" />
-        <span className="absolute -top-1 -right-1 px-1 h-4 rounded-full bg-amber-400 text-[8px] font-black text-slate-900 flex items-center justify-center leading-none ring-2 ring-white">SOON</span>
       </button>
 
       {open && (
         <div
-          className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-md animate-in fade-in duration-200"
+          className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/70 backdrop-blur-md animate-in fade-in duration-200"
           onClick={() => setOpen(false)}
           role="dialog"
           aria-modal="true"
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="relative w-full max-w-sm rounded-3xl overflow-hidden shadow-2xl border border-white/10 animate-in zoom-in-95 slide-in-from-bottom-4 duration-300"
-            style={{
-              background: "linear-gradient(160deg, #0b1220 0%, #17123a 45%, #2a0f3d 100%)",
-            }}
+            className="relative w-full sm:max-w-md max-h-[92vh] overflow-hidden rounded-t-3xl sm:rounded-3xl shadow-2xl border-t border-white/[0.08] sm:border animate-in slide-in-from-bottom-6 sm:zoom-in-95 duration-300"
+            style={{ background: "linear-gradient(180deg, #0a0a0b 0%, #0d0d10 100%)" }}
           >
-            {/* subtle animated glow */}
-            <div aria-hidden className="pointer-events-none absolute -top-24 -left-24 w-72 h-72 rounded-full blur-3xl opacity-40" style={{ background: "radial-gradient(circle, #8b5cf6 0%, transparent 70%)" }} />
-            <div aria-hidden className="pointer-events-none absolute -bottom-28 -right-16 w-72 h-72 rounded-full blur-3xl opacity-40" style={{ background: "radial-gradient(circle, #ec4899 0%, transparent 70%)" }} />
+            {/* ambient glows */}
+            <div aria-hidden className="pointer-events-none absolute -top-24 -left-16 w-72 h-72 rounded-full blur-3xl opacity-25" style={{ background: "radial-gradient(circle, #e11d48 0%, transparent 70%)" }} />
+            <div aria-hidden className="pointer-events-none absolute -bottom-24 -right-16 w-72 h-72 rounded-full blur-3xl opacity-20" style={{ background: "radial-gradient(circle, #6366f1 0%, transparent 70%)" }} />
 
-            <button
-              onClick={() => setOpen(false)}
-              className="absolute top-3 right-3 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white/80 hover:text-white transition"
-              aria-label="Close"
-            >
-              <X className="w-4 h-4" />
-            </button>
+            {/* Header — mirrors NotificationCenter */}
+            <div className="relative px-5 pt-5 pb-3 border-b border-white/[0.06] flex items-center justify-between">
+              <div className="flex items-baseline gap-2.5 min-w-0">
+                <h3
+                  className="text-white text-[22px] leading-none truncate"
+                  style={{ fontFamily: "'Instrument Serif', 'Cormorant Garamond', ui-serif, Georgia, serif", letterSpacing: "-0.015em" }}
+                >
+                  TV Auto-Login
+                </h3>
+                <span className="text-[10.5px] font-medium text-rose-300/90 tracking-wider uppercase">Coming soon</span>
+              </div>
+              <button
+                onClick={() => setOpen(false)}
+                className="p-2 rounded-lg text-zinc-400 hover:text-white hover:bg-white/[0.06] transition-colors"
+                aria-label="Close"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
 
-            <div className="relative px-6 pt-8 pb-7 text-center">
-              <div className="mx-auto mb-5 w-20 h-20 rounded-2xl bg-gradient-to-br from-indigo-500 via-violet-500 to-fuchsia-500 flex items-center justify-center shadow-lg shadow-fuchsia-500/40 ring-1 ring-white/20">
-                <Tv className="w-10 h-10 text-white" strokeWidth={2.2} />
+            {/* Body */}
+            <div className="relative px-5 py-6 overflow-y-auto max-h-[calc(92vh-64px)]">
+              <div className="flex items-start gap-4">
+                <div className="w-14 h-14 rounded-2xl flex items-center justify-center flex-shrink-0 ring-1 ring-white/10 shadow-lg" style={{ background: "linear-gradient(135deg, #1a1a1f 0%, #0f0f13 100%)" }}>
+                  <Tv className="w-7 h-7 text-rose-400" strokeWidth={1.75} />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-white text-[15px] font-medium leading-snug">One-tap Netflix TV activation</p>
+                  <p className="text-zinc-400 text-[12.5px] mt-1 leading-relaxed font-light">
+                    Pick your account, tap the code — you're in. No typing, no waiting.
+                  </p>
+                </div>
               </div>
 
-              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-400/15 border border-amber-300/30 text-amber-200 text-[10px] font-black tracking-widest uppercase mb-3">
-                <Sparkles className="w-3 h-3" />
-                Coming Soon
-              </div>
+              {/* Feature list */}
+              <ul className="mt-6 space-y-3">
+                {[
+                  { icon: Zap, tone: "text-amber-300", title: "Instant activation", body: "TV code auto-filled the moment you tap your account." },
+                  { icon: ShieldCheck, tone: "text-emerald-300", title: "Secure by design", body: "Uses official Netflix activation flow — nothing stored on device." },
+                  { icon: Rocket, tone: "text-rose-300", title: "One tap on any TV", body: "Works on Smart TVs, Fire Stick, Chromecast, Apple TV." },
+                ].map(({ icon: Icon, tone, title, body }) => (
+                  <li key={title} className="flex items-start gap-3 p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+                    <div className="w-9 h-9 rounded-lg bg-white/[0.04] border border-white/[0.06] flex items-center justify-center flex-shrink-0">
+                      <Icon className={`w-4 h-4 ${tone}`} strokeWidth={1.75} />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-white text-[12.5px] font-medium">{title}</p>
+                      <p className="text-zinc-500 text-[11.5px] mt-0.5 leading-relaxed font-light">{body}</p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
 
-              <h3 className="text-white text-xl font-extrabold tracking-tight">
-                Auto Login on TV
-              </h3>
-              <p className="mt-2 text-sm text-slate-300 leading-relaxed">
-                One-tap Netflix TV activation is on the way. Just pick your account, tap the
-                TV code — and you're in. No typing, no waiting.
-              </p>
-
-              <div className="mt-5 grid grid-cols-3 gap-2 text-[10px] text-slate-300/90">
-                <div className="rounded-xl bg-white/5 border border-white/10 p-2.5 flex flex-col items-center gap-1">
-                  <Zap className="w-4 h-4 text-amber-300" />
-                  <span className="font-semibold">Instant</span>
+              {/* Status card */}
+              <div className="mt-5 rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3 flex items-center gap-3">
+                <div className="relative flex items-center justify-center w-8 h-8 rounded-full bg-rose-500/10 border border-rose-400/20 flex-shrink-0">
+                  <span className="absolute inline-flex h-2 w-2 rounded-full bg-rose-400 opacity-75 animate-ping" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-rose-400" />
                 </div>
-                <div className="rounded-xl bg-white/5 border border-white/10 p-2.5 flex flex-col items-center gap-1">
-                  <ShieldCheck className="w-4 h-4 text-emerald-300" />
-                  <span className="font-semibold">Secure</span>
-                </div>
-                <div className="rounded-xl bg-white/5 border border-white/10 p-2.5 flex flex-col items-center gap-1">
-                  <Rocket className="w-4 h-4 text-fuchsia-300" />
-                  <span className="font-semibold">1-Tap</span>
+                <div className="min-w-0">
+                  <p className="text-[11px] uppercase tracking-[0.14em] text-zinc-500 font-medium">Status</p>
+                  <p className="text-white text-[12.5px] font-medium">In development — rolling out soon</p>
                 </div>
               </div>
 
               <button
                 onClick={() => setOpen(false)}
-                className="mt-6 w-full h-11 rounded-xl bg-white text-slate-900 font-bold text-sm hover:bg-slate-100 active:scale-[0.98] transition shadow-lg"
+                className="mt-6 w-full h-11 rounded-xl bg-white text-black font-semibold text-[13px] hover:bg-zinc-100 active:scale-[0.98] transition"
               >
-                Got it — Notify me
+                Got it — notify me
               </button>
-              <p className="mt-2 text-[10px] text-slate-400">
-                We'll ping you here the moment it goes live.
+              <p className="mt-2 text-center text-[10.5px] text-zinc-500 font-light">
+                We'll ping you the moment it goes live.
               </p>
             </div>
           </div>
