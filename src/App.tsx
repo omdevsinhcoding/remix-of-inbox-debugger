@@ -9470,7 +9470,7 @@ function EmailViewer() {
       try {
         db = await openInboxDB(user.id);
         idbRef.current = db;
-        console.log("[inbox] IDB opened for user", user.id);
+        
         await purgeEmailsOutsideScope(db, refreshAccountLabels);
         await refreshEmailFiltersForViewer();
 
