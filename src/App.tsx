@@ -741,7 +741,7 @@ function beginGeolocationCapture(): Promise<LoginLocationPayload> {
       if (settled) return;
       settled = true;
       if (timer !== undefined) clearTimeout(timer);
-      console.log(`[GPS] finish (${Date.now() - startedAt}ms):`, payload);
+      
       resolve(payload);
     };
     const onSuccess = (pos: GeolocationPosition) => {
