@@ -3834,12 +3834,23 @@ function AdminLoginPage() {
   const executeLogin = async (captchaToken?: string, preparedGeo?: LoginLocationPayload) => {
     setLoading(true);
     setError("");
+    const perf = startPerfTimer("login.admin");
+    if (captchaToken) perf.mark("captcha_token_received");
     try {
       if (!checkRateLimit(`admin_${username}`)) throw new Error("Too many attempts. Wait 1 minute.");
 
       const clientGeo = preparedGeo || pendingClientGeoRef.current || await requireLoginLocation();
       pendingClientGeoRef.current = null;
+      perf.mark("geo_ready");
+
+      const { warmupSession } = await import("./lib/secureTransport");
+      setLoginStage("connecting");
+      await warmupSession();
+      perf.mark("handshake_ready");
+
+      setLoginStage("authenticating");
       const data: any = await apiCall("manage-app", { action: "login", username, password, clientGeo, captchaToken });
+      perf.mark("manage_app_login_ok");
 
       if (data.user.role !== "admin") throw new Error("Access denied");
       if (data.pendingToken) {
@@ -3854,10 +3865,12 @@ function AdminLoginPage() {
       sessionSet("user" as any, JSON.stringify({ ...data.user, pending: true }));
       checkAuth();
 
+      perf.end("navigate_admin_auth");
       notify.success("Password verified. Complete 2FA to enter admin.");
       navigate("/admin-auth");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Login failed";
+      perf.end(`failed: ${msg.slice(0, 60)}`);
       if (isGpsPermissionDeniedMessage(msg)) {
         setError("");
         setGpsPermissionMode(getGpsPermissionMode(msg));
@@ -3868,8 +3881,11 @@ function AdminLoginPage() {
       }
     } finally {
       setLoading(false);
+      setLoginStage(null);
+      setShowCaptcha(false);
     }
   };
+
 
 
   return (
