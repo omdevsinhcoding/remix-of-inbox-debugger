@@ -30,6 +30,13 @@ function publicProfilePrefs(value: any) {
 function isGlobalLocationRequired(value: any) {
   return !(value && typeof value === "object" && value.required === false);
 }
+function readLocationPolicy(value: any) {
+  const v = value && typeof value === "object" ? value : {};
+  return {
+    required: v.required !== false,          // default true for user profiles
+    adminRequired: v.admin_required === true, // default false for admins
+  };
+}
 async function loadGlobalLocationRequired(supabase: any): Promise<boolean> {
   try {
     const { data } = await supabase.from("app_settings").select("value").eq("key", "location_policy").maybeSingle();
@@ -38,13 +45,25 @@ async function loadGlobalLocationRequired(supabase: any): Promise<boolean> {
     return true;
   }
 }
-function isProfileLocationRequired(user: any, globalRequired = true) {
-  if (!globalRequired || !user || user.role === "admin") return false;
+async function loadLocationPolicy(supabase: any): Promise<{ required: boolean; adminRequired: boolean }> {
+  try {
+    const { data } = await supabase.from("app_settings").select("value").eq("key", "location_policy").maybeSingle();
+    return readLocationPolicy(data?.value);
+  } catch {
+    return { required: true, adminRequired: false };
+  }
+}
+function isProfileLocationRequired(user: any, globalRequired = true, adminRequired = false) {
+  if (!user) return false;
+  // Admin: only requires GPS when both global policy is ON AND admin toggle is ON.
+  if (user.role === "admin") return globalRequired && adminRequired;
+  if (!globalRequired) return false;
   // Default true for every non-admin profile (including free) unless admin
   // explicitly turned it off. Free profiles follow the same global location
   // policy as paid profiles — captcha + GPS when policy is ON.
   return publicProfilePrefs(user.profile_prefs).locationRequired !== false;
 }
+
 const VIS_PASSWORD_RESET_RE = /(password (was |has been )?(changed|reset|updated)|reset your password|forgot password|password reset|new password|account recovery)/i;
 const VIS_SIGNIN_RE = /(sign[\s-]?in code|new sign[\s-]?in|new device|temporary access code|is using your account|access your account|verification code|login code|enter this code|otp)/i;
 const DEFAULT_EMAIL_FILTERS = { showSignInCodes: true, showPasswordResets: true, showAccountUpdates: true };
