@@ -2103,10 +2103,6 @@ function FreeExpiryPill() {
   const expIso = (user as any)?.expiresAt as string | null | undefined;
   const autoDelete = (user as any)?.autoDelete !== false;
 
-  // DEBUG: log why the pill may not render (removes once user confirms visible).
-  useEffect(() => {
-    console.log("[FreeExpiryPill] gate:", { isFree, expIso, autoDelete, hidden, userKeys: user ? Object.keys(user) : null });
-  }, [isFree, expIso, autoDelete, hidden, user]);
 
   if (hidden) return null;
   if (!isFree || !expIso || !autoDelete) return null;
