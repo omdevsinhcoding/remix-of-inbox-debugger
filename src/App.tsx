@@ -3944,10 +3944,16 @@ function AdminLoginPage() {
       </motion.div>
 
       <AnimatePresence>
-        {showCaptcha && siteKey && (
-          <CaptchaModal siteKey={siteKey} onVerify={(token) => { setShowCaptcha(false); executeLogin(token); }} onCancel={() => { pendingClientGeoRef.current = null; setShowCaptcha(false); }} />
+        {(showCaptcha || loginStage) && siteKey && (
+          <CaptchaModal
+            siteKey={siteKey}
+            stage={loginStage}
+            onVerify={(token) => { void executeLogin(token); }}
+            onCancel={() => { pendingClientGeoRef.current = null; setShowCaptcha(false); }}
+          />
         )}
       </AnimatePresence>
+
     </div>
   );
 }
