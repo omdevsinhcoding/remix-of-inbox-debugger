@@ -1974,14 +1974,14 @@ function TvAutoLoginButton() {
 
   const popup = open ? createPortal(
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/50 animate-in fade-in duration-150"
+      className="fixed inset-0 z-[100] animate-in fade-in duration-150"
       onClick={() => setOpen(false)}
       role="dialog"
       aria-modal="true"
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-xs max-h-[calc(100svh-2rem)] overflow-y-auto rounded-2xl bg-white shadow-2xl border border-slate-200 p-5 animate-in zoom-in-95 duration-150"
+        className="absolute right-3 sm:right-4 top-[calc(env(safe-area-inset-top)+3.75rem)] w-[min(20rem,calc(100vw-1.5rem))] max-h-[calc(100svh-6rem)] overflow-y-auto rounded-2xl bg-white shadow-2xl border border-slate-200 p-5 animate-in zoom-in-95 slide-in-from-top-2 duration-150 origin-top-right"
       >
         <div className="flex items-center gap-2 mb-3">
           <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-rose-100 text-rose-600">
@@ -2010,6 +2010,7 @@ function TvAutoLoginButton() {
     </div>,
     document.body,
   ) : null;
+
 
   return (
     <>
@@ -2078,6 +2079,7 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
       window.removeEventListener("notif:close", onClose);
     };
   }, []);
+  const [showInfo, setShowInfo] = useState(false);
   if (hidden) return null;
   if (!minutes || minutes <= 0 || remainingMs <= 0) return null;
 
@@ -2093,16 +2095,64 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
     ? "bg-amber-500 text-white"
     : "bg-slate-900/90 text-white";
 
+  const started = Number(sessionGet("session_started_at" as any) || "0");
+  const endsAt = started ? new Date(started + minutes * 60_000).toLocaleString() : "—";
+
   // Keep the session pill bottom-right on both mobile and desktop.
   return (
-    <div
-      className={`fixed z-40 right-3 sm:right-4 bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:bottom-4 h-7 sm:h-8 px-3 sm:px-3.5 rounded-full text-[11px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1.5 pointer-events-none select-none`}
-    >
-      <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" />
-      {role === "admin" ? "Admin" : "Session"}: {pad(mm)}:{pad(ss)}
-    </div>
+    <>
+      <button
+        type="button"
+        onClick={() => setShowInfo((v) => !v)}
+        title="Tap for details"
+        className={`fixed z-40 right-3 sm:right-4 bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:bottom-4 h-7 sm:h-8 px-3 sm:px-3.5 rounded-full text-[11px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1.5 select-none active:scale-95 transition`}
+      >
+        <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" />
+        {role === "admin" ? "Admin" : "Session"}: {pad(mm)}:{pad(ss)}
+      </button>
+
+      {showInfo && createPortal(
+        <div
+          className="fixed inset-0 z-[80] animate-in fade-in duration-150"
+          onClick={() => setShowInfo(false)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="absolute right-3 sm:right-4 bottom-[calc(env(safe-area-inset-bottom)+0.75rem+2.25rem)] sm:bottom-[calc(1rem+2.5rem)] w-[min(20rem,calc(100vw-1.5rem))] max-h-[calc(100svh-6rem)] overflow-y-auto rounded-2xl bg-white shadow-2xl border border-slate-200 p-5 animate-in zoom-in-95 slide-in-from-bottom-2 duration-150 origin-bottom-right"
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${urgent ? "bg-red-100 text-red-600" : warn ? "bg-amber-100 text-amber-600" : "bg-slate-100 text-slate-700"}`}>
+                <Clock className="w-5 h-5" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-sm font-extrabold text-slate-900 leading-tight">{role === "admin" ? "Admin session" : "Session timer"}</div>
+                <div className="text-[10px] text-slate-500">Auto sign-out countdown</div>
+              </div>
+            </div>
+            <p className="text-xs text-slate-700 leading-relaxed">
+              You&apos;ll be <span className="font-bold">signed out automatically</span> when the timer hits zero. Sign in again to continue.
+            </p>
+            <div className="mt-3 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
+              <div className="text-[10px] uppercase tracking-wide text-slate-500 font-bold">Signs out at</div>
+              <div className="text-xs font-semibold text-slate-900">{endsAt}</div>
+              <div className="text-[10px] text-slate-500 mt-1">Remaining: <span className="font-bold text-slate-800">{pad(mm)}:{pad(ss)}</span> · Total: {minutes}m</div>
+            </div>
+            <button
+              onClick={() => setShowInfo(false)}
+              className="mt-4 w-full h-9 rounded-lg bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 active:scale-[0.98] transition"
+            >
+              Got it
+            </button>
+          </div>
+        </div>,
+        document.body,
+      )}
+    </>
   );
 }
+
 
 // --- Free profile expiry pill (auto-deletion notice) ---
 // Matches SessionCountdown style; sits directly above the session pill (bottom-right).
@@ -2171,15 +2221,16 @@ function FreeExpiryPill() {
 
       {showInfo && (
         <div
-          className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-slate-950/50 animate-in fade-in duration-150"
+          className="fixed inset-0 z-[80] animate-in fade-in duration-150"
           onClick={() => setShowInfo(false)}
           role="dialog"
           aria-modal="true"
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-xs rounded-2xl bg-white shadow-2xl border border-slate-200 p-5 animate-in zoom-in-95 duration-150"
+            className="absolute right-3 sm:right-4 bottom-[calc(env(safe-area-inset-bottom)+0.75rem+4.5rem)] sm:bottom-[calc(1rem+5rem)] w-[min(20rem,calc(100vw-1.5rem))] max-h-[calc(100svh-8rem)] overflow-y-auto rounded-2xl bg-white shadow-2xl border border-slate-200 p-5 animate-in zoom-in-95 slide-in-from-bottom-2 duration-150 origin-bottom-right"
           >
+
             <div className="flex items-center gap-2 mb-3">
               <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${urgent ? "bg-red-100 text-red-600" : warn ? "bg-amber-100 text-amber-600" : "bg-emerald-100 text-emerald-600"}`}>
                 <Clock className="w-5 h-5" />
