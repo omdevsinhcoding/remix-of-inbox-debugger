@@ -9,7 +9,7 @@ import { ToastProvider } from "./components/toast/toast-provider";
 
 import { supabase } from "./integrations/supabase/client";
 import { AVATAR_CATEGORIES, resolveAvatar, buildAvatarId, prettyName, getAvatarCategoryUrls } from "./lib/avatars";
-import { bootstrapFromSupabase, clearSessionData, markSessionStart, readBootstrapCache, refreshBootstrap, patchBootstrapCacheUser, getEmailFilters, setEmailFilters as setEmailFiltersCache, getFreeAvatarCooldown, setFreeAvatarCooldown, listNotifications, markNotificationRead, markAllNotificationsRead, markNotificationSeen, deleteNotificationForMe, logNotificationEvent, getPoppedIds, markPopped, adminListRecipients, adminDeleteNotificationForUser, type EmailFilters, type AppNotification, type MaintenanceInfo, type NotificationRecipient } from "./lib/bootstrap";
+import { bootstrapFromSupabase, clearSessionData, performSignOut, markSessionStart, readBootstrapCache, refreshBootstrap, patchBootstrapCacheUser, getEmailFilters, setEmailFilters as setEmailFiltersCache, getFreeAvatarCooldown, setFreeAvatarCooldown, listNotifications, markNotificationRead, markAllNotificationsRead, markNotificationSeen, deleteNotificationForMe, logNotificationEvent, getPoppedIds, markPopped, adminListRecipients, adminDeleteNotificationForUser, type EmailFilters, type AppNotification, type MaintenanceInfo, type NotificationRecipient } from "./lib/bootstrap";
 import MaintenanceScreen from "./components/MaintenanceScreen";
 import DateTimePicker from "./components/DateTimePicker";
 import { sessionGet, sessionSet, sessionRemove, sessionClearAll } from "./lib/session";
@@ -1096,25 +1096,14 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           .on("broadcast", { event: "revoked" }, async () => {
             if ((user as any)?.impersonated === true) return;
             try {
-              sessionRemove("session_token" as any);
-              sessionRemove("user" as any);
-              sessionRemove("admin_auth" as any);
-              sessionRemove("pending_admin_token" as any);
-            } catch {}
-            try {
-              const { clearRefreshState } = await import("./lib/sessionRefresh");
-              clearRefreshState();
-            } catch {}
-            setUser(null);
-            try {
               const { notify } = await import("./components/toast/notify");
               notify.error("Signed out", {
                 description: "You signed in on another device.",
-                duration: 9000,
+                duration: 3000,
               });
             } catch {}
-            // Hard reload so any in-flight state (polling, workers, portals) resets.
-            setTimeout(() => { try { window.location.href = "/"; } catch {} }, 150);
+            // Silent full reset: purge cookies + session, then reload the page.
+            performSignOut();
           })
           .subscribe();
       } catch {}
@@ -1149,14 +1138,13 @@ function useSessionTimeoutGuard(role: "admin" | "user", enabled = true) {
     let poll: any;
     let cancelled = false;
     const doLogout = () => {
-      clearSessionData();
-      checkAuth();
       notify.info("🔒 Session timed out", {
         id: "session-timed-out",
         description: "Tap your profile and enter password again.",
         duration: 3000,
       });
-      navigate(role === "admin" ? "/admin" : "/", { replace: true });
+      // Silent full reset: purge cookies + session, then reload the page.
+      performSignOut();
     };
     (async () => {
       let minutes = 0;
@@ -6101,7 +6089,7 @@ function AdminPanel() {
             <span className="hidden sm:inline">Admin Control Panel</span>
             <span className="sm:hidden">Admin</span>
           </h2>
-          <button onClick={() => { try { sessionClearAll(); } catch {} window.location.replace("/"); }} className="p-2 hover:bg-slate-100 rounded-full transition-colors" title="Logout" aria-label="Logout">
+          <button onClick={() => { performSignOut(); }} className="p-2 hover:bg-slate-100 rounded-full transition-colors" title="Logout" aria-label="Logout">
             <LogOut className="w-5 h-5 text-slate-400" aria-hidden="true" />
           </button>
         </div>
@@ -9981,7 +9969,7 @@ function EmailViewer() {
             )}
             {!isImpersonating && (
               <button
-                onClick={() => { try { sessionClearAll(); } catch {} window.location.replace("/"); }}
+                onClick={() => { performSignOut(); }}
                 className="flex items-center justify-center w-9 h-9 bg-red-600 text-white rounded-full transition-all active:scale-95 hover:bg-red-700"
                 title="Logout"
                 aria-label="Logout"
@@ -10050,7 +10038,7 @@ function EmailViewer() {
             )}
             {!isImpersonating && (
               <button
-                onClick={() => { try { sessionClearAll(); } catch {} window.location.replace("/"); }}
+                onClick={() => { performSignOut(); }}
                 className="flex items-center justify-center w-10 h-10 bg-red-600 text-white rounded-full transition-all active:scale-95 hover:bg-red-700 shadow-sm"
                 title="Logout"
                 aria-label="Logout"
@@ -10367,14 +10355,13 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
     if (user.impersonated === true || hasActiveAdminImpersonationBackup()) return;
     const path = typeof window !== "undefined" ? window.location.pathname : "/";
     if (path.startsWith("/admin")) return;
-    try { clearSessionData(); } catch {}
-    checkAuth();
     notify.info("🛠 Maintenance started", {
       id: "maint-kick",
       description: "You've been signed out while we perform updates.",
       duration: 4000,
     });
-    navigate("/", { replace: true });
+    // Silent full reset: purge cookies + session, then reload the page.
+    performSignOut();
   }, [maint.enabled, authLoading, user?.id, user?.role, user?.impersonated]);
 
 
@@ -10451,6 +10438,24 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
 }
 
 
+// Netflix-style /clearcookies endpoint. Purges every JS-readable cookie for
+// this origin plus tab session state, then bounces to "/". Safe to hit while
+// signed out — it's a no-op if there's nothing to clear.
+function ClearCookiesPage() {
+  useEffect(() => {
+    performSignOut({ reload: false });
+    const t = setTimeout(() => {
+      try { window.location.replace("/"); } catch {}
+    }, 60);
+    return () => clearTimeout(t);
+  }, []);
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-950 text-slate-200">
+      <div className="text-sm opacity-80">Clearing cookies…</div>
+    </div>
+  );
+}
+
 // ==================== MAIN APP ====================
 export default function App() {
   return (
@@ -10467,6 +10472,7 @@ export default function App() {
               <Route path="/admin/viewer" element={<AdminUserViewRoute><EmailViewer /></AdminUserViewRoute>} />
               <Route path="/viewer" element={<ProtectedRoute role="user"><EmailViewer /></ProtectedRoute>} />
               <Route path="/guides/netflix-household-verification" element={<NetflixHouseholdVerificationGuide />} />
+              <Route path="/clearcookies" element={<ClearCookiesPage />} />
             </Routes>
 
 
