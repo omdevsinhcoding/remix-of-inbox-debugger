@@ -3573,12 +3573,18 @@ function ProfileSelectPage() {
       </AnimatePresence>
 
       <AnimatePresence>
-        {showCaptcha && siteKey && (
-          <CaptchaModal siteKey={siteKey} onVerify={(token) => { setShowCaptcha(false); executeLogin(token); }} onCancel={() => { pendingClientGeoRef.current = null; setShowCaptcha(false); }} />
-        )}
-        {freeCaptchaProfile && siteKey && (
+        {(showCaptcha || (loginStage && !freeCaptchaProfile)) && siteKey && (
           <CaptchaModal
             siteKey={siteKey}
+            stage={loginStage}
+            onVerify={(token) => { void executeLogin(token); }}
+            onCancel={() => { pendingClientGeoRef.current = null; setShowCaptcha(false); }}
+          />
+        )}
+        {(freeCaptchaProfile || (loginStage && !showCaptcha && !!freeLoginId)) && siteKey && (
+          <CaptchaModal
+            siteKey={siteKey}
+            stage={loginStage}
             onVerify={(token) => {
               const p = freeCaptchaProfile;
               setFreeCaptchaProfile(null);
@@ -3588,6 +3594,7 @@ function ProfileSelectPage() {
           />
         )}
       </AnimatePresence>
+
     </div>
   );
 }
