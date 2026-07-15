@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { SyncState } from "@/lib/adminSettingsCache";
+import type { SyncState } from "../lib/adminSettingsCache";
 
 // Small floating pill (bottom-right) that shows the current admin-settings
 // sync state. Auto-hides after "saved" for 2s so it doesn't clutter the UI.
