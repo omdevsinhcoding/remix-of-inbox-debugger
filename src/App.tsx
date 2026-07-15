@@ -741,7 +741,7 @@ function beginGeolocationCapture(): Promise<LoginLocationPayload> {
       if (settled) return;
       settled = true;
       if (timer !== undefined) clearTimeout(timer);
-      console.log(`[GPS] finish (${Date.now() - startedAt}ms):`, payload);
+      
       resolve(payload);
     };
     const onSuccess = (pos: GeolocationPosition) => {
@@ -799,15 +799,6 @@ async function collectLoginLocation(): Promise<LoginLocationPayload> {
 
 async function requireLoginLocation(preStarted?: Promise<LoginLocationPayload> | null, preStartedDevice?: Promise<DeviceFingerprint> | null): Promise<LoginLocationPayload> {
   const location = await (preStarted ?? beginGeolocationCapture());
-  console.log("[GPS] Outgoing clientGeo payload:", {
-    status: location.status,
-    latitude: location.latitude,
-    longitude: location.longitude,
-    accuracy: location.accuracy,
-    timestamp: location.timestamp,
-    permissionState: location.permissionState,
-    error: location.error,
-  });
   if (location.status !== "granted" || typeof location.latitude !== "number" || typeof location.longitude !== "number") {
     throw new Error(buildLocationSignInMessage(location));
   }
@@ -9449,13 +9440,11 @@ function EmailViewer() {
     [refreshAccountLabels],
   );
   useEffect(() => {
-    // eslint-disable-next-line no-console
     const runKey = `${user?.id || ""}:${instantInboxAccountKey}`;
-    console.log("[inbox] effect fired", { userId: user?.id, runKey, alreadyRan: instantInboxRunKeyRef.current === runKey });
     if (instantInboxRunKeyRef.current === runKey) return;
-    if (!user?.id) { console.log("[inbox] no user.id, skipping"); return; }
+    if (!user?.id) return;
     if (refreshAccountLabels === undefined) {
-      console.log("[inbox] account scope hydrating, painting local cache only");
+      pushDiag({ ts: Date.now(), kind: "cache", endpoint: "idb:instant-paint", note: "account scope hydrating, painting local cache only" });
       (async () => {
         try {
           const db = await openInboxDB(user.id);
@@ -9481,20 +9470,20 @@ function EmailViewer() {
       try {
         db = await openInboxDB(user.id);
         idbRef.current = db;
-        console.log("[inbox] IDB opened for user", user.id);
+        
         await purgeEmailsOutsideScope(db, refreshAccountLabels);
         await refreshEmailFiltersForViewer();
 
         // ---- (1) Instant paint from IDB ----
         const cached = await readLatestEmails(db, 200, refreshAccountLabels);
-        console.log(`[inbox] IDB has ${cached.length} cached rows`);
+        
         if (cached.length > 0) {
           setEmails(cached as unknown as Email[]);
           setLastUpdated(new Date());
           markInboxReady();
           const dt = performance.now() - t0;
           pushDiag({ ts: Date.now(), kind: "cache", endpoint: "idb:instant-paint", ms: Math.round(dt), note: `${cached.length} rows` });
-          console.log(`[inbox] instant paint in ${dt.toFixed(1)}ms (${cached.length} rows from IDB)`);
+          
         }
 
         // ---- (2) Delta sync via Supabase edge function ----
@@ -9504,16 +9493,7 @@ function EmailViewer() {
         // changes after that cursor. Otherwise old emails can never backfill.
         const cursor = cached.length === 0 ? 0 : storedCursor;
         const started = performance.now();
-        console.log(`[inbox] calling list_delta since=${cursor}${storedCursor && cursor === 0 ? ` (reset stale cursor ${storedCursor})` : ""}`);
         const delta = await apiCall("manage-app", { action: "list_delta", since: cursor, limit: cursor === 0 ? 1000 : 500 });
-        console.log("[inbox] list_delta response", {
-          success: delta?.success,
-          mode: delta?.mode,
-          rows: delta?.rows?.length || 0,
-          removed: delta?.removedIds?.length || 0,
-          newCursor: delta?.newCursor,
-          sample: delta?.rows?.[0],
-        });
         pushDiag({
           ts: Date.now(),
           kind: "sync",
@@ -9529,7 +9509,7 @@ function EmailViewer() {
         if (rows.length > 0 || removedIds.length > 0 || newCursor > cursor) {
           await writeDelta(db, { rows, removedIds, newCursor });
           const fresh = await readLatestEmails(db, 200, refreshAccountLabels);
-          console.log(`[inbox] after writeDelta, IDB has ${fresh.length} rows → repaint`);
+          
           if (fresh.length > 0) {
             setEmails(fresh as unknown as Email[]);
             setLastUpdated(new Date());
