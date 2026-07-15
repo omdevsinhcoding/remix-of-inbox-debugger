@@ -57,6 +57,14 @@
         { "key": "Content-Type", "value": "text/plain; charset=utf-8" },
         { "key": "Cache-Control", "value": "public, max-age=86400" }
       ]
+    },
+    {
+      "//": "⚠️ DO NOT TOUCH — Netflix-style /clearcookies. Browser purges cookies + all storage + cache + SW + execution contexts at HTTP layer → site storage 0 B. JS fallback in nukeBrowserIdentity() is belt-and-suspenders.",
+      "source": "/clearcookies",
+      "headers": [
+        { "key": "Clear-Site-Data", "value": "\"*\"" },
+        { "key": "Cache-Control", "value": "no-store, max-age=0" }
+      ]
     }
   ],
   "rewrites": [
