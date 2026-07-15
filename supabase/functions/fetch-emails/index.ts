@@ -427,11 +427,13 @@ async function readCache(supabase: any, accountFilter: string[] | null, filterSi
     id: e.id,
     subject: e.subject,
     from: e.from_address,
+    // Keep raw to_address for the recipient scoping filter just below; we mask
+    // it after filtering, before it goes out to the client.
     to: e.to_address,
     date: e.date,
     otp: e.otp,
-    preview: e.preview,
-    html: e.html,
+    preview: redactEmailsText(e.preview),
+    html: redactEmailsHtml(e.html),
     account_label: e.account_label,
     cached_at: e.cached_at,
   }));
