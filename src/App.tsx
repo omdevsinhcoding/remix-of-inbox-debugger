@@ -10709,6 +10709,7 @@ export default function App() {
     <Router>
       <AuthProvider>
         <ToastProvider />
+        <AdminSyncStatus />
         <ErrorBoundary>
           <MaintenanceGate>
             <Routes>
