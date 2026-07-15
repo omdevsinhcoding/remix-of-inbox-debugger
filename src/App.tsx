@@ -3813,18 +3813,23 @@ function AdminLoginPage() {
     setLoading(true);
     setError("");
     try {
-      const clientGeo = hasGrantedLocation(pendingClientGeoRef.current) ? pendingClientGeoRef.current : await requireLoginLocation(preStartedGeo, preStartedDevice);
-      pendingClientGeoRef.current = clientGeo;
+      let clientGeo: LoginLocationPayload | null = null;
+      if (locationRequired) {
+        clientGeo = hasGrantedLocation(pendingClientGeoRef.current) ? pendingClientGeoRef.current : await requireLoginLocation(preStartedGeo, preStartedDevice);
+        pendingClientGeoRef.current = clientGeo;
+      }
       if (!captchaReady) {
         setLoading(false);
-        notify.info("Location ready", { id: "gps-permission-ready", description: "Wait for security check, then tap Admin Sign In.", duration: 8500 });
+        if (locationRequired) {
+          notify.info("Location ready", { id: "gps-permission-ready", description: "Wait for security check, then tap Admin Sign In.", duration: 8500 });
+        }
         return;
       }
       if (siteKey) {
         setShowCaptcha(true);
         setLoading(false);
       } else {
-        await executeLogin(undefined, clientGeo);
+        await executeLogin(undefined, clientGeo ?? undefined);
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Login failed";
