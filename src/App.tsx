@@ -3738,6 +3738,11 @@ function AdminLoginPage() {
       notify.error(msg);
       return;
     }
+    if (!locationRequired) {
+      setError("");
+      void startLocationThenLogin();
+      return;
+    }
     // FIRE GEO FIRST synchronously — preserve user activation (Chrome Incognito).
     const hasPreparedGeo = hasGrantedLocation(pendingClientGeoRef.current);
     const geoPromise = hasPreparedGeo ? undefined : (armedGeoRef.current ?? beginGeolocationCapture());
@@ -3751,6 +3756,7 @@ function AdminLoginPage() {
   };
 
   const armLoginTelemetry = () => {
+    if (!locationRequired) return;
     if (hasGrantedLocation(pendingClientGeoRef.current)) return;
     if (!armedGeoRef.current) armedGeoRef.current = beginGeolocationCapture();
     if (!armedDeviceRef.current) armedDeviceRef.current = beginDeviceFingerprintCapture();
@@ -3762,6 +3768,7 @@ function AdminLoginPage() {
   };
 
   const primeGpsEnableFromPointer = () => {
+    if (!locationRequired) return;
     if (gpsRequesting || loading) return;
     if (hasGrantedLocation(pendingClientGeoRef.current)) return;
     armedGeoRef.current = beginGeolocationCapture();
