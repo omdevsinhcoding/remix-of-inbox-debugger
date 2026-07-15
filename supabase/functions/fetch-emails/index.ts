@@ -588,8 +588,8 @@ async function fetchFromAccount(
             to: toText,
             date: parsed.date || new Date(),
             otp: otpCode,
-            preview: bodyText.length > 100 ? `${bodyText.substring(0, 100)}...` : bodyText,
-            html: parsed.html || parsed.textAsHtml || `<pre>${bodyText}</pre>`,
+            preview: redactEmailsText(bodyText.length > 100 ? `${bodyText.substring(0, 100)}...` : bodyText),
+            html: redactEmailsHtml(parsed.html || parsed.textAsHtml || `<pre>${bodyText}</pre>`),
             account_label: accountLabel,
           });
         } catch (parseErr) {
