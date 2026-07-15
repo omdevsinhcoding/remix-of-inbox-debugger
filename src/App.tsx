@@ -5009,7 +5009,7 @@ function AdminPanel() {
   // Location alert toggle
   const [ipwhoAlertEnabled, setIpwhoAlertEnabled] = useState(false);
   const [savingIpwho, setSavingIpwho] = useState(false);
-  const [locationPolicyRequired, setLocationPolicyRequired] = useState(false);
+  const [locationPolicyRequired, setLocationPolicyRequired] = useState(true);
   const [savingLocationPolicy, setSavingLocationPolicy] = useState(false);
   // Maintenance mode
   const [maintenanceEnabled, setMaintenanceEnabled] = useState(false);
