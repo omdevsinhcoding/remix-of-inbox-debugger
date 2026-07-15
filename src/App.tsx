@@ -3687,6 +3687,7 @@ function AdminLoginPage() {
       try {
         const bootstrap = await bootstrapFromSupabase({ force: true });
         if (cancelled) return;
+        setLocationRequired(bootstrap.locationPolicy?.required !== false);
         if (bootstrap.recaptcha?.enabled === true && bootstrap.recaptcha?.siteKey) {
           setSiteKey(bootstrap.recaptcha.siteKey);
           preloadRecaptchaScript();
