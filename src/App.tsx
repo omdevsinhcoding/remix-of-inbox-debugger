@@ -6374,56 +6374,97 @@ function AdminPanel() {
                       )}
 
                     {deleteConfirmUser?.id === u.id && createPortal(
-                      <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 animate-in fade-in duration-150"
+                      <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 animate-in fade-in duration-200"
                         onClick={() => !deletingUser && setDeleteConfirmUser(null)}
                         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
-                        <div className="absolute inset-0 bg-slate-950/70 backdrop-blur-md" />
+                        {/* Cinematic backdrop */}
+                        <div className="absolute inset-0 bg-black/80 backdrop-blur-xl" />
+                        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_30%,rgba(244,63,94,0.18),transparent_60%)] pointer-events-none" />
+
                         <div onClick={(e) => e.stopPropagation()}
-                          className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl border border-rose-100 overflow-hidden animate-in zoom-in-95 duration-200">
-                          <div className="bg-gradient-to-br from-rose-50 to-red-50 px-5 pt-5 pb-4 border-b border-rose-100">
-                            <div className="flex items-start gap-3">
-                              <div className="shrink-0 w-11 h-11 rounded-full bg-rose-100 flex items-center justify-center ring-4 ring-rose-50">
-                                <Trash2 className="w-5 h-5 text-rose-600" />
-                              </div>
-                              <div className="min-w-0">
-                                <div className="text-[15px] font-extrabold text-slate-900 leading-tight">Delete this user?</div>
-                                <div className="text-[12px] text-slate-600 mt-0.5">This action can't be undone.</div>
+                          className="relative w-full max-w-[380px] rounded-3xl overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-4 duration-300"
+                          style={{
+                            background: "linear-gradient(180deg, rgba(24,24,32,0.98) 0%, rgba(12,12,18,0.98) 100%)",
+                            border: "1px solid rgba(255,255,255,0.08)",
+                            boxShadow: "0 40px 80px -20px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.04) inset, 0 30px 60px -30px rgba(244,63,94,0.35)",
+                          }}>
+                          {/* Top accent hairline */}
+                          <div className="h-px w-full bg-gradient-to-r from-transparent via-rose-500/60 to-transparent" />
+
+                          {/* Header */}
+                          <div className="px-6 pt-7 pb-5 text-center">
+                            <div className="relative mx-auto w-16 h-16 mb-4">
+                              <div className="absolute inset-0 rounded-full bg-rose-500/10 blur-xl" />
+                              <div className="relative w-16 h-16 rounded-full flex items-center justify-center"
+                                style={{
+                                  background: "linear-gradient(135deg, rgba(244,63,94,0.15), rgba(244,63,94,0.05))",
+                                  border: "1px solid rgba(244,63,94,0.3)",
+                                  boxShadow: "0 0 0 6px rgba(244,63,94,0.06), inset 0 1px 0 rgba(255,255,255,0.08)",
+                                }}>
+                                <Trash2 className="w-7 h-7 text-rose-400" strokeWidth={2} />
                               </div>
                             </div>
+                            <div className="text-white text-[19px] font-bold tracking-tight leading-tight">
+                              Permanently delete profile?
+                            </div>
+                            <div className="text-white/50 text-[13px] mt-1.5 leading-relaxed px-2">
+                              This will erase everything tied to this account. There is no undo.
+                            </div>
                           </div>
-                          <div className="px-5 py-4">
-                            <div className="flex items-center gap-3 rounded-xl bg-slate-50 border border-slate-200 px-3 py-2.5">
-                              <div className="w-9 h-9 rounded-full bg-slate-200 flex items-center justify-center text-[13px] font-bold text-slate-700 overflow-hidden">
+
+                          {/* User card */}
+                          <div className="mx-5 mb-4">
+                            <div className="flex items-center gap-3 rounded-2xl px-3.5 py-3"
+                              style={{
+                                background: "rgba(255,255,255,0.03)",
+                                border: "1px solid rgba(255,255,255,0.06)",
+                              }}>
+                              <div className="w-11 h-11 rounded-full flex items-center justify-center text-[14px] font-bold text-white/90 overflow-hidden shrink-0"
+                                style={{
+                                  background: "linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02))",
+                                  border: "1px solid rgba(255,255,255,0.08)",
+                                }}>
                                 {u.profileAvatar ? <img src={u.profileAvatar} alt="" className="w-full h-full object-cover" /> : (u.name || u.username || "?").slice(0, 1).toUpperCase()}
                               </div>
                               <div className="min-w-0 flex-1">
-                                <div className="text-[13px] font-semibold text-slate-900 truncate">{u.name || u.username || "Unnamed"}</div>
-                                {u.username && <div className="text-[11px] text-slate-500 truncate">@{u.username}</div>}
+                                <div className="text-[14px] font-semibold text-white truncate">{u.name || u.username || "Unnamed"}</div>
+                                {u.username && <div className="text-[11.5px] text-white/45 truncate mt-0.5">@{u.username}</div>}
                               </div>
                             </div>
-                            <div className="mt-3 flex items-start gap-2 text-[11.5px] text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-2.5 py-2 leading-snug">
-                              <span className="text-rose-500">⚠️</span>
-                              <span>All data linked to this profile will be permanently removed. Miss touch = data gone.</span>
-                            </div>
                           </div>
-                          <div className="px-5 pb-5 flex gap-2">
+
+                          {/* Actions */}
+                          <div className="px-5 pb-5 flex gap-2.5">
                             <button
                               onClick={() => setDeleteConfirmUser(null)}
                               disabled={deletingUser}
-                              className="flex-1 h-10 rounded-xl border border-slate-200 bg-white text-slate-700 text-[13px] font-semibold hover:bg-slate-50 active:scale-[0.98] transition disabled:opacity-50">
-                              Cancel
+                              className="flex-1 h-11 rounded-xl text-white/80 text-[13.5px] font-semibold transition-all active:scale-[0.98] disabled:opacity-50 hover:text-white"
+                              style={{
+                                background: "rgba(255,255,255,0.04)",
+                                border: "1px solid rgba(255,255,255,0.08)",
+                              }}>
+                              Keep it
                             </button>
                             <button
                               onClick={() => deleteUser(u.id)}
                               disabled={deletingUser}
-                              className="flex-1 h-10 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-[13px] font-bold shadow-sm active:scale-[0.98] transition disabled:opacity-60 flex items-center justify-center gap-1.5">
-                              {deletingUser ? "Deleting…" : (<><Trash2 className="w-4 h-4" /> Yes, delete</>)}
+                              className="flex-1 h-11 rounded-xl text-white text-[13.5px] font-bold transition-all active:scale-[0.98] disabled:opacity-60 flex items-center justify-center gap-1.5"
+                              style={{
+                                background: "linear-gradient(180deg, #f43f5e 0%, #e11d48 100%)",
+                                boxShadow: "0 8px 20px -6px rgba(244,63,94,0.5), inset 0 1px 0 rgba(255,255,255,0.15)",
+                              }}>
+                              {deletingUser ? (
+                                <><div className="w-3.5 h-3.5 rounded-full border-2 border-white/40 border-t-white animate-spin" /> Deleting…</>
+                              ) : (
+                                <><Trash2 className="w-4 h-4" /> Delete forever</>
+                              )}
                             </button>
                           </div>
                         </div>
                       </div>,
                       document.body,
                     )}
+
 
 
 
