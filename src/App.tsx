@@ -2051,10 +2051,6 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
       window.removeEventListener("notif:close", onClose);
     };
   }, []);
-  useEffect(() => {
-    const started = Number(sessionGet("session_started_at" as any) || "0");
-    console.log("[SessionCountdown]", role, { minutes, remainingMs, session_started_at: started, hidden });
-  }, [role, minutes, remainingMs, hidden]);
   if (hidden) return null;
   if (!minutes || minutes <= 0 || remainingMs <= 0) return null;
 
