@@ -2486,6 +2486,7 @@ Deno.serve(async (originalReq) => {
           profileAvatar: user.profile_prefs?.avatarId || null,
           isFree: !!user.is_free,
           expiresAt: user.expires_at || null,
+          autoDelete: (user as any).auto_delete !== false,
           locationRequired,
         },
       }), {
