@@ -6373,6 +6373,60 @@ function AdminPanel() {
                         </div>
                       )}
 
+                    {deleteConfirmUser?.id === u.id && createPortal(
+                      <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 animate-in fade-in duration-150"
+                        onClick={() => !deletingUser && setDeleteConfirmUser(null)}
+                        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
+                        <div className="absolute inset-0 bg-slate-950/70 backdrop-blur-md" />
+                        <div onClick={(e) => e.stopPropagation()}
+                          className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl border border-rose-100 overflow-hidden animate-in zoom-in-95 duration-200">
+                          <div className="bg-gradient-to-br from-rose-50 to-red-50 px-5 pt-5 pb-4 border-b border-rose-100">
+                            <div className="flex items-start gap-3">
+                              <div className="shrink-0 w-11 h-11 rounded-full bg-rose-100 flex items-center justify-center ring-4 ring-rose-50">
+                                <Trash2 className="w-5 h-5 text-rose-600" />
+                              </div>
+                              <div className="min-w-0">
+                                <div className="text-[15px] font-extrabold text-slate-900 leading-tight">Delete this user?</div>
+                                <div className="text-[12px] text-slate-600 mt-0.5">This action can't be undone.</div>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="px-5 py-4">
+                            <div className="flex items-center gap-3 rounded-xl bg-slate-50 border border-slate-200 px-3 py-2.5">
+                              <div className="w-9 h-9 rounded-full bg-slate-200 flex items-center justify-center text-[13px] font-bold text-slate-700 overflow-hidden">
+                                {u.profileAvatar ? <img src={u.profileAvatar} alt="" className="w-full h-full object-cover" /> : (u.name || u.username || "?").slice(0, 1).toUpperCase()}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="text-[13px] font-semibold text-slate-900 truncate">{u.name || u.username || "Unnamed"}</div>
+                                {u.username && <div className="text-[11px] text-slate-500 truncate">@{u.username}</div>}
+                              </div>
+                            </div>
+                            <div className="mt-3 flex items-start gap-2 text-[11.5px] text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-2.5 py-2 leading-snug">
+                              <span className="text-rose-500">⚠️</span>
+                              <span>All data linked to this profile will be permanently removed. Miss touch = data gone.</span>
+                            </div>
+                          </div>
+                          <div className="px-5 pb-5 flex gap-2">
+                            <button
+                              onClick={() => setDeleteConfirmUser(null)}
+                              disabled={deletingUser}
+                              className="flex-1 h-10 rounded-xl border border-slate-200 bg-white text-slate-700 text-[13px] font-semibold hover:bg-slate-50 active:scale-[0.98] transition disabled:opacity-50">
+                              Cancel
+                            </button>
+                            <button
+                              onClick={() => deleteUser(u.id)}
+                              disabled={deletingUser}
+                              className="flex-1 h-10 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-[13px] font-bold shadow-sm active:scale-[0.98] transition disabled:opacity-60 flex items-center justify-center gap-1.5">
+                              {deletingUser ? "Deleting…" : (<><Trash2 className="w-4 h-4" /> Yes, delete</>)}
+                            </button>
+                          </div>
+                        </div>
+                      </div>,
+                      document.body,
+                    )}
+
+
+
 
 
 
