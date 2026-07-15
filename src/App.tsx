@@ -10149,7 +10149,7 @@ const ProtectedRoute = ({ children, role }: { children: React.ReactNode; role: "
   if (role === "user" && (user as any)?.impersonated === true && window.location.pathname === "/viewer") return <Navigate to="/admin/viewer" replace />;
   if (role === "user" && user.role === "admin") return <Navigate to="/admin/dashboard" replace />;
   if (role === "admin" && user.role !== "admin") return <Navigate to={(user as any)?.impersonated === true ? "/admin/viewer" : "/"} replace />;
-  return <>{!isAdminViewingUser && <SessionCountdown role={role} />}{children}</>;
+  return <>{!isAdminViewingUser && <SessionCountdown role={role} />}{!isAdminViewingUser && role === "user" && <FreeExpiryPill />}{children}</>;
 };
 
 const AdminUserViewRoute = ({ children }: { children: React.ReactNode }) => {
