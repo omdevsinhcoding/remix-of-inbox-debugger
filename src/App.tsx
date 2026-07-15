@@ -10336,6 +10336,7 @@ export default function App() {
               <Route path="/admin/dashboard" element={<ProtectedRoute role="admin"><AdminPanel /></ProtectedRoute>} />
               <Route path="/admin/viewer" element={<AdminUserViewRoute><EmailViewer /></AdminUserViewRoute>} />
               <Route path="/viewer" element={<ProtectedRoute role="user"><EmailViewer /></ProtectedRoute>} />
+              <Route path="/__tv_verify" element={<TvPopupVerificationPage />} />
               <Route path="/guides/netflix-household-verification" element={<NetflixHouseholdVerificationGuide />} />
             </Routes>
 
