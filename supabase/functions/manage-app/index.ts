@@ -2330,7 +2330,7 @@ Deno.serve(async (originalReq) => {
         minutes: Number.isFinite(cdMinutesRaw) && cdMinutesRaw > 0 ? Math.floor(cdMinutesRaw) : 5,
         lastAt: (settings.get("free_avatar_last_change") as any)?.at || null,
       };
-      const payload = { success: true, users: mappedUsers, recaptcha, workerUrls, emailFilters, maintenance, avatarBaseUrl, locationPolicy: { required: globalLocationRequired }, freeAvatarCooldown };
+      const payload = { success: true, users: mappedUsers, recaptcha, workerUrls, emailFilters, maintenance, avatarBaseUrl, locationPolicy: { required: globalLocationRequired.required, admin_required: globalLocationRequired.adminRequired }, freeAvatarCooldown };
       __bootstrapCache = { at: now, payload };
       return new Response(JSON.stringify(payload), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
