@@ -854,7 +854,10 @@ async function handleFunctionProxy(request, env, fnName) {
 // User impact: none. Emails render identically. Egress drops ~95% because the
 // heavy HTML body (50–500 KB) only leaves Supabase on the first-ever open.
 
-const EMAIL_HTML_KEY_PREFIX = "email_html:v1:";
+// v2 = post-recipient-redaction. Bumping the prefix instantly makes every
+// legacy v1 entry (which may still hold un-redacted recipient addresses)
+// unreachable; v1 keys expire naturally over their remaining TTL.
+const EMAIL_HTML_KEY_PREFIX = "email_html:v2:";
 const EMAIL_HTML_TTL_SECONDS = 60 * 60 * 24 * 365; // 1 year
 const EMAIL_HTML_FUNCTION = "email-html";
 
