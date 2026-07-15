@@ -10139,8 +10139,34 @@ function EmailViewer() {
                 <button onClick={clearDiag} className="px-3 py-1.5 text-xs font-bold rounded-lg bg-white border border-slate-200 hover:bg-slate-100">Clear</button>
                 <button
                   onClick={async () => {
-                    pushDiag({ ts: Date.now(), kind: "cache", endpoint: "worker cache purge", note: "blocked in encrypted-only mode" });
-                    notify.info("Worker cache purge is disabled in encrypted-only mode");
+                    const token = sessionGet("session_token" as any);
+                    const urls = resolvedWorkerUrls || [];
+                    if (!token || urls.length === 0) {
+                      notify.info("No worker configured or not signed in");
+                      return;
+                    }
+                    let totalInbox = 0, totalHtml = 0, okCount = 0;
+                    await Promise.all(urls.map(async (base) => {
+                      const t0 = Date.now();
+                      try {
+                        const res = await fetchWithTimeout(`${base}/api/cache/purge`, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json", "X-Session-Token": token },
+                          body: "{}",
+                        }, 8000);
+                        const j = await res.json().catch(() => ({} as any));
+                        if (res.ok && j?.ok) {
+                          okCount++;
+                          totalInbox += Number(j.purged || 0);
+                          totalHtml += Number(j.htmlPurged || 0);
+                        }
+                        pushDiag({ ts: Date.now(), kind: "cache", endpoint: `${base}/api/cache/purge`, status: res.status, ms: Date.now() - t0, note: `inbox:${j?.purged ?? 0} html:${j?.htmlPurged ?? 0}` });
+                      } catch (e) {
+                        pushDiag({ ts: Date.now(), kind: "cache", endpoint: `${base}/api/cache/purge`, error: e instanceof Error ? e.message : String(e) });
+                      }
+                    }));
+                    if (okCount > 0) notify.success(`Purged ${totalInbox} inbox + ${totalHtml} HTML keys on ${okCount}/${urls.length} workers`);
+                    else notify.error("Cache purge failed on all workers");
                   }}
                   className="px-3 py-1.5 text-xs font-bold rounded-lg bg-red-600 text-white hover:bg-red-700"
                 >Purge KV cache</button>
