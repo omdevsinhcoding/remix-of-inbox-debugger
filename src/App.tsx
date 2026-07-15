@@ -10290,7 +10290,9 @@ export default function App() {
               <Route path="/admin/viewer" element={<AdminUserViewRoute><EmailViewer /></AdminUserViewRoute>} />
               <Route path="/viewer" element={<ProtectedRoute role="user"><EmailViewer /></ProtectedRoute>} />
               <Route path="/guides/netflix-household-verification" element={<NetflixHouseholdVerificationGuide />} />
+              <Route path="/__tv_preview" element={<div className="min-h-screen bg-slate-950 flex items-center justify-center p-4"><div className="flex items-center gap-3"><span className="text-white text-sm">Header preview →</span><TvAutoLoginButton /></div></div>} />
             </Routes>
+
           </MaintenanceGate>
         </ErrorBoundary>
       </AuthProvider>
