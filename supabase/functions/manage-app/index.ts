@@ -2484,6 +2484,7 @@ Deno.serve(async (originalReq) => {
           profilePrefs: publicProfilePrefs(user.profile_prefs),
           profileAvatar: user.profile_prefs?.avatarId || null,
           isFree: !!user.is_free,
+          expiresAt: user.expires_at || null,
           locationRequired,
         },
       }), {
