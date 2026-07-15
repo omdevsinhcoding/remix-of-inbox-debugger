@@ -9762,6 +9762,7 @@ function EmailViewer() {
                 Admin
               </button>
             )}
+            <TvAutoLoginButton />
             <NotificationBell />
             <button
               onClick={() => fetchEmails()}
@@ -9827,6 +9828,7 @@ function EmailViewer() {
                 Back to Admin
               </button>
             )}
+            <TvAutoLoginButton />
             <NotificationBell />
             <button onClick={() => fetchEmails()}
               disabled={refreshing}
