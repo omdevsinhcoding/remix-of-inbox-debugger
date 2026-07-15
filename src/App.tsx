@@ -2010,6 +2010,64 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
   );
 }
 
+// --- Free profile expiry pill (auto-deletion notice) ---
+function FreeExpiryPill() {
+  const { user } = useAuth();
+  const [now, setNow] = useState<number>(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, []);
+  const [hidden, setHidden] = useState(false);
+  useEffect(() => {
+    const onOpen = () => setHidden(true);
+    const onClose = () => setHidden(false);
+    window.addEventListener("notif:open", onOpen);
+    window.addEventListener("notif:close", onClose);
+    return () => {
+      window.removeEventListener("notif:open", onOpen);
+      window.removeEventListener("notif:close", onClose);
+    };
+  }, []);
+  if (hidden) return null;
+  const isFree = !!(user as any)?.isFree;
+  const expIso = (user as any)?.expiresAt as string | null | undefined;
+  if (!isFree || !expIso) return null;
+  const expMs = Date.parse(expIso);
+  if (!Number.isFinite(expMs)) return null;
+  const rem = expMs - now;
+  if (rem <= 0) return null;
+
+  const mins = Math.floor(rem / 60_000);
+  const hrs = Math.floor(mins / 60);
+  const days = Math.floor(hrs / 24);
+  let short = "";
+  if (days >= 1) short = `${days}d ${hrs % 24}h`;
+  else if (hrs >= 1) short = `${hrs}h ${mins % 60}m`;
+  else short = `${Math.max(1, mins)}m`;
+
+  const urgent = rem <= 60 * 60_000; // < 1h
+  const warn = !urgent && rem <= 24 * 60 * 60_000; // < 24h
+  const cls = urgent
+    ? "bg-red-500/95 text-white ring-2 ring-red-300 animate-pulse"
+    : warn
+    ? "bg-amber-500/95 text-white"
+    : "bg-emerald-600/95 text-white";
+
+  const full = new Date(expMs).toLocaleString();
+  return (
+    <div
+      title={`This profile will be automatically deleted on ${full}. No action needed — deletion happens on our server even if you're offline.`}
+      className={`fixed z-40 left-3 sm:left-4 bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:bottom-4 h-7 sm:h-8 px-3 sm:px-3.5 rounded-full text-[11px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1.5 pointer-events-auto select-none`}
+    >
+      <span aria-hidden>⏳</span>
+      Auto-delete in {short}
+    </div>
+  );
+}
+
+
+
 // --- Types ---
 interface Email {
   id: string; subject: string; from: string; to?: string; date: string; otp: string | null; preview: string; html: string; account_label?: string | null; cached_at?: string | null; destroyed?: boolean;
