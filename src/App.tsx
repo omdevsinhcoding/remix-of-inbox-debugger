@@ -1949,29 +1949,13 @@ function TvAutoLoginButton() {
     <>
       <button
         onClick={() => setOpen(true)}
-        className="group relative flex items-center justify-center p-2.5 rounded-full text-white bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 hover:from-slate-800 hover:via-slate-700 hover:to-slate-800 shadow-md ring-1 ring-white/10 transition-all active:scale-95"
+        className="relative flex items-center justify-center p-2.5 bg-slate-900 text-white rounded-full hover:bg-slate-800 transition-all active:scale-95"
         title="TV Auto-Login"
         aria-label="TV Auto-Login"
       >
-        {/* Custom eye-catchy TV mark: screen + antenna + play glow */}
-        <svg viewBox="0 0 24 24" className="w-4 h-4 sm:w-5 sm:h-5" fill="none" aria-hidden>
-          <defs>
-            <linearGradient id="tvBtnScreen" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0%" stopColor="#f43f5e" />
-              <stop offset="100%" stopColor="#a855f7" />
-            </linearGradient>
-          </defs>
-          {/* antenna */}
-          <path d="M8 3l4 4 4-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-          {/* screen */}
-          <rect x="2.5" y="7.5" width="19" height="12" rx="2.4" fill="url(#tvBtnScreen)" stroke="currentColor" strokeWidth="1.4" />
-          {/* play triangle */}
-          <path d="M10.5 11.2v4.6l4-2.3z" fill="#fff" />
-          {/* stand */}
-          <path d="M8.5 21.5h7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-        </svg>
-        <span aria-hidden className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-rose-400 ring-2 ring-slate-900 shadow-[0_0_8px_rgba(244,63,94,0.9)] animate-pulse" />
+        <Tv className="w-4 h-4 sm:w-5 sm:h-5" />
       </button>
+
 
       {open && (
         <div
