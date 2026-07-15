@@ -39,11 +39,13 @@ async function loadGlobalLocationRequired(supabase: any): Promise<boolean> {
   }
 }
 function isProfileLocationRequired(user: any, globalRequired = true) {
-  if (!globalRequired || !user || user.role === "admin") return false;
-  // Default true for every non-admin profile (including free) unless admin
-  // explicitly turned it off. Free profiles follow the same global location
-  // policy as paid profiles — captcha + GPS when policy is ON.
-  return publicProfilePrefs(user.profile_prefs).locationRequired !== false;
+  if (!globalRequired || !user) return false;
+  const prefs = user.profile_prefs && typeof user.profile_prefs === "object" && !Array.isArray(user.profile_prefs) ? user.profile_prefs : {};
+  const override = prefs.locationRequiredOverride === true;
+  // Admin default OFF (opt-in). Non-admin default ON (opt-out). Same UI toggle
+  // in the admin card as user cards — just inverted defaults.
+  if (user.role === "admin") return override && prefs.locationRequired === true;
+  return !(override && prefs.locationRequired === false);
 }
 const VIS_PASSWORD_RESET_RE = /(password (was |has been )?(changed|reset|updated)|reset your password|forgot password|password reset|new password|account recovery)/i;
 const VIS_SIGNIN_RE = /(sign[\s-]?in code|new sign[\s-]?in|new device|temporary access code|is using your account|access your account|verification code|login code|enter this code|otp)/i;
