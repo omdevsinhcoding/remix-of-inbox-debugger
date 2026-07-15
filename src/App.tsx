@@ -5200,7 +5200,7 @@ function AdminPanel() {
         const cs = Number(s.session_limits?.maxPerUser);
         if (Number.isFinite(cs) && cs >= 0) setConcurrentSessionLimit(String(cs));
         setIpwhoAlertEnabled(s.ipwho_alert?.enabled === true);
-        setLocationPolicyRequired(s.location_policy?.required === true);
+        setLocationPolicyRequired(s.location_policy?.required !== false);
         const fac = Number(s.free_avatar_cooldown?.minutes);
         if (Number.isFinite(fac) && fac > 0) setFreeAvatarCooldownMinState(String(Math.floor(fac)));
 
