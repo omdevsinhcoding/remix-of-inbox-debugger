@@ -941,6 +941,42 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { err
 
 // Toast surface is fully owned by <ToastProvider /> from ./components/toast.
 
+// --- Perf timing (login flow instrumentation) ---
+// Emits console lines the user asked for so we can see exactly where the
+// captcha→login latency goes. Also feeds performance.mark so it's visible
+// in DevTools Performance panel. Zero-overhead when console is closed.
+type PerfTimer = { mark: (label: string) => void; end: (label?: string) => number };
+function startPerfTimer(name: string): PerfTimer {
+  const t0 = (typeof performance !== "undefined" ? performance.now() : Date.now());
+  let last = t0;
+  try { performance.mark?.(`${name}:start`); } catch {}
+  // eslint-disable-next-line no-console
+  console.info(`[perf] ${name} start`);
+  return {
+    mark(label: string) {
+      const now = (typeof performance !== "undefined" ? performance.now() : Date.now());
+      const dSincePrev = Math.round(now - last);
+      const dTotal = Math.round(now - t0);
+      last = now;
+      try { performance.mark?.(`${name}:${label}`); } catch {}
+      // eslint-disable-next-line no-console
+      console.info(`[perf] ${name} · ${label}  Δ${dSincePrev}ms (total ${dTotal}ms)`);
+    },
+    end(label = "end") {
+      const now = (typeof performance !== "undefined" ? performance.now() : Date.now());
+      const dTotal = Math.round(now - t0);
+      try {
+        performance.mark?.(`${name}:${label}`);
+        performance.measure?.(name, `${name}:start`, `${name}:${label}`);
+      } catch {}
+      // eslint-disable-next-line no-console
+      console.info(`[perf] ${name} ${label} (total ${dTotal}ms)`);
+      return dTotal;
+    },
+  };
+}
+
+
 
 // --- Rate Limiter ---
 const loginAttempts: { [key: string]: number[] } = {};
@@ -2693,10 +2729,30 @@ function filterVisibleEmails(list: Email[], _prefs?: UserProfilePrefs | null, vi
 }
 
 // ==================== CAPTCHA MODAL (shared) ====================
-function CaptchaModal({ siteKey, onVerify, onCancel }: { siteKey: string; onVerify: (token: string) => void; onCancel: () => void }) {
+export type CaptchaStage = "verifying" | "connecting" | "authenticating";
+
+function CaptchaModal({ siteKey, onVerify, onCancel, stage }: {
+  siteKey: string;
+  onVerify: (token: string) => void;
+  onCancel: () => void;
+  /** When set, hides captcha widget and shows a stepper — the login is in-flight. */
+  stage?: CaptchaStage | null;
+}) {
   const [token, setToken] = useState<string | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  // Warm the ECDH handshake in parallel while the user solves the captcha,
+  // so we don't pay 400–1500ms of TLS+ECDH+HKDF after they click Continue.
+  useEffect(() => {
+    let cancelled = false;
+    import("./lib/secureTransport")
+      .then((m) => { if (!cancelled) void m.warmupSession(); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+
   const submit = useCallback(() => {
     if (token && !submitting) {
       setSubmitting(true);
@@ -2716,11 +2772,19 @@ function CaptchaModal({ siteKey, onVerify, onCancel }: { siteKey: string; onVeri
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Enter" && token) { e.preventDefault(); onVerify(token); }
-      else if (e.key === "Escape") { e.preventDefault(); onCancel(); }
+      else if (e.key === "Escape" && !stage) { e.preventDefault(); onCancel(); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [token, onVerify, onCancel]);
+  }, [token, onVerify, onCancel, stage]);
+
+  const busy = !!stage;
+  const steps: Array<{ id: CaptchaStage; label: string }> = [
+    { id: "verifying", label: "Verifying you're human" },
+    { id: "connecting", label: "Securing connection" },
+    { id: "authenticating", label: "Signing you in" },
+  ];
+  const activeIdx = stage ? steps.findIndex((s) => s.id === stage) : -1;
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -2733,45 +2797,77 @@ function CaptchaModal({ siteKey, onVerify, onCancel }: { siteKey: string; onVeri
               <ShieldCheck className="text-white w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-black text-slate-900 text-lg">Security Check</h3>
-              <p className="text-slate-500 text-xs">Verify you're human to continue</p>
+              <h3 className="font-black text-slate-900 text-lg">{busy ? "Signing you in" : "Security Check"}</h3>
+              <p className="text-slate-500 text-xs">{busy ? "This takes a moment — hang tight." : "Verify you're human to continue"}</p>
             </div>
           </div>
         </div>
-        <div className="flex justify-center px-6 pb-4 min-h-[78px]">
-          <Suspense fallback={<div className="h-[78px] w-[304px] rounded-lg bg-slate-100 animate-pulse" />}>
-            <ReCAPTCHA
-              sitekey={siteKey}
-                onChange={handleToken}
-              onExpired={() => setToken(null)}
-              onErrored={() => { setToken(null); setLoadError(true); }}
-            />
-          </Suspense>
-        </div>
-        {loadError && (
-          <p className="px-6 pb-4 text-xs font-bold text-red-600 text-center">
-            CAPTCHA domain/key is not allowed for this site. Add this domain in Google reCAPTCHA settings, then refresh.
-          </p>
+
+        {busy ? (
+          <div className="px-6 pb-5" aria-live="polite">
+            <ol className="space-y-2.5">
+              {steps.map((s, i) => {
+                const done = i < activeIdx;
+                const active = i === activeIdx;
+                return (
+                  <li key={s.id} className="flex items-center gap-3 text-sm">
+                    <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                      done ? "bg-emerald-500 text-white" : active ? "bg-blue-600 text-white" : "bg-slate-200 text-slate-500"
+                    }`}>
+                      {done ? <Check className="w-3 h-3" /> : active ? (
+                        <span className="w-2 h-2 bg-white rounded-full animate-pulse" />
+                      ) : (i + 1)}
+                    </span>
+                    <span className={done ? "text-slate-400 line-through" : active ? "text-slate-900 font-bold" : "text-slate-500"}>
+                      {s.label}
+                    </span>
+                  </li>
+                );
+              })}
+            </ol>
+            <div className="mt-4 h-1 w-full bg-slate-100 rounded-full overflow-hidden">
+              <div className="h-full bg-blue-600 rounded-full transition-all duration-500"
+                style={{ width: `${Math.max(15, Math.min(100, ((activeIdx + 1) / steps.length) * 100))}%` }} />
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="flex justify-center px-6 pb-4 min-h-[78px]">
+              <Suspense fallback={<div className="h-[78px] w-[304px] rounded-lg bg-slate-100 animate-pulse" />}>
+                <ReCAPTCHA
+                  sitekey={siteKey}
+                  onChange={handleToken}
+                  onExpired={() => setToken(null)}
+                  onErrored={() => { setToken(null); setLoadError(true); }}
+                />
+              </Suspense>
+            </div>
+            {loadError && (
+              <p className="px-6 pb-4 text-xs font-bold text-red-600 text-center">
+                CAPTCHA domain/key is not allowed for this site. Add this domain in Google reCAPTCHA settings, then refresh.
+              </p>
+            )}
+
+            <div className="flex border-t border-slate-100">
+              <button onClick={onCancel}
+                className="flex-1 py-4 text-sm font-bold text-slate-500 hover:bg-slate-50 transition-colors">
+                Cancel
+              </button>
+              <div className="w-px bg-slate-100" />
+              <button
+                onClick={submit}
+                disabled={!token || submitting}
+                className="flex-1 py-4 text-sm font-bold text-red-600 hover:bg-red-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent">
+                {submitting ? "Continuing..." : token ? "Continue" : "Waiting..."}
+              </button>
+            </div>
+          </>
         )}
-
-        <div className="flex border-t border-slate-100">
-          <button onClick={onCancel}
-            className="flex-1 py-4 text-sm font-bold text-slate-500 hover:bg-slate-50 transition-colors">
-            Cancel
-          </button>
-          <div className="w-px bg-slate-100" />
-          <button
-            onClick={submit}
-            disabled={!token || submitting}
-            className="flex-1 py-4 text-sm font-bold text-red-600 hover:bg-red-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent">
-            {submitting ? "Continuing..." : token ? "Continue" : "Waiting..."}
-          </button>
-        </div>
-
       </motion.div>
     </motion.div>
   );
 }
+
 
 // ==================== NETFLIX-STYLE PROFILE LOGIN ====================
 function ProfileSelectPage() {
@@ -2795,6 +2891,8 @@ function ProfileSelectPage() {
   const [pendingLogin, setPendingLogin] = useState(false);
   const [freeLoginId, setFreeLoginId] = useState<string | null>(null);
   const [freeCaptchaProfile, setFreeCaptchaProfile] = useState<UserData | null>(null);
+  // Progress stage shown by CaptchaModal after the user solves the captcha.
+  const [loginStage, setLoginStage] = useState<CaptchaStage | null>(null);
   const [gpsRequesting, setGpsRequesting] = useState(false);
   const [gpsPermissionMode, setGpsPermissionMode] = useState<GpsPermissionMode | null>(null);
   const pendingClientGeoRef = useRef<LoginLocationPayload | null>(null);
@@ -3078,6 +3176,8 @@ function ProfileSelectPage() {
     if (!selectedProfile) return;
     setLoginLoading(true);
     setError("");
+    const perf = startPerfTimer("login.user");
+    if (captchaToken) perf.mark("captcha_token_received");
 
     try {
       if (!checkRateLimit(`user_${selectedProfile.username}`)) {
@@ -3088,6 +3188,17 @@ function ProfileSelectPage() {
         ? (preparedGeo || pendingClientGeoRef.current || await requireLoginLocation())
         : (preparedGeo || pendingClientGeoRef.current || null);
       pendingClientGeoRef.current = null;
+      perf.mark("geo_ready");
+
+      // Warm handshake in parallel with any pre-login work (no-op if already
+      // warmed by the captcha modal). Then flip stage to "connecting" so the
+      // user sees an active step while the encrypted request is in flight.
+      const { warmupSession } = await import("./lib/secureTransport");
+      setLoginStage("connecting");
+      await warmupSession();
+      perf.mark("handshake_ready");
+
+      setLoginStage("authenticating");
       const data: any = await apiCall("manage-app", {
         action: "login",
         username: selectedProfile.username,
@@ -3095,6 +3206,7 @@ function ProfileSelectPage() {
         clientGeo,
         captchaToken,
       });
+      perf.mark("manage_app_login_ok");
 
       if (data.workerUrls && Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
         storeWorkerUrls(data.workerUrls);
@@ -3112,9 +3224,11 @@ function ProfileSelectPage() {
       try { sessionRemove("session_started_at" as any); } catch {}
       checkAuth();
 
+      perf.end("navigate_viewer");
       navigate("/viewer");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Login failed";
+      perf.end(`failed: ${msg.slice(0, 60)}`);
       if (isGpsPermissionDeniedMessage(msg)) {
         setError("");
         setGpsPermissionMode(getGpsPermissionMode(msg));
@@ -3125,6 +3239,8 @@ function ProfileSelectPage() {
       }
     } finally {
       setLoginLoading(false);
+      setLoginStage(null);
+      setShowCaptcha(false);
     }
   };
 
@@ -3135,6 +3251,8 @@ function ProfileSelectPage() {
       setFreeCaptchaProfile(profile);
       return;
     }
+    const perf = startPerfTimer("login.free");
+    if (captchaToken) perf.mark("captcha_token_received");
     const locationRequired = isLocationRequiredForProfile(profile);
     const geoPromise = locationRequired ? beginGeolocationCapture() : null;
     const devicePromise = locationRequired ? beginDeviceFingerprintCapture() : null;
@@ -3143,7 +3261,14 @@ function ProfileSelectPage() {
     try { notify.info(`Entering ${profile.name || "Free Profile"}…`, { description: "Preparing your inbox" }); } catch {}
     try {
       const clientGeo = locationRequired ? await requireLoginLocation(geoPromise, devicePromise) : null;
+      perf.mark("geo_ready");
+      const { warmupSession } = await import("./lib/secureTransport");
+      setLoginStage("connecting");
+      await warmupSession();
+      perf.mark("handshake_ready");
+      setLoginStage("authenticating");
       const data: any = await apiCall("manage-app", { action: "login_free", user_id: profile.id, clientGeo, captchaToken });
+      perf.mark("manage_app_login_free_ok");
       if (!data?.success) throw new Error(data?.error || "Failed to enter profile");
       if (data.workerUrls && Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
         storeWorkerUrls(data.workerUrls);
@@ -3156,9 +3281,11 @@ function ProfileSelectPage() {
       } catch {}
       try { sessionRemove("session_started_at" as any); } catch {}
       checkAuth();
+      perf.end("navigate_viewer");
       navigate("/viewer");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to enter profile";
+      perf.end(`failed: ${msg.slice(0, 60)}`);
       if (isGpsPermissionDeniedMessage(msg)) {
         setError("");
         setGpsPermissionMode(getGpsPermissionMode(msg));
@@ -3169,8 +3296,10 @@ function ProfileSelectPage() {
       }
     } finally {
       setFreeLoginId(null);
+      setLoginStage(null);
     }
   };
+
 
   const loginFreeProfile = async (profile: UserData) => {
     if (freeLoginId) return;
@@ -3444,12 +3573,18 @@ function ProfileSelectPage() {
       </AnimatePresence>
 
       <AnimatePresence>
-        {showCaptcha && siteKey && (
-          <CaptchaModal siteKey={siteKey} onVerify={(token) => { setShowCaptcha(false); executeLogin(token); }} onCancel={() => { pendingClientGeoRef.current = null; setShowCaptcha(false); }} />
-        )}
-        {freeCaptchaProfile && siteKey && (
+        {(showCaptcha || (loginStage && !freeCaptchaProfile)) && siteKey && (
           <CaptchaModal
             siteKey={siteKey}
+            stage={loginStage}
+            onVerify={(token) => { void executeLogin(token); }}
+            onCancel={() => { pendingClientGeoRef.current = null; setShowCaptcha(false); }}
+          />
+        )}
+        {(freeCaptchaProfile || (loginStage && !showCaptcha && !!freeLoginId)) && siteKey && (
+          <CaptchaModal
+            siteKey={siteKey}
+            stage={loginStage}
             onVerify={(token) => {
               const p = freeCaptchaProfile;
               setFreeCaptchaProfile(null);
@@ -3459,6 +3594,7 @@ function ProfileSelectPage() {
           />
         )}
       </AnimatePresence>
+
     </div>
   );
 }
@@ -3489,6 +3625,7 @@ function AdminLoginPage() {
   const [siteKey, setSiteKey] = useState<string | null>(null);
   const [captchaReady, setCaptchaReady] = useState(false);
   const [showCaptcha, setShowCaptcha] = useState(false);
+  const [loginStage, setLoginStage] = useState<CaptchaStage | null>(null);
   const [gpsRequesting, setGpsRequesting] = useState(false);
   const [gpsPermissionMode, setGpsPermissionMode] = useState<GpsPermissionMode | null>(null);
   const pendingClientGeoRef = useRef<LoginLocationPayload | null>(null);
@@ -3697,12 +3834,23 @@ function AdminLoginPage() {
   const executeLogin = async (captchaToken?: string, preparedGeo?: LoginLocationPayload) => {
     setLoading(true);
     setError("");
+    const perf = startPerfTimer("login.admin");
+    if (captchaToken) perf.mark("captcha_token_received");
     try {
       if (!checkRateLimit(`admin_${username}`)) throw new Error("Too many attempts. Wait 1 minute.");
 
       const clientGeo = preparedGeo || pendingClientGeoRef.current || await requireLoginLocation();
       pendingClientGeoRef.current = null;
+      perf.mark("geo_ready");
+
+      const { warmupSession } = await import("./lib/secureTransport");
+      setLoginStage("connecting");
+      await warmupSession();
+      perf.mark("handshake_ready");
+
+      setLoginStage("authenticating");
       const data: any = await apiCall("manage-app", { action: "login", username, password, clientGeo, captchaToken });
+      perf.mark("manage_app_login_ok");
 
       if (data.user.role !== "admin") throw new Error("Access denied");
       if (data.pendingToken) {
@@ -3717,10 +3865,12 @@ function AdminLoginPage() {
       sessionSet("user" as any, JSON.stringify({ ...data.user, pending: true }));
       checkAuth();
 
+      perf.end("navigate_admin_auth");
       notify.success("Password verified. Complete 2FA to enter admin.");
       navigate("/admin-auth");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Login failed";
+      perf.end(`failed: ${msg.slice(0, 60)}`);
       if (isGpsPermissionDeniedMessage(msg)) {
         setError("");
         setGpsPermissionMode(getGpsPermissionMode(msg));
@@ -3731,8 +3881,11 @@ function AdminLoginPage() {
       }
     } finally {
       setLoading(false);
+      setLoginStage(null);
+      setShowCaptcha(false);
     }
   };
+
 
 
   return (
@@ -3791,10 +3944,16 @@ function AdminLoginPage() {
       </motion.div>
 
       <AnimatePresence>
-        {showCaptcha && siteKey && (
-          <CaptchaModal siteKey={siteKey} onVerify={(token) => { setShowCaptcha(false); executeLogin(token); }} onCancel={() => { pendingClientGeoRef.current = null; setShowCaptcha(false); }} />
+        {(showCaptcha || loginStage) && siteKey && (
+          <CaptchaModal
+            siteKey={siteKey}
+            stage={loginStage}
+            onVerify={(token) => { void executeLogin(token); }}
+            onCancel={() => { pendingClientGeoRef.current = null; setShowCaptcha(false); }}
+          />
         )}
       </AnimatePresence>
+
     </div>
   );
 }
