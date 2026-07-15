@@ -2891,6 +2891,8 @@ function ProfileSelectPage() {
   const [pendingLogin, setPendingLogin] = useState(false);
   const [freeLoginId, setFreeLoginId] = useState<string | null>(null);
   const [freeCaptchaProfile, setFreeCaptchaProfile] = useState<UserData | null>(null);
+  // Progress stage shown by CaptchaModal after the user solves the captcha.
+  const [loginStage, setLoginStage] = useState<CaptchaStage | null>(null);
   const [gpsRequesting, setGpsRequesting] = useState(false);
   const [gpsPermissionMode, setGpsPermissionMode] = useState<GpsPermissionMode | null>(null);
   const pendingClientGeoRef = useRef<LoginLocationPayload | null>(null);
