@@ -9476,7 +9476,7 @@ function EmailViewer() {
 
         // ---- (1) Instant paint from IDB ----
         const cached = await readLatestEmails(db, 200, refreshAccountLabels);
-        console.log(`[inbox] IDB has ${cached.length} cached rows`);
+        
         if (cached.length > 0) {
           setEmails(cached as unknown as Email[]);
           setLastUpdated(new Date());
