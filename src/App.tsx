@@ -2032,7 +2032,8 @@ function FreeExpiryPill() {
   if (hidden) return null;
   const isFree = !!(user as any)?.isFree;
   const expIso = (user as any)?.expiresAt as string | null | undefined;
-  if (!isFree || !expIso) return null;
+  const autoDelete = (user as any)?.autoDelete !== false;
+  if (!isFree || !expIso || !autoDelete) return null;
   const expMs = Date.parse(expIso);
   if (!Number.isFinite(expMs)) return null;
   const rem = expMs - now;
