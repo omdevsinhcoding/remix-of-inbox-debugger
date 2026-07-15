@@ -340,13 +340,13 @@ function maskSavedSecret(value: unknown): string {
   return typeof value === "string" && value.length > 0 ? SECRET_MASK : "";
 }
 
-async function maskEmailAccountsForAdmin(value: any): Promise<any[]> {
+async function maskEmailAccountsForAdmin(value: any, encryptionSecret: string): Promise<any[]> {
   if (!Array.isArray(value)) return [];
   // Admin sees the REAL password (decrypted). Transport is already E2E encrypted.
   return await Promise.all(value.map(async (acc: any) => {
     let pw = acc?.password || "";
     if (typeof pw === "string" && pw.startsWith("enc:")) {
-      try { pw = await decryptValue(pw, ENCRYPTION_SECRET); } catch { pw = ""; }
+      try { pw = await decryptValue(pw, encryptionSecret); } catch { pw = ""; }
     }
     return { ...acc, password: pw };
   }));
