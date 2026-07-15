@@ -454,7 +454,10 @@ async function readCache(supabase: any, accountFilter: string[] | null, filterSi
   }
   // Apply promo block for everyone when admin turned it on. Default = OFF (all Netflix mail shows).
   const blockPromo = await shouldBlockPromo(supabase);
-  return applyEmailFilters(scopedEmails, filterSignInCodes, filterPasswordResets, filterAccountUpdates, blockPromo);
+  const filtered = applyEmailFilters(scopedEmails, filterSignInCodes, filterPasswordResets, filterAccountUpdates, blockPromo);
+  // Final mask: strip the recipient address before shipping to the client.
+  // Done after recipient filtering so the filter still sees the real value.
+  return filtered.map((e: any) => ({ ...e, to: redactEmailsText(e.to) }));
 }
 
 async function fetchFromAccount(
