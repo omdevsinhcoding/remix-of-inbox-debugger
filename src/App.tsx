@@ -1096,25 +1096,14 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           .on("broadcast", { event: "revoked" }, async () => {
             if ((user as any)?.impersonated === true) return;
             try {
-              sessionRemove("session_token" as any);
-              sessionRemove("user" as any);
-              sessionRemove("admin_auth" as any);
-              sessionRemove("pending_admin_token" as any);
-            } catch {}
-            try {
-              const { clearRefreshState } = await import("./lib/sessionRefresh");
-              clearRefreshState();
-            } catch {}
-            setUser(null);
-            try {
               const { notify } = await import("./components/toast/notify");
               notify.error("Signed out", {
                 description: "You signed in on another device.",
-                duration: 9000,
+                duration: 3000,
               });
             } catch {}
-            // Hard reload so any in-flight state (polling, workers, portals) resets.
-            setTimeout(() => { try { window.location.href = "/"; } catch {} }, 150);
+            // Silent full reset: purge cookies + session, then reload the page.
+            performSignOut();
           })
           .subscribe();
       } catch {}
