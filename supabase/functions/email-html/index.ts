@@ -10,6 +10,7 @@
 //   authz_only=false/absent → returns { html, account_label } (full body).
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { redactEmailsHtml } from "../_shared/redact.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
