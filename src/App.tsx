@@ -2728,11 +2728,16 @@ const RE_SIGNIN = /(sign[\s-]?in code|new sign[\s-]?in|new device|temporary acce
 const RE_HOUSEHOLD = /(netflix household|your household|update your household|household has been confirmed|part of your (netflix )?household|watching on a tv|traveling|travelling|new device|new sign[\s-]?in|signed in on|is this you|confirm (this|your) device|approve (this|your) device|watch instead|yes,? this was me)/i;
 const RE_PASSWORD_RESET = /(password (was |has been )?(changed|reset|updated)|reset your password|new password)/i;
 const RE_ACCOUNT_UPDATE = /(attention|action (needed|required)|account (information|info|details) (was |has been )?(changed|updated)|changes? to your account|email (address )?(was |has been )?(changed|updated)|new email address|email verification|verification email|verify (your )?(email address|phone number|mobile number|account)|confirm (your )?(email address|phone number|mobile number|account change|account)|membership (was |has been )?(cancell?ed|updated|paused)|account (was |has been )?(cancell?ed|deleted|closed|paused|on hold)|we[’']re sorry to see you go|payment (received|method|was|has been|declined|failed|updated|changed)|mobile (number )?(confirm|confirmed|verify|verified|update|updated)|phone (number )?(confirm|confirmed|verify|verified|update|updated)|verify (your )?(phone|mobile|email)|verify your email address|action needed: verify|request to make a change|update your account|make (a |any )?(change|changes) to your account)/i;
+// Strong account-change signal — overrides OTP/signin classification so that
+// Netflix "Confirm your account change with this code" mails obey the admin
+// account-update toggle instead of leaking through as sign-in codes.
+const RE_ACCOUNT_CHANGE_STRONG = /(confirm (your )?(account change|email address change|change to your account)|your (account (information|info|details)|email address) (was |has been )(changed|updated)|changes? to your account (was|has been) made|make (a |any )?(change|changes) to your account|request to make a change|password (was |has been )?(changed|reset|updated))/i;
 
 function classifyEmail(e: Email): EmailCategory {
   const subject = (e.subject || "").toLowerCase();
   const preview = (e.preview || "").toLowerCase();
   const combined = `${subject} ${preview}`;
+  if (RE_ACCOUNT_CHANGE_STRONG.test(combined)) return "account_update";
   if (e.otp || RE_HOUSEHOLD.test(combined) || RE_SIGNIN.test(combined) || /verification code/i.test(subject)) return "signin";
   if (RE_ACCOUNT_UPDATE.test(combined)) return "account_update";
   if (RE_PASSWORD_RESET.test(combined)) return "password_reset";

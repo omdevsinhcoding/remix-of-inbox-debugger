@@ -102,21 +102,22 @@ function emailVisibilityCategory(row: any): "signin" | "password_reset" | "accou
   const subject = String(row?.subject || "");
   const preview = String(row?.preview || "");
   const combined = `${subject} ${preview}`;
-  // 1. Emails with an OTP are ALWAYS sign-in / household-verify style — Netflix
-  //    account-change confirmations use a link, not a code. This keeps household
-  //    verification codes reaching users even when the subject contains generic
-  //    "action needed" / "verify" language that would otherwise match account_update.
+  // 1. Strong account-change wording ("confirm your account change",
+  //    "your email address was changed", "password was changed", etc.)
+  //    ALWAYS wins — even if the email carries an OTP. Netflix's
+  //    "Confirm your account change with this code: XXXXXX" is exactly
+  //    this case and must respect the admin's account-update toggle.
+  if (VIS_ACCOUNT_CHANGE_STRONG_RE.test(combined)) return "account_update";
+  // 2. Emails with an OTP (that aren't account-change) are sign-in /
+  //    household-verify style — Netflix new-device / household codes.
   if (row?.otp) return "signin";
-  // 2. Household / new-device / "is this you?" emails (link-based, no OTP).
+  // 3. Household / new-device / "is this you?" emails (link-based, no OTP).
   //    Must reach the user — classified as signin so `showSignInCodes` controls it.
   if (VIS_HOUSEHOLD_RE.test(combined)) return "signin";
-  // 2. Strong account-change wording (body-level "confirm your account change",
-  //    "password was changed", etc.) — hide from users when admin toggles it off.
-  if (VIS_ACCOUNT_CHANGE_STRONG_RE.test(combined)) return "account_update";
-  // 3. Sign-in / new-device / temporary-access-code copy without an OTP field
+  // 4. Sign-in / new-device / temporary-access-code copy without an OTP field
   //    (rare, but keep the classification).
   if (VIS_SIGNIN_RE.test(combined)) return "signin";
-  // 4. Broader account-update surface (membership paused, payment failed, etc.).
+  // 5. Broader account-update surface (membership paused, payment failed, etc.).
   if (VIS_ACCOUNT_UPDATE_RE.test(combined)) return "account_update";
   if (VIS_PASSWORD_RESET_RE.test(combined)) return "password_reset";
   return "other";
