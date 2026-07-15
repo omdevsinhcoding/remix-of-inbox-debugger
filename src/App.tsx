@@ -9509,7 +9509,7 @@ function EmailViewer() {
         if (rows.length > 0 || removedIds.length > 0 || newCursor > cursor) {
           await writeDelta(db, { rows, removedIds, newCursor });
           const fresh = await readLatestEmails(db, 200, refreshAccountLabels);
-          console.log(`[inbox] after writeDelta, IDB has ${fresh.length} rows → repaint`);
+          
           if (fresh.length > 0) {
             setEmails(fresh as unknown as Email[]);
             setLastUpdated(new Date());
