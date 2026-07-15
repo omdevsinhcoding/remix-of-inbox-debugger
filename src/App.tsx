@@ -5649,7 +5649,7 @@ function AdminPanel() {
     setLocationPolicyRequired(next);
     setSavingLocationPolicy(true);
     try {
-      await apiCall("manage-app", { action: "set_settings", key: "location_policy", value: { required: next } });
+      await apiCall("manage-app", { action: "set_settings", key: "location_policy", value: { required: next, admin_required: locationPolicyAdminRequired } });
       notify.success(next ? "GPS required for paid profiles" : "GPS disabled for user profiles");
       await refreshBootstrap().catch(() => null);
     } catch (err) {
@@ -5657,6 +5657,21 @@ function AdminPanel() {
       notify.error(err instanceof Error ? err.message : "Failed");
     } finally { setSavingLocationPolicy(false); }
   };
+
+  const toggleAdminLocationPolicy = async () => {
+    const next = !locationPolicyAdminRequired;
+    setLocationPolicyAdminRequired(next);
+    setSavingAdminLocationPolicy(true);
+    try {
+      await apiCall("manage-app", { action: "set_settings", key: "location_policy", value: { required: locationPolicyRequired, admin_required: next } });
+      notify.success(next ? "GPS tracking ON for admin logins" : "GPS tracking OFF for admin logins");
+      await refreshBootstrap().catch(() => null);
+    } catch (err) {
+      setLocationPolicyAdminRequired(!next);
+      notify.error(err instanceof Error ? err.message : "Failed");
+    } finally { setSavingAdminLocationPolicy(false); }
+  };
+
 
   const reloadAdminNotifs = async () => {
     try {
