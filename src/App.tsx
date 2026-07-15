@@ -3580,44 +3580,66 @@ function ProfileSelectPage() {
 // ==================== ADMIN LOGIN ====================
 
 function AdminLoginPage() {
-  const ADMIN_DRAFT_KEY = "admin_login_draft_v1";
-  // SECURITY: Never persist the password field. Only remember the username
-  // as a convenience. Any legacy draft that stored a password is purged on
-  // mount so shared-device/XSS attackers can't recover it from localStorage.
-  const readAdminDraft = (): { u: string } => {
-    try {
-      const raw = typeof window !== "undefined" ? window.localStorage.getItem(ADMIN_DRAFT_KEY) : null;
-      if (!raw) return { u: "" };
-      const obj = JSON.parse(raw);
-      const u = typeof obj?.u === "string" ? obj.u : "";
-      // If the legacy shape included a password, immediately overwrite with
-      // a password-free draft to erase it from storage.
-      if (typeof obj?.p === "string") {
-        try { window.localStorage.setItem(ADMIN_DRAFT_KEY, JSON.stringify({ u })); } catch { /* ignore */ }
-      }
-      return { u };
-    } catch { return { u: "" }; }
+  // Remembered-username store. Key is versioned + isolated from any legacy
+  // draft key that used to hold a password. What we persist:
+  //   { u: <base64(username)>, t: <ms timestamp> }
+  // - Username only. Password is NEVER written to any browser storage.
+  // - Value is base64-wrapped so a casual glance at devtools doesn't
+  //   reveal the operator email. It's obfuscation, not encryption —
+  //   real defense is (a) never storing the password and (b) the
+  //   /clearcookies logout flow that nukes all site storage on sign-out.
+  // - 30-day TTL so a stale email doesn't linger forever on shared devices.
+  // - Legacy `admin_login_draft_v1` (which could contain a plaintext
+  //   password field) is purged on mount.
+  const ADMIN_REMEMBER_KEY = "admin_login_remember_v2";
+  const LEGACY_DRAFT_KEY = "admin_login_draft_v1";
+  const REMEMBER_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+  const encodeU = (v: string) => {
+    try { return typeof btoa === "function" ? btoa(unescape(encodeURIComponent(v))) : v; } catch { return ""; }
   };
-  const initialDraft = readAdminDraft();
-  const [username, setUsername] = useState(initialDraft.u);
+  const decodeU = (v: string) => {
+    try { return typeof atob === "function" ? decodeURIComponent(escape(atob(v))) : v; } catch { return ""; }
+  };
+  const readRememberedUsername = (): string => {
+    try {
+      if (typeof window === "undefined") return "";
+      // Purge legacy draft (may have password) — one-shot cleanup.
+      try { window.localStorage.removeItem(LEGACY_DRAFT_KEY); } catch { /* ignore */ }
+      const raw = window.localStorage.getItem(ADMIN_REMEMBER_KEY);
+      if (!raw) return "";
+      const obj = JSON.parse(raw);
+      const t = Number(obj?.t) || 0;
+      if (!t || Date.now() - t > REMEMBER_TTL_MS) {
+        try { window.localStorage.removeItem(ADMIN_REMEMBER_KEY); } catch { /* ignore */ }
+        return "";
+      }
+      const u = typeof obj?.u === "string" ? decodeU(obj.u) : "";
+      return u;
+    } catch { return ""; }
+  };
+  const [username, setUsername] = useState(readRememberedUsername);
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // Persist ONLY the username. The password is intentionally never written
-  // to any browser storage.
+  // Persist ONLY the username, base64-wrapped, with a timestamp for TTL.
+  // Password is intentionally never written to any browser storage.
+  // NOTE: no unmount cleanup — that's what was wiping the remembered email
+  // between navigations. Full teardown happens on /clearcookies logout.
   useEffect(() => {
     try {
-      window.localStorage.setItem(ADMIN_DRAFT_KEY, JSON.stringify({ u: username }));
+      const u = username.trim();
+      if (!u) {
+        window.localStorage.removeItem(ADMIN_REMEMBER_KEY);
+        return;
+      }
+      window.localStorage.setItem(
+        ADMIN_REMEMBER_KEY,
+        JSON.stringify({ u: encodeU(u), t: Date.now() })
+      );
     } catch { /* ignore quota */ }
   }, [username]);
 
-  // On unmount, clear the draft entirely as a defense-in-depth measure.
-  useEffect(() => {
-    return () => {
-      try { window.localStorage.removeItem(ADMIN_DRAFT_KEY); } catch { /* ignore */ }
-    };
-  }, []);
 
   const [siteKey, setSiteKey] = useState<string | null>(null);
   const [captchaReady, setCaptchaReady] = useState(false);
