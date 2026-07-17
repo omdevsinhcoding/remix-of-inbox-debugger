@@ -100,8 +100,9 @@ export function subscribeNotifications(fn: Listener, userId: string | null = nul
   // Immediate hydrate from current snapshot.
   try { fn(items, loading); } catch {}
   startPollingIfNeeded();
-  // First subscriber triggers initial fetch (no etag).
-  if (listeners.size === 1 && items.length === 0) {
+  // Any first subscriber for the current profile triggers fetch; `inflight`
+  // dedupes bell + auto-popup mounting together.
+  if (items.length === 0 && !inflight) {
     void refreshNotifications(true);
   }
   return () => {
