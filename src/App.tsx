@@ -10725,22 +10725,31 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
 // SECONDARY (JS fallback via nukeBrowserIdentity): for local dev / hosts that
 // strip the header, we also wipe every surface from JavaScript. Both run.
 // ============================================================================
+// One-shot guard so React StrictMode / re-renders can't re-enter the wipe
+// and cause a redirect loop when the user pastes /clearcookies in the URL bar.
+let __clearCookiesFired = false;
 function ClearCookiesPage() {
-  useEffect(() => {
-    // Direct hit safety net: someone navigated to /clearcookies without going
-    // through fastClearCookiesRedirect. The response header already fired
-    // Clear-Site-Data; just wipe local state and bounce home immediately.
-    revokeSessionInBackground();
-    clearBrowserIdentityNow();
+  // Fire synchronously during render (module scope, guarded) so navigation
+  // starts BEFORE effects — Clear-Site-Data killing the execution context
+  // no longer strands us on a "loading" screen.
+  if (!__clearCookiesFired && typeof window !== "undefined") {
+    __clearCookiesFired = true;
+    try { revokeSessionInBackground(); } catch {}
+    try { clearBrowserIdentityNow(); } catch {}
     try { nukeBrowserIdentity().catch(() => {}); } catch {}
     try { window.location.replace("/?_cc=" + Date.now()); } catch { window.location.href = "/"; }
-  }, []);
+  }
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-950 text-slate-200">
+      {/* Belt-and-suspenders: if JS is killed mid-navigation the browser
+          still bounces home after 1 s. */}
+      <meta httpEquiv="refresh" content="1;url=/" />
       <div className="text-sm opacity-80">Signing out…</div>
     </div>
   );
 }
+
+
 
 
 
