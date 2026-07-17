@@ -23,6 +23,7 @@ let etag: string | null = null;
 let loading = false;
 let inflight = false;
 let currentUserId: string | null = null;
+let version = 0;
 const listeners = new Set<Listener>();
 
 let pollTimer: number | null = null;
@@ -37,10 +38,13 @@ function emit() {
 export async function refreshNotifications(force = false): Promise<void> {
   if (inflight) return;
   inflight = true;
+  const runVersion = version;
+  const runUserId = currentUserId;
   const wasEmpty = items.length === 0;
   if (wasEmpty) { loading = true; emit(); }
   try {
     const res = await listNotificationsWithEtag(force ? null : etag);
+    if (runVersion !== version || runUserId !== currentUserId) return;
     // Only mutate + notify when payload actually changed.
     if (!res.unchanged) {
       items = res.notifications;
@@ -50,6 +54,7 @@ export async function refreshNotifications(force = false): Promise<void> {
       etag = res.etag;
     }
   } finally {
+    if (runVersion !== version || runUserId !== currentUserId) return;
     loading = false;
     inflight = false;
     if (wasEmpty) emit();
@@ -58,6 +63,7 @@ export async function refreshNotifications(force = false): Promise<void> {
 
 export function resetNotifications(userId: string | null = null): void {
   currentUserId = userId;
+  version++;
   items = [];
   etag = null;
   loading = false;

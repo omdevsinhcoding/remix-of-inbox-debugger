@@ -1237,6 +1237,7 @@ function useNotifications() {
 
 // ---------- Auto-popup: premium modal shown on first sight of a notification ----------
 function AutoPopupNotification() {
+  const { user } = useAuth();
   const [queue, setQueue] = useState<AppNotification[]>([]);
   const [dismissing, setDismissing] = useState(false);
   const seenRef = useRef<Set<string>>(getPoppedIds());
@@ -1277,10 +1278,10 @@ function AutoPopupNotification() {
     (async () => {
       const { subscribeNotifications } = await import("./lib/notificationsStore");
       if (!alive) return;
-      unsub = subscribeNotifications((list) => process(list));
+      unsub = subscribeNotifications((list) => process(list), user?.id || null);
     })();
     return () => { alive = false; unsub?.(); };
-  }, []);
+  }, [user?.id]);
 
 
 

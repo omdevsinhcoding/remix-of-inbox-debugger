@@ -309,11 +309,6 @@ export async function listNotifications(): Promise<AppNotification[]> {
 export async function listNotificationsWithEtag(etag: string | null): Promise<NotificationsResult> {
   const token = sessionGet("session_token" as any);
   const workerUrls = getWorkerUrlsFromCache();
-  const withTimeout = async <T,>(promise: Promise<T>, ms: number): Promise<T> => {
-    const ctrl = new AbortController();
-    const timer = window.setTimeout(() => ctrl.abort(), ms);
-    try { return await promise; } finally { window.clearTimeout(timer); }
-  };
   // Try worker first (only if we have both a session token AND a worker URL).
   if (token && workerUrls.length > 0) {
     for (const base of workerUrls) {
