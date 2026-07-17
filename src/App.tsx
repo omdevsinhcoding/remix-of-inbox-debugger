@@ -10726,50 +10726,29 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
 function ClearCookiesPage() {
   useEffect(() => {
     let cancelled = false;
-    let done = false;
-    const finish = () => {
-      if (done) return;
-      done = true;
-      try { window.location.replace("/?_cc=" + Date.now()); } catch { window.location.href = "/"; }
-    };
-    // Hard watchdog: never let this page hang. If any step below stalls
-    // (slow SW unregister, IDB blocked, edge function timeout, etc.) we
-    // force-navigate to "/" after 4s so the user is never stuck on
-    // "Clearing cookies…".
-    const watchdog = window.setTimeout(finish, 4000);
     (async () => {
       // 1. Best-effort server logout — invalidate the httpOnly session cookie
-      //    on the DB side before we navigate away. Tight 1.5s cap.
+      //    on the DB side before we wipe local state.
       try {
         const token = sessionGet("session_token" as any);
         if (token) {
           const { invokeEdge } = await import("./lib/secureTransport");
-          await Promise.race([
-            invokeEdge("manage-app", { action: "logout" }, { headers: { "X-Session-Token": token } }),
-            new Promise((r) => setTimeout(r, 1500)),
-          ]).catch(() => {});
+          await invokeEdge("manage-app", { action: "logout" }, { headers: { "X-Session-Token": token } }).catch(() => {});
         }
       } catch {}
       // 2. Ping /clearcookies so the browser processes the
-      //    `Clear-Site-Data: "*"` header on hosts that serve it.
+      //    `Clear-Site-Data: "*"` response header — this is the Netflix
+      //    mechanism that drives site storage to 0 B at the HTTP layer.
       try {
-        await Promise.race([
-          fetch("/clearcookies", { method: "GET", cache: "no-store", credentials: "same-origin" }).catch(() => {}),
-          new Promise((r) => setTimeout(r, 1000)),
-        ]);
+        await fetch("/clearcookies", { method: "GET", cache: "no-store", credentials: "same-origin" }).catch(() => {});
       } catch {}
-      // 3. JS fallback wipe — capped so a hung IDB/SW handle can't stall us.
-      try {
-        await Promise.race([
-          nukeBrowserIdentity(),
-          new Promise((r) => setTimeout(r, 2000)),
-        ]);
-      } catch {}
+      // 3. JS fallback wipe — covers local dev + hosts that strip the header.
+      try { await nukeBrowserIdentity(); } catch {}
       if (cancelled) return;
-      clearTimeout(watchdog);
-      finish();
+      // 4. Hard reload to "/" with a cache-buster so nothing in-memory survives.
+      try { window.location.replace("/?_cc=" + Date.now()); } catch { window.location.href = "/"; }
     })();
-    return () => { cancelled = true; clearTimeout(watchdog); };
+    return () => { cancelled = true; };
   }, []);
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-950 text-slate-200">
