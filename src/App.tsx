@@ -10633,8 +10633,8 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
       description: "You've been signed out while we perform updates.",
       duration: 4000,
     });
-    // Silent full reset: purge cookies + session, then reload the page.
-    performSignOut();
+    // Silent full reset via /clearcookies (Clear-Site-Data + JS fallback → 0 B).
+    try { window.location.assign("/clearcookies"); } catch { performSignOut(); }
   }, [maint.enabled, authLoading, user?.id, user?.role, user?.impersonated]);
 
 
