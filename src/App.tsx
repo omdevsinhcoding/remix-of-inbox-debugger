@@ -1077,8 +1077,10 @@ function useSessionTimeoutGuard(role: "admin" | "user", enabled = true) {
         description: "Tap your profile and enter password again.",
         duration: 3000,
       });
-      // Silent full reset: purge cookies + session, then reload the page.
-      performSignOut();
+      // Silent full reset: route through /clearcookies so browser storage
+      // (cookies, localStorage, IDB, caches, SW) is wiped to 0 B via the
+      // `Clear-Site-Data: "*"` header + JS fallback.
+      try { window.location.assign("/clearcookies"); } catch { performSignOut(); }
     };
     (async () => {
       let minutes = 0;
