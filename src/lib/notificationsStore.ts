@@ -45,7 +45,6 @@ export async function refreshNotifications(force = false): Promise<void> {
   try {
     const res = await listNotificationsWithEtag(force ? null : etag);
     if (runVersion !== version || runUserId !== currentUserId) return;
-    // Only mutate + notify when payload actually changed.
     if (!res.unchanged) {
       items = res.notifications;
       etag = res.etag;
@@ -53,13 +52,20 @@ export async function refreshNotifications(force = false): Promise<void> {
     } else if (res.etag && res.etag !== etag) {
       etag = res.etag;
     }
+  } catch {
+    // swallow — surface via empty state, never leave the spinner stuck.
   } finally {
-    if (runVersion !== version || runUserId !== currentUserId) return;
-    loading = false;
+    // ALWAYS clear inflight + loading, even if the profile switched mid-flight.
+    // Previously the early-return here left `inflight=true` forever → new
+    // profile's bell spun with no new fetch ever firing.
     inflight = false;
-    if (wasEmpty) emit();
+    if (loading) {
+      loading = false;
+      emit();
+    }
   }
 }
+
 
 export function resetNotifications(userId: string | null = null): void {
   currentUserId = userId;
