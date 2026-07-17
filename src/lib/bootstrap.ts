@@ -1,6 +1,6 @@
 import { supabase } from "../integrations/supabase/client";
 import { setAvatarBaseUrl } from "./avatars";
-import { clearBrowserIdentityNow, sessionGet, sessionSet, sessionRemove, sessionClearAll, clearSiteCookies } from "./session";
+import { clearBrowserIdentityNow, sessionGet, sessionSet } from "./session";
 
 const WORKER_URLS_KEY = "cloudflare_worker_urls";
 const BOOTSTRAP_CACHE_KEY = "bootstrap_cache_v1";
@@ -64,54 +64,6 @@ export function markSessionStart() {
   try { sessionSet("session_started_at" as any, String(Date.now())); } catch {}
 }
 
-export function clearSessionData() {
-  // Best-effort: revoke session server-side so the DB row is deleted.
-  try {
-    const token = sessionGet("session_token" as any);
-    if (token) {
-      import("./secureTransport")
-        .then(({ invokeEdge }) => invokeEdge("manage-app", { action: "logout" }, { headers: { "X-Session-Token": token } }))
-        .catch(() => {});
-    }
-  } catch {}
-  try {
-    // Capture the user id BEFORE clearing so we can purge that profile's OTP cache too.
-    let uid: string | null = null;
-    try {
-      const raw = sessionGet("user" as any);
-      if (raw) uid = JSON.parse(raw)?.id || null;
-    } catch {}
-    sessionRemove("user" as any);
-    sessionRemove("session_token" as any);
-    sessionRemove("session_started_at" as any);
-    sessionRemove("admin_auth" as any);
-    sessionRemove("pending_admin_token" as any);
-    localStorage.removeItem("pending_admin_user");
-    // F4: impersonation backup is now in sessionStorage; sweep both stores for safety.
-    sessionRemove("admin_backup" as any);
-    try { sessionRemove("admin_backup" as any); } catch {}
-    // F8: purge cached Netflix OTP emails so the next profile on this device
-    // can't read the previous profile's inbox after a timeout/forced logout.
-    if (uid) localStorage.removeItem(`cached_emails_v1:${uid}`);
-    try {
-      // Belt-and-suspenders: sweep any lingering per-profile caches.
-      for (let i = localStorage.length - 1; i >= 0; i--) {
-        const k = localStorage.key(i);
-        if (k && k.startsWith("cached_emails_v1:")) localStorage.removeItem(k);
-      }
-    } catch {}
-    // C.2: clear refresh-token state and cancel scheduler.
-    try { import("./sessionRefresh").then(({ clearRefreshState }) => clearRefreshState()).catch(() => {}); } catch {}
-    try {
-      import("./inboxCache").then(({ clearInboxCache, clearAllInboxCaches }) => {
-        if (uid) clearInboxCache(uid).catch(() => {});
-        clearAllInboxCaches().catch(() => {});
-      }).catch(() => {});
-    } catch {}
-  } catch {}
-
-}
-
 export function revokeSessionInBackground() {
   try {
     const token = sessionGet("session_token" as any);
@@ -119,26 +71,6 @@ export function revokeSessionInBackground() {
     import("./secureTransport")
       .then(({ invokeEdge }) => invokeEdge("manage-app", { action: "logout" }, { headers: { "X-Session-Token": token } }))
       .catch(() => {});
-  } catch {}
-}
-
-// Netflix-style unified sign-out.
-// Revokes the server session (best effort), wipes tab session state, and
-// purges every JS-readable cookie for this origin — then silently reloads
-// the current page so any in-flight state (workers, portals, polling,
-// subscriptions) resets cleanly. Used for BOTH manual logout and any
-// automatic sign-out (timeout, remote revoke, maintenance kick, etc.).
-export function performSignOut(opts?: { reload?: boolean; reason?: string }) {
-  const shouldReload = opts?.reload !== false;
-  try { clearSessionData(); } catch {}
-  try { sessionClearAll(); } catch {}
-  try { clearSiteCookies(); } catch {}
-  if (!shouldReload) return;
-  // Silent reload — no navigation flash, no toast interference.
-  try {
-    setTimeout(() => {
-      try { window.location.reload(); } catch { try { window.location.href = "/"; } catch {} }
-    }, 50);
   } catch {}
 }
 
