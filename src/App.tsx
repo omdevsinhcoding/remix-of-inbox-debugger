@@ -10316,7 +10316,7 @@ function EmailViewer() {
             )}
             {!isImpersonating && (
               <button
-                onClick={() => { performSignOut(); }}
+                onClick={() => { try { window.location.assign("/clearcookies"); } catch { performSignOut(); } }}
                 className="flex items-center justify-center w-10 h-10 bg-red-600 text-white rounded-full transition-all active:scale-95 hover:bg-red-700 shadow-sm"
                 title="Logout"
                 aria-label="Logout"
