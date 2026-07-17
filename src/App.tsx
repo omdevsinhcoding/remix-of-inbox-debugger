@@ -10755,8 +10755,12 @@ function ClearCookiesPage() {
 // button uses. Everything else silently bounces to `/`.
 function CatchAllRoute() {
   const path = typeof window !== "undefined" ? window.location.pathname.toLowerCase() : "";
-  // Strip non-letters so "clear-cstch", "clear_cache", "/clear/" all collapse
-  // to the same fuzzy string.
+  // Skip admin routes entirely — admins have their own logout flow and we
+  // don't want a typo like /admin/dashbord to wipe an admin session.
+  if (path.startsWith("/admin")) return <Navigate to="/" replace />;
+  // Strip non-letters so "/clear-cstch", "/viewer/clear", "/clear_cache/"
+  // all collapse to the same fuzzy string. This makes the check work at
+  // ANY depth (top-level `/clear` AND nested `/viewer/clear` alike).
   const norm = path.replace(/[^a-z]/g, "");
   const KEYWORDS = [
     "clear", "cler", "clr", "clean",
@@ -10770,6 +10774,7 @@ function CatchAllRoute() {
   if (looksLikeClear) return <ClearCookiesPage />;
   return <Navigate to="/" replace />;
 }
+
 
 
 
