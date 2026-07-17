@@ -76,7 +76,6 @@ export function revokeSessionInBackground() {
 
 export function fastClearCookiesRedirect() {
   revokeSessionInBackground();
-  clearBrowserIdentityNow();
   try { window.location.replace("/clearcookies"); } catch { try { window.location.href = "/clearcookies"; } catch {} }
 }
 
@@ -230,11 +229,6 @@ export type NotificationsResult = {
   unchanged: boolean;
 };
 
-export async function listNotifications(): Promise<AppNotification[]> {
-  const r = await listNotificationsWithEtag(null);
-  return r.notifications;
-}
-
 // Etag-aware fetch: send last etag, receive {unchanged:true} + empty list, or fresh list + new etag.
 // Prefers the Cloudflare worker (`/api/notifications/list`) when configured —
 // it holds a 60 s per-user KV cache that cuts Supabase invocations ~95%.
@@ -270,14 +264,11 @@ export async function listNotificationsWithEtag(etag: string | null): Promise<No
     }
   }
   try {
+    let timer: number | null = null;
     const data = await Promise.race([
-      callManage<{ notifications?: AppNotification[]; etag?: string; unchanged?: boolean }>(
-        "list_notifications",
-        etag ? { if_etag: etag } : {},
-      ),
-      new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error("notifications timeout")), 6000)),
-    ]
-    );
+      callManage<{ notifications?: AppNotification[]; etag?: string; unchanged?: boolean }>("list_notifications", etag ? { if_etag: etag } : {}),
+      new Promise<never>((_, reject) => { timer = window.setTimeout(() => reject(new Error("notifications timeout")), 6000); }),
+    ]).finally(() => { if (timer != null) window.clearTimeout(timer); });
     return {
       notifications: data.notifications || [],
       etag: data.etag || null,
