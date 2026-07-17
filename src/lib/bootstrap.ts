@@ -1,6 +1,7 @@
 import { supabase } from "../integrations/supabase/client";
 import { setAvatarBaseUrl } from "./avatars";
-import { sessionGet, sessionSet } from "./session";
+import { sessionGet, sessionSet, clearBrowserIdentityNow, nukeBrowserIdentity } from "./session";
+
 
 const WORKER_URLS_KEY = "cloudflare_worker_urls";
 const BOOTSTRAP_CACHE_KEY = "bootstrap_cache_v1";
@@ -74,10 +75,26 @@ export function revokeSessionInBackground() {
   } catch {}
 }
 
+// Instant "click-and-done" logout. Netflix-style:
+//   1. Fire server logout + browser deep-purge in background (no await).
+//   2. Wipe local session state synchronously so app re-hydrates as signed-out.
+//   3. Kick off a background fetch('/clearcookies') so the origin's
+//      `Clear-Site-Data: "*"` response header purges httpOnly cookies + caches
+//      without doing a top-level navigation (which was reload-looping and
+//      caused the 10-30 s "stuck" screen).
+//   4. Hard-replace to `/` immediately.
 export function fastClearCookiesRedirect() {
   revokeSessionInBackground();
-  try { window.location.replace("/clearcookies"); } catch { try { window.location.href = "/clearcookies"; } catch {} }
+  try { clearBrowserIdentityNow(); } catch {}
+  try { nukeBrowserIdentity().catch(() => {}); } catch {}
+  try {
+    // keepalive lets the fetch survive the navigation on the next line.
+    fetch("/clearcookies", { method: "GET", cache: "no-store", credentials: "same-origin", keepalive: true }).catch(() => {});
+  } catch {}
+  const dest = "/?_cc=" + Date.now();
+  try { window.location.replace(dest); } catch { try { window.location.href = dest; } catch {} }
 }
+
 
 
 

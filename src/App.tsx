@@ -10727,20 +10727,21 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
 // ============================================================================
 function ClearCookiesPage() {
   useEffect(() => {
+    // Direct hit safety net: someone navigated to /clearcookies without going
+    // through fastClearCookiesRedirect. The response header already fired
+    // Clear-Site-Data; just wipe local state and bounce home immediately.
     revokeSessionInBackground();
     clearBrowserIdentityNow();
     try { nukeBrowserIdentity().catch(() => {}); } catch {}
-    const t = window.setTimeout(() => {
-      try { window.location.replace("/?_cc=" + Date.now()); } catch { window.location.href = "/"; }
-    }, 120);
-    return () => window.clearTimeout(t);
+    try { window.location.replace("/?_cc=" + Date.now()); } catch { window.location.href = "/"; }
   }, []);
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-950 text-slate-200">
-      <div className="text-sm opacity-80">Clearing cookies…</div>
+      <div className="text-sm opacity-80">Signing out…</div>
     </div>
   );
 }
+
 
 
 // ==================== MAIN APP ====================
