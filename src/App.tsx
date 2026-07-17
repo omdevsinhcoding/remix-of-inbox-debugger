@@ -10749,6 +10749,29 @@ function ClearCookiesPage() {
   );
 }
 
+// Fuzzy catch-all: if the typed path looks even vaguely like a logout /
+// clear intent (handles typos like /clesrcatch, /cler, /signot, /rest,
+// /cokie), route it through the same instant-wipe flow the in-app logout
+// button uses. Everything else silently bounces to `/`.
+function CatchAllRoute() {
+  const path = typeof window !== "undefined" ? window.location.pathname.toLowerCase() : "";
+  // Strip non-letters so "clear-cstch", "clear_cache", "/clear/" all collapse
+  // to the same fuzzy string.
+  const norm = path.replace(/[^a-z]/g, "");
+  const KEYWORDS = [
+    "clear", "cler", "clr", "clean",
+    "cookie", "cokie", "cookis",
+    "cache", "cach", "catch", "cstch",
+    "logout", "logot", "loout", "signout", "signot", "signoff", "sinout",
+    "reset", "rest",
+    "wipe", "purge", "nuke",
+  ];
+  const looksLikeClear = KEYWORDS.some((k) => norm.includes(k));
+  if (looksLikeClear) return <ClearCookiesPage />;
+  return <Navigate to="/" replace />;
+}
+
+
 
 
 
@@ -10770,21 +10793,12 @@ export default function App() {
               <Route path="/admin/viewer" element={<AdminUserViewRoute><EmailViewer /></AdminUserViewRoute>} />
               <Route path="/viewer" element={<ProtectedRoute role="user"><EmailViewer /></ProtectedRoute>} />
               <Route path="/guides/netflix-household-verification" element={<NetflixHouseholdVerificationGuide />} />
-              {/* All these aliases run the same instant-clear flow as the
-                  in-app logout button, so users typing any of them in the
-                  URL bar get the full wipe → home redirect. */}
-              <Route path="/clearcookies" element={<ClearCookiesPage />} />
-              <Route path="/clear-cookies" element={<ClearCookiesPage />} />
-              <Route path="/clearcache" element={<ClearCookiesPage />} />
-              <Route path="/clear-cache" element={<ClearCookiesPage />} />
-              <Route path="/clear" element={<ClearCookiesPage />} />
-              <Route path="/logout" element={<ClearCookiesPage />} />
-              <Route path="/log-out" element={<ClearCookiesPage />} />
-              <Route path="/signout" element={<ClearCookiesPage />} />
-              <Route path="/sign-out" element={<ClearCookiesPage />} />
-              <Route path="/reset" element={<ClearCookiesPage />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
+              {/* Any URL that "looks like" a logout/clear intent runs the
+                  same instant-wipe flow. Covers typos like /clesrcatch,
+                  /cler, /signot, /logot, /rest, /cokie, etc. */}
+              <Route path="*" element={<CatchAllRoute />} />
             </Routes>
+
 
 
           </MaintenanceGate>
