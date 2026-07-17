@@ -1,6 +1,6 @@
 import { supabase } from "../integrations/supabase/client";
 import { setAvatarBaseUrl } from "./avatars";
-import { sessionGet, sessionSet, sessionRemove, sessionClearAll, clearSiteCookies } from "./session";
+import { sessionGet, sessionSet } from "./session";
 
 const WORKER_URLS_KEY = "cloudflare_worker_urls";
 const BOOTSTRAP_CACHE_KEY = "bootstrap_cache_v1";
@@ -64,72 +64,19 @@ export function markSessionStart() {
   try { sessionSet("session_started_at" as any, String(Date.now())); } catch {}
 }
 
-export function clearSessionData() {
-  // Best-effort: revoke session server-side so the DB row is deleted.
+export function revokeSessionInBackground() {
   try {
     const token = sessionGet("session_token" as any);
-    if (token) {
-      import("./secureTransport")
-        .then(({ invokeEdge }) => invokeEdge("manage-app", { action: "logout" }, { headers: { "X-Session-Token": token } }))
-        .catch(() => {});
-    }
+    if (!token) return;
+    import("./secureTransport")
+      .then(({ invokeEdge }) => invokeEdge("manage-app", { action: "logout" }, { headers: { "X-Session-Token": token } }))
+      .catch(() => {});
   } catch {}
-  try {
-    // Capture the user id BEFORE clearing so we can purge that profile's OTP cache too.
-    let uid: string | null = null;
-    try {
-      const raw = sessionGet("user" as any);
-      if (raw) uid = JSON.parse(raw)?.id || null;
-    } catch {}
-    sessionRemove("user" as any);
-    sessionRemove("session_token" as any);
-    sessionRemove("session_started_at" as any);
-    sessionRemove("admin_auth" as any);
-    sessionRemove("pending_admin_token" as any);
-    localStorage.removeItem("pending_admin_user");
-    // F4: impersonation backup is now in sessionStorage; sweep both stores for safety.
-    sessionRemove("admin_backup" as any);
-    try { sessionRemove("admin_backup" as any); } catch {}
-    // F8: purge cached Netflix OTP emails so the next profile on this device
-    // can't read the previous profile's inbox after a timeout/forced logout.
-    if (uid) localStorage.removeItem(`cached_emails_v1:${uid}`);
-    try {
-      // Belt-and-suspenders: sweep any lingering per-profile caches.
-      for (let i = localStorage.length - 1; i >= 0; i--) {
-        const k = localStorage.key(i);
-        if (k && k.startsWith("cached_emails_v1:")) localStorage.removeItem(k);
-      }
-    } catch {}
-    // C.2: clear refresh-token state and cancel scheduler.
-    try { import("./sessionRefresh").then(({ clearRefreshState }) => clearRefreshState()).catch(() => {}); } catch {}
-    try {
-      import("./inboxCache").then(({ clearInboxCache, clearAllInboxCaches }) => {
-        if (uid) clearInboxCache(uid).catch(() => {});
-        clearAllInboxCaches().catch(() => {});
-      }).catch(() => {});
-    } catch {}
-  } catch {}
-
 }
 
-// Netflix-style unified sign-out.
-// Revokes the server session (best effort), wipes tab session state, and
-// purges every JS-readable cookie for this origin — then silently reloads
-// the current page so any in-flight state (workers, portals, polling,
-// subscriptions) resets cleanly. Used for BOTH manual logout and any
-// automatic sign-out (timeout, remote revoke, maintenance kick, etc.).
-export function performSignOut(opts?: { reload?: boolean; reason?: string }) {
-  const shouldReload = opts?.reload !== false;
-  try { clearSessionData(); } catch {}
-  try { sessionClearAll(); } catch {}
-  try { clearSiteCookies(); } catch {}
-  if (!shouldReload) return;
-  // Silent reload — no navigation flash, no toast interference.
-  try {
-    setTimeout(() => {
-      try { window.location.reload(); } catch { try { window.location.href = "/"; } catch {} }
-    }, 50);
-  } catch {}
+export function fastClearCookiesRedirect() {
+  revokeSessionInBackground();
+  try { window.location.replace("/clearcookies"); } catch { try { window.location.href = "/clearcookies"; } catch {} }
 }
 
 
@@ -282,11 +229,6 @@ export type NotificationsResult = {
   unchanged: boolean;
 };
 
-export async function listNotifications(): Promise<AppNotification[]> {
-  const r = await listNotificationsWithEtag(null);
-  return r.notifications;
-}
-
 // Etag-aware fetch: send last etag, receive {unchanged:true} + empty list, or fresh list + new etag.
 // Prefers the Cloudflare worker (`/api/notifications/list`) when configured —
 // it holds a 60 s per-user KV cache that cuts Supabase invocations ~95%.
@@ -297,6 +239,8 @@ export async function listNotificationsWithEtag(etag: string | null): Promise<No
   if (token && workerUrls.length > 0) {
     for (const base of workerUrls) {
       try {
+        const ctrl = new AbortController();
+        const timer = window.setTimeout(() => ctrl.abort(), 2500);
         const res = await fetch(`${base.replace(/\/+$/, "")}/api/notifications/list`, {
           method: "POST",
           headers: {
@@ -304,7 +248,8 @@ export async function listNotificationsWithEtag(etag: string | null): Promise<No
             "X-Session-Token": String(token),
           },
           body: JSON.stringify(etag ? { if_etag: etag } : {}),
-        });
+          signal: ctrl.signal,
+        }).finally(() => window.clearTimeout(timer));
         if (!res.ok) continue;
         const data = await res.json();
         if (!data?.success) continue;
@@ -319,10 +264,11 @@ export async function listNotificationsWithEtag(etag: string | null): Promise<No
     }
   }
   try {
-    const data = await callManage<{ notifications?: AppNotification[]; etag?: string; unchanged?: boolean }>(
-      "list_notifications",
-      etag ? { if_etag: etag } : {},
-    );
+    let timer: number | null = null;
+    const data = await Promise.race([
+      callManage<{ notifications?: AppNotification[]; etag?: string; unchanged?: boolean }>("list_notifications", etag ? { if_etag: etag } : {}),
+      new Promise<never>((_, reject) => { timer = window.setTimeout(() => reject(new Error("notifications timeout")), 6000); }),
+    ]).finally(() => { if (timer != null) window.clearTimeout(timer); });
     return {
       notifications: data.notifications || [],
       etag: data.etag || null,
