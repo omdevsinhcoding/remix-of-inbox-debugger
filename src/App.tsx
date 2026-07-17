@@ -10749,6 +10749,29 @@ function ClearCookiesPage() {
   );
 }
 
+// Fuzzy catch-all: if the typed path looks even vaguely like a logout /
+// clear intent (handles typos like /clesrcatch, /cler, /signot, /rest,
+// /cokie), route it through the same instant-wipe flow the in-app logout
+// button uses. Everything else silently bounces to `/`.
+function CatchAllRoute() {
+  const path = typeof window !== "undefined" ? window.location.pathname.toLowerCase() : "";
+  // Strip non-letters so "clear-cstch", "clear_cache", "/clear/" all collapse
+  // to the same fuzzy string.
+  const norm = path.replace(/[^a-z]/g, "");
+  const KEYWORDS = [
+    "clear", "cler", "clr", "clean",
+    "cookie", "cokie", "cookis",
+    "cache", "cach", "catch", "cstch",
+    "logout", "logot", "loout", "signout", "signot", "signoff", "sinout",
+    "reset", "rest",
+    "wipe", "purge", "nuke",
+  ];
+  const looksLikeClear = KEYWORDS.some((k) => norm.includes(k));
+  if (looksLikeClear) return <ClearCookiesPage />;
+  return <Navigate to="/" replace />;
+}
+
+
 
 
 
