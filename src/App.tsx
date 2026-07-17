@@ -10770,7 +10770,19 @@ export default function App() {
               <Route path="/admin/viewer" element={<AdminUserViewRoute><EmailViewer /></AdminUserViewRoute>} />
               <Route path="/viewer" element={<ProtectedRoute role="user"><EmailViewer /></ProtectedRoute>} />
               <Route path="/guides/netflix-household-verification" element={<NetflixHouseholdVerificationGuide />} />
+              {/* All these aliases run the same instant-clear flow as the
+                  in-app logout button, so users typing any of them in the
+                  URL bar get the full wipe → home redirect. */}
               <Route path="/clearcookies" element={<ClearCookiesPage />} />
+              <Route path="/clear-cookies" element={<ClearCookiesPage />} />
+              <Route path="/clearcache" element={<ClearCookiesPage />} />
+              <Route path="/clear-cache" element={<ClearCookiesPage />} />
+              <Route path="/clear" element={<ClearCookiesPage />} />
+              <Route path="/logout" element={<ClearCookiesPage />} />
+              <Route path="/log-out" element={<ClearCookiesPage />} />
+              <Route path="/signout" element={<ClearCookiesPage />} />
+              <Route path="/sign-out" element={<ClearCookiesPage />} />
+              <Route path="/reset" element={<ClearCookiesPage />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
 
