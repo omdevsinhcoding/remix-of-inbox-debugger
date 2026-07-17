@@ -75,10 +75,8 @@ export function sessionClearAll() {
   for (const k of KEYS) sessionRemove(k);
 }
 
-// Netflix-style cookie purge. Expires every readable cookie across the current
-// path, root path, current hostname, and every parent domain (e.g. sub.example.com,
-// .sub.example.com, .example.com). HttpOnly cookies set by the server cannot be
-// touched from JS — those are cleared server-side via manage-app `logout`.
+// Fast JS-readable cookie purge. The real deep clear is the HTTP
+// Clear-Site-Data header on /clearcookies; this is only a local-dev fallback.
 export function clearSiteCookies() {
   try {
     if (typeof document === "undefined") return;
@@ -97,24 +95,12 @@ export function clearSiteCookies() {
       const d = parts.slice(i).join(".");
       if (d) { domains.push(d); domains.push("." + d); }
     }
-    const paths = new Set<string>(["/"]);
-    try {
-      const p = (typeof location !== "undefined" && location.pathname) || "/";
-      paths.add(p);
-      const segs = p.split("/").filter(Boolean);
-      let acc = "";
-      for (const s of segs) { acc += "/" + s; paths.add(acc); }
-    } catch {}
     const expired = "Thu, 01 Jan 1970 00:00:00 GMT";
     for (const name of names) {
-      for (const p of paths) {
-        for (const d of domains) {
-          const base = `${name}=; expires=${expired}; Max-Age=0; path=${p}${d ? `; domain=${d}` : ""}`;
-          try { document.cookie = base; } catch {}
-          try { document.cookie = `${base}; SameSite=Lax`; } catch {}
-          try { document.cookie = `${base}; SameSite=Strict`; } catch {}
-          try { document.cookie = `${base}; SameSite=None; Secure`; } catch {}
-        }
+      for (const d of domains) {
+        const base = `${name}=; expires=${expired}; Max-Age=0; path=/${d ? `; domain=${d}` : ""}`;
+        try { document.cookie = base; } catch {}
+        try { document.cookie = `${base}; SameSite=Lax`; } catch {}
       }
     }
   } catch {}
@@ -163,7 +149,7 @@ export async function nukeBrowserIdentity(): Promise<void> {
         try {
           const req = idb.deleteDatabase(name);
           req.onsuccess = req.onerror = req.onblocked = () => resolve();
-          setTimeout(resolve, 1500); // never hang the wipe
+          setTimeout(resolve, 250); // never hang the background wipe
         } catch { resolve(); }
       })));
     }
@@ -188,9 +174,6 @@ export async function nukeBrowserIdentity(): Promise<void> {
       }
     }
   } catch {}
-  // 7. Final cookie sweep — catches any cookies that became visible only
-  //    after storage wipes cleared their partitioning contexts.
-  try { clearSiteCookies(); } catch {}
 }
 
 // Fast logout path: clear everything the app can clear synchronously, then let
