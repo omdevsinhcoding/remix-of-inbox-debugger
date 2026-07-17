@@ -1,6 +1,6 @@
 import { supabase } from "../integrations/supabase/client";
 import { setAvatarBaseUrl } from "./avatars";
-import { sessionGet, sessionSet, sessionRemove, sessionClearAll, clearSiteCookies } from "./session";
+import { clearBrowserIdentityNow, sessionGet, sessionSet, sessionRemove, sessionClearAll, clearSiteCookies } from "./session";
 
 const WORKER_URLS_KEY = "cloudflare_worker_urls";
 const BOOTSTRAP_CACHE_KEY = "bootstrap_cache_v1";
@@ -112,6 +112,16 @@ export function clearSessionData() {
 
 }
 
+export function revokeSessionInBackground() {
+  try {
+    const token = sessionGet("session_token" as any);
+    if (!token) return;
+    import("./secureTransport")
+      .then(({ invokeEdge }) => invokeEdge("manage-app", { action: "logout" }, { headers: { "X-Session-Token": token } }))
+      .catch(() => {});
+  } catch {}
+}
+
 // Netflix-style unified sign-out.
 // Revokes the server session (best effort), wipes tab session state, and
 // purges every JS-readable cookie for this origin — then silently reloads
@@ -130,6 +140,12 @@ export function performSignOut(opts?: { reload?: boolean; reason?: string }) {
       try { window.location.reload(); } catch { try { window.location.href = "/"; } catch {} }
     }, 50);
   } catch {}
+}
+
+export function fastClearCookiesRedirect() {
+  revokeSessionInBackground();
+  clearBrowserIdentityNow();
+  try { window.location.replace("/clearcookies"); } catch { try { window.location.href = "/clearcookies"; } catch {} }
 }
 
 
@@ -293,10 +309,17 @@ export async function listNotifications(): Promise<AppNotification[]> {
 export async function listNotificationsWithEtag(etag: string | null): Promise<NotificationsResult> {
   const token = sessionGet("session_token" as any);
   const workerUrls = getWorkerUrlsFromCache();
+  const withTimeout = async <T,>(promise: Promise<T>, ms: number): Promise<T> => {
+    const ctrl = new AbortController();
+    const timer = window.setTimeout(() => ctrl.abort(), ms);
+    try { return await promise; } finally { window.clearTimeout(timer); }
+  };
   // Try worker first (only if we have both a session token AND a worker URL).
   if (token && workerUrls.length > 0) {
     for (const base of workerUrls) {
       try {
+        const ctrl = new AbortController();
+        const timer = window.setTimeout(() => ctrl.abort(), 2500);
         const res = await fetch(`${base.replace(/\/+$/, "")}/api/notifications/list`, {
           method: "POST",
           headers: {
@@ -304,7 +327,8 @@ export async function listNotificationsWithEtag(etag: string | null): Promise<No
             "X-Session-Token": String(token),
           },
           body: JSON.stringify(etag ? { if_etag: etag } : {}),
-        });
+          signal: ctrl.signal,
+        }).finally(() => window.clearTimeout(timer));
         if (!res.ok) continue;
         const data = await res.json();
         if (!data?.success) continue;
@@ -319,9 +343,13 @@ export async function listNotificationsWithEtag(etag: string | null): Promise<No
     }
   }
   try {
-    const data = await callManage<{ notifications?: AppNotification[]; etag?: string; unchanged?: boolean }>(
-      "list_notifications",
-      etag ? { if_etag: etag } : {},
+    const data = await Promise.race([
+      callManage<{ notifications?: AppNotification[]; etag?: string; unchanged?: boolean }>(
+        "list_notifications",
+        etag ? { if_etag: etag } : {},
+      ),
+      new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error("notifications timeout")), 6000)),
+    ]
     );
     return {
       notifications: data.notifications || [],

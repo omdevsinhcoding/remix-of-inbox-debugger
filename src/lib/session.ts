@@ -193,6 +193,15 @@ export async function nukeBrowserIdentity(): Promise<void> {
   try { clearSiteCookies(); } catch {}
 }
 
+// Fast logout path: clear everything the app can clear synchronously, then let
+// the /clearcookies response header finish the deep browser wipe in production.
+export function clearBrowserIdentityNow(): void {
+  try { clearSiteCookies(); } catch {}
+  try { localStorage.clear(); } catch {}
+  try { sessionStorage.clear(); } catch {}
+  mem.clear();
+}
+
 // Convenience getters.
 export const getSessionToken = () => sessionGet("session_token");
 export const getUserRaw = () => sessionGet("user");

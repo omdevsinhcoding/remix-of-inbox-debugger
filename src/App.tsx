@@ -9,10 +9,10 @@ import { ToastProvider } from "./components/toast/toast-provider";
 
 import { supabase } from "./integrations/supabase/client";
 import { AVATAR_CATEGORIES, resolveAvatar, buildAvatarId, prettyName, getAvatarCategoryUrls } from "./lib/avatars";
-import { bootstrapFromSupabase, performSignOut, markSessionStart, readBootstrapCache, refreshBootstrap, patchBootstrapCacheUser, getEmailFilters, setEmailFilters as setEmailFiltersCache, getFreeAvatarCooldown, setFreeAvatarCooldown, listNotifications, markNotificationRead, markAllNotificationsRead, markNotificationSeen, deleteNotificationForMe, logNotificationEvent, getPoppedIds, markPopped, adminListRecipients, adminDeleteNotificationForUser, type EmailFilters, type AppNotification, type MaintenanceInfo, type NotificationRecipient } from "./lib/bootstrap";
+import { bootstrapFromSupabase, fastClearCookiesRedirect, performSignOut, revokeSessionInBackground, markSessionStart, readBootstrapCache, refreshBootstrap, patchBootstrapCacheUser, getEmailFilters, setEmailFilters as setEmailFiltersCache, getFreeAvatarCooldown, setFreeAvatarCooldown, markNotificationRead, markAllNotificationsRead, markNotificationSeen, deleteNotificationForMe, logNotificationEvent, getPoppedIds, markPopped, adminListRecipients, adminDeleteNotificationForUser, type EmailFilters, type AppNotification, type MaintenanceInfo, type NotificationRecipient } from "./lib/bootstrap";
 import MaintenanceScreen from "./components/MaintenanceScreen";
 import DateTimePicker from "./components/DateTimePicker";
-import { sessionGet, sessionSet, sessionRemove, sessionClearAll, nukeBrowserIdentity, clearSiteCookies } from "./lib/session";
+import { clearBrowserIdentityNow, sessionGet, sessionSet, sessionRemove, sessionClearAll, nukeBrowserIdentity } from "./lib/session";
 import { openInboxDB, readLatestEmails, writeDelta, getSyncCursor, cacheEmailHtml, getEmailHtml, purgeEmailsOutsideScope, type CachedEmail } from "./lib/inboxCache";
 import { readAdminCache, writeAdminCache, isCacheFresh, reconcileVersion, emitSyncStatus } from "./lib/adminSettingsCache";
 import { AdminSyncStatus } from "./components/AdminSyncStatus";
@@ -1037,7 +1037,7 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               });
             } catch {}
             // Silent full reset: purge cookies + session, then reload the page.
-            performSignOut();
+            fastClearCookiesRedirect();
           })
           .subscribe();
       } catch {}
@@ -1080,7 +1080,7 @@ function useSessionTimeoutGuard(role: "admin" | "user", enabled = true) {
       // Silent full reset: route through /clearcookies so browser storage
       // (cookies, localStorage, IDB, caches, SW) is wiped to 0 B via the
       // `Clear-Site-Data: "*"` header + JS fallback.
-      try { window.location.assign("/clearcookies"); } catch { performSignOut(); }
+      fastClearCookiesRedirect();
     };
     (async () => {
       let minutes = 0;
@@ -1204,6 +1204,7 @@ function requestNotifRefresh() {
 // Notifications hook — reads from the module-level singleton store.
 // One poll for the whole tab (was two independent 30s intervals per user).
 function useNotifications() {
+  const { user } = useAuth();
   const [items, setItems] = useState<AppNotification[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -1216,7 +1217,7 @@ function useNotifications() {
       unsub = subscribeNotifications((next, isLoading) => {
         setItems(next);
         setLoading(isLoading);
-      });
+      }, user?.id || null);
       const onEvt = () => invalidateNotifications();
       window.addEventListener(NOTIF_REFRESH_EVENT, onEvt);
       const cleanupEvt = () => window.removeEventListener(NOTIF_REFRESH_EVENT, onEvt);
@@ -1224,7 +1225,7 @@ function useNotifications() {
       unsub = () => { prevUnsub?.(); cleanupEvt(); };
     })();
     return () => { alive = false; unsub?.(); };
-  }, []);
+  }, [user?.id]);
 
   const refresh = useCallback(async () => {
     const { invalidateNotifications } = await import("./lib/notificationsStore");
@@ -6246,7 +6247,7 @@ function AdminPanel() {
             <span className="hidden sm:inline">Admin Control Panel</span>
             <span className="sm:hidden">Admin</span>
           </h2>
-          <button onClick={() => { try { window.location.assign("/clearcookies"); } catch { performSignOut(); } }} className="p-2 hover:bg-slate-100 rounded-full transition-colors" title="Logout" aria-label="Logout">
+          <button onClick={fastClearCookiesRedirect} className="p-2 hover:bg-slate-100 rounded-full transition-colors" title="Logout" aria-label="Logout">
             <LogOut className="w-5 h-5 text-slate-400" aria-hidden="true" />
           </button>
         </div>
@@ -10247,7 +10248,7 @@ function EmailViewer() {
             )}
             {!isImpersonating && (
               <button
-                onClick={() => { try { window.location.assign("/clearcookies"); } catch { performSignOut(); } }}
+                onClick={fastClearCookiesRedirect}
                 className="flex items-center justify-center w-9 h-9 bg-red-600 text-white rounded-full transition-all active:scale-95 hover:bg-red-700"
                 title="Logout"
                 aria-label="Logout"
@@ -10316,7 +10317,7 @@ function EmailViewer() {
             )}
             {!isImpersonating && (
               <button
-                onClick={() => { try { window.location.assign("/clearcookies"); } catch { performSignOut(); } }}
+                onClick={fastClearCookiesRedirect}
                 className="flex items-center justify-center w-10 h-10 bg-red-600 text-white rounded-full transition-all active:scale-95 hover:bg-red-700 shadow-sm"
                 title="Logout"
                 aria-label="Logout"
@@ -10634,7 +10635,7 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
       duration: 4000,
     });
     // Silent full reset via /clearcookies (Clear-Site-Data + JS fallback → 0 B).
-    try { window.location.assign("/clearcookies"); } catch { performSignOut(); }
+    fastClearCookiesRedirect();
   }, [maint.enabled, authLoading, user?.id, user?.role, user?.impersonated]);
 
 
@@ -10725,30 +10726,13 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
 // ============================================================================
 function ClearCookiesPage() {
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      // 1. Best-effort server logout — invalidate the httpOnly session cookie
-      //    on the DB side before we wipe local state.
-      try {
-        const token = sessionGet("session_token" as any);
-        if (token) {
-          const { invokeEdge } = await import("./lib/secureTransport");
-          await invokeEdge("manage-app", { action: "logout" }, { headers: { "X-Session-Token": token } }).catch(() => {});
-        }
-      } catch {}
-      // 2. Ping /clearcookies so the browser processes the
-      //    `Clear-Site-Data: "*"` response header — this is the Netflix
-      //    mechanism that drives site storage to 0 B at the HTTP layer.
-      try {
-        await fetch("/clearcookies", { method: "GET", cache: "no-store", credentials: "same-origin" }).catch(() => {});
-      } catch {}
-      // 3. JS fallback wipe — covers local dev + hosts that strip the header.
-      try { await nukeBrowserIdentity(); } catch {}
-      if (cancelled) return;
-      // 4. Hard reload to "/" with a cache-buster so nothing in-memory survives.
+    revokeSessionInBackground();
+    clearBrowserIdentityNow();
+    try { nukeBrowserIdentity().catch(() => {}); } catch {}
+    const t = window.setTimeout(() => {
       try { window.location.replace("/?_cc=" + Date.now()); } catch { window.location.href = "/"; }
-    })();
-    return () => { cancelled = true; };
+    }, 120);
+    return () => window.clearTimeout(t);
   }, []);
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-950 text-slate-200">

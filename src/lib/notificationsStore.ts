@@ -22,6 +22,7 @@ let items: AppNotification[] = [];
 let etag: string | null = null;
 let loading = false;
 let inflight = false;
+let currentUserId: string | null = null;
 const listeners = new Set<Listener>();
 
 let pollTimer: number | null = null;
@@ -55,6 +56,15 @@ export async function refreshNotifications(force = false): Promise<void> {
   }
 }
 
+export function resetNotifications(userId: string | null = null): void {
+  currentUserId = userId;
+  items = [];
+  etag = null;
+  loading = false;
+  inflight = false;
+  emit();
+}
+
 function startPollingIfNeeded() {
   if (pollTimer != null) return;
   if (typeof window === "undefined") return;
@@ -78,7 +88,8 @@ function stopPollingIfIdle() {
   }
 }
 
-export function subscribeNotifications(fn: Listener): () => void {
+export function subscribeNotifications(fn: Listener, userId: string | null = null): () => void {
+  if (userId !== currentUserId) resetNotifications(userId);
   listeners.add(fn);
   // Immediate hydrate from current snapshot.
   try { fn(items, loading); } catch {}
