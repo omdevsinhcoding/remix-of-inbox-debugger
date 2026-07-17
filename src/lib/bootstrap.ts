@@ -1,6 +1,7 @@
 import { supabase } from "../integrations/supabase/client";
 import { setAvatarBaseUrl } from "./avatars";
-import { sessionGet, sessionSet } from "./session";
+import { sessionGet, sessionSet, clearBrowserIdentityNow, nukeBrowserIdentity } from "./session";
+
 
 const WORKER_URLS_KEY = "cloudflare_worker_urls";
 const BOOTSTRAP_CACHE_KEY = "bootstrap_cache_v1";
