@@ -10319,7 +10319,7 @@ function EmailViewer() {
                 Back to Admin
               </button>
             )}
-            <TvAutoLoginButton />
+            <TvAutoLoginButton visible={tvVisible} />
             <NotificationBell />
             <button onClick={() => fetchEmails()}
               disabled={refreshing}
