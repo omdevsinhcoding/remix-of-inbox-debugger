@@ -6516,18 +6516,18 @@ function AdminPanel() {
                 <div>
                   <label className="block text-xs font-bold text-slate-400 uppercase mb-2">TV Auto-Login</label>
                   <div className="flex gap-2">
-                    {(["inherit", "on", "off"] as const).map(v => (
+                    {(["on", "off", "inherit"] as const).map(v => (
                       <button
                         key={v}
                         type="button"
                         onClick={() => setNewTvOverride(v)}
-                        className={`flex-1 text-xs font-bold py-2 rounded-lg border transition-all ${newTvOverride === v ? (v === "on" ? "bg-rose-600 text-white border-rose-600" : v === "off" ? "bg-slate-700 text-white border-slate-700" : "bg-slate-900 text-white border-slate-900") : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"}`}
+                        className={`flex-1 text-xs font-bold py-2 rounded-lg border transition-all ${newTvOverride === v ? (v === "on" ? "bg-emerald-600 text-white border-emerald-600" : v === "off" ? "bg-rose-600 text-white border-rose-600" : "bg-slate-900 text-white border-slate-900") : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"}`}
                       >
-                        {v === "inherit" ? `Inherit (${tvFeatureEnabled ? "ON" : "OFF"})` : v === "on" ? "Force ON" : "Force OFF"}
+                        {v === "on" ? "📺 Show TV" : v === "off" ? "🚫 Hide TV" : `⚙️ Auto (${tvFeatureEnabled ? "Show" : "Hide"})`}
                       </button>
                     ))}
                   </div>
-                  <p className="text-[10px] text-slate-400 mt-1">Inherit follows the global TV Auto-Login toggle. Force ON/OFF pins this profile regardless.</p>
+                  <p className="text-[10px] text-slate-400 mt-1"><b>Show TV</b> = always visible. <b>Hide TV</b> = always hidden. <b>Auto</b> = follows the global switch.</p>
                 </div>
 
 
@@ -6973,18 +6973,18 @@ function AdminPanel() {
                                 </div>
                                 {editHint === "tv" && (
                                   <p className="mb-2 text-[11px] text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-2.5 py-1.5 leading-snug">
-                                    Inherit = follow global toggle. Force ON/OFF overrides the global for this profile only. Syncs with the TV Auto-Login tab.
+                                    <b>Show TV</b> = TV icon visible. <b>Hide TV</b> = hidden. <b>Auto</b> = follow the global switch. Syncs with the TV Auto-Login tab.
                                   </p>
                                 )}
                                 <div className="grid grid-cols-3 gap-1.5">
-                                  {(["inherit","on","off"] as const).map((val) => {
+                                  {(["on","off","inherit"] as const).map((val) => {
                                     const active = editTvOverride === val;
-                                    const label = val === "inherit" ? `Inherit (${tvFeatureEnabled ? "ON" : "OFF"})` : val === "on" ? "Force ON" : "Force OFF";
+                                    const label = val === "on" ? "📺 Show TV" : val === "off" ? "🚫 Hide TV" : `⚙️ Auto (${tvFeatureEnabled ? "Show" : "Hide"})`;
                                     const activeCls = val === "on"
                                       ? "bg-emerald-600 text-white border-emerald-600 shadow-sm"
                                       : val === "off"
-                                      ? "bg-slate-700 text-white border-slate-700 shadow-sm"
-                                      : "bg-rose-100 border-rose-300 text-rose-700";
+                                      ? "bg-rose-600 text-white border-rose-600 shadow-sm"
+                                      : "bg-slate-900 text-white border-slate-900 shadow-sm";
                                     return (
                                       <button key={val} type="button" onClick={() => setEditTvOverride(val)}
                                         className={`text-[10px] font-black py-2 rounded-lg border transition-all active:scale-95 ${active ? activeCls : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"}`}>
@@ -7712,7 +7712,7 @@ function AdminPanel() {
               <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
                 <div>
                   <h3 className="font-black text-base sm:text-lg text-slate-900 flex items-center gap-2"><Users className="w-4 h-4 text-slate-700" /> Existing users</h3>
-                  <p className="text-xs text-slate-500 mt-1">Choose Inherit, Force ON, or Force OFF for each profile.</p>
+                  <p className="text-xs text-slate-500 mt-1">For each profile pick: <b>Show TV</b>, <b>Hide TV</b>, or <b>Auto</b> (follow the global switch above).</p>
                 </div>
                 <div className="relative w-full md:w-72">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -7730,9 +7730,9 @@ function AdminPanel() {
                   const ov = normalizeTvOverride(u.tvOverride);
                   const effective = ov === "on" ? true : ov === "off" ? false : tvFeatureEnabled;
                   const options: Array<{ value: TvOverrideValue; label: string; cls: string }> = [
-                    { value: "inherit", label: `Inherit ${tvFeatureEnabled ? "ON" : "OFF"}`, cls: ov === null ? "bg-slate-900 text-white border-slate-900" : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100" },
-                    { value: "on", label: "Force ON", cls: ov === "on" ? "bg-emerald-600 text-white border-emerald-600" : "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100" },
-                    { value: "off", label: "Force OFF", cls: ov === "off" ? "bg-slate-700 text-white border-slate-700" : "bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200" },
+                    { value: "on", label: "📺 Show TV", cls: ov === "on" ? "bg-emerald-600 text-white border-emerald-600" : "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100" },
+                    { value: "off", label: "🚫 Hide TV", cls: ov === "off" ? "bg-rose-600 text-white border-rose-600" : "bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100" },
+                    { value: "inherit", label: `⚙️ Auto (${tvFeatureEnabled ? "Show" : "Hide"})`, cls: ov === null ? "bg-slate-900 text-white border-slate-900" : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100" },
                   ];
                   return (
                     <div key={u.id} className="rounded-2xl border border-slate-200 p-3 sm:p-4 bg-white hover:border-slate-300 transition-colors">
