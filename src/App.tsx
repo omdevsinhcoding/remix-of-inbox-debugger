@@ -9672,10 +9672,28 @@ function EmailViewer() {
   });
   useEffect(() => {
     let cancelled = false;
-    refreshBootstrap().then((bs) => {
-      if (!cancelled) setTvGlobalOn(bs?.tvFeature?.enabled !== false);
-    }).catch(() => {});
-    return () => { cancelled = true; };
+    const sync = async () => {
+      // Ground-truth check: hit get_settings directly so a stale bootstrap
+      // cache (local or worker) can't leave the TV icon visible after admin
+      // flipped the global toggle OFF.
+      try {
+        const res: any = await apiCall("manage-app", { action: "get_settings", key: "tv_feature" });
+        if (cancelled) return;
+        const enabled = res?.value?.enabled !== false;
+        setTvGlobalOn(enabled);
+      } catch {
+        // Fall back to bootstrap if get_settings fails.
+        try {
+          const bs = await refreshBootstrap();
+          if (!cancelled) setTvGlobalOn(bs?.tvFeature?.enabled !== false);
+        } catch {}
+      }
+    };
+    sync();
+    const onVis = () => { if (document.visibilityState === "visible") sync(); };
+    document.addEventListener("visibilitychange", onVis);
+    const id = window.setInterval(sync, 60_000);
+    return () => { cancelled = true; document.removeEventListener("visibilitychange", onVis); window.clearInterval(id); };
   }, []);
   const tvVisible = useMemo(() => {
     const ov = (user as any)?.tvOverride;
