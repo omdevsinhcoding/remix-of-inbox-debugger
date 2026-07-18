@@ -7712,7 +7712,7 @@ function AdminPanel() {
               <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
                 <div>
                   <h3 className="font-black text-base sm:text-lg text-slate-900 flex items-center gap-2"><Users className="w-4 h-4 text-slate-700" /> Existing users</h3>
-                  <p className="text-xs text-slate-500 mt-1">For each profile pick: <b>Show TV</b>, <b>Hide TV</b>, or <b>Auto</b> (follow the global switch above).</p>
+                  <p className="text-xs text-slate-500 mt-1">Show TV icon for this user? Pick <b>ON</b> or <b>OFF</b>. <b>Default</b> = same as the global switch above.</p>
                 </div>
                 <div className="relative w-full md:w-72">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
