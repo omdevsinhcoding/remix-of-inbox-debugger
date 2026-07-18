@@ -7668,164 +7668,129 @@ function AdminPanel() {
         )}
 
         {activeTab === "tv" && (
-          <div className="space-y-4 sm:space-y-6">
-            {/* Hero */}
-            <section className="relative overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 sm:p-8 rounded-3xl border border-white/5 shadow-2xl">
-              <div className="absolute -top-24 -right-24 w-72 h-72 bg-indigo-500/15 rounded-full blur-3xl pointer-events-none" />
-              <div className="absolute -bottom-24 -left-24 w-72 h-72 bg-fuchsia-500/10 rounded-full blur-3xl pointer-events-none" />
-              <div className="relative flex flex-col xl:flex-row xl:items-center xl:justify-between gap-6">
-                <div className="flex items-start gap-4 min-w-0">
-                  <div className="bg-gradient-to-br from-indigo-500 to-fuchsia-600 p-3 rounded-2xl shadow-xl shadow-indigo-500/30 flex-shrink-0">
-                    <Tv className="w-6 h-6 text-white" />
-                  </div>
-                  <div className="min-w-0">
-                    <h2 className="text-2xl sm:text-3xl font-black tracking-tight text-white leading-tight">TV Auto-Login</h2>
-                    <p className="text-xs sm:text-sm text-slate-400 mt-1.5 max-w-2xl leading-relaxed">
-                      Control who sees the <span className="text-white font-bold">TV icon</span> in the header. Set one global rule for everyone, then override for individual users.
-                    </p>
-                  </div>
-                </div>
-                <div className="grid grid-cols-4 gap-2 min-w-0 xl:min-w-[28rem]">
-                  <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-3">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Total</p>
-                    <p className="text-xl sm:text-2xl font-black text-white mt-0.5">{tvUsers.length}</p>
-                  </div>
-                  <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 backdrop-blur p-3">
-                    <p className="text-[10px] font-black text-emerald-300 uppercase tracking-wider">Visible</p>
-                    <p className="text-xl sm:text-2xl font-black text-emerald-200 mt-0.5">{tvEffectiveOnCount}</p>
-                  </div>
-                  <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/5 backdrop-blur p-3">
-                    <p className="text-[10px] font-black text-emerald-300 uppercase tracking-wider">Forced ON</p>
-                    <p className="text-xl sm:text-2xl font-black text-emerald-200 mt-0.5">{tvForcedOnCount}</p>
-                  </div>
-                  <div className="rounded-2xl border border-rose-400/20 bg-rose-500/5 backdrop-blur p-3">
-                    <p className="text-[10px] font-black text-rose-300 uppercase tracking-wider">Forced OFF</p>
-                    <p className="text-xl sm:text-2xl font-black text-rose-200 mt-0.5">{tvForcedOffCount}</p>
-                  </div>
-                </div>
-              </div>
-            </section>
+          <div className="max-w-4xl mx-auto space-y-5">
+            {/* Header — plain, no stats, no gradients */}
+            <div className="px-1">
+              <h2 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-950 flex items-center gap-2.5">
+                <span className="inline-flex w-9 h-9 rounded-xl bg-slate-900 text-white items-center justify-center shadow-sm"><Tv className="w-5 h-5" /></span>
+                TV Remote Access
+              </h2>
+              <p className="text-sm text-slate-500 mt-1.5 ml-[46px]">Decide who sees the <b className="text-slate-800">Login on TV</b> button in their header.</p>
+            </div>
 
-            {/* Global switch — big and obvious */}
-            <section className="bg-white p-5 sm:p-7 rounded-3xl border border-slate-200 shadow-sm">
-              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
-                <div className="flex items-start gap-4 min-w-0">
-                  <div className={`p-3 rounded-2xl flex-shrink-0 transition-colors ${tvFeatureEnabled ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
-                    <Zap className="w-5 h-5" />
-                  </div>
-                  <div className="min-w-0">
-                    <h3 className="font-black text-lg sm:text-xl text-slate-950 leading-tight">Global switch</h3>
-                    <p className="text-xs sm:text-sm text-slate-500 mt-1 leading-relaxed max-w-xl">
-                      This is the default for <b>all users</b>. Individual users below can be set differently.
-                    </p>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-2 w-full lg:w-auto lg:min-w-[22rem]">
-                  {([true, false] as const).map((enabled) => {
-                    const active = tvFeatureEnabled === enabled;
-                    const Icon = enabled ? Eye : EyeOff;
-                    return (
-                      <button
-                        key={String(enabled)}
-                        type="button"
-                        onClick={() => { if (tvFeatureEnabled !== enabled) void toggleTvFeature(); }}
-                        disabled={savingTvFeature}
-                        className={`group relative h-16 rounded-2xl border-2 text-sm font-black transition-all active:scale-[0.97] disabled:opacity-60 flex items-center justify-center gap-2.5 overflow-hidden ${active ? (enabled ? "bg-gradient-to-br from-emerald-500 to-emerald-600 text-white border-emerald-600 shadow-lg shadow-emerald-500/30" : "bg-gradient-to-br from-slate-800 to-slate-900 text-white border-slate-900 shadow-lg shadow-slate-900/30") : "bg-white text-slate-500 border-slate-200 hover:border-slate-300 hover:bg-slate-50"}`}
-                      >
-                        <Icon className={`w-5 h-5 transition-transform ${active ? "scale-110" : "group-hover:scale-110"}`} />
-                        <span className="tracking-wide">{enabled ? "SHOW for all" : "HIDE for all"}</span>
-                        {active && <span className="absolute top-1.5 right-2 text-[9px] font-black bg-white/25 px-1.5 py-0.5 rounded-full tracking-wider">ACTIVE</span>}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </section>
-
-            {/* Per-user list */}
-            <section className="bg-white p-4 sm:p-6 rounded-3xl border border-slate-200 shadow-sm">
-              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-5">
+            {/* Global — one iOS-style switch, one sentence */}
+            <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 sm:p-6">
+              <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
-                  <h3 className="font-black text-lg sm:text-xl text-slate-950 flex items-center gap-2">
-                    <Users className="w-5 h-5 text-slate-700" /> Per-user control
-                  </h3>
-                  <p className="text-xs sm:text-sm text-slate-500 mt-1 leading-relaxed">
-                    <span className="inline-flex items-center gap-1 font-bold text-emerald-700"><Eye className="w-3 h-3" /> ON</span> = always show ·{" "}
-                    <span className="inline-flex items-center gap-1 font-bold text-rose-700"><EyeOff className="w-3 h-3" /> OFF</span> = always hide ·{" "}
-                    <span className="inline-flex items-center gap-1 font-bold text-slate-700"><Sparkles className="w-3 h-3" /> Default</span> = follow global
+                  <p className="text-base sm:text-lg font-bold text-slate-950 leading-snug">Everyone gets the TV button</p>
+                  <p className="text-[13px] text-slate-500 mt-1 leading-relaxed">
+                    {tvFeatureEnabled
+                      ? "It's on. Every profile below sees the TV button — unless you turn a person off."
+                      : "It's off. Nobody sees the TV button — unless you turn a person on."}
                   </p>
                 </div>
-                <div className="relative w-full md:w-72">
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={tvFeatureEnabled}
+                  onClick={() => { void toggleTvFeature(); }}
+                  disabled={savingTvFeature}
+                  className={`relative shrink-0 w-[62px] h-[34px] rounded-full transition-colors duration-200 disabled:opacity-60 focus:outline-none focus:ring-4 ring-offset-2 ${tvFeatureEnabled ? "bg-emerald-500 ring-emerald-200" : "bg-slate-300 ring-slate-200"}`}
+                >
+                  <span className={`absolute top-0.5 left-0.5 w-[30px] h-[30px] bg-white rounded-full shadow-md transition-transform duration-200 ease-out flex items-center justify-center ${tvFeatureEnabled ? "translate-x-[28px]" : "translate-x-0"}`}>
+                    {tvFeatureEnabled ? <Eye className="w-3.5 h-3.5 text-emerald-600" /> : <EyeOff className="w-3.5 h-3.5 text-slate-400" />}
+                  </span>
+                </button>
+              </div>
+            </section>
+
+            {/* People */}
+            <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="px-5 sm:px-6 py-4 border-b border-slate-100 flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-2 min-w-0">
+                  <h3 className="font-bold text-slate-950">People</h3>
+                  <span className="text-[11px] font-bold text-slate-500 bg-slate-100 rounded-full px-2 py-0.5">{filteredTvUsers.length}</span>
+                </div>
+                <div className="relative w-full sm:w-72">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                   <input
                     value={tvSearch}
                     onChange={(e) => setTvSearch(e.target.value)}
-                    placeholder="Search by name or @username"
-                    className="w-full h-11 pl-10 pr-3 rounded-2xl border border-slate-200 bg-slate-50 text-sm font-semibold outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-300 transition"
+                    placeholder="Search name or @username"
+                    className="w-full h-10 pl-9 pr-3 rounded-xl border border-slate-200 bg-slate-50 text-sm outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-300 focus:bg-white transition"
                   />
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-3">
+              <ul className="divide-y divide-slate-100">
                 {filteredTvUsers.map((u) => {
                   const ov = normalizeTvOverride(u.tvOverride);
                   const effective = ov === "on" ? true : ov === "off" ? false : tvFeatureEnabled;
-                  const options: Array<{ value: TvOverrideValue; label: string; Icon: typeof Eye; activeCls: string; idleCls: string }> = [
-                    { value: "on",      label: "ON",      Icon: Eye,      activeCls: "bg-gradient-to-br from-emerald-500 to-emerald-600 text-white border-emerald-600 shadow-md shadow-emerald-500/30", idleCls: "bg-white text-slate-500 border-slate-200 hover:border-emerald-300 hover:text-emerald-700 hover:bg-emerald-50" },
-                    { value: "off",     label: "OFF",     Icon: EyeOff,   activeCls: "bg-gradient-to-br from-rose-500 to-rose-600 text-white border-rose-600 shadow-md shadow-rose-500/30",           idleCls: "bg-white text-slate-500 border-slate-200 hover:border-rose-300 hover:text-rose-700 hover:bg-rose-50" },
-                    { value: "inherit", label: "Default", Icon: Sparkles, activeCls: "bg-gradient-to-br from-slate-800 to-slate-950 text-white border-slate-900 shadow-md shadow-slate-900/30",       idleCls: "bg-white text-slate-500 border-slate-200 hover:border-slate-400 hover:text-slate-900 hover:bg-slate-50" },
-                  ];
-                  const isForced = ov !== null;
+                  const overridden = ov !== null;
                   return (
-                    <div key={u.id} className={`group rounded-2xl border p-4 bg-white transition-all hover:shadow-md ${isForced ? (ov === "on" ? "border-emerald-200 hover:border-emerald-300" : "border-rose-200 hover:border-rose-300") : "border-slate-200 hover:border-slate-300"}`}>
-                      <div className="flex items-center justify-between gap-3 mb-3.5">
-                        <div className="flex items-center gap-3 min-w-0">
-                          <div className="relative flex-shrink-0">
-                            <ProfileAvatar avatarId={getStableProfileAvatar(u)} name={u.name} className="w-11 h-11 !rounded-2xl ring-2 ring-white shadow-sm" fallbackColor={u.isFree ? "bg-emerald-500" : "bg-blue-500"} />
-                            <span className={`absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full border-2 border-white flex items-center justify-center ${effective ? "bg-emerald-500" : "bg-slate-400"}`}>
-                              {effective ? <Eye className="w-2.5 h-2.5 text-white" /> : <EyeOff className="w-2.5 h-2.5 text-white" />}
-                            </span>
-                          </div>
-                          <div className="min-w-0">
-                            <p className="text-sm font-black text-slate-900 truncate leading-tight">{u.name}</p>
-                            <p className="text-[11px] text-slate-500 truncate font-mono mt-0.5">{u.username ? `@${u.username}` : "free profile"}</p>
-                          </div>
+                    <li key={u.id} className="flex items-center gap-3 sm:gap-4 px-5 sm:px-6 py-3.5 hover:bg-slate-50/60 transition-colors">
+                      <ProfileAvatar avatarId={getStableProfileAvatar(u)} name={u.name} className="w-10 h-10 !rounded-full ring-1 ring-slate-200 shadow-sm shrink-0" fallbackColor={u.isFree ? "bg-emerald-500" : "bg-blue-500"} />
+
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <p className="text-[14px] font-bold text-slate-900 truncate">{u.name}</p>
+                          <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${effective ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${effective ? "bg-emerald-500" : "bg-slate-400"}`} />
+                            {effective ? "Visible" : "Hidden"}
+                          </span>
                         </div>
-                        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black flex-shrink-0 tracking-wider ${effective ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-600"}`}>
-                          {effective ? "VISIBLE" : "HIDDEN"}
-                        </span>
+                        <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-0.5 min-w-0">
+                          <span className="font-mono truncate">{u.username ? `@${u.username}` : "free profile"}</span>
+                          {overridden && (
+                            <button
+                              type="button"
+                              onClick={() => { void setProfileTvOverride(u, "inherit"); }}
+                              className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 hover:underline underline-offset-2 shrink-0"
+                            >
+                              Same as everyone
+                            </button>
+                          )}
+                        </div>
                       </div>
-                      <div className="grid grid-cols-3 gap-1.5 p-1 rounded-2xl bg-slate-100/70 border border-slate-200/50">
-                        {options.map((option) => {
-                          const active = (option.value === "inherit" && ov === null) || option.value === ov;
-                          const Icon = option.Icon;
+
+                      {/* Two-state segmented switch: Show / Hide */}
+                      <div className="shrink-0 inline-flex p-0.5 rounded-full bg-slate-100 border border-slate-200">
+                        {([
+                          { value: "on" as const,  label: "Show", Icon: Eye,    onCls: "bg-emerald-500 text-white shadow-sm" },
+                          { value: "off" as const, label: "Hide", Icon: EyeOff, onCls: "bg-slate-900 text-white shadow-sm" },
+                        ]).map((opt) => {
+                          const active = ov === opt.value;
+                          const Icon = opt.Icon;
                           return (
                             <button
-                              key={option.value}
+                              key={opt.value}
                               type="button"
-                              onClick={() => { void setProfileTvOverride(u, option.value); }}
-                              className={`min-h-11 rounded-xl border-2 px-1.5 text-[11px] font-black transition-all active:scale-[0.96] flex flex-col items-center justify-center gap-0.5 ${active ? option.activeCls : option.idleCls}`}
+                              onClick={() => { void setProfileTvOverride(u, opt.value); }}
+                              className={`inline-flex items-center gap-1.5 px-3 sm:px-3.5 h-8 rounded-full text-[12px] font-bold transition-all active:scale-[0.97] ${active ? opt.onCls : "text-slate-500 hover:text-slate-800"}`}
+                              aria-pressed={active}
                             >
                               <Icon className="w-3.5 h-3.5" />
-                              <span className="tracking-wide">{option.label}</span>
+                              <span>{opt.label}</span>
                             </button>
                           );
                         })}
                       </div>
-                    </div>
+                    </li>
                   );
                 })}
+
                 {filteredTvUsers.length === 0 && (
-                  <div className="lg:col-span-2 2xl:col-span-3 rounded-3xl border-2 border-dashed border-slate-200 p-12 text-center">
-                    <div className="inline-flex p-4 rounded-2xl bg-slate-100 mb-3"><Search className="w-6 h-6 text-slate-400" /></div>
-                    <p className="text-sm font-black text-slate-700">No users match your search</p>
+                  <li className="px-6 py-16 text-center">
+                    <div className="inline-flex p-3 rounded-full bg-slate-100 mb-3"><Search className="w-5 h-5 text-slate-400" /></div>
+                    <p className="text-sm font-bold text-slate-700">No people match your search</p>
                     <p className="text-xs text-slate-500 mt-1">Try a different name or username.</p>
-                  </div>
+                  </li>
                 )}
-              </div>
+              </ul>
             </section>
           </div>
         )}
+
 
 
 
