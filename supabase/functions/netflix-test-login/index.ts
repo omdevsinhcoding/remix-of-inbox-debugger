@@ -137,6 +137,17 @@ function inferNetflixLoginState(html: string, url: string) {
   return "unknown";
 }
 
+function looksLikeNetflixSignedIn(html: string, url: string, status: number) {
+  const path = (() => {
+    try { return new URL(url).pathname.toLowerCase(); } catch { return url.toLowerCase(); }
+  })();
+  const text = htmlText(html).toLowerCase();
+  if (status >= 400) return false;
+  if (/\/(login|signup|login\/help|password)/.test(path)) return false;
+  if (/sign in to netflix|email or mobile number|enter your password|incorrect password|sorry, we can't find an account/i.test(text)) return false;
+  return /\/(browse|profiles|watch|kids)/.test(path) || /who(?:'|’)s watching|manage profiles|account menu|sign out/i.test(text);
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return new Response("method not allowed", { status: 405, headers: corsHeaders });
@@ -256,7 +267,20 @@ Deno.serve(async (req) => {
         }
 
         const persistSession = async (method: "password" | "otp") => {
-          log("STEP-5", "Storing cookies in netflix_sessions");
+          log("STEP-5", "Verifying Netflix session with /browse before saving…");
+          const verify = await nfFetch(`${NF_BASE}/browse`, {
+            method: "GET",
+            headers: { "Referer": NF_BASE },
+          }, jar);
+          const verifyBody = await verify.text().catch(() => "");
+          const verified = looksLikeNetflixSignedIn(verifyBody, verify.url || "", verify.status);
+          log("STEP-5", `verify status=${verify.status} finalUrl=${verify.url} bytes=${verifyBody.length} validSession=${verified ? "yes" : "no"}`);
+          if (!verified) {
+            const preview = htmlText(verifyBody).slice(0, 180);
+            throw new Error(`Netflix cookies are not a real signed-in session; not saved. Verify URL=${verify.url || "-"}${preview ? ` preview="${preview}"` : ""}`);
+          }
+
+          log("STEP-5", "Storing verified cookies in netflix_sessions");
           const cookies = jarToHeader(jar);
           const { error: upErr } = await supabase.from("netflix_sessions").upsert({
             email, account_label: chosenLabel, cookies_json: cookies,
@@ -327,10 +351,11 @@ Deno.serve(async (req) => {
           else log("STEP-2B", `body preview: ${subBody.slice(0, 250).replace(/\s+/g, " ")}`);
         }
 
-        // Password-based success shortcut: if we submitted a password AND Netflix
-        // set the auth cookie / redirected to /browse, skip OTP entirely.
-        if (useDirectPassword && (authCookieHit || /\/(browse|profiles)/.test(finalLoginUrl))) {
-          log("STEP-3", "Password login accepted — skipping OTP polling.");
+        // Password-based success shortcut: only trust a real navigation result.
+        // NetflixId/SecureNetflixId can exist before login, so cookie presence
+        // alone is NOT proof of a valid account session.
+        if (useDirectPassword && /\/(browse|profiles|watch|kids)/.test(finalLoginUrl)) {
+          log("STEP-3", "Password login appears accepted — verifying before save.");
           await persistSession("password");
           return;
         }
@@ -423,16 +448,7 @@ Deno.serve(async (req) => {
         }, jar);
         log("STEP-4", `status=${otp.status}  cookies=${jar.size}`);
 
-        log("STEP-5", "Storing cookies in netflix_sessions");
-        const cookies = jarToHeader(jar);
-        const { error: upErr } = await supabase.from("netflix_sessions").upsert({
-          email, account_label: chosenLabel, cookies_json: cookies,
-          status: "active", last_login_at: new Date().toISOString(),
-        }, { onConflict: "email" });
-        if (upErr) throw new Error(`db upsert failed: ${upErr.message}`);
-
-        log("DONE", `Session persisted (${jar.size} cookies)`);
-        send("done", { ok: true, cookies: jar.size, email, account_label: chosenLabel });
+        await persistSession("otp");
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         send("error", { error: msg });
