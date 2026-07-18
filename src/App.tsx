@@ -2019,6 +2019,183 @@ function NetflixTestButton({ profileId }: { profileId: string }) {
   );
 }
 
+// --- Netflix Credentials manager (Admin panel → TV Auto-Login section) ---
+// Stores plaintext Netflix passwords keyed by email in app_settings key
+// `netflix_credentials`. Used by the netflix-test-login edge function to
+// perform password-based login when Netflix refuses OTP for that email.
+function NetflixCredentialsSection({ emailAccounts, primaryImapUser }: {
+  emailAccounts: Array<{ label?: string; user?: string; recipientFilters?: string[] }>;
+  primaryImapUser?: string;
+}) {
+  const [creds, setCreds] = useState<Record<string, string>>({});
+  const [reveal, setReveal] = useState<Record<string, boolean>>({});
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [newEmail, setNewEmail] = useState("");
+  const [newPass, setNewPass] = useState("");
+
+  const knownEmails = useMemo(() => {
+    const set = new Set<string>();
+    if (primaryImapUser && primaryImapUser.trim()) set.add(primaryImapUser.trim().toLowerCase());
+    for (const acc of emailAccounts || []) {
+      const rf = Array.isArray(acc.recipientFilters) ? acc.recipientFilters : [];
+      for (const r of rf) if (typeof r === "string" && r.trim()) set.add(r.trim().toLowerCase());
+      if (acc.user && String(acc.user).trim()) set.add(String(acc.user).trim().toLowerCase());
+    }
+    return set;
+  }, [emailAccounts, primaryImapUser]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res: any = await apiCall("manage-app", { action: "get_settings", key: "netflix_credentials" });
+        const v = res?.value;
+        if (v && typeof v === "object" && !Array.isArray(v)) {
+          const norm: Record<string, string> = {};
+          for (const [k, val] of Object.entries(v)) norm[String(k).toLowerCase()] = String(val || "");
+          setCreds(norm);
+        }
+      } catch { /* ignore */ } finally { setLoading(false); }
+    })();
+  }, []);
+
+  const rows = useMemo(() => {
+    const merged = new Set<string>([...knownEmails, ...Object.keys(creds)]);
+    return Array.from(merged).sort();
+  }, [knownEmails, creds]);
+
+  const save = useCallback(async () => {
+    setSaving(true);
+    try {
+      const clean: Record<string, string> = {};
+      for (const [k, v] of Object.entries(creds)) {
+        const email = k.trim().toLowerCase();
+        const pw = String(v || "");
+        if (email && pw) clean[email] = pw;
+      }
+      await apiCall("manage-app", { action: "set_settings", key: "netflix_credentials", value: clean });
+      notify.success("Netflix credentials saved");
+    } catch (e: any) {
+      notify.error(e?.message || "Save failed");
+    } finally { setSaving(false); }
+  }, [creds]);
+
+  const addRow = () => {
+    const email = newEmail.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { notify.error("Enter a valid email"); return; }
+    setCreds((prev) => ({ ...prev, [email]: newPass }));
+    setNewEmail(""); setNewPass("");
+  };
+
+  const removeRow = (email: string) => {
+    setCreds((prev) => {
+      const next = { ...prev };
+      delete next[email];
+      return next;
+    });
+  };
+
+  return (
+    <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+      <h2 className="font-black text-base sm:text-lg mb-1 flex items-center gap-2">
+        <div className="bg-red-50 p-1.5 rounded-lg"><Tv className="w-4 h-4 text-red-600" /></div>
+        Netflix Credentials
+      </h2>
+      <p className="text-xs text-slate-500 mb-4">
+        Passwords used by TV Auto-Login when Netflix asks for a password instead of sending an OTP.
+        Keyed by the Netflix login email. Editable — updates apply on next Start Test.
+      </p>
+
+      {loading ? (
+        <div className="text-sm text-slate-500">Loading…</div>
+      ) : (
+        <>
+          <div className="space-y-2">
+            {rows.length === 0 && (
+              <div className="text-xs text-slate-400 italic">No email accounts configured yet. Add one below.</div>
+            )}
+            {rows.map((email) => {
+              const val = creds[email] || "";
+              const shown = reveal[email];
+              const isKnown = knownEmails.has(email);
+              return (
+                <div key={email} className="flex items-center gap-2 bg-slate-50 rounded-lg p-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[13px] font-mono text-slate-800 truncate">{email}</div>
+                    {isKnown && <div className="text-[10px] text-emerald-600 uppercase tracking-wider">imap account</div>}
+                  </div>
+                  <input
+                    type={shown ? "text" : "password"}
+                    value={val}
+                    onChange={(e) => setCreds((prev) => ({ ...prev, [email]: e.target.value }))}
+                    placeholder="Netflix password"
+                    className="flex-1 min-w-0 px-3 py-1.5 border rounded-md text-sm font-mono"
+                    autoComplete="off"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setReveal((p) => ({ ...p, [email]: !p[email] }))}
+                    className="text-xs px-2 py-1 rounded-md bg-slate-200 hover:bg-slate-300 font-semibold text-slate-700"
+                  >
+                    {shown ? "Hide" : "Show"}
+                  </button>
+                  {!isKnown && (
+                    <button
+                      type="button"
+                      onClick={() => removeRow(email)}
+                      className="text-xs px-2 py-1 rounded-md bg-rose-100 hover:bg-rose-200 font-semibold text-rose-700"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="mt-4 pt-4 border-t border-dashed border-slate-200">
+            <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">Add custom Netflix login</div>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <input
+                value={newEmail}
+                onChange={(e) => setNewEmail(e.target.value)}
+                placeholder="netflix-login@example.com"
+                className="flex-1 px-3 py-2 border rounded-lg text-sm font-mono"
+                autoComplete="off"
+              />
+              <input
+                value={newPass}
+                onChange={(e) => setNewPass(e.target.value)}
+                placeholder="password"
+                className="flex-1 px-3 py-2 border rounded-lg text-sm font-mono"
+                autoComplete="off"
+              />
+              <button
+                type="button"
+                onClick={addRow}
+                className="px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-bold hover:bg-slate-800"
+              >
+                Add
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-4 flex justify-end">
+            <button
+              type="button"
+              disabled={saving}
+              onClick={save}
+              className="px-5 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-sm font-black disabled:opacity-50"
+            >
+              {saving ? "Saving…" : "Save Credentials"}
+            </button>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
 // --- TV Auto-Login header button + Coming Soon popup ---
 function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
   const [open, setOpen] = useState(false);
