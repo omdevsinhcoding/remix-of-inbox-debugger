@@ -4,7 +4,6 @@ import { Mail, RefreshCw, ShieldCheck, Shield, Clock, AlertCircle, Copy, Check, 
 import { motion, AnimatePresence } from "motion/react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import NetflixHouseholdVerificationGuide from "./pages/NetflixHouseholdVerificationGuide";
-const NetflixAutoLoginTest = lazy(() => import("./pages/NetflixAutoLoginTest"));
 import { notify } from "./components/toast/notify";
 import { ToastProvider } from "./components/toast/toast-provider";
 
@@ -5188,6 +5187,36 @@ function AdminPanel() {
   const [newTvOverride, setNewTvOverride] = useState<"inherit" | "on" | "off">("inherit");
   const [dragUserId, setDragUserId] = useState<string | null>(null);
   const [reordering, setReordering] = useState(false);
+  // Netflix auto-login (per-profile). Start = trigger worker; Logs = live log viewer.
+  const [nflStarting, setNflStarting] = useState<string | null>(null);
+  const [nflLogsFor, setNflLogsFor] = useState<{ id: string; email: string } | null>(null);
+  const [nflLogsData, setNflLogsData] = useState<any>(null);
+  const [nflLogsLoading, setNflLogsLoading] = useState(false);
+  const startNetflixAutoLogin = async (u: any) => {
+    const email = u.username || "";
+    if (!email) { notify.error("No email on this profile"); return; }
+    setNflStarting(u.id);
+    try {
+      const res: any = await apiCall("netflix-auto-login", { action: "trigger", email, accountLabel: u.name || "Primary" });
+      if (res?.error) notify.error(res.error); else notify.success(`Queued login for ${email}`);
+      setNflLogsFor({ id: u.id, email });
+    } catch (e: any) { notify.error(e?.message || "Failed to start"); }
+    finally { setNflStarting(null); }
+  };
+  const loadNetflixLogs = useCallback(async (email: string) => {
+    setNflLogsLoading(true);
+    try {
+      const res: any = await apiCall("netflix-auto-login", { action: "get_logs", email });
+      setNflLogsData(res?.session || null);
+    } catch { /* noop */ } finally { setNflLogsLoading(false); }
+  }, []);
+  useEffect(() => {
+    if (!nflLogsFor) return;
+    loadNetflixLogs(nflLogsFor.email);
+    const t = setInterval(() => loadNetflixLogs(nflLogsFor.email), 3000);
+    return () => clearInterval(t);
+  }, [nflLogsFor, loadNetflixLogs]);
+
   const [serverConfig, setServerConfig] = useState({
     TELEGRAM_BOT_TOKEN: "", TELEGRAM_CHAT_ID: "", IMAP_HOST: "", IMAP_PORT: "", IMAP_USER: "", IMAP_PASSWORD: "",
   });
@@ -6837,6 +6866,15 @@ function AdminPanel() {
                             className="flex-1 flex items-center justify-center h-9 rounded-lg text-slate-500 hover:bg-white hover:text-blue-600 hover:shadow-sm transition-all active:scale-95">
                             <Eye className="w-4 h-4" />
                           </button>
+                          <button onClick={() => startNetflixAutoLogin(u)} disabled={nflStarting === u.id} title="Start Netflix auto-login"
+                            className="flex-1 flex items-center justify-center h-9 rounded-lg text-slate-500 hover:bg-white hover:text-red-600 hover:shadow-sm transition-all active:scale-95 disabled:opacity-50">
+                            {nflStarting === u.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4" />}
+                          </button>
+                          <button onClick={() => setNflLogsFor({ id: u.id, email: u.username || "" })} title="View auto-login logs"
+                            className="flex-1 flex items-center justify-center h-9 rounded-lg text-slate-500 hover:bg-white hover:text-indigo-600 hover:shadow-sm transition-all active:scale-95">
+                            <BookOpen className="w-4 h-4" />
+                          </button>
+
                           <button onClick={() => {
                               const opening = editingUserAccounts !== u.id;
                               setEditingUserAccounts(opening ? u.id : null);
@@ -9424,9 +9462,60 @@ API Token:            Use default`}
         )}
       </main>
 
+      {/* Netflix auto-login logs modal (per-profile). Polls every 3s while open. */}
+      {nflLogsFor && createPortal(
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={() => setNflLogsFor(null)}>
+          <div className="w-full max-w-lg bg-slate-950 text-slate-100 rounded-2xl ring-1 ring-white/10 shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-3 border-b border-white/10 bg-gradient-to-r from-red-900/40 to-slate-900">
+              <div>
+                <div className="text-[10px] uppercase tracking-[0.2em] text-red-400 font-bold">Netflix Auto-Login</div>
+                <div className="text-sm font-mono text-slate-200 truncate">{nflLogsFor.email || "—"}</div>
+              </div>
+              <button onClick={() => setNflLogsFor(null)} className="p-1.5 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="px-5 py-3 flex items-center gap-3 text-xs border-b border-white/5">
+              <span className={`px-2 py-0.5 rounded-full font-semibold ${
+                nflLogsData?.status === "success" ? "bg-emerald-500/20 text-emerald-300" :
+                nflLogsData?.status === "error" ? "bg-red-500/20 text-red-300" :
+                nflLogsData?.status ? "bg-amber-500/20 text-amber-300" :
+                "bg-slate-700 text-slate-300"
+              }`}>{nflLogsData?.status || "idle"}</span>
+              {nflLogsData?.last_login_at && <span className="text-slate-500">Last: {new Date(nflLogsData.last_login_at).toLocaleString()}</span>}
+              <button onClick={() => loadNetflixLogs(nflLogsFor.email)} disabled={nflLogsLoading}
+                className="ml-auto text-slate-400 hover:text-white flex items-center gap-1">
+                <RefreshCw className={`w-3.5 h-3.5 ${nflLogsLoading ? "animate-spin" : ""}`} /> Refresh
+              </button>
+            </div>
+            <div className="max-h-[50vh] overflow-y-auto p-4 font-mono text-[11px] leading-relaxed bg-black/60">
+              {Array.isArray(nflLogsData?.logs) && nflLogsData.logs.length > 0 ? (
+                nflLogsData.logs.map((l: any, i: number) => (
+                  <div key={i} className="flex gap-2">
+                    <span className="text-slate-600 shrink-0">{l.ts ? new Date(l.ts).toLocaleTimeString() : ""}</span>
+                    <span className={
+                      l.level === "error" ? "text-red-400" :
+                      l.level === "warn" ? "text-amber-400" :
+                      l.level === "success" ? "text-emerald-400" : "text-slate-300"
+                    }>{l.message}</span>
+                  </div>
+                ))
+              ) : (
+                <div className="text-slate-500 italic">No logs yet. Click Start (▶) on the user card to trigger a run.</div>
+              )}
+              {nflLogsData?.last_error && (
+                <div className="mt-3 text-red-400 whitespace-pre-wrap">{nflLogsData.last_error}</div>
+              )}
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
     </div>
   );
 }
+
 
 // ==================== CHANGE PASSWORD MODAL ====================
 function ChangePasswordModal({ user, onDone, forced = false }: { user: UserData; onDone: () => void; forced?: boolean }) {
@@ -11406,26 +11495,12 @@ function CatchAllRoute() {
 
 
 // ==================== MAIN APP ====================
-// Temp floating button — only on /admin/dashboard — opens Netflix auto-login test page.
-// Safe to delete along with the page + edge function + netflix-automation/ folder.
-function NetflixTestFloatingButton() {
-  if (typeof window === "undefined") return null;
-  if (window.location.pathname !== "/admin/dashboard") return null;
-  return (
-    <a href="/admin/netflix-test"
-       className="fixed bottom-4 right-4 z-[9998] px-3 py-2 rounded-full bg-red-600 hover:bg-red-500 text-white text-xs font-semibold shadow-lg shadow-red-900/40 flex items-center gap-1.5">
-      🧪 Netflix Auto-Login (Test)
-    </a>
-  );
-}
-
 export default function App() {
   return (
     <Router>
       <AuthProvider>
         <ToastProvider />
         <AdminSyncStatus />
-        <NetflixTestFloatingButton />
         <ErrorBoundary>
           <MaintenanceGate>
             <Routes>
@@ -11436,12 +11511,12 @@ export default function App() {
               <Route path="/admin/viewer" element={<AdminUserViewRoute><EmailViewer /></AdminUserViewRoute>} />
               <Route path="/viewer" element={<ProtectedRoute role="user"><EmailViewer /></ProtectedRoute>} />
               <Route path="/guides/netflix-household-verification" element={<NetflixHouseholdVerificationGuide />} />
-              <Route path="/admin/netflix-test" element={<ProtectedRoute role="admin"><Suspense fallback={<div className="p-6 text-slate-400">Loading…</div>}><NetflixAutoLoginTest /></Suspense></ProtectedRoute>} />
               {/* Any URL that "looks like" a logout/clear intent runs the
                   same instant-wipe flow. Covers typos like /clesrcatch,
                   /cler, /signot, /logot, /rest, /cokie, etc. */}
               <Route path="*" element={<CatchAllRoute />} />
             </Routes>
+
 
 
 
