@@ -3078,7 +3078,7 @@ Deno.serve(async (originalReq) => {
 
     if (action === "update_user") {
       const session = await requireAdmin(req);
-      const { id, assigned_accounts, session_limit, pinned, is_free, name, username, expires_at, location_required, auto_delete } = params;
+      const { id, assigned_accounts, session_limit, pinned, is_free, name, username, expires_at, location_required, auto_delete, tv_override } = params;
       if (!id) throw new Error("User ID required");
       const patch: Record<string, any> = {};
       if (assigned_accounts !== undefined) patch.assigned_accounts = await normalizeAssignedAccounts(supabase, assigned_accounts);
