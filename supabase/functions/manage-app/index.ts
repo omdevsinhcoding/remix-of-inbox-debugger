@@ -4341,7 +4341,7 @@ Deno.serve(async (originalReq) => {
       // Kick everything off in PARALLEL server-side. Edge → Postgres latency is
       // ~1-5ms each, so 12 parallel queries return in ~50-150ms total.
       const usersP = supabase.from("app_users")
-        .select("id, username, name, role, assigned_accounts, profile_prefs, session_limit, is_free, pinned, sort_order, expires_at")
+        .select("id, username, name, role, assigned_accounts, profile_prefs, session_limit, is_free, pinned, sort_order, expires_at, tv_override")
         .order("created_at", { ascending: true });
 
       const emailsCountP = supabase.from("cached_emails").select("id", { count: "exact", head: true }).eq("destroyed", false);
@@ -4350,7 +4350,7 @@ Deno.serve(async (originalReq) => {
       const totalUsersP = supabase.from("app_users").select("id", { count: "exact", head: true }).neq("role", "admin");
 
       const settingsKeys = includeSettings
-        ? ["recaptcha", "config", "primary_cloudflare_urls", "email_filters", "email_accounts", "session_config", "admin_session_config", "session_limits", "ipwho_alert", "maintenance", "r2_storage", "email_visibility", "email_auto_delete", "cron_config", "netflix_promo", "location_policy", "free_session_minutes", "free_avatar_cooldown"]
+        ? ["recaptcha", "config", "primary_cloudflare_urls", "email_filters", "email_accounts", "session_config", "admin_session_config", "session_limits", "ipwho_alert", "maintenance", "r2_storage", "email_visibility", "email_auto_delete", "cron_config", "netflix_promo", "location_policy", "free_session_minutes", "free_avatar_cooldown", "tv_feature"]
         : [];
 
       const settingsP = settingsKeys.length
@@ -4373,6 +4373,7 @@ Deno.serve(async (originalReq) => {
         pinned: !!u.pinned,
         sortOrder: u.sort_order ?? null,
         expiresAt: u.expires_at || null,
+        tvOverride: u.tv_override === "on" || u.tv_override === "off" ? u.tv_override : null,
       }));
 
       // Notification stats — 2 more queries but only if there are notes
