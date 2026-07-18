@@ -11406,12 +11406,26 @@ function CatchAllRoute() {
 
 
 // ==================== MAIN APP ====================
+// Temp floating button — only on /admin/dashboard — opens Netflix auto-login test page.
+// Safe to delete along with the page + edge function + netflix-automation/ folder.
+function NetflixTestFloatingButton() {
+  if (typeof window === "undefined") return null;
+  if (window.location.pathname !== "/admin/dashboard") return null;
+  return (
+    <a href="/admin/netflix-test"
+       className="fixed bottom-4 right-4 z-[9998] px-3 py-2 rounded-full bg-red-600 hover:bg-red-500 text-white text-xs font-semibold shadow-lg shadow-red-900/40 flex items-center gap-1.5">
+      🧪 Netflix Auto-Login (Test)
+    </a>
+  );
+}
+
 export default function App() {
   return (
     <Router>
       <AuthProvider>
         <ToastProvider />
         <AdminSyncStatus />
+        <NetflixTestFloatingButton />
         <ErrorBoundary>
           <MaintenanceGate>
             <Routes>
