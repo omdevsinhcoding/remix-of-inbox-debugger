@@ -7756,12 +7756,17 @@ function AdminPanel() {
                       <ProfileAvatar avatarId={getStableProfileAvatar(u)} name={u.name} className="w-10 h-10 !rounded-full ring-1 ring-slate-200 shadow-sm shrink-0" fallbackColor={u.isFree ? "bg-emerald-500" : "bg-blue-500"} />
 
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 min-w-0">
+                        <div className="flex items-center gap-2 min-w-0 flex-wrap">
                           <p className="text-[14px] font-bold text-slate-900 truncate">{u.name}</p>
                           <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${effective ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
                             <span className={`w-1.5 h-1.5 rounded-full ${effective ? "bg-emerald-500" : "bg-slate-400"}`} />
                             {effective ? "Visible" : "Hidden"}
                           </span>
+                          {overridden && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 shrink-0">
+                              Custom
+                            </span>
+                          )}
                         </div>
                         <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-0.5 min-w-0">
                           <span className="font-mono truncate">{u.username ? `@${u.username}` : "free profile"}</span>
@@ -7769,13 +7774,15 @@ function AdminPanel() {
                             <button
                               type="button"
                               onClick={() => { void setProfileTvOverride(u, "inherit"); }}
-                              className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 hover:underline underline-offset-2 shrink-0"
+                              className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 shrink-0"
+                              title="Remove custom setting — follow the global switch"
                             >
-                              Same as everyone
+                              ↺ Reset
                             </button>
                           )}
                         </div>
                       </div>
+
 
                       {/* Two-state segmented switch: Show / Hide.
                           Highlights the *effective* state (so global OFF auto-ticks Hide
