@@ -147,7 +147,7 @@ export async function bootstrapFromSupabase(opts?: { force?: boolean }): Promise
       storeWorkerUrls(data.workerUrls);
     }
 
-    const result: BootstrapResult = { users: sanitizeBootstrapUsers(data.users || []), recaptcha: data.recaptcha, workerUrls: data.workerUrls || [], emailFilters: normalizeEmailFilters(data.emailFilters), maintenance: data.maintenance || { enabled: false }, avatarBaseUrl: data.avatarBaseUrl || "", freeAvatarCooldown: data.freeAvatarCooldown || { minutes: 5, lastAt: null }, locationPolicy: { required: data.locationPolicy?.required !== false } };
+    const result: BootstrapResult = { users: sanitizeBootstrapUsers(data.users || []), recaptcha: data.recaptcha, workerUrls: data.workerUrls || [], emailFilters: normalizeEmailFilters(data.emailFilters), maintenance: data.maintenance || { enabled: false }, avatarBaseUrl: data.avatarBaseUrl || "", freeAvatarCooldown: data.freeAvatarCooldown || { minutes: 5, lastAt: null }, locationPolicy: { required: data.locationPolicy?.required !== false }, tvFeature: { enabled: data.tvFeature?.enabled !== false } };
     setAvatarBaseUrl(result.avatarBaseUrl);
     setEmailFilters(result.emailFilters || DEFAULT_EMAIL_FILTERS);
     setFreeAvatarCooldown(result.freeAvatarCooldown);
