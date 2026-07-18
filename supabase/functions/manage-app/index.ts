@@ -3010,11 +3010,20 @@ Deno.serve(async (originalReq) => {
         .from("app_settings")
         .upsert({ key: "tv_feature", value: { enabled } }, { onConflict: "key" });
       if (error) throw error;
-      await auditLog(supabase, "settings_changed", session.userId, null, { key: "tv_feature", enabled }, ip);
-      return new Response(JSON.stringify({ success: true, value: { enabled } }), {
+      // Global switch is TOP priority: flipping it wipes every per-user override
+      // so the new global value truly applies to everyone. Admins can then
+      // manually re-flip individuals afterwards.
+      const { error: clearErr } = await supabase
+        .from("app_users")
+        .update({ tv_override: null })
+        .not("tv_override", "is", null);
+      if (clearErr) console.warn("tv_override bulk clear failed", clearErr);
+      await auditLog(supabase, "settings_changed", session.userId, null, { key: "tv_feature", enabled, cleared_overrides: true }, ip);
+      return new Response(JSON.stringify({ success: true, value: { enabled }, cleared_overrides: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
 
     if (action === "set_settings") {
       const session = await requireAdmin(req);
