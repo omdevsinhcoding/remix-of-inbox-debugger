@@ -1,6 +1,6 @@
 import React, { useState, useEffect, createContext, useContext, useCallback, useRef, useMemo, Suspense, lazy } from "react";
 import { createPortal } from "react-dom";
-import { Mail, RefreshCw, ShieldCheck, Shield, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, Globe, Edit, Info, UserCircle, Search, ChevronRight, Bell, Send, MessageSquare, Image as ImageIcon, ExternalLink, AlertTriangle, Sparkles, Megaphone, Wrench, CreditCard, Tag, ChevronDown, ChevronUp, HardDrive, Upload, Zap, BookOpen, GraduationCap, Film, PlayCircle, Pin, MapPin, MapPinOff, Tv } from "lucide-react";
+import { Mail, RefreshCw, ShieldCheck, Shield, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, Globe, Edit, Info, UserCircle, Search, ChevronRight, Bell, Send, MessageSquare, Image as ImageIcon, ExternalLink, AlertTriangle, Sparkles, Megaphone, Wrench, CreditCard, Tag, ChevronDown, ChevronUp, HardDrive, Upload, Zap, BookOpen, GraduationCap, Film, PlayCircle, Pin, MapPin, MapPinOff, Tv, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import NetflixHouseholdVerificationGuide from "./pages/NetflixHouseholdVerificationGuide";
@@ -1888,66 +1888,191 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const [panelStyle, setPanelStyle] = useState<React.CSSProperties>({});
 
+  const [code, setCode] = useState<string[]>(["", "", "", "", "", "", "", ""]);
+  const [status, setStatus] = useState<"idle" | "verifying" | "pending">("idle");
+  const inputsRef = useRef<Array<HTMLInputElement | null>>([]);
+
   const placePanel = useCallback(() => {
     const rect = buttonRef.current?.getBoundingClientRect();
     if (!rect) return;
     const margin = 12;
-    const width = Math.min(320, window.innerWidth - margin * 2);
-    const left = Math.min(Math.max(margin, rect.right - width), window.innerWidth - width - margin);
-    const top = Math.min(rect.bottom + 10, Math.max(margin, window.innerHeight - margin - 260));
-    setPanelStyle({ left, top, width });
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const isMobile = vw < 640;
+    const width = isMobile ? vw - margin * 2 : Math.min(420, vw - margin * 2);
+    const estHeight = 520;
+    let left: number;
+    let top: number;
+    if (isMobile) {
+      left = margin;
+      top = Math.max(margin, (vh - estHeight) / 2);
+    } else {
+      left = Math.min(Math.max(margin, rect.right - width), vw - width - margin);
+      top = Math.min(rect.bottom + 10, Math.max(margin, vh - margin - estHeight));
+    }
+    setPanelStyle({ left, top, width, maxHeight: `calc(100svh - ${margin * 2}px)` });
   }, []);
 
   useEffect(() => {
     if (!open) return;
     placePanel();
+    setCode(["", "", "", "", "", "", "", ""]);
+    setStatus("idle");
+    const t = setTimeout(() => inputsRef.current[0]?.focus(), 60);
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
     const onReposition = () => placePanel();
     window.addEventListener("keydown", onKey);
     window.addEventListener("resize", onReposition);
     window.addEventListener("scroll", onReposition, true);
     return () => {
+      clearTimeout(t);
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("resize", onReposition);
       window.removeEventListener("scroll", onReposition, true);
     };
   }, [open, placePanel]);
 
+  const setDigit = (i: number, v: string) => {
+    const d = v.replace(/\D/g, "").slice(-1);
+    setCode((prev) => {
+      const next = [...prev];
+      next[i] = d;
+      return next;
+    });
+    if (d && i < 7) inputsRef.current[i + 1]?.focus();
+  };
+
+  const onKeyDown = (i: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Backspace" && !code[i] && i > 0) {
+      inputsRef.current[i - 1]?.focus();
+    } else if (e.key === "ArrowLeft" && i > 0) {
+      inputsRef.current[i - 1]?.focus();
+    } else if (e.key === "ArrowRight" && i < 7) {
+      inputsRef.current[i + 1]?.focus();
+    } else if (e.key === "Enter") {
+      submit();
+    }
+  };
+
+  const onPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const text = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 8);
+    if (!text) return;
+    e.preventDefault();
+    const arr = ["", "", "", "", "", "", "", ""];
+    for (let i = 0; i < text.length; i++) arr[i] = text[i];
+    setCode(arr);
+    const focusIdx = Math.min(text.length, 7);
+    inputsRef.current[focusIdx]?.focus();
+  };
+
+  const full = code.join("");
+  const isComplete = full.length === 8;
+
+  const submit = () => {
+    if (!isComplete || status !== "idle") return;
+    setStatus("verifying");
+    setTimeout(() => setStatus("pending"), 1400);
+  };
+
   const popup = open ? createPortal(
     <div
-      className="fixed inset-0 z-[100] animate-in fade-in duration-150"
+      className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
       onClick={() => setOpen(false)}
       role="dialog"
       aria-modal="true"
+      aria-label="Enter Netflix TV code"
     >
       <div
         onClick={(e) => e.stopPropagation()}
         style={panelStyle}
-        className="fixed max-h-[calc(100svh-6rem)] overflow-y-auto rounded-2xl bg-white shadow-2xl border border-slate-200 p-5 animate-in zoom-in-95 slide-in-from-top-2 duration-150 origin-top-right"
+        className="fixed overflow-y-auto rounded-3xl shadow-[0_25px_80px_-15px_rgba(229,9,20,0.4)] animate-in zoom-in-95 slide-in-from-top-2 duration-200 origin-top-right"
       >
-        <div className="flex items-center gap-2 mb-3">
-          <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-rose-100 text-rose-600">
-            <Tv className="w-5 h-5" />
-          </div>
-          <div className="min-w-0">
-            <div className="text-sm font-extrabold text-slate-900 leading-tight">TV Auto-Login</div>
-            <div className="text-[10px] text-slate-500">One-tap Netflix TV activation</div>
+        {/* Netflix-inspired cinematic card */}
+        <div className="relative overflow-hidden rounded-3xl bg-gradient-to-b from-[#141414] via-[#1a0608] to-[#0a0a0a] border border-white/10">
+          {/* Glow accents */}
+          <div className="pointer-events-none absolute -top-24 -right-16 w-64 h-64 rounded-full bg-[#e50914]/25 blur-3xl" />
+          <div className="pointer-events-none absolute -bottom-32 -left-16 w-72 h-72 rounded-full bg-[#e50914]/10 blur-3xl" />
+
+          {/* Close */}
+          <button
+            onClick={() => setOpen(false)}
+            aria-label="Close"
+            className="absolute top-3 right-3 z-10 w-8 h-8 rounded-full flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition"
+          >
+            <X className="w-4 h-4" />
+          </button>
+
+          <div className="relative p-6 sm:p-7">
+            {/* Header */}
+            <div className="flex flex-col items-center text-center">
+              <div className="w-14 h-14 rounded-2xl flex items-center justify-center bg-gradient-to-br from-[#e50914] to-[#8b0610] shadow-lg shadow-[#e50914]/30 mb-3">
+                <Tv className="w-7 h-7 text-white" />
+              </div>
+              <div className="text-[10px] uppercase tracking-[0.2em] text-[#e50914] font-bold">Netflix • TV</div>
+              <h2 className="mt-1 text-xl sm:text-2xl font-black text-white tracking-tight">Enter your code</h2>
+              <p className="mt-1.5 text-[11.5px] sm:text-xs text-white/60 leading-relaxed max-w-[300px]">
+                On your TV, open Netflix and go to <span className="text-white font-semibold">netflix.com/tv8</span>. Type the 8-digit code shown here.
+              </p>
+            </div>
+
+            {/* Code inputs */}
+            <div className="mt-6 grid grid-cols-8 gap-1.5 sm:gap-2">
+              {code.map((d, i) => (
+                <input
+                  key={i}
+                  ref={(el) => { inputsRef.current[i] = el; }}
+                  value={d}
+                  onChange={(e) => setDigit(i, e.target.value)}
+                  onKeyDown={(e) => onKeyDown(i, e)}
+                  onPaste={onPaste}
+                  onFocus={(e) => e.currentTarget.select()}
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  maxLength={1}
+                  disabled={status !== "idle"}
+                  aria-label={`Digit ${i + 1}`}
+                  className={`aspect-square w-full min-w-0 text-center text-lg sm:text-2xl font-black rounded-xl bg-white/[0.04] border-2 text-white caret-[#e50914] outline-none transition-all
+                    ${d ? "border-[#e50914] bg-[#e50914]/10 shadow-[0_0_20px_-4px_rgba(229,9,20,0.6)]" : "border-white/15"}
+                    focus:border-[#e50914] focus:bg-[#e50914]/10 focus:shadow-[0_0_24px_-4px_rgba(229,9,20,0.7)] focus:scale-[1.04]
+                    disabled:opacity-60`}
+                />
+              ))}
+            </div>
+
+            {/* Submit */}
+            <button
+              onClick={submit}
+              disabled={!isComplete || status !== "idle"}
+              className={`mt-6 w-full h-11 rounded-xl font-bold text-sm tracking-wide transition-all active:scale-[0.98]
+                ${isComplete && status === "idle"
+                  ? "bg-gradient-to-r from-[#e50914] to-[#b0060f] text-white shadow-lg shadow-[#e50914]/30 hover:shadow-[#e50914]/50 hover:brightness-110"
+                  : "bg-white/[0.06] text-white/40 cursor-not-allowed"}`}
+            >
+              {status === "verifying" ? (
+                <span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Verifying…</span>
+              ) : status === "pending" ? (
+                <span>Waiting for TV</span>
+              ) : (
+                "Continue"
+              )}
+            </button>
+
+            {/* Status / help */}
+            {status === "pending" ? (
+              <div className="mt-4 rounded-xl bg-amber-500/10 border border-amber-500/30 px-3 py-2.5 text-center">
+                <div className="text-[11px] font-bold text-amber-300">Auto-login rolling out soon</div>
+                <div className="text-[10.5px] text-amber-200/80 mt-0.5 leading-relaxed">
+                  We've received your code. Direct TV activation is launching shortly — meanwhile, sign in on your TV using the on-screen prompt.
+                </div>
+              </div>
+            ) : (
+              <div className="mt-4 flex items-center justify-center gap-1.5 text-[10.5px] text-white/40">
+                <ShieldCheck className="w-3 h-3" />
+                <span>Encrypted • One-time code • Never shared</span>
+              </div>
+            )}
           </div>
         </div>
-        <p className="text-xs text-slate-700 leading-relaxed">
-          TV function is a feature that gives you <span className="font-bold">direct login to Netflix on your TV</span> — no typing codes, no waiting.
-        </p>
-        <div className="mt-3 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
-          <div className="text-[10px] uppercase tracking-wide text-slate-500 font-bold">Status</div>
-          <div className="text-xs font-semibold text-slate-900">Coming soon</div>
-          <div className="text-[10px] text-slate-500 mt-1">This feature is currently in development and will roll out shortly.</div>
-        </div>
-        <button
-          onClick={() => setOpen(false)}
-          className="mt-4 w-full h-9 rounded-lg bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 active:scale-[0.98] transition"
-        >
-          Got it
-        </button>
       </div>
     </div>,
     document.body,
