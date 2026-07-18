@@ -6516,18 +6516,18 @@ function AdminPanel() {
                 <div>
                   <label className="block text-xs font-bold text-slate-400 uppercase mb-2">TV Auto-Login</label>
                   <div className="flex gap-2">
-                    {(["inherit", "on", "off"] as const).map(v => (
+                    {(["on", "off", "inherit"] as const).map(v => (
                       <button
                         key={v}
                         type="button"
                         onClick={() => setNewTvOverride(v)}
-                        className={`flex-1 text-xs font-bold py-2 rounded-lg border transition-all ${newTvOverride === v ? (v === "on" ? "bg-rose-600 text-white border-rose-600" : v === "off" ? "bg-slate-700 text-white border-slate-700" : "bg-slate-900 text-white border-slate-900") : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"}`}
+                        className={`flex-1 text-xs font-bold py-2 rounded-lg border transition-all ${newTvOverride === v ? (v === "on" ? "bg-emerald-600 text-white border-emerald-600" : v === "off" ? "bg-rose-600 text-white border-rose-600" : "bg-slate-900 text-white border-slate-900") : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"}`}
                       >
-                        {v === "inherit" ? `Inherit (${tvFeatureEnabled ? "ON" : "OFF"})` : v === "on" ? "Force ON" : "Force OFF"}
+                        {v === "on" ? "📺 Show TV" : v === "off" ? "🚫 Hide TV" : `⚙️ Auto (${tvFeatureEnabled ? "Show" : "Hide"})`}
                       </button>
                     ))}
                   </div>
-                  <p className="text-[10px] text-slate-400 mt-1">Inherit follows the global TV Auto-Login toggle. Force ON/OFF pins this profile regardless.</p>
+                  <p className="text-[10px] text-slate-400 mt-1"><b>Show TV</b> = always visible. <b>Hide TV</b> = always hidden. <b>Auto</b> = follows the global switch.</p>
                 </div>
 
 
