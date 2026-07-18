@@ -9801,9 +9801,10 @@ function EmailViewer() {
   const [forcedPasswordChange] = useState(!!user.mustChangePassword);
   // Impersonation state is server-signed and backed by the parent admin session row.
   const isImpersonating = (user as any)?.impersonated === true;
-  // TV Auto-Login visibility: global toggle + per-profile override.
-  // Admin's global OFF wins for everyone (including impersonation) — user
-  // explicitly wants "admin OFF → TV icon never shows in header".
+  // TV Auto-Login visibility priority: per-user override ALWAYS wins over
+  // the global switch. Show = forced visible even if admin's global is OFF.
+  // Hide = forced hidden even if admin's global is ON. No override = follow global.
+
   const [viewerTvOverride, setViewerTvOverride] = useState<"on" | "off" | null>(() => normalizeTvOverride((user as any)?.tvOverride));
   const [tvGlobalOn, setTvGlobalOn] = useState<boolean>(() => {
     if (typeof (user as any)?.tvFeatureEnabled === "boolean") return (user as any).tvFeatureEnabled !== false;
