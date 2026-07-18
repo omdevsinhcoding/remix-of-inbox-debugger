@@ -275,7 +275,7 @@ function inferMoneyballState(nextValue: any): { state: MoneyballSubmitResult["st
   if (errorCode.includes("incorrect_password") || errorCode.includes("invalid_password")) {
     return { state: "incorrect_password", message: errorCode, authURL };
   }
-  if (errorCode.includes("captcha") || errorCode.includes("recaptcha") || fieldKeys.some((k) => /recaptcha/i.test(k) && readMoneyballField(fields, k))) {
+  if (errorCode.includes("captcha") || errorCode.includes("recaptcha") || Boolean(readMoneyballField(fields, "recaptchaError"))) {
     return { state: "blocked", message: errorCode || "Netflix requested reCAPTCHA/risk validation", authURL };
   }
   if (/otp|code/.test(mode) || fieldKeys.some((k) => /otp|code/i.test(k))) {
