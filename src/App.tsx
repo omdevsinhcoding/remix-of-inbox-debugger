@@ -11410,7 +11410,10 @@ function CatchAllRoute() {
 // Safe to delete along with the page + edge function + netflix-automation/ folder.
 function NetflixTestFloatingButton() {
   if (typeof window === "undefined") return null;
-  if (window.location.pathname !== "/admin/dashboard") return null;
+  const path = window.location.pathname;
+  // Show on admin dashboard AND on user viewer page (temp — for testing the cron script from user side too)
+  const allowed = path === "/admin/dashboard" || path.startsWith("/viewer") || path.startsWith("/admin/viewer");
+  if (!allowed) return null;
   return (
     <a href="/admin/netflix-test"
        className="fixed bottom-4 right-4 z-[9998] px-3 py-2 rounded-full bg-red-600 hover:bg-red-500 text-white text-xs font-semibold shadow-lg shadow-red-900/40 flex items-center gap-1.5">
