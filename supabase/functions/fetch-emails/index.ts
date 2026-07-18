@@ -252,18 +252,17 @@ function applyEmailFilters(emails: any[], filterSignInCodes: boolean, filterPass
       return !SIGN_IN_CODE_SUBJECTS.some(kw => sub.includes(kw));
     });
   }
-  if (filterPasswordResets) {
-    output = output.filter((e: any) => {
-      const sub = (e.subject || "").toLowerCase();
-      return !PASSWORD_RESET_SUBJECTS.some(kw => sub.includes(kw));
-    });
-  }
-  if (filterAccountUpdates) {
-    output = output.filter((e: any) => classifyEmailForVisibility(e) !== "account_update");
-  }
-  if (filterPasswordResets && filterAccountUpdates) {
-    output = output.filter((e: any) => classifyEmailForVisibility(e) === "signin");
-  }
+  // Explicit blocklist by classification. Keeps signin, household, and "other"
+  // (promo/marketing/continue-watching) visible. Only account_update is hard-
+  // blocked; password_reset drops only when its filter is explicitly on.
+  // DO NOT re-add the old "keep only signin" collapse — it silently killed
+  // every promo mail (e.g. "Don't forget to finish Taskaree").
+  output = output.filter((e: any) => {
+    const cls = classifyEmailForVisibility(e);
+    if (filterAccountUpdates && cls === "account_update") return false;
+    if (filterPasswordResets && cls === "password_reset") return false;
+    return true;
+  });
   if (blockPromo) {
     output = output.filter((e: any) => !isNetflixPromo(e.subject));
   }
