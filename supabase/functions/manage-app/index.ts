@@ -2206,7 +2206,7 @@ Deno.serve(async (originalReq) => {
       // Order: pinned first, then admin-defined sort_order, then creation time.
       const usersP = supabase
         .from("app_users")
-        .select("id, username, name, role, profile_prefs, is_free, pinned, sort_order, expires_at")
+        .select("id, username, name, role, profile_prefs, is_free, pinned, sort_order, expires_at, tv_override")
         .neq("role", "admin")
         .order("pinned", { ascending: false })
         .order("sort_order", { ascending: true, nullsFirst: false })
@@ -2215,7 +2215,7 @@ Deno.serve(async (originalReq) => {
       const settingsP = supabase
         .from("app_settings")
         .select("key,value")
-        .in("key", ["recaptcha", "primary_cloudflare_urls", "email_filters", "maintenance", "r2_storage", "location_policy", "free_avatar_cooldown", "free_avatar_last_change"]);
+        .in("key", ["recaptcha", "primary_cloudflare_urls", "email_filters", "maintenance", "r2_storage", "location_policy", "free_avatar_cooldown", "free_avatar_last_change", "tv_feature"]);
 
       const [{ data: users, error: usersErr }, { data: settingRows }] = await Promise.all([usersP, settingsP]);
       if (usersErr) throw usersErr;
