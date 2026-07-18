@@ -7669,101 +7669,102 @@ function AdminPanel() {
 
         {activeTab === "tv" && (
           <div className="space-y-4 sm:space-y-6">
-            {/* Header hero */}
-            <section className="relative overflow-hidden bg-gradient-to-br from-rose-600 via-rose-500 to-pink-600 p-6 sm:p-8 rounded-3xl shadow-xl text-white">
-              <div className="absolute -top-16 -right-16 w-64 h-64 bg-white/10 rounded-full blur-3xl pointer-events-none" />
-              <div className="relative flex items-start gap-4">
-                <div className="bg-white/20 backdrop-blur p-3 rounded-2xl shadow-lg flex-shrink-0">
-                  <Tv className="w-7 h-7" />
+            <section className="bg-white p-4 sm:p-6 rounded-2xl border shadow-sm">
+              <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
+                <div className="flex items-start gap-3 min-w-0">
+                  <div className="bg-slate-900 text-white p-2.5 rounded-xl shadow-sm flex-shrink-0"><Tv className="w-5 h-5" /></div>
+                  <div className="min-w-0">
+                    <h2 className="text-xl sm:text-2xl font-black tracking-tight text-slate-950">TV Auto-Login</h2>
+                    <p className="text-xs sm:text-sm text-slate-500 mt-1 max-w-3xl">Global decides the default. Profile buttons override global immediately and sync with the edit popup.</p>
+                  </div>
                 </div>
-                <div className="min-w-0">
-                  <h2 className="text-xl sm:text-2xl font-black tracking-tight">TV Auto-Login</h2>
-                  <p className="text-xs sm:text-sm text-white/80 mt-1 max-w-2xl">
-                    Control the TV icon shown in every user's header. Global switch is the default; per-profile overrides (ON/OFF) always win over the global.
-                  </p>
+                <div className="grid grid-cols-3 gap-2 min-w-0 xl:min-w-[24rem]">
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3"><p className="text-[10px] font-black text-slate-400 uppercase">Visible</p><p className="text-xl font-black text-slate-900">{tvEffectiveOnCount}</p></div>
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3"><p className="text-[10px] font-black text-emerald-600 uppercase">Forced ON</p><p className="text-xl font-black text-emerald-700">{tvForcedOnCount}</p></div>
+                  <div className="rounded-xl border border-slate-200 bg-slate-100 p-3"><p className="text-[10px] font-black text-slate-500 uppercase">Forced OFF</p><p className="text-xl font-black text-slate-700">{tvForcedOffCount}</p></div>
                 </div>
               </div>
             </section>
 
-            {/* Global toggle */}
-            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
-              <div className="flex items-start justify-between gap-4">
+            <section className="bg-white p-4 sm:p-6 rounded-2xl border shadow-sm">
+              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
                 <div className="min-w-0">
-                  <h3 className="font-black text-base sm:text-lg text-slate-900 flex items-center gap-2">
-                    <div className="bg-rose-50 p-1.5 rounded-lg"><Zap className="w-4 h-4 text-rose-600" /></div>
-                    Global default
-                  </h3>
-                  <p className="text-sm text-slate-700 font-semibold mt-2">Show TV icon to all users</p>
-                  <p className="text-xs text-slate-500 mt-1 max-w-xl">
-                    ON → every non-admin user sees the TV button unless their per-profile override says OFF.
-                    OFF → nobody sees it in the header unless their per-profile override says ON.
-                  </p>
+                  <h3 className="font-black text-base sm:text-lg text-slate-900 flex items-center gap-2"><Zap className="w-4 h-4 text-amber-500" /> Global default</h3>
+                  <p className="text-xs text-slate-500 mt-1">ON = show for everyone except forced OFF. OFF = hide for everyone except forced ON.</p>
                 </div>
-                <button onClick={toggleTvFeature} disabled={savingTvFeature}
-                  className={`relative w-14 h-7 rounded-full transition-colors flex-shrink-0 ${tvFeatureEnabled ? "bg-green-500" : "bg-slate-300"}`}
-                  aria-label="Toggle TV Auto-Login feature">
-                  <div className={`absolute top-0.5 w-6 h-6 bg-white rounded-full shadow transition-transform ${tvFeatureEnabled ? "translate-x-7" : "translate-x-0.5"}`} />
-                </button>
-              </div>
-              <div className={`mt-4 inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold ${tvFeatureEnabled ? "bg-green-50 text-green-700 border border-green-200" : "bg-slate-100 text-slate-600 border border-slate-200"}`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${tvFeatureEnabled ? "bg-green-500" : "bg-slate-400"}`} />
-                Currently {tvFeatureEnabled ? "ENABLED" : "DISABLED"} globally
+                <div className="grid grid-cols-2 gap-2 w-full lg:w-auto lg:min-w-[18rem]">
+                  {([true, false] as const).map((enabled) => (
+                    <button
+                      key={String(enabled)}
+                      type="button"
+                      onClick={() => { if (tvFeatureEnabled !== enabled) void toggleTvFeature(); }}
+                      disabled={savingTvFeature}
+                      className={`h-12 rounded-xl border text-sm font-black transition-all active:scale-[0.98] disabled:opacity-60 ${tvFeatureEnabled === enabled ? (enabled ? "bg-emerald-600 text-white border-emerald-600 shadow-sm" : "bg-slate-900 text-white border-slate-900 shadow-sm") : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"}`}
+                    >
+                      {enabled ? "Global ON" : "Global OFF"}
+                    </button>
+                  ))}
+                </div>
               </div>
             </section>
 
-            {/* Per-user overrides */}
-            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
-              <div className="flex items-start justify-between gap-4 mb-4">
+            <section className="bg-white p-4 sm:p-6 rounded-2xl border shadow-sm">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
                 <div>
-                  <h3 className="font-black text-base sm:text-lg text-slate-900 flex items-center gap-2">
-                    <div className="bg-slate-100 p-1.5 rounded-lg"><Users className="w-4 h-4 text-slate-700" /></div>
-                    Per-user overrides
-                  </h3>
-                  <p className="text-xs text-slate-500 mt-1">Tap a badge to cycle: Inherit → Force ON → Force OFF.</p>
+                  <h3 className="font-black text-base sm:text-lg text-slate-900 flex items-center gap-2"><Users className="w-4 h-4 text-slate-700" /> Existing users</h3>
+                  <p className="text-xs text-slate-500 mt-1">Choose Inherit, Force ON, or Force OFF for each profile.</p>
                 </div>
-                <div className="text-[11px] font-bold text-slate-500 hidden sm:block">
-                  {users.filter(u => u.role !== "admin").length} users
+                <div className="relative w-full md:w-72">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <input
+                    value={tvSearch}
+                    onChange={(e) => setTvSearch(e.target.value)}
+                    placeholder="Search users"
+                    className="w-full h-10 pl-9 pr-3 rounded-xl border border-slate-200 bg-slate-50 text-sm font-semibold outline-none focus:ring-2 focus:ring-slate-900/10"
+                  />
                 </div>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {users.filter(u => u.role !== "admin").map((u) => {
-                  const ov = u.tvOverride === "on" || u.tvOverride === "off" ? u.tvOverride : null;
+
+              <div className="grid grid-cols-1 xl:grid-cols-2 2xl:grid-cols-3 gap-3">
+                {filteredTvUsers.map((u) => {
+                  const ov = normalizeTvOverride(u.tvOverride);
                   const effective = ov === "on" ? true : ov === "off" ? false : tvFeatureEnabled;
-                  const badgeLabel = ov === "on" ? "Force ON" : ov === "off" ? "Force OFF" : `Inherit (${tvFeatureEnabled ? "ON" : "OFF"})`;
-                  const badgeCls = ov === "on"
-                    ? "bg-rose-100 text-rose-700 border-rose-200"
-                    : ov === "off"
-                    ? "bg-slate-200 text-slate-600 border-slate-300"
-                    : effective
-                    ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                    : "bg-slate-100 text-slate-500 border-slate-200";
+                  const options: Array<{ value: TvOverrideValue; label: string; cls: string }> = [
+                    { value: "inherit", label: `Inherit ${tvFeatureEnabled ? "ON" : "OFF"}`, cls: ov === null ? "bg-slate-900 text-white border-slate-900" : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100" },
+                    { value: "on", label: "Force ON", cls: ov === "on" ? "bg-emerald-600 text-white border-emerald-600" : "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100" },
+                    { value: "off", label: "Force OFF", cls: ov === "off" ? "bg-slate-700 text-white border-slate-700" : "bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200" },
+                  ];
                   return (
-                    <div key={u.id} className="flex items-center justify-between gap-3 p-3 rounded-xl border border-slate-200 hover:border-rose-200 hover:bg-rose-50/30 transition">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <ProfileAvatar
-                          avatarId={getStableProfileAvatar(u)}
-                          name={u.name}
-                          className="w-10 h-10 !rounded-xl ring-1 ring-slate-200 flex-shrink-0"
-                          fallbackColor={u.isFree ? "bg-emerald-500" : "bg-blue-500"}
-                        />
-                        <div className="min-w-0">
-                          <p className="text-sm font-black text-slate-900 truncate leading-tight">{u.name}</p>
-                          <p className="text-[11px] text-slate-500 truncate font-mono">{u.username ? `@${u.username}` : "—"}</p>
+                    <div key={u.id} className="rounded-2xl border border-slate-200 p-3 sm:p-4 bg-white hover:border-slate-300 transition-colors">
+                      <div className="flex items-center justify-between gap-3 mb-3">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <ProfileAvatar avatarId={getStableProfileAvatar(u)} name={u.name} className="w-10 h-10 !rounded-xl ring-1 ring-slate-200 flex-shrink-0" fallbackColor={u.isFree ? "bg-emerald-500" : "bg-blue-500"} />
+                          <div className="min-w-0">
+                            <p className="text-sm font-black text-slate-900 truncate leading-tight">{u.name}</p>
+                            <p className="text-[11px] text-slate-500 truncate font-mono">{u.username ? `@${u.username}` : "free profile"}</p>
+                          </div>
                         </div>
+                        <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-black border flex-shrink-0 ${effective ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-slate-100 text-slate-500 border-slate-200"}`}>
+                          <Tv className="w-3 h-3" /> {effective ? "VISIBLE" : "HIDDEN"}
+                        </span>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => toggleProfileTvOverride(u)}
-                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-black border transition-all active:scale-95 flex-shrink-0 ${badgeCls}`}
-                        title="Cycle: inherit → on → off"
-                      >
-                        <Tv className="w-3 h-3" /> {badgeLabel}
-                      </button>
+                      <div className="grid grid-cols-3 gap-1.5">
+                        {options.map((option) => (
+                          <button
+                            key={option.value}
+                            type="button"
+                            onClick={() => { void setProfileTvOverride(u, option.value); }}
+                            className={`min-h-10 rounded-xl border px-1.5 text-[10px] sm:text-[11px] font-black transition-all active:scale-[0.98] ${option.cls}`}
+                          >
+                            {option.label}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   );
                 })}
-                {users.filter(u => u.role !== "admin").length === 0 && (
-                  <p className="text-sm text-slate-500 text-center py-8">No users yet.</p>
+                {filteredTvUsers.length === 0 && (
+                  <div className="xl:col-span-2 2xl:col-span-3 rounded-2xl border border-dashed border-slate-200 p-8 text-center text-sm font-semibold text-slate-500">No users found.</div>
                 )}
               </div>
             </section>
