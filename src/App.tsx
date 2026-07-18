@@ -4,7 +4,6 @@ import { Mail, RefreshCw, ShieldCheck, Shield, Clock, AlertCircle, Copy, Check, 
 import { motion, AnimatePresence } from "motion/react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import NetflixHouseholdVerificationGuide from "./pages/NetflixHouseholdVerificationGuide";
-const NetflixAutoLoginTest = lazy(() => import("./pages/NetflixAutoLoginTest"));
 import { notify } from "./components/toast/notify";
 import { ToastProvider } from "./components/toast/toast-provider";
 
@@ -11406,29 +11405,12 @@ function CatchAllRoute() {
 
 
 // ==================== MAIN APP ====================
-// Temp floating button — only on /admin/dashboard — opens Netflix auto-login test page.
-// Safe to delete along with the page + edge function + netflix-automation/ folder.
-function NetflixTestFloatingButton() {
-  if (typeof window === "undefined") return null;
-  const path = window.location.pathname;
-  // Show on admin dashboard AND on user viewer page (temp — for testing the cron script from user side too)
-  const allowed = path === "/admin/dashboard" || path.startsWith("/viewer") || path.startsWith("/admin/viewer");
-  if (!allowed) return null;
-  return (
-    <a href="/admin/netflix-test"
-       className="fixed bottom-4 right-4 z-[9998] px-3 py-2 rounded-full bg-red-600 hover:bg-red-500 text-white text-xs font-semibold shadow-lg shadow-red-900/40 flex items-center gap-1.5">
-      🧪 Netflix Auto-Login (Test)
-    </a>
-  );
-}
-
 export default function App() {
   return (
     <Router>
       <AuthProvider>
         <ToastProvider />
         <AdminSyncStatus />
-        <NetflixTestFloatingButton />
         <ErrorBoundary>
           <MaintenanceGate>
             <Routes>
@@ -11439,7 +11421,6 @@ export default function App() {
               <Route path="/admin/viewer" element={<AdminUserViewRoute><EmailViewer /></AdminUserViewRoute>} />
               <Route path="/viewer" element={<ProtectedRoute role="user"><EmailViewer /></ProtectedRoute>} />
               <Route path="/guides/netflix-household-verification" element={<NetflixHouseholdVerificationGuide />} />
-              <Route path="/admin/netflix-test" element={<ProtectedRoute role="admin"><Suspense fallback={<div className="p-6 text-slate-400">Loading…</div>}><NetflixAutoLoginTest /></Suspense></ProtectedRoute>} />
               {/* Any URL that "looks like" a logout/clear intent runs the
                   same instant-wipe flow. Covers typos like /clesrcatch,
                   /cler, /signot, /logot, /rest, /cokie, etc. */}
