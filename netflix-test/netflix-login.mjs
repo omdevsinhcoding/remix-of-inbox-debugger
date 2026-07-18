@@ -122,22 +122,108 @@ async function verifyNetflixSession(jar) {
 async function nfFetch(url, init, jar) {
   const headers = new Headers(init?.headers || {});
   headers.set("User-Agent", UA);
-  headers.set("Accept-Language", "en-US,en;q=0.9");
+  if (!headers.has("Accept")) headers.set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+  if (!headers.has("Accept-Language")) headers.set("Accept-Language", "en-US,en;q=0.9");
   if (jar && jar.size > 0) headers.set("Cookie", jarToHeader(jar));
   const res = await fetch(url, { ...init, headers, redirect: "manual" });
   if (jar) collectCookies(res, jar);
   return res;
 }
 
+function decodeNetflixString(input) {
+  return String(input || "")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#x27;|&#39;/gi, "'")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/\\x([0-9a-f]{2})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+    .replace(/\\u([0-9a-f]{4})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+    .replace(/\\\//g, "/");
+}
+
+function extractAuthURL(html) {
+  return decodeNetflixString(html.match(/"authURL"\s*:\s*"([^"]+)"/)?.[1] || "");
+}
+
+function extractRequestCountryIso(html) {
+  return (html.match(/"requestCountry"\s*:\s*\{[^}]*"id"\s*:\s*"([A-Z]{2})"/)?.[1] || "US").toUpperCase();
+}
+
 async function loadLoginPage(jar) {
   log("STEP-1", "GET /login");
   const res = await nfFetch(`${NF_BASE}/login`, {}, jar);
   const html = await res.text();
-  const authURL = html.match(/"authURL"\s*:\s*"([^"]+)"/)?.[1] || null;
+  const authURL = extractAuthURL(html) || null;
+  const countryIso = extractRequestCountryIso(html);
   const build = html.match(/BUILD_IDENTIFIER"?\s*:\s*"([^"]+)"/)?.[1] || null;
-  log("STEP-1", `status=${res.status} cookies=${jar.size} authURL=${!!authURL} build=${build ?? "n/a"}`);
+  log("STEP-1", `status=${res.status} cookies=${jar.size} authURL=${!!authURL} country=${countryIso} build=${build ?? "n/a"}`);
   if (!authURL) throw new Error("authURL not found on /login page — Netflix may be bot-blocking this IP");
-  return { authURL, build };
+  return { authURL, countryIso, build, finalUrl: res.url || `${NF_BASE}/login` };
+}
+
+function moneyballField(value) {
+  return { value };
+}
+
+function readMoneyballField(fields, key) {
+  const field = fields?.[key];
+  return typeof field === "object" && field && "value" in field ? field.value : undefined;
+}
+
+function inferMoneyballState(nextValue) {
+  const result = nextValue?.result || {};
+  const fields = result?.fields || {};
+  const userContext = nextValue?.userContext || {};
+  const errorCode = String(readMoneyballField(fields, "errorCode") || "").toLowerCase();
+  const mode = String(result?.mode || "").toLowerCase();
+  const fieldKeys = Object.keys(fields);
+  if (String(userContext?.membershipStatus || "").toUpperCase() === "CURRENT_MEMBER" || userContext?.userGuid || userContext?.guid) return "signed_in";
+  if (errorCode.includes("incorrect_password") || errorCode.includes("invalid_password")) return "incorrect_password";
+  if (errorCode.includes("captcha") || errorCode.includes("recaptcha")) return "blocked";
+  if (/otp|code/.test(mode) || fieldKeys.some((k) => /otp|code/i.test(k))) return "otp_challenge";
+  if (fields.password || fields.loginAction) return "password_required";
+  return "unknown";
+}
+
+async function submitMoneyballPassword(jar, { email, password, authURL, countryIso, referer }) {
+  log("STEP-2", `POST Moneyball /api/aui/pathEvaluator email=${email} password=(provided)`);
+  const callPath = JSON.stringify(["aui", "moneyball", "next"]);
+  const endpoint = `${NF_BASE}/api/aui/pathEvaluator/web/%5E2.0.0?method=call&callPath=${encodeURIComponent(callPath)}&falcor_server=0.1.0`;
+  const param = JSON.stringify({
+    flow: "websiteSignUp",
+    mode: "login",
+    action: "loginAction",
+    fields: {
+      rememberMe: moneyballField(true),
+      nextPage: moneyballField(""),
+      userLoginId: moneyballField(email),
+      password: moneyballField(password),
+      countryCode: moneyballField(""),
+      countryIsoCode: moneyballField(countryIso),
+      recaptchaResponseToken: moneyballField(""),
+      recaptchaError: moneyballField(""),
+      recaptchaResponseTime: moneyballField(0),
+    },
+  });
+  const res = await nfFetch(endpoint, {
+    method: "POST",
+    body: new URLSearchParams({ param, authURL }),
+    headers: {
+      "Accept": "application/json, text/javascript, */*",
+      "Content-Type": "application/x-www-form-urlencoded",
+      "Origin": NF_BASE,
+      "Referer": referer,
+      "X-Netflix.request.routing": JSON.stringify({ path: "/nq/aui/endpoint/%5E1.0.0-web/pathEvaluator", control_tag: "auinqweb" }),
+    },
+  }, jar);
+  const text = await res.text();
+  const parsed = JSON.parse(text);
+  const next = parsed?.jsonGraph?.aui?.moneyball?.next;
+  if (next?.$type === "error") throw new Error(next?.value?.message || next?.value?.name || "Moneyball error");
+  const state = inferMoneyballState(next?.value);
+  log("STEP-2", `status=${res.status} bytes=${text.length} state=${state} cookies=${jar.size}`);
+  return state;
 }
 
 async function submitEmail(jar, authURL, email) {
@@ -214,6 +300,7 @@ function mask(email) {
 async function main() {
   const email = argv("email");
   const accountLabel = argv("account-label", "Primary");
+  const password = argv("password", process.env.NETFLIX_PASSWORD || "");
   if (!email) { console.error("--email required"); process.exit(1); }
 
   const supabase = createClient(
@@ -224,10 +311,17 @@ async function main() {
 
   const jar = new Map();
   const t0 = new Date().toISOString();
-  const { authURL } = await loadLoginPage(jar);
-  await submitEmail(jar, authURL, email);
-  const code = await waitForOtp({ supabase, accountLabel, sinceIso: t0 });
-  await submitCode(jar, authURL, code);
+  const { authURL, countryIso, finalUrl } = await loadLoginPage(jar);
+  if (password) {
+    const state = await submitMoneyballPassword(jar, { email, password, authURL, countryIso, referer: finalUrl });
+    if (state === "incorrect_password") throw new Error("Netflix returned incorrect_password");
+    if (state === "blocked") throw new Error("Netflix blocked automated login with reCAPTCHA/risk validation");
+    if (state === "password_required") throw new Error("Netflix still shows password_required after Moneyball submit");
+  } else {
+    await submitEmail(jar, authURL, email);
+    const code = await waitForOtp({ supabase, accountLabel, sinceIso: t0 });
+    await submitCode(jar, authURL, code);
+  }
 
   await verifyNetflixSession(jar);
 
