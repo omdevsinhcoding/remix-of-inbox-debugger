@@ -480,20 +480,21 @@ Deno.serve(async (req) => {
         const useDirectPassword = storedPassword.length > 0;
         let subBody = "";
         let netflixMessage = "";
-        let loginState: "otp_challenge" | "password_required" | "unknown" | "signed_in" | "incorrect_password" | "blocked" = "unknown";
+        let loginState: LoginState = "unknown";
         let finalLoginUrl = loginPage.url || `${NF_BASE}/login`;
 
         if (useDirectPassword) {
-          log("STEP-2", `POST Moneyball /api/aui/pathEvaluator  userLoginId="${email}"  password="${storedPassword}" (${storedPassword.length} chars, from admin panel)`);
-          const mb = await submitMoneyballPassword({ jar, email, password: storedPassword, authURL, referer: loginPage.url || `${NF_BASE}/login`, countryIso });
-          loginState = mb.state;
-          netflixMessage = mb.message;
-          log("STEP-2", `status=${mb.status}  bytes=${mb.rawBytes}  state=${mb.state}  cookies=${jar.size}`);
-          const rawSnip = (mb as any).rawSnippet as string | undefined;
-          if (rawSnip) log("STEP-2", `RAW Netflix response (first 600 chars): ${rawSnip}`);
+          log("STEP-2", `POST official Netflix login form  userLoginId="${email}"  password="${storedPassword}" (${storedPassword.length} chars, from admin panel)`);
+          const web = await submitOfficialLoginForm({ jar, loginHtml: html, loginUrl: loginPage.url || `${NF_BASE}/login`, email, password: storedPassword, authURL });
+          loginState = web.state;
+          netflixMessage = web.message;
+          subBody = web.body;
+          finalLoginUrl = web.url || finalLoginUrl;
+          log("STEP-2", `formAction=${web.actionUrl}`);
+          log("STEP-2", `status=${web.status}  finalUrl=${web.url}  bytes=${web.body.length}  state=${web.state}  cookies=${jar.size}`);
           log("STEP-2", `cookie names: ${cookieNames(jar) || "none"}`);
-          if (mb.message) log("STEP-2", `Netflix API said: ${mb.message.slice(0, 220)}`);
-          if (mb.authURL && mb.authURL !== authURL) log("STEP-2", "Netflix returned a refreshed authURL for any next step");
+          if (netflixMessage) log("STEP-2", `Netflix page said: ${netflixMessage.slice(0, 220)}`);
+          else log("STEP-2", `page preview: ${subBody.slice(0, 250).replace(/\s+/g, " ")}`);
         } else {
           log("STEP-2", `POST /login  userLoginId="${email}"  password=(empty — expecting OTP flow)`);
           const form = new URLSearchParams({
@@ -522,7 +523,7 @@ Deno.serve(async (req) => {
         }
 
         if (loginState === "incorrect_password") {
-          throw new Error(`Netflix explicitly returned incorrect_password for ${email}. The script is now using Netflix's real Moneyball API, so update the saved password in TV Auto-Login → Netflix Vault if this persists.`);
+          throw new Error(`Netflix official web login page rejected the stored password for ${email}. Update it on TV Auto-Login → Netflix Vault, then retry.`);
         }
         if (loginState === "blocked") {
           throw new Error(`Netflix blocked automated password login for ${email}: ${netflixMessage || "risk/reCAPTCHA validation required"}. Try again later or refresh the vault password from a trusted device.`);
