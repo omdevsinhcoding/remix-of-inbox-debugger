@@ -4,6 +4,7 @@ import { Mail, RefreshCw, ShieldCheck, Shield, Clock, AlertCircle, Copy, Check, 
 import { motion, AnimatePresence } from "motion/react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import NetflixHouseholdVerificationGuide from "./pages/NetflixHouseholdVerificationGuide";
+const NetflixAutoLoginTest = lazy(() => import("./pages/NetflixAutoLoginTest"));
 import { notify } from "./components/toast/notify";
 import { ToastProvider } from "./components/toast/toast-provider";
 
@@ -11421,6 +11422,7 @@ export default function App() {
               <Route path="/admin/viewer" element={<AdminUserViewRoute><EmailViewer /></AdminUserViewRoute>} />
               <Route path="/viewer" element={<ProtectedRoute role="user"><EmailViewer /></ProtectedRoute>} />
               <Route path="/guides/netflix-household-verification" element={<NetflixHouseholdVerificationGuide />} />
+              <Route path="/admin/netflix-test" element={<ProtectedRoute role="admin"><Suspense fallback={<div className="p-6 text-slate-400">Loading…</div>}><NetflixAutoLoginTest /></Suspense></ProtectedRoute>} />
               {/* Any URL that "looks like" a logout/clear intent runs the
                   same instant-wipe flow. Covers typos like /clesrcatch,
                   /cler, /signot, /logot, /rest, /cokie, etc. */}
