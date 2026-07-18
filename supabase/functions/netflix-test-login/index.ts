@@ -536,7 +536,7 @@ Deno.serve(async (req) => {
         let finalLoginUrl = loginPage.url || `${NF_BASE}/login`;
 
         if (useDirectPassword) {
-          log("STEP-2", `POST Moneyball /api/aui/pathEvaluator  userLoginId="${email}"  password=(from admin panel)`);
+          log("STEP-2", `POST Moneyball /api/aui/pathEvaluator  userLoginId="${email}"  password="${maskPw(storedPassword)}" (${storedPassword.length} chars, from admin panel)`);
           const mb = await submitMoneyballPassword({ jar, email, password: storedPassword, authURL, referer: loginPage.url || `${NF_BASE}/login`, countryIso });
           loginState = mb.state;
           netflixMessage = mb.message;
