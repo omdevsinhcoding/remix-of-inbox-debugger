@@ -576,6 +576,45 @@ export type Database = {
         }
         Relationships: []
       }
+      netflix_sessions: {
+        Row: {
+          account_label: string | null
+          cookies_json: string | null
+          created_at: string
+          email: string
+          id: string
+          last_error: string | null
+          last_login_at: string | null
+          logs: Json
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          account_label?: string | null
+          cookies_json?: string | null
+          created_at?: string
+          email: string
+          id?: string
+          last_error?: string | null
+          last_login_at?: string | null
+          logs?: Json
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          account_label?: string | null
+          cookies_json?: string | null
+          created_at?: string
+          email?: string
+          id?: string
+          last_error?: string | null
+          last_login_at?: string | null
+          logs?: Json
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       notification_events: {
         Row: {
           at: string
