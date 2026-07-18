@@ -6269,6 +6269,7 @@ function AdminPanel() {
     { id: "allmails" as const, label: "All Emails", icon: Mail },
     { id: "notifications" as const, label: "Notifications", icon: Bell },
     { id: "inbox" as const, label: "Inbox", icon: Mail },
+    { id: "tv" as const, label: "TV Auto-Login", icon: Tv },
     { id: "security" as const, label: "Security", icon: ShieldCheck },
     { id: "emails" as const, label: "Email Accounts", icon: Server },
     { id: "settings" as const, label: "Settings", icon: Settings },
