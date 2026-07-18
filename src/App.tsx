@@ -5900,18 +5900,34 @@ function AdminPanel() {
 
   const toggleTvFeature = async () => {
     const next = !tvFeatureEnabled;
+    const prevOverrides = users.map(u => ({ id: u.id, tvOverride: u.tvOverride ?? null }));
     setTvFeatureEnabled(next);
+    // Optimistically clear all per-user overrides — global switch is TOP priority.
+    setUsers(prev => prev.map(x => ({ ...x, tvOverride: null })));
     setSavingTvFeature(true);
     try {
       await apiCall("manage-app", { action: "set_tv_feature", enabled: next });
       broadcastTvFeatureEvent({ type: "tv-global", enabled: next, at: Date.now() });
-      notify.success(next ? "TV Auto-Login enabled for all users (per-profile overrides still apply)" : "TV Auto-Login hidden by default (per-profile overrides still apply)");
+      // Broadcast a per-profile inherit so any open user tabs drop their local override too.
+      prevOverrides.forEach(({ id, tvOverride }) => {
+        if (tvOverride !== null) {
+          applyTvOverrideToStoredUser(id, null);
+          patchBootstrapCacheUser(id, { tvOverride: null });
+          broadcastTvFeatureEvent({ type: "tv-profile", userId: id, tvOverride: null, at: Date.now() });
+        }
+      });
+      notify.success(next ? "TV shown for everyone (overrides reset)" : "TV hidden for everyone (overrides reset)");
       await refreshBootstrap().catch(() => null);
     } catch (err) {
       setTvFeatureEnabled(!next);
+      setUsers(prev => prev.map(x => {
+        const p = prevOverrides.find(o => o.id === x.id);
+        return p ? { ...x, tvOverride: p.tvOverride } : x;
+      }));
       notify.error(err instanceof Error ? err.message : "Failed");
     } finally { setSavingTvFeature(false); }
   };
+
 
   const setProfileTvOverride = async (u: UserData, value: TvOverrideValue) => {
     const next: "on" | "off" | null = normalizeTvOverride(value);
