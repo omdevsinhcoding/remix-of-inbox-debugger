@@ -7759,21 +7759,26 @@ function AdminPanel() {
                         </div>
                       </div>
 
-                      {/* Two-state segmented switch: Show / Hide */}
+                      {/* Two-state segmented switch: Show / Hide.
+                          Highlights the *effective* state (so global OFF auto-ticks Hide
+                          for everyone without an override). Overridden = solid color,
+                          inherited-from-global = soft tint. */}
                       <div className="shrink-0 inline-flex p-0.5 rounded-full bg-slate-100 border border-slate-200">
                         {([
-                          { value: "on" as const,  label: "Show", Icon: Eye,    onCls: "bg-emerald-500 text-white shadow-sm" },
-                          { value: "off" as const, label: "Hide", Icon: EyeOff, onCls: "bg-slate-900 text-white shadow-sm" },
+                          { value: "on" as const,  label: "Show", Icon: Eye,    solid: "bg-emerald-500 text-white shadow-sm", soft: "bg-emerald-100 text-emerald-700" },
+                          { value: "off" as const, label: "Hide", Icon: EyeOff, solid: "bg-slate-900 text-white shadow-sm",   soft: "bg-slate-200 text-slate-700" },
                         ]).map((opt) => {
-                          const active = ov === opt.value;
+                          const isEffective = (opt.value === "on") === effective;
+                          const isOverride = ov === opt.value;
                           const Icon = opt.Icon;
+                          const cls = isOverride ? opt.solid : isEffective ? opt.soft : "text-slate-500 hover:text-slate-800";
                           return (
                             <button
                               key={opt.value}
                               type="button"
                               onClick={() => { void setProfileTvOverride(u, opt.value); }}
-                              className={`inline-flex items-center gap-1.5 px-3 sm:px-3.5 h-8 rounded-full text-[12px] font-bold transition-all active:scale-[0.97] ${active ? opt.onCls : "text-slate-500 hover:text-slate-800"}`}
-                              aria-pressed={active}
+                              className={`inline-flex items-center gap-1.5 px-3 sm:px-3.5 h-8 rounded-full text-[12px] font-bold transition-all active:scale-[0.97] ${cls}`}
+                              aria-pressed={isEffective}
                             >
                               <Icon className="w-3.5 h-3.5" />
                               <span>{opt.label}</span>
@@ -7781,6 +7786,7 @@ function AdminPanel() {
                           );
                         })}
                       </div>
+
                     </li>
                   );
                 })}
