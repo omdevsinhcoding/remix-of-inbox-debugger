@@ -6497,6 +6497,29 @@ function AdminPanel() {
                                 ? <><MapPin className="w-2.5 h-2.5" /> GPS</>
                                 : <><MapPinOff className="w-2.5 h-2.5" /> OFF</>}
                             </button>
+                            {u.role !== "admin" && (() => {
+                              const ov = u.tvOverride === "on" || u.tvOverride === "off" ? u.tvOverride : null;
+                              const effective = ov === "on" ? true : ov === "off" ? false : tvFeatureEnabled;
+                              const label = ov === "on" ? "TV ON" : ov === "off" ? "TV OFF" : (effective ? "TV" : "TV —");
+                              const cls = ov === "on"
+                                ? "bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100"
+                                : ov === "off"
+                                ? "bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200 line-through"
+                                : effective
+                                ? "bg-rose-50/60 text-rose-600 border-rose-100 hover:bg-rose-100"
+                                : "bg-slate-100 text-slate-400 border-slate-200 hover:bg-slate-200";
+                              const title = `TV Auto-Login for this profile — ${ov ? `forced ${ov.toUpperCase()}` : `inherit global (${tvFeatureEnabled ? "ON" : "OFF"})`}. Tap to cycle: inherit → on → off.`;
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); toggleProfileTvOverride(u); }}
+                                  title={title}
+                                  className={`inline-flex items-center gap-1 text-[9px] font-black px-1.5 py-0.5 rounded border transition-all active:scale-95 ${cls}`}
+                                >
+                                  <Tv className="w-2.5 h-2.5" /> {label}
+                                </button>
+                              );
+                            })()}
                             {u.assignedAccounts && u.assignedAccounts.length > 0 && u.assignedAccounts.map((a: string) => (
                               <span key={a} className="bg-blue-50 text-blue-700 border border-blue-200 text-[10px] px-1.5 py-0.5 rounded font-bold font-mono">{a}</span>
                             ))}
