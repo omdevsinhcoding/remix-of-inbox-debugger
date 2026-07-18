@@ -2011,7 +2011,7 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
               <div className="text-[10px] uppercase tracking-[0.2em] text-[#e50914] font-bold">Netflix • TV</div>
               <h2 className="mt-1 text-xl sm:text-2xl font-black text-white tracking-tight">Enter your code</h2>
               <p className="mt-1.5 text-[11.5px] sm:text-xs text-white/60 leading-relaxed max-w-[300px]">
-                On your TV, open Netflix and go to <span className="text-white font-semibold">netflix.com/tv8</span>. Type the 8-digit code shown here.
+                Enter the code displayed on your TV.
               </p>
             </div>
 
