@@ -365,7 +365,6 @@ Deno.serve(async (req) => {
         let subBody = "";
         let netflixMessage = "";
         let loginState: LoginState = "unknown";
-        let finalLoginUrl = loginPage.url || `${NF_BASE}/login`;
 
         log("STEP-2", `Submit email only like uploaded script  userLoginId="${email}"  password=(empty)`);
         const form = new URLSearchParams({
@@ -386,7 +385,6 @@ Deno.serve(async (req) => {
         subBody = await sub.text().catch(() => "");
         netflixMessage = extractNetflixMessage(subBody);
         loginState = inferNetflixLoginState(subBody, sub.url || "");
-        finalLoginUrl = sub.url || finalLoginUrl;
         log("STEP-2", `status=${sub.status}  finalUrl=${sub.url}  cookies=${jar.size}  bytes=${subBody.length}`);
         log("STEP-2", `cookie names: ${cookieNames(jar) || "none"}`);
         log("STEP-2", `Netflix login state detected: ${loginState}`);
