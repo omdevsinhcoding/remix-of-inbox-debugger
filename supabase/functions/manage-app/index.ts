@@ -38,6 +38,14 @@ async function loadGlobalLocationRequired(supabase: any): Promise<boolean> {
     return true;
   }
 }
+async function loadTvFeatureEnabled(supabase: any): Promise<boolean> {
+  try {
+    const { data } = await supabase.from("app_settings").select("value").eq("key", "tv_feature").maybeSingle();
+    return data?.value?.enabled !== false;
+  } catch {
+    return true;
+  }
+}
 function isProfileLocationRequired(user: any, globalRequired = true) {
   if (!globalRequired || !user) return false;
   const prefs = user.profile_prefs && typeof user.profile_prefs === "object" && !Array.isArray(user.profile_prefs) ? user.profile_prefs : {};
@@ -2510,6 +2518,8 @@ Deno.serve(async (originalReq) => {
           expiresAt: user.expires_at || null,
           autoDelete: (user as any).auto_delete !== false,
           locationRequired,
+          tvOverride: user.tv_override === "on" || user.tv_override === "off" ? user.tv_override : null,
+          tvFeatureEnabled: await loadTvFeatureEnabled(supabase),
         },
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -2896,6 +2906,8 @@ Deno.serve(async (originalReq) => {
           profilePrefs: publicProfilePrefs(user.profile_prefs),
           profileAvatar: user.profile_prefs?.avatarId || null,
           locationRequired: isProfileLocationRequired(user, await loadGlobalLocationRequired(supabase)),
+          tvOverride: user.tv_override === "on" || user.tv_override === "off" ? user.tv_override : null,
+          tvFeatureEnabled: await loadTvFeatureEnabled(supabase),
         },
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -2912,7 +2924,7 @@ Deno.serve(async (originalReq) => {
       }
 
       // Keys that any authenticated user can read (with masked sensitive data)
-      const authenticatedKeys = ["primary_cloudflare_urls", "email_accounts", "recaptcha", "email_filters", "session_config", "admin_session_config", "session_limits", "ipwho_alert", "location_policy", "free_session_minutes"];
+      const authenticatedKeys = ["primary_cloudflare_urls", "email_accounts", "recaptcha", "email_filters", "session_config", "admin_session_config", "session_limits", "ipwho_alert", "location_policy", "free_session_minutes", "tv_feature"];
       if (!session && authenticatedKeys.includes(key)) {
         session = await requireSession(req);
       }
@@ -2928,6 +2940,10 @@ Deno.serve(async (originalReq) => {
 
       if (key === "ipwho_alert") {
         value = { enabled: value?.enabled === true };
+      }
+
+      if (key === "tv_feature") {
+        value = { enabled: value?.enabled !== false };
       }
 
       if (key === "config" && value && session?.role === "admin") {
@@ -2986,6 +3002,20 @@ Deno.serve(async (originalReq) => {
       });
     }
 
+    if (action === "set_tv_feature") {
+      const session = await requireAdmin(req);
+      const enabled = params?.enabled !== false;
+      invalidateBootstrapCache();
+      const { error } = await supabase
+        .from("app_settings")
+        .upsert({ key: "tv_feature", value: { enabled } }, { onConflict: "key" });
+      if (error) throw error;
+      await auditLog(supabase, "settings_changed", session.userId, null, { key: "tv_feature", enabled }, ip);
+      return new Response(JSON.stringify({ success: true, value: { enabled } }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     if (action === "set_settings") {
       const session = await requireAdmin(req);
       const { key, value } = params;
@@ -2997,6 +3027,10 @@ Deno.serve(async (originalReq) => {
 
       if (key === "ipwho_alert") {
         processedValue = { enabled: value?.enabled === true };
+      }
+
+      if (key === "tv_feature") {
+        processedValue = { enabled: value?.enabled !== false };
       }
 
       if (key === "config" && value && typeof value === "object") {
@@ -3078,7 +3112,9 @@ Deno.serve(async (originalReq) => {
 
     if (action === "update_user") {
       const session = await requireAdmin(req);
-      const { id, assigned_accounts, session_limit, pinned, is_free, name, username, expires_at, location_required, auto_delete, tv_override } = params;
+      const { id, assigned_accounts, session_limit, pinned, is_free, name, username, expires_at, location_required, auto_delete } = params;
+      const tvOverrideProvided = params.tv_override !== undefined || params.tvOverride !== undefined;
+      const tvOverrideValue = params.tv_override !== undefined ? params.tv_override : params.tvOverride;
       if (!id) throw new Error("User ID required");
       const patch: Record<string, any> = {};
       if (assigned_accounts !== undefined) patch.assigned_accounts = await normalizeAssignedAccounts(supabase, assigned_accounts);
@@ -3110,12 +3146,12 @@ Deno.serve(async (originalReq) => {
         }
       }
       if (auto_delete !== undefined) patch.auto_delete = !!auto_delete;
-      if (tv_override !== undefined) {
+      if (tvOverrideProvided) {
         // null/undefined string -> clear (inherit global). "on"|"off" -> force.
-        if (tv_override === null || tv_override === "" || tv_override === "inherit") {
+        if (tvOverrideValue === null || tvOverrideValue === "" || tvOverrideValue === "inherit") {
           patch.tv_override = null;
-        } else if (tv_override === "on" || tv_override === "off") {
-          patch.tv_override = tv_override;
+        } else if (tvOverrideValue === "on" || tvOverrideValue === "off") {
+          patch.tv_override = tvOverrideValue;
         } else {
           throw new Error("Invalid tv_override");
         }
@@ -3129,7 +3165,11 @@ Deno.serve(async (originalReq) => {
           patch.session_limit = n;
         }
       }
-      if (Object.keys(patch).length === 0) throw new Error("No fields to update");
+      if (Object.keys(patch).length === 0) {
+        return new Response(JSON.stringify({ success: true, noop: true }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
       const { error } = await supabase.from("app_users").update(patch).eq("id", id);
       if (error) throw error;
       invalidateBootstrapCache();
@@ -3253,6 +3293,8 @@ Deno.serve(async (originalReq) => {
           expiresAt: user.expires_at || null,
           autoDelete: (user as any).auto_delete !== false,
           locationRequired: freeLocationRequired,
+          tvOverride: user.tv_override === "on" || user.tv_override === "off" ? user.tv_override : null,
+          tvFeatureEnabled: await loadTvFeatureEnabled(supabase),
         },
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -3300,6 +3342,8 @@ Deno.serve(async (originalReq) => {
           profileAvatar: targetUser.profile_prefs?.avatarId || null,
           isFree: !!targetUser.is_free,
           locationRequired: isProfileLocationRequired(targetUser, await loadGlobalLocationRequired(supabase)),
+          tvOverride: targetUser.tv_override === "on" || targetUser.tv_override === "off" ? targetUser.tv_override : null,
+          tvFeatureEnabled: await loadTvFeatureEnabled(supabase),
           impersonated: true,
           adminId: session.userId,
         },
@@ -3583,7 +3627,7 @@ Deno.serve(async (originalReq) => {
       const session = await requireSession(req);
       const { data: user, error } = await supabase
         .from("app_users")
-        .select("id, username, name, role, must_change_password, assigned_accounts, profile_prefs, is_free, expires_at, auto_delete")
+        .select("id, username, name, role, must_change_password, assigned_accounts, profile_prefs, is_free, expires_at, auto_delete, tv_override")
         .eq("id", session.userId)
         .single();
       if (error || !user) throw new Error("Account not found");
@@ -3602,6 +3646,8 @@ Deno.serve(async (originalReq) => {
           expiresAt: user.expires_at || null,
           autoDelete: (user as any).auto_delete !== false,
           locationRequired: isProfileLocationRequired(user, await loadGlobalLocationRequired(supabase)),
+          tvOverride: user.tv_override === "on" || user.tv_override === "off" ? user.tv_override : null,
+          tvFeatureEnabled: await loadTvFeatureEnabled(supabase),
           impersonated: session.impersonated === true,
           adminId: session.impersonated === true ? (session.adminId || null) : null,
         },

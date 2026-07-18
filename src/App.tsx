@@ -1885,13 +1885,33 @@ function NotificationBell() {
 // --- TV Auto-Login header button + Coming Soon popup ---
 function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
   const [open, setOpen] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const [panelStyle, setPanelStyle] = useState<React.CSSProperties>({});
+
+  const placePanel = useCallback(() => {
+    const rect = buttonRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const margin = 12;
+    const width = Math.min(320, window.innerWidth - margin * 2);
+    const left = Math.min(Math.max(margin, rect.right - width), window.innerWidth - width - margin);
+    const top = Math.min(rect.bottom + 10, Math.max(margin, window.innerHeight - margin - 260));
+    setPanelStyle({ left, top, width });
+  }, []);
 
   useEffect(() => {
     if (!open) return;
+    placePanel();
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    const onReposition = () => placePanel();
     window.addEventListener("keydown", onKey);
-    return () => { window.removeEventListener("keydown", onKey); };
-  }, [open]);
+    window.addEventListener("resize", onReposition);
+    window.addEventListener("scroll", onReposition, true);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", onReposition);
+      window.removeEventListener("scroll", onReposition, true);
+    };
+  }, [open, placePanel]);
 
   const popup = open ? createPortal(
     <div
@@ -1902,7 +1922,8 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="absolute right-3 sm:right-4 top-[calc(env(safe-area-inset-top)+3.75rem)] w-[min(20rem,calc(100vw-1.5rem))] max-h-[calc(100svh-6rem)] overflow-y-auto rounded-2xl bg-white shadow-2xl border border-slate-200 p-5 animate-in zoom-in-95 slide-in-from-top-2 duration-150 origin-top-right"
+        style={panelStyle}
+        className="fixed max-h-[calc(100svh-6rem)] overflow-y-auto rounded-2xl bg-white shadow-2xl border border-slate-200 p-5 animate-in zoom-in-95 slide-in-from-top-2 duration-150 origin-top-right"
       >
         <div className="flex items-center gap-2 mb-3">
           <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-rose-100 text-rose-600">
@@ -1937,7 +1958,8 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
   return (
     <>
       <button
-        onClick={() => setOpen(true)}
+        ref={buttonRef}
+        onClick={() => { placePanel(); setOpen(true); }}
         className="relative flex items-center justify-center p-2.5 bg-slate-900 text-white rounded-full hover:bg-slate-800 transition-all active:scale-95"
         title="TV Auto-Login"
         aria-label="TV Auto-Login"
@@ -2385,6 +2407,42 @@ interface UserData {
   id: string; username: string | null; name: string; role: "admin" | "user"; totpSecret?: string; mustChangePassword?: boolean; assignedAccounts?: string[] | null; profileAvatar?: string | null; profilePrefs?: UserProfilePrefs;
   isFree?: boolean; pinned?: boolean; sortOrder?: number | null; session_limit?: number | null; expiresAt?: string | null; locationRequired?: boolean;
   tvOverride?: "on" | "off" | null;
+  tvFeatureEnabled?: boolean;
+}
+
+type TvOverrideValue = "inherit" | "on" | "off";
+type TvFeatureEvent =
+  | { type: "tv-global"; enabled: boolean; at: number }
+  | { type: "tv-profile"; userId: string; tvOverride: "on" | "off" | null; at: number };
+
+const TV_FEATURE_CHANNEL = "tv_feature_control_v1";
+
+function normalizeTvOverride(value: unknown): "on" | "off" | null {
+  return value === "on" || value === "off" ? value : null;
+}
+
+function tvOverridePayload(value: TvOverrideValue | "on" | "off" | null): "on" | "off" | "inherit" {
+  return value === "on" || value === "off" ? value : "inherit";
+}
+
+function broadcastTvFeatureEvent(event: TvFeatureEvent) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent<TvFeatureEvent>(TV_FEATURE_CHANNEL, { detail: event }));
+  try {
+    const channel = new BroadcastChannel(TV_FEATURE_CHANNEL);
+    channel.postMessage(event);
+    channel.close();
+  } catch {}
+}
+
+function applyTvOverrideToStoredUser(userId: string, tvOverride: "on" | "off" | null) {
+  try {
+    const raw = sessionGet("user" as any);
+    if (!raw) return;
+    const stored = JSON.parse(raw);
+    if (stored?.id !== userId) return;
+    sessionSet("user" as any, JSON.stringify({ ...stored, tvOverride }));
+  } catch {}
 }
 
 function isLocationRequiredForProfile(profile?: Partial<UserData> | null) {
@@ -5036,8 +5094,34 @@ function AdminPanel() {
   const [savingIpwho, setSavingIpwho] = useState(false);
   const [locationPolicyRequired, setLocationPolicyRequired] = useState(true);
   const [tvFeatureEnabled, setTvFeatureEnabled] = useState(true);
+  const [tvSearch, setTvSearch] = useState("");
   const [savingTvFeature, setSavingTvFeature] = useState(false);
   const [savingLocationPolicy, setSavingLocationPolicy] = useState(false);
+
+  useEffect(() => {
+    const applyEvent = (event: TvFeatureEvent) => {
+      if (!event || typeof event !== "object") return;
+      if (event.type === "tv-global") {
+        setTvFeatureEnabled(event.enabled !== false);
+        return;
+      }
+      if (event.type === "tv-profile") {
+        const next = normalizeTvOverride(event.tvOverride);
+        setUsers(prev => prev.map(u => u.id === event.userId ? { ...u, tvOverride: next } : u));
+      }
+    };
+    const onWindowEvent = (event: Event) => applyEvent((event as CustomEvent<TvFeatureEvent>).detail);
+    window.addEventListener(TV_FEATURE_CHANNEL, onWindowEvent);
+    let channel: BroadcastChannel | null = null;
+    try {
+      channel = new BroadcastChannel(TV_FEATURE_CHANNEL);
+      channel.onmessage = (event) => applyEvent(event.data as TvFeatureEvent);
+    } catch {}
+    return () => {
+      window.removeEventListener(TV_FEATURE_CHANNEL, onWindowEvent);
+      try { channel?.close(); } catch {}
+    };
+  }, []);
   // Maintenance mode
   const [maintenanceEnabled, setMaintenanceEnabled] = useState(false);
   const [maintenanceTitle, setMaintenanceTitle] = useState("");
@@ -5819,7 +5903,8 @@ function AdminPanel() {
     setTvFeatureEnabled(next);
     setSavingTvFeature(true);
     try {
-      await apiCall("manage-app", { action: "set_settings", key: "tv_feature", value: { enabled: next } });
+      await apiCall("manage-app", { action: "set_tv_feature", enabled: next });
+      broadcastTvFeatureEvent({ type: "tv-global", enabled: next, at: Date.now() });
       notify.success(next ? "TV Auto-Login enabled for all users (per-profile overrides still apply)" : "TV Auto-Login hidden by default (per-profile overrides still apply)");
       await refreshBootstrap().catch(() => null);
     } catch (err) {
@@ -5828,18 +5913,28 @@ function AdminPanel() {
     } finally { setSavingTvFeature(false); }
   };
 
-  const toggleProfileTvOverride = async (u: UserData) => {
-    // 3-state cycle: inherit (null) -> on -> off -> inherit
-    const current: "on" | "off" | null = u.tvOverride === "on" || u.tvOverride === "off" ? u.tvOverride : null;
-    const next: "on" | "off" | null = current === null ? "on" : current === "on" ? "off" : null;
+  const setProfileTvOverride = async (u: UserData, value: TvOverrideValue) => {
+    const next: "on" | "off" | null = normalizeTvOverride(value);
+    const previous = normalizeTvOverride(u.tvOverride);
     try {
-      await apiCall("manage-app", { action: "update_user", id: u.id, tv_override: next });
+      await apiCall("manage-app", { action: "update_user", id: u.id, tv_override: tvOverridePayload(next) });
       setUsers(prev => prev.map(x => x.id === u.id ? { ...x, tvOverride: next } : x));
+      applyTvOverrideToStoredUser(u.id, next);
+      patchBootstrapCacheUser(u.id, { tvOverride: next });
+      broadcastTvFeatureEvent({ type: "tv-profile", userId: u.id, tvOverride: next, at: Date.now() });
       notify.success(next === null ? `${u.name}: TV follows global setting` : next === "on" ? `${u.name}: TV forced ON` : `${u.name}: TV forced OFF`);
       refreshBootstrap().catch(() => null);
     } catch (err) {
+      setUsers(prev => prev.map(x => x.id === u.id ? { ...x, tvOverride: previous } : x));
       notify.error(err instanceof Error ? err.message : "Failed to update TV override");
     }
+  };
+
+  const toggleProfileTvOverride = async (u: UserData) => {
+    // 3-state cycle: inherit (null) -> on -> off -> inherit
+    const current: "on" | "off" | null = normalizeTvOverride(u.tvOverride);
+    const next: TvOverrideValue = current === null ? "on" : current === "on" ? "off" : "inherit";
+    await setProfileTvOverride(u, next);
   };
 
   const reloadAdminNotifs = async () => {
@@ -6252,7 +6347,7 @@ function AdminPanel() {
         username: editUsername.trim() || null,
         assigned_accounts: normalizeSelectedAccounts(editAccountsList).length > 0 ? normalizeSelectedAccounts(editAccountsList) : null,
         session_limit,
-        tv_override: tvOvOut,
+        tv_override: tvOverridePayload(editTvOverride),
         ...(expires_at !== undefined ? { expires_at } : {}),
         ...(isFreeTarget ? { auto_delete: editAutoDelete } : {}),
       });
@@ -6260,6 +6355,9 @@ function AdminPanel() {
       const nextUsername = editUsername.trim() || null;
       setEditingUserAccounts(null); setEditHint(null);
       setUsers(prev => prev.map(u => u.id === userId ? { ...u, username: nextUsername as any, assignedAccounts: nextAccounts, session_limit, tvOverride: tvOvOut, ...(expires_at !== undefined ? { expiresAt: expires_at } as any : {}), ...(isFreeTarget ? { autoDelete: editAutoDelete } as any : {}) } : u));
+      applyTvOverrideToStoredUser(userId, tvOvOut);
+      patchBootstrapCacheUser(userId, { tvOverride: tvOvOut });
+      broadcastTvFeatureEvent({ type: "tv-profile", userId, tvOverride: tvOvOut, at: Date.now() });
       notify.success("User settings updated!");
     } catch (err) {
       notify.error(err instanceof Error ? err.message : "Failed to update");
@@ -6285,6 +6383,18 @@ function AdminPanel() {
     nonAdminOrder.forEach((id, idx) => map.set(id, idx));
     return map;
   }, [nonAdminOrder]);
+  const tvUsers = useMemo(() => users.filter((u) => u.role !== "admin"), [users]);
+  const filteredTvUsers = useMemo(() => {
+    const q = tvSearch.trim().toLowerCase();
+    if (!q) return tvUsers;
+    return tvUsers.filter((u) => `${u.name} ${u.username || ""}`.toLowerCase().includes(q));
+  }, [tvSearch, tvUsers]);
+  const tvForcedOnCount = useMemo(() => tvUsers.filter((u) => normalizeTvOverride(u.tvOverride) === "on").length, [tvUsers]);
+  const tvForcedOffCount = useMemo(() => tvUsers.filter((u) => normalizeTvOverride(u.tvOverride) === "off").length, [tvUsers]);
+  const tvEffectiveOnCount = useMemo(() => tvUsers.filter((u) => {
+    const ov = normalizeTvOverride(u.tvOverride);
+    return ov === "on" ? true : ov === "off" ? false : tvFeatureEnabled;
+  }).length, [tvFeatureEnabled, tvUsers]);
 
 
   return (
@@ -7559,101 +7669,102 @@ function AdminPanel() {
 
         {activeTab === "tv" && (
           <div className="space-y-4 sm:space-y-6">
-            {/* Header hero */}
-            <section className="relative overflow-hidden bg-gradient-to-br from-rose-600 via-rose-500 to-pink-600 p-6 sm:p-8 rounded-3xl shadow-xl text-white">
-              <div className="absolute -top-16 -right-16 w-64 h-64 bg-white/10 rounded-full blur-3xl pointer-events-none" />
-              <div className="relative flex items-start gap-4">
-                <div className="bg-white/20 backdrop-blur p-3 rounded-2xl shadow-lg flex-shrink-0">
-                  <Tv className="w-7 h-7" />
+            <section className="bg-white p-4 sm:p-6 rounded-2xl border shadow-sm">
+              <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
+                <div className="flex items-start gap-3 min-w-0">
+                  <div className="bg-slate-900 text-white p-2.5 rounded-xl shadow-sm flex-shrink-0"><Tv className="w-5 h-5" /></div>
+                  <div className="min-w-0">
+                    <h2 className="text-xl sm:text-2xl font-black tracking-tight text-slate-950">TV Auto-Login</h2>
+                    <p className="text-xs sm:text-sm text-slate-500 mt-1 max-w-3xl">Global decides the default. Profile buttons override global immediately and sync with the edit popup.</p>
+                  </div>
                 </div>
-                <div className="min-w-0">
-                  <h2 className="text-xl sm:text-2xl font-black tracking-tight">TV Auto-Login</h2>
-                  <p className="text-xs sm:text-sm text-white/80 mt-1 max-w-2xl">
-                    Control the TV icon shown in every user's header. Global switch is the default; per-profile overrides (ON/OFF) always win over the global.
-                  </p>
+                <div className="grid grid-cols-3 gap-2 min-w-0 xl:min-w-[24rem]">
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3"><p className="text-[10px] font-black text-slate-400 uppercase">Visible</p><p className="text-xl font-black text-slate-900">{tvEffectiveOnCount}</p></div>
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3"><p className="text-[10px] font-black text-emerald-600 uppercase">Forced ON</p><p className="text-xl font-black text-emerald-700">{tvForcedOnCount}</p></div>
+                  <div className="rounded-xl border border-slate-200 bg-slate-100 p-3"><p className="text-[10px] font-black text-slate-500 uppercase">Forced OFF</p><p className="text-xl font-black text-slate-700">{tvForcedOffCount}</p></div>
                 </div>
               </div>
             </section>
 
-            {/* Global toggle */}
-            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
-              <div className="flex items-start justify-between gap-4">
+            <section className="bg-white p-4 sm:p-6 rounded-2xl border shadow-sm">
+              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
                 <div className="min-w-0">
-                  <h3 className="font-black text-base sm:text-lg text-slate-900 flex items-center gap-2">
-                    <div className="bg-rose-50 p-1.5 rounded-lg"><Zap className="w-4 h-4 text-rose-600" /></div>
-                    Global default
-                  </h3>
-                  <p className="text-sm text-slate-700 font-semibold mt-2">Show TV icon to all users</p>
-                  <p className="text-xs text-slate-500 mt-1 max-w-xl">
-                    ON → every non-admin user sees the TV button unless their per-profile override says OFF.
-                    OFF → nobody sees it in the header unless their per-profile override says ON.
-                  </p>
+                  <h3 className="font-black text-base sm:text-lg text-slate-900 flex items-center gap-2"><Zap className="w-4 h-4 text-amber-500" /> Global default</h3>
+                  <p className="text-xs text-slate-500 mt-1">ON = show for everyone except forced OFF. OFF = hide for everyone except forced ON.</p>
                 </div>
-                <button onClick={toggleTvFeature} disabled={savingTvFeature}
-                  className={`relative w-14 h-7 rounded-full transition-colors flex-shrink-0 ${tvFeatureEnabled ? "bg-green-500" : "bg-slate-300"}`}
-                  aria-label="Toggle TV Auto-Login feature">
-                  <div className={`absolute top-0.5 w-6 h-6 bg-white rounded-full shadow transition-transform ${tvFeatureEnabled ? "translate-x-7" : "translate-x-0.5"}`} />
-                </button>
-              </div>
-              <div className={`mt-4 inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold ${tvFeatureEnabled ? "bg-green-50 text-green-700 border border-green-200" : "bg-slate-100 text-slate-600 border border-slate-200"}`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${tvFeatureEnabled ? "bg-green-500" : "bg-slate-400"}`} />
-                Currently {tvFeatureEnabled ? "ENABLED" : "DISABLED"} globally
+                <div className="grid grid-cols-2 gap-2 w-full lg:w-auto lg:min-w-[18rem]">
+                  {([true, false] as const).map((enabled) => (
+                    <button
+                      key={String(enabled)}
+                      type="button"
+                      onClick={() => { if (tvFeatureEnabled !== enabled) void toggleTvFeature(); }}
+                      disabled={savingTvFeature}
+                      className={`h-12 rounded-xl border text-sm font-black transition-all active:scale-[0.98] disabled:opacity-60 ${tvFeatureEnabled === enabled ? (enabled ? "bg-emerald-600 text-white border-emerald-600 shadow-sm" : "bg-slate-900 text-white border-slate-900 shadow-sm") : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"}`}
+                    >
+                      {enabled ? "Global ON" : "Global OFF"}
+                    </button>
+                  ))}
+                </div>
               </div>
             </section>
 
-            {/* Per-user overrides */}
-            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
-              <div className="flex items-start justify-between gap-4 mb-4">
+            <section className="bg-white p-4 sm:p-6 rounded-2xl border shadow-sm">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
                 <div>
-                  <h3 className="font-black text-base sm:text-lg text-slate-900 flex items-center gap-2">
-                    <div className="bg-slate-100 p-1.5 rounded-lg"><Users className="w-4 h-4 text-slate-700" /></div>
-                    Per-user overrides
-                  </h3>
-                  <p className="text-xs text-slate-500 mt-1">Tap a badge to cycle: Inherit → Force ON → Force OFF.</p>
+                  <h3 className="font-black text-base sm:text-lg text-slate-900 flex items-center gap-2"><Users className="w-4 h-4 text-slate-700" /> Existing users</h3>
+                  <p className="text-xs text-slate-500 mt-1">Choose Inherit, Force ON, or Force OFF for each profile.</p>
                 </div>
-                <div className="text-[11px] font-bold text-slate-500 hidden sm:block">
-                  {users.filter(u => u.role !== "admin").length} users
+                <div className="relative w-full md:w-72">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <input
+                    value={tvSearch}
+                    onChange={(e) => setTvSearch(e.target.value)}
+                    placeholder="Search users"
+                    className="w-full h-10 pl-9 pr-3 rounded-xl border border-slate-200 bg-slate-50 text-sm font-semibold outline-none focus:ring-2 focus:ring-slate-900/10"
+                  />
                 </div>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {users.filter(u => u.role !== "admin").map((u) => {
-                  const ov = u.tvOverride === "on" || u.tvOverride === "off" ? u.tvOverride : null;
+
+              <div className="grid grid-cols-1 xl:grid-cols-2 2xl:grid-cols-3 gap-3">
+                {filteredTvUsers.map((u) => {
+                  const ov = normalizeTvOverride(u.tvOverride);
                   const effective = ov === "on" ? true : ov === "off" ? false : tvFeatureEnabled;
-                  const badgeLabel = ov === "on" ? "Force ON" : ov === "off" ? "Force OFF" : `Inherit (${tvFeatureEnabled ? "ON" : "OFF"})`;
-                  const badgeCls = ov === "on"
-                    ? "bg-rose-100 text-rose-700 border-rose-200"
-                    : ov === "off"
-                    ? "bg-slate-200 text-slate-600 border-slate-300"
-                    : effective
-                    ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                    : "bg-slate-100 text-slate-500 border-slate-200";
+                  const options: Array<{ value: TvOverrideValue; label: string; cls: string }> = [
+                    { value: "inherit", label: `Inherit ${tvFeatureEnabled ? "ON" : "OFF"}`, cls: ov === null ? "bg-slate-900 text-white border-slate-900" : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100" },
+                    { value: "on", label: "Force ON", cls: ov === "on" ? "bg-emerald-600 text-white border-emerald-600" : "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100" },
+                    { value: "off", label: "Force OFF", cls: ov === "off" ? "bg-slate-700 text-white border-slate-700" : "bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200" },
+                  ];
                   return (
-                    <div key={u.id} className="flex items-center justify-between gap-3 p-3 rounded-xl border border-slate-200 hover:border-rose-200 hover:bg-rose-50/30 transition">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <ProfileAvatar
-                          avatarId={getStableProfileAvatar(u)}
-                          name={u.name}
-                          className="w-10 h-10 !rounded-xl ring-1 ring-slate-200 flex-shrink-0"
-                          fallbackColor={u.isFree ? "bg-emerald-500" : "bg-blue-500"}
-                        />
-                        <div className="min-w-0">
-                          <p className="text-sm font-black text-slate-900 truncate leading-tight">{u.name}</p>
-                          <p className="text-[11px] text-slate-500 truncate font-mono">{u.username ? `@${u.username}` : "—"}</p>
+                    <div key={u.id} className="rounded-2xl border border-slate-200 p-3 sm:p-4 bg-white hover:border-slate-300 transition-colors">
+                      <div className="flex items-center justify-between gap-3 mb-3">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <ProfileAvatar avatarId={getStableProfileAvatar(u)} name={u.name} className="w-10 h-10 !rounded-xl ring-1 ring-slate-200 flex-shrink-0" fallbackColor={u.isFree ? "bg-emerald-500" : "bg-blue-500"} />
+                          <div className="min-w-0">
+                            <p className="text-sm font-black text-slate-900 truncate leading-tight">{u.name}</p>
+                            <p className="text-[11px] text-slate-500 truncate font-mono">{u.username ? `@${u.username}` : "free profile"}</p>
+                          </div>
                         </div>
+                        <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-black border flex-shrink-0 ${effective ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-slate-100 text-slate-500 border-slate-200"}`}>
+                          <Tv className="w-3 h-3" /> {effective ? "VISIBLE" : "HIDDEN"}
+                        </span>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => toggleProfileTvOverride(u)}
-                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-black border transition-all active:scale-95 flex-shrink-0 ${badgeCls}`}
-                        title="Cycle: inherit → on → off"
-                      >
-                        <Tv className="w-3 h-3" /> {badgeLabel}
-                      </button>
+                      <div className="grid grid-cols-3 gap-1.5">
+                        {options.map((option) => (
+                          <button
+                            key={option.value}
+                            type="button"
+                            onClick={() => { void setProfileTvOverride(u, option.value); }}
+                            className={`min-h-10 rounded-xl border px-1.5 text-[10px] sm:text-[11px] font-black transition-all active:scale-[0.98] ${option.cls}`}
+                          >
+                            {option.label}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   );
                 })}
-                {users.filter(u => u.role !== "admin").length === 0 && (
-                  <p className="text-sm text-slate-500 text-center py-8">No users yet.</p>
+                {filteredTvUsers.length === 0 && (
+                  <div className="xl:col-span-2 2xl:col-span-3 rounded-2xl border border-dashed border-slate-200 p-8 text-center text-sm font-semibold text-slate-500">No users found.</div>
                 )}
               </div>
             </section>
@@ -9666,10 +9777,16 @@ function EmailViewer() {
   // TV Auto-Login visibility: global toggle + per-profile override.
   // Admin's global OFF wins for everyone (including impersonation) — user
   // explicitly wants "admin OFF → TV icon never shows in header".
+  const [viewerTvOverride, setViewerTvOverride] = useState<"on" | "off" | null>(() => normalizeTvOverride((user as any)?.tvOverride));
   const [tvGlobalOn, setTvGlobalOn] = useState<boolean>(() => {
+    if (typeof (user as any)?.tvFeatureEnabled === "boolean") return (user as any).tvFeatureEnabled !== false;
     const bs = readBootstrapCache();
     return bs?.tvFeature?.enabled !== false;
   });
+  useEffect(() => {
+    setViewerTvOverride(normalizeTvOverride((user as any)?.tvOverride));
+    if (typeof (user as any)?.tvFeatureEnabled === "boolean") setTvGlobalOn((user as any).tvFeatureEnabled !== false);
+  }, [user?.id, (user as any)?.tvOverride, (user as any)?.tvFeatureEnabled]);
   useEffect(() => {
     let cancelled = false;
     const sync = async () => {
@@ -9691,16 +9808,41 @@ function EmailViewer() {
     };
     sync();
     const onVis = () => { if (document.visibilityState === "visible") sync(); };
+    const applyEvent = (event: TvFeatureEvent) => {
+      if (!event || typeof event !== "object") return;
+      if (event.type === "tv-global") {
+        setTvGlobalOn(event.enabled !== false);
+        return;
+      }
+      if (event.type === "tv-profile" && event.userId === user.id) {
+        const next = normalizeTvOverride(event.tvOverride);
+        setViewerTvOverride(next);
+        applyTvOverrideToStoredUser(user.id, next);
+      }
+    };
+    const onWindowEvent = (event: Event) => applyEvent((event as CustomEvent<TvFeatureEvent>).detail);
     document.addEventListener("visibilitychange", onVis);
+    window.addEventListener(TV_FEATURE_CHANNEL, onWindowEvent);
+    let channel: BroadcastChannel | null = null;
+    try {
+      channel = new BroadcastChannel(TV_FEATURE_CHANNEL);
+      channel.onmessage = (event) => applyEvent(event.data as TvFeatureEvent);
+    } catch {}
     const id = window.setInterval(sync, 60_000);
-    return () => { cancelled = true; document.removeEventListener("visibilitychange", onVis); window.clearInterval(id); };
-  }, []);
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener(TV_FEATURE_CHANNEL, onWindowEvent);
+      try { channel?.close(); } catch {}
+      window.clearInterval(id);
+    };
+  }, [user.id]);
   const tvVisible = useMemo(() => {
-    const ov = (user as any)?.tvOverride;
+    const ov = viewerTvOverride;
     if (ov === "on") return true; // per-user override always wins over global
     if (ov === "off") return false;
     return tvGlobalOn;
-  }, [user, tvGlobalOn]);
+  }, [viewerTvOverride, tvGlobalOn]);
 
 
   const [refreshing, setRefreshing] = useState(false);
