@@ -9679,7 +9679,7 @@ function EmailViewer() {
   }, []);
   const tvVisible = useMemo(() => {
     const ov = (user as any)?.tvOverride;
-    if (ov === "on") return tvGlobalOn; // per-user ON still gated by global
+    if (ov === "on") return true; // per-user override always wins over global
     if (ov === "off") return false;
     return tvGlobalOn;
   }, [user, tvGlobalOn]);
