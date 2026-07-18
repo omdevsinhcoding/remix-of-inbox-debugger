@@ -9462,9 +9462,60 @@ API Token:            Use default`}
         )}
       </main>
 
+      {/* Netflix auto-login logs modal (per-profile). Polls every 3s while open. */}
+      {nflLogsFor && createPortal(
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={() => setNflLogsFor(null)}>
+          <div className="w-full max-w-lg bg-slate-950 text-slate-100 rounded-2xl ring-1 ring-white/10 shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-3 border-b border-white/10 bg-gradient-to-r from-red-900/40 to-slate-900">
+              <div>
+                <div className="text-[10px] uppercase tracking-[0.2em] text-red-400 font-bold">Netflix Auto-Login</div>
+                <div className="text-sm font-mono text-slate-200 truncate">{nflLogsFor.email || "—"}</div>
+              </div>
+              <button onClick={() => setNflLogsFor(null)} className="p-1.5 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="px-5 py-3 flex items-center gap-3 text-xs border-b border-white/5">
+              <span className={`px-2 py-0.5 rounded-full font-semibold ${
+                nflLogsData?.status === "success" ? "bg-emerald-500/20 text-emerald-300" :
+                nflLogsData?.status === "error" ? "bg-red-500/20 text-red-300" :
+                nflLogsData?.status ? "bg-amber-500/20 text-amber-300" :
+                "bg-slate-700 text-slate-300"
+              }`}>{nflLogsData?.status || "idle"}</span>
+              {nflLogsData?.last_login_at && <span className="text-slate-500">Last: {new Date(nflLogsData.last_login_at).toLocaleString()}</span>}
+              <button onClick={() => loadNetflixLogs(nflLogsFor.email)} disabled={nflLogsLoading}
+                className="ml-auto text-slate-400 hover:text-white flex items-center gap-1">
+                <RefreshCw className={`w-3.5 h-3.5 ${nflLogsLoading ? "animate-spin" : ""}`} /> Refresh
+              </button>
+            </div>
+            <div className="max-h-[50vh] overflow-y-auto p-4 font-mono text-[11px] leading-relaxed bg-black/60">
+              {Array.isArray(nflLogsData?.logs) && nflLogsData.logs.length > 0 ? (
+                nflLogsData.logs.map((l: any, i: number) => (
+                  <div key={i} className="flex gap-2">
+                    <span className="text-slate-600 shrink-0">{l.ts ? new Date(l.ts).toLocaleTimeString() : ""}</span>
+                    <span className={
+                      l.level === "error" ? "text-red-400" :
+                      l.level === "warn" ? "text-amber-400" :
+                      l.level === "success" ? "text-emerald-400" : "text-slate-300"
+                    }>{l.message}</span>
+                  </div>
+                ))
+              ) : (
+                <div className="text-slate-500 italic">No logs yet. Click Start (▶) on the user card to trigger a run.</div>
+              )}
+              {nflLogsData?.last_error && (
+                <div className="mt-3 text-red-400 whitespace-pre-wrap">{nflLogsData.last_error}</div>
+              )}
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
     </div>
   );
 }
+
 
 // ==================== CHANGE PASSWORD MODAL ====================
 function ChangePasswordModal({ user, onDone, forced = false }: { user: UserData; onDone: () => void; forced?: boolean }) {
