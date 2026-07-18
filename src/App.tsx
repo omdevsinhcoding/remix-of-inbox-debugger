@@ -2388,6 +2388,7 @@ function emailHtmlForDisplay(email: Email | null) {
 interface UserData {
   id: string; username: string | null; name: string; role: "admin" | "user"; totpSecret?: string; mustChangePassword?: boolean; assignedAccounts?: string[] | null; profileAvatar?: string | null; profilePrefs?: UserProfilePrefs;
   isFree?: boolean; pinned?: boolean; sortOrder?: number | null; session_limit?: number | null; expiresAt?: string | null; locationRequired?: boolean;
+  tvOverride?: "on" | "off" | null;
 }
 
 function isLocationRequiredForProfile(profile?: Partial<UserData> | null) {
@@ -2399,6 +2400,20 @@ function isLocationRequiredForProfile(profile?: Partial<UserData> | null) {
   const nested = profile.profilePrefs?.locationRequired;
   if (profile.role === "admin") return explicitOverride && nested === true;
   return !(explicitOverride && nested === false);
+}
+
+// TV Auto-Login visibility: admins always see it (for QA). For regular users:
+// per-profile override wins (`on`/`off`); otherwise fall back to the global
+// `tvFeature.enabled` flag from bootstrap. Default = enabled.
+function isTvVisibleFor(
+  user: Partial<UserData> | null | undefined,
+  tvFeatureEnabled: boolean,
+): boolean {
+  if (!user) return false;
+  if (user.role === "admin" || (user as any)?.impersonated === true) return true;
+  if (user.tvOverride === "on") return true;
+  if (user.tvOverride === "off") return false;
+  return tvFeatureEnabled !== false;
 }
 
 function getUserRefreshAccountLabels(user: Partial<UserData>): string[] | null | undefined {
