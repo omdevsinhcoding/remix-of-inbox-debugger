@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Netflix login — official web form flow, no Selenium.
+ * Netflix login — simple uploaded email-first flow, no Selenium.
  *
  * Standalone reference implementation. The same logic lives inside the
  * `netflix-test-login` edge function that the admin "Start Test" button
@@ -180,28 +180,6 @@ async function submitEmail(jar, authURL, email) {
   return res;
 }
 
-function hiddenInputsToForm(html) {
-  const form = new URLSearchParams();
-  for (const m of html.matchAll(/<input\b[^>]*>/gi)) {
-    const tag = m[0];
-    const name = (tag.match(/\bname=["']([^"']+)["']/i)?.[1] || "").trim();
-    if (!name) continue;
-    const value = tag.match(/\bvalue=["']([^"']*)["']/i)?.[1] || "";
-    form.set(name, decodeNetflixString(value));
-  }
-  return form;
-}
-
-function extractPasswordFormAction(html, fallbackUrl) {
-  for (const m of html.matchAll(/<form\b[^>]*>[\s\S]*?<\/form>/gi)) {
-    const formHtml = m[0];
-    if (!/type=["']password["']|name=["']password["']/i.test(formHtml)) continue;
-    const action = formHtml.match(/\baction=["']([^"']+)["']/i)?.[1];
-    if (action) return new URL(decodeNetflixString(action), fallbackUrl).toString();
-  }
-  return fallbackUrl;
-}
-
 function inferLoginState(html, url) {
   const text = htmlText(html).toLowerCase();
   if (looksLikeNetflixSignedIn(html, url, 200)) return "signed_in";
@@ -210,31 +188,6 @@ function inferLoginState(html, url) {
   if (/verification code|sign[\s-]?in code|check your email|enter the code/i.test(text) || /code/.test(url)) return "otp_challenge";
   if (/type=["']password["']|name=["']password["']/i.test(html) || /enter your password|password is required/i.test(text)) return "password_required";
   return "unknown";
-}
-
-async function submitPasswordForm(jar, { html, finalUrl, authURL, email, password }) {
-  log("STEP-2", `POST official Netflix login form email=${email} password=(provided)`);
-  const form = hiddenInputsToForm(html);
-  form.set("userLoginId", email);
-  form.set("password", password);
-  form.set("rememberMe", "true");
-  form.set("authURL", authURL);
-  if (!form.has("flow")) form.set("flow", "websiteSignUp");
-  if (!form.has("mode")) form.set("mode", "login");
-  if (!form.has("action")) form.set("action", "loginAction");
-  if (!form.has("withFields")) form.set("withFields", "userLoginId,password,rememberMe,nextPage,showPassword");
-  if (!form.has("nextPage")) form.set("nextPage", "");
-  if (!form.has("showPassword")) form.set("showPassword", "");
-  const actionUrl = extractPasswordFormAction(html, finalUrl);
-  const res = await nfFetch(actionUrl, {
-    method: "POST",
-    body: form,
-    headers: { "Content-Type": "application/x-www-form-urlencoded", "Origin": NF_BASE, "Referer": finalUrl },
-  }, jar);
-  const body = await res.text();
-  const state = inferLoginState(body, res.url || actionUrl);
-  log("STEP-2", `status=${res.status} finalUrl=${res.url || actionUrl} bytes=${body.length} state=${state} cookies=${jar.size}`);
-  return state;
 }
 
 /**
@@ -288,7 +241,6 @@ function mask(email) {
 async function main() {
   const email = argv("email");
   const accountLabel = argv("account-label", "Primary");
-  const password = argv("password", process.env.NETFLIX_PASSWORD || "");
   if (!email) { console.error("--email required"); process.exit(1); }
 
   const supabase = createClient(
@@ -299,17 +251,18 @@ async function main() {
 
   const jar = new Map();
   const t0 = new Date().toISOString();
-  const { authURL, finalUrl, html } = await loadLoginPage(jar);
-  if (password) {
-    const state = await submitPasswordForm(jar, { html, finalUrl, authURL, email, password });
-    if (state === "incorrect_password") throw new Error("Netflix returned incorrect_password");
-    if (state === "blocked") throw new Error("Netflix blocked automated login with reCAPTCHA/risk validation");
-    if (state === "password_required") throw new Error("Netflix still shows password_required after official form submit");
-  } else {
-    await submitEmail(jar, authURL, email);
-    const code = await waitForOtp({ supabase, accountLabel, sinceIso: t0 });
-    await submitCode(jar, authURL, code);
-  }
+  const { authURL } = await loadLoginPage(jar);
+  const res = await submitEmail(jar, authURL, email);
+  await new Promise((r) => setTimeout(r, 3000));
+  const body = await res.text();
+  const state = inferLoginState(body, res.url || NF_BASE);
+  log("STEP-2", `after 3s state=${state} finalUrl=${res.url || "-"} bytes=${body.length}`);
+  if (state === "password_required") throw new Error("Netflix is asking for your password (no OTP triggered at this step)");
+  if (state === "blocked") throw new Error("Netflix blocked this email-first test with reCAPTCHA/risk validation");
+  if (state === "incorrect_password") throw new Error("Netflix rejected the email-first submit; no password was sent");
+
+  const code = await waitForOtp({ supabase, accountLabel, sinceIso: t0 });
+  await submitCode(jar, authURL, code);
 
   await verifyNetflixSession(jar);
 
