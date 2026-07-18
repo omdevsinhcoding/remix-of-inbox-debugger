@@ -5912,10 +5912,9 @@ function AdminPanel() {
     } finally { setSavingTvFeature(false); }
   };
 
-  const toggleProfileTvOverride = async (u: UserData) => {
-    // 3-state cycle: inherit (null) -> on -> off -> inherit
-    const current: "on" | "off" | null = u.tvOverride === "on" || u.tvOverride === "off" ? u.tvOverride : null;
-    const next: "on" | "off" | null = current === null ? "on" : current === "on" ? "off" : null;
+  const setProfileTvOverride = async (u: UserData, value: TvOverrideValue) => {
+    const next: "on" | "off" | null = normalizeTvOverride(value);
+    const previous = normalizeTvOverride(u.tvOverride);
     try {
       await apiCall("manage-app", { action: "update_user", id: u.id, tv_override: tvOverridePayload(next) });
       setUsers(prev => prev.map(x => x.id === u.id ? { ...x, tvOverride: next } : x));
@@ -5925,8 +5924,16 @@ function AdminPanel() {
       notify.success(next === null ? `${u.name}: TV follows global setting` : next === "on" ? `${u.name}: TV forced ON` : `${u.name}: TV forced OFF`);
       refreshBootstrap().catch(() => null);
     } catch (err) {
+      setUsers(prev => prev.map(x => x.id === u.id ? { ...x, tvOverride: previous } : x));
       notify.error(err instanceof Error ? err.message : "Failed to update TV override");
     }
+  };
+
+  const toggleProfileTvOverride = async (u: UserData) => {
+    // 3-state cycle: inherit (null) -> on -> off -> inherit
+    const current: "on" | "off" | null = normalizeTvOverride(u.tvOverride);
+    const next: TvOverrideValue = current === null ? "on" : current === "on" ? "off" : "inherit";
+    await setProfileTvOverride(u, next);
   };
 
   const reloadAdminNotifs = async () => {
