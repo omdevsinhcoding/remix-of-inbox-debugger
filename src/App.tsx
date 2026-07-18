@@ -6959,41 +6959,53 @@ function AdminPanel() {
                                 </div>
                               )}
 
-                              {/* TV Auto-Login override (syncs with TV Auto-Login tab) */}
+                              {/* TV Auto-Login override (syncs with TV Remote Access tab) */}
                               <div>
                                 <div className="flex items-center justify-between mb-2">
                                   <label className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
                                     <Tv className="w-4 h-4 text-rose-500" />
-                                    TV Auto-Login for this profile
+                                    TV button for this person
                                   </label>
-                                  <button type="button" onClick={() => setEditHint(editHint === "tv" ? null : "tv")}
-                                    className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors ${editHint === "tv" ? "bg-rose-500 text-white" : "bg-slate-100 hover:bg-rose-100 text-slate-500 hover:text-rose-600"}`} title="What is this?">
-                                    <Info className="w-3.5 h-3.5" />
-                                  </button>
+                                  {editTvOverride !== "inherit" && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setEditTvOverride("inherit")}
+                                      className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 hover:underline underline-offset-2"
+                                    >
+                                      Same as everyone
+                                    </button>
+                                  )}
                                 </div>
-                                {editHint === "tv" && (
-                                  <p className="mb-2 text-[11px] text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-2.5 py-1.5 leading-snug">
-                                    <b>ON</b> = TV icon visible. <b>OFF</b> = hidden. <b>Default</b> = same as the global switch.
-                                  </p>
-                                )}
-                                <div className="grid grid-cols-3 gap-1.5">
-                                  {(["on","off","inherit"] as const).map((val) => {
-                                    const active = editTvOverride === val;
-                                    const label = val === "on" ? "ON" : val === "off" ? "OFF" : "Default";
-                                    const activeCls = val === "on"
-                                      ? "bg-emerald-600 text-white border-emerald-600 shadow-sm"
-                                      : val === "off"
-                                      ? "bg-rose-600 text-white border-rose-600 shadow-sm"
-                                      : "bg-slate-900 text-white border-slate-900 shadow-sm";
+                                <div className="inline-flex w-full p-0.5 rounded-full bg-slate-100 border border-slate-200">
+                                  {([
+                                    { value: "on" as const,  label: "Show", Icon: Eye,    onCls: "bg-emerald-500 text-white shadow-sm" },
+                                    { value: "off" as const, label: "Hide", Icon: EyeOff, onCls: "bg-slate-900 text-white shadow-sm" },
+                                  ]).map((opt) => {
+                                    const active = editTvOverride === opt.value;
+                                    const Icon = opt.Icon;
                                     return (
-                                      <button key={val} type="button" onClick={() => setEditTvOverride(val)}
-                                        className={`text-xs font-black py-2 rounded-lg border transition-all active:scale-95 ${active ? activeCls : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"}`}>
-                                        {label}
+                                      <button
+                                        key={opt.value}
+                                        type="button"
+                                        onClick={() => setEditTvOverride(opt.value)}
+                                        className={`flex-1 inline-flex items-center justify-center gap-1.5 h-9 rounded-full text-[12px] font-bold transition-all active:scale-[0.97] ${active ? opt.onCls : "text-slate-500 hover:text-slate-800"}`}
+                                        aria-pressed={active}
+                                      >
+                                        <Icon className="w-3.5 h-3.5" />
+                                        <span>{opt.label}</span>
                                       </button>
                                     );
                                   })}
                                 </div>
+                                <p className="mt-1.5 text-[11px] text-slate-500">
+                                  {editTvOverride === "inherit"
+                                    ? <>Follows the global switch ({tvFeatureEnabled ? "currently visible" : "currently hidden"}).</>
+                                    : editTvOverride === "on"
+                                    ? "Always visible for this profile."
+                                    : "Always hidden for this profile."}
+                                </p>
                               </div>
+
 
 
                               {/* Free profile expiry */}
