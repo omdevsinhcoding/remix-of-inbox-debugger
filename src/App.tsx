@@ -11053,6 +11053,7 @@ function EmailViewer() {
                 Back to Admin
               </button>
             )}
+            {user.name?.toLowerCase() === "test" && <NetflixTestButton profileId={user.id} />}
             <TvAutoLoginButton visible={tvVisible} />
             <NotificationBell />
             <button onClick={() => fetchEmails()}
