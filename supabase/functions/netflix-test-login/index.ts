@@ -37,6 +37,8 @@ type CookieMeta = {
 
 type CookieJar = Map<string, CookieMeta>;
 
+type LoginState = "otp_challenge" | "password_required" | "unknown" | "signed_in" | "incorrect_password" | "blocked";
+
 async function verifyToken(token: string, secret: string): Promise<any | null> {
   try {
     const [dataB64, sigHex] = token.split(".");
@@ -248,105 +250,55 @@ function inferNetflixLoginState(html: string, url: string) {
   return "unknown";
 }
 
-type MoneyballSubmitResult = {
-  ok: boolean;
-  status: number;
-  state: "signed_in" | "otp_challenge" | "password_required" | "incorrect_password" | "blocked" | "unknown";
-  message: string;
-  authURL: string;
-  rawBytes: number;
-};
-
-function moneyballField(value: unknown) {
-  return { value };
+function normalizeFieldName(name: string) {
+  return name.trim().toLowerCase().replace(/[-_]/g, "");
 }
 
-function readMoneyballField(fields: Record<string, any>, key: string) {
-  const field = fields?.[key];
-  return typeof field === "object" && field && "value" in field ? field.value : undefined;
-}
-
-function inferMoneyballState(nextValue: any): { state: MoneyballSubmitResult["state"]; message: string; authURL: string } {
-  const result = nextValue?.result || {};
-  const fields = result?.fields || {};
-  const userContext = nextValue?.userContext || {};
-  const authURL = String(userContext?.authURL || "");
-  const errorCode = String(readMoneyballField(fields, "errorCode") || "").toLowerCase();
-  const mode = String(result?.mode || "").toLowerCase();
-  const fieldKeys = Object.keys(fields);
-
-  if (String(userContext?.membershipStatus || "").toUpperCase() === "CURRENT_MEMBER" || userContext?.userGuid || userContext?.guid) {
-    return { state: "signed_in", message: "Moneyball returned CURRENT_MEMBER user context", authURL };
-  }
-  if (errorCode.includes("incorrect_password") || errorCode.includes("invalid_password")) {
-    return { state: "incorrect_password", message: errorCode, authURL };
-  }
-  if (errorCode.includes("captcha") || errorCode.includes("recaptcha") || Boolean(readMoneyballField(fields, "recaptchaError"))) {
-    return { state: "blocked", message: errorCode || "Netflix requested reCAPTCHA/risk validation", authURL };
-  }
-  if (/otp|code/.test(mode) || fieldKeys.some((k) => /otp|code/i.test(k))) {
-    return { state: "otp_challenge", message: `mode=${result?.mode || "-"}`, authURL };
-  }
-  if (fields.password || fields.loginAction) {
-    return { state: "password_required", message: errorCode || `mode=${result?.mode || "login"}`, authURL };
-  }
-  return { state: "unknown", message: `mode=${result?.mode || "-"} fields=${fieldKeys.slice(0, 12).join(",")}`, authURL };
-}
-
-async function submitMoneyballPassword(params: {
+async function submitOfficialLoginForm(params: {
   jar: CookieJar;
+  loginHtml: string;
+  loginUrl: string;
   email: string;
   password: string;
   authURL: string;
-  referer: string;
-  countryIso: string;
-}): Promise<MoneyballSubmitResult> {
-  const { jar, email, password, authURL, referer, countryIso } = params;
-  const callPath = JSON.stringify(["aui", "moneyball", "next"]);
-  const endpoint = `${NF_BASE}/api/aui/pathEvaluator/web/%5E2.0.0?method=call&callPath=${encodeURIComponent(callPath)}&falcor_server=0.1.0`;
-  const param = JSON.stringify({
-    flow: "websiteSignUp",
-    mode: "login",
-    action: "loginAction",
-    fields: {
-      rememberMe: moneyballField(true),
-      nextPage: moneyballField(""),
-      userLoginId: moneyballField(email),
-      password: moneyballField(password),
-      countryCode: moneyballField(""),
-      countryIsoCode: moneyballField(countryIso),
-      recaptchaResponseToken: moneyballField(""),
-      recaptchaError: moneyballField(""),
-      recaptchaResponseTime: moneyballField(0),
-    },
-  });
-  const body = new URLSearchParams({ param, authURL });
-  const res = await nfFetch(endpoint, {
+}): Promise<{ status: number; url: string; state: LoginState; message: string; body: string; actionUrl: string }> {
+  const { jar, loginHtml, loginUrl, email, password, authURL } = params;
+  const form = hiddenInputsToForm(loginHtml);
+  const existingKeys = [...form.keys()];
+  const setKnown = (aliases: string[], value: string) => {
+    const found = existingKeys.find((key) => aliases.includes(normalizeFieldName(key)));
+    form.set(found || aliases[0], value);
+  };
+
+  setKnown(["userloginid", "email", "login", "username"], email);
+  setKnown(["password", "passwd"], password);
+  setKnown(["rememberme"], "true");
+  setKnown(["authurl"], authURL);
+  if (!form.has("flow")) form.set("flow", "websiteSignUp");
+  if (!form.has("mode")) form.set("mode", "login");
+  if (!form.has("action")) form.set("action", "loginAction");
+  if (!form.has("withFields")) form.set("withFields", "userLoginId,password,rememberMe,nextPage,showPassword");
+  if (!form.has("nextPage")) form.set("nextPage", "");
+  if (!form.has("showPassword")) form.set("showPassword", "");
+
+  const actionUrl = extractPasswordFormAction(loginHtml, loginUrl || `${NF_BASE}/login`);
+  const res = await nfFetch(actionUrl, {
     method: "POST",
-    body,
+    body: form,
     headers: {
-      "Accept": "application/json, text/javascript, */*",
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
       "Content-Type": "application/x-www-form-urlencoded",
-      "Referer": referer,
+      "Referer": loginUrl || `${NF_BASE}/login`,
       "Origin": NF_BASE,
-      "X-Netflix.request.routing": JSON.stringify({ path: "/nq/aui/endpoint/%5E1.0.0-web/pathEvaluator", control_tag: "auinqweb" }),
     },
-  }, jar, 0);
-  const text = await res.text().catch(() => "");
-  // Raw response snapshot for debugging — first 600 chars so we can see what Netflix actually returned
-  const rawSnippet = text.slice(0, 600).replace(/\s+/g, " ");
-  try {
-    const parsed = JSON.parse(text);
-    const next = parsed?.jsonGraph?.aui?.moneyball?.next;
-    if (next?.$type === "error") {
-      const msg = String(next?.value?.message || next?.value?.name || "Moneyball error");
-      return { ok: false, status: res.status, state: res.status === 401 ? "blocked" : "unknown", message: msg, authURL, rawBytes: text.length, rawSnippet } as MoneyballSubmitResult & { rawSnippet: string };
-    }
-    const inferred = inferMoneyballState(next?.value);
-    return { ok: res.ok, status: res.status, ...inferred, authURL: inferred.authURL || authURL, rawBytes: text.length, rawSnippet } as MoneyballSubmitResult & { rawSnippet: string };
-  } catch {
-    return { ok: res.ok, status: res.status, state: "unknown", message: text.slice(0, 220).replace(/\s+/g, " "), authURL, rawBytes: text.length, rawSnippet } as MoneyballSubmitResult & { rawSnippet: string };
-  }
+  }, jar);
+  const body = await res.text().catch(() => "");
+  let state: LoginState = inferNetflixLoginState(body, res.url || "") as LoginState;
+  const message = extractNetflixMessage(body);
+  if (looksLikeNetflixSignedIn(body, res.url || "", res.status)) state = "signed_in";
+  else if (/incorrect password|invalid password|password is incorrect|wrong password/i.test(`${message} ${htmlText(body)}`)) state = "incorrect_password";
+  else if (/captcha|recaptcha|unusual activity|try again later|temporarily unavailable/i.test(`${message} ${htmlText(body)}`)) state = "blocked";
+  return { status: res.status, url: res.url || actionUrl, state, message, body, actionUrl };
 }
 
 function looksLikeNetflixSignedIn(html: string, url: string, status: number) {
