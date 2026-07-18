@@ -1884,7 +1884,6 @@ function NotificationBell() {
 
 // --- TV Auto-Login header button + Coming Soon popup ---
 function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
-  if (!visible) return null;
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
