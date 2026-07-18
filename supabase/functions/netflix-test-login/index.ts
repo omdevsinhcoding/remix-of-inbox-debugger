@@ -119,8 +119,8 @@ async function nfFetch(url: string, init: RequestInit | undefined, jar: CookieJa
   for (let i = 0; i <= maxRedirects; i++) {
     const headers = new Headers(currentInit?.headers || {});
     headers.set("User-Agent", UA);
-    headers.set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
-    headers.set("Accept-Language", "en-US,en;q=0.9");
+    if (!headers.has("Accept")) headers.set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+    if (!headers.has("Accept-Language")) headers.set("Accept-Language", "en-US,en;q=0.9");
     if (jar.size > 0) headers.set("Cookie", jarToHeader(jar));
     const res = await fetch(currentUrl, { ...currentInit, headers, redirect: "manual" });
     collectCookies(res, jar, currentUrl);
@@ -162,10 +162,21 @@ function decodeHtmlAttr(input: string) {
     .replace(/&gt;/gi, ">");
 }
 
+function decodeNetflixString(input: string) {
+  return decodeHtmlAttr(input)
+    .replace(/\\x([0-9a-f]{2})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+    .replace(/\\u([0-9a-f]{4})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+    .replace(/\\\//g, "/");
+}
+
 function extractAuthURL(html: string) {
-  return decodeHtmlAttr(
+  return decodeNetflixString(
     (html.match(/"authURL"\s*:\s*"([^"]+)"/) || html.match(/name=["']authURL["'][^>]*value=["']([^"']+)["']/i))?.[1] || "",
   );
+}
+
+function extractRequestCountryIso(html: string) {
+  return (html.match(/"requestCountry"\s*:\s*\{[^}]*"id"\s*:\s*"([A-Z]{2})"/)?.[1] || "US").toUpperCase();
 }
 
 function hiddenInputsToForm(html: string) {
@@ -229,6 +240,105 @@ function inferNetflixLoginState(html: string, url: string) {
   if (asksOtp) return "otp_challenge";
   if (asksPassword) return "password_required";
   return "unknown";
+}
+
+type MoneyballSubmitResult = {
+  ok: boolean;
+  status: number;
+  state: "signed_in" | "otp_challenge" | "password_required" | "incorrect_password" | "blocked" | "unknown";
+  message: string;
+  authURL: string;
+  rawBytes: number;
+};
+
+function moneyballField(value: unknown) {
+  return { value };
+}
+
+function readMoneyballField(fields: Record<string, any>, key: string) {
+  const field = fields?.[key];
+  return typeof field === "object" && field && "value" in field ? field.value : undefined;
+}
+
+function inferMoneyballState(nextValue: any): { state: MoneyballSubmitResult["state"]; message: string; authURL: string } {
+  const result = nextValue?.result || {};
+  const fields = result?.fields || {};
+  const userContext = nextValue?.userContext || {};
+  const authURL = String(userContext?.authURL || "");
+  const errorCode = String(readMoneyballField(fields, "errorCode") || "").toLowerCase();
+  const mode = String(result?.mode || "").toLowerCase();
+  const fieldKeys = Object.keys(fields);
+
+  if (String(userContext?.membershipStatus || "").toUpperCase() === "CURRENT_MEMBER" || userContext?.userGuid || userContext?.guid) {
+    return { state: "signed_in", message: "Moneyball returned CURRENT_MEMBER user context", authURL };
+  }
+  if (errorCode.includes("incorrect_password") || errorCode.includes("invalid_password")) {
+    return { state: "incorrect_password", message: errorCode, authURL };
+  }
+  if (errorCode.includes("captcha") || errorCode.includes("recaptcha") || fieldKeys.some((k) => /recaptcha/i.test(k) && readMoneyballField(fields, k))) {
+    return { state: "blocked", message: errorCode || "Netflix requested reCAPTCHA/risk validation", authURL };
+  }
+  if (/otp|code/.test(mode) || fieldKeys.some((k) => /otp|code/i.test(k))) {
+    return { state: "otp_challenge", message: `mode=${result?.mode || "-"}`, authURL };
+  }
+  if (fields.password || fields.loginAction) {
+    return { state: "password_required", message: errorCode || `mode=${result?.mode || "login"}`, authURL };
+  }
+  return { state: "unknown", message: `mode=${result?.mode || "-"} fields=${fieldKeys.slice(0, 12).join(",")}`, authURL };
+}
+
+async function submitMoneyballPassword(params: {
+  jar: CookieJar;
+  email: string;
+  password: string;
+  authURL: string;
+  referer: string;
+  countryIso: string;
+}): Promise<MoneyballSubmitResult> {
+  const { jar, email, password, authURL, referer, countryIso } = params;
+  const callPath = JSON.stringify(["aui", "moneyball", "next"]);
+  const endpoint = `${NF_BASE}/api/aui/pathEvaluator/web/%5E2.0.0?method=call&callPath=${encodeURIComponent(callPath)}&falcor_server=0.1.0`;
+  const param = JSON.stringify({
+    flow: "websiteSignUp",
+    mode: "login",
+    action: "loginAction",
+    fields: {
+      rememberMe: moneyballField(true),
+      nextPage: moneyballField(""),
+      userLoginId: moneyballField(email),
+      password: moneyballField(password),
+      countryCode: moneyballField(""),
+      countryIsoCode: moneyballField(countryIso),
+      recaptchaResponseToken: moneyballField(""),
+      recaptchaError: moneyballField(""),
+      recaptchaResponseTime: moneyballField(0),
+    },
+  });
+  const body = new URLSearchParams({ param, authURL });
+  const res = await nfFetch(endpoint, {
+    method: "POST",
+    body,
+    headers: {
+      "Accept": "application/json, text/javascript, */*",
+      "Content-Type": "application/x-www-form-urlencoded",
+      "Referer": referer,
+      "Origin": NF_BASE,
+      "X-Netflix.request.routing": JSON.stringify({ path: "/nq/aui/endpoint/%5E1.0.0-web/pathEvaluator", control_tag: "auinqweb" }),
+    },
+  }, jar, 0);
+  const text = await res.text().catch(() => "");
+  try {
+    const parsed = JSON.parse(text);
+    const next = parsed?.jsonGraph?.aui?.moneyball?.next;
+    if (next?.$type === "error") {
+      const msg = String(next?.value?.message || next?.value?.name || "Moneyball error");
+      return { ok: false, status: res.status, state: res.status === 401 ? "blocked" : "unknown", message: msg, authURL, rawBytes: text.length };
+    }
+    const inferred = inferMoneyballState(next?.value);
+    return { ok: res.ok, status: res.status, ...inferred, authURL: inferred.authURL || authURL, rawBytes: text.length };
+  } catch {
+    return { ok: res.ok, status: res.status, state: "unknown", message: text.slice(0, 220).replace(/\s+/g, " "), authURL, rawBytes: text.length };
+  }
 }
 
 function looksLikeNetflixSignedIn(html: string, url: string, status: number) {
