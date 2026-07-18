@@ -223,6 +223,12 @@ function cookieNames(jar: CookieJar) {
   return [...jar.keys()].sort().join(", ");
 }
 
+async function secretFingerprint(value: string) {
+  const bytes = new TextEncoder().encode(value);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 12);
+}
+
 function extractNetflixMessage(html: string) {
   const jsonMessage = html.match(/"(?:errorMessage|message|uiMessage)"\s*:\s*"([^"]{4,260})"/i)?.[1];
   if (jsonMessage) return jsonMessage.replace(/\\u002F/g, "/").replace(/\\n/g, " ");
@@ -438,8 +444,13 @@ Deno.serve(async (req) => {
         // automatically instead of failing.
         const { data: credRow } = await supabase
           .from("app_settings").select("value").eq("key", "netflix_credentials").maybeSingle();
-        const credMap: Record<string, string> = (credRow?.value && typeof credRow.value === "object" && !Array.isArray(credRow.value))
+        const credMapRaw: Record<string, string> = (credRow?.value && typeof credRow.value === "object" && !Array.isArray(credRow.value))
           ? credRow.value as Record<string, string> : {};
+        const credMap: Record<string, string> = {};
+        for (const [k, v] of Object.entries(credMapRaw)) {
+          const normalizedKey = String(k || "").trim().toLowerCase();
+          if (normalizedKey) credMap[normalizedKey] = String(v || "");
+        }
         const linkedEmails = new Set<string>();
         linkedEmails.add(email.toLowerCase());
         if (acc.user) linkedEmails.add(String(acc.user).trim().toLowerCase());
@@ -452,9 +463,18 @@ Deno.serve(async (req) => {
             if (val) linkedEmails.add(val);
           }
         }
-        const credentialEmail = [...linkedEmails].find((candidate) => typeof credMap[candidate] === "string" && String(credMap[candidate]).length > 0) || "";
-        const storedPassword = String(credentialEmail ? credMap[credentialEmail] : "").trim();
-        log("BOOT", `Netflix password on file for ${email}: ${storedPassword ? `yes (${storedPassword.length} chars, matched ${credentialEmail === email.toLowerCase() ? "selected email" : credentialEmail})` : `no (checked ${linkedEmails.size} linked email key${linkedEmails.size === 1 ? "" : "s"})`}`);
+        const linkedCandidates = [...linkedEmails];
+        const checkedVaultRows: string[] = [];
+        for (const candidate of linkedCandidates) {
+          const raw = typeof credMap[candidate] === "string" ? credMap[candidate] : "";
+          checkedVaultRows.push(`${candidate}:${raw ? `${raw.length}c#${await secretFingerprint(raw)}` : "empty"}`);
+        }
+        const credentialEmail = linkedCandidates.find((candidate) => typeof credMap[candidate] === "string" && String(credMap[candidate]).length > 0) || "";
+        const storedPasswordRaw = String(credentialEmail ? credMap[credentialEmail] : "");
+        const storedPassword = storedPasswordRaw.trim();
+        const selectedKey = email.toLowerCase();
+        log("BOOT", `Vault keys checked → ${checkedVaultRows.join(" | ") || "none"}`);
+        log("BOOT", `Netflix password on file for ${email}: ${storedPassword ? `yes (${storedPasswordRaw.length} chars, sha256:${await secretFingerprint(storedPasswordRaw)}, matched ${credentialEmail === selectedKey ? "selected email" : credentialEmail}${storedPasswordRaw !== storedPassword ? ", trimmed before submit" : ""})` : `no (checked ${linkedEmails.size} linked email key${linkedEmails.size === 1 ? "" : "s"})`}`);
 
         // ── Netflix flow ─────────────────────────────────────────────────
         const jar: CookieJar = new Map();
