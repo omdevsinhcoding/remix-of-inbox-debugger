@@ -2095,106 +2095,229 @@ function NetflixCredentialsSection({ emailAccounts, primaryImapUser }: {
     });
   };
 
+  const filledCount = useMemo(
+    () => Object.values(creds).filter((v) => String(v || "").length > 0).length,
+    [creds],
+  );
+
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    window.addEventListener("keydown", onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [open]);
+
+  const totalKnown = rows.length;
+
   return (
-    <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
-      <h2 className="font-black text-base sm:text-lg mb-1 flex items-center gap-2">
-        <div className="bg-red-50 p-1.5 rounded-lg"><Tv className="w-4 h-4 text-red-600" /></div>
-        Netflix Credentials
-      </h2>
-      <p className="text-xs text-slate-500 mb-4">
-        Passwords used by TV Auto-Login when Netflix asks for a password instead of sending an OTP.
-        Keyed by the Netflix login email. Editable — updates apply on next Start Test.
-      </p>
+    <>
+      {/* Trigger card — sits inside the TV Auto-Login tab */}
+      <section className="relative overflow-hidden rounded-2xl border border-slate-200 shadow-sm bg-gradient-to-br from-[#141414] via-[#1a0608] to-[#0a0a0a] text-white p-5 sm:p-6">
+        <div className="pointer-events-none absolute -top-20 -right-16 w-64 h-64 rounded-full bg-[#e50914]/25 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-24 -left-16 w-72 h-72 rounded-full bg-[#e50914]/10 blur-3xl" />
 
-      {loading ? (
-        <div className="text-sm text-slate-500">Loading…</div>
-      ) : (
-        <>
-          <div className="space-y-2">
-            {rows.length === 0 && (
-              <div className="text-xs text-slate-400 italic">No email accounts configured yet. Add one below.</div>
-            )}
-            {rows.map((email) => {
-              const val = creds[email] || "";
-              const shown = reveal[email];
-              const isKnown = knownEmails.has(email);
-              return (
-                <div key={email} className="flex items-center gap-2 bg-slate-50 rounded-lg p-2">
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[13px] font-mono text-slate-800 truncate">{email}</div>
-                    {isKnown && <div className="text-[10px] text-emerald-600 uppercase tracking-wider">imap account</div>}
-                  </div>
-                  <input
-                    type={shown ? "text" : "password"}
-                    value={val}
-                    onChange={(e) => setCreds((prev) => ({ ...prev, [email]: e.target.value }))}
-                    placeholder="Netflix password"
-                    className="flex-1 min-w-0 px-3 py-1.5 border rounded-md text-sm font-mono"
-                    autoComplete="off"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setReveal((p) => ({ ...p, [email]: !p[email] }))}
-                    className="text-xs px-2 py-1 rounded-md bg-slate-200 hover:bg-slate-300 font-semibold text-slate-700"
-                  >
-                    {shown ? "Hide" : "Show"}
-                  </button>
-                  {!isKnown && (
-                    <button
-                      type="button"
-                      onClick={() => removeRow(email)}
-                      className="text-xs px-2 py-1 rounded-md bg-rose-100 hover:bg-rose-200 font-semibold text-rose-700"
-                    >
-                      Remove
-                    </button>
-                  )}
-                </div>
-              );
-            })}
+        <div className="relative flex items-start gap-4 flex-wrap">
+          <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-gradient-to-br from-[#e50914] to-[#8b0610] shadow-lg shadow-[#e50914]/30 shrink-0">
+            <KeyRound className="w-6 h-6 text-white" />
           </div>
-
-          <div className="mt-4 pt-4 border-t border-dashed border-slate-200">
-            <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">Add custom Netflix login</div>
-            <div className="flex flex-col sm:flex-row gap-2">
-              <input
-                value={newEmail}
-                onChange={(e) => setNewEmail(e.target.value)}
-                placeholder="netflix-login@example.com"
-                className="flex-1 px-3 py-2 border rounded-lg text-sm font-mono"
-                autoComplete="off"
-              />
-              <input
-                value={newPass}
-                onChange={(e) => setNewPass(e.target.value)}
-                placeholder="password"
-                className="flex-1 px-3 py-2 border rounded-lg text-sm font-mono"
-                autoComplete="off"
-              />
-              <button
-                type="button"
-                onClick={addRow}
-                className="px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-bold hover:bg-slate-800"
-              >
-                Add
-              </button>
+          <div className="min-w-0 flex-1">
+            <div className="text-[10px] uppercase tracking-[0.2em] text-[#e50914] font-bold">Netflix • Vault</div>
+            <h3 className="mt-0.5 text-lg sm:text-xl font-black tracking-tight">Netflix Login Credentials</h3>
+            <p className="mt-1.5 text-[12.5px] text-white/60 leading-relaxed max-w-lg">
+              Used by TV Auto-Login when Netflix asks for a password instead of an OTP. Stored securely, keyed by login email, updates apply on the next Start Test.
+            </p>
+            <div className="mt-3 flex items-center gap-2 flex-wrap">
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-full bg-white/[0.06] border border-white/10 text-white/80">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                {filledCount} saved
+              </span>
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-full bg-white/[0.06] border border-white/10 text-white/60">
+                {totalKnown} accounts
+              </span>
             </div>
           </div>
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            className="shrink-0 inline-flex items-center gap-2 h-11 px-5 rounded-xl font-bold text-sm bg-gradient-to-r from-[#e50914] to-[#b0060f] text-white shadow-lg shadow-[#e50914]/30 hover:brightness-110 active:scale-[0.98] transition"
+          >
+            <KeyRound className="w-4 h-4" />
+            Manage passwords
+          </button>
+        </div>
+      </section>
 
-          <div className="mt-4 flex justify-end">
+      {/* Attractive Netflix-styled modal */}
+      {open && createPortal(
+        <div
+          className="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm animate-in fade-in duration-200 flex items-center justify-center p-4"
+          onClick={() => setOpen(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Manage Netflix credentials"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="relative w-full max-w-2xl max-h-[92svh] overflow-hidden rounded-3xl shadow-[0_25px_80px_-15px_rgba(229,9,20,0.5)] animate-in zoom-in-95 slide-in-from-bottom-4 duration-200 bg-gradient-to-b from-[#141414] via-[#1a0608] to-[#0a0a0a] border border-white/10"
+          >
+            <div className="pointer-events-none absolute -top-28 -right-16 w-72 h-72 rounded-full bg-[#e50914]/25 blur-3xl" />
+            <div className="pointer-events-none absolute -bottom-32 -left-16 w-80 h-80 rounded-full bg-[#e50914]/10 blur-3xl" />
+
             <button
-              type="button"
-              disabled={saving}
-              onClick={save}
-              className="px-5 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-sm font-black disabled:opacity-50"
+              onClick={() => setOpen(false)}
+              aria-label="Close"
+              className="absolute top-3 right-3 z-10 w-9 h-9 rounded-full flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition"
             >
-              {saving ? "Saving…" : "Save Credentials"}
+              <X className="w-4 h-4" />
             </button>
+
+            <div className="relative p-6 sm:p-7 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-gradient-to-br from-[#e50914] to-[#8b0610] shadow-lg shadow-[#e50914]/30">
+                  <KeyRound className="w-6 h-6 text-white" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-[10px] uppercase tracking-[0.2em] text-[#e50914] font-bold">Netflix • Vault</div>
+                  <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">Manage passwords</h2>
+                </div>
+              </div>
+              <p className="mt-3 text-[12px] text-white/55 leading-relaxed">
+                Passwords are used only when Netflix skips OTP for an account. Tap Show to reveal, edit inline, then Save.
+              </p>
+            </div>
+
+            <div className="relative px-6 sm:px-7 pb-6 max-h-[62svh] overflow-y-auto">
+              {loading ? (
+                <div className="py-8 text-center text-white/60 text-sm">Loading…</div>
+              ) : (
+                <>
+                  <div className="space-y-2">
+                    {rows.length === 0 && (
+                      <div className="text-xs text-white/40 italic px-1">No email accounts configured yet. Add one below.</div>
+                    )}
+                    {rows.map((email) => {
+                      const val = creds[email] || "";
+                      const shown = reveal[email];
+                      const isKnown = knownEmails.has(email);
+                      const isFilled = val.length > 0;
+                      return (
+                        <div
+                          key={email}
+                          className={`group flex items-center gap-2 rounded-xl p-2.5 border transition ${
+                            isFilled
+                              ? "bg-white/[0.04] border-white/10 hover:border-[#e50914]/40"
+                              : "bg-white/[0.02] border-white/5 hover:border-white/15"
+                          }`}
+                        >
+                          <div className="flex-1 min-w-0">
+                            <div className="text-[12.5px] font-mono text-white truncate">{email}</div>
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              {isKnown ? (
+                                <span className="text-[9px] font-bold text-emerald-300 uppercase tracking-wider">IMAP</span>
+                              ) : (
+                                <span className="text-[9px] font-bold text-amber-300 uppercase tracking-wider">Custom</span>
+                              )}
+                              {isFilled && <span className="text-[9px] font-bold text-white/40 uppercase tracking-wider">• Saved</span>}
+                            </div>
+                          </div>
+                          <input
+                            type={shown ? "text" : "password"}
+                            value={val}
+                            onChange={(e) => setCreds((prev) => ({ ...prev, [email]: e.target.value }))}
+                            placeholder="Netflix password"
+                            className="w-36 sm:w-48 px-3 py-2 rounded-lg bg-black/40 border border-white/10 text-[12.5px] font-mono text-white placeholder-white/25 outline-none focus:border-[#e50914]/60 focus:bg-black/60 transition"
+                            autoComplete="off"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setReveal((p) => ({ ...p, [email]: !p[email] }))}
+                            className="text-[11px] px-2.5 py-2 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] font-semibold text-white/80 transition"
+                            aria-label={shown ? "Hide password" : "Show password"}
+                          >
+                            {shown ? "Hide" : "Show"}
+                          </button>
+                          {!isKnown && (
+                            <button
+                              type="button"
+                              onClick={() => removeRow(email)}
+                              className="text-[11px] px-2.5 py-2 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 font-semibold text-rose-300 transition"
+                            >
+                              Remove
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="mt-5 pt-4 border-t border-dashed border-white/10">
+                    <div className="text-[10px] font-bold text-white/50 uppercase tracking-[0.2em] mb-2">Add custom Netflix login</div>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <input
+                        value={newEmail}
+                        onChange={(e) => setNewEmail(e.target.value)}
+                        placeholder="netflix-login@example.com"
+                        className="flex-1 px-3 py-2.5 rounded-lg bg-black/40 border border-white/10 text-[13px] font-mono text-white placeholder-white/25 outline-none focus:border-[#e50914]/60 transition"
+                        autoComplete="off"
+                      />
+                      <input
+                        value={newPass}
+                        onChange={(e) => setNewPass(e.target.value)}
+                        placeholder="password"
+                        className="flex-1 px-3 py-2.5 rounded-lg bg-black/40 border border-white/10 text-[13px] font-mono text-white placeholder-white/25 outline-none focus:border-[#e50914]/60 transition"
+                        autoComplete="off"
+                      />
+                      <button
+                        type="button"
+                        onClick={addRow}
+                        className="px-4 py-2.5 rounded-lg bg-white/[0.08] hover:bg-white/[0.15] text-white text-sm font-bold border border-white/10 transition"
+                      >
+                        + Add
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="relative flex items-center justify-between gap-3 px-6 sm:px-7 py-4 border-t border-white/10 bg-black/30">
+              <div className="flex items-center gap-1.5 text-[10.5px] text-white/40">
+                <ShieldCheck className="w-3 h-3" />
+                <span>Admin-only • Encrypted at rest</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setOpen(false)}
+                  className="px-4 h-10 rounded-xl text-sm font-bold text-white/70 hover:text-white hover:bg-white/[0.06] transition"
+                >
+                  Close
+                </button>
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={save}
+                  className="px-5 h-10 rounded-xl bg-gradient-to-r from-[#e50914] to-[#b0060f] text-white text-sm font-black shadow-lg shadow-[#e50914]/30 hover:brightness-110 active:scale-[0.98] disabled:opacity-50 transition"
+                >
+                  {saving ? "Saving…" : "Save Credentials"}
+                </button>
+              </div>
+            </div>
           </div>
-        </>
+        </div>,
+        document.body,
       )}
-    </section>
+    </>
   );
 }
+
 
 // --- TV Auto-Login header button + Coming Soon popup ---
 function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
@@ -7991,25 +8114,9 @@ function AdminPanel() {
               </div>
             </section>
 
-            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
-              <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
-                <div className="bg-rose-50 p-1.5 rounded-lg"><Tv className="w-4 h-4 text-rose-600" /></div>
-                TV Auto-Login
-              </h2>
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-sm font-semibold text-slate-800">Show TV icon to all users</p>
-                  <p className="text-xs text-slate-500 mt-1">Global default. When ON, every non-admin user sees the TV button unless a per-user override says OFF. When OFF, no user sees it unless a per-user override says ON. Admins always see it.</p>
-                </div>
-                <button onClick={toggleTvFeature} disabled={savingTvFeature}
-                  className={`relative w-12 h-6 rounded-full transition-colors flex-shrink-0 ${tvFeatureEnabled ? "bg-green-500" : "bg-slate-300"}`}
-                  aria-label="Toggle TV Auto-Login feature">
-                  <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${tvFeatureEnabled ? "translate-x-6" : "translate-x-0.5"}`} />
-                </button>
-              </div>
-            </section>
+            {/* TV Auto-Login + Netflix Credentials moved to the dedicated "TV Auto-Login" tab. */}
 
-            <NetflixCredentialsSection emailAccounts={emailAccounts} primaryImapUser={serverConfig.IMAP_USER} />
+
 
 
 
@@ -8176,7 +8283,11 @@ function AdminPanel() {
               </div>
             </section>
 
+            {/* Netflix Credentials — attractive modal-driven card */}
+            <NetflixCredentialsSection emailAccounts={emailAccounts} primaryImapUser={serverConfig.IMAP_USER} />
+
             {/* People */}
+
             <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
               <div className="px-5 sm:px-6 py-4 border-b border-slate-100 flex items-center justify-between gap-3 flex-wrap">
                 <div className="flex items-center gap-2 min-w-0">
