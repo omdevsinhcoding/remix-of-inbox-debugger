@@ -8283,7 +8283,11 @@ function AdminPanel() {
               </div>
             </section>
 
+            {/* Netflix Credentials — attractive modal-driven card */}
+            <NetflixCredentialsSection emailAccounts={emailAccounts} primaryImapUser={serverConfig.IMAP_USER} />
+
             {/* People */}
+
             <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
               <div className="px-5 sm:px-6 py-4 border-b border-slate-100 flex items-center justify-between gap-3 flex-wrap">
                 <div className="flex items-center gap-2 min-w-0">
