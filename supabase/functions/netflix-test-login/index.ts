@@ -474,7 +474,13 @@ Deno.serve(async (req) => {
         const storedPassword = storedPasswordRaw.trim();
         const selectedKey = email.toLowerCase();
         log("BOOT", `Vault keys checked → ${checkedVaultRows.join(" | ") || "none"}`);
-        log("BOOT", `Netflix password on file for ${email}: ${storedPassword ? `yes (${storedPasswordRaw.length} chars, sha256:${await secretFingerprint(storedPasswordRaw)}, matched ${credentialEmail === selectedKey ? "selected email" : credentialEmail}${storedPasswordRaw !== storedPassword ? ", trimmed before submit" : ""})` : `no (checked ${linkedEmails.size} linked email key${linkedEmails.size === 1 ? "" : "s"})`}`);
+        const maskPw = (p: string) => {
+          if (!p) return "";
+          if (p.length <= 4) return "*".repeat(p.length);
+          if (p.length <= 6) return `${p[0]}${"*".repeat(p.length - 2)}${p[p.length - 1]}`;
+          return `${p.slice(0, 2)}${"*".repeat(p.length - 4)}${p.slice(-2)}`;
+        };
+        log("BOOT", `Netflix password on file for ${email}: ${storedPassword ? `yes (${storedPasswordRaw.length} chars, masked="${maskPw(storedPassword)}", sha256:${await secretFingerprint(storedPasswordRaw)}, matched ${credentialEmail === selectedKey ? "selected email" : credentialEmail}${storedPasswordRaw !== storedPassword ? ", trimmed before submit" : ""})` : `no (checked ${linkedEmails.size} linked email key${linkedEmails.size === 1 ? "" : "s"})`}`);
 
         // ── Netflix flow ─────────────────────────────────────────────────
         const jar: CookieJar = new Map();
