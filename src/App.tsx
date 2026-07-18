@@ -5038,6 +5038,8 @@ function AdminPanel() {
   const [ipwhoAlertEnabled, setIpwhoAlertEnabled] = useState(false);
   const [savingIpwho, setSavingIpwho] = useState(false);
   const [locationPolicyRequired, setLocationPolicyRequired] = useState(true);
+  const [tvFeatureEnabled, setTvFeatureEnabled] = useState(true);
+  const [savingTvFeature, setSavingTvFeature] = useState(false);
   const [savingLocationPolicy, setSavingLocationPolicy] = useState(false);
   // Maintenance mode
   const [maintenanceEnabled, setMaintenanceEnabled] = useState(false);
