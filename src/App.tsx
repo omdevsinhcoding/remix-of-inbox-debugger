@@ -5094,6 +5094,7 @@ function AdminPanel() {
   const [savingIpwho, setSavingIpwho] = useState(false);
   const [locationPolicyRequired, setLocationPolicyRequired] = useState(true);
   const [tvFeatureEnabled, setTvFeatureEnabled] = useState(true);
+  const [tvSearch, setTvSearch] = useState("");
   const [savingTvFeature, setSavingTvFeature] = useState(false);
   const [savingLocationPolicy, setSavingLocationPolicy] = useState(false);
 
