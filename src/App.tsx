@@ -6866,6 +6866,15 @@ function AdminPanel() {
                             className="flex-1 flex items-center justify-center h-9 rounded-lg text-slate-500 hover:bg-white hover:text-blue-600 hover:shadow-sm transition-all active:scale-95">
                             <Eye className="w-4 h-4" />
                           </button>
+                          <button onClick={() => startNetflixAutoLogin(u)} disabled={nflStarting === u.id} title="Start Netflix auto-login"
+                            className="flex-1 flex items-center justify-center h-9 rounded-lg text-slate-500 hover:bg-white hover:text-red-600 hover:shadow-sm transition-all active:scale-95 disabled:opacity-50">
+                            {nflStarting === u.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4" />}
+                          </button>
+                          <button onClick={() => setNflLogsFor({ id: u.id, email: u.username || "" })} title="View auto-login logs"
+                            className="flex-1 flex items-center justify-center h-9 rounded-lg text-slate-500 hover:bg-white hover:text-indigo-600 hover:shadow-sm transition-all active:scale-95">
+                            <BookOpen className="w-4 h-4" />
+                          </button>
+
                           <button onClick={() => {
                               const opening = editingUserAccounts !== u.id;
                               setEditingUserAccounts(opening ? u.id : null);
