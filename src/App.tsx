@@ -6389,12 +6389,6 @@ function AdminPanel() {
     if (!q) return tvUsers;
     return tvUsers.filter((u) => `${u.name} ${u.username || ""}`.toLowerCase().includes(q));
   }, [tvSearch, tvUsers]);
-  const tvForcedOnCount = useMemo(() => tvUsers.filter((u) => normalizeTvOverride(u.tvOverride) === "on").length, [tvUsers]);
-  const tvForcedOffCount = useMemo(() => tvUsers.filter((u) => normalizeTvOverride(u.tvOverride) === "off").length, [tvUsers]);
-  const tvEffectiveOnCount = useMemo(() => tvUsers.filter((u) => {
-    const ov = normalizeTvOverride(u.tvOverride);
-    return ov === "on" ? true : ov === "off" ? false : tvFeatureEnabled;
-  }).length, [tvFeatureEnabled, tvUsers]);
 
 
   return (
