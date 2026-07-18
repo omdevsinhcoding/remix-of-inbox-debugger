@@ -6973,13 +6973,13 @@ function AdminPanel() {
                                 </div>
                                 {editHint === "tv" && (
                                   <p className="mb-2 text-[11px] text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-2.5 py-1.5 leading-snug">
-                                    <b>Show TV</b> = TV icon visible. <b>Hide TV</b> = hidden. <b>Auto</b> = follow the global switch. Syncs with the TV Auto-Login tab.
+                                    <b>ON</b> = TV icon visible. <b>OFF</b> = hidden. <b>Default</b> = same as the global switch.
                                   </p>
                                 )}
                                 <div className="grid grid-cols-3 gap-1.5">
                                   {(["on","off","inherit"] as const).map((val) => {
                                     const active = editTvOverride === val;
-                                    const label = val === "on" ? "📺 Show TV" : val === "off" ? "🚫 Hide TV" : `⚙️ Auto (${tvFeatureEnabled ? "Show" : "Hide"})`;
+                                    const label = val === "on" ? "ON" : val === "off" ? "OFF" : "Default";
                                     const activeCls = val === "on"
                                       ? "bg-emerald-600 text-white border-emerald-600 shadow-sm"
                                       : val === "off"
@@ -6987,7 +6987,7 @@ function AdminPanel() {
                                       : "bg-slate-900 text-white border-slate-900 shadow-sm";
                                     return (
                                       <button key={val} type="button" onClick={() => setEditTvOverride(val)}
-                                        className={`text-[10px] font-black py-2 rounded-lg border transition-all active:scale-95 ${active ? activeCls : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"}`}>
+                                        className={`text-xs font-black py-2 rounded-lg border transition-all active:scale-95 ${active ? activeCls : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"}`}>
                                         {label}
                                       </button>
                                     );
