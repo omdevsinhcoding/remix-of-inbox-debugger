@@ -464,7 +464,8 @@ Deno.serve(async (req) => {
         const loginPage = await nfFetch(`${NF_BASE}/login`, {}, jar);
         const html = await loginPage.text();
         const authURL = extractAuthURL(html);
-        log("STEP-1", `finalUrl=${loginPage.url}  status=${loginPage.status}  bytes=${html.length}  cookies=${jar.size}  authURL=${authURL ? "ok" : "MISSING"}`);
+        const countryIso = extractRequestCountryIso(html);
+        log("STEP-1", `finalUrl=${loginPage.url}  status=${loginPage.status}  bytes=${html.length}  cookies=${jar.size}  authURL=${authURL ? "ok" : "MISSING"}  country=${countryIso}`);
         log("STEP-1", `cookie names: ${cookieNames(jar) || "none"}`);
         if (!authURL) {
           const snippet = html.slice(0, 300).replace(/\s+/g, " ");
@@ -503,68 +504,53 @@ Deno.serve(async (req) => {
         };
 
         const useDirectPassword = storedPassword.length > 0;
-        log("STEP-2", `POST /login  userLoginId="${email}"  password=${useDirectPassword ? "(from admin panel)" : "(empty — expecting OTP flow)"}`);
-        const form = new URLSearchParams({
-          userLoginId: email, password: storedPassword, rememberMe: "true",
-          flow: "websiteSignUp", mode: "login", action: "loginAction",
-          withFields: "userLoginId,password,rememberMe,nextPage,showPassword",
-          authURL, nextPage: "", showPassword: "",
-        });
-        const sub = await nfFetch(`${NF_BASE}/login`, {
-          method: "POST", body: form,
-          headers: {
-            "Content-Type": "application/x-www-form-urlencoded",
-            "Referer": loginPage.url || `${NF_BASE}/login`,
-            "Origin": NF_BASE,
-          },
-        }, jar);
-        let subBody = await sub.text().catch(() => "");
-        let netflixMessage = extractNetflixMessage(subBody);
-        let loginState = inferNetflixLoginState(subBody, sub.url || "");
-        let authCookieHit = jar.has("NetflixId") || jar.has("SecureNetflixId");
-        let finalLoginUrl = sub.url || "";
-        log("STEP-2", `status=${sub.status}  finalUrl=${sub.url}  cookies=${jar.size}  bytes=${subBody.length}  authCookies=${authCookieHit ? "yes" : "no"}`);
-        log("STEP-2", `cookie names: ${cookieNames(jar) || "none"}`);
-        log("STEP-2", `Netflix login state detected: ${loginState}`);
-        if (netflixMessage) log("STEP-2", `Netflix said: ${netflixMessage.slice(0, 220)}`);
-        else log("STEP-2", `body preview: ${subBody.slice(0, 250).replace(/\s+/g, " ")}`);
+        let subBody = "";
+        let netflixMessage = "";
+        let loginState: "otp_challenge" | "password_required" | "unknown" | "signed_in" | "incorrect_password" | "blocked" = "unknown";
+        let finalLoginUrl = loginPage.url || `${NF_BASE}/login`;
 
-        // Some Netflix regions ignore password on the first email POST and render
-        // a second password form. NetflixId/SecureNetflixId may already exist
-        // before real login, so ALWAYS submit this screen when it is present.
-        if (useDirectPassword && loginState === "password_required") {
-          const retryAuthURL = extractAuthURL(subBody) || authURL;
-          const retryUrl = extractPasswordFormAction(subBody, sub.url || `${NF_BASE}/login`);
-          const retryForm = hiddenInputsToForm(subBody);
-          retryForm.set("userLoginId", email);
-          retryForm.set("password", storedPassword);
-          retryForm.set("rememberMe", "true");
-          retryForm.set("authURL", retryAuthURL);
-          if (!retryForm.has("flow")) retryForm.set("flow", "websiteSignUp");
-          if (!retryForm.has("mode")) retryForm.set("mode", "login");
-          if (!retryForm.has("action")) retryForm.set("action", "loginAction");
-          if (!retryForm.has("withFields")) retryForm.set("withFields", "userLoginId,password,rememberMe,nextPage,showPassword");
-          log("STEP-2B", `Password form detected — submitting saved password for ${email}  action=${retryUrl}  authURL=${retryAuthURL ? "ok" : "missing"}`);
-          const retry = await nfFetch(retryUrl, {
-            method: "POST", body: retryForm,
+        if (useDirectPassword) {
+          log("STEP-2", `POST Moneyball /api/aui/pathEvaluator  userLoginId="${email}"  password=(from admin panel)`);
+          const mb = await submitMoneyballPassword({ jar, email, password: storedPassword, authURL, referer: loginPage.url || `${NF_BASE}/login`, countryIso });
+          loginState = mb.state;
+          netflixMessage = mb.message;
+          log("STEP-2", `status=${mb.status}  bytes=${mb.rawBytes}  state=${mb.state}  cookies=${jar.size}`);
+          log("STEP-2", `cookie names: ${cookieNames(jar) || "none"}`);
+          if (mb.message) log("STEP-2", `Netflix API said: ${mb.message.slice(0, 220)}`);
+          if (mb.authURL && mb.authURL !== authURL) log("STEP-2", "Netflix returned a refreshed authURL for any next step");
+        } else {
+          log("STEP-2", `POST /login  userLoginId="${email}"  password=(empty — expecting OTP flow)`);
+          const form = new URLSearchParams({
+            userLoginId: email, password: "", rememberMe: "true",
+            flow: "websiteSignUp", mode: "login", action: "loginAction",
+            withFields: "userLoginId,password,rememberMe,nextPage,showPassword",
+            authURL, nextPage: "", showPassword: "",
+          });
+          const sub = await nfFetch(`${NF_BASE}/login`, {
+            method: "POST", body: form,
             headers: {
               "Content-Type": "application/x-www-form-urlencoded",
-              "Referer": sub.url || loginPage.url || `${NF_BASE}/login`,
+              "Referer": loginPage.url || `${NF_BASE}/login`,
               "Origin": NF_BASE,
             },
           }, jar);
-          subBody = await retry.text().catch(() => "");
+          subBody = await sub.text().catch(() => "");
           netflixMessage = extractNetflixMessage(subBody);
-          loginState = inferNetflixLoginState(subBody, retry.url || "");
-          authCookieHit = jar.has("NetflixId") || jar.has("SecureNetflixId");
-          finalLoginUrl = retry.url || finalLoginUrl;
-          log("STEP-2B", `status=${retry.status}  finalUrl=${retry.url}  cookies=${jar.size}  bytes=${subBody.length}  authCookies=${authCookieHit ? "yes" : "no"}`);
-          log("STEP-2B", `cookie names: ${cookieNames(jar) || "none"}`);
-          log("STEP-2B", `Netflix login state detected: ${loginState}`);
-          if (netflixMessage) log("STEP-2B", `Netflix said: ${netflixMessage.slice(0, 220)}`);
-          else log("STEP-2B", `body preview: ${subBody.slice(0, 250).replace(/\s+/g, " ")}`);
+          loginState = inferNetflixLoginState(subBody, sub.url || "");
+          finalLoginUrl = sub.url || finalLoginUrl;
+          log("STEP-2", `status=${sub.status}  finalUrl=${sub.url}  cookies=${jar.size}  bytes=${subBody.length}`);
+          log("STEP-2", `cookie names: ${cookieNames(jar) || "none"}`);
+          log("STEP-2", `Netflix login state detected: ${loginState}`);
+          if (netflixMessage) log("STEP-2", `Netflix said: ${netflixMessage.slice(0, 220)}`);
+          else log("STEP-2", `body preview: ${subBody.slice(0, 250).replace(/\s+/g, " ")}`);
         }
 
+        if (loginState === "incorrect_password") {
+          throw new Error(`Netflix explicitly returned incorrect_password for ${email}. The script is now using Netflix's real Moneyball API, so update the saved password in TV Auto-Login → Netflix Vault if this persists.`);
+        }
+        if (loginState === "blocked") {
+          throw new Error(`Netflix blocked automated password login for ${email}: ${netflixMessage || "risk/reCAPTCHA validation required"}. Try again later or refresh the vault password from a trusted device.`);
+        }
         if (loginState === "password_required") {
           if (useDirectPassword) {
             throw new Error(`Netflix rejected the stored password for ${email}. Update it on the separate TV Auto-Login page → Netflix Vault, then retry.`);
