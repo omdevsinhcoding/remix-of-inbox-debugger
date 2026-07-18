@@ -3110,6 +3110,16 @@ Deno.serve(async (originalReq) => {
         }
       }
       if (auto_delete !== undefined) patch.auto_delete = !!auto_delete;
+      if (tv_override !== undefined) {
+        // null/undefined string -> clear (inherit global). "on"|"off" -> force.
+        if (tv_override === null || tv_override === "" || tv_override === "inherit") {
+          patch.tv_override = null;
+        } else if (tv_override === "on" || tv_override === "off") {
+          patch.tv_override = tv_override;
+        } else {
+          throw new Error("Invalid tv_override");
+        }
+      }
       if (session_limit !== undefined) {
         // null | "" -> clear (fall back to global). Otherwise clamp to a sane non-negative int.
         if (session_limit === null || session_limit === "") {
