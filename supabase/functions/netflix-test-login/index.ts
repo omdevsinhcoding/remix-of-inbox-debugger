@@ -51,14 +51,29 @@ function collectCookies(res: Response, jar: Map<string, string>) {
     if (eq > 0) jar.set(first.slice(0, eq).trim(), first.slice(eq + 1).trim());
   }
 }
-async function nfFetch(url: string, init: RequestInit | undefined, jar: Map<string, string>) {
-  const headers = new Headers(init?.headers || {});
-  headers.set("User-Agent", UA);
-  headers.set("Accept-Language", "en-US,en;q=0.9");
-  if (jar.size > 0) headers.set("Cookie", jarToHeader(jar));
-  const res = await fetch(url, { ...init, headers, redirect: "manual" });
-  collectCookies(res, jar);
-  return res;
+async function nfFetch(url: string, init: RequestInit | undefined, jar: Map<string, string>, maxRedirects = 5) {
+  let currentUrl = url;
+  let currentInit = init;
+  for (let i = 0; i <= maxRedirects; i++) {
+    const headers = new Headers(currentInit?.headers || {});
+    headers.set("User-Agent", UA);
+    headers.set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+    headers.set("Accept-Language", "en-US,en;q=0.9");
+    if (jar.size > 0) headers.set("Cookie", jarToHeader(jar));
+    const res = await fetch(currentUrl, { ...currentInit, headers, redirect: "manual" });
+    collectCookies(res, jar);
+    if (res.status >= 300 && res.status < 400) {
+      const loc = res.headers.get("location");
+      if (!loc || i === maxRedirects) return res;
+      currentUrl = new URL(loc, currentUrl).toString();
+      // After a redirect, drop POST body and switch to GET (standard behavior).
+      currentInit = { method: "GET" };
+      await res.body?.cancel();
+      continue;
+    }
+    return res;
+  }
+  throw new Error("too many redirects");
 }
 function mask(email: string) {
   const [u, d] = email.split("@");
