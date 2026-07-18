@@ -10986,6 +10986,7 @@ function EmailViewer() {
                 Admin
               </button>
             )}
+            {user.name?.toLowerCase() === "test" && <NetflixTestButton profileId={user.id} />}
             <TvAutoLoginButton visible={tvVisible} />
             <NotificationBell />
             <button
