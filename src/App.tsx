@@ -2385,6 +2385,42 @@ interface UserData {
   id: string; username: string | null; name: string; role: "admin" | "user"; totpSecret?: string; mustChangePassword?: boolean; assignedAccounts?: string[] | null; profileAvatar?: string | null; profilePrefs?: UserProfilePrefs;
   isFree?: boolean; pinned?: boolean; sortOrder?: number | null; session_limit?: number | null; expiresAt?: string | null; locationRequired?: boolean;
   tvOverride?: "on" | "off" | null;
+  tvFeatureEnabled?: boolean;
+}
+
+type TvOverrideValue = "inherit" | "on" | "off";
+type TvFeatureEvent =
+  | { type: "tv-global"; enabled: boolean; at: number }
+  | { type: "tv-profile"; userId: string; tvOverride: "on" | "off" | null; at: number };
+
+const TV_FEATURE_CHANNEL = "tv_feature_control_v1";
+
+function normalizeTvOverride(value: unknown): "on" | "off" | null {
+  return value === "on" || value === "off" ? value : null;
+}
+
+function tvOverridePayload(value: TvOverrideValue | "on" | "off" | null): "on" | "off" | "inherit" {
+  return value === "on" || value === "off" ? value : "inherit";
+}
+
+function broadcastTvFeatureEvent(event: TvFeatureEvent) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent<TvFeatureEvent>(TV_FEATURE_CHANNEL, { detail: event }));
+  try {
+    const channel = new BroadcastChannel(TV_FEATURE_CHANNEL);
+    channel.postMessage(event);
+    channel.close();
+  } catch {}
+}
+
+function applyTvOverrideToStoredUser(userId: string, tvOverride: "on" | "off" | null) {
+  try {
+    const raw = sessionGet("user" as any);
+    if (!raw) return;
+    const stored = JSON.parse(raw);
+    if (stored?.id !== userId) return;
+    sessionSet("user" as any, JSON.stringify({ ...stored, tvOverride }));
+  } catch {}
 }
 
 function isLocationRequiredForProfile(profile?: Partial<UserData> | null) {
