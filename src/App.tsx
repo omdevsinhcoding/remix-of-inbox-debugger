@@ -6973,18 +6973,18 @@ function AdminPanel() {
                                 </div>
                                 {editHint === "tv" && (
                                   <p className="mb-2 text-[11px] text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-2.5 py-1.5 leading-snug">
-                                    Inherit = follow global toggle. Force ON/OFF overrides the global for this profile only. Syncs with the TV Auto-Login tab.
+                                    <b>Show TV</b> = TV icon visible. <b>Hide TV</b> = hidden. <b>Auto</b> = follow the global switch. Syncs with the TV Auto-Login tab.
                                   </p>
                                 )}
                                 <div className="grid grid-cols-3 gap-1.5">
-                                  {(["inherit","on","off"] as const).map((val) => {
+                                  {(["on","off","inherit"] as const).map((val) => {
                                     const active = editTvOverride === val;
-                                    const label = val === "inherit" ? `Inherit (${tvFeatureEnabled ? "ON" : "OFF"})` : val === "on" ? "Force ON" : "Force OFF";
+                                    const label = val === "on" ? "📺 Show TV" : val === "off" ? "🚫 Hide TV" : `⚙️ Auto (${tvFeatureEnabled ? "Show" : "Hide"})`;
                                     const activeCls = val === "on"
                                       ? "bg-emerald-600 text-white border-emerald-600 shadow-sm"
                                       : val === "off"
-                                      ? "bg-slate-700 text-white border-slate-700 shadow-sm"
-                                      : "bg-rose-100 border-rose-300 text-rose-700";
+                                      ? "bg-rose-600 text-white border-rose-600 shadow-sm"
+                                      : "bg-slate-900 text-white border-slate-900 shadow-sm";
                                     return (
                                       <button key={val} type="button" onClick={() => setEditTvOverride(val)}
                                         className={`text-[10px] font-black py-2 rounded-lg border transition-all active:scale-95 ${active ? activeCls : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"}`}>
