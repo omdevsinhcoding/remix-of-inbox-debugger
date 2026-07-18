@@ -4,7 +4,6 @@ import { Mail, RefreshCw, ShieldCheck, Shield, Clock, AlertCircle, Copy, Check, 
 import { motion, AnimatePresence } from "motion/react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import NetflixHouseholdVerificationGuide from "./pages/NetflixHouseholdVerificationGuide";
-const NetflixAutoLoginTest = lazy(() => import("./pages/NetflixAutoLoginTest"));
 import { notify } from "./components/toast/notify";
 import { ToastProvider } from "./components/toast/toast-provider";
 
