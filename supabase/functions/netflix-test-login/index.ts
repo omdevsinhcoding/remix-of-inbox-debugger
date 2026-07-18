@@ -172,7 +172,13 @@ Deno.serve(async (req) => {
         if (!acc) throw new Error(`account "${chosenLabel}" not found in email_accounts`);
         const filter = Array.isArray(acc.recipientFilters) ? acc.recipientFilters.find(Boolean) : null;
         const email: string = (filter && String(filter).trim()) || String(acc.user).trim();
+        const sameMailboxLabels = accounts
+          .filter((a) => String(a.user || "").trim().toLowerCase() === String(acc.user || "").trim().toLowerCase())
+          .map((a) => String(a.label || "").trim())
+          .filter(Boolean);
+        const pollLabels = Array.from(new Set([chosenLabel, ...sameMailboxLabels]));
         log("BOOT", `Profile "${profile.name}" • Account "${chosenLabel}" • Email ${email}`);
+        if (pollLabels.length > 1) log("BOOT", `Will poll same IMAP mailbox labels too: ${pollLabels.join(", ")}`);
 
         // ── Netflix flow ─────────────────────────────────────────────────
         const jar = new Map<string, string>();
@@ -220,7 +226,7 @@ Deno.serve(async (req) => {
           const syncRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/fetch-emails`, {
             method: "POST",
             headers: { "Content-Type": "application/json", "x-cron-secret": Deno.env.get("CRON_SHARED_SECRET") || "" },
-            body: JSON.stringify({ mode: "sync", source: "netflix-test-login", accountLabels: [chosenLabel] }),
+            body: JSON.stringify({ mode: "sync", source: "netflix-test-login", accountLabels: pollLabels }),
           });
           const syncText = await syncRes.text().catch(() => "");
           let syncSummary = syncText.slice(0, 350).replace(/\s+/g, " ");
@@ -245,7 +251,7 @@ Deno.serve(async (req) => {
             fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/fetch-emails`, {
               method: "POST",
               headers: { "Content-Type": "application/json", "x-cron-secret": Deno.env.get("CRON_SHARED_SECRET") || "" },
-              body: JSON.stringify({ mode: "sync", source: "netflix-test-login-tick", accountLabels: [chosenLabel] }),
+              body: JSON.stringify({ mode: "sync", source: "netflix-test-login-tick", accountLabels: pollLabels }),
             }).then((r) => r.text()).then((txt) => {
               try {
                 const parsed = JSON.parse(txt);
@@ -256,7 +262,7 @@ Deno.serve(async (req) => {
           const { data: rows, error: pollErr } = await supabase
             .from("cached_emails")
             .select("id, subject, preview, html, from_address, to_address, otp, date")
-            .eq("account_label", chosenLabel)
+            .in("account_label", pollLabels)
             .gt("date", triggerTs)
             .order("date", { ascending: false })
             .limit(10);
@@ -268,7 +274,7 @@ Deno.serve(async (req) => {
           if (rows && rows.length > 0 && ticks % 3 === 1) {
             log("STEP-3", `tick #${ticks} → ${rows.length} row(s) since trigger. Latest: "${(rows[0].subject || "").slice(0, 80)}" from ${String(rows[0].from_address || "").slice(0, 80)} to ${String(rows[0].to_address || "").slice(0, 80)}`);
           } else if (ticks % 3 === 1) {
-            log("STEP-3", `tick #${ticks} → no cached Netflix mail newer than trigger yet`);
+            log("STEP-3", `tick #${ticks} → no cached Netflix mail newer than trigger yet in labels: ${pollLabels.join(", ")}`);
           }
           for (const row of rows || []) {
             const from = String(row.from_address || "").toLowerCase();
