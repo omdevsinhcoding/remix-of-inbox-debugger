@@ -5917,6 +5917,8 @@ function AdminPanel() {
         }
       });
       notify.success(next ? "TV shown for everyone (overrides reset)" : "TV hidden for everyone (overrides reset)");
+      // Ground-truth: re-fetch admin users so any stale override rows are corrected.
+      void loadAdminData({ silent: true });
       await refreshBootstrap().catch(() => null);
     } catch (err) {
       setTvFeatureEnabled(!next);
