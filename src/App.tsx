@@ -7832,6 +7832,10 @@ function AdminPanel() {
               </div>
             </section>
 
+            <NetflixCredentialsSection emailAccounts={emailAccounts} primaryImapUser={serverConfig.IMAP_USER} />
+
+
+
             {/* --- Cloudflare R2 Storage (for notification images) --- */}
             <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
               <div className="flex items-start justify-between gap-4 mb-4">
