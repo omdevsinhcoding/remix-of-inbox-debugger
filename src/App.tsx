@@ -5843,6 +5843,8 @@ function AdminPanel() {
       notify.error(err instanceof Error ? err.message : "Failed to update TV override");
     }
   };
+
+  const reloadAdminNotifs = async () => {
     try {
       const nl = await apiCall("manage-app", { action: "admin_list_notifications" });
       if (Array.isArray(nl?.notifications)) setAdminNotifs(nl.notifications);
