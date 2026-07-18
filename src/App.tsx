@@ -2016,28 +2016,33 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
             </div>
 
             {/* Code inputs */}
-            <div className="mt-6 grid grid-cols-8 gap-1.5 sm:gap-2">
+            <div className="mt-6 flex items-center justify-center gap-1.5 sm:gap-2">
               {code.map((d, i) => (
-                <input
-                  key={i}
-                  ref={(el) => { inputsRef.current[i] = el; }}
-                  value={d}
-                  onChange={(e) => setDigit(i, e.target.value)}
-                  onKeyDown={(e) => onKeyDown(i, e)}
-                  onPaste={onPaste}
-                  onFocus={(e) => e.currentTarget.select()}
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  maxLength={1}
-                  disabled={status !== "idle"}
-                  aria-label={`Digit ${i + 1}`}
-                  className={`aspect-square w-full min-w-0 text-center text-lg sm:text-2xl font-black rounded-xl bg-white/[0.04] border-2 text-white caret-[#e50914] outline-none transition-all
-                    ${d ? "border-[#e50914] bg-[#e50914]/10 shadow-[0_0_20px_-4px_rgba(229,9,20,0.6)]" : "border-white/15"}
-                    focus:border-[#e50914] focus:bg-[#e50914]/10 focus:shadow-[0_0_24px_-4px_rgba(229,9,20,0.7)] focus:scale-[1.04]
-                    disabled:opacity-60`}
-                />
+                <React.Fragment key={i}>
+                  {i === 4 && (
+                    <span aria-hidden className="shrink-0 w-2 sm:w-3 h-0.5 rounded-full bg-white/25 mx-0.5" />
+                  )}
+                  <input
+                    ref={(el) => { inputsRef.current[i] = el; }}
+                    value={d}
+                    onChange={(e) => setDigit(i, e.target.value)}
+                    onKeyDown={(e) => onKeyDown(i, e)}
+                    onPaste={onPaste}
+                    onFocus={(e) => e.currentTarget.select()}
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={1}
+                    disabled={status !== "idle"}
+                    aria-label={`Digit ${i + 1}`}
+                    className={`aspect-square w-full min-w-0 flex-1 text-center text-lg sm:text-2xl font-black rounded-xl bg-white/[0.04] border-2 text-white caret-[#e50914] outline-none transition-all
+                      ${d ? "border-[#e50914] bg-[#e50914]/10 shadow-[0_0_20px_-4px_rgba(229,9,20,0.6)]" : "border-white/15"}
+                      focus:border-[#e50914] focus:bg-[#e50914]/10 focus:shadow-[0_0_24px_-4px_rgba(229,9,20,0.7)] focus:scale-[1.04]
+                      disabled:opacity-60`}
+                  />
+                </React.Fragment>
               ))}
             </div>
+
 
             {/* Submit */}
             <button
