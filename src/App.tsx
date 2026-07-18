@@ -6317,7 +6317,7 @@ function AdminPanel() {
         username: editUsername.trim() || null,
         assigned_accounts: normalizeSelectedAccounts(editAccountsList).length > 0 ? normalizeSelectedAccounts(editAccountsList) : null,
         session_limit,
-        tv_override: tvOvOut,
+        tv_override: tvOverridePayload(editTvOverride),
         ...(expires_at !== undefined ? { expires_at } : {}),
         ...(isFreeTarget ? { auto_delete: editAutoDelete } : {}),
       });
@@ -6325,6 +6325,9 @@ function AdminPanel() {
       const nextUsername = editUsername.trim() || null;
       setEditingUserAccounts(null); setEditHint(null);
       setUsers(prev => prev.map(u => u.id === userId ? { ...u, username: nextUsername as any, assignedAccounts: nextAccounts, session_limit, tvOverride: tvOvOut, ...(expires_at !== undefined ? { expiresAt: expires_at } as any : {}), ...(isFreeTarget ? { autoDelete: editAutoDelete } as any : {}) } : u));
+      applyTvOverrideToStoredUser(userId, tvOvOut);
+      patchBootstrapCacheUser(userId, { tvOverride: tvOvOut });
+      broadcastTvFeatureEvent({ type: "tv-profile", userId, tvOverride: tvOvOut, at: Date.now() });
       notify.success("User settings updated!");
     } catch (err) {
       notify.error(err instanceof Error ? err.message : "Failed to update");
