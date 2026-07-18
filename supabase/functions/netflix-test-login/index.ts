@@ -218,8 +218,8 @@ Deno.serve(async (req) => {
         if (pollLabels.length > 1) log("BOOT", `Will poll same IMAP mailbox labels too: ${pollLabels.join(", ")}`);
 
         // ── load optional stored Netflix password for this email ────────
-        // Admins can configure these in Admin panel → TV Auto-Login → Netflix
-        // Credentials. When Netflix asks for a password (no OTP), we submit it
+        // Admins configure these on the separate TV Auto-Login → Netflix Vault
+        // page. When Netflix asks for a password (no OTP), we submit it
         // automatically instead of failing.
         const { data: credRow } = await supabase
           .from("app_settings").select("value").eq("key", "netflix_credentials").maybeSingle();
@@ -287,6 +287,7 @@ Deno.serve(async (req) => {
         let netflixMessage = extractNetflixMessage(subBody);
         let loginState = inferNetflixLoginState(subBody, sub.url || "");
         let authCookieHit = jar.has("NetflixId") || jar.has("SecureNetflixId");
+        let finalLoginUrl = sub.url || "";
         log("STEP-2", `status=${sub.status}  finalUrl=${sub.url}  cookies=${jar.size}  bytes=${subBody.length}  authCookies=${authCookieHit ? "yes" : "no"}`);
         log("STEP-2", `Netflix login state detected: ${loginState}`);
         if (netflixMessage) log("STEP-2", `Netflix said: ${netflixMessage.slice(0, 220)}`);
@@ -319,6 +320,7 @@ Deno.serve(async (req) => {
           netflixMessage = extractNetflixMessage(subBody);
           loginState = inferNetflixLoginState(subBody, retry.url || "");
           authCookieHit = jar.has("NetflixId") || jar.has("SecureNetflixId");
+          finalLoginUrl = retry.url || finalLoginUrl;
           log("STEP-2B", `status=${retry.status}  finalUrl=${retry.url}  cookies=${jar.size}  bytes=${subBody.length}  authCookies=${authCookieHit ? "yes" : "no"}`);
           log("STEP-2B", `Netflix login state detected: ${loginState}`);
           if (netflixMessage) log("STEP-2B", `Netflix said: ${netflixMessage.slice(0, 220)}`);
@@ -327,7 +329,7 @@ Deno.serve(async (req) => {
 
         // Password-based success shortcut: if we submitted a password AND Netflix
         // set the auth cookie / redirected to /browse, skip OTP entirely.
-        if (useDirectPassword && (authCookieHit || /\/(browse|profiles)/.test(sub.url || ""))) {
+        if (useDirectPassword && (authCookieHit || /\/(browse|profiles)/.test(finalLoginUrl))) {
           log("STEP-3", "Password login accepted — skipping OTP polling.");
           await persistSession("password");
           return;
