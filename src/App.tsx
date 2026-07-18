@@ -1882,6 +1882,143 @@ function NotificationBell() {
   );
 }
 
+// --- Netflix Test Login header button (visible only for the "Test" profile) ---
+// Streams live per-step logs from the netflix-test-login edge function
+// via SSE. Temporary QA tool, not production-facing.
+function NetflixTestButton({ profileId }: { profileId: string }) {
+  const [open, setOpen] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [logs, setLogs] = useState<Array<{ step: string; msg: string; ts: string }>>([]);
+  const [outcome, setOutcome] = useState<"idle" | "done" | "error">("idle");
+  const [outcomeMsg, setOutcomeMsg] = useState("");
+  const abortRef = useRef<AbortController | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+  }, [logs]);
+
+  const start = useCallback(async () => {
+    setOpen(true);
+    setLogs([]);
+    setOutcome("idle");
+    setOutcomeMsg("");
+    setRunning(true);
+    const controller = new AbortController();
+    abortRef.current = controller;
+    try {
+      const base = (import.meta.env.VITE_SUPABASE_URL as string) || "https://jsqchutnfdeljajkxmly.supabase.co";
+      const token = getSessionToken() || "";
+      const res = await fetch(`${base}/functions/v1/netflix-test-login`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Session-Token": token,
+          "apikey": (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string) || "",
+          "Accept": "text/event-stream",
+        },
+        body: JSON.stringify({ profile_id: profileId }),
+        signal: controller.signal,
+      });
+      if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      // Parse SSE frames: `event: X\ndata: {...}\n\n`
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let idx;
+        while ((idx = buf.indexOf("\n\n")) >= 0) {
+          const frame = buf.slice(0, idx);
+          buf = buf.slice(idx + 2);
+          const evLine = frame.split("\n").find((l) => l.startsWith("event:")) || "";
+          const dataLine = frame.split("\n").find((l) => l.startsWith("data:")) || "";
+          const event = evLine.slice(6).trim();
+          const dataStr = dataLine.slice(5).trim();
+          if (!dataStr) continue;
+          try {
+            const parsed = JSON.parse(dataStr);
+            if (event === "log") setLogs((l) => [...l, parsed]);
+            else if (event === "done") { setOutcome("done"); setOutcomeMsg(`Session stored (${parsed.cookies} cookies)`); }
+            else if (event === "error") { setOutcome("error"); setOutcomeMsg(parsed.error || "unknown error"); }
+          } catch { /* ignore malformed frame */ }
+        }
+      }
+    } catch (e: any) {
+      if (e?.name !== "AbortError") {
+        setOutcome("error");
+        setOutcomeMsg(e?.message || "network error");
+      }
+    } finally {
+      setRunning(false);
+      abortRef.current = null;
+    }
+  }, [profileId]);
+
+  const close = () => {
+    abortRef.current?.abort();
+    setOpen(false);
+  };
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={start}
+        disabled={running}
+        className="flex items-center gap-1.5 h-8 sm:h-9 px-3 rounded-full bg-gradient-to-r from-red-600 to-red-700 text-white text-[11px] sm:text-xs font-bold shadow-sm hover:from-red-700 hover:to-red-800 active:scale-95 disabled:opacity-60 transition"
+        title="Start Netflix test login"
+      >
+        <PlayCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+        <span className="hidden xs:inline">Start Test</span>
+        <span className="xs:hidden">Test</span>
+      </button>
+
+      {open && createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-6 bg-black/70 backdrop-blur-sm">
+          <div className="w-full max-w-2xl bg-slate-950 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="flex items-center justify-between px-4 sm:px-5 py-3 border-b border-slate-800 bg-gradient-to-r from-slate-900 to-slate-950">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className={`w-2 h-2 rounded-full ${running ? "bg-amber-400 animate-pulse" : outcome === "done" ? "bg-emerald-400" : outcome === "error" ? "bg-red-500" : "bg-slate-500"}`} />
+                <h3 className="text-sm sm:text-base font-bold text-white truncate">Netflix Test Login — Live Logs</h3>
+              </div>
+              <button onClick={close} className="text-slate-400 hover:text-white text-xl leading-none px-2">×</button>
+            </div>
+            <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 sm:p-4 font-mono text-[11px] sm:text-xs bg-black text-slate-200 space-y-1">
+              {logs.length === 0 && running && <div className="text-slate-500">Booting…</div>}
+              {logs.map((l, i) => (
+                <div key={i} className="flex gap-2">
+                  <span className="text-slate-600 shrink-0">{l.ts.slice(11, 19)}</span>
+                  <span className="text-sky-400 shrink-0 font-bold">[{l.step}]</span>
+                  <span className="text-slate-200 break-all">{l.msg}</span>
+                </div>
+              ))}
+              {outcome === "done" && (
+                <div className="mt-3 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-emerald-300 font-semibold">✅ {outcomeMsg}</div>
+              )}
+              {outcome === "error" && (
+                <div className="mt-3 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-red-300 font-semibold">❌ {outcomeMsg}</div>
+              )}
+            </div>
+            <div className="px-4 py-2.5 border-t border-slate-800 bg-slate-900/50 flex items-center justify-between">
+              <span className="text-[11px] text-slate-500">{running ? "Running…" : outcome === "idle" ? "Idle" : "Finished"}</span>
+              <div className="flex gap-2">
+                {!running && (
+                  <button onClick={start} className="text-xs px-3 py-1.5 rounded-full bg-slate-800 text-slate-100 hover:bg-slate-700 font-semibold">Run again</button>
+                )}
+                <button onClick={close} className="text-xs px-3 py-1.5 rounded-full bg-red-600 text-white hover:bg-red-700 font-semibold">Close</button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
+    </>
+  );
+}
+
 // --- TV Auto-Login header button + Coming Soon popup ---
 function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
   const [open, setOpen] = useState(false);
