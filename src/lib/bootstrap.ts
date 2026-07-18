@@ -106,7 +106,7 @@ export function readBootstrapCache(): BootstrapResult | null {
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return null;
     if (!parsed.savedAt || Date.now() - parsed.savedAt > BOOTSTRAP_CACHE_TTL_MS) return null;
-    const result = { users: sanitizeBootstrapUsers(parsed.users || []), recaptcha: parsed.recaptcha, workerUrls: parsed.workerUrls || [], emailFilters: DEFAULT_EMAIL_FILTERS, maintenance: parsed.maintenance, avatarBaseUrl: parsed.avatarBaseUrl || "", freeAvatarCooldown: parsed.freeAvatarCooldown || { minutes: 5, lastAt: null }, locationPolicy: { required: parsed.locationPolicy?.required !== false } };
+    const result = { users: sanitizeBootstrapUsers(parsed.users || []), recaptcha: parsed.recaptcha, workerUrls: parsed.workerUrls || [], emailFilters: DEFAULT_EMAIL_FILTERS, maintenance: parsed.maintenance, avatarBaseUrl: parsed.avatarBaseUrl || "", freeAvatarCooldown: parsed.freeAvatarCooldown || { minutes: 5, lastAt: null }, locationPolicy: { required: parsed.locationPolicy?.required !== false }, tvFeature: { enabled: parsed.tvFeature?.enabled !== false } };
     setFreeAvatarCooldown(result.freeAvatarCooldown);
     setAvatarBaseUrl(result.avatarBaseUrl);
     return result;
