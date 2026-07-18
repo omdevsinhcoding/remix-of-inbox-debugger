@@ -5187,6 +5187,36 @@ function AdminPanel() {
   const [newTvOverride, setNewTvOverride] = useState<"inherit" | "on" | "off">("inherit");
   const [dragUserId, setDragUserId] = useState<string | null>(null);
   const [reordering, setReordering] = useState(false);
+  // Netflix auto-login (per-profile). Start = trigger worker; Logs = live log viewer.
+  const [nflStarting, setNflStarting] = useState<string | null>(null);
+  const [nflLogsFor, setNflLogsFor] = useState<{ id: string; email: string } | null>(null);
+  const [nflLogsData, setNflLogsData] = useState<any>(null);
+  const [nflLogsLoading, setNflLogsLoading] = useState(false);
+  const startNetflixAutoLogin = async (u: any) => {
+    const email = u.username || "";
+    if (!email) { notify.error("No email on this profile"); return; }
+    setNflStarting(u.id);
+    try {
+      const res: any = await apiCall("netflix-auto-login", { action: "trigger", email, accountLabel: u.name || "Primary" });
+      if (res?.error) notify.error(res.error); else notify.success(`Queued login for ${email}`);
+      setNflLogsFor({ id: u.id, email });
+    } catch (e: any) { notify.error(e?.message || "Failed to start"); }
+    finally { setNflStarting(null); }
+  };
+  const loadNetflixLogs = useCallback(async (email: string) => {
+    setNflLogsLoading(true);
+    try {
+      const res: any = await apiCall("netflix-auto-login", { action: "get_logs", email });
+      setNflLogsData(res?.session || null);
+    } catch { /* noop */ } finally { setNflLogsLoading(false); }
+  }, []);
+  useEffect(() => {
+    if (!nflLogsFor) return;
+    loadNetflixLogs(nflLogsFor.email);
+    const t = setInterval(() => loadNetflixLogs(nflLogsFor.email), 3000);
+    return () => clearInterval(t);
+  }, [nflLogsFor, loadNetflixLogs]);
+
   const [serverConfig, setServerConfig] = useState({
     TELEGRAM_BOT_TOKEN: "", TELEGRAM_CHAT_ID: "", IMAP_HOST: "", IMAP_PORT: "", IMAP_USER: "", IMAP_PASSWORD: "",
   });
