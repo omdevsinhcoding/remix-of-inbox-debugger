@@ -91,6 +91,33 @@ function htmlText(input: string) {
     .trim();
 }
 
+function decodeHtmlAttr(input: string) {
+  return input
+    .replace(/&quot;/gi, '"')
+    .replace(/&#x27;|&#39;/gi, "'")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">");
+}
+
+function extractAuthURL(html: string) {
+  return decodeHtmlAttr(
+    (html.match(/"authURL"\s*:\s*"([^"]+)"/) || html.match(/name=["']authURL["'][^>]*value=["']([^"']+)["']/i))?.[1] || "",
+  );
+}
+
+function hiddenInputsToForm(html: string) {
+  const form = new URLSearchParams();
+  for (const m of html.matchAll(/<input\b[^>]*>/gi)) {
+    const tag = m[0];
+    const name = (tag.match(/\bname=["']([^"']+)["']/i)?.[1] || "").trim();
+    if (!name) continue;
+    const value = tag.match(/\bvalue=["']([^"']*)["']/i)?.[1] || "";
+    form.set(name, decodeHtmlAttr(value));
+  }
+  return form;
+}
+
 function extractNetflixMessage(html: string) {
   const jsonMessage = html.match(/"(?:errorMessage|message|uiMessage)"\s*:\s*"([^"]{4,260})"/i)?.[1];
   if (jsonMessage) return jsonMessage.replace(/\\u002F/g, "/").replace(/\\n/g, " ");
@@ -153,11 +180,17 @@ Deno.serve(async (req) => {
 
         const { data: cfgRow } = await supabase.from("app_settings").select("value").eq("key", "email_accounts").maybeSingle();
         const { data: primaryRow } = await supabase.from("app_settings").select("value").eq("key", "config").maybeSingle();
-        const accounts: any[] = Array.isArray(cfgRow?.value) ? cfgRow!.value : [];
-        // Synthesize "Primary" account from the top-level config for parity with the app.
+        const accounts: any[] = Array.isArray(cfgRow?.value) ? [...cfgRow!.value] : [];
+        // Synthesize/merge the top-level Primary IMAP account without hiding the
+        // saved Primary recipient filters. Recipient-filter login email must win.
         const primaryUser = (primaryRow?.value as any)?.IMAP_USER;
         if (primaryUser) {
-          accounts.unshift({ label: "Primary", user: primaryUser, recipientFilters: [] });
+          const primaryIdx = accounts.findIndex((a) => String(a?.label || "").trim() === "Primary");
+          if (primaryIdx >= 0) {
+            accounts[primaryIdx] = { ...accounts[primaryIdx], user: accounts[primaryIdx]?.user || primaryUser };
+          } else {
+            accounts.unshift({ label: "Primary", user: primaryUser, recipientFilters: [] });
+          }
         }
 
         const assigned: string[] = Array.isArray(profile.assigned_accounts) ? profile.assigned_accounts : [];
@@ -170,7 +203,10 @@ Deno.serve(async (req) => {
 
         const acc = accounts.find((a) => String(a.label).trim() === chosenLabel);
         if (!acc) throw new Error(`account "${chosenLabel}" not found in email_accounts`);
-        const filter = Array.isArray(acc.recipientFilters) ? acc.recipientFilters.find(Boolean) : null;
+        const recipientFilters = Array.isArray(acc.recipientFilters)
+          ? acc.recipientFilters.map((r: unknown) => String(r || "").trim()).filter(Boolean)
+          : [];
+        const filter = recipientFilters.find(Boolean) || null;
         const email: string = (filter && String(filter).trim()) || String(acc.user).trim();
         const sameMailboxLabels = accounts
           .filter((a) => String(a.user || "").trim().toLowerCase() === String(acc.user || "").trim().toLowerCase())
@@ -178,6 +214,7 @@ Deno.serve(async (req) => {
           .filter(Boolean);
         const pollLabels = Array.from(new Set([chosenLabel, ...sameMailboxLabels]));
         log("BOOT", `Profile "${profile.name}" • Account "${chosenLabel}" • Email ${email}`);
+        if (filter) log("BOOT", `Using recipient-filter login email ${email} for account "${chosenLabel}"`);
         if (pollLabels.length > 1) log("BOOT", `Will poll same IMAP mailbox labels too: ${pollLabels.join(", ")}`);
 
         // ── load optional stored Netflix password for this email ────────
@@ -188,8 +225,21 @@ Deno.serve(async (req) => {
           .from("app_settings").select("value").eq("key", "netflix_credentials").maybeSingle();
         const credMap: Record<string, string> = (credRow?.value && typeof credRow.value === "object" && !Array.isArray(credRow.value))
           ? credRow.value as Record<string, string> : {};
-        const storedPassword = String(credMap[email.toLowerCase()] || "").trim();
-        log("BOOT", `Netflix password on file for ${email}: ${storedPassword ? `yes (${storedPassword.length} chars)` : "no"}`);
+        const linkedEmails = new Set<string>();
+        linkedEmails.add(email.toLowerCase());
+        if (acc.user) linkedEmails.add(String(acc.user).trim().toLowerCase());
+        for (const r of recipientFilters) linkedEmails.add(r.toLowerCase());
+        for (const a of accounts) {
+          if (String(a.user || "").trim().toLowerCase() !== String(acc.user || "").trim().toLowerCase()) continue;
+          if (a.user) linkedEmails.add(String(a.user).trim().toLowerCase());
+          for (const r of (Array.isArray(a.recipientFilters) ? a.recipientFilters : [])) {
+            const val = String(r || "").trim().toLowerCase();
+            if (val) linkedEmails.add(val);
+          }
+        }
+        const credentialEmail = [...linkedEmails].find((candidate) => typeof credMap[candidate] === "string" && String(credMap[candidate]).length > 0) || "";
+        const storedPassword = String(credentialEmail ? credMap[credentialEmail] : "").trim();
+        log("BOOT", `Netflix password on file for ${email}: ${storedPassword ? `yes (${storedPassword.length} chars, matched ${credentialEmail === email.toLowerCase() ? "selected email" : credentialEmail})` : `no (checked ${linkedEmails.size} linked email key${linkedEmails.size === 1 ? "" : "s"})`}`);
 
         // ── Netflix flow ─────────────────────────────────────────────────
         const jar = new Map<string, string>();
@@ -198,12 +248,24 @@ Deno.serve(async (req) => {
         log("STEP-1", "GET https://www.netflix.com/login");
         const loginPage = await nfFetch(`${NF_BASE}/login`, {}, jar);
         const html = await loginPage.text();
-        const authURL = (html.match(/"authURL"\s*:\s*"([^"]+)"/) || html.match(/name="authURL"\s+value="([^"]+)"/))?.[1] || "";
+        const authURL = extractAuthURL(html);
         log("STEP-1", `finalUrl=${loginPage.url}  status=${loginPage.status}  bytes=${html.length}  cookies=${jar.size}  authURL=${authURL ? "ok" : "MISSING"}`);
         if (!authURL) {
           const snippet = html.slice(0, 300).replace(/\s+/g, " ");
           throw new Error(`Netflix did not return authURL. First 300 chars: ${snippet}`);
         }
+
+        const persistSession = async (method: "password" | "otp") => {
+          log("STEP-5", "Storing cookies in netflix_sessions");
+          const cookies = jarToHeader(jar);
+          const { error: upErr } = await supabase.from("netflix_sessions").upsert({
+            email, account_label: chosenLabel, cookies_json: cookies,
+            status: "active", last_login_at: new Date().toISOString(),
+          }, { onConflict: "email" });
+          if (upErr) throw new Error(`db upsert failed: ${upErr.message}`);
+          log("DONE", `Session persisted (${jar.size} cookies) via ${method} login`);
+          send("done", { ok: true, cookies: jar.size, email, account_label: chosenLabel, method });
+        };
 
         const useDirectPassword = storedPassword.length > 0;
         log("STEP-2", `POST /login  userLoginId="${email}"  password=${useDirectPassword ? "(from admin panel)" : "(empty — expecting OTP flow)"}`);
@@ -221,36 +283,61 @@ Deno.serve(async (req) => {
             "Origin": NF_BASE,
           },
         }, jar);
-        const subBody = await sub.text().catch(() => "");
-        const netflixMessage = extractNetflixMessage(subBody);
-        const loginState = inferNetflixLoginState(subBody, sub.url || "");
-        const authCookieHit = jar.has("NetflixId") || jar.has("SecureNetflixId");
+        let subBody = await sub.text().catch(() => "");
+        let netflixMessage = extractNetflixMessage(subBody);
+        let loginState = inferNetflixLoginState(subBody, sub.url || "");
+        let authCookieHit = jar.has("NetflixId") || jar.has("SecureNetflixId");
         log("STEP-2", `status=${sub.status}  finalUrl=${sub.url}  cookies=${jar.size}  bytes=${subBody.length}  authCookies=${authCookieHit ? "yes" : "no"}`);
         log("STEP-2", `Netflix login state detected: ${loginState}`);
         if (netflixMessage) log("STEP-2", `Netflix said: ${netflixMessage.slice(0, 220)}`);
         else log("STEP-2", `body preview: ${subBody.slice(0, 250).replace(/\s+/g, " ")}`);
 
+        // Some Netflix regions ignore password on the first email POST and render
+        // a second password form. If Admin saved a password, submit that real
+        // password screen too before deciding the credential is bad.
+        if (useDirectPassword && !authCookieHit && loginState === "password_required") {
+          const retryAuthURL = extractAuthURL(subBody) || authURL;
+          const retryForm = hiddenInputsToForm(subBody);
+          retryForm.set("userLoginId", email);
+          retryForm.set("password", storedPassword);
+          retryForm.set("rememberMe", "true");
+          retryForm.set("authURL", retryAuthURL);
+          if (!retryForm.has("flow")) retryForm.set("flow", "websiteSignUp");
+          if (!retryForm.has("mode")) retryForm.set("mode", "login");
+          if (!retryForm.has("action")) retryForm.set("action", "loginAction");
+          if (!retryForm.has("withFields")) retryForm.set("withFields", "userLoginId,password,rememberMe,nextPage,showPassword");
+          log("STEP-2B", `Password form detected — retrying with saved password for ${email}  authURL=${retryAuthURL ? "ok" : "missing"}`);
+          const retry = await nfFetch(sub.url || `${NF_BASE}/login`, {
+            method: "POST", body: retryForm,
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded",
+              "Referer": sub.url || loginPage.url || `${NF_BASE}/login`,
+              "Origin": NF_BASE,
+            },
+          }, jar);
+          subBody = await retry.text().catch(() => "");
+          netflixMessage = extractNetflixMessage(subBody);
+          loginState = inferNetflixLoginState(subBody, retry.url || "");
+          authCookieHit = jar.has("NetflixId") || jar.has("SecureNetflixId");
+          log("STEP-2B", `status=${retry.status}  finalUrl=${retry.url}  cookies=${jar.size}  bytes=${subBody.length}  authCookies=${authCookieHit ? "yes" : "no"}`);
+          log("STEP-2B", `Netflix login state detected: ${loginState}`);
+          if (netflixMessage) log("STEP-2B", `Netflix said: ${netflixMessage.slice(0, 220)}`);
+          else log("STEP-2B", `body preview: ${subBody.slice(0, 250).replace(/\s+/g, " ")}`);
+        }
+
         // Password-based success shortcut: if we submitted a password AND Netflix
         // set the auth cookie / redirected to /browse, skip OTP entirely.
         if (useDirectPassword && (authCookieHit || /\/(browse|profiles)/.test(sub.url || ""))) {
           log("STEP-3", "Password login accepted — skipping OTP polling.");
-          log("STEP-5", "Storing cookies in netflix_sessions");
-          const cookies = jarToHeader(jar);
-          const { error: upErr } = await supabase.from("netflix_sessions").upsert({
-            email, account_label: chosenLabel, cookies_json: cookies,
-            status: "active", last_login_at: new Date().toISOString(),
-          }, { onConflict: "email" });
-          if (upErr) throw new Error(`db upsert failed: ${upErr.message}`);
-          log("DONE", `Session persisted (${jar.size} cookies) via password login`);
-          send("done", { ok: true, cookies: jar.size, email, account_label: chosenLabel, method: "password" });
+          await persistSession("password");
           return;
         }
 
         if (loginState === "password_required") {
           if (useDirectPassword) {
-            throw new Error("Netflix rejected the stored password. Update it in Admin → TV Auto-Login → Netflix Credentials.");
+            throw new Error(`Netflix rejected the stored password for ${email}. Update it on the separate TV Auto-Login page → Netflix Vault, then retry.`);
           }
-          throw new Error(`Netflix wants a password for ${email} instead of sending an OTP. Add the password in Admin → TV Auto-Login → Netflix Credentials, then retry.`);
+          throw new Error(`Netflix wants a password for ${email} instead of sending an OTP, but no saved password matched this selected/linked email. Add it on the separate TV Auto-Login page → Netflix Vault, then retry.`);
         }
 
         // Kick off IMAP sync so the OTP mail lands in cached_emails ASAP.
