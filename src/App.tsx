@@ -7730,9 +7730,9 @@ function AdminPanel() {
                   const ov = normalizeTvOverride(u.tvOverride);
                   const effective = ov === "on" ? true : ov === "off" ? false : tvFeatureEnabled;
                   const options: Array<{ value: TvOverrideValue; label: string; cls: string }> = [
-                    { value: "on", label: "📺 Show TV", cls: ov === "on" ? "bg-emerald-600 text-white border-emerald-600" : "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100" },
-                    { value: "off", label: "🚫 Hide TV", cls: ov === "off" ? "bg-rose-600 text-white border-rose-600" : "bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100" },
-                    { value: "inherit", label: `⚙️ Auto (${tvFeatureEnabled ? "Show" : "Hide"})`, cls: ov === null ? "bg-slate-900 text-white border-slate-900" : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100" },
+                    { value: "on", label: "ON", cls: ov === "on" ? "bg-emerald-600 text-white border-emerald-600" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50" },
+                    { value: "off", label: "OFF", cls: ov === "off" ? "bg-rose-600 text-white border-rose-600" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50" },
+                    { value: "inherit", label: "Default", cls: ov === null ? "bg-slate-900 text-white border-slate-900" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50" },
                   ];
                   return (
                     <div key={u.id} className="rounded-2xl border border-slate-200 p-3 sm:p-4 bg-white hover:border-slate-300 transition-colors">
