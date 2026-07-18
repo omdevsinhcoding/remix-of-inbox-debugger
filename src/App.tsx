@@ -6849,6 +6849,43 @@ function AdminPanel() {
                                 </div>
                               )}
 
+                              {/* TV Auto-Login override (syncs with TV Auto-Login tab) */}
+                              <div>
+                                <div className="flex items-center justify-between mb-2">
+                                  <label className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
+                                    <Tv className="w-4 h-4 text-rose-500" />
+                                    TV Auto-Login for this profile
+                                  </label>
+                                  <button type="button" onClick={() => setEditHint(editHint === "tv" ? null : "tv")}
+                                    className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors ${editHint === "tv" ? "bg-rose-500 text-white" : "bg-slate-100 hover:bg-rose-100 text-slate-500 hover:text-rose-600"}`} title="What is this?">
+                                    <Info className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                                {editHint === "tv" && (
+                                  <p className="mb-2 text-[11px] text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-2.5 py-1.5 leading-snug">
+                                    Inherit = follow global toggle. Force ON/OFF overrides the global for this profile only. Syncs with the TV Auto-Login tab.
+                                  </p>
+                                )}
+                                <div className="grid grid-cols-3 gap-1.5">
+                                  {(["inherit","on","off"] as const).map((val) => {
+                                    const active = editTvOverride === val;
+                                    const label = val === "inherit" ? `Inherit (${tvFeatureEnabled ? "ON" : "OFF"})` : val === "on" ? "Force ON" : "Force OFF";
+                                    const activeCls = val === "on"
+                                      ? "bg-emerald-600 text-white border-emerald-600 shadow-sm"
+                                      : val === "off"
+                                      ? "bg-slate-700 text-white border-slate-700 shadow-sm"
+                                      : "bg-rose-100 border-rose-300 text-rose-700";
+                                    return (
+                                      <button key={val} type="button" onClick={() => setEditTvOverride(val)}
+                                        className={`text-[10px] font-black py-2 rounded-lg border transition-all active:scale-95 ${active ? activeCls : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"}`}>
+                                        {label}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+
+
                               {/* Free profile expiry */}
                               {u.isFree && (
                                 <div>
