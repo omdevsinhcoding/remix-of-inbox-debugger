@@ -1885,13 +1885,33 @@ function NotificationBell() {
 // --- TV Auto-Login header button + Coming Soon popup ---
 function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
   const [open, setOpen] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const [panelStyle, setPanelStyle] = useState<React.CSSProperties>({});
+
+  const placePanel = useCallback(() => {
+    const rect = buttonRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const margin = 12;
+    const width = Math.min(320, window.innerWidth - margin * 2);
+    const left = Math.min(Math.max(margin, rect.right - width), window.innerWidth - width - margin);
+    const top = Math.min(rect.bottom + 10, Math.max(margin, window.innerHeight - margin - 260));
+    setPanelStyle({ left, top, width });
+  }, []);
 
   useEffect(() => {
     if (!open) return;
+    placePanel();
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    const onReposition = () => placePanel();
     window.addEventListener("keydown", onKey);
-    return () => { window.removeEventListener("keydown", onKey); };
-  }, [open]);
+    window.addEventListener("resize", onReposition);
+    window.addEventListener("scroll", onReposition, true);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", onReposition);
+      window.removeEventListener("scroll", onReposition, true);
+    };
+  }, [open, placePanel]);
 
   const popup = open ? createPortal(
     <div
@@ -1902,7 +1922,8 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="absolute right-3 sm:right-4 top-[calc(env(safe-area-inset-top)+3.75rem)] w-[min(20rem,calc(100vw-1.5rem))] max-h-[calc(100svh-6rem)] overflow-y-auto rounded-2xl bg-white shadow-2xl border border-slate-200 p-5 animate-in zoom-in-95 slide-in-from-top-2 duration-150 origin-top-right"
+        style={panelStyle}
+        className="fixed max-h-[calc(100svh-6rem)] overflow-y-auto rounded-2xl bg-white shadow-2xl border border-slate-200 p-5 animate-in zoom-in-95 slide-in-from-top-2 duration-150 origin-top-right"
       >
         <div className="flex items-center gap-2 mb-3">
           <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-rose-100 text-rose-600">
@@ -1937,6 +1958,7 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
   return (
     <>
       <button
+        ref={buttonRef}
         onClick={() => setOpen(true)}
         className="relative flex items-center justify-center p-2.5 bg-slate-900 text-white rounded-full hover:bg-slate-800 transition-all active:scale-95"
         title="TV Auto-Login"
