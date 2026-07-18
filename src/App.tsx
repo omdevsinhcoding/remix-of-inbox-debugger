@@ -9426,6 +9426,17 @@ function EmailViewer() {
   const [forcedPasswordChange] = useState(!!user.mustChangePassword);
   // Impersonation state is server-signed and backed by the parent admin session row.
   const isImpersonating = (user as any)?.impersonated === true;
+  // TV Auto-Login visibility: global toggle + per-profile override. Admins & impersonation always see it.
+  const tvVisible = useMemo(() => {
+    if (isImpersonating || user.role === "admin") return true;
+    const bs = readBootstrapCache();
+    const globalOn = bs?.tvFeature?.enabled !== false;
+    const me = (bs?.users || []).find((u: any) => u.id === user.id);
+    const ov = me?.tvOverride;
+    if (ov === "on") return true;
+    if (ov === "off") return false;
+    return globalOn;
+  }, [user.id, user.role, isImpersonating]);
 
   const [refreshing, setRefreshing] = useState(false);
   const refreshingRef = useRef(false);
