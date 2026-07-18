@@ -2519,7 +2519,7 @@ Deno.serve(async (originalReq) => {
     }
 
     if (action === "create") {
-      const { username, password, name, role, assigned_accounts, is_free, expires_at } = params;
+      const { username, password, name, role, assigned_accounts, is_free, expires_at, tv_override } = params;
       const isFree = !!is_free;
       if (!name) throw new Error("Name required");
       if (!isFree && (!username || !password)) throw new Error("Username and password required");
@@ -2556,6 +2556,7 @@ Deno.serve(async (originalReq) => {
       const finalUsername = isFree ? cleanedUsername : username;
       const finalRole = isFree ? "user" : (role || "user");
       const normalizedAssignedAccounts = await normalizeAssignedAccounts(supabase, assigned_accounts);
+      const normalizedTvOverride = tv_override === "on" || tv_override === "off" ? tv_override : null;
       const insertPayload: any = {
         username: finalUsername,
         password: isFree ? null : await hashPassword(password),
@@ -2568,16 +2569,17 @@ Deno.serve(async (originalReq) => {
         must_change_password: !isFree && !bootstrapCreate,
         // Default GPS required = true for every non-admin profile; admin can turn it off per profile.
         profile_prefs: { avatarId: null, locationRequired: finalRole !== "admin" },
+        tv_override: normalizedTvOverride,
       };
       const { data, error } = await supabase
         .from("app_users")
         .insert(insertPayload)
-        .select("id, username, name, role, assigned_accounts, profile_prefs, is_free, pinned, sort_order, expires_at")
+        .select("id, username, name, role, assigned_accounts, profile_prefs, is_free, pinned, sort_order, expires_at, tv_override")
         .single();
       if (error) throw error;
       invalidateBootstrapCache();
 
-      await auditLog(supabase, bootstrapCreate ? "bootstrap_admin_created" : (isFree ? "free_user_created" : "user_created"), actorId, data.id, { username: finalUsername, role: finalRole, isFree, expiresAt: expiresAtIso }, ip);
+      await auditLog(supabase, bootstrapCreate ? "bootstrap_admin_created" : (isFree ? "free_user_created" : "user_created"), actorId, data.id, { username: finalUsername, role: finalRole, isFree, expiresAt: expiresAtIso, tvOverride: normalizedTvOverride }, ip);
 
       return new Response(JSON.stringify({
         success: true,
@@ -2591,6 +2593,7 @@ Deno.serve(async (originalReq) => {
           pinned: !!data.pinned,
           sortOrder: data.sort_order ?? null,
           expiresAt: data.expires_at || null,
+          tvOverride: data.tv_override === "on" || data.tv_override === "off" ? data.tv_override : null,
         },
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
