@@ -6523,11 +6523,11 @@ function AdminPanel() {
                         onClick={() => setNewTvOverride(v)}
                         className={`flex-1 text-xs font-bold py-2 rounded-lg border transition-all ${newTvOverride === v ? (v === "on" ? "bg-emerald-600 text-white border-emerald-600" : v === "off" ? "bg-rose-600 text-white border-rose-600" : "bg-slate-900 text-white border-slate-900") : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"}`}
                       >
-                        {v === "on" ? "📺 Show TV" : v === "off" ? "🚫 Hide TV" : `⚙️ Auto (${tvFeatureEnabled ? "Show" : "Hide"})`}
+                        {v === "on" ? "ON" : v === "off" ? "OFF" : "Default"}
                       </button>
                     ))}
                   </div>
-                  <p className="text-[10px] text-slate-400 mt-1"><b>Show TV</b> = always visible. <b>Hide TV</b> = always hidden. <b>Auto</b> = follows the global switch.</p>
+                  <p className="text-[10px] text-slate-400 mt-1"><b>ON</b> = always show TV icon. <b>OFF</b> = always hide. <b>Default</b> = same as global switch.</p>
                 </div>
 
 
@@ -6973,13 +6973,13 @@ function AdminPanel() {
                                 </div>
                                 {editHint === "tv" && (
                                   <p className="mb-2 text-[11px] text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-2.5 py-1.5 leading-snug">
-                                    <b>Show TV</b> = TV icon visible. <b>Hide TV</b> = hidden. <b>Auto</b> = follow the global switch. Syncs with the TV Auto-Login tab.
+                                    <b>ON</b> = TV icon visible. <b>OFF</b> = hidden. <b>Default</b> = same as the global switch.
                                   </p>
                                 )}
                                 <div className="grid grid-cols-3 gap-1.5">
                                   {(["on","off","inherit"] as const).map((val) => {
                                     const active = editTvOverride === val;
-                                    const label = val === "on" ? "📺 Show TV" : val === "off" ? "🚫 Hide TV" : `⚙️ Auto (${tvFeatureEnabled ? "Show" : "Hide"})`;
+                                    const label = val === "on" ? "ON" : val === "off" ? "OFF" : "Default";
                                     const activeCls = val === "on"
                                       ? "bg-emerald-600 text-white border-emerald-600 shadow-sm"
                                       : val === "off"
@@ -6987,7 +6987,7 @@ function AdminPanel() {
                                       : "bg-slate-900 text-white border-slate-900 shadow-sm";
                                     return (
                                       <button key={val} type="button" onClick={() => setEditTvOverride(val)}
-                                        className={`text-[10px] font-black py-2 rounded-lg border transition-all active:scale-95 ${active ? activeCls : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"}`}>
+                                        className={`text-xs font-black py-2 rounded-lg border transition-all active:scale-95 ${active ? activeCls : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"}`}>
                                         {label}
                                       </button>
                                     );
@@ -7712,7 +7712,7 @@ function AdminPanel() {
               <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
                 <div>
                   <h3 className="font-black text-base sm:text-lg text-slate-900 flex items-center gap-2"><Users className="w-4 h-4 text-slate-700" /> Existing users</h3>
-                  <p className="text-xs text-slate-500 mt-1">For each profile pick: <b>Show TV</b>, <b>Hide TV</b>, or <b>Auto</b> (follow the global switch above).</p>
+                  <p className="text-xs text-slate-500 mt-1">Show TV icon for this user? Pick <b>ON</b> or <b>OFF</b>. <b>Default</b> = same as the global switch above.</p>
                 </div>
                 <div className="relative w-full md:w-72">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -7730,9 +7730,9 @@ function AdminPanel() {
                   const ov = normalizeTvOverride(u.tvOverride);
                   const effective = ov === "on" ? true : ov === "off" ? false : tvFeatureEnabled;
                   const options: Array<{ value: TvOverrideValue; label: string; cls: string }> = [
-                    { value: "on", label: "📺 Show TV", cls: ov === "on" ? "bg-emerald-600 text-white border-emerald-600" : "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100" },
-                    { value: "off", label: "🚫 Hide TV", cls: ov === "off" ? "bg-rose-600 text-white border-rose-600" : "bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100" },
-                    { value: "inherit", label: `⚙️ Auto (${tvFeatureEnabled ? "Show" : "Hide"})`, cls: ov === null ? "bg-slate-900 text-white border-slate-900" : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100" },
+                    { value: "on", label: "ON", cls: ov === "on" ? "bg-emerald-600 text-white border-emerald-600" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50" },
+                    { value: "off", label: "OFF", cls: ov === "off" ? "bg-rose-600 text-white border-rose-600" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50" },
+                    { value: "inherit", label: "Default", cls: ov === null ? "bg-slate-900 text-white border-slate-900" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50" },
                   ];
                   return (
                     <div key={u.id} className="rounded-2xl border border-slate-200 p-3 sm:p-4 bg-white hover:border-slate-300 transition-colors">
