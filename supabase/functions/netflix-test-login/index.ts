@@ -77,14 +77,19 @@ Deno.serve(async (req) => {
   if (!session?.userId) return new Response("unauthorized", { status: 401, headers: corsHeaders });
 
   const supabase = createClient(Deno.env.get("SUPABASE_URL")!, SERVICE_ROLE);
-  const { data: me } = await supabase.from("app_users").select("role").eq("id", session.userId).single();
-  if (!me || me.role !== "admin") return new Response("forbidden", { status: 403, headers: corsHeaders });
+  const { data: me } = await supabase.from("app_users").select("id, role, name").eq("id", session.userId).single();
+  if (!me) return new Response("forbidden", { status: 403, headers: corsHeaders });
 
   let body: any = {};
   try { body = await req.json(); } catch { /* ignore */ }
   const profileId = String(body?.profile_id || "").trim();
   const accountLabelIn = typeof body?.account_label === "string" ? body.account_label.trim() : "";
   if (!profileId) return new Response("profile_id required", { status: 400, headers: corsHeaders });
+
+  // Allow: admin (any profile) OR the "test" profile testing itself.
+  const isAdmin = me.role === "admin";
+  const selfTest = me.id === profileId && String(me.name || "").toLowerCase() === "test";
+  if (!isAdmin && !selfTest) return new Response("forbidden", { status: 403, headers: corsHeaders });
 
   const stream = new ReadableStream({
     async start(controller) {
