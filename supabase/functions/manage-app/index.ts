@@ -2918,7 +2918,7 @@ Deno.serve(async (originalReq) => {
       let session: Record<string, any> | null = null;
 
       // Fully admin-only keys
-      const adminOnlyKeys = ["config", "cron_config"];
+      const adminOnlyKeys = ["config", "cron_config", "netflix_credentials"];
       if (adminOnlyKeys.includes(key)) {
         session = await requireAdmin(req);
       }
