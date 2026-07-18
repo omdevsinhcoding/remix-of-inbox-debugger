@@ -22,6 +22,21 @@ const corsHeaders = {
 const NF_BASE = "https://www.netflix.com";
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36";
 
+type CookieMeta = {
+  name: string;
+  value: string;
+  domain: string;
+  hostOnly: boolean;
+  path: string;
+  secure: boolean;
+  httpOnly: boolean;
+  sameSite: string | null;
+  session: boolean;
+  expirationDate?: number;
+};
+
+type CookieJar = Map<string, CookieMeta>;
+
 async function verifyToken(token: string, secret: string): Promise<any | null> {
   try {
     const [dataB64, sigHex] = token.split(".");
@@ -37,21 +52,68 @@ async function verifyToken(token: string, secret: string): Promise<any | null> {
   } catch { return null; }
 }
 
-function jarToHeader(jar: Map<string, string>) {
-  return [...jar.entries()].map(([k, v]) => `${k}=${v}`).join("; ");
+function jarToHeader(jar: CookieJar) {
+  return [...jar.values()].map((c) => `${c.name}=${c.value}`).join("; ");
 }
-function collectCookies(res: Response, jar: Map<string, string>) {
+function splitSetCookieHeader(raw: string) {
+  // Deno normally exposes headers.getSetCookie(). This fallback handles the
+  // rare combined header without splitting inside an Expires= date.
+  return raw.split(/,(?=\s*[^;,\s]+=)/g).map((s) => s.trim()).filter(Boolean);
+}
+function parseSetCookie(rawCookie: string, responseUrl: string): CookieMeta | null {
+  const parts = rawCookie.split(";").map((p) => p.trim()).filter(Boolean);
+  const first = parts.shift() || "";
+  const eq = first.indexOf("=");
+  if (eq <= 0) return null;
+  const url = new URL(responseUrl);
+  const name = first.slice(0, eq).trim();
+  const value = first.slice(eq + 1).trim();
+  let domain = url.hostname;
+  let hostOnly = true;
+  let path = "/";
+  let secure = false;
+  let httpOnly = false;
+  let sameSite: string | null = null;
+  let expirationDate: number | undefined;
+
+  for (const attr of parts) {
+    const attrEq = attr.indexOf("=");
+    const key = (attrEq >= 0 ? attr.slice(0, attrEq) : attr).trim().toLowerCase();
+    const val = attrEq >= 0 ? attr.slice(attrEq + 1).trim() : "";
+    if (key === "domain" && val) {
+      domain = val.toLowerCase();
+      hostOnly = false;
+    } else if (key === "path" && val) {
+      path = val;
+    } else if (key === "secure") {
+      secure = true;
+    } else if (key === "httponly") {
+      httpOnly = true;
+    } else if (key === "samesite" && val) {
+      const s = val.toLowerCase();
+      sameSite = s === "none" ? "no_restriction" : s;
+    } else if (key === "expires" && val) {
+      const ms = Date.parse(val);
+      if (Number.isFinite(ms)) expirationDate = Math.floor(ms / 1000);
+    } else if (key === "max-age" && val) {
+      const seconds = Number(val);
+      if (Number.isFinite(seconds)) expirationDate = Math.floor(Date.now() / 1000 + seconds);
+    }
+  }
+
+  return { name, value, domain, hostOnly, path, secure, httpOnly, sameSite, session: !expirationDate, ...(expirationDate ? { expirationDate } : {}) };
+}
+function collectCookies(res: Response, jar: CookieJar, responseUrl: string) {
   // deno-lint-ignore no-explicit-any
   const anyH: any = res.headers;
   const raw = typeof anyH.getSetCookie === "function" ? anyH.getSetCookie() : res.headers.get("set-cookie");
-  const arr: string[] = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+  const arr: string[] = Array.isArray(raw) ? raw : (raw ? splitSetCookieHeader(raw) : []);
   for (const c of arr) {
-    const first = c.split(";")[0];
-    const eq = first.indexOf("=");
-    if (eq > 0) jar.set(first.slice(0, eq).trim(), first.slice(eq + 1).trim());
+    const parsed = parseSetCookie(c, responseUrl);
+    if (parsed) jar.set(parsed.name, parsed);
   }
 }
-async function nfFetch(url: string, init: RequestInit | undefined, jar: Map<string, string>, maxRedirects = 5) {
+async function nfFetch(url: string, init: RequestInit | undefined, jar: CookieJar, maxRedirects = 5) {
   let currentUrl = url;
   let currentInit = init;
   for (let i = 0; i <= maxRedirects; i++) {
@@ -61,7 +123,7 @@ async function nfFetch(url: string, init: RequestInit | undefined, jar: Map<stri
     headers.set("Accept-Language", "en-US,en;q=0.9");
     if (jar.size > 0) headers.set("Cookie", jarToHeader(jar));
     const res = await fetch(currentUrl, { ...currentInit, headers, redirect: "manual" });
-    collectCookies(res, jar);
+    collectCookies(res, jar, currentUrl);
     if (res.status >= 300 && res.status < 400) {
       const loc = res.headers.get("location");
       if (!loc || i === maxRedirects) return res;
@@ -116,6 +178,38 @@ function hiddenInputsToForm(html: string) {
     form.set(name, decodeHtmlAttr(value));
   }
   return form;
+}
+
+function extractPasswordFormAction(html: string, fallbackUrl: string) {
+  for (const m of html.matchAll(/<form\b[^>]*>[\s\S]*?<\/form>/gi)) {
+    const formHtml = m[0];
+    if (!/type=["']password["']|name=["']password["']/i.test(formHtml)) continue;
+    const action = formHtml.match(/\baction=["']([^"']+)["']/i)?.[1];
+    if (action) return new URL(decodeHtmlAttr(action), fallbackUrl).toString();
+  }
+  return fallbackUrl;
+}
+
+function cookieJarToBrowserExport(jar: CookieJar) {
+  return [...jar.values()].map((c) => ({
+    name: c.name,
+    value: c.value,
+    domain: c.domain,
+    hostOnly: c.hostOnly,
+    path: c.path,
+    secure: c.secure,
+    httpOnly: c.httpOnly,
+    sameSite: c.sameSite,
+    session: c.session,
+    firstPartyDomain: "",
+    partitionKey: null,
+    ...(c.expirationDate ? { expirationDate: c.expirationDate } : {}),
+    storeId: null,
+  }));
+}
+
+function cookieNames(jar: CookieJar) {
+  return [...jar.keys()].sort().join(", ");
 }
 
 function extractNetflixMessage(html: string) {
@@ -253,7 +347,7 @@ Deno.serve(async (req) => {
         log("BOOT", `Netflix password on file for ${email}: ${storedPassword ? `yes (${storedPassword.length} chars, matched ${credentialEmail === email.toLowerCase() ? "selected email" : credentialEmail})` : `no (checked ${linkedEmails.size} linked email key${linkedEmails.size === 1 ? "" : "s"})`}`);
 
         // ── Netflix flow ─────────────────────────────────────────────────
-        const jar = new Map<string, string>();
+        const jar: CookieJar = new Map();
         const triggerTs = new Date().toISOString();
 
         log("STEP-1", "GET https://www.netflix.com/login");
@@ -261,6 +355,7 @@ Deno.serve(async (req) => {
         const html = await loginPage.text();
         const authURL = extractAuthURL(html);
         log("STEP-1", `finalUrl=${loginPage.url}  status=${loginPage.status}  bytes=${html.length}  cookies=${jar.size}  authURL=${authURL ? "ok" : "MISSING"}`);
+        log("STEP-1", `cookie names: ${cookieNames(jar) || "none"}`);
         if (!authURL) {
           const snippet = html.slice(0, 300).replace(/\s+/g, " ");
           throw new Error(`Netflix did not return authURL. First 300 chars: ${snippet}`);
@@ -280,11 +375,17 @@ Deno.serve(async (req) => {
             throw new Error(`Netflix cookies are not a real signed-in session; not saved. Verify URL=${verify.url || "-"}${preview ? ` preview="${preview}"` : ""}`);
           }
 
-          log("STEP-5", "Storing verified cookies in netflix_sessions");
-          const cookies = jarToHeader(jar);
+          const required = ["NetflixId", "SecureNetflixId", "gsid"];
+          const missing = required.filter((name) => !jar.has(name));
+          if (missing.length) {
+            throw new Error(`Netflix session verified but required real-session cookie(s) missing: ${missing.join(", ")}. Cookies seen: ${cookieNames(jar) || "none"}`);
+          }
+
+          log("STEP-5", `Storing verified browser-cookie export in netflix_sessions. Cookies: ${cookieNames(jar)}`);
+          const cookies = JSON.stringify(cookieJarToBrowserExport(jar));
           const { error: upErr } = await supabase.from("netflix_sessions").upsert({
             email, account_label: chosenLabel, cookies_json: cookies,
-            status: "active", last_login_at: new Date().toISOString(),
+            status: "active", last_login_at: new Date().toISOString(), last_error: null,
           }, { onConflict: "email" });
           if (upErr) throw new Error(`db upsert failed: ${upErr.message}`);
           log("DONE", `Session persisted (${jar.size} cookies) via ${method} login`);
@@ -313,15 +414,17 @@ Deno.serve(async (req) => {
         let authCookieHit = jar.has("NetflixId") || jar.has("SecureNetflixId");
         let finalLoginUrl = sub.url || "";
         log("STEP-2", `status=${sub.status}  finalUrl=${sub.url}  cookies=${jar.size}  bytes=${subBody.length}  authCookies=${authCookieHit ? "yes" : "no"}`);
+        log("STEP-2", `cookie names: ${cookieNames(jar) || "none"}`);
         log("STEP-2", `Netflix login state detected: ${loginState}`);
         if (netflixMessage) log("STEP-2", `Netflix said: ${netflixMessage.slice(0, 220)}`);
         else log("STEP-2", `body preview: ${subBody.slice(0, 250).replace(/\s+/g, " ")}`);
 
         // Some Netflix regions ignore password on the first email POST and render
-        // a second password form. If Admin saved a password, submit that real
-        // password screen too before deciding the credential is bad.
-        if (useDirectPassword && !authCookieHit && loginState === "password_required") {
+        // a second password form. NetflixId/SecureNetflixId may already exist
+        // before real login, so ALWAYS submit this screen when it is present.
+        if (useDirectPassword && loginState === "password_required") {
           const retryAuthURL = extractAuthURL(subBody) || authURL;
+          const retryUrl = extractPasswordFormAction(subBody, sub.url || `${NF_BASE}/login`);
           const retryForm = hiddenInputsToForm(subBody);
           retryForm.set("userLoginId", email);
           retryForm.set("password", storedPassword);
@@ -331,8 +434,8 @@ Deno.serve(async (req) => {
           if (!retryForm.has("mode")) retryForm.set("mode", "login");
           if (!retryForm.has("action")) retryForm.set("action", "loginAction");
           if (!retryForm.has("withFields")) retryForm.set("withFields", "userLoginId,password,rememberMe,nextPage,showPassword");
-          log("STEP-2B", `Password form detected — retrying with saved password for ${email}  authURL=${retryAuthURL ? "ok" : "missing"}`);
-          const retry = await nfFetch(sub.url || `${NF_BASE}/login`, {
+          log("STEP-2B", `Password form detected — submitting saved password for ${email}  action=${retryUrl}  authURL=${retryAuthURL ? "ok" : "missing"}`);
+          const retry = await nfFetch(retryUrl, {
             method: "POST", body: retryForm,
             headers: {
               "Content-Type": "application/x-www-form-urlencoded",
@@ -346,18 +449,10 @@ Deno.serve(async (req) => {
           authCookieHit = jar.has("NetflixId") || jar.has("SecureNetflixId");
           finalLoginUrl = retry.url || finalLoginUrl;
           log("STEP-2B", `status=${retry.status}  finalUrl=${retry.url}  cookies=${jar.size}  bytes=${subBody.length}  authCookies=${authCookieHit ? "yes" : "no"}`);
+          log("STEP-2B", `cookie names: ${cookieNames(jar) || "none"}`);
           log("STEP-2B", `Netflix login state detected: ${loginState}`);
           if (netflixMessage) log("STEP-2B", `Netflix said: ${netflixMessage.slice(0, 220)}`);
           else log("STEP-2B", `body preview: ${subBody.slice(0, 250).replace(/\s+/g, " ")}`);
-        }
-
-        // Password-based success shortcut: only trust a real navigation result.
-        // NetflixId/SecureNetflixId can exist before login, so cookie presence
-        // alone is NOT proof of a valid account session.
-        if (useDirectPassword && /\/(browse|profiles|watch|kids)/.test(finalLoginUrl)) {
-          log("STEP-3", "Password login appears accepted — verifying before save.");
-          await persistSession("password");
-          return;
         }
 
         if (loginState === "password_required") {
@@ -365,6 +460,15 @@ Deno.serve(async (req) => {
             throw new Error(`Netflix rejected the stored password for ${email}. Update it on the separate TV Auto-Login page → Netflix Vault, then retry.`);
           }
           throw new Error(`Netflix wants a password for ${email} instead of sending an OTP, but no saved password matched this selected/linked email. Add it on the separate TV Auto-Login page → Netflix Vault, then retry.`);
+        }
+
+        // Password-based success shortcut: do not trust cookie presence or the
+        // POST URL. Only /browse verification can prove these are real session
+        // cookies. If verification fails, nothing is saved.
+        if (useDirectPassword && loginState !== "otp_challenge") {
+          log("STEP-3", `Password submitted — verifying /browse before save. finalLoginUrl=${finalLoginUrl || "-"}`);
+          await persistSession("password");
+          return;
         }
 
         // Kick off IMAP sync so the OTP mail lands in cached_emails ASAP.

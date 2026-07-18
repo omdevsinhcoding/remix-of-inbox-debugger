@@ -30,17 +30,92 @@ function argv(name, fallback) {
 
 /** Serialize a Set-Cookie header set into a Cookie: header string. */
 function jarToHeader(jar) {
-  return [...jar.entries()].map(([k, v]) => `${k}=${v}`).join("; ");
+  return [...jar.values()].map((c) => `${c.name}=${c.value}`).join("; ");
+}
+
+function splitSetCookieHeader(raw) {
+  return raw.split(/,(?=\s*[^;,\s]+=)/g).map((s) => s.trim()).filter(Boolean);
+}
+
+function parseSetCookie(rawCookie, responseUrl) {
+  const parts = rawCookie.split(";").map((p) => p.trim()).filter(Boolean);
+  const first = parts.shift() || "";
+  const eq = first.indexOf("=");
+  if (eq <= 0) return null;
+  const url = new URL(responseUrl);
+  const cookie = {
+    name: first.slice(0, eq).trim(),
+    value: first.slice(eq + 1).trim(),
+    domain: url.hostname,
+    hostOnly: true,
+    path: "/",
+    secure: false,
+    httpOnly: false,
+    sameSite: null,
+    session: true,
+    firstPartyDomain: "",
+    partitionKey: null,
+    storeId: null,
+  };
+  for (const attr of parts) {
+    const attrEq = attr.indexOf("=");
+    const key = (attrEq >= 0 ? attr.slice(0, attrEq) : attr).trim().toLowerCase();
+    const val = attrEq >= 0 ? attr.slice(attrEq + 1).trim() : "";
+    if (key === "domain" && val) { cookie.domain = val.toLowerCase(); cookie.hostOnly = false; }
+    else if (key === "path" && val) cookie.path = val;
+    else if (key === "secure") cookie.secure = true;
+    else if (key === "httponly") cookie.httpOnly = true;
+    else if (key === "samesite" && val) cookie.sameSite = val.toLowerCase() === "none" ? "no_restriction" : val.toLowerCase();
+    else if (key === "expires" && val) {
+      const ms = Date.parse(val);
+      if (Number.isFinite(ms)) { cookie.expirationDate = Math.floor(ms / 1000); cookie.session = false; }
+    } else if (key === "max-age" && val) {
+      const seconds = Number(val);
+      if (Number.isFinite(seconds)) { cookie.expirationDate = Math.floor(Date.now() / 1000 + seconds); cookie.session = false; }
+    }
+  }
+  return cookie;
 }
 
 /** Merge Set-Cookie values from a response into `jar`. */
 function collectCookies(res, jar) {
   const raw = res.headers.getSetCookie?.() ?? res.headers.get("set-cookie");
-  const arr = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+  const arr = Array.isArray(raw) ? raw : (raw ? splitSetCookieHeader(raw) : []);
   for (const c of arr) {
-    const first = c.split(";")[0];
-    const eq = first.indexOf("=");
-    if (eq > 0) jar.set(first.slice(0, eq).trim(), first.slice(eq + 1).trim());
+    const parsed = parseSetCookie(c, res.url || NF_BASE);
+    if (parsed) jar.set(parsed.name, parsed);
+  }
+}
+
+function htmlText(input) {
+  return String(input || "")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function looksLikeNetflixSignedIn(html, url, status) {
+  const path = (() => { try { return new URL(url).pathname.toLowerCase(); } catch { return String(url || "").toLowerCase(); } })();
+  const text = htmlText(html).toLowerCase();
+  if (status >= 400) return false;
+  if (/\/(login|signup|login\/help|password)/.test(path)) return false;
+  if (/sign in to netflix|email or mobile number|enter your password|incorrect password|sorry, we can't find an account/i.test(text)) return false;
+  return /\/(browse|profiles|watch|kids)/.test(path) || /who(?:'|’)s watching|manage profiles|account menu|sign out/i.test(text);
+}
+
+async function verifyNetflixSession(jar) {
+  log("STEP-5", "GET /browse to verify real signed-in session");
+  const res = await nfFetch(`${NF_BASE}/browse`, { headers: { Referer: NF_BASE } }, jar);
+  const body = await res.text();
+  const ok = looksLikeNetflixSignedIn(body, res.url, res.status);
+  log("STEP-5", `status=${res.status} finalUrl=${res.url} validSession=${ok}`);
+  if (!ok) throw new Error("Netflix cookies are not a real signed-in session; not saved");
+  for (const name of ["NetflixId", "SecureNetflixId", "gsid"]) {
+    if (!jar.has(name)) throw new Error(`verified session missing required cookie: ${name}`);
   }
 }
 
@@ -154,8 +229,10 @@ async function main() {
   const code = await waitForOtp({ supabase, accountLabel, sinceIso: t0 });
   await submitCode(jar, authURL, code);
 
+  await verifyNetflixSession(jar);
+
   log("STEP-5", "Persisting cookies to netflix_sessions");
-  const cookies = jarToHeader(jar);
+  const cookies = JSON.stringify([...jar.values()]);
   const { error } = await supabase
     .from("netflix_sessions")
     .upsert({
