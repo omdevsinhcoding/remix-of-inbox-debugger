@@ -5817,7 +5817,32 @@ function AdminPanel() {
     } finally { setSavingLocationPolicy(false); }
   };
 
-  const reloadAdminNotifs = async () => {
+  const toggleTvFeature = async () => {
+    const next = !tvFeatureEnabled;
+    setTvFeatureEnabled(next);
+    setSavingTvFeature(true);
+    try {
+      await apiCall("manage-app", { action: "set_settings", key: "tv_feature", value: { enabled: next } });
+      notify.success(next ? "TV Auto-Login enabled for all users (per-profile overrides still apply)" : "TV Auto-Login hidden by default (per-profile overrides still apply)");
+      await refreshBootstrap().catch(() => null);
+    } catch (err) {
+      setTvFeatureEnabled(!next);
+      notify.error(err instanceof Error ? err.message : "Failed");
+    } finally { setSavingTvFeature(false); }
+  };
+
+  const toggleProfileTvOverride = async (u: UserData) => {
+    // 3-state cycle: inherit (null) -> on -> off -> inherit
+    const current: "on" | "off" | null = u.tvOverride === "on" || u.tvOverride === "off" ? u.tvOverride : null;
+    const next: "on" | "off" | null = current === null ? "on" : current === "on" ? "off" : null;
+    try {
+      await apiCall("manage-app", { action: "update_user", id: u.id, tv_override: next });
+      notify.success(next === null ? `${u.name}: TV follows global setting` : next === "on" ? `${u.name}: TV forced ON` : `${u.name}: TV forced OFF`);
+      await Promise.all([loadUsers().catch(() => null), refreshBootstrap().catch(() => null)]);
+    } catch (err) {
+      notify.error(err instanceof Error ? err.message : "Failed to update TV override");
+    }
+  };
     try {
       const nl = await apiCall("manage-app", { action: "admin_list_notifications" });
       if (Array.isArray(nl?.notifications)) setAdminNotifs(nl.notifications);
