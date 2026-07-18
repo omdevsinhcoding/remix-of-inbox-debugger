@@ -2,8 +2,8 @@
 // Reachable only at /admin/netflix-test. Not linked from user-facing UI.
 // Safe to delete along with `netflix-automation/` folder + edge function.
 import { useEffect, useState, useCallback } from "react";
-import { supabase } from "@/integrations/supabase/client";
-import { sessionGet } from "@/lib/session";
+import { supabase } from "../integrations/supabase/client";
+import { sessionGet } from "../lib/session";
 
 type Account = {
   label: string;
