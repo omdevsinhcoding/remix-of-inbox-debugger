@@ -80,6 +80,36 @@ function mask(email: string) {
   return `${u.slice(0, 2)}•••@${d || ""}`;
 }
 
+function htmlText(input: string) {
+  return input
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractNetflixMessage(html: string) {
+  const jsonMessage = html.match(/"(?:errorMessage|message|uiMessage)"\s*:\s*"([^"]{4,260})"/i)?.[1];
+  if (jsonMessage) return jsonMessage.replace(/\\u002F/g, "/").replace(/\\n/g, " ");
+  const classMessage = html.match(/class="[^"]*(?:ui-message-contents|error|message)[^"]*"[^>]*>([\s\S]{4,500}?)<\//i)?.[1];
+  if (classMessage) return htmlText(classMessage).slice(0, 260);
+  return "";
+}
+
+function inferNetflixLoginState(html: string, url: string) {
+  const text = htmlText(html).toLowerCase();
+  const hasPasswordField = /name="password"|id="id_password"|type="password"/i.test(html);
+  const hasCodeField = /name="(?:code|otp|pin)"|enter (?:this|the) code|verification code|sign[\s-]?in code/i.test(html) || /code/.test(url);
+  const asksPassword = hasPasswordField || /enter your password|password is required|sign in with password/i.test(text);
+  const asksOtp = hasCodeField || /we sent (?:a )?code|check your email|enter the code/i.test(text);
+  if (asksOtp) return "otp_challenge";
+  if (asksPassword) return "password_required";
+  return "unknown";
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return new Response("method not allowed", { status: 405, headers: corsHeaders });
@@ -142,7 +172,13 @@ Deno.serve(async (req) => {
         if (!acc) throw new Error(`account "${chosenLabel}" not found in email_accounts`);
         const filter = Array.isArray(acc.recipientFilters) ? acc.recipientFilters.find(Boolean) : null;
         const email: string = (filter && String(filter).trim()) || String(acc.user).trim();
-        log("BOOT", `Profile "${profile.name}" • Account "${chosenLabel}" • Email ${mask(email)}`);
+        const sameMailboxLabels = accounts
+          .filter((a) => String(a.user || "").trim().toLowerCase() === String(acc.user || "").trim().toLowerCase())
+          .map((a) => String(a.label || "").trim())
+          .filter(Boolean);
+        const pollLabels = Array.from(new Set([chosenLabel, ...sameMailboxLabels]));
+        log("BOOT", `Profile "${profile.name}" • Account "${chosenLabel}" • Email ${email}`);
+        if (pollLabels.length > 1) log("BOOT", `Will poll same IMAP mailbox labels too: ${pollLabels.join(", ")}`);
 
         // ── Netflix flow ─────────────────────────────────────────────────
         const jar = new Map<string, string>();
@@ -174,11 +210,15 @@ Deno.serve(async (req) => {
           },
         }, jar);
         const subBody = await sub.text().catch(() => "");
-        const errMatch = subBody.match(/"errorMessage"\s*:\s*"([^"]{4,200})"/)
-                      || subBody.match(/class="ui-message-contents"[^>]*>([^<]{4,200})</);
+        const netflixMessage = extractNetflixMessage(subBody);
+        const loginState = inferNetflixLoginState(subBody, sub.url || "");
         log("STEP-2", `status=${sub.status}  finalUrl=${sub.url}  cookies=${jar.size}  bytes=${subBody.length}`);
-        if (errMatch) log("STEP-2", `Netflix said: ${errMatch[1].slice(0, 200)}`);
+        log("STEP-2", `Netflix login state detected: ${loginState}`);
+        if (netflixMessage) log("STEP-2", `Netflix said: ${netflixMessage.slice(0, 220)}`);
         else log("STEP-2", `body preview: ${subBody.slice(0, 250).replace(/\s+/g, " ")}`);
+        if (loginState === "password_required") {
+          throw new Error("Netflix did not trigger an email OTP. It returned the password step for this email, so no OTP will arrive in IMAP.");
+        }
 
         // Kick off IMAP sync so the OTP mail lands in cached_emails ASAP.
         log("STEP-3", "Triggering IMAP sync via fetch-emails…");
@@ -186,10 +226,15 @@ Deno.serve(async (req) => {
           const syncRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/fetch-emails`, {
             method: "POST",
             headers: { "Content-Type": "application/json", "x-cron-secret": Deno.env.get("CRON_SHARED_SECRET") || "" },
-            body: JSON.stringify({ mode: "sync", source: "netflix-test-login" }),
+            body: JSON.stringify({ mode: "sync", source: "netflix-test-login", accountLabels: pollLabels }),
           });
-          log("STEP-3", `IMAP sync trigger → status=${syncRes.status}`);
-          await syncRes.body?.cancel();
+          const syncText = await syncRes.text().catch(() => "");
+          let syncSummary = syncText.slice(0, 350).replace(/\s+/g, " ");
+          try {
+            const parsed = JSON.parse(syncText);
+            syncSummary = `success=${parsed.success} totalFetched=${parsed.totalFetched ?? 0} inserted=${parsed.inserted ?? 0} warning=${parsed.warning || "-"}`;
+          } catch { /* keep text summary */ }
+          log("STEP-3", `IMAP sync trigger → status=${syncRes.status} ${syncSummary}`);
         } catch (e) {
           log("STEP-3", `sync trigger failed (continuing anyway): ${e instanceof Error ? e.message : String(e)}`);
         }
@@ -206,25 +251,37 @@ Deno.serve(async (req) => {
             fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/fetch-emails`, {
               method: "POST",
               headers: { "Content-Type": "application/json", "x-cron-secret": Deno.env.get("CRON_SHARED_SECRET") || "" },
-              body: JSON.stringify({ mode: "sync", source: "netflix-test-login-tick" }),
-            }).then((r) => r.body?.cancel()).catch(() => {});
+              body: JSON.stringify({ mode: "sync", source: "netflix-test-login-tick", accountLabels: pollLabels }),
+            }).then((r) => r.text()).then((txt) => {
+              try {
+                const parsed = JSON.parse(txt);
+                log("STEP-3", `background IMAP tick → success=${parsed.success} totalFetched=${parsed.totalFetched ?? 0} inserted=${parsed.inserted ?? 0}`);
+              } catch { /* ignore */ }
+            }).catch(() => {});
           }
-          const { data: rows } = await supabase
+          const { data: rows, error: pollErr } = await supabase
             .from("cached_emails")
-            .select("id, subject, preview, html, from, date")
-            .eq("account_label", chosenLabel)
+            .select("id, subject, preview, html, from_address, to_address, otp, date")
+            .in("account_label", pollLabels)
             .gt("date", triggerTs)
             .order("date", { ascending: false })
             .limit(10);
+          if (pollErr) {
+            log("STEP-3", `DB poll error: ${pollErr.message}`);
+            await new Promise((r) => setTimeout(r, 2000));
+            continue;
+          }
           if (rows && rows.length > 0 && ticks % 3 === 1) {
-            log("STEP-3", `tick #${ticks} → ${rows.length} row(s) since trigger. Latest: "${(rows[0].subject || "").slice(0, 80)}" from ${String(rows[0].from || "").slice(0, 60)}`);
+            log("STEP-3", `tick #${ticks} → ${rows.length} row(s) since trigger. Latest: "${(rows[0].subject || "").slice(0, 80)}" from ${String(rows[0].from_address || "").slice(0, 80)} to ${String(rows[0].to_address || "").slice(0, 80)}`);
+          } else if (ticks % 3 === 1) {
+            log("STEP-3", `tick #${ticks} → no cached Netflix mail newer than trigger yet in labels: ${pollLabels.join(", ")}`);
           }
           for (const row of rows || []) {
-            const from = String(row.from || "").toLowerCase();
+            const from = String(row.from_address || "").toLowerCase();
             if (!from.includes("netflix")) continue;
             const body = `${row.subject || ""} ${row.preview || ""} ${row.html || ""}`;
-            const m = body.match(/\b(\d{4}|\d{6}|\d{8})\b/);
-            if (m) {
+            const m = row.otp ? [row.otp, row.otp] : body.match(/\b(\d{4}|\d{6}|\d{8})\b/);
+            if (m?.[1]) {
               code = m[1]; matchedId = row.id;
               log("STEP-3", `OTP found  id=${row.id}  subject="${(row.subject || "").slice(0, 80)}"  code=${code}`);
               break;
