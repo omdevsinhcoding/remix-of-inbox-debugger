@@ -158,7 +158,7 @@ Deno.serve(async (req) => {
           throw new Error(`Netflix did not return authURL. First 300 chars: ${snippet}`);
         }
 
-        log("STEP-2", `POST /login  userLoginId=${mask(email)}`);
+        log("STEP-2", `POST /login  userLoginId="${email}"  (full email being submitted to Netflix)`);
         const form = new URLSearchParams({
           userLoginId: email, password: "", rememberMe: "true",
           flow: "websiteSignUp", mode: "login", action: "loginAction",
@@ -167,31 +167,74 @@ Deno.serve(async (req) => {
         });
         const sub = await nfFetch(`${NF_BASE}/login`, {
           method: "POST", body: form,
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Referer": loginPage.url || `${NF_BASE}/login`,
+            "Origin": NF_BASE,
+          },
         }, jar);
-        log("STEP-2", `status=${sub.status}  location=${sub.headers.get("location") || "-"}  cookies=${jar.size}`);
+        const subBody = await sub.text().catch(() => "");
+        const errMatch = subBody.match(/"errorMessage"\s*:\s*"([^"]{4,200})"/)
+                      || subBody.match(/class="ui-message-contents"[^>]*>([^<]{4,200})</);
+        log("STEP-2", `status=${sub.status}  finalUrl=${sub.url}  cookies=${jar.size}  bytes=${subBody.length}`);
+        if (errMatch) log("STEP-2", `Netflix said: ${errMatch[1].slice(0, 200)}`);
+        else log("STEP-2", `body preview: ${subBody.slice(0, 250).replace(/\s+/g, " ")}`);
 
-        log("STEP-3", `Polling cached_emails for OTP  label="${chosenLabel}"  since=${triggerTs}`);
+        // Kick off IMAP sync so the OTP mail lands in cached_emails ASAP.
+        log("STEP-3", "Triggering IMAP sync via fetch-emails…");
+        try {
+          const syncRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/fetch-emails`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-cron-secret": Deno.env.get("CRON_SHARED_SECRET") || "" },
+            body: JSON.stringify({ mode: "sync", source: "netflix-test-login" }),
+          });
+          log("STEP-3", `IMAP sync trigger → status=${syncRes.status}`);
+          await syncRes.body?.cancel();
+        } catch (e) {
+          log("STEP-3", `sync trigger failed (continuing anyway): ${e instanceof Error ? e.message : String(e)}`);
+        }
+
+        log("STEP-3", `Polling latest Netflix mail  label="${chosenLabel}"  since=${triggerTs}`);
         let code = "";
+        let matchedId = "";
         const pollStart = Date.now();
+        let ticks = 0;
         while (Date.now() - pollStart < 90_000) {
+          ticks++;
+          // Re-trigger sync every ~10s so new mail is pulled from IMAP.
+          if (ticks > 1 && ticks % 5 === 0) {
+            fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/fetch-emails`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "x-cron-secret": Deno.env.get("CRON_SHARED_SECRET") || "" },
+              body: JSON.stringify({ mode: "sync", source: "netflix-test-login-tick" }),
+            }).then((r) => r.body?.cancel()).catch(() => {});
+          }
           const { data: rows } = await supabase
             .from("cached_emails")
-            .select("id, subject, preview, from, date")
+            .select("id, subject, preview, html, from, date")
             .eq("account_label", chosenLabel)
             .gt("date", triggerTs)
             .order("date", { ascending: false })
-            .limit(5);
+            .limit(10);
+          if (rows && rows.length > 0 && ticks % 3 === 1) {
+            log("STEP-3", `tick #${ticks} → ${rows.length} row(s) since trigger. Latest: "${(rows[0].subject || "").slice(0, 80)}" from ${String(rows[0].from || "").slice(0, 60)}`);
+          }
           for (const row of rows || []) {
             const from = String(row.from || "").toLowerCase();
             if (!from.includes("netflix")) continue;
-            const m = `${row.subject || ""} ${row.preview || ""}`.match(/\b(\d{4}|\d{6}|\d{8})\b/);
-            if (m) { code = m[1]; log("STEP-3", `OTP found  id=${row.id}  code=${code}`); break; }
+            const body = `${row.subject || ""} ${row.preview || ""} ${row.html || ""}`;
+            const m = body.match(/\b(\d{4}|\d{6}|\d{8})\b/);
+            if (m) {
+              code = m[1]; matchedId = row.id;
+              log("STEP-3", `OTP found  id=${row.id}  subject="${(row.subject || "").slice(0, 80)}"  code=${code}`);
+              break;
+            }
           }
           if (code) break;
           await new Promise((r) => setTimeout(r, 2000));
         }
-        if (!code) throw new Error("OTP not received within 90s");
+        if (!code) throw new Error(`OTP not received within 90s (polled ${ticks} times, from label="${chosenLabel}")`);
+        log("STEP-3", `Using code ${code} from email ${matchedId}`);
 
         log("STEP-4", `POST OTP code=${code}`);
         const otpForm = new URLSearchParams({ code, authURL, action: "loginAction" });
