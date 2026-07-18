@@ -1938,6 +1938,7 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
   ) : null;
 
 
+  if (!visible) return null;
   return (
     <>
       <button
