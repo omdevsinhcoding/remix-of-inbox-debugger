@@ -170,7 +170,6 @@ export type Database = {
           session_limit: number | null
           sort_order: number | null
           totp_secret: string | null
-          tv_override: string | null
           username: string | null
         }
         Insert: {
@@ -189,7 +188,6 @@ export type Database = {
           session_limit?: number | null
           sort_order?: number | null
           totp_secret?: string | null
-          tv_override?: string | null
           username?: string | null
         }
         Update: {
@@ -208,7 +206,6 @@ export type Database = {
           session_limit?: number | null
           sort_order?: number | null
           totp_secret?: string | null
-          tv_override?: string | null
           username?: string | null
         }
         Relationships: []
@@ -573,45 +570,6 @@ export type Database = {
           viewport_h?: number | null
           viewport_w?: number | null
           zip?: string | null
-        }
-        Relationships: []
-      }
-      netflix_sessions: {
-        Row: {
-          account_label: string | null
-          cookies_json: string | null
-          created_at: string
-          email: string
-          id: string
-          last_error: string | null
-          last_login_at: string | null
-          logs: Json
-          status: string
-          updated_at: string
-        }
-        Insert: {
-          account_label?: string | null
-          cookies_json?: string | null
-          created_at?: string
-          email: string
-          id?: string
-          last_error?: string | null
-          last_login_at?: string | null
-          logs?: Json
-          status?: string
-          updated_at?: string
-        }
-        Update: {
-          account_label?: string | null
-          cookies_json?: string | null
-          created_at?: string
-          email?: string
-          id?: string
-          last_error?: string | null
-          last_login_at?: string | null
-          logs?: Json
-          status?: string
-          updated_at?: string
         }
         Relationships: []
       }

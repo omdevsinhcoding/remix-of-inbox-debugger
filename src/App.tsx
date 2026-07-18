@@ -1,6 +1,6 @@
 import React, { useState, useEffect, createContext, useContext, useCallback, useRef, useMemo, Suspense, lazy } from "react";
 import { createPortal } from "react-dom";
-import { Mail, RefreshCw, ShieldCheck, Shield, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, Globe, Edit, Info, UserCircle, Search, ChevronRight, Bell, Send, MessageSquare, Image as ImageIcon, ExternalLink, AlertTriangle, Sparkles, Megaphone, Wrench, CreditCard, Tag, ChevronDown, ChevronUp, HardDrive, Upload, Zap, BookOpen, GraduationCap, Film, PlayCircle, Pin, MapPin, MapPinOff, Tv, Loader2 } from "lucide-react";
+import { Mail, RefreshCw, ShieldCheck, Shield, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, Globe, Edit, Info, UserCircle, Search, ChevronRight, Bell, Send, MessageSquare, Image as ImageIcon, ExternalLink, AlertTriangle, Sparkles, Megaphone, Wrench, CreditCard, Tag, ChevronDown, ChevronUp, HardDrive, Upload, Zap, BookOpen, GraduationCap, Film, PlayCircle, Pin, MapPin, MapPinOff, Tv } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import NetflixHouseholdVerificationGuide from "./pages/NetflixHouseholdVerificationGuide";
@@ -1882,651 +1882,66 @@ function NotificationBell() {
   );
 }
 
-// --- Netflix Test Login header button (visible only for the "Test" profile) ---
-// Streams live per-step logs from the netflix-test-login edge function
-// via SSE. Temporary QA tool, not production-facing.
-function NetflixTestButton({ profileId }: { profileId: string }) {
-  const [open, setOpen] = useState(false);
-  const [running, setRunning] = useState(false);
-  const [logs, setLogs] = useState<Array<{ step: string; msg: string; ts: string }>>([]);
-  const [outcome, setOutcome] = useState<"idle" | "done" | "error">("idle");
-  const [outcomeMsg, setOutcomeMsg] = useState("");
-  const abortRef = useRef<AbortController | null>(null);
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [logs]);
-
-  const start = useCallback(async () => {
-    setOpen(true);
-    setLogs([]);
-    setOutcome("idle");
-    setOutcomeMsg("");
-    setRunning(true);
-    const controller = new AbortController();
-    abortRef.current = controller;
-    try {
-      const base = (import.meta.env.VITE_SUPABASE_URL as string) || "https://jsqchutnfdeljajkxmly.supabase.co";
-      const token = getSessionToken() || "";
-      const res = await fetch(`${base}/functions/v1/netflix-test-login`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Session-Token": token,
-          "apikey": (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string) || "",
-          "Accept": "text/event-stream",
-        },
-        body: JSON.stringify({ profile_id: profileId }),
-        signal: controller.signal,
-      });
-      if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
-      const reader = res.body.getReader();
-      const dec = new TextDecoder();
-      let buf = "";
-      // Parse SSE frames: `event: X\ndata: {...}\n\n`
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, { stream: true });
-        let idx;
-        while ((idx = buf.indexOf("\n\n")) >= 0) {
-          const frame = buf.slice(0, idx);
-          buf = buf.slice(idx + 2);
-          const evLine = frame.split("\n").find((l) => l.startsWith("event:")) || "";
-          const dataLine = frame.split("\n").find((l) => l.startsWith("data:")) || "";
-          const event = evLine.slice(6).trim();
-          const dataStr = dataLine.slice(5).trim();
-          if (!dataStr) continue;
-          try {
-            const parsed = JSON.parse(dataStr);
-            if (event === "log") setLogs((l) => [...l, parsed]);
-            else if (event === "done") { setOutcome("done"); setOutcomeMsg(`Session stored (${parsed.cookies} cookies)`); }
-            else if (event === "error") { setOutcome("error"); setOutcomeMsg(parsed.error || "unknown error"); }
-          } catch { /* ignore malformed frame */ }
-        }
-      }
-    } catch (e: any) {
-      if (e?.name !== "AbortError") {
-        setOutcome("error");
-        setOutcomeMsg(e?.message || "network error");
-      }
-    } finally {
-      setRunning(false);
-      abortRef.current = null;
-    }
-  }, [profileId]);
-
-  const close = () => {
-    abortRef.current?.abort();
-    setOpen(false);
-  };
-
-  return (
-    <>
-      <button
-        type="button"
-        onClick={start}
-        disabled={running}
-        className="flex items-center gap-1.5 h-8 sm:h-9 px-3 rounded-full bg-gradient-to-r from-red-600 to-red-700 text-white text-[11px] sm:text-xs font-bold shadow-sm hover:from-red-700 hover:to-red-800 active:scale-95 disabled:opacity-60 transition"
-        title="Start Netflix test login"
-      >
-        <PlayCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-        <span className="hidden xs:inline">Start Test</span>
-        <span className="xs:hidden">Test</span>
-      </button>
-
-      {open && createPortal(
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-6 bg-black/70 backdrop-blur-sm">
-          <div className="w-full max-w-2xl bg-slate-950 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="flex items-center justify-between px-4 sm:px-5 py-3 border-b border-slate-800 bg-gradient-to-r from-slate-900 to-slate-950">
-              <div className="flex items-center gap-2 min-w-0">
-                <span className={`w-2 h-2 rounded-full ${running ? "bg-amber-400 animate-pulse" : outcome === "done" ? "bg-emerald-400" : outcome === "error" ? "bg-red-500" : "bg-slate-500"}`} />
-                <h3 className="text-sm sm:text-base font-bold text-white truncate">Netflix Test Login — Live Logs</h3>
-              </div>
-              <button onClick={close} className="text-slate-400 hover:text-white text-xl leading-none px-2">×</button>
-            </div>
-            <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 sm:p-4 font-mono text-[11px] sm:text-xs bg-black text-slate-200 space-y-1">
-              {logs.length === 0 && running && <div className="text-slate-500">Booting…</div>}
-              {logs.map((l, i) => (
-                <div key={i} className="flex gap-2">
-                  <span className="text-slate-600 shrink-0">{l.ts.slice(11, 19)}</span>
-                  <span className="text-sky-400 shrink-0 font-bold">[{l.step}]</span>
-                  <span className="text-slate-200 break-all">{l.msg}</span>
-                </div>
-              ))}
-              {outcome === "done" && (
-                <div className="mt-3 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-emerald-300 font-semibold">✅ {outcomeMsg}</div>
-              )}
-              {outcome === "error" && (
-                <div className="mt-3 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-red-300 font-semibold">❌ {outcomeMsg}</div>
-              )}
-            </div>
-            <div className="px-4 py-2.5 border-t border-slate-800 bg-slate-900/50 flex items-center justify-between">
-              <span className="text-[11px] text-slate-500">{running ? "Running…" : outcome === "idle" ? "Idle" : "Finished"}</span>
-              <div className="flex gap-2">
-                {!running && (
-                  <button onClick={start} className="text-xs px-3 py-1.5 rounded-full bg-slate-800 text-slate-100 hover:bg-slate-700 font-semibold">Run again</button>
-                )}
-                <button onClick={close} className="text-xs px-3 py-1.5 rounded-full bg-red-600 text-white hover:bg-red-700 font-semibold">Close</button>
-              </div>
-            </div>
-          </div>
-        </div>,
-        document.body,
-      )}
-    </>
-  );
-}
-
-// --- Netflix Credentials manager (Admin panel → TV Auto-Login section) ---
-// Stores plaintext Netflix passwords keyed by email in app_settings key
-// `netflix_credentials`. Used by the netflix-test-login edge function to
-// perform password-based login when Netflix refuses OTP for that email.
-function NetflixCredentialsSection({ emailAccounts, primaryImapUser }: {
-  emailAccounts: Array<{ label?: string; user?: string; recipientFilters?: string[] }>;
-  primaryImapUser?: string;
-}) {
-  const [creds, setCreds] = useState<Record<string, string>>({});
-  const [reveal, setReveal] = useState<Record<string, boolean>>({});
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [newEmail, setNewEmail] = useState("");
-  const [newPass, setNewPass] = useState("");
-
-  const knownEmails = useMemo(() => {
-    const set = new Set<string>();
-    if (primaryImapUser && primaryImapUser.trim()) set.add(primaryImapUser.trim().toLowerCase());
-    for (const acc of emailAccounts || []) {
-      const rf = Array.isArray(acc.recipientFilters) ? acc.recipientFilters : [];
-      for (const r of rf) if (typeof r === "string" && r.trim()) set.add(r.trim().toLowerCase());
-      if (acc.user && String(acc.user).trim()) set.add(String(acc.user).trim().toLowerCase());
-    }
-    return set;
-  }, [emailAccounts, primaryImapUser]);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const res: any = await apiCall("manage-app", { action: "get_settings", key: "netflix_credentials" });
-        const v = res?.value;
-        if (v && typeof v === "object" && !Array.isArray(v)) {
-          const norm: Record<string, string> = {};
-          for (const [k, val] of Object.entries(v)) norm[String(k).toLowerCase()] = String(val || "");
-          setCreds(norm);
-        }
-      } catch { /* ignore */ } finally { setLoading(false); }
-    })();
-  }, []);
-
-  const rows = useMemo(() => {
-    const merged = new Set<string>([...knownEmails, ...Object.keys(creds)]);
-    return Array.from(merged).sort();
-  }, [knownEmails, creds]);
-
-  const save = useCallback(async () => {
-    setSaving(true);
-    try {
-      const clean: Record<string, string> = {};
-      for (const [k, v] of Object.entries(creds)) {
-        const email = k.trim().toLowerCase();
-        const pw = String(v || "");
-        if (email && pw) clean[email] = pw;
-      }
-      await apiCall("manage-app", { action: "set_settings", key: "netflix_credentials", value: clean });
-      notify.success("Netflix credentials saved");
-    } catch (e: any) {
-      notify.error(e?.message || "Save failed");
-    } finally { setSaving(false); }
-  }, [creds]);
-
-  const addRow = () => {
-    const email = newEmail.trim().toLowerCase();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { notify.error("Enter a valid email"); return; }
-    setCreds((prev) => ({ ...prev, [email]: newPass }));
-    setNewEmail(""); setNewPass("");
-  };
-
-  const removeRow = (email: string) => {
-    setCreds((prev) => {
-      const next = { ...prev };
-      delete next[email];
-      return next;
-    });
-  };
-
-  const filledCount = useMemo(
-    () => Object.values(creds).filter((v) => String(v || "").length > 0).length,
-    [creds],
-  );
-
+// --- TV Auto-Login header button + Coming Soon popup ---
+function TvAutoLoginButton() {
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
     window.addEventListener("keydown", onKey);
-    const prevOverflow = document.body.style.overflow;
+    const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       window.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prevOverflow;
+      document.body.style.overflow = prev;
     };
   }, [open]);
 
-  const totalKnown = rows.length;
-
-  return (
-    <>
-      {/* Trigger card — sits inside the TV Auto-Login tab */}
-      <section className="relative overflow-hidden rounded-2xl border border-slate-200 shadow-sm bg-gradient-to-br from-[#141414] via-[#1a0608] to-[#0a0a0a] text-white p-5 sm:p-6">
-        <div className="pointer-events-none absolute -top-20 -right-16 w-64 h-64 rounded-full bg-[#e50914]/25 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-24 -left-16 w-72 h-72 rounded-full bg-[#e50914]/10 blur-3xl" />
-
-        <div className="relative flex items-start gap-4 flex-wrap">
-          <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-gradient-to-br from-[#e50914] to-[#8b0610] shadow-lg shadow-[#e50914]/30 shrink-0">
-            <KeyRound className="w-6 h-6 text-white" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="text-[10px] uppercase tracking-[0.2em] text-[#e50914] font-bold">Netflix • Vault</div>
-            <h3 className="mt-0.5 text-lg sm:text-xl font-black tracking-tight">Netflix Login Credentials</h3>
-            <p className="mt-1.5 text-[12.5px] text-white/60 leading-relaxed max-w-lg">
-              Used by TV Auto-Login when Netflix asks for a password instead of an OTP. Stored securely, keyed by login email, updates apply on the next Start Test.
-            </p>
-            <div className="mt-3 flex items-center gap-2 flex-wrap">
-              <span className="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-full bg-white/[0.06] border border-white/10 text-white/80">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                {filledCount} saved
-              </span>
-              <span className="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-full bg-white/[0.06] border border-white/10 text-white/60">
-                {totalKnown} accounts
-              </span>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => setOpen(true)}
-            className="shrink-0 inline-flex items-center gap-2 h-11 px-5 rounded-xl font-bold text-sm bg-gradient-to-r from-[#e50914] to-[#b0060f] text-white shadow-lg shadow-[#e50914]/30 hover:brightness-110 active:scale-[0.98] transition"
-          >
-            <KeyRound className="w-4 h-4" />
-            Manage passwords
-          </button>
-        </div>
-      </section>
-
-      {/* Attractive Netflix-styled modal */}
-      {open && createPortal(
-        <div
-          className="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm animate-in fade-in duration-200 flex items-center justify-center p-4"
-          onClick={() => setOpen(false)}
-          role="dialog"
-          aria-modal="true"
-          aria-label="Manage Netflix credentials"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="relative w-full max-w-2xl max-h-[92svh] overflow-hidden rounded-3xl shadow-[0_25px_80px_-15px_rgba(229,9,20,0.5)] animate-in zoom-in-95 slide-in-from-bottom-4 duration-200 bg-gradient-to-b from-[#141414] via-[#1a0608] to-[#0a0a0a] border border-white/10"
-          >
-            <div className="pointer-events-none absolute -top-28 -right-16 w-72 h-72 rounded-full bg-[#e50914]/25 blur-3xl" />
-            <div className="pointer-events-none absolute -bottom-32 -left-16 w-80 h-80 rounded-full bg-[#e50914]/10 blur-3xl" />
-
-            <button
-              onClick={() => setOpen(false)}
-              aria-label="Close"
-              className="absolute top-3 right-3 z-10 w-9 h-9 rounded-full flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition"
-            >
-              <X className="w-4 h-4" />
-            </button>
-
-            <div className="relative p-6 sm:p-7 pb-4">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-gradient-to-br from-[#e50914] to-[#8b0610] shadow-lg shadow-[#e50914]/30">
-                  <KeyRound className="w-6 h-6 text-white" />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-[10px] uppercase tracking-[0.2em] text-[#e50914] font-bold">Netflix • Vault</div>
-                  <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">Manage passwords</h2>
-                </div>
-              </div>
-              <p className="mt-3 text-[12px] text-white/55 leading-relaxed">
-                Passwords are used only when Netflix skips OTP for an account. Tap Show to reveal, edit inline, then Save.
-              </p>
-            </div>
-
-            <div className="relative px-6 sm:px-7 pb-6 max-h-[62svh] overflow-y-auto">
-              {loading ? (
-                <div className="py-8 text-center text-white/60 text-sm">Loading…</div>
-              ) : (
-                <>
-                  <div className="space-y-2">
-                    {rows.length === 0 && (
-                      <div className="text-xs text-white/40 italic px-1">No email accounts configured yet. Add one below.</div>
-                    )}
-                    {rows.map((email) => {
-                      const val = creds[email] || "";
-                      const shown = reveal[email];
-                      const isKnown = knownEmails.has(email);
-                      const isFilled = val.length > 0;
-                      return (
-                        <div
-                          key={email}
-                          className={`group flex items-center gap-2 rounded-xl p-2.5 border transition ${
-                            isFilled
-                              ? "bg-white/[0.04] border-white/10 hover:border-[#e50914]/40"
-                              : "bg-white/[0.02] border-white/5 hover:border-white/15"
-                          }`}
-                        >
-                          <div className="flex-1 min-w-0">
-                            <div className="text-[12.5px] font-mono text-white truncate">{email}</div>
-                            <div className="flex items-center gap-1.5 mt-0.5">
-                              {isKnown ? (
-                                <span className="text-[9px] font-bold text-emerald-300 uppercase tracking-wider">IMAP</span>
-                              ) : (
-                                <span className="text-[9px] font-bold text-amber-300 uppercase tracking-wider">Custom</span>
-                              )}
-                              {isFilled && <span className="text-[9px] font-bold text-white/40 uppercase tracking-wider">• Saved</span>}
-                            </div>
-                          </div>
-                          <input
-                            type={shown ? "text" : "password"}
-                            value={val}
-                            onChange={(e) => setCreds((prev) => ({ ...prev, [email]: e.target.value }))}
-                            placeholder="Netflix password"
-                            className="w-36 sm:w-48 px-3 py-2 rounded-lg bg-black/40 border border-white/10 text-[12.5px] font-mono text-white placeholder-white/25 outline-none focus:border-[#e50914]/60 focus:bg-black/60 transition"
-                            autoComplete="off"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setReveal((p) => ({ ...p, [email]: !p[email] }))}
-                            className="text-[11px] px-2.5 py-2 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] font-semibold text-white/80 transition"
-                            aria-label={shown ? "Hide password" : "Show password"}
-                          >
-                            {shown ? "Hide" : "Show"}
-                          </button>
-                          {!isKnown && (
-                            <button
-                              type="button"
-                              onClick={() => removeRow(email)}
-                              className="text-[11px] px-2.5 py-2 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 font-semibold text-rose-300 transition"
-                            >
-                              Remove
-                            </button>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  <div className="mt-5 pt-4 border-t border-dashed border-white/10">
-                    <div className="text-[10px] font-bold text-white/50 uppercase tracking-[0.2em] mb-2">Add custom Netflix login</div>
-                    <div className="flex flex-col sm:flex-row gap-2">
-                      <input
-                        value={newEmail}
-                        onChange={(e) => setNewEmail(e.target.value)}
-                        placeholder="netflix-login@example.com"
-                        className="flex-1 px-3 py-2.5 rounded-lg bg-black/40 border border-white/10 text-[13px] font-mono text-white placeholder-white/25 outline-none focus:border-[#e50914]/60 transition"
-                        autoComplete="off"
-                      />
-                      <input
-                        value={newPass}
-                        onChange={(e) => setNewPass(e.target.value)}
-                        placeholder="password"
-                        className="flex-1 px-3 py-2.5 rounded-lg bg-black/40 border border-white/10 text-[13px] font-mono text-white placeholder-white/25 outline-none focus:border-[#e50914]/60 transition"
-                        autoComplete="off"
-                      />
-                      <button
-                        type="button"
-                        onClick={addRow}
-                        className="px-4 py-2.5 rounded-lg bg-white/[0.08] hover:bg-white/[0.15] text-white text-sm font-bold border border-white/10 transition"
-                      >
-                        + Add
-                      </button>
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-
-            <div className="relative flex items-center justify-between gap-3 px-6 sm:px-7 py-4 border-t border-white/10 bg-black/30">
-              <div className="flex items-center gap-1.5 text-[10.5px] text-white/40">
-                <ShieldCheck className="w-3 h-3" />
-                <span>Admin-only • Encrypted at rest</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setOpen(false)}
-                  className="px-4 h-10 rounded-xl text-sm font-bold text-white/70 hover:text-white hover:bg-white/[0.06] transition"
-                >
-                  Close
-                </button>
-                <button
-                  type="button"
-                  disabled={saving}
-                  onClick={save}
-                  className="px-5 h-10 rounded-xl bg-gradient-to-r from-[#e50914] to-[#b0060f] text-white text-sm font-black shadow-lg shadow-[#e50914]/30 hover:brightness-110 active:scale-[0.98] disabled:opacity-50 transition"
-                >
-                  {saving ? "Saving…" : "Save Credentials"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>,
-        document.body,
-      )}
-    </>
-  );
-}
-
-
-// --- TV Auto-Login header button + Coming Soon popup ---
-function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
-  const [open, setOpen] = useState(false);
-  const buttonRef = useRef<HTMLButtonElement | null>(null);
-  const [panelStyle, setPanelStyle] = useState<React.CSSProperties>({});
-
-  const [code, setCode] = useState<string[]>(["", "", "", "", "", "", "", ""]);
-  const [status, setStatus] = useState<"idle" | "verifying" | "pending">("idle");
-  const inputsRef = useRef<Array<HTMLInputElement | null>>([]);
-
-  const placePanel = useCallback(() => {
-    const rect = buttonRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const margin = 12;
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    const isMobile = vw < 640;
-    const width = isMobile ? vw - margin * 2 : Math.min(420, vw - margin * 2);
-    const estHeight = 520;
-    let left: number;
-    let top: number;
-    if (isMobile) {
-      left = margin;
-      top = Math.max(margin, (vh - estHeight) / 2);
-    } else {
-      left = Math.min(Math.max(margin, rect.right - width), vw - width - margin);
-      top = Math.min(rect.bottom + 10, Math.max(margin, vh - margin - estHeight));
-    }
-    setPanelStyle({ left, top, width, maxHeight: `calc(100svh - ${margin * 2}px)` });
-  }, []);
-
-  useEffect(() => {
-    if (!open) return;
-    placePanel();
-    setCode(["", "", "", "", "", "", "", ""]);
-    setStatus("idle");
-    const t = setTimeout(() => inputsRef.current[0]?.focus(), 60);
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
-    const onReposition = () => placePanel();
-    window.addEventListener("keydown", onKey);
-    window.addEventListener("resize", onReposition);
-    window.addEventListener("scroll", onReposition, true);
-    return () => {
-      clearTimeout(t);
-      window.removeEventListener("keydown", onKey);
-      window.removeEventListener("resize", onReposition);
-      window.removeEventListener("scroll", onReposition, true);
-    };
-  }, [open, placePanel]);
-
-  const setDigit = (i: number, v: string) => {
-    const d = v.replace(/\D/g, "").slice(-1);
-    setCode((prev) => {
-      const next = [...prev];
-      next[i] = d;
-      return next;
-    });
-    if (d && i < 7) inputsRef.current[i + 1]?.focus();
-  };
-
-  const onKeyDown = (i: number, e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Backspace" && !code[i] && i > 0) {
-      inputsRef.current[i - 1]?.focus();
-    } else if (e.key === "ArrowLeft" && i > 0) {
-      inputsRef.current[i - 1]?.focus();
-    } else if (e.key === "ArrowRight" && i < 7) {
-      inputsRef.current[i + 1]?.focus();
-    } else if (e.key === "Enter") {
-      submit();
-    }
-  };
-
-  const onPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
-    const text = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 8);
-    if (!text) return;
-    e.preventDefault();
-    const arr = ["", "", "", "", "", "", "", ""];
-    for (let i = 0; i < text.length; i++) arr[i] = text[i];
-    setCode(arr);
-    const focusIdx = Math.min(text.length, 7);
-    inputsRef.current[focusIdx]?.focus();
-  };
-
-  const full = code.join("");
-  const isComplete = full.length === 8;
-
-  const submit = () => {
-    if (!isComplete || status !== "idle") return;
-    setStatus("verifying");
-    setTimeout(() => setStatus("pending"), 1400);
-  };
-
   const popup = open ? createPortal(
     <div
-      className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
+      className="fixed inset-0 z-[100] animate-in fade-in duration-150"
       onClick={() => setOpen(false)}
       role="dialog"
       aria-modal="true"
-      aria-label="Enter Netflix TV code"
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        style={panelStyle}
-        className="fixed overflow-y-auto rounded-3xl shadow-[0_25px_80px_-15px_rgba(229,9,20,0.4)] animate-in zoom-in-95 slide-in-from-top-2 duration-200 origin-top-right"
+        className="absolute right-3 sm:right-4 top-[calc(env(safe-area-inset-top)+3.75rem)] w-[min(20rem,calc(100vw-1.5rem))] max-h-[calc(100svh-6rem)] overflow-y-auto rounded-2xl bg-white shadow-2xl border border-slate-200 p-5 animate-in zoom-in-95 slide-in-from-top-2 duration-150 origin-top-right"
       >
-        {/* Netflix-inspired cinematic card */}
-        <div className="relative overflow-hidden rounded-3xl bg-gradient-to-b from-[#141414] via-[#1a0608] to-[#0a0a0a] border border-white/10">
-          {/* Glow accents */}
-          <div className="pointer-events-none absolute -top-24 -right-16 w-64 h-64 rounded-full bg-[#e50914]/25 blur-3xl" />
-          <div className="pointer-events-none absolute -bottom-32 -left-16 w-72 h-72 rounded-full bg-[#e50914]/10 blur-3xl" />
-
-          {/* Close */}
-          <button
-            onClick={() => setOpen(false)}
-            aria-label="Close"
-            className="absolute top-3 right-3 z-10 w-8 h-8 rounded-full flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition"
-          >
-            <X className="w-4 h-4" />
-          </button>
-
-          <div className="relative p-6 sm:p-7">
-            {/* Header */}
-            <div className="flex flex-col items-center text-center">
-              <div className="w-14 h-14 rounded-2xl flex items-center justify-center bg-gradient-to-br from-[#e50914] to-[#8b0610] shadow-lg shadow-[#e50914]/30 mb-3">
-                <Tv className="w-7 h-7 text-white" />
-              </div>
-              <div className="text-[10px] uppercase tracking-[0.2em] text-[#e50914] font-bold">Netflix • TV</div>
-              <h2 className="mt-1 text-xl sm:text-2xl font-black text-white tracking-tight">Enter your code</h2>
-              <p className="mt-1.5 text-[11.5px] sm:text-xs text-white/60 leading-relaxed max-w-[300px]">
-                Enter the code displayed on your TV.
-              </p>
-            </div>
-
-            {/* Code inputs */}
-            <div className="mt-6 flex items-center justify-center gap-1.5 sm:gap-2">
-              {code.map((d, i) => (
-                <React.Fragment key={i}>
-                  {i === 4 && (
-                    <span aria-hidden className="shrink-0 w-2 sm:w-3 h-0.5 rounded-full bg-white/25 mx-0.5" />
-                  )}
-                  <input
-                    ref={(el) => { inputsRef.current[i] = el; }}
-                    value={d}
-                    onChange={(e) => setDigit(i, e.target.value)}
-                    onKeyDown={(e) => onKeyDown(i, e)}
-                    onPaste={onPaste}
-                    onFocus={(e) => e.currentTarget.select()}
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    maxLength={1}
-                    disabled={status !== "idle"}
-                    aria-label={`Digit ${i + 1}`}
-                    className={`aspect-square w-full min-w-0 flex-1 text-center text-lg sm:text-2xl font-black rounded-xl bg-white/[0.04] border-2 text-white caret-[#e50914] outline-none transition-all
-                      ${d ? "border-[#e50914] bg-[#e50914]/10 shadow-[0_0_20px_-4px_rgba(229,9,20,0.6)]" : "border-white/15"}
-                      focus:border-[#e50914] focus:bg-[#e50914]/10 focus:shadow-[0_0_24px_-4px_rgba(229,9,20,0.7)] focus:scale-[1.04]
-                      disabled:opacity-60`}
-                  />
-                </React.Fragment>
-              ))}
-            </div>
-
-
-            {/* Submit */}
-            <button
-              onClick={submit}
-              disabled={!isComplete || status !== "idle"}
-              className={`mt-6 w-full h-11 rounded-xl font-bold text-sm tracking-wide transition-all active:scale-[0.98]
-                ${isComplete && status === "idle"
-                  ? "bg-gradient-to-r from-[#e50914] to-[#b0060f] text-white shadow-lg shadow-[#e50914]/30 hover:shadow-[#e50914]/50 hover:brightness-110"
-                  : "bg-white/[0.06] text-white/40 cursor-not-allowed"}`}
-            >
-              {status === "verifying" ? (
-                <span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Verifying…</span>
-              ) : status === "pending" ? (
-                <span>Waiting for TV</span>
-              ) : (
-                "Continue"
-              )}
-            </button>
-
-            {/* Status / help */}
-            {status === "pending" ? (
-              <div className="mt-4 rounded-xl bg-amber-500/10 border border-amber-500/30 px-3 py-2.5 text-center">
-                <div className="text-[11px] font-bold text-amber-300">Auto-login rolling out soon</div>
-                <div className="text-[10.5px] text-amber-200/80 mt-0.5 leading-relaxed">
-                  We've received your code. Direct TV activation is launching shortly — meanwhile, sign in on your TV using the on-screen prompt.
-                </div>
-              </div>
-            ) : (
-              <div className="mt-4 flex items-center justify-center gap-1.5 text-[10.5px] text-white/40">
-                <ShieldCheck className="w-3 h-3" />
-                <span>Encrypted • One-time code • Never shared</span>
-              </div>
-            )}
+        <div className="flex items-center gap-2 mb-3">
+          <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-rose-100 text-rose-600">
+            <Tv className="w-5 h-5" />
+          </div>
+          <div className="min-w-0">
+            <div className="text-sm font-extrabold text-slate-900 leading-tight">TV Auto-Login</div>
+            <div className="text-[10px] text-slate-500">One-tap Netflix TV activation</div>
           </div>
         </div>
+        <p className="text-xs text-slate-700 leading-relaxed">
+          TV function is a feature that gives you <span className="font-bold">direct login to Netflix on your TV</span> — no typing codes, no waiting.
+        </p>
+        <div className="mt-3 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
+          <div className="text-[10px] uppercase tracking-wide text-slate-500 font-bold">Status</div>
+          <div className="text-xs font-semibold text-slate-900">Coming soon</div>
+          <div className="text-[10px] text-slate-500 mt-1">This feature is currently in development and will roll out shortly.</div>
+        </div>
+        <button
+          onClick={() => setOpen(false)}
+          className="mt-4 w-full h-9 rounded-lg bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 active:scale-[0.98] transition"
+        >
+          Got it
+        </button>
       </div>
     </div>,
     document.body,
   ) : null;
 
 
-  if (!visible) return null;
   return (
     <>
       <button
-        ref={buttonRef}
-        onClick={() => { placePanel(); setOpen(true); }}
+        onClick={() => setOpen(true)}
         className="relative flex items-center justify-center p-2.5 bg-slate-900 text-white rounded-full hover:bg-slate-800 transition-all active:scale-95"
         title="TV Auto-Login"
         aria-label="TV Auto-Login"
@@ -2973,43 +2388,6 @@ function emailHtmlForDisplay(email: Email | null) {
 interface UserData {
   id: string; username: string | null; name: string; role: "admin" | "user"; totpSecret?: string; mustChangePassword?: boolean; assignedAccounts?: string[] | null; profileAvatar?: string | null; profilePrefs?: UserProfilePrefs;
   isFree?: boolean; pinned?: boolean; sortOrder?: number | null; session_limit?: number | null; expiresAt?: string | null; locationRequired?: boolean;
-  tvOverride?: "on" | "off" | null;
-  tvFeatureEnabled?: boolean;
-}
-
-type TvOverrideValue = "inherit" | "on" | "off";
-type TvFeatureEvent =
-  | { type: "tv-global"; enabled: boolean; at: number }
-  | { type: "tv-profile"; userId: string; tvOverride: "on" | "off" | null; at: number };
-
-const TV_FEATURE_CHANNEL = "tv_feature_control_v1";
-
-function normalizeTvOverride(value: unknown): "on" | "off" | null {
-  return value === "on" || value === "off" ? value : null;
-}
-
-function tvOverridePayload(value: TvOverrideValue | "on" | "off" | null): "on" | "off" | "inherit" {
-  return value === "on" || value === "off" ? value : "inherit";
-}
-
-function broadcastTvFeatureEvent(event: TvFeatureEvent) {
-  if (typeof window === "undefined") return;
-  window.dispatchEvent(new CustomEvent<TvFeatureEvent>(TV_FEATURE_CHANNEL, { detail: event }));
-  try {
-    const channel = new BroadcastChannel(TV_FEATURE_CHANNEL);
-    channel.postMessage(event);
-    channel.close();
-  } catch {}
-}
-
-function applyTvOverrideToStoredUser(userId: string, tvOverride: "on" | "off" | null) {
-  try {
-    const raw = sessionGet("user" as any);
-    if (!raw) return;
-    const stored = JSON.parse(raw);
-    if (stored?.id !== userId) return;
-    sessionSet("user" as any, JSON.stringify({ ...stored, tvOverride }));
-  } catch {}
 }
 
 function isLocationRequiredForProfile(profile?: Partial<UserData> | null) {
@@ -3021,20 +2399,6 @@ function isLocationRequiredForProfile(profile?: Partial<UserData> | null) {
   const nested = profile.profilePrefs?.locationRequired;
   if (profile.role === "admin") return explicitOverride && nested === true;
   return !(explicitOverride && nested === false);
-}
-
-// TV Auto-Login visibility: admins always see it (for QA). For regular users:
-// per-profile override wins (`on`/`off`); otherwise fall back to the global
-// `tvFeature.enabled` flag from bootstrap. Default = enabled.
-function isTvVisibleFor(
-  user: Partial<UserData> | null | undefined,
-  tvFeatureEnabled: boolean,
-): boolean {
-  if (!user) return false;
-  if (user.role === "admin" || (user as any)?.impersonated === true) return true;
-  if (user.tvOverride === "on") return true;
-  if (user.tvOverride === "off") return false;
-  return tvFeatureEnabled !== false;
 }
 
 function getUserRefreshAccountLabels(user: Partial<UserData>): string[] | null | undefined {
@@ -5560,11 +4924,11 @@ function RecipientsDrawer({ notification, onClose, onChanged }: { notification: 
 function AdminPanel() {
   usePageHead("Admin Dashboard — Netflix Mail", "Admin control panel for managing users, sessions, notifications, and email accounts.", "/admin/dashboard");
   const ADMIN_ACTIVE_TAB_KEY = "admin_active_tab_v1";
-  const [activeTab, setActiveTab] = useState<"users" | "security" | "emails" | "settings" | "notifications" | "inbox" | "logins" | "allmails" | "deploy" | "tv">(() => {
+  const [activeTab, setActiveTab] = useState<"users" | "security" | "emails" | "settings" | "notifications" | "inbox" | "logins" | "allmails" | "deploy">(() => {
     try {
       const raw = sessionStorage.getItem(ADMIN_ACTIVE_TAB_KEY);
       if (!raw) return "users";
-      const allowed = new Set(["users", "security", "emails", "settings", "notifications", "inbox", "logins", "allmails", "deploy", "tv"]);
+      const allowed = new Set(["users", "security", "emails", "settings", "notifications", "inbox", "logins", "allmails", "deploy"]);
       return allowed.has(raw) ? (raw as any) : "users";
     } catch {
       return "users";
@@ -5618,10 +4982,8 @@ function AdminPanel() {
   const [editSessionLimit, setEditSessionLimit] = useState<string>("");
   const [editExpiresAt, setEditExpiresAt] = useState<string>(""); // "YYYY-MM-DDTHH:mm" for free users only
   const [editAutoDelete, setEditAutoDelete] = useState<boolean>(true);
-  const [editTvOverride, setEditTvOverride] = useState<"inherit" | "on" | "off">("inherit");
   const [newIsFree, setNewIsFree] = useState(false);
   const [newFreeExpiresAt, setNewFreeExpiresAt] = useState<string>(""); // "YYYY-MM-DDTHH:mm"
-  const [newTvOverride, setNewTvOverride] = useState<"inherit" | "on" | "off">("inherit");
   const [dragUserId, setDragUserId] = useState<string | null>(null);
   const [reordering, setReordering] = useState(false);
   const [serverConfig, setServerConfig] = useState({
@@ -5660,35 +5022,7 @@ function AdminPanel() {
   const [ipwhoAlertEnabled, setIpwhoAlertEnabled] = useState(false);
   const [savingIpwho, setSavingIpwho] = useState(false);
   const [locationPolicyRequired, setLocationPolicyRequired] = useState(true);
-  const [tvFeatureEnabled, setTvFeatureEnabled] = useState(true);
-  const [tvSearch, setTvSearch] = useState("");
-  const [savingTvFeature, setSavingTvFeature] = useState(false);
   const [savingLocationPolicy, setSavingLocationPolicy] = useState(false);
-
-  useEffect(() => {
-    const applyEvent = (event: TvFeatureEvent) => {
-      if (!event || typeof event !== "object") return;
-      if (event.type === "tv-global") {
-        setTvFeatureEnabled(event.enabled !== false);
-        return;
-      }
-      if (event.type === "tv-profile") {
-        const next = normalizeTvOverride(event.tvOverride);
-        setUsers(prev => prev.map(u => u.id === event.userId ? { ...u, tvOverride: next } : u));
-      }
-    };
-    const onWindowEvent = (event: Event) => applyEvent((event as CustomEvent<TvFeatureEvent>).detail);
-    window.addEventListener(TV_FEATURE_CHANNEL, onWindowEvent);
-    let channel: BroadcastChannel | null = null;
-    try {
-      channel = new BroadcastChannel(TV_FEATURE_CHANNEL);
-      channel.onmessage = (event) => applyEvent(event.data as TvFeatureEvent);
-    } catch {}
-    return () => {
-      window.removeEventListener(TV_FEATURE_CHANNEL, onWindowEvent);
-      try { channel?.close(); } catch {}
-    };
-  }, []);
   // Maintenance mode
   const [maintenanceEnabled, setMaintenanceEnabled] = useState(false);
   const [maintenanceTitle, setMaintenanceTitle] = useState("");
@@ -5901,7 +5235,6 @@ function AdminPanel() {
         if (Number.isFinite(cs) && cs >= 0) setConcurrentSessionLimit(String(cs));
         setIpwhoAlertEnabled(s.ipwho_alert?.enabled === true);
         setLocationPolicyRequired(s.location_policy?.required !== false);
-        setTvFeatureEnabled(s.tv_feature?.enabled !== false);
         const fac = Number(s.free_avatar_cooldown?.minutes);
         if (Number.isFinite(fac) && fac > 0) setFreeAvatarCooldownMinState(String(Math.floor(fac)));
 
@@ -6015,7 +5348,6 @@ function AdminPanel() {
       if (Number.isFinite(cs) && cs >= 0) setConcurrentSessionLimit(String(cs));
       setIpwhoAlertEnabled(s.ipwho_alert?.enabled === true);
       setLocationPolicyRequired(s.location_policy?.required !== false);
-      setTvFeatureEnabled(s.tv_feature?.enabled !== false);
       const fac = Number(s.free_avatar_cooldown?.minutes);
       if (Number.isFinite(fac) && fac > 0) setFreeAvatarCooldownMinState(String(Math.floor(fac)));
       if (s.maintenance) {
@@ -6465,63 +5797,6 @@ function AdminPanel() {
     } finally { setSavingLocationPolicy(false); }
   };
 
-  const toggleTvFeature = async () => {
-    const next = !tvFeatureEnabled;
-    const prevOverrides = users.map(u => ({ id: u.id, tvOverride: u.tvOverride ?? null }));
-    setTvFeatureEnabled(next);
-    // Optimistically clear all per-user overrides — global switch is TOP priority.
-    setUsers(prev => prev.map(x => ({ ...x, tvOverride: null })));
-    setSavingTvFeature(true);
-    try {
-      await apiCall("manage-app", { action: "set_tv_feature", enabled: next });
-      broadcastTvFeatureEvent({ type: "tv-global", enabled: next, at: Date.now() });
-      // Broadcast a per-profile inherit so any open user tabs drop their local override too.
-      prevOverrides.forEach(({ id, tvOverride }) => {
-        if (tvOverride !== null) {
-          applyTvOverrideToStoredUser(id, null);
-          patchBootstrapCacheUser(id, { tvOverride: null });
-          broadcastTvFeatureEvent({ type: "tv-profile", userId: id, tvOverride: null, at: Date.now() });
-        }
-      });
-      notify.success(next ? "TV shown for everyone (overrides reset)" : "TV hidden for everyone (overrides reset)");
-      // Ground-truth: re-fetch admin users so any stale override rows are corrected.
-      void loadAdminData({ silent: true });
-      await refreshBootstrap().catch(() => null);
-    } catch (err) {
-      setTvFeatureEnabled(!next);
-      setUsers(prev => prev.map(x => {
-        const p = prevOverrides.find(o => o.id === x.id);
-        return p ? { ...x, tvOverride: p.tvOverride } : x;
-      }));
-      notify.error(err instanceof Error ? err.message : "Failed");
-    } finally { setSavingTvFeature(false); }
-  };
-
-
-  const setProfileTvOverride = async (u: UserData, value: TvOverrideValue) => {
-    const next: "on" | "off" | null = normalizeTvOverride(value);
-    const previous = normalizeTvOverride(u.tvOverride);
-    try {
-      await apiCall("manage-app", { action: "update_user", id: u.id, tv_override: tvOverridePayload(next) });
-      setUsers(prev => prev.map(x => x.id === u.id ? { ...x, tvOverride: next } : x));
-      applyTvOverrideToStoredUser(u.id, next);
-      patchBootstrapCacheUser(u.id, { tvOverride: next });
-      broadcastTvFeatureEvent({ type: "tv-profile", userId: u.id, tvOverride: next, at: Date.now() });
-      notify.success(next === null ? `${u.name}: TV follows global setting` : next === "on" ? `${u.name}: TV forced ON` : `${u.name}: TV forced OFF`);
-      refreshBootstrap().catch(() => null);
-    } catch (err) {
-      setUsers(prev => prev.map(x => x.id === u.id ? { ...x, tvOverride: previous } : x));
-      notify.error(err instanceof Error ? err.message : "Failed to update TV override");
-    }
-  };
-
-  const toggleProfileTvOverride = async (u: UserData) => {
-    // 3-state cycle: inherit (null) -> on -> off -> inherit
-    const current: "on" | "off" | null = normalizeTvOverride(u.tvOverride);
-    const next: TvOverrideValue = current === null ? "on" : current === "on" ? "off" : "inherit";
-    await setProfileTvOverride(u, next);
-  };
-
   const reloadAdminNotifs = async () => {
     try {
       const nl = await apiCall("manage-app", { action: "admin_list_notifications" });
@@ -6725,7 +6000,6 @@ function AdminPanel() {
       }
       // Free profile: passwordless one-tap entry. Username is optional/manual only
       // (never generated); password is never sent for free profiles.
-      const tvOv: "on" | "off" | null = newTvOverride === "on" || newTvOverride === "off" ? newTvOverride : null;
       const body: any = newIsFree
         ? {
             action: "create",
@@ -6735,7 +6009,6 @@ function AdminPanel() {
             is_free: true,
             assigned_accounts: normalizeSelectedAccounts(newUserAccounts).length > 0 ? normalizeSelectedAccounts(newUserAccounts) : null,
             expires_at: expiresIso,
-            tv_override: tvOv,
           }
         : {
             action: "create",
@@ -6745,10 +6018,9 @@ function AdminPanel() {
             role: "user",
             assigned_accounts: normalizeSelectedAccounts(newUserAccounts).length > 0 ? normalizeSelectedAccounts(newUserAccounts) : null,
             is_free: false,
-            tv_override: tvOv,
           };
       const res: any = await apiCall("manage-app", body);
-      setNewUsername(""); setNewPassword(""); setNewName(""); setNewUserAccounts([]); setNewIsFree(false); setNewFreeExpiresAt(""); setNewTvOverride("inherit");
+      setNewUsername(""); setNewPassword(""); setNewName(""); setNewUserAccounts([]); setNewIsFree(false); setNewFreeExpiresAt("");
       if (!res?.user) throw new Error("Server did not return the created user");
       setUsers(prev => [...prev, res.user]);
       setStats(prev => ({ ...prev, totalUsers: prev.totalUsers + 1 }));
@@ -6925,24 +6197,19 @@ function AdminPanel() {
           expires_at = new Date(t).toISOString();
         }
       }
-      const tvOvOut: "on" | "off" | null = editTvOverride === "on" ? "on" : editTvOverride === "off" ? "off" : null;
       await apiCall("manage-app", {
         action: "update_user",
         id: userId,
         username: editUsername.trim() || null,
         assigned_accounts: normalizeSelectedAccounts(editAccountsList).length > 0 ? normalizeSelectedAccounts(editAccountsList) : null,
         session_limit,
-        tv_override: tvOverridePayload(editTvOverride),
         ...(expires_at !== undefined ? { expires_at } : {}),
         ...(isFreeTarget ? { auto_delete: editAutoDelete } : {}),
       });
       const nextAccounts = normalizeSelectedAccounts(editAccountsList).length > 0 ? normalizeSelectedAccounts(editAccountsList) : null;
       const nextUsername = editUsername.trim() || null;
       setEditingUserAccounts(null); setEditHint(null);
-      setUsers(prev => prev.map(u => u.id === userId ? { ...u, username: nextUsername as any, assignedAccounts: nextAccounts, session_limit, tvOverride: tvOvOut, ...(expires_at !== undefined ? { expiresAt: expires_at } as any : {}), ...(isFreeTarget ? { autoDelete: editAutoDelete } as any : {}) } : u));
-      applyTvOverrideToStoredUser(userId, tvOvOut);
-      patchBootstrapCacheUser(userId, { tvOverride: tvOvOut });
-      broadcastTvFeatureEvent({ type: "tv-profile", userId, tvOverride: tvOvOut, at: Date.now() });
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, username: nextUsername as any, assignedAccounts: nextAccounts, session_limit, ...(expires_at !== undefined ? { expiresAt: expires_at } as any : {}), ...(isFreeTarget ? { autoDelete: editAutoDelete } as any : {}) } : u));
       notify.success("User settings updated!");
     } catch (err) {
       notify.error(err instanceof Error ? err.message : "Failed to update");
@@ -6955,7 +6222,6 @@ function AdminPanel() {
     { id: "allmails" as const, label: "All Emails", icon: Mail },
     { id: "notifications" as const, label: "Notifications", icon: Bell },
     { id: "inbox" as const, label: "Inbox", icon: Mail },
-    { id: "tv" as const, label: "TV Auto-Login", icon: Tv },
     { id: "security" as const, label: "Security", icon: ShieldCheck },
     { id: "emails" as const, label: "Email Accounts", icon: Server },
     { id: "settings" as const, label: "Settings", icon: Settings },
@@ -6968,12 +6234,6 @@ function AdminPanel() {
     nonAdminOrder.forEach((id, idx) => map.set(id, idx));
     return map;
   }, [nonAdminOrder]);
-  const tvUsers = useMemo(() => users.filter((u) => u.role !== "admin"), [users]);
-  const filteredTvUsers = useMemo(() => {
-    const q = tvSearch.trim().toLowerCase();
-    if (!q) return tvUsers;
-    return tvUsers.filter((u) => `${u.name} ${u.username || ""}`.toLowerCase().includes(q));
-  }, [tvSearch, tvUsers]);
 
 
   return (
@@ -7092,23 +6352,6 @@ function AdminPanel() {
                   </div>
                 )}
 
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase mb-2">TV Auto-Login</label>
-                  <div className="flex gap-2">
-                    {(["on", "off", "inherit"] as const).map(v => (
-                      <button
-                        key={v}
-                        type="button"
-                        onClick={() => setNewTvOverride(v)}
-                        className={`flex-1 text-xs font-bold py-2 rounded-lg border transition-all ${newTvOverride === v ? (v === "on" ? "bg-emerald-600 text-white border-emerald-600" : v === "off" ? "bg-rose-600 text-white border-rose-600" : "bg-slate-900 text-white border-slate-900") : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"}`}
-                      >
-                        {v === "on" ? "ON" : v === "off" ? "OFF" : "Default"}
-                      </button>
-                    ))}
-                  </div>
-                  <p className="text-[10px] text-slate-400 mt-1"><b>ON</b> = always show TV icon. <b>OFF</b> = always hide. <b>Default</b> = same as global switch.</p>
-                </div>
-
 
                 <button onClick={createUser}
                   disabled={creatingUser}
@@ -7206,29 +6449,6 @@ function AdminPanel() {
                                 ? <><MapPin className="w-2.5 h-2.5" /> GPS</>
                                 : <><MapPinOff className="w-2.5 h-2.5" /> OFF</>}
                             </button>
-                            {u.role !== "admin" && (() => {
-                              const ov = u.tvOverride === "on" || u.tvOverride === "off" ? u.tvOverride : null;
-                              const effective = ov === "on" ? true : ov === "off" ? false : tvFeatureEnabled;
-                              const label = ov === "on" ? "TV ON" : ov === "off" ? "TV OFF" : (effective ? "TV" : "TV —");
-                              const cls = ov === "on"
-                                ? "bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100"
-                                : ov === "off"
-                                ? "bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200 line-through"
-                                : effective
-                                ? "bg-rose-50/60 text-rose-600 border-rose-100 hover:bg-rose-100"
-                                : "bg-slate-100 text-slate-400 border-slate-200 hover:bg-slate-200";
-                              const title = `TV Auto-Login for this profile — ${ov ? `forced ${ov.toUpperCase()}` : `inherit global (${tvFeatureEnabled ? "ON" : "OFF"})`}. Tap to cycle: inherit → on → off.`;
-                              return (
-                                <button
-                                  type="button"
-                                  onClick={(e) => { e.stopPropagation(); toggleProfileTvOverride(u); }}
-                                  title={title}
-                                  className={`inline-flex items-center gap-1 text-[9px] font-black px-1.5 py-0.5 rounded border transition-all active:scale-95 ${cls}`}
-                                >
-                                  <Tv className="w-2.5 h-2.5" /> {label}
-                                </button>
-                              );
-                            })()}
                             {u.assignedAccounts && u.assignedAccounts.length > 0 && u.assignedAccounts.map((a: string) => (
                               <span key={a} className="bg-blue-50 text-blue-700 border border-blue-200 text-[10px] px-1.5 py-0.5 rounded font-bold font-mono">{a}</span>
                             ))}
@@ -7289,8 +6509,6 @@ function AdminPanel() {
                                 setEditExpiresAt("");
                               }
                               setEditAutoDelete((u as any).autoDelete !== false);
-                              const ovInit = (u as any).tvOverride;
-                              setEditTvOverride(ovInit === "on" ? "on" : ovInit === "off" ? "off" : "inherit");
                             }} title="Edit"
                             className={`flex-1 flex items-center justify-center h-9 rounded-lg transition-all active:scale-95 ${editingUserAccounts === u.id ? "bg-white text-emerald-600 ring-1 ring-emerald-300 shadow-sm" : "text-slate-500 hover:bg-white hover:text-emerald-600 hover:shadow-sm"}`}>
                             <Edit className="w-4 h-4" />
@@ -7537,55 +6755,6 @@ function AdminPanel() {
                                   </div>
                                 </div>
                               )}
-
-                              {/* TV Auto-Login override (syncs with TV Remote Access tab) */}
-                              <div>
-                                <div className="flex items-center justify-between mb-2">
-                                  <label className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
-                                    <Tv className="w-4 h-4 text-rose-500" />
-                                    TV button for this person
-                                  </label>
-                                  {editTvOverride !== "inherit" && (
-                                    <button
-                                      type="button"
-                                      onClick={() => setEditTvOverride("inherit")}
-                                      className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 hover:underline underline-offset-2"
-                                    >
-                                      Same as everyone
-                                    </button>
-                                  )}
-                                </div>
-                                <div className="inline-flex w-full p-0.5 rounded-full bg-slate-100 border border-slate-200">
-                                  {([
-                                    { value: "on" as const,  label: "Show", Icon: Eye,    onCls: "bg-emerald-500 text-white shadow-sm" },
-                                    { value: "off" as const, label: "Hide", Icon: EyeOff, onCls: "bg-slate-900 text-white shadow-sm" },
-                                  ]).map((opt) => {
-                                    const active = editTvOverride === opt.value;
-                                    const Icon = opt.Icon;
-                                    return (
-                                      <button
-                                        key={opt.value}
-                                        type="button"
-                                        onClick={() => setEditTvOverride(opt.value)}
-                                        className={`flex-1 inline-flex items-center justify-center gap-1.5 h-9 rounded-full text-[12px] font-bold transition-all active:scale-[0.97] ${active ? opt.onCls : "text-slate-500 hover:text-slate-800"}`}
-                                        aria-pressed={active}
-                                      >
-                                        <Icon className="w-3.5 h-3.5" />
-                                        <span>{opt.label}</span>
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                                <p className="mt-1.5 text-[11px] text-slate-500">
-                                  {editTvOverride === "inherit"
-                                    ? <>Follows the global switch ({tvFeatureEnabled ? "currently visible" : "currently hidden"}).</>
-                                    : editTvOverride === "on"
-                                    ? "Always visible for this profile."
-                                    : "Always hidden for this profile."}
-                                </p>
-                              </div>
-
-
 
                               {/* Free profile expiry */}
                               {u.isFree && (
@@ -8114,12 +7283,6 @@ function AdminPanel() {
               </div>
             </section>
 
-            {/* TV Auto-Login + Netflix Credentials moved to the dedicated "TV Auto-Login" tab. */}
-
-
-
-
-
             {/* --- Cloudflare R2 Storage (for notification images) --- */}
             <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
               <div className="flex items-start justify-between gap-4 mb-4">
@@ -8245,150 +7408,6 @@ function AdminPanel() {
         {activeTab === "allmails" && (
           <AllEmailsPanel />
         )}
-
-        {activeTab === "tv" && (
-          <div className="max-w-4xl mx-auto space-y-5">
-            {/* Header — plain, no stats, no gradients */}
-            <div className="px-1">
-              <h2 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-950 flex items-center gap-2.5">
-                <span className="inline-flex w-9 h-9 rounded-xl bg-slate-900 text-white items-center justify-center shadow-sm"><Tv className="w-5 h-5" /></span>
-                TV Remote Access
-              </h2>
-              <p className="text-sm text-slate-500 mt-1.5 ml-[46px]">Decide who sees the <b className="text-slate-800">Login on TV</b> button in their header.</p>
-            </div>
-
-            {/* Global — one iOS-style switch, one sentence */}
-            <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 sm:p-6">
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <p className="text-base sm:text-lg font-bold text-slate-950 leading-snug">Everyone gets the TV button</p>
-                  <p className="text-[13px] text-slate-500 mt-1 leading-relaxed">
-                    {tvFeatureEnabled
-                      ? "It's on. Every profile below sees the TV button — unless you turn a person off."
-                      : "It's off. Nobody sees the TV button — unless you turn a person on."}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={tvFeatureEnabled}
-                  onClick={() => { void toggleTvFeature(); }}
-                  disabled={savingTvFeature}
-                  className={`relative shrink-0 w-[62px] h-[34px] rounded-full transition-colors duration-200 disabled:opacity-60 focus:outline-none focus:ring-4 ring-offset-2 ${tvFeatureEnabled ? "bg-emerald-500 ring-emerald-200" : "bg-slate-300 ring-slate-200"}`}
-                >
-                  <span className={`absolute top-0.5 left-0.5 w-[30px] h-[30px] bg-white rounded-full shadow-md transition-transform duration-200 ease-out flex items-center justify-center ${tvFeatureEnabled ? "translate-x-[28px]" : "translate-x-0"}`}>
-                    {tvFeatureEnabled ? <Eye className="w-3.5 h-3.5 text-emerald-600" /> : <EyeOff className="w-3.5 h-3.5 text-slate-400" />}
-                  </span>
-                </button>
-              </div>
-            </section>
-
-            {/* Netflix Credentials — attractive modal-driven card */}
-            <NetflixCredentialsSection emailAccounts={emailAccounts} primaryImapUser={serverConfig.IMAP_USER} />
-
-            {/* People */}
-
-            <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-              <div className="px-5 sm:px-6 py-4 border-b border-slate-100 flex items-center justify-between gap-3 flex-wrap">
-                <div className="flex items-center gap-2 min-w-0">
-                  <h3 className="font-bold text-slate-950">People</h3>
-                  <span className="text-[11px] font-bold text-slate-500 bg-slate-100 rounded-full px-2 py-0.5">{filteredTvUsers.length}</span>
-                </div>
-                <div className="relative w-full sm:w-72">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <input
-                    value={tvSearch}
-                    onChange={(e) => setTvSearch(e.target.value)}
-                    placeholder="Search name or @username"
-                    className="w-full h-10 pl-9 pr-3 rounded-xl border border-slate-200 bg-slate-50 text-sm outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-300 focus:bg-white transition"
-                  />
-                </div>
-              </div>
-
-              <ul className="divide-y divide-slate-100">
-                {filteredTvUsers.map((u) => {
-                  const ov = normalizeTvOverride(u.tvOverride);
-                  const effective = ov === "on" ? true : ov === "off" ? false : tvFeatureEnabled;
-                  const overridden = ov !== null;
-                  return (
-                    <li key={u.id} className="flex items-center gap-3 sm:gap-4 px-5 sm:px-6 py-3.5 hover:bg-slate-50/60 transition-colors">
-                      <ProfileAvatar avatarId={getStableProfileAvatar(u)} name={u.name} className="w-10 h-10 !rounded-full ring-1 ring-slate-200 shadow-sm shrink-0" fallbackColor={u.isFree ? "bg-emerald-500" : "bg-blue-500"} />
-
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 min-w-0 flex-wrap">
-                          <p className="text-[14px] font-bold text-slate-900 truncate">{u.name}</p>
-                          <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${effective ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
-                            <span className={`w-1.5 h-1.5 rounded-full ${effective ? "bg-emerald-500" : "bg-slate-400"}`} />
-                            {effective ? "Visible" : "Hidden"}
-                          </span>
-                          {overridden && (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 shrink-0">
-                              Custom
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-0.5 min-w-0">
-                          <span className="font-mono truncate">{u.username ? `@${u.username}` : "free profile"}</span>
-                          {overridden && (
-                            <button
-                              type="button"
-                              onClick={() => { void setProfileTvOverride(u, "inherit"); }}
-                              className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 shrink-0"
-                              title="Remove custom setting — follow the global switch"
-                            >
-                              ↺ Reset
-                            </button>
-                          )}
-                        </div>
-                      </div>
-
-
-                      {/* Two-state segmented switch: Show / Hide.
-                          Highlights the *effective* state (so global OFF auto-ticks Hide
-                          for everyone without an override). Overridden = solid color,
-                          inherited-from-global = soft tint. */}
-                      <div className="shrink-0 inline-flex p-0.5 rounded-full bg-slate-100 border border-slate-200">
-                        {([
-                          { value: "on" as const,  label: "Show", Icon: Eye,    solid: "bg-emerald-500 text-white shadow-sm", soft: "bg-emerald-100 text-emerald-700" },
-                          { value: "off" as const, label: "Hide", Icon: EyeOff, solid: "bg-slate-900 text-white shadow-sm",   soft: "bg-slate-200 text-slate-700" },
-                        ]).map((opt) => {
-                          const isEffective = (opt.value === "on") === effective;
-                          const isOverride = ov === opt.value;
-                          const Icon = opt.Icon;
-                          const cls = isOverride ? opt.solid : isEffective ? opt.soft : "text-slate-500 hover:text-slate-800";
-                          return (
-                            <button
-                              key={opt.value}
-                              type="button"
-                              onClick={() => { void setProfileTvOverride(u, opt.value); }}
-                              className={`inline-flex items-center gap-1.5 px-3 sm:px-3.5 h-8 rounded-full text-[12px] font-bold transition-all active:scale-[0.97] ${cls}`}
-                              aria-pressed={isEffective}
-                            >
-                              <Icon className="w-3.5 h-3.5" />
-                              <span>{opt.label}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-
-                    </li>
-                  );
-                })}
-
-                {filteredTvUsers.length === 0 && (
-                  <li className="px-6 py-16 text-center">
-                    <div className="inline-flex p-3 rounded-full bg-slate-100 mb-3"><Search className="w-5 h-5 text-slate-400" /></div>
-                    <p className="text-sm font-bold text-slate-700">No people match your search</p>
-                    <p className="text-xs text-slate-500 mt-1">Try a different name or username.</p>
-                  </li>
-                )}
-              </ul>
-            </section>
-          </div>
-        )}
-
-
-
 
         {activeTab === "notifications" && (
           <div className="grid grid-cols-1 xl:grid-cols-[1.15fr_1fr] gap-4 sm:gap-6">
@@ -10391,77 +9410,6 @@ function EmailViewer() {
   const [forcedPasswordChange] = useState(!!user.mustChangePassword);
   // Impersonation state is server-signed and backed by the parent admin session row.
   const isImpersonating = (user as any)?.impersonated === true;
-  // TV Auto-Login visibility priority: per-user override ALWAYS wins over
-  // the global switch. Show = forced visible even if admin's global is OFF.
-  // Hide = forced hidden even if admin's global is ON. No override = follow global.
-
-  const [viewerTvOverride, setViewerTvOverride] = useState<"on" | "off" | null>(() => normalizeTvOverride((user as any)?.tvOverride));
-  const [tvGlobalOn, setTvGlobalOn] = useState<boolean>(() => {
-    if (typeof (user as any)?.tvFeatureEnabled === "boolean") return (user as any).tvFeatureEnabled !== false;
-    const bs = readBootstrapCache();
-    return bs?.tvFeature?.enabled !== false;
-  });
-  useEffect(() => {
-    setViewerTvOverride(normalizeTvOverride((user as any)?.tvOverride));
-    if (typeof (user as any)?.tvFeatureEnabled === "boolean") setTvGlobalOn((user as any).tvFeatureEnabled !== false);
-  }, [user?.id, (user as any)?.tvOverride, (user as any)?.tvFeatureEnabled]);
-  useEffect(() => {
-    let cancelled = false;
-    const sync = async () => {
-      // Ground-truth check: hit get_settings directly so a stale bootstrap
-      // cache (local or worker) can't leave the TV icon visible after admin
-      // flipped the global toggle OFF.
-      try {
-        const res: any = await apiCall("manage-app", { action: "get_settings", key: "tv_feature" });
-        if (cancelled) return;
-        const enabled = res?.value?.enabled !== false;
-        setTvGlobalOn(enabled);
-      } catch {
-        // Fall back to bootstrap if get_settings fails.
-        try {
-          const bs = await refreshBootstrap();
-          if (!cancelled) setTvGlobalOn(bs?.tvFeature?.enabled !== false);
-        } catch {}
-      }
-    };
-    sync();
-    const onVis = () => { if (document.visibilityState === "visible") sync(); };
-    const applyEvent = (event: TvFeatureEvent) => {
-      if (!event || typeof event !== "object") return;
-      if (event.type === "tv-global") {
-        setTvGlobalOn(event.enabled !== false);
-        return;
-      }
-      if (event.type === "tv-profile" && event.userId === user.id) {
-        const next = normalizeTvOverride(event.tvOverride);
-        setViewerTvOverride(next);
-        applyTvOverrideToStoredUser(user.id, next);
-      }
-    };
-    const onWindowEvent = (event: Event) => applyEvent((event as CustomEvent<TvFeatureEvent>).detail);
-    document.addEventListener("visibilitychange", onVis);
-    window.addEventListener(TV_FEATURE_CHANNEL, onWindowEvent);
-    let channel: BroadcastChannel | null = null;
-    try {
-      channel = new BroadcastChannel(TV_FEATURE_CHANNEL);
-      channel.onmessage = (event) => applyEvent(event.data as TvFeatureEvent);
-    } catch {}
-    const id = window.setInterval(sync, 60_000);
-    return () => {
-      cancelled = true;
-      document.removeEventListener("visibilitychange", onVis);
-      window.removeEventListener(TV_FEATURE_CHANNEL, onWindowEvent);
-      try { channel?.close(); } catch {}
-      window.clearInterval(id);
-    };
-  }, [user.id]);
-  const tvVisible = useMemo(() => {
-    const ov = viewerTvOverride;
-    if (ov === "on") return true; // per-user override always wins over global
-    if (ov === "off") return false;
-    return tvGlobalOn;
-  }, [viewerTvOverride, tvGlobalOn]);
-
 
   const [refreshing, setRefreshing] = useState(false);
   const refreshingRef = useRef(false);
@@ -11278,8 +10226,7 @@ function EmailViewer() {
                 Admin
               </button>
             )}
-            {user.name?.toLowerCase() === "test" && <NetflixTestButton profileId={user.id} />}
-            <TvAutoLoginButton visible={tvVisible} />
+            <TvAutoLoginButton />
             <NotificationBell />
             <button
               onClick={() => fetchEmails()}
@@ -11345,8 +10292,7 @@ function EmailViewer() {
                 Back to Admin
               </button>
             )}
-            {user.name?.toLowerCase() === "test" && <NetflixTestButton profileId={user.id} />}
-            <TvAutoLoginButton visible={tvVisible} />
+            <TvAutoLoginButton />
             <NotificationBell />
             <button onClick={() => fetchEmails()}
               disabled={refreshing}
