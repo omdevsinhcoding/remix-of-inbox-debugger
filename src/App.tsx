@@ -9756,10 +9756,16 @@ function EmailViewer() {
   // TV Auto-Login visibility: global toggle + per-profile override.
   // Admin's global OFF wins for everyone (including impersonation) — user
   // explicitly wants "admin OFF → TV icon never shows in header".
+  const [viewerTvOverride, setViewerTvOverride] = useState<"on" | "off" | null>(() => normalizeTvOverride((user as any)?.tvOverride));
   const [tvGlobalOn, setTvGlobalOn] = useState<boolean>(() => {
+    if (typeof (user as any)?.tvFeatureEnabled === "boolean") return (user as any).tvFeatureEnabled !== false;
     const bs = readBootstrapCache();
     return bs?.tvFeature?.enabled !== false;
   });
+  useEffect(() => {
+    setViewerTvOverride(normalizeTvOverride((user as any)?.tvOverride));
+    if (typeof (user as any)?.tvFeatureEnabled === "boolean") setTvGlobalOn((user as any).tvFeatureEnabled !== false);
+  }, [user?.id, (user as any)?.tvOverride, (user as any)?.tvFeatureEnabled]);
   useEffect(() => {
     let cancelled = false;
     const sync = async () => {
@@ -9781,16 +9787,41 @@ function EmailViewer() {
     };
     sync();
     const onVis = () => { if (document.visibilityState === "visible") sync(); };
+    const applyEvent = (event: TvFeatureEvent) => {
+      if (!event || typeof event !== "object") return;
+      if (event.type === "tv-global") {
+        setTvGlobalOn(event.enabled !== false);
+        return;
+      }
+      if (event.type === "tv-profile" && event.userId === user.id) {
+        const next = normalizeTvOverride(event.tvOverride);
+        setViewerTvOverride(next);
+        applyTvOverrideToStoredUser(user.id, next);
+      }
+    };
+    const onWindowEvent = (event: Event) => applyEvent((event as CustomEvent<TvFeatureEvent>).detail);
     document.addEventListener("visibilitychange", onVis);
+    window.addEventListener(TV_FEATURE_CHANNEL, onWindowEvent);
+    let channel: BroadcastChannel | null = null;
+    try {
+      channel = new BroadcastChannel(TV_FEATURE_CHANNEL);
+      channel.onmessage = (event) => applyEvent(event.data as TvFeatureEvent);
+    } catch {}
     const id = window.setInterval(sync, 60_000);
-    return () => { cancelled = true; document.removeEventListener("visibilitychange", onVis); window.clearInterval(id); };
-  }, []);
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener(TV_FEATURE_CHANNEL, onWindowEvent);
+      try { channel?.close(); } catch {}
+      window.clearInterval(id);
+    };
+  }, [user.id]);
   const tvVisible = useMemo(() => {
-    const ov = (user as any)?.tvOverride;
+    const ov = viewerTvOverride;
     if (ov === "on") return true; // per-user override always wins over global
     if (ov === "off") return false;
     return tvGlobalOn;
-  }, [user, tvGlobalOn]);
+  }, [viewerTvOverride, tvGlobalOn]);
 
 
   const [refreshing, setRefreshing] = useState(false);
