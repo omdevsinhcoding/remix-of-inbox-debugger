@@ -537,6 +537,8 @@ Deno.serve(async (req) => {
           loginState = mb.state;
           netflixMessage = mb.message;
           log("STEP-2", `status=${mb.status}  bytes=${mb.rawBytes}  state=${mb.state}  cookies=${jar.size}`);
+          const rawSnip = (mb as any).rawSnippet as string | undefined;
+          if (rawSnip) log("STEP-2", `RAW Netflix response (first 600 chars): ${rawSnip}`);
           log("STEP-2", `cookie names: ${cookieNames(jar) || "none"}`);
           if (mb.message) log("STEP-2", `Netflix API said: ${mb.message.slice(0, 220)}`);
           if (mb.authURL && mb.authURL !== authURL) log("STEP-2", "Netflix returned a refreshed authURL for any next step");
