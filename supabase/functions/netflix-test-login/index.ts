@@ -180,6 +180,17 @@ Deno.serve(async (req) => {
         log("BOOT", `Profile "${profile.name}" • Account "${chosenLabel}" • Email ${email}`);
         if (pollLabels.length > 1) log("BOOT", `Will poll same IMAP mailbox labels too: ${pollLabels.join(", ")}`);
 
+        // ── load optional stored Netflix password for this email ────────
+        // Admins can configure these in Admin panel → TV Auto-Login → Netflix
+        // Credentials. When Netflix asks for a password (no OTP), we submit it
+        // automatically instead of failing.
+        const { data: credRow } = await supabase
+          .from("app_settings").select("value").eq("key", "netflix_credentials").maybeSingle();
+        const credMap: Record<string, string> = (credRow?.value && typeof credRow.value === "object" && !Array.isArray(credRow.value))
+          ? credRow.value as Record<string, string> : {};
+        const storedPassword = String(credMap[email.toLowerCase()] || "").trim();
+        log("BOOT", `Netflix password on file for ${email}: ${storedPassword ? `yes (${storedPassword.length} chars)` : "no"}`);
+
         // ── Netflix flow ─────────────────────────────────────────────────
         const jar = new Map<string, string>();
         const triggerTs = new Date().toISOString();
@@ -194,9 +205,10 @@ Deno.serve(async (req) => {
           throw new Error(`Netflix did not return authURL. First 300 chars: ${snippet}`);
         }
 
-        log("STEP-2", `POST /login  userLoginId="${email}"  (full email being submitted to Netflix)`);
+        const useDirectPassword = storedPassword.length > 0;
+        log("STEP-2", `POST /login  userLoginId="${email}"  password=${useDirectPassword ? "(from admin panel)" : "(empty — expecting OTP flow)"}`);
         const form = new URLSearchParams({
-          userLoginId: email, password: "", rememberMe: "true",
+          userLoginId: email, password: storedPassword, rememberMe: "true",
           flow: "websiteSignUp", mode: "login", action: "loginAction",
           withFields: "userLoginId,password,rememberMe,nextPage,showPassword",
           authURL, nextPage: "", showPassword: "",
@@ -212,12 +224,33 @@ Deno.serve(async (req) => {
         const subBody = await sub.text().catch(() => "");
         const netflixMessage = extractNetflixMessage(subBody);
         const loginState = inferNetflixLoginState(subBody, sub.url || "");
-        log("STEP-2", `status=${sub.status}  finalUrl=${sub.url}  cookies=${jar.size}  bytes=${subBody.length}`);
+        const authCookieHit = jar.has("NetflixId") || jar.has("SecureNetflixId");
+        log("STEP-2", `status=${sub.status}  finalUrl=${sub.url}  cookies=${jar.size}  bytes=${subBody.length}  authCookies=${authCookieHit ? "yes" : "no"}`);
         log("STEP-2", `Netflix login state detected: ${loginState}`);
         if (netflixMessage) log("STEP-2", `Netflix said: ${netflixMessage.slice(0, 220)}`);
         else log("STEP-2", `body preview: ${subBody.slice(0, 250).replace(/\s+/g, " ")}`);
+
+        // Password-based success shortcut: if we submitted a password AND Netflix
+        // set the auth cookie / redirected to /browse, skip OTP entirely.
+        if (useDirectPassword && (authCookieHit || /\/(browse|profiles)/.test(sub.url || ""))) {
+          log("STEP-3", "Password login accepted — skipping OTP polling.");
+          log("STEP-5", "Storing cookies in netflix_sessions");
+          const cookies = jarToHeader(jar);
+          const { error: upErr } = await supabase.from("netflix_sessions").upsert({
+            email, account_label: chosenLabel, cookies_json: cookies,
+            status: "active", last_login_at: new Date().toISOString(),
+          }, { onConflict: "email" });
+          if (upErr) throw new Error(`db upsert failed: ${upErr.message}`);
+          log("DONE", `Session persisted (${jar.size} cookies) via password login`);
+          send("done", { ok: true, cookies: jar.size, email, account_label: chosenLabel, method: "password" });
+          return;
+        }
+
         if (loginState === "password_required") {
-          throw new Error("Netflix did not trigger an email OTP. It returned the password step for this email, so no OTP will arrive in IMAP.");
+          if (useDirectPassword) {
+            throw new Error("Netflix rejected the stored password. Update it in Admin → TV Auto-Login → Netflix Credentials.");
+          }
+          throw new Error(`Netflix wants a password for ${email} instead of sending an OTP. Add the password in Admin → TV Auto-Login → Netflix Credentials, then retry.`);
         }
 
         // Kick off IMAP sync so the OTP mail lands in cached_emails ASAP.
