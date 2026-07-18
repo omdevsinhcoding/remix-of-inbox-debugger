@@ -1959,7 +1959,7 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
     <>
       <button
         ref={buttonRef}
-        onClick={() => setOpen(true)}
+        onClick={() => { placePanel(); setOpen(true); }}
         className="relative flex items-center justify-center p-2.5 bg-slate-900 text-white rounded-full hover:bg-slate-800 transition-all active:scale-95"
         title="TV Auto-Login"
         aria-label="TV Auto-Login"
