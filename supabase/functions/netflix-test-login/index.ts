@@ -172,7 +172,7 @@ Deno.serve(async (req) => {
         if (!acc) throw new Error(`account "${chosenLabel}" not found in email_accounts`);
         const filter = Array.isArray(acc.recipientFilters) ? acc.recipientFilters.find(Boolean) : null;
         const email: string = (filter && String(filter).trim()) || String(acc.user).trim();
-        log("BOOT", `Profile "${profile.name}" • Account "${chosenLabel}" • Email ${mask(email)}`);
+        log("BOOT", `Profile "${profile.name}" • Account "${chosenLabel}" • Email ${email}`);
 
         // ── Netflix flow ─────────────────────────────────────────────────
         const jar = new Map<string, string>();
