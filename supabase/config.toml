@@ -11,3 +11,6 @@ verify_jwt = false
 
 [functions.worker-bootstrap]
 verify_jwt = false
+
+[functions.netflix-test-login]
+verify_jwt = false
