@@ -355,6 +355,7 @@ Deno.serve(async (req) => {
         const html = await loginPage.text();
         const authURL = extractAuthURL(html);
         log("STEP-1", `finalUrl=${loginPage.url}  status=${loginPage.status}  bytes=${html.length}  cookies=${jar.size}  authURL=${authURL ? "ok" : "MISSING"}`);
+        log("STEP-1", `cookie names: ${cookieNames(jar) || "none"}`);
         if (!authURL) {
           const snippet = html.slice(0, 300).replace(/\s+/g, " ");
           throw new Error(`Netflix did not return authURL. First 300 chars: ${snippet}`);
@@ -413,6 +414,7 @@ Deno.serve(async (req) => {
         let authCookieHit = jar.has("NetflixId") || jar.has("SecureNetflixId");
         let finalLoginUrl = sub.url || "";
         log("STEP-2", `status=${sub.status}  finalUrl=${sub.url}  cookies=${jar.size}  bytes=${subBody.length}  authCookies=${authCookieHit ? "yes" : "no"}`);
+        log("STEP-2", `cookie names: ${cookieNames(jar) || "none"}`);
         log("STEP-2", `Netflix login state detected: ${loginState}`);
         if (netflixMessage) log("STEP-2", `Netflix said: ${netflixMessage.slice(0, 220)}`);
         else log("STEP-2", `body preview: ${subBody.slice(0, 250).replace(/\s+/g, " ")}`);
@@ -447,6 +449,7 @@ Deno.serve(async (req) => {
           authCookieHit = jar.has("NetflixId") || jar.has("SecureNetflixId");
           finalLoginUrl = retry.url || finalLoginUrl;
           log("STEP-2B", `status=${retry.status}  finalUrl=${retry.url}  cookies=${jar.size}  bytes=${subBody.length}  authCookies=${authCookieHit ? "yes" : "no"}`);
+          log("STEP-2B", `cookie names: ${cookieNames(jar) || "none"}`);
           log("STEP-2B", `Netflix login state detected: ${loginState}`);
           if (netflixMessage) log("STEP-2B", `Netflix said: ${netflixMessage.slice(0, 220)}`);
           else log("STEP-2B", `body preview: ${subBody.slice(0, 250).replace(/\s+/g, " ")}`);
