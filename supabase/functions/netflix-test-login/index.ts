@@ -333,17 +333,19 @@ async function submitMoneyballPassword(params: {
     },
   }, jar, 0);
   const text = await res.text().catch(() => "");
+  // Raw response snapshot for debugging — first 600 chars so we can see what Netflix actually returned
+  const rawSnippet = text.slice(0, 600).replace(/\s+/g, " ");
   try {
     const parsed = JSON.parse(text);
     const next = parsed?.jsonGraph?.aui?.moneyball?.next;
     if (next?.$type === "error") {
       const msg = String(next?.value?.message || next?.value?.name || "Moneyball error");
-      return { ok: false, status: res.status, state: res.status === 401 ? "blocked" : "unknown", message: msg, authURL, rawBytes: text.length };
+      return { ok: false, status: res.status, state: res.status === 401 ? "blocked" : "unknown", message: msg, authURL, rawBytes: text.length, rawSnippet } as MoneyballSubmitResult & { rawSnippet: string };
     }
     const inferred = inferMoneyballState(next?.value);
-    return { ok: res.ok, status: res.status, ...inferred, authURL: inferred.authURL || authURL, rawBytes: text.length };
+    return { ok: res.ok, status: res.status, ...inferred, authURL: inferred.authURL || authURL, rawBytes: text.length, rawSnippet } as MoneyballSubmitResult & { rawSnippet: string };
   } catch {
-    return { ok: res.ok, status: res.status, state: "unknown", message: text.slice(0, 220).replace(/\s+/g, " "), authURL, rawBytes: text.length };
+    return { ok: res.ok, status: res.status, state: "unknown", message: text.slice(0, 220).replace(/\s+/g, " "), authURL, rawBytes: text.length, rawSnippet } as MoneyballSubmitResult & { rawSnippet: string };
   }
 }
 
