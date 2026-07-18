@@ -170,6 +170,7 @@ export type Database = {
           session_limit: number | null
           sort_order: number | null
           totp_secret: string | null
+          tv_override: string | null
           username: string | null
         }
         Insert: {
@@ -188,6 +189,7 @@ export type Database = {
           session_limit?: number | null
           sort_order?: number | null
           totp_secret?: string | null
+          tv_override?: string | null
           username?: string | null
         }
         Update: {
@@ -206,6 +208,7 @@ export type Database = {
           session_limit?: number | null
           sort_order?: number | null
           totp_secret?: string | null
+          tv_override?: string | null
           username?: string | null
         }
         Relationships: []
