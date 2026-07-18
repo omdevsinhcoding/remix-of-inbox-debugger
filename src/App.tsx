@@ -5837,8 +5837,9 @@ function AdminPanel() {
     const next: "on" | "off" | null = current === null ? "on" : current === "on" ? "off" : null;
     try {
       await apiCall("manage-app", { action: "update_user", id: u.id, tv_override: next });
+      setUsers(prev => prev.map(x => x.id === u.id ? { ...x, tvOverride: next } : x));
       notify.success(next === null ? `${u.name}: TV follows global setting` : next === "on" ? `${u.name}: TV forced ON` : `${u.name}: TV forced OFF`);
-      await Promise.all([loadUsers().catch(() => null), refreshBootstrap().catch(() => null)]);
+      refreshBootstrap().catch(() => null);
     } catch (err) {
       notify.error(err instanceof Error ? err.message : "Failed to update TV override");
     }
