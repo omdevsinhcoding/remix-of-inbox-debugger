@@ -9515,17 +9515,27 @@ function EmailViewer() {
   const [forcedPasswordChange] = useState(!!user.mustChangePassword);
   // Impersonation state is server-signed and backed by the parent admin session row.
   const isImpersonating = (user as any)?.impersonated === true;
-  // TV Auto-Login visibility: global toggle + per-profile override. Admins & impersonation always see it.
-  const tvVisible = useMemo(() => {
-    if (isImpersonating || user.role === "admin") return true;
+  // TV Auto-Login visibility: global toggle + per-profile override.
+  // Admin's global OFF wins for everyone (including impersonation) — user
+  // explicitly wants "admin OFF → TV icon never shows in header".
+  const [tvGlobalOn, setTvGlobalOn] = useState<boolean>(() => {
     const bs = readBootstrapCache();
-    const globalOn = bs?.tvFeature?.enabled !== false;
-    const me = (bs?.users || []).find((u: any) => u.id === user.id);
-    const ov = me?.tvOverride;
-    if (ov === "on") return true;
+    return bs?.tvFeature?.enabled !== false;
+  });
+  useEffect(() => {
+    let cancelled = false;
+    refreshBootstrap().then((bs) => {
+      if (!cancelled) setTvGlobalOn(bs?.tvFeature?.enabled !== false);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+  const tvVisible = useMemo(() => {
+    const ov = (user as any)?.tvOverride;
+    if (ov === "on") return tvGlobalOn; // per-user ON still gated by global
     if (ov === "off") return false;
-    return globalOn;
-  }, [user.id, user.role, isImpersonating]);
+    return tvGlobalOn;
+  }, [user, tvGlobalOn]);
+
 
   const [refreshing, setRefreshing] = useState(false);
   const refreshingRef = useRef(false);
