@@ -6598,6 +6598,8 @@ function AdminPanel() {
                                 setEditExpiresAt("");
                               }
                               setEditAutoDelete((u as any).autoDelete !== false);
+                              const ovInit = (u as any).tvOverride;
+                              setEditTvOverride(ovInit === "on" ? "on" : ovInit === "off" ? "off" : "inherit");
                             }} title="Edit"
                             className={`flex-1 flex items-center justify-center h-9 rounded-lg transition-all active:scale-95 ${editingUserAccounts === u.id ? "bg-white text-emerald-600 ring-1 ring-emerald-300 shadow-sm" : "text-slate-500 hover:bg-white hover:text-emerald-600 hover:shadow-sm"}`}>
                             <Edit className="w-4 h-4" />
