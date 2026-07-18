@@ -6049,6 +6049,7 @@ function AdminPanel() {
       }
       // Free profile: passwordless one-tap entry. Username is optional/manual only
       // (never generated); password is never sent for free profiles.
+      const tvOv: "on" | "off" | null = newTvOverride === "on" || newTvOverride === "off" ? newTvOverride : null;
       const body: any = newIsFree
         ? {
             action: "create",
@@ -6058,6 +6059,7 @@ function AdminPanel() {
             is_free: true,
             assigned_accounts: normalizeSelectedAccounts(newUserAccounts).length > 0 ? normalizeSelectedAccounts(newUserAccounts) : null,
             expires_at: expiresIso,
+            tv_override: tvOv,
           }
         : {
             action: "create",
@@ -6067,9 +6069,10 @@ function AdminPanel() {
             role: "user",
             assigned_accounts: normalizeSelectedAccounts(newUserAccounts).length > 0 ? normalizeSelectedAccounts(newUserAccounts) : null,
             is_free: false,
+            tv_override: tvOv,
           };
       const res: any = await apiCall("manage-app", body);
-      setNewUsername(""); setNewPassword(""); setNewName(""); setNewUserAccounts([]); setNewIsFree(false); setNewFreeExpiresAt("");
+      setNewUsername(""); setNewPassword(""); setNewName(""); setNewUserAccounts([]); setNewIsFree(false); setNewFreeExpiresAt(""); setNewTvOverride("inherit");
       if (!res?.user) throw new Error("Server did not return the created user");
       setUsers(prev => [...prev, res.user]);
       setStats(prev => ({ ...prev, totalUsers: prev.totalUsers + 1 }));
