@@ -181,28 +181,6 @@ function extractRequestCountryIso(html: string) {
   return (html.match(/"requestCountry"\s*:\s*\{[^}]*"id"\s*:\s*"([A-Z]{2})"/)?.[1] || "US").toUpperCase();
 }
 
-function hiddenInputsToForm(html: string) {
-  const form = new URLSearchParams();
-  for (const m of html.matchAll(/<input\b[^>]*>/gi)) {
-    const tag = m[0];
-    const name = (tag.match(/\bname=["']([^"']+)["']/i)?.[1] || "").trim();
-    if (!name) continue;
-    const value = tag.match(/\bvalue=["']([^"']*)["']/i)?.[1] || "";
-    form.set(name, decodeHtmlAttr(value));
-  }
-  return form;
-}
-
-function extractPasswordFormAction(html: string, fallbackUrl: string) {
-  for (const m of html.matchAll(/<form\b[^>]*>[\s\S]*?<\/form>/gi)) {
-    const formHtml = m[0];
-    if (!/type=["']password["']|name=["']password["']/i.test(formHtml)) continue;
-    const action = formHtml.match(/\baction=["']([^"']+)["']/i)?.[1];
-    if (action) return new URL(decodeHtmlAttr(action), fallbackUrl).toString();
-  }
-  return fallbackUrl;
-}
-
 function cookieJarToBrowserExport(jar: CookieJar) {
   return [...jar.values()].map((c) => ({
     name: c.name,
@@ -225,12 +203,6 @@ function cookieNames(jar: CookieJar) {
   return [...jar.keys()].sort().join(", ");
 }
 
-async function secretFingerprint(value: string) {
-  const bytes = new TextEncoder().encode(value);
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 12);
-}
-
 function extractNetflixMessage(html: string) {
   const jsonMessage = html.match(/"(?:errorMessage|message|uiMessage)"\s*:\s*"([^"]{4,260})"/i)?.[1];
   if (jsonMessage) return jsonMessage.replace(/\\u002F/g, "/").replace(/\\n/g, " ");
@@ -248,57 +220,6 @@ function inferNetflixLoginState(html: string, url: string) {
   if (asksOtp) return "otp_challenge";
   if (asksPassword) return "password_required";
   return "unknown";
-}
-
-function normalizeFieldName(name: string) {
-  return name.trim().toLowerCase().replace(/[-_]/g, "");
-}
-
-async function submitOfficialLoginForm(params: {
-  jar: CookieJar;
-  loginHtml: string;
-  loginUrl: string;
-  email: string;
-  password: string;
-  authURL: string;
-}): Promise<{ status: number; url: string; state: LoginState; message: string; body: string; actionUrl: string }> {
-  const { jar, loginHtml, loginUrl, email, password, authURL } = params;
-  const form = hiddenInputsToForm(loginHtml);
-  const existingKeys = [...form.keys()];
-  const setKnown = (aliases: string[], value: string) => {
-    const found = existingKeys.find((key) => aliases.includes(normalizeFieldName(key)));
-    form.set(found || aliases[0], value);
-  };
-
-  setKnown(["userloginid", "email", "login", "username"], email);
-  setKnown(["password", "passwd"], password);
-  setKnown(["rememberme"], "true");
-  setKnown(["authurl"], authURL);
-  if (!form.has("flow")) form.set("flow", "websiteSignUp");
-  if (!form.has("mode")) form.set("mode", "login");
-  if (!form.has("action")) form.set("action", "loginAction");
-  if (!form.has("withFields")) form.set("withFields", "userLoginId,password,rememberMe,nextPage,showPassword");
-  if (!form.has("nextPage")) form.set("nextPage", "");
-  if (!form.has("showPassword")) form.set("showPassword", "");
-
-  const actionUrl = extractPasswordFormAction(loginHtml, loginUrl || `${NF_BASE}/login`);
-  const res = await nfFetch(actionUrl, {
-    method: "POST",
-    body: form,
-    headers: {
-      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-      "Content-Type": "application/x-www-form-urlencoded",
-      "Referer": loginUrl || `${NF_BASE}/login`,
-      "Origin": NF_BASE,
-    },
-  }, jar);
-  const body = await res.text().catch(() => "");
-  let state: LoginState = inferNetflixLoginState(body, res.url || "") as LoginState;
-  const message = extractNetflixMessage(body);
-  if (looksLikeNetflixSignedIn(body, res.url || "", res.status)) state = "signed_in";
-  else if (/incorrect password|invalid password|password is incorrect|wrong password/i.test(`${message} ${htmlText(body)}`)) state = "incorrect_password";
-  else if (/captcha|recaptcha|unusual activity|try again later|temporarily unavailable/i.test(`${message} ${htmlText(body)}`)) state = "blocked";
-  return { status: res.status, url: res.url || actionUrl, state, message, body, actionUrl };
 }
 
 function looksLikeNetflixSignedIn(html: string, url: string, status: number) {
@@ -392,43 +313,7 @@ Deno.serve(async (req) => {
         if (filter) log("BOOT", `Using recipient-filter login email ${email} for account "${chosenLabel}"`);
         if (pollLabels.length > 1) log("BOOT", `Will poll same IMAP mailbox labels too: ${pollLabels.join(", ")}`);
 
-        // ── load optional stored Netflix password for this email ────────
-        // Admins configure these on the separate TV Auto-Login → Netflix Vault
-        // page. When Netflix asks for a password (no OTP), we submit it
-        // automatically instead of failing.
-        const { data: credRow } = await supabase
-          .from("app_settings").select("value").eq("key", "netflix_credentials").maybeSingle();
-        const credMapRaw: Record<string, string> = (credRow?.value && typeof credRow.value === "object" && !Array.isArray(credRow.value))
-          ? credRow.value as Record<string, string> : {};
-        const credMap: Record<string, string> = {};
-        for (const [k, v] of Object.entries(credMapRaw)) {
-          const normalizedKey = String(k || "").trim().toLowerCase();
-          if (normalizedKey) credMap[normalizedKey] = String(v || "");
-        }
-        const linkedEmails = new Set<string>();
-        linkedEmails.add(email.toLowerCase());
-        if (acc.user) linkedEmails.add(String(acc.user).trim().toLowerCase());
-        for (const r of recipientFilters) linkedEmails.add(r.toLowerCase());
-        for (const a of accounts) {
-          if (String(a.user || "").trim().toLowerCase() !== String(acc.user || "").trim().toLowerCase()) continue;
-          if (a.user) linkedEmails.add(String(a.user).trim().toLowerCase());
-          for (const r of (Array.isArray(a.recipientFilters) ? a.recipientFilters : [])) {
-            const val = String(r || "").trim().toLowerCase();
-            if (val) linkedEmails.add(val);
-          }
-        }
-        const linkedCandidates = [...linkedEmails];
-        const checkedVaultRows: string[] = [];
-        for (const candidate of linkedCandidates) {
-          const raw = typeof credMap[candidate] === "string" ? credMap[candidate] : "";
-          checkedVaultRows.push(`${candidate}:${raw ? `${raw.length}c#${await secretFingerprint(raw)}` : "empty"}`);
-        }
-        const credentialEmail = linkedCandidates.find((candidate) => typeof credMap[candidate] === "string" && String(credMap[candidate]).length > 0) || "";
-        const storedPasswordRaw = String(credentialEmail ? credMap[credentialEmail] : "");
-        const storedPassword = storedPasswordRaw.trim();
-        const selectedKey = email.toLowerCase();
-        log("BOOT", `Vault keys checked → ${checkedVaultRows.join(" | ") || "none"}`);
-        log("BOOT", `Netflix password on file for ${email}: ${storedPassword ? `yes (${storedPasswordRaw.length} chars, value="${storedPassword}", sha256:${await secretFingerprint(storedPasswordRaw)}, matched ${credentialEmail === selectedKey ? "selected email" : credentialEmail}${storedPasswordRaw !== storedPassword ? ", trimmed before submit" : ""})` : `no (checked ${linkedEmails.size} linked email key${linkedEmails.size === 1 ? "" : "s"})`}`);
+        log("BOOT", "Using uploaded simple flow: open Netflix login → enter email → click submit → detect OTP/password state. Stored Netflix Vault passwords are not submitted by this test.");
 
         // ── Netflix flow ─────────────────────────────────────────────────
         const jar: CookieJar = new Map();
@@ -477,71 +362,43 @@ Deno.serve(async (req) => {
           send("done", { ok: true, cookies: jar.size, email, account_label: chosenLabel, method });
         };
 
-        const useDirectPassword = storedPassword.length > 0;
         let subBody = "";
         let netflixMessage = "";
         let loginState: LoginState = "unknown";
-        let finalLoginUrl = loginPage.url || `${NF_BASE}/login`;
 
-        if (useDirectPassword) {
-          log("STEP-2", `POST official Netflix login form  userLoginId="${email}"  password="${storedPassword}" (${storedPassword.length} chars, from admin panel)`);
-          const web = await submitOfficialLoginForm({ jar, loginHtml: html, loginUrl: loginPage.url || `${NF_BASE}/login`, email, password: storedPassword, authURL });
-          loginState = web.state;
-          netflixMessage = web.message;
-          subBody = web.body;
-          finalLoginUrl = web.url || finalLoginUrl;
-          log("STEP-2", `formAction=${web.actionUrl}`);
-          log("STEP-2", `status=${web.status}  finalUrl=${web.url}  bytes=${web.body.length}  state=${web.state}  cookies=${jar.size}`);
-          log("STEP-2", `cookie names: ${cookieNames(jar) || "none"}`);
-          if (netflixMessage) log("STEP-2", `Netflix page said: ${netflixMessage.slice(0, 220)}`);
-          else log("STEP-2", `page preview: ${subBody.slice(0, 250).replace(/\s+/g, " ")}`);
-        } else {
-          log("STEP-2", `POST /login  userLoginId="${email}"  password=(empty — expecting OTP flow)`);
-          const form = new URLSearchParams({
-            userLoginId: email, password: "", rememberMe: "true",
-            flow: "websiteSignUp", mode: "login", action: "loginAction",
-            withFields: "userLoginId,password,rememberMe,nextPage,showPassword",
-            authURL, nextPage: "", showPassword: "",
-          });
-          const sub = await nfFetch(`${NF_BASE}/login`, {
-            method: "POST", body: form,
-            headers: {
-              "Content-Type": "application/x-www-form-urlencoded",
-              "Referer": loginPage.url || `${NF_BASE}/login`,
-              "Origin": NF_BASE,
-            },
-          }, jar);
-          subBody = await sub.text().catch(() => "");
-          netflixMessage = extractNetflixMessage(subBody);
-          loginState = inferNetflixLoginState(subBody, sub.url || "");
-          finalLoginUrl = sub.url || finalLoginUrl;
-          log("STEP-2", `status=${sub.status}  finalUrl=${sub.url}  cookies=${jar.size}  bytes=${subBody.length}`);
-          log("STEP-2", `cookie names: ${cookieNames(jar) || "none"}`);
-          log("STEP-2", `Netflix login state detected: ${loginState}`);
-          if (netflixMessage) log("STEP-2", `Netflix said: ${netflixMessage.slice(0, 220)}`);
-          else log("STEP-2", `body preview: ${subBody.slice(0, 250).replace(/\s+/g, " ")}`);
-        }
+        log("STEP-2", `Submit email only like uploaded script  userLoginId="${email}"  password=(empty)`);
+        const form = new URLSearchParams({
+          userLoginId: email, password: "", rememberMe: "true",
+          flow: "websiteSignUp", mode: "login", action: "loginAction",
+          withFields: "userLoginId,password,rememberMe,nextPage,showPassword",
+          authURL, nextPage: "", showPassword: "",
+        });
+        const sub = await nfFetch(`${NF_BASE}/login`, {
+          method: "POST", body: form,
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Referer": loginPage.url || `${NF_BASE}/login`,
+            "Origin": NF_BASE,
+          },
+        }, jar);
+        await new Promise((r) => setTimeout(r, 3000));
+        subBody = await sub.text().catch(() => "");
+        netflixMessage = extractNetflixMessage(subBody);
+        loginState = inferNetflixLoginState(subBody, sub.url || "");
+        log("STEP-2", `status=${sub.status}  finalUrl=${sub.url}  cookies=${jar.size}  bytes=${subBody.length}`);
+        log("STEP-2", `cookie names: ${cookieNames(jar) || "none"}`);
+        log("STEP-2", `Netflix login state detected: ${loginState}`);
+        if (netflixMessage) log("STEP-2", `Netflix said: ${netflixMessage.slice(0, 220)}`);
+        else log("STEP-2", `body preview: ${subBody.slice(0, 250).replace(/\s+/g, " ")}`);
 
         if (loginState === "incorrect_password") {
-          throw new Error(`Netflix official web login page rejected the stored password for ${email}. Update it on TV Auto-Login → Netflix Vault, then retry.`);
+          throw new Error(`Netflix rejected the email-first submit for ${email}. No password was sent by this simple flow.`);
         }
         if (loginState === "blocked") {
-          throw new Error(`Netflix blocked automated password login for ${email}: ${netflixMessage || "risk/reCAPTCHA validation required"}. Try again later or refresh the vault password from a trusted device.`);
+          throw new Error(`Netflix blocked this email-first test for ${email}: ${netflixMessage || "risk/reCAPTCHA validation required"}. This edge function cannot open a real Selenium/Chrome browser, so it stops here.`);
         }
         if (loginState === "password_required") {
-          if (useDirectPassword) {
-            throw new Error(`Netflix rejected the stored password for ${email}. Update it on the separate TV Auto-Login page → Netflix Vault, then retry.`);
-          }
-          throw new Error(`Netflix wants a password for ${email} instead of sending an OTP, but no saved password matched this selected/linked email. Add it on the separate TV Auto-Login page → Netflix Vault, then retry.`);
-        }
-
-        // Password-based success shortcut: do not trust cookie presence or the
-        // POST URL. Only /browse verification can prove these are real session
-        // cookies. If verification fails, nothing is saved.
-        if (useDirectPassword && loginState !== "otp_challenge") {
-          log("STEP-3", `Password submitted — verifying /browse before save. finalLoginUrl=${finalLoginUrl || "-"}`);
-          await persistSession("password");
-          return;
+          throw new Error(`Netflix is asking for your password for ${email} (no OTP triggered at this step). Simple uploaded flow stops here.`);
         }
 
         // Kick off IMAP sync so the OTP mail lands in cached_emails ASAP.
