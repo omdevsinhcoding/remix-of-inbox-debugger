@@ -4993,6 +4993,7 @@ function AdminPanel() {
   const [editSessionLimit, setEditSessionLimit] = useState<string>("");
   const [editExpiresAt, setEditExpiresAt] = useState<string>(""); // "YYYY-MM-DDTHH:mm" for free users only
   const [editAutoDelete, setEditAutoDelete] = useState<boolean>(true);
+  const [editTvOverride, setEditTvOverride] = useState<"inherit" | "on" | "off">("inherit");
   const [newIsFree, setNewIsFree] = useState(false);
   const [newFreeExpiresAt, setNewFreeExpiresAt] = useState<string>(""); // "YYYY-MM-DDTHH:mm"
   const [newTvOverride, setNewTvOverride] = useState<"inherit" | "on" | "off">("inherit");
