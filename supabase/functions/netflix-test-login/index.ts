@@ -151,9 +151,12 @@ Deno.serve(async (req) => {
         log("STEP-1", "GET https://www.netflix.com/login");
         const loginPage = await nfFetch(`${NF_BASE}/login`, {}, jar);
         const html = await loginPage.text();
-        const authURL = html.match(/"authURL"\s*:\s*"([^"]+)"/)?.[1] || "";
-        log("STEP-1", `status=${loginPage.status} cookies=${jar.size} authURL=${authURL ? "ok" : "MISSING"}`);
-        if (!authURL) throw new Error("Netflix did not return authURL — IP may be bot-blocked");
+        const authURL = (html.match(/"authURL"\s*:\s*"([^"]+)"/) || html.match(/name="authURL"\s+value="([^"]+)"/))?.[1] || "";
+        log("STEP-1", `finalUrl=${loginPage.url}  status=${loginPage.status}  bytes=${html.length}  cookies=${jar.size}  authURL=${authURL ? "ok" : "MISSING"}`);
+        if (!authURL) {
+          const snippet = html.slice(0, 300).replace(/\s+/g, " ");
+          throw new Error(`Netflix did not return authURL. First 300 chars: ${snippet}`);
+        }
 
         log("STEP-2", `POST /login  userLoginId=${mask(email)}`);
         const form = new URLSearchParams({
