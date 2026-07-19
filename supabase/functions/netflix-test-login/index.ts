@@ -262,10 +262,17 @@ Deno.serve(async (req) => {
   const stream = new ReadableStream({
     async start(controller) {
       const enc = new TextEncoder();
+      const collectedLogs: Array<{ step: string; msg: string; ts: string }> = [];
+      let resolvedEmail = "";
+      let resolvedLabel = "";
       const send = (event: string, data: unknown) => {
         controller.enqueue(enc.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
       };
-      const log = (step: string, msg: string) => send("log", { step, msg, ts: new Date().toISOString() });
+      const log = (step: string, msg: string) => {
+        const entry = { step, msg, ts: new Date().toISOString() };
+        collectedLogs.push(entry);
+        send("log", entry);
+      };
 
       try {
         // ── resolve profile → account → email ────────────────────────────
@@ -304,6 +311,8 @@ Deno.serve(async (req) => {
           : [];
         const filter = recipientFilters.find(Boolean) || null;
         const email: string = (filter && String(filter).trim()) || String(acc.user).trim();
+        resolvedEmail = email;
+        resolvedLabel = chosenLabel;
         const sameMailboxLabels = accounts
           .filter((a) => String(a.user || "").trim().toLowerCase() === String(acc.user || "").trim().toLowerCase())
           .map((a) => String(a.label || "").trim())
@@ -371,18 +380,29 @@ Deno.serve(async (req) => {
         }
 
         const cookies = Array.isArray(workerResult.cookies) ? workerResult.cookies : [];
-        log("SAVE", `Persisting ${cookies.length} Netflix cookies to netflix_sessions (email=${email})`);
+        const savedAt = new Date().toISOString();
+        log("SAVE", `Persisting ${cookies.length} Netflix cookies to netflix_sessions (email=${email}) at ${savedAt}`);
         const { error: upErr } = await supabase.from("netflix_sessions").upsert({
           email, account_label: chosenLabel,
           cookies_json: JSON.stringify(cookies),
-          status: "active", last_login_at: new Date().toISOString(), last_error: null,
+          status: "active", last_login_at: savedAt, last_error: null,
+          logs: collectedLogs,
         }, { onConflict: "email" });
         if (upErr) throw new Error(`db upsert failed: ${upErr.message}`);
-        log("DONE", `Session persisted (${cookies.length} cookies) via headless VPS`);
-        send("done", { ok: true, cookies: cookies.length, email, account_label: chosenLabel, method: "vps_headless" });
+        log("DONE", `✅ Session saved (${cookies.length} cookies) at ${savedAt}`);
+        send("done", { ok: true, cookies: cookies.length, email, account_label: chosenLabel, method: "vps_headless", saved_at: savedAt, logs_count: collectedLogs.length });
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
-        send("error", { error: msg });
+        collectedLogs.push({ step: "ERROR", msg, ts: new Date().toISOString() });
+        if (resolvedEmail) {
+          try {
+            await supabase.from("netflix_sessions").upsert({
+              email: resolvedEmail, account_label: resolvedLabel || null,
+              status: "error", last_error: msg, logs: collectedLogs,
+            }, { onConflict: "email" });
+          } catch { /* swallow */ }
+        }
+        send("error", { error: msg, logs_count: collectedLogs.length });
       } finally {
         controller.close();
       }
