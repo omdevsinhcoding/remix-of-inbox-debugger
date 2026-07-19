@@ -46,17 +46,6 @@ async function loadTvFeatureEnabled(supabase: any): Promise<boolean> {
     return true;
   }
 }
-function publicVpsConfig(value: any) {
-  const v = value && typeof value === "object" && !Array.isArray(value) ? value : {};
-  return {
-    ip: typeof v.ip === "string" && v.ip.trim() ? v.ip.trim() : "140.238.226.213",
-    keyFilename: typeof v.keyFilename === "string" && v.keyFilename.trim() ? v.keyFilename.trim() : "vps-private-key.pem",
-    keyObjectKey: typeof v.keyObjectKey === "string" ? v.keyObjectKey : "",
-    keyUploadedAt: typeof v.keyUploadedAt === "string" ? v.keyUploadedAt : "",
-    keySize: Number.isFinite(Number(v.keySize)) ? Number(v.keySize) : 0,
-    hasKey: typeof v.keyObjectKey === "string" && v.keyObjectKey.length > 0,
-  };
-}
 function isProfileLocationRequired(user: any, globalRequired = true) {
   if (!globalRequired || !user) return false;
   const prefs = user.profile_prefs && typeof user.profile_prefs === "object" && !Array.isArray(user.profile_prefs) ? user.profile_prefs : {};
@@ -3002,7 +2991,7 @@ Deno.serve(async (originalReq) => {
       let session: Record<string, any> | null = null;
 
       // Fully admin-only keys
-      const adminOnlyKeys = ["config", "cron_config", "vps_config"];
+      const adminOnlyKeys = ["config", "cron_config"];
       if (adminOnlyKeys.includes(key)) {
         session = await requireAdmin(req);
       }
@@ -3064,28 +3053,8 @@ Deno.serve(async (originalReq) => {
       });
     }
 
-    if (action === "admin_get_vps_config") {
-      await requireAdmin(req);
-      const { data } = await supabase.from("app_settings").select("value").eq("key", "vps_config").maybeSingle();
-      return new Response(JSON.stringify({ success: true, value: publicVpsConfig(data?.value) }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
 
-    if (action === "admin_save_vps_access") {
-      const session = await requireAdmin(req);
-      const nextIp = String(params?.ip || "").trim() || "140.238.226.213";
-      if (!/^[A-Za-z0-9:.[\]-]{3,255}$/.test(nextIp)) throw new Error("Enter a valid VPS IP or hostname");
-      const { data } = await supabase.from("app_settings").select("value").eq("key", "vps_config").maybeSingle();
-      const prev = publicVpsConfig(data?.value);
-      const value = { ...prev, ip: nextIp };
-      const { error } = await supabase.from("app_settings").upsert({ key: "vps_config", value }, { onConflict: "key" });
-      if (error) throw error;
-      await auditLog(supabase, "vps_access_updated", session.userId, null, { ip: nextIp }, ip);
-      return new Response(JSON.stringify({ success: true, value }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+
 
     if (action === "admin_reveal_session_signing_secret") {
       const session = await requireAdmin(req);
@@ -4725,83 +4694,8 @@ Deno.serve(async (originalReq) => {
       return new Response(JSON.stringify({ success: true, url, key }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    if (action === "admin_upload_vps_key") {
-      const session = await requireAdmin(req);
-      const p = (params || {}) as any;
-      if (!p?.dataBase64 || !p?.filename) throw new Error("Private key file required");
-      const { data: r2Row } = await supabase.from("app_settings").select("value").eq("key", "r2_storage").maybeSingle();
-      const r2Value: any = r2Row?.value || {};
-      if (!r2Value.enabled) throw new Error("R2 is not enabled — configure it in Settings → Storage first");
-      const normalized = normalizeR2Config(r2Value);
-      if (normalized.errors.length) throw new Error(normalized.errors.join(" "));
-      const cfg = normalized.config;
-      if (!cfg.accountId || !cfg.accessKeyId || !cfg.secretAccessKey || !cfg.bucket) throw new Error("R2 credentials incomplete");
 
-      const b64 = String(p.dataBase64).replace(/^data:[^;]+;base64,/, "");
-      const bin = atob(b64);
-      const bytes = new Uint8Array(bin.length);
-      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-      if (bytes.length < 64) throw new Error("Private key file looks empty");
-      if (bytes.length > 64 * 1024) throw new Error("Private key too large (max 64 KB)");
-      const keyText = new TextDecoder().decode(bytes).trim();
-      if (!/-----BEGIN [A-Z ]*PRIVATE KEY-----/.test(keyText)) throw new Error("Upload a valid private SSH key file");
 
-      const { r2Put, r2Delete, slugifyFilename } = await import("../_shared/r2Sign.ts");
-      const creds = { accountId: cfg.accountId, accessKeyId: cfg.accessKeyId, secretAccessKey: cfg.secretAccessKey, bucket: cfg.bucket };
-      const objectKey = `vps-vault/${crypto.randomUUID()}-${slugifyFilename(p.filename)}`;
-      const res = await r2Put(creds, objectKey, bytes, "application/x-pem-file");
-      if (!res.ok) {
-        const t = await res.text();
-        throw new Error(`R2 upload failed: ${r2FailureMessage(res.status, t, normalized.warnings)}`);
-      }
-
-      const { data: existing } = await supabase.from("app_settings").select("value").eq("key", "vps_config").maybeSingle();
-      const prev = publicVpsConfig(existing?.value);
-      if (prev.keyObjectKey) {
-        try { await r2Delete(creds, prev.keyObjectKey); } catch {}
-      }
-      const safeFilename = slugifyFilename(p.filename).replace(/\.bin$/i, ".pem");
-      const value = {
-        ...prev,
-        keyFilename: safeFilename,
-        keyObjectKey: objectKey,
-        keyUploadedAt: new Date().toISOString(),
-        keySize: bytes.length,
-        hasKey: true,
-      };
-      const { error } = await supabase.from("app_settings").upsert({ key: "vps_config", value }, { onConflict: "key" });
-      if (error) throw error;
-      await auditLog(supabase, "vps_key_uploaded", session.userId, null, { filename: safeFilename, size: bytes.length }, ip);
-      return new Response(JSON.stringify({ success: true, value }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-
-    if (action === "admin_download_vps_key") {
-      const session = await requireAdmin(req);
-      const { data: vpsRow } = await supabase.from("app_settings").select("value").eq("key", "vps_config").maybeSingle();
-      const vps = publicVpsConfig(vpsRow?.value);
-      if (!vps.keyObjectKey) throw new Error("No private key has been uploaded yet");
-      const { data: r2Row } = await supabase.from("app_settings").select("value").eq("key", "r2_storage").maybeSingle();
-      const r2Value: any = r2Row?.value || {};
-      if (!r2Value.enabled) throw new Error("R2 is not enabled — configure it in Settings → Storage first");
-      const normalized = normalizeR2Config(r2Value);
-      if (normalized.errors.length) throw new Error(normalized.errors.join(" "));
-      const cfg = normalized.config;
-      if (!cfg.accountId || !cfg.accessKeyId || !cfg.secretAccessKey || !cfg.bucket) throw new Error("R2 credentials incomplete");
-      const { r2Get } = await import("../_shared/r2Sign.ts");
-      const creds = { accountId: cfg.accountId, accessKeyId: cfg.accessKeyId, secretAccessKey: cfg.secretAccessKey, bucket: cfg.bucket };
-      const res = await r2Get(creds, vps.keyObjectKey);
-      if (!res.ok) {
-        const t = await res.text();
-        throw new Error(`R2 download failed: ${r2FailureMessage(res.status, t, normalized.warnings)}`);
-      }
-      const bytes = new Uint8Array(await res.arrayBuffer());
-      let binary = "";
-      for (let i = 0; i < bytes.length; i += 0x8000) {
-        binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-      }
-      await auditLog(supabase, "vps_key_downloaded", session.userId, null, { filename: vps.keyFilename }, ip);
-      return new Response(JSON.stringify({ success: true, filename: vps.keyFilename, dataBase64: btoa(binary) }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
 
     throw new Error("Unknown action: " + action);
 
