@@ -5294,29 +5294,35 @@ function AdminPanel() {
   };
 
   const openNetflixWithCookies = async (entry: NetflixCookieEntry) => {
-    // Open a placeholder tab synchronously so popup blockers don't kill it while
-    // we wait for the server to mint the nftoken login link.
-    const tab = window.open("about:blank", "_blank", "noopener,noreferrer");
     const tid = notify.loading("Generating Netflix login link…");
     try {
-      const res: any = await apiCall("netflix-nftoken", { cookies: entry.cookies });
-      const url: string | undefined = res?.url;
-      if (!url) throw new Error(res?.error || "No login link returned");
-      const expires: number | null = typeof res?.expires === "number" ? res.expires : null;
+      const supaUrl = (import.meta as any).env?.VITE_SUPABASE_URL || "https://jsqchutnfdeljajkxmly.supabase.co";
+      const anon = (import.meta as any).env?.VITE_SUPABASE_PUBLISHABLE_KEY || "";
+      const res = await fetch(`${supaUrl.replace(/\/+$/, "")}/functions/v1/netflix-nftoken`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(anon ? { Authorization: `Bearer ${anon}`, apikey: anon } : {}),
+        },
+        body: JSON.stringify({ cookies: entry.cookies }),
+      });
+      const data = await res.json().catch(() => ({} as any));
+      if (!res.ok || !data?.url) throw new Error(data?.error || `Request failed (${res.status})`);
       notify.dismiss(tid);
+      const expires: number | null = typeof data?.expires === "number" ? data.expires : null;
       if (expires) {
         const when = new Date(expires * 1000).toLocaleString();
         notify.success(`Login link ready — expires ${when}`, { duration: 6000 });
       } else {
         notify.success("Login link ready");
       }
-      if (tab) tab.location.href = url; else window.open(url, "_blank", "noopener,noreferrer");
+      window.open(data.url as string, "_blank", "noopener,noreferrer");
     } catch (e: any) {
       notify.dismiss(tid);
       notify.error(e?.message || "Failed to generate login link");
-      if (tab) tab.close();
     }
   };
+
 
 
   // Account -> validation email(s) shown next to the label.
