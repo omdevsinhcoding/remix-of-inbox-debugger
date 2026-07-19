@@ -21,6 +21,8 @@ const corsHeaders = {
 
 const NF_BASE = "https://www.netflix.com";
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36";
+const WORKER_TOTAL_TIMEOUT_MS = 55_000;
+const WORKER_IDLE_TIMEOUT_MS = 18_000;
 
 type CookieMeta = {
   name: string;
@@ -338,15 +340,32 @@ Deno.serve(async (req) => {
         if (!workerUrl || !workerToken) throw new Error("NF_WORKER_URL / NF_WORKER_TOKEN not configured");
 
         log("VPS", `Calling headless worker ${workerUrl}/login (real Chromium, real IP)`);
-        const wRes = await fetch(`${workerUrl}/login`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Worker-Token": workerToken,
-          },
-          body: JSON.stringify({ email, password, mode: password ? "password" : "email_only" }),
-        });
+        const workerAbort = new AbortController();
+        const onClientAbort = () => workerAbort.abort("client disconnected");
+        req.signal.addEventListener("abort", onClientAbort, { once: true });
+        const totalTimer = setTimeout(() => workerAbort.abort("worker total timeout"), WORKER_TOTAL_TIMEOUT_MS);
+        const cleanupWorkerTimeouts = () => {
+          clearTimeout(totalTimer);
+          req.signal.removeEventListener("abort", onClientAbort);
+        };
+        let wRes: Response;
+        try {
+          wRes = await fetch(`${workerUrl}/login`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Worker-Token": workerToken,
+            },
+            body: JSON.stringify({ email, password, mode: password ? "password" : "email_only", timeout_sec: Math.floor(WORKER_TOTAL_TIMEOUT_MS / 1000) }),
+            signal: workerAbort.signal,
+          });
+        } catch (e) {
+          cleanupWorkerTimeouts();
+          const reason = workerAbort.signal.aborted ? String(workerAbort.signal.reason || "timeout") : (e instanceof Error ? e.message : String(e));
+          throw new Error(`headless worker did not respond: ${reason}`);
+        }
         if (!wRes.ok || !wRes.body) {
+          cleanupWorkerTimeouts();
           const t = await wRes.text().catch(() => "");
           throw new Error(`worker HTTP ${wRes.status}: ${t.slice(0, 300)}`);
         }
@@ -356,22 +375,30 @@ Deno.serve(async (req) => {
         const dec = new TextDecoder();
         let buf = "";
         let workerResult: any = null;
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          buf += dec.decode(value, { stream: true });
-          const parts = buf.split("\n\n");
-          buf = parts.pop() || "";
-          for (const chunk of parts) {
-            const evLine = chunk.split("\n").find((l) => l.startsWith("event:"));
-            const dtLine = chunk.split("\n").find((l) => l.startsWith("data:"));
-            if (!evLine || !dtLine) continue;
-            const event = evLine.slice(6).trim();
-            let data: any = null;
-            try { data = JSON.parse(dtLine.slice(5).trim()); } catch { continue; }
-            if (event === "log") log("VPS", data.msg || "");
-            else if (event === "result") workerResult = data;
+        try {
+          while (true) {
+            const read = await Promise.race([
+              reader.read(),
+              new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`headless worker idle for ${Math.round(WORKER_IDLE_TIMEOUT_MS / 1000)}s`)), WORKER_IDLE_TIMEOUT_MS)),
+            ]);
+            const { value, done } = read;
+            if (done) break;
+            buf += dec.decode(value, { stream: true });
+            const parts = buf.split("\n\n");
+            buf = parts.pop() || "";
+            for (const chunk of parts) {
+              const evLine = chunk.split("\n").find((l) => l.startsWith("event:"));
+              const dtLine = chunk.split("\n").find((l) => l.startsWith("data:"));
+              if (!evLine || !dtLine) continue;
+              const event = evLine.slice(6).trim();
+              let data: any = null;
+              try { data = JSON.parse(dtLine.slice(5).trim()); } catch { continue; }
+              if (event === "log") log("VPS", data.msg || "");
+              else if (event === "result") workerResult = data;
+            }
           }
+        } finally {
+          cleanupWorkerTimeouts();
         }
 
         if (!workerResult) throw new Error("worker closed without a result event");
