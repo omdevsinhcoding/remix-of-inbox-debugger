@@ -262,10 +262,17 @@ Deno.serve(async (req) => {
   const stream = new ReadableStream({
     async start(controller) {
       const enc = new TextEncoder();
+      const collectedLogs: Array<{ step: string; msg: string; ts: string }> = [];
+      let resolvedEmail = "";
+      let resolvedLabel = "";
       const send = (event: string, data: unknown) => {
         controller.enqueue(enc.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
       };
-      const log = (step: string, msg: string) => send("log", { step, msg, ts: new Date().toISOString() });
+      const log = (step: string, msg: string) => {
+        const entry = { step, msg, ts: new Date().toISOString() };
+        collectedLogs.push(entry);
+        send("log", entry);
+      };
 
       try {
         // ── resolve profile → account → email ────────────────────────────
