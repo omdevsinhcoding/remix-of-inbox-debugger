@@ -1,5 +1,6 @@
-import { useEffect } from "react";
-import { Cookie, Trash2, ExternalLink, Save, Copy } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Cookie, Trash2, ExternalLink, Save, Copy, ChevronDown, Check, Mail, Search } from "lucide-react";
+
 import { notify } from "../toast/notify";
 
 type EmailAccountConfig = {
