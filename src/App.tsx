@@ -1,6 +1,6 @@
 import React, { useState, useEffect, createContext, useContext, useCallback, useRef, useMemo, Suspense, lazy } from "react";
 import { createPortal } from "react-dom";
-import { Mail, RefreshCw, ShieldCheck, Shield, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, Globe, Edit, Info, UserCircle, Search, ChevronRight, Bell, Send, MessageSquare, Image as ImageIcon, ExternalLink, AlertTriangle, Sparkles, Megaphone, Wrench, CreditCard, Tag, ChevronDown, ChevronUp, HardDrive, Upload, Zap, BookOpen, GraduationCap, Film, PlayCircle, Pin, MapPin, MapPinOff, Tv, Loader2, Download } from "lucide-react";
+import { Mail, RefreshCw, ShieldCheck, Shield, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, Globe, Edit, Info, UserCircle, Search, ChevronRight, Bell, Send, MessageSquare, Image as ImageIcon, ExternalLink, AlertTriangle, Sparkles, Megaphone, Wrench, CreditCard, Tag, ChevronDown, ChevronUp, HardDrive, Upload, Zap, BookOpen, GraduationCap, Film, PlayCircle, Pin, MapPin, MapPinOff, Tv, Loader2, Download, Cookie } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import NetflixHouseholdVerificationGuide from "./pages/NetflixHouseholdVerificationGuide";
@@ -5151,11 +5151,11 @@ function RecipientsDrawer({ notification, onClose, onChanged }: { notification: 
 function AdminPanel() {
   usePageHead("Admin Dashboard — Netflix Mail", "Admin control panel for managing users, sessions, notifications, and email accounts.", "/admin/dashboard");
   const ADMIN_ACTIVE_TAB_KEY = "admin_active_tab_v1";
-  const [activeTab, setActiveTab] = useState<"users" | "security" | "emails" | "settings" | "notifications" | "inbox" | "logins" | "allmails" | "deploy" | "tv">(() => {
+  const [activeTab, setActiveTab] = useState<"users" | "security" | "emails" | "settings" | "notifications" | "inbox" | "logins" | "allmails" | "deploy" | "tv" | "cookies">(() => {
     try {
       const raw = sessionStorage.getItem(ADMIN_ACTIVE_TAB_KEY);
       if (!raw) return "users";
-      const allowed = new Set(["users", "security", "emails", "settings", "notifications", "inbox", "logins", "allmails", "deploy", "tv"]);
+      const allowed = new Set(["users", "security", "emails", "settings", "notifications", "inbox", "logins", "allmails", "deploy", "tv", "cookies"]);
       return allowed.has(raw) ? (raw as any) : "users";
     } catch {
       return "users";
@@ -6550,6 +6550,7 @@ function AdminPanel() {
     { id: "notifications" as const, label: "Notifications", icon: Bell },
     { id: "inbox" as const, label: "Inbox", icon: Mail },
     { id: "tv" as const, label: "TV Auto-Login", icon: Tv },
+    { id: "cookies" as const, label: "Cookies", icon: Cookie },
     { id: "security" as const, label: "Security", icon: ShieldCheck },
     { id: "emails" as const, label: "Email Accounts", icon: Server },
     { id: "settings" as const, label: "Settings", icon: Settings },
@@ -7975,6 +7976,37 @@ function AdminPanel() {
 
           </div>
         )}
+
+        {activeTab === "cookies" && (
+          <div className="max-w-4xl mx-auto space-y-5">
+            {/* Header — matches TV Remote Access */}
+            <div className="px-1">
+              <h2 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-950 flex items-center gap-2.5">
+                <span className="inline-flex w-9 h-9 rounded-xl bg-slate-900 text-white items-center justify-center shadow-sm"><Cookie className="w-5 h-5" /></span>
+                Cookies
+              </h2>
+              <p className="text-sm text-slate-500 mt-1.5 ml-[46px]">Manage <b className="text-slate-800">saved cookies</b> for your profiles.</p>
+            </div>
+
+            {/* Empty state card in same style as TV section */}
+            <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 sm:p-6">
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="text-base sm:text-lg font-bold text-slate-950 leading-snug">No cookies yet</p>
+                  <p className="text-[13px] text-slate-500 mt-1 leading-relaxed">
+                    This section is ready. Tell me what you want here — list, import/export, per-profile cookies — and I'll wire it up.
+                  </p>
+                </div>
+                <div className="shrink-0 w-[62px] h-[34px] rounded-full bg-slate-100 flex items-center justify-center">
+                  <Cookie className="w-4 h-4 text-slate-400" />
+                </div>
+              </div>
+            </section>
+          </div>
+        )}
+
+
+
 
 
 
