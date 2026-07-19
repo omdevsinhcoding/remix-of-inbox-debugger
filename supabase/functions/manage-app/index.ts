@@ -3103,8 +3103,10 @@ Deno.serve(async (originalReq) => {
     if (action === "netflix_nftoken") {
       await requireAdmin(req);
       const cookieText = typeof params?.cookies === "string" ? params.cookies : "";
-      if (!cookieText.trim()) throw new Error("Missing cookies");
+      console.log("[netflix_nftoken] cookieText length:", cookieText.length, "preview:", cookieText.slice(0, 120));
+      if (!cookieText.trim()) throw new Error("Missing cookies input");
       if (cookieText.length > 200_000) throw new Error("Cookies too large");
+
 
       const COOKIE_KEYS = ["NetflixId", "SecureNetflixId", "nfvdid", "OptanonConsent"];
       const decodeVal = (v: string) => {
