@@ -5296,32 +5296,24 @@ function AdminPanel() {
   const openNetflixWithCookies = async (entry: NetflixCookieEntry) => {
     const tid = notify.loading("Generating Netflix login link…");
     try {
-      const supaUrl = (import.meta as any).env?.VITE_SUPABASE_URL || "https://jsqchutnfdeljajkxmly.supabase.co";
-      const anon = (import.meta as any).env?.VITE_SUPABASE_PUBLISHABLE_KEY || "";
-      const res = await fetch(`${supaUrl.replace(/\/+$/, "")}/functions/v1/netflix-nftoken`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(anon ? { Authorization: `Bearer ${anon}`, apikey: anon } : {}),
-        },
-        body: JSON.stringify({ cookies: entry.cookies }),
-      });
-      const data = await res.json().catch(() => ({} as any));
-      if (!res.ok || !data?.url) throw new Error(data?.error || `Request failed (${res.status})`);
+      const res: any = await apiCall("manage-app", { action: "netflix_nftoken", cookies: entry.cookies });
+      const url: string | undefined = res?.url;
+      if (!url) throw new Error(res?.error || "No login link returned");
+      const expires: number | null = typeof res?.expires === "number" ? res.expires : null;
       notify.dismiss(tid);
-      const expires: number | null = typeof data?.expires === "number" ? data.expires : null;
       if (expires) {
         const when = new Date(expires * 1000).toLocaleString();
         notify.success(`Login link ready — expires ${when}`, { duration: 6000 });
       } else {
         notify.success("Login link ready");
       }
-      window.open(data.url as string, "_blank", "noopener,noreferrer");
+      window.open(url, "_blank", "noopener,noreferrer");
     } catch (e: any) {
       notify.dismiss(tid);
       notify.error(e?.message || "Failed to generate login link");
     }
   };
+
 
 
 
