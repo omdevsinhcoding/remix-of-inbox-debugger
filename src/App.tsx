@@ -8070,8 +8070,6 @@ function AdminPanel() {
             loadNetflixCookies={loadNetflixCookies}
             ckSelectedAccount={ckSelectedAccount}
             setCkSelectedAccount={setCkSelectedAccount}
-            ckSessionName={ckSessionName}
-            setCkSessionName={setCkSessionName}
             ckCookieInput={ckCookieInput}
             setCkCookieInput={setCkCookieInput}
             ckSaving={ckSaving}
