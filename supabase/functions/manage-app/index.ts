@@ -2875,16 +2875,16 @@ Deno.serve(async (originalReq) => {
       // Grace window: accept current code. Also accept the just-expired
       // previous code, but only during the first 5 seconds of a new 30s step.
       const codeStr = String(code).trim();
-      const secsIntoStep = Math.floor(Date.now() / 1000) % 30;
-      // [past, future] steps to also accept. 1 past step = previous 30s code.
-      const window: [number, number] = secsIntoStep < 5 ? [1, 0] : [0, 0];
-      const prevOptions = authenticator.options;
-      authenticator.options = { ...prevOptions, window };
-      let valid = false;
-      try {
-        valid = authenticator.check(codeStr, user.totp_secret);
-      } finally {
-        authenticator.options = prevOptions;
+      let valid = authenticator.check(codeStr, user.totp_secret);
+      if (!valid) {
+        const secsIntoStep = Math.floor(Date.now() / 1000) % 30;
+        if (secsIntoStep < 5) {
+          // Compute the previous step's expected token manually and compare.
+          const prevToken = authenticator.generate(user.totp_secret, {
+            epoch: Date.now() - 30_000,
+          } as any);
+          if (prevToken && prevToken === codeStr) valid = true;
+        }
       }
       if (!valid) throw new Error("Invalid Google Authenticator code");
       await supabase.from("app_admin_2fa_state").update({ totp_verified_at: new Date().toISOString() }).eq("token_hash", tokenHash).eq("user_id", pending.userId);
