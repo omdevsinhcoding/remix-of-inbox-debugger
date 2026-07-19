@@ -16,6 +16,8 @@ import { clearBrowserIdentityNow, sessionGet, sessionSet, sessionRemove, nukeBro
 import { openInboxDB, readLatestEmails, writeDelta, getSyncCursor, cacheEmailHtml, getEmailHtml, purgeEmailsOutsideScope, type CachedEmail } from "./lib/inboxCache";
 import { readAdminCache, writeAdminCache, isCacheFresh, reconcileVersion, emitSyncStatus } from "./lib/adminSettingsCache";
 import { AdminSyncStatus } from "./components/AdminSyncStatus";
+import { CookiesTab } from "./components/admin/CookiesTab";
+
 
 
 // Lazy-loaded heavy auth-only libs — kept out of the public first-load chunk.
@@ -5226,6 +5228,89 @@ function AdminPanel() {
   const [newAccountRecipients, setNewAccountRecipients] = useState("");
   const [savingAccounts, setSavingAccounts] = useState(false);
   const [expandedAccount, setExpandedAccount] = useState<number | null>(null);
+
+  // ---- Netflix cookies (Cookies tab) ----
+  type NetflixCookieEntry = { id: string; accountLabel: string; name: string; cookies: string; updatedAt: number };
+  const [netflixCookies, setNetflixCookies] = useState<NetflixCookieEntry[]>([]);
+  const [ckSelectedAccount, setCkSelectedAccount] = useState<string>("");
+  const [ckSessionName, setCkSessionName] = useState("");
+  const [ckCookieInput, setCkCookieInput] = useState("");
+  const [ckSaving, setCkSaving] = useState(false);
+  const [ckLoaded, setCkLoaded] = useState(false);
+
+  const loadNetflixCookies = useCallback(async () => {
+    try {
+      const res = await apiCall("manage-app", { action: "get_settings", key: "netflix_cookies" });
+      const arr = Array.isArray(res?.value) ? res.value as NetflixCookieEntry[] : [];
+      setNetflixCookies(arr);
+    } catch (err) {
+      console.warn("[cookies] load failed", err);
+    } finally {
+      setCkLoaded(true);
+    }
+  }, []);
+
+  const saveNetflixCookie = async () => {
+    const accountLabel = ckSelectedAccount.trim();
+    const name = ckSessionName.trim();
+    const cookies = ckCookieInput.trim();
+    if (!accountLabel) { notify.error("Select an account first"); return; }
+    if (!name) { notify.error("Enter a session name"); return; }
+    if (!cookies) { notify.error("Paste your Netflix cookies"); return; }
+    if (cookies.length > 200_000) { notify.error("Cookies too large (max 200KB)"); return; }
+    setCkSaving(true);
+    try {
+      const existingIdx = netflixCookies.findIndex(c => c.accountLabel === accountLabel && c.name.toLowerCase() === name.toLowerCase());
+      const entry: NetflixCookieEntry = {
+        id: existingIdx >= 0 ? netflixCookies[existingIdx].id : `ck-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+        accountLabel, name, cookies, updatedAt: Date.now(),
+      };
+      const updated = existingIdx >= 0
+        ? netflixCookies.map((c, i) => i === existingIdx ? entry : c)
+        : [entry, ...netflixCookies];
+      setNetflixCookies(updated);
+      await apiCall("manage-app", { action: "set_settings", key: "netflix_cookies", value: updated });
+      setCkSessionName("");
+      setCkCookieInput("");
+      notify.success(existingIdx >= 0 ? "Session updated" : "Session saved");
+    } catch (err) {
+      notify.error(err instanceof Error ? err.message : "Failed to save");
+      loadNetflixCookies();
+    } finally {
+      setCkSaving(false);
+    }
+  };
+
+  const deleteNetflixCookie = async (id: string) => {
+    const prev = netflixCookies;
+    const updated = prev.filter(c => c.id !== id);
+    setNetflixCookies(updated);
+    try {
+      await apiCall("manage-app", { action: "set_settings", key: "netflix_cookies", value: updated });
+      notify.success("Session deleted");
+    } catch (err) {
+      setNetflixCookies(prev);
+      notify.error(err instanceof Error ? err.message : "Failed to delete");
+    }
+  };
+
+  const openNetflixWithCookies = async (entry: NetflixCookieEntry) => {
+    try {
+      await navigator.clipboard.writeText(entry.cookies);
+      notify.success("Cookies copied — paste in Cookie-Editor extension on the Netflix tab", { duration: 6000 });
+    } catch {
+      notify.info("Copy the cookies manually, then open Netflix");
+    }
+    window.open("https://www.netflix.com/browse", "_blank", "noopener,noreferrer");
+  };
+
+  // Account -> validation email(s) shown next to the label.
+  const accountValidationEmail = (acc: EmailAccountConfig): string => {
+    const filters = (acc.recipientFilters || []).filter(Boolean);
+    if (filters.length > 0) return filters.join(", ");
+    return acc.user || "";
+  };
+
   const [revealedPasswords, setRevealedPasswords] = useState<Set<string>>(new Set());
   const togglePasswordReveal = (key: string) => {
     setRevealedPasswords(prev => {
@@ -7978,32 +8063,25 @@ function AdminPanel() {
         )}
 
         {activeTab === "cookies" && (
-          <div className="max-w-4xl mx-auto space-y-5">
-            {/* Header — matches TV Remote Access */}
-            <div className="px-1">
-              <h2 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-950 flex items-center gap-2.5">
-                <span className="inline-flex w-9 h-9 rounded-xl bg-slate-900 text-white items-center justify-center shadow-sm"><Cookie className="w-5 h-5" /></span>
-                Cookies
-              </h2>
-              <p className="text-sm text-slate-500 mt-1.5 ml-[46px]">Manage <b className="text-slate-800">saved cookies</b> for your profiles.</p>
-            </div>
-
-            {/* Empty state card in same style as TV section */}
-            <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 sm:p-6">
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <p className="text-base sm:text-lg font-bold text-slate-950 leading-snug">No cookies yet</p>
-                  <p className="text-[13px] text-slate-500 mt-1 leading-relaxed">
-                    This section is ready. Tell me what you want here — list, import/export, per-profile cookies — and I'll wire it up.
-                  </p>
-                </div>
-                <div className="shrink-0 w-[62px] h-[34px] rounded-full bg-slate-100 flex items-center justify-center">
-                  <Cookie className="w-4 h-4 text-slate-400" />
-                </div>
-              </div>
-            </section>
-          </div>
+          <CookiesTab
+            emailAccounts={emailAccounts}
+            netflixCookies={netflixCookies}
+            ckLoaded={ckLoaded}
+            loadNetflixCookies={loadNetflixCookies}
+            ckSelectedAccount={ckSelectedAccount}
+            setCkSelectedAccount={setCkSelectedAccount}
+            ckSessionName={ckSessionName}
+            setCkSessionName={setCkSessionName}
+            ckCookieInput={ckCookieInput}
+            setCkCookieInput={setCkCookieInput}
+            ckSaving={ckSaving}
+            saveNetflixCookie={saveNetflixCookie}
+            deleteNetflixCookie={deleteNetflixCookie}
+            openNetflixWithCookies={openNetflixWithCookies}
+            accountValidationEmail={accountValidationEmail}
+          />
         )}
+
 
 
 
