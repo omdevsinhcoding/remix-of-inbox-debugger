@@ -262,6 +262,7 @@ export async function maybeEncryptResponse(
   ctx: EncryptedRequestContext | null,
 ): Promise<Response> {
   if (!ctx) return res;
+  if (!res.ok) return res;
   const contentType = res.headers.get("content-type") || "";
   if (!contentType.includes("application/json")) return res;
   const text = await res.text();

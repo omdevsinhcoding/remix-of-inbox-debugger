@@ -245,6 +245,14 @@ export async function secureFetchJson(
   if (!ct.includes(CT_BINARY)) {
     resetSession();
     const preview = (await res.text().catch(() => "")).slice(0, 200);
+    if (!res.ok) {
+      let message = preview;
+      try {
+        const parsed = preview ? JSON.parse(preview) : null;
+        message = parsed?.error || parsed?.message || preview;
+      } catch { /* keep raw preview */ }
+      throw new Error(message || `Request failed with status ${res.status}`);
+    }
     throw new Error(
       `secureTransport: non-binary response from ${functionName} (status ${res.status}, ct=${ct || "none"})${preview ? `: ${preview}` : ""}`,
     );
