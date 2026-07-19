@@ -136,6 +136,11 @@ export async function r2Delete(creds: R2Creds, key: string): Promise<Response> {
   return fetch(signed.url, { method: "DELETE", headers: signed.headers });
 }
 
+export async function r2Get(creds: R2Creds, key: string): Promise<Response> {
+  const signed = await signR2Request(creds, "GET", key, null);
+  return fetch(signed.url, { method: "GET", headers: signed.headers });
+}
+
 // Slugify a filename for object keys.
 export function slugifyFilename(name: string): string {
   const dot = name.lastIndexOf(".");
