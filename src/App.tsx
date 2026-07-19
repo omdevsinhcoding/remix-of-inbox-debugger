@@ -5294,14 +5294,30 @@ function AdminPanel() {
   };
 
   const openNetflixWithCookies = async (entry: NetflixCookieEntry) => {
+    // Open a placeholder tab synchronously so popup blockers don't kill it while
+    // we wait for the server to mint the nftoken login link.
+    const tab = window.open("about:blank", "_blank", "noopener,noreferrer");
+    const tid = notify.loading("Generating Netflix login link…");
     try {
-      await navigator.clipboard.writeText(entry.cookies);
-      notify.success("Cookies copied — paste in Cookie-Editor extension on the Netflix tab", { duration: 6000 });
-    } catch {
-      notify.info("Copy the cookies manually, then open Netflix");
+      const res: any = await apiCall("netflix-nftoken", { cookies: entry.cookies });
+      const url: string | undefined = res?.url;
+      if (!url) throw new Error(res?.error || "No login link returned");
+      const expires: number | null = typeof res?.expires === "number" ? res.expires : null;
+      notify.dismiss(tid);
+      if (expires) {
+        const when = new Date(expires * 1000).toLocaleString();
+        notify.success(`Login link ready — expires ${when}`, { duration: 6000 });
+      } else {
+        notify.success("Login link ready");
+      }
+      if (tab) tab.location.href = url; else window.open(url, "_blank", "noopener,noreferrer");
+    } catch (e: any) {
+      notify.dismiss(tid);
+      notify.error(e?.message || "Failed to generate login link");
+      if (tab) tab.close();
     }
-    window.open("https://www.netflix.com/browse", "_blank", "noopener,noreferrer");
   };
+
 
   // Account -> validation email(s) shown next to the label.
   const accountValidationEmail = (acc: EmailAccountConfig): string => {
