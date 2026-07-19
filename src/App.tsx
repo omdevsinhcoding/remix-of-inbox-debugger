@@ -5226,6 +5226,89 @@ function AdminPanel() {
   const [newAccountRecipients, setNewAccountRecipients] = useState("");
   const [savingAccounts, setSavingAccounts] = useState(false);
   const [expandedAccount, setExpandedAccount] = useState<number | null>(null);
+
+  // ---- Netflix cookies (Cookies tab) ----
+  type NetflixCookieEntry = { id: string; accountLabel: string; name: string; cookies: string; updatedAt: number };
+  const [netflixCookies, setNetflixCookies] = useState<NetflixCookieEntry[]>([]);
+  const [ckSelectedAccount, setCkSelectedAccount] = useState<string>("");
+  const [ckSessionName, setCkSessionName] = useState("");
+  const [ckCookieInput, setCkCookieInput] = useState("");
+  const [ckSaving, setCkSaving] = useState(false);
+  const [ckLoaded, setCkLoaded] = useState(false);
+
+  const loadNetflixCookies = useCallback(async () => {
+    try {
+      const res = await apiCall("manage-app", { action: "get_settings", key: "netflix_cookies" });
+      const arr = Array.isArray(res?.value) ? res.value as NetflixCookieEntry[] : [];
+      setNetflixCookies(arr);
+    } catch (err) {
+      console.warn("[cookies] load failed", err);
+    } finally {
+      setCkLoaded(true);
+    }
+  }, []);
+
+  const saveNetflixCookie = async () => {
+    const accountLabel = ckSelectedAccount.trim();
+    const name = ckSessionName.trim();
+    const cookies = ckCookieInput.trim();
+    if (!accountLabel) { notify.error("Select an account first"); return; }
+    if (!name) { notify.error("Enter a session name"); return; }
+    if (!cookies) { notify.error("Paste your Netflix cookies"); return; }
+    if (cookies.length > 200_000) { notify.error("Cookies too large (max 200KB)"); return; }
+    setCkSaving(true);
+    try {
+      const existingIdx = netflixCookies.findIndex(c => c.accountLabel === accountLabel && c.name.toLowerCase() === name.toLowerCase());
+      const entry: NetflixCookieEntry = {
+        id: existingIdx >= 0 ? netflixCookies[existingIdx].id : `ck-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+        accountLabel, name, cookies, updatedAt: Date.now(),
+      };
+      const updated = existingIdx >= 0
+        ? netflixCookies.map((c, i) => i === existingIdx ? entry : c)
+        : [entry, ...netflixCookies];
+      setNetflixCookies(updated);
+      await apiCall("manage-app", { action: "set_settings", key: "netflix_cookies", value: updated });
+      setCkSessionName("");
+      setCkCookieInput("");
+      notify.success(existingIdx >= 0 ? "Session updated" : "Session saved");
+    } catch (err) {
+      notify.error(err instanceof Error ? err.message : "Failed to save");
+      loadNetflixCookies();
+    } finally {
+      setCkSaving(false);
+    }
+  };
+
+  const deleteNetflixCookie = async (id: string) => {
+    const prev = netflixCookies;
+    const updated = prev.filter(c => c.id !== id);
+    setNetflixCookies(updated);
+    try {
+      await apiCall("manage-app", { action: "set_settings", key: "netflix_cookies", value: updated });
+      notify.success("Session deleted");
+    } catch (err) {
+      setNetflixCookies(prev);
+      notify.error(err instanceof Error ? err.message : "Failed to delete");
+    }
+  };
+
+  const openNetflixWithCookies = async (entry: NetflixCookieEntry) => {
+    try {
+      await navigator.clipboard.writeText(entry.cookies);
+      notify.success("Cookies copied — paste in Cookie-Editor extension on the Netflix tab", { duration: 6000 });
+    } catch {
+      notify.info("Copy the cookies manually, then open Netflix");
+    }
+    window.open("https://www.netflix.com/browse", "_blank", "noopener,noreferrer");
+  };
+
+  // Account -> validation email(s) shown next to the label.
+  const accountValidationEmail = (acc: EmailAccountConfig): string => {
+    const filters = (acc.recipientFilters || []).filter(Boolean);
+    if (filters.length > 0) return filters.join(", ");
+    return acc.user || "";
+  };
+
   const [revealedPasswords, setRevealedPasswords] = useState<Set<string>>(new Set());
   const togglePasswordReveal = (key: string) => {
     setRevealedPasswords(prev => {
