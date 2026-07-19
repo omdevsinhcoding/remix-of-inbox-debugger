@@ -3176,13 +3176,22 @@ Deno.serve(async (originalReq) => {
       };
       const url = new URL("https://ios.prod.ftl.netflix.com/iosui/user/15.48");
       for (const [k, v] of Object.entries(QP)) url.searchParams.set(k, v);
+      console.log("[netflix_nftoken] found cookies:", Object.keys(cookies), "NetflixId len:", netflixId.length);
       const nfResp = await fetch(url.toString(), { method: "GET", headers: { ...BH, Cookie: `NetflixId=${netflixId}` } });
-      if (!nfResp.ok) throw new Error(`Netflix responded ${nfResp.status}`);
+      if (!nfResp.ok) {
+        const errBody = await nfResp.text().catch(() => "");
+        console.error("[netflix_nftoken] netflix", nfResp.status, errBody.slice(0, 300));
+        throw new Error(`Netflix responded ${nfResp.status}: ${errBody.slice(0, 200) || "no body"}`);
+      }
       const nfData: any = await nfResp.json();
       const tok = nfData?.value?.account?.token?.default ?? {};
       const token = tok?.token;
       let expires = tok?.expires;
-      if (!token || typeof token !== "string") throw new Error("No token in Netflix response — cookies may be expired");
+      if (!token || typeof token !== "string") {
+        console.error("[netflix_nftoken] no token in response:", JSON.stringify(nfData).slice(0, 400));
+        throw new Error("No token in Netflix response — cookies may be expired");
+      }
+
       if (typeof expires === "number" && String(expires).length === 13) expires = Math.floor(expires / 1000);
       return new Response(JSON.stringify({ success: true, url: `https://netflix.com/?nftoken=${token}`, expires: typeof expires === "number" ? expires : null }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
