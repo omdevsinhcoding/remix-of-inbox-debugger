@@ -5241,7 +5241,7 @@ function AdminPanel() {
 
   // === Remote Browser Sessions (agent on VPS via HTTPS/sslip.io) ===
   type RbsSession = { id: string; name: string; port?: number; running: boolean; createdAt?: number };
-  const [rbsBase, setRbsBase] = useState<string>(() => localStorage.getItem("rbs_base") || "");
+  const [rbsBase, setRbsBase] = useState<string>(() => localStorage.getItem("rbs_base") || "https://140-238-226-213.sslip.io");
   const [rbsToken, setRbsToken] = useState<string>(() => localStorage.getItem("rbs_token") || "");
   const [rbsSessions, setRbsSessions] = useState<RbsSession[]>([]);
   const [rbsBusy, setRbsBusy] = useState(false);
