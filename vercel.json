@@ -59,7 +59,7 @@
       ]
     },
     {
-      "source": "/(clearcookies|clear-cookies|clearcache|clear-cache|clear|logout|log-out|signout|sign-out|reset)",
+      "source": "/clearcookies",
       "headers": [
         { "key": "Clear-Site-Data", "value": "\"*\"" },
         { "key": "Cache-Control", "value": "no-store, max-age=0" }

@@ -38,22 +38,12 @@ async function loadGlobalLocationRequired(supabase: any): Promise<boolean> {
     return true;
   }
 }
-async function loadTvFeatureEnabled(supabase: any): Promise<boolean> {
-  try {
-    const { data } = await supabase.from("app_settings").select("value").eq("key", "tv_feature").maybeSingle();
-    return data?.value?.enabled !== false;
-  } catch {
-    return true;
-  }
-}
 function isProfileLocationRequired(user: any, globalRequired = true) {
-  if (!globalRequired || !user) return false;
-  const prefs = user.profile_prefs && typeof user.profile_prefs === "object" && !Array.isArray(user.profile_prefs) ? user.profile_prefs : {};
-  const override = prefs.locationRequiredOverride === true;
-  // Admin default OFF (opt-in). Non-admin default ON (opt-out). Same UI toggle
-  // in the admin card as user cards — just inverted defaults.
-  if (user.role === "admin") return override && prefs.locationRequired === true;
-  return !(override && prefs.locationRequired === false);
+  if (!globalRequired || !user || user.role === "admin") return false;
+  // Default true for every non-admin profile (including free) unless admin
+  // explicitly turned it off. Free profiles follow the same global location
+  // policy as paid profiles — captcha + GPS when policy is ON.
+  return publicProfilePrefs(user.profile_prefs).locationRequired !== false;
 }
 const VIS_PASSWORD_RESET_RE = /(password (was |has been )?(changed|reset|updated)|reset your password|forgot password|password reset|new password|account recovery)/i;
 const VIS_SIGNIN_RE = /(sign[\s-]?in code|new sign[\s-]?in|new device|temporary access code|is using your account|access your account|verification code|login code|enter this code|otp)/i;
@@ -101,6 +91,9 @@ function recipientMatches(toRaw: string | null | undefined, filters?: string[]):
 }
 const VIS_ACCOUNT_UPDATE_RE = /(attention|action (needed|required)|account (information|info|details) (was |has been )?(changed|updated)|changes? to your account|email (address )?(was |has been )?(changed|updated)|new email address|email verification|verification email|verify (your )?(email address|phone number|mobile number|account)|confirm (your )?(email address|phone number|mobile number|account change|account)|membership (was |has been )?(cancell?ed|updated|paused)|account (was |has been )?(cancell?ed|deleted|closed|paused|on hold)|we[’']re sorry to see you go|payment (received|method|was|has been|declined|failed|updated|changed)|mobile (number )?(confirm|confirmed|verify|verified|update|updated)|phone (number )?(confirm|confirmed|verify|verified|update|updated)|verify (your )?(phone|mobile|email)|verify your email address|action needed: verify|request to make a change|update your account|make (a |any )?(change|changes) to your account)/i;
 
+// Netflix household / new-device / "is this you?" emails — link-based (no OTP)
+// but MUST reach the user so they can complete verification.
+const VIS_HOUSEHOLD_RE = /(netflix household|your household|update your household|household has been confirmed|part of your (netflix )?household|watching on a tv|traveling|travelling|new device|new sign[\s-]?in|signed in on|is this you|confirm (this|your) device|approve (this|your) device|watch instead|yes,? this was me)/i;
 // ============================================================================
 // ⚠️  DO NOT TOUCH — HARD BLOCK: Netflix account-change emails ⚠️
 // ----------------------------------------------------------------------------
@@ -2214,7 +2207,7 @@ Deno.serve(async (originalReq) => {
       // Order: pinned first, then admin-defined sort_order, then creation time.
       const usersP = supabase
         .from("app_users")
-        .select("id, username, name, role, profile_prefs, is_free, pinned, sort_order, expires_at, tv_override")
+        .select("id, username, name, role, profile_prefs, is_free, pinned, sort_order, expires_at")
         .neq("role", "admin")
         .order("pinned", { ascending: false })
         .order("sort_order", { ascending: true, nullsFirst: false })
@@ -2223,7 +2216,7 @@ Deno.serve(async (originalReq) => {
       const settingsP = supabase
         .from("app_settings")
         .select("key,value")
-        .in("key", ["recaptcha", "primary_cloudflare_urls", "email_filters", "maintenance", "r2_storage", "location_policy", "free_avatar_cooldown", "free_avatar_last_change", "tv_feature"]);
+        .in("key", ["recaptcha", "primary_cloudflare_urls", "email_filters", "maintenance", "r2_storage", "location_policy", "free_avatar_cooldown", "free_avatar_last_change"]);
 
       const [{ data: users, error: usersErr }, { data: settingRows }] = await Promise.all([usersP, settingsP]);
       if (usersErr) throw usersErr;
@@ -2306,16 +2299,13 @@ Deno.serve(async (originalReq) => {
           pinned: !!u.pinned,
           sortOrder: u.sort_order ?? null,
           expiresAt: u.expires_at || null,
-          tvOverride: u.tv_override === "on" || u.tv_override === "off" ? u.tv_override : null,
         }));
       const cdMinutesRaw = Number((settings.get("free_avatar_cooldown") as any)?.minutes);
       const freeAvatarCooldown = {
         minutes: Number.isFinite(cdMinutesRaw) && cdMinutesRaw > 0 ? Math.floor(cdMinutesRaw) : 5,
         lastAt: (settings.get("free_avatar_last_change") as any)?.at || null,
       };
-      const tvFeatureRaw: any = settings.get("tv_feature");
-      const tvFeature = { enabled: tvFeatureRaw?.enabled !== false };
-      const payload = { success: true, users: mappedUsers, recaptcha, workerUrls, emailFilters, maintenance, avatarBaseUrl, locationPolicy: { required: globalLocationRequired }, freeAvatarCooldown, tvFeature };
+      const payload = { success: true, users: mappedUsers, recaptcha, workerUrls, emailFilters, maintenance, avatarBaseUrl, locationPolicy: { required: globalLocationRequired }, freeAvatarCooldown };
       __bootstrapCache = { at: now, payload };
       return new Response(JSON.stringify(payload), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -2328,7 +2318,7 @@ Deno.serve(async (originalReq) => {
       await requireAdmin(req);
       const { data, error } = await supabase
         .from("app_users")
-        .select("id, username, name, role, assigned_accounts, profile_prefs, session_limit, is_free, pinned, sort_order, expires_at, auto_delete, tv_override")
+        .select("id, username, name, role, assigned_accounts, profile_prefs, session_limit, is_free, pinned, sort_order, expires_at, auto_delete")
         .order("pinned", { ascending: false })
         .order("sort_order", { ascending: true, nullsFirst: false })
         .order("created_at", { ascending: true });
@@ -2346,7 +2336,6 @@ Deno.serve(async (originalReq) => {
         sortOrder: u.sort_order ?? null,
         expiresAt: u.expires_at || null,
         autoDelete: u.auto_delete !== false,
-        tvOverride: u.tv_override === "on" || u.tv_override === "off" ? u.tv_override : null,
       }));
       return new Response(JSON.stringify({ success: true, users: mappedData }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -2518,8 +2507,6 @@ Deno.serve(async (originalReq) => {
           expiresAt: user.expires_at || null,
           autoDelete: (user as any).auto_delete !== false,
           locationRequired,
-          tvOverride: user.tv_override === "on" || user.tv_override === "off" ? user.tv_override : null,
-          tvFeatureEnabled: await loadTvFeatureEnabled(supabase),
         },
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -2529,7 +2516,7 @@ Deno.serve(async (originalReq) => {
     }
 
     if (action === "create") {
-      const { username, password, name, role, assigned_accounts, is_free, expires_at, tv_override } = params;
+      const { username, password, name, role, assigned_accounts, is_free, expires_at } = params;
       const isFree = !!is_free;
       if (!name) throw new Error("Name required");
       if (!isFree && (!username || !password)) throw new Error("Username and password required");
@@ -2566,7 +2553,6 @@ Deno.serve(async (originalReq) => {
       const finalUsername = isFree ? cleanedUsername : username;
       const finalRole = isFree ? "user" : (role || "user");
       const normalizedAssignedAccounts = await normalizeAssignedAccounts(supabase, assigned_accounts);
-      const normalizedTvOverride = tv_override === "on" || tv_override === "off" ? tv_override : null;
       const insertPayload: any = {
         username: finalUsername,
         password: isFree ? null : await hashPassword(password),
@@ -2579,17 +2565,16 @@ Deno.serve(async (originalReq) => {
         must_change_password: !isFree && !bootstrapCreate,
         // Default GPS required = true for every non-admin profile; admin can turn it off per profile.
         profile_prefs: { avatarId: null, locationRequired: finalRole !== "admin" },
-        tv_override: normalizedTvOverride,
       };
       const { data, error } = await supabase
         .from("app_users")
         .insert(insertPayload)
-        .select("id, username, name, role, assigned_accounts, profile_prefs, is_free, pinned, sort_order, expires_at, tv_override")
+        .select("id, username, name, role, assigned_accounts, profile_prefs, is_free, pinned, sort_order, expires_at")
         .single();
       if (error) throw error;
       invalidateBootstrapCache();
 
-      await auditLog(supabase, bootstrapCreate ? "bootstrap_admin_created" : (isFree ? "free_user_created" : "user_created"), actorId, data.id, { username: finalUsername, role: finalRole, isFree, expiresAt: expiresAtIso, tvOverride: normalizedTvOverride }, ip);
+      await auditLog(supabase, bootstrapCreate ? "bootstrap_admin_created" : (isFree ? "free_user_created" : "user_created"), actorId, data.id, { username: finalUsername, role: finalRole, isFree, expiresAt: expiresAtIso }, ip);
 
       return new Response(JSON.stringify({
         success: true,
@@ -2603,7 +2588,6 @@ Deno.serve(async (originalReq) => {
           pinned: !!data.pinned,
           sortOrder: data.sort_order ?? null,
           expiresAt: data.expires_at || null,
-          tvOverride: data.tv_override === "on" || data.tv_override === "off" ? data.tv_override : null,
         },
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -2906,8 +2890,6 @@ Deno.serve(async (originalReq) => {
           profilePrefs: publicProfilePrefs(user.profile_prefs),
           profileAvatar: user.profile_prefs?.avatarId || null,
           locationRequired: isProfileLocationRequired(user, await loadGlobalLocationRequired(supabase)),
-          tvOverride: user.tv_override === "on" || user.tv_override === "off" ? user.tv_override : null,
-          tvFeatureEnabled: await loadTvFeatureEnabled(supabase),
         },
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -2918,13 +2900,13 @@ Deno.serve(async (originalReq) => {
       let session: Record<string, any> | null = null;
 
       // Fully admin-only keys
-      const adminOnlyKeys = ["config", "cron_config", "netflix_credentials"];
+      const adminOnlyKeys = ["config", "cron_config"];
       if (adminOnlyKeys.includes(key)) {
         session = await requireAdmin(req);
       }
 
       // Keys that any authenticated user can read (with masked sensitive data)
-      const authenticatedKeys = ["primary_cloudflare_urls", "email_accounts", "recaptcha", "email_filters", "session_config", "admin_session_config", "session_limits", "ipwho_alert", "location_policy", "free_session_minutes", "tv_feature"];
+      const authenticatedKeys = ["primary_cloudflare_urls", "email_accounts", "recaptcha", "email_filters", "session_config", "admin_session_config", "session_limits", "ipwho_alert", "location_policy", "free_session_minutes"];
       if (!session && authenticatedKeys.includes(key)) {
         session = await requireSession(req);
       }
@@ -2940,10 +2922,6 @@ Deno.serve(async (originalReq) => {
 
       if (key === "ipwho_alert") {
         value = { enabled: value?.enabled === true };
-      }
-
-      if (key === "tv_feature") {
-        value = { enabled: value?.enabled !== false };
       }
 
       if (key === "config" && value && session?.role === "admin") {
@@ -3002,29 +2980,6 @@ Deno.serve(async (originalReq) => {
       });
     }
 
-    if (action === "set_tv_feature") {
-      const session = await requireAdmin(req);
-      const enabled = params?.enabled !== false;
-      invalidateBootstrapCache();
-      const { error } = await supabase
-        .from("app_settings")
-        .upsert({ key: "tv_feature", value: { enabled } }, { onConflict: "key" });
-      if (error) throw error;
-      // Global switch is TOP priority: flipping it wipes every per-user override
-      // so the new global value truly applies to everyone. Admins can then
-      // manually re-flip individuals afterwards.
-      const { error: clearErr } = await supabase
-        .from("app_users")
-        .update({ tv_override: null })
-        .not("tv_override", "is", null);
-      if (clearErr) console.warn("tv_override bulk clear failed", clearErr);
-      await auditLog(supabase, "settings_changed", session.userId, null, { key: "tv_feature", enabled, cleared_overrides: true }, ip);
-      return new Response(JSON.stringify({ success: true, value: { enabled }, cleared_overrides: true }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-
     if (action === "set_settings") {
       const session = await requireAdmin(req);
       const { key, value } = params;
@@ -3036,10 +2991,6 @@ Deno.serve(async (originalReq) => {
 
       if (key === "ipwho_alert") {
         processedValue = { enabled: value?.enabled === true };
-      }
-
-      if (key === "tv_feature") {
-        processedValue = { enabled: value?.enabled !== false };
       }
 
       if (key === "config" && value && typeof value === "object") {
@@ -3122,8 +3073,6 @@ Deno.serve(async (originalReq) => {
     if (action === "update_user") {
       const session = await requireAdmin(req);
       const { id, assigned_accounts, session_limit, pinned, is_free, name, username, expires_at, location_required, auto_delete } = params;
-      const tvOverrideProvided = params.tv_override !== undefined || params.tvOverride !== undefined;
-      const tvOverrideValue = params.tv_override !== undefined ? params.tv_override : params.tvOverride;
       if (!id) throw new Error("User ID required");
       const patch: Record<string, any> = {};
       if (assigned_accounts !== undefined) patch.assigned_accounts = await normalizeAssignedAccounts(supabase, assigned_accounts);
@@ -3140,10 +3089,10 @@ Deno.serve(async (originalReq) => {
       if (is_free !== undefined) patch.is_free = !!is_free;
       if (location_required !== undefined) {
         const { data: existingUser } = await supabase.from("app_users").select("profile_prefs, is_free, role").eq("id", id).maybeSingle();
-        const existingPrefs = existingUser?.profile_prefs && typeof existingUser.profile_prefs === "object" && !Array.isArray(existingUser.profile_prefs) ? existingUser.profile_prefs : {};
-        // Admin AND user rows both get an explicit override. Admin default is
-        // OFF, user default is ON — flipping the toggle records that intent.
-        patch.profile_prefs = { ...existingPrefs, locationRequired: location_required === true, locationRequiredOverride: true };
+        const nextPrefs = publicProfilePrefs(existingUser?.profile_prefs);
+        nextPrefs.locationRequired = existingUser?.role === "admin" ? false : location_required === true;
+        nextPrefs.locationRequiredOverride = existingUser?.role !== "admin";
+        patch.profile_prefs = nextPrefs;
       }
       if (expires_at !== undefined) {
         if (expires_at === null || expires_at === "") {
@@ -3155,16 +3104,6 @@ Deno.serve(async (originalReq) => {
         }
       }
       if (auto_delete !== undefined) patch.auto_delete = !!auto_delete;
-      if (tvOverrideProvided) {
-        // null/undefined string -> clear (inherit global). "on"|"off" -> force.
-        if (tvOverrideValue === null || tvOverrideValue === "" || tvOverrideValue === "inherit") {
-          patch.tv_override = null;
-        } else if (tvOverrideValue === "on" || tvOverrideValue === "off") {
-          patch.tv_override = tvOverrideValue;
-        } else {
-          throw new Error("Invalid tv_override");
-        }
-      }
       if (session_limit !== undefined) {
         // null | "" -> clear (fall back to global). Otherwise clamp to a sane non-negative int.
         if (session_limit === null || session_limit === "") {
@@ -3174,11 +3113,7 @@ Deno.serve(async (originalReq) => {
           patch.session_limit = n;
         }
       }
-      if (Object.keys(patch).length === 0) {
-        return new Response(JSON.stringify({ success: true, noop: true }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
+      if (Object.keys(patch).length === 0) throw new Error("No fields to update");
       const { error } = await supabase.from("app_users").update(patch).eq("id", id);
       if (error) throw error;
       invalidateBootstrapCache();
@@ -3302,8 +3237,6 @@ Deno.serve(async (originalReq) => {
           expiresAt: user.expires_at || null,
           autoDelete: (user as any).auto_delete !== false,
           locationRequired: freeLocationRequired,
-          tvOverride: user.tv_override === "on" || user.tv_override === "off" ? user.tv_override : null,
-          tvFeatureEnabled: await loadTvFeatureEnabled(supabase),
         },
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -3351,8 +3284,6 @@ Deno.serve(async (originalReq) => {
           profileAvatar: targetUser.profile_prefs?.avatarId || null,
           isFree: !!targetUser.is_free,
           locationRequired: isProfileLocationRequired(targetUser, await loadGlobalLocationRequired(supabase)),
-          tvOverride: targetUser.tv_override === "on" || targetUser.tv_override === "off" ? targetUser.tv_override : null,
-          tvFeatureEnabled: await loadTvFeatureEnabled(supabase),
           impersonated: true,
           adminId: session.userId,
         },
@@ -3636,7 +3567,7 @@ Deno.serve(async (originalReq) => {
       const session = await requireSession(req);
       const { data: user, error } = await supabase
         .from("app_users")
-        .select("id, username, name, role, must_change_password, assigned_accounts, profile_prefs, is_free, expires_at, auto_delete, tv_override")
+        .select("id, username, name, role, must_change_password, assigned_accounts, profile_prefs, is_free, expires_at, auto_delete")
         .eq("id", session.userId)
         .single();
       if (error || !user) throw new Error("Account not found");
@@ -3655,8 +3586,6 @@ Deno.serve(async (originalReq) => {
           expiresAt: user.expires_at || null,
           autoDelete: (user as any).auto_delete !== false,
           locationRequired: isProfileLocationRequired(user, await loadGlobalLocationRequired(supabase)),
-          tvOverride: user.tv_override === "on" || user.tv_override === "off" ? user.tv_override : null,
-          tvFeatureEnabled: await loadTvFeatureEnabled(supabase),
           impersonated: session.impersonated === true,
           adminId: session.impersonated === true ? (session.adminId || null) : null,
         },
@@ -4396,7 +4325,7 @@ Deno.serve(async (originalReq) => {
       // Kick everything off in PARALLEL server-side. Edge → Postgres latency is
       // ~1-5ms each, so 12 parallel queries return in ~50-150ms total.
       const usersP = supabase.from("app_users")
-        .select("id, username, name, role, assigned_accounts, profile_prefs, session_limit, is_free, pinned, sort_order, expires_at, tv_override")
+        .select("id, username, name, role, assigned_accounts, profile_prefs, session_limit, is_free, pinned, sort_order, expires_at")
         .order("created_at", { ascending: true });
 
       const emailsCountP = supabase.from("cached_emails").select("id", { count: "exact", head: true }).eq("destroyed", false);
@@ -4405,7 +4334,7 @@ Deno.serve(async (originalReq) => {
       const totalUsersP = supabase.from("app_users").select("id", { count: "exact", head: true }).neq("role", "admin");
 
       const settingsKeys = includeSettings
-        ? ["recaptcha", "config", "primary_cloudflare_urls", "email_filters", "email_accounts", "session_config", "admin_session_config", "session_limits", "ipwho_alert", "maintenance", "r2_storage", "email_visibility", "email_auto_delete", "cron_config", "netflix_promo", "location_policy", "free_session_minutes", "free_avatar_cooldown", "tv_feature"]
+        ? ["recaptcha", "config", "primary_cloudflare_urls", "email_filters", "email_accounts", "session_config", "admin_session_config", "session_limits", "ipwho_alert", "maintenance", "r2_storage", "email_visibility", "email_auto_delete", "cron_config", "netflix_promo", "location_policy", "free_session_minutes", "free_avatar_cooldown"]
         : [];
 
       const settingsP = settingsKeys.length
@@ -4428,7 +4357,6 @@ Deno.serve(async (originalReq) => {
         pinned: !!u.pinned,
         sortOrder: u.sort_order ?? null,
         expiresAt: u.expires_at || null,
-        tvOverride: u.tv_override === "on" || u.tv_override === "off" ? u.tv_override : null,
       }));
 
       // Notification stats — 2 more queries but only if there are notes

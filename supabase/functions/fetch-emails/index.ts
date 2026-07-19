@@ -2,7 +2,6 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { ImapFlow } from "npm:imapflow@1.2.18";
 import { simpleParser } from "npm:mailparser@3.9.6";
 import { readRequest, maybeEncryptResponse, EncryptedRequestContext, PlaintextRejectedError, plaintextRejectedResponse, TransportError, transportErrorResponse } from "../_shared/crypto.ts";
-import { redactEmailsHtml, redactEmailsText } from "../_shared/redact.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -252,17 +251,18 @@ function applyEmailFilters(emails: any[], filterSignInCodes: boolean, filterPass
       return !SIGN_IN_CODE_SUBJECTS.some(kw => sub.includes(kw));
     });
   }
-  // Explicit blocklist by classification. Keeps signin, household, and "other"
-  // (promo/marketing/continue-watching) visible. Only account_update is hard-
-  // blocked; password_reset drops only when its filter is explicitly on.
-  // DO NOT re-add the old "keep only signin" collapse — it silently killed
-  // every promo mail (e.g. "Don't forget to finish Taskaree").
-  output = output.filter((e: any) => {
-    const cls = classifyEmailForVisibility(e);
-    if (filterAccountUpdates && cls === "account_update") return false;
-    if (filterPasswordResets && cls === "password_reset") return false;
-    return true;
-  });
+  if (filterPasswordResets) {
+    output = output.filter((e: any) => {
+      const sub = (e.subject || "").toLowerCase();
+      return !PASSWORD_RESET_SUBJECTS.some(kw => sub.includes(kw));
+    });
+  }
+  if (filterAccountUpdates) {
+    output = output.filter((e: any) => classifyEmailForVisibility(e) !== "account_update");
+  }
+  if (filterPasswordResets && filterAccountUpdates) {
+    output = output.filter((e: any) => classifyEmailForVisibility(e) === "signin");
+  }
   if (blockPromo) {
     output = output.filter((e: any) => !isNetflixPromo(e.subject));
   }
@@ -400,8 +400,8 @@ function parseFastEmail(rawSource: Uint8Array, envelope: any, accountLabel: stri
     to,
     date: envelope?.date || new Date(),
     otp: extractOtpCode(subject, bodyText),
-    preview: redactEmailsText(preview),
-    html: redactEmailsHtml(`<pre>${escapeHtml(bodyText)}</pre>`),
+    preview,
+    html: `<pre>${escapeHtml(bodyText)}</pre>`,
     account_label: accountLabel,
   };
 }
@@ -426,13 +426,11 @@ async function readCache(supabase: any, accountFilter: string[] | null, filterSi
     id: e.id,
     subject: e.subject,
     from: e.from_address,
-    // Keep raw to_address for the recipient scoping filter just below; we mask
-    // it after filtering, before it goes out to the client.
     to: e.to_address,
     date: e.date,
     otp: e.otp,
-    preview: redactEmailsText(e.preview),
-    html: redactEmailsHtml(e.html),
+    preview: e.preview,
+    html: e.html,
     account_label: e.account_label,
     cached_at: e.cached_at,
   }));
@@ -453,10 +451,7 @@ async function readCache(supabase: any, accountFilter: string[] | null, filterSi
   }
   // Apply promo block for everyone when admin turned it on. Default = OFF (all Netflix mail shows).
   const blockPromo = await shouldBlockPromo(supabase);
-  const filtered = applyEmailFilters(scopedEmails, filterSignInCodes, filterPasswordResets, filterAccountUpdates, blockPromo);
-  // Final mask: strip the recipient address before shipping to the client.
-  // Done after recipient filtering so the filter still sees the real value.
-  return filtered.map((e: any) => ({ ...e, to: redactEmailsText(e.to) }));
+  return applyEmailFilters(scopedEmails, filterSignInCodes, filterPasswordResets, filterAccountUpdates, blockPromo);
 }
 
 async function fetchFromAccount(
@@ -592,8 +587,8 @@ async function fetchFromAccount(
             to: toText,
             date: parsed.date || new Date(),
             otp: otpCode,
-            preview: redactEmailsText(bodyText.length > 100 ? `${bodyText.substring(0, 100)}...` : bodyText),
-            html: redactEmailsHtml(parsed.html || parsed.textAsHtml || `<pre>${bodyText}</pre>`),
+            preview: bodyText.length > 100 ? `${bodyText.substring(0, 100)}...` : bodyText,
+            html: parsed.html || parsed.textAsHtml || `<pre>${bodyText}</pre>`,
             account_label: accountLabel,
           });
         } catch (parseErr) {

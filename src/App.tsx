@@ -1,6 +1,6 @@
 import React, { useState, useEffect, createContext, useContext, useCallback, useRef, useMemo, Suspense, lazy } from "react";
 import { createPortal } from "react-dom";
-import { Mail, RefreshCw, ShieldCheck, Shield, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, Globe, Edit, Info, UserCircle, Search, ChevronRight, Bell, Send, MessageSquare, Image as ImageIcon, ExternalLink, AlertTriangle, Sparkles, Megaphone, Wrench, CreditCard, Tag, ChevronDown, ChevronUp, HardDrive, Upload, Zap, BookOpen, GraduationCap, Film, PlayCircle, Pin, MapPin, MapPinOff, Tv, Loader2 } from "lucide-react";
+import { Mail, RefreshCw, ShieldCheck, Shield, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, BarChart3, Globe, Edit, Database, Wifi, Info, UserCircle, Search, ChevronLeft, ChevronRight, Bell, Send, MessageSquare, Image as ImageIcon, ExternalLink, AlertTriangle, Sparkles, Megaphone, Wrench, CreditCard, Tag, ChevronDown, ChevronUp, HardDrive, Upload, Zap, BookOpen, GraduationCap, Film, PlayCircle, Pin, MapPin, MapPinOff, Tv, Rocket } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import NetflixHouseholdVerificationGuide from "./pages/NetflixHouseholdVerificationGuide";
@@ -9,13 +9,11 @@ import { ToastProvider } from "./components/toast/toast-provider";
 
 import { supabase } from "./integrations/supabase/client";
 import { AVATAR_CATEGORIES, resolveAvatar, buildAvatarId, prettyName, getAvatarCategoryUrls } from "./lib/avatars";
-import { bootstrapFromSupabase, fastClearCookiesRedirect, revokeSessionInBackground, markSessionStart, readBootstrapCache, refreshBootstrap, patchBootstrapCacheUser, getEmailFilters, setEmailFilters as setEmailFiltersCache, getFreeAvatarCooldown, setFreeAvatarCooldown, markNotificationRead, markAllNotificationsRead, markNotificationSeen, deleteNotificationForMe, logNotificationEvent, getPoppedIds, markPopped, adminListRecipients, adminDeleteNotificationForUser, type EmailFilters, type AppNotification, type MaintenanceInfo, type NotificationRecipient } from "./lib/bootstrap";
+import { bootstrapFromSupabase, clearSessionData, performSignOut, markSessionStart, readBootstrapCache, refreshBootstrap, patchBootstrapCacheUser, getEmailFilters, setEmailFilters as setEmailFiltersCache, getFreeAvatarCooldown, setFreeAvatarCooldown, listNotifications, markNotificationRead, markAllNotificationsRead, markNotificationSeen, deleteNotificationForMe, logNotificationEvent, getPoppedIds, markPopped, adminListRecipients, adminDeleteNotificationForUser, type EmailFilters, type AppNotification, type MaintenanceInfo, type NotificationRecipient } from "./lib/bootstrap";
 import MaintenanceScreen from "./components/MaintenanceScreen";
 import DateTimePicker from "./components/DateTimePicker";
-import { clearBrowserIdentityNow, sessionGet, sessionSet, sessionRemove, nukeBrowserIdentity } from "./lib/session";
+import { sessionGet, sessionSet, sessionRemove, sessionClearAll, nukeBrowserIdentity, clearSiteCookies } from "./lib/session";
 import { openInboxDB, readLatestEmails, writeDelta, getSyncCursor, cacheEmailHtml, getEmailHtml, purgeEmailsOutsideScope, type CachedEmail } from "./lib/inboxCache";
-import { readAdminCache, writeAdminCache, isCacheFresh, reconcileVersion, emitSyncStatus } from "./lib/adminSettingsCache";
-import { AdminSyncStatus } from "./components/AdminSyncStatus";
 
 
 // Lazy-loaded heavy auth-only libs — kept out of the public first-load chunk.
@@ -126,6 +124,73 @@ const logPlatformLogoFailure = ({ platform, url, status, reason }: { platform: s
   });
 };
 
+type LogoAuditResult = { ok: boolean; status?: number | string; reason?: string; contentType?: string };
+
+const verifyPlatformLogo = async (platform: PlatformOption): Promise<LogoAuditResult> => {
+  const url = getPlatformLogoUrl(platform);
+  try {
+    const response = await fetch(url, { method: "GET", cache: "no-store" });
+    const contentType = response.headers.get("content-type") || "";
+    if (!response.ok) {
+      return { ok: false, status: response.status, contentType, reason: `HTTP ${response.status}` };
+    }
+    if (!contentType.startsWith("image/")) {
+      return { ok: false, status: response.status, contentType, reason: `Invalid MIME type: ${contentType || "missing"}` };
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      const image = new Image();
+      image.decoding = "async";
+      image.referrerPolicy = "no-referrer";
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error("Browser image decode/load failed"));
+      image.src = url;
+    });
+
+    return { ok: true, status: response.status, contentType };
+  } catch (error) {
+    return { ok: false, status: "network/decode", reason: error instanceof Error ? error.message : String(error) };
+  }
+};
+
+const usePlatformLogoAudit = (enabled = false) => {
+  const [ready, setReady] = React.useState(!enabled);
+  const [results, setResults] = React.useState<Record<string, LogoAuditResult>>({});
+
+  React.useEffect(() => {
+    if (!enabled) {
+      setReady(true);
+      return;
+    }
+    let alive = true;
+
+    (async () => {
+      const entries = await Promise.all(
+        PLATFORM_OPTIONS.map(async (platform) => {
+          const result = await verifyPlatformLogo(platform);
+          if (!result.ok) {
+            logPlatformLogoFailure({
+              platform: platform.label,
+              url: getPlatformLogoUrl(platform),
+              status: result.status,
+              reason: result.reason || "Image request failed",
+            });
+          }
+          return [platform.id || "__custom", result] as const;
+        }),
+      );
+
+      if (!alive) return;
+      setResults(Object.fromEntries(entries));
+      setReady(true);
+    })();
+
+    return () => { alive = false; };
+  }, [enabled]);
+
+  return { ready, results };
+};
+
 // --- Notification templates (guided types) ---
 type TemplateOption = { id: string; label: string; color: string; hint: string };
 const TEMPLATE_OPTIONS: TemplateOption[] = [
@@ -140,7 +205,7 @@ const TEMPLATE_OPTIONS: TemplateOption[] = [
   { id: "event",        label: "Live Event",     color: "#06B6D4", hint: "Match/premiere/live" },
 ];
 
-const PlatformChipVisual: React.FC<{ id?: string | null; size?: number }> = ({ id, size = 32 }) => {
+const PlatformChipVisual: React.FC<{ id?: string | null; size?: number; audit?: LogoAuditResult }> = ({ id, size = 32, audit }) => {
   const p = resolvePlatformOption(id);
   const logoUrl = getPlatformLogoUrl(p);
   const [src, setSrc] = React.useState(logoUrl);
@@ -153,7 +218,8 @@ const PlatformChipVisual: React.FC<{ id?: string | null; size?: number }> = ({ i
     logPlatformLogoFailure({
       platform: p.label,
       url: logoUrl,
-      reason: "<img> onError fired while rendering logo",
+      status: audit?.status,
+      reason: audit?.reason || "<img> onError fired while rendering logo",
     });
     if (src !== DEFAULT_PLATFORM_LOGO) setSrc(DEFAULT_PLATFORM_LOGO);
   };
@@ -1037,7 +1103,7 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               });
             } catch {}
             // Silent full reset: purge cookies + session, then reload the page.
-            fastClearCookiesRedirect();
+            performSignOut();
           })
           .subscribe();
       } catch {}
@@ -1077,10 +1143,8 @@ function useSessionTimeoutGuard(role: "admin" | "user", enabled = true) {
         description: "Tap your profile and enter password again.",
         duration: 3000,
       });
-      // Silent full reset: route through /clearcookies so browser storage
-      // (cookies, localStorage, IDB, caches, SW) is wiped to 0 B via the
-      // `Clear-Site-Data: "*"` header + JS fallback.
-      fastClearCookiesRedirect();
+      // Silent full reset: purge cookies + session, then reload the page.
+      performSignOut();
     };
     (async () => {
       let minutes = 0;
@@ -1204,7 +1268,6 @@ function requestNotifRefresh() {
 // Notifications hook — reads from the module-level singleton store.
 // One poll for the whole tab (was two independent 30s intervals per user).
 function useNotifications() {
-  const { user } = useAuth();
   const [items, setItems] = useState<AppNotification[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -1217,7 +1280,7 @@ function useNotifications() {
       unsub = subscribeNotifications((next, isLoading) => {
         setItems(next);
         setLoading(isLoading);
-      }, user?.id || null);
+      });
       const onEvt = () => invalidateNotifications();
       window.addEventListener(NOTIF_REFRESH_EVENT, onEvt);
       const cleanupEvt = () => window.removeEventListener(NOTIF_REFRESH_EVENT, onEvt);
@@ -1225,7 +1288,7 @@ function useNotifications() {
       unsub = () => { prevUnsub?.(); cleanupEvt(); };
     })();
     return () => { alive = false; unsub?.(); };
-  }, [user?.id]);
+  }, []);
 
   const refresh = useCallback(async () => {
     const { invalidateNotifications } = await import("./lib/notificationsStore");
@@ -1237,7 +1300,6 @@ function useNotifications() {
 
 // ---------- Auto-popup: premium modal shown on first sight of a notification ----------
 function AutoPopupNotification() {
-  const { user } = useAuth();
   const [queue, setQueue] = useState<AppNotification[]>([]);
   const [dismissing, setDismissing] = useState(false);
   const seenRef = useRef<Set<string>>(getPoppedIds());
@@ -1278,10 +1340,10 @@ function AutoPopupNotification() {
     (async () => {
       const { subscribeNotifications } = await import("./lib/notificationsStore");
       if (!alive) return;
-      unsub = subscribeNotifications((list) => process(list), user?.id || null);
+      unsub = subscribeNotifications((list) => process(list));
     })();
     return () => { alive = false; unsub?.(); };
-  }, [user?.id]);
+  }, []);
 
 
 
@@ -1882,657 +1944,66 @@ function NotificationBell() {
   );
 }
 
-// --- Netflix Test Login header button (visible only for the "Test" profile) ---
-// Streams live per-step logs from the netflix-test-login edge function
-// via SSE. Temporary QA tool, not production-facing.
-function NetflixTestButton({ profileId }: { profileId: string }) {
-  const [open, setOpen] = useState(false);
-  const [running, setRunning] = useState(false);
-  const [logs, setLogs] = useState<Array<{ step: string; msg: string; ts: string }>>([]);
-  const [outcome, setOutcome] = useState<"idle" | "done" | "error">("idle");
-  const [outcomeMsg, setOutcomeMsg] = useState("");
-  const [outcomeAction, setOutcomeAction] = useState("");
-  const abortRef = useRef<AbortController | null>(null);
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [logs]);
-
-  const start = useCallback(async () => {
-    setOpen(true);
-    setLogs([]);
-    setOutcome("idle");
-    setOutcomeMsg("");
-    setOutcomeAction("");
-    setRunning(true);
-    const controller = new AbortController();
-    abortRef.current = controller;
-    try {
-      const base = (import.meta.env.VITE_SUPABASE_URL as string) || "https://jsqchutnfdeljajkxmly.supabase.co";
-      const token = getSessionToken() || "";
-      const res = await fetch(`${base}/functions/v1/netflix-test-login`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Session-Token": token,
-          "apikey": (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string) || "",
-          "Accept": "text/event-stream",
-        },
-        body: JSON.stringify({ profile_id: profileId }),
-        signal: controller.signal,
-      });
-      if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
-      const reader = res.body.getReader();
-      const dec = new TextDecoder();
-      let buf = "";
-      // Parse SSE frames: `event: X\ndata: {...}\n\n`
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, { stream: true });
-        let idx;
-        while ((idx = buf.indexOf("\n\n")) >= 0) {
-          const frame = buf.slice(0, idx);
-          buf = buf.slice(idx + 2);
-          const evLine = frame.split("\n").find((l) => l.startsWith("event:")) || "";
-          const dataLine = frame.split("\n").find((l) => l.startsWith("data:")) || "";
-          const event = evLine.slice(6).trim();
-          const dataStr = dataLine.slice(5).trim();
-          if (!dataStr) continue;
-          try {
-            const parsed = JSON.parse(dataStr);
-            if (event === "log") setLogs((l) => [...l, parsed]);
-            else if (event === "done") { setOutcome("done"); const when = parsed.saved_at ? new Date(parsed.saved_at).toLocaleString() : new Date().toLocaleString(); setOutcomeMsg(`Session stored (${parsed.cookies} cookies) • saved at ${when}`); }
-            else if (event === "error") { setOutcome("error"); setOutcomeMsg(parsed.error || "unknown error"); setOutcomeAction(parsed.action || ""); }
-          } catch { /* ignore malformed frame */ }
-        }
-      }
-    } catch (e: any) {
-      if (e?.name !== "AbortError") {
-        setOutcome("error");
-        setOutcomeMsg(e?.message || "network error");
-        setOutcomeAction("");
-      }
-    } finally {
-      setRunning(false);
-      abortRef.current = null;
-    }
-  }, [profileId]);
-
-  const close = () => {
-    abortRef.current?.abort();
-    setOpen(false);
-  };
-
-  return (
-    <>
-      <button
-        type="button"
-        onClick={start}
-        disabled={running}
-        className="flex items-center gap-1.5 h-8 sm:h-9 px-3 rounded-full bg-gradient-to-r from-red-600 to-red-700 text-white text-[11px] sm:text-xs font-bold shadow-sm hover:from-red-700 hover:to-red-800 active:scale-95 disabled:opacity-60 transition"
-        title="Start Netflix test login"
-      >
-        <PlayCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-        <span className="hidden xs:inline">Start Test</span>
-        <span className="xs:hidden">Test</span>
-      </button>
-
-      {open && createPortal(
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-6 bg-black/70 backdrop-blur-sm">
-          <div className="w-full max-w-2xl bg-slate-950 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="flex items-center justify-between px-4 sm:px-5 py-3 border-b border-slate-800 bg-gradient-to-r from-slate-900 to-slate-950">
-              <div className="flex items-center gap-2 min-w-0">
-                <span className={`w-2 h-2 rounded-full ${running ? "bg-amber-400 animate-pulse" : outcome === "done" ? "bg-emerald-400" : outcome === "error" ? "bg-red-500" : "bg-slate-500"}`} />
-                <h3 className="text-sm sm:text-base font-bold text-white truncate">Netflix Test Login — Live Logs</h3>
-              </div>
-              <button onClick={close} className="text-slate-400 hover:text-white text-xl leading-none px-2">×</button>
-            </div>
-            <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 sm:p-4 font-mono text-[11px] sm:text-xs bg-black text-slate-200 space-y-1">
-              {logs.length === 0 && running && <div className="text-slate-500">Booting…</div>}
-              {logs.map((l, i) => (
-                <div key={i} className="flex gap-2">
-                  <span className="text-slate-600 shrink-0">{l.ts.slice(11, 19)}</span>
-                  <span className="text-sky-400 shrink-0 font-bold">[{l.step}]</span>
-                  <span className="text-slate-200 break-all">{l.msg}</span>
-                </div>
-              ))}
-              {outcome === "done" && (
-                <div className="mt-3 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-emerald-300 font-semibold">✅ {outcomeMsg}</div>
-              )}
-              {outcome === "error" && (
-                <div className="mt-3 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-red-300 font-semibold">
-                  <div>❌ {outcomeMsg}</div>
-                  {outcomeAction && <div className="mt-1 text-red-200/90 font-normal">Fix: {outcomeAction}</div>}
-                </div>
-              )}
-            </div>
-            <div className="px-4 py-2.5 border-t border-slate-800 bg-slate-900/50 flex items-center justify-between">
-              <span className="text-[11px] text-slate-500">{running ? "Running…" : outcome === "idle" ? "Idle" : "Finished"}</span>
-              <div className="flex gap-2">
-                {!running && (
-                  <button onClick={start} className="text-xs px-3 py-1.5 rounded-full bg-slate-800 text-slate-100 hover:bg-slate-700 font-semibold">Run again</button>
-                )}
-                <button onClick={close} className="text-xs px-3 py-1.5 rounded-full bg-red-600 text-white hover:bg-red-700 font-semibold">Close</button>
-              </div>
-            </div>
-          </div>
-        </div>,
-        document.body,
-      )}
-    </>
-  );
-}
-
-// --- Netflix Credentials manager (Admin panel → TV Auto-Login section) ---
-// Stores plaintext Netflix passwords keyed by email in app_settings key
-// `netflix_credentials`. Used by the netflix-test-login edge function to
-// perform password-based login when Netflix refuses OTP for that email.
-function NetflixCredentialsSection({ emailAccounts, primaryImapUser }: {
-  emailAccounts: Array<{ label?: string; user?: string; recipientFilters?: string[] }>;
-  primaryImapUser?: string;
-}) {
-  const [creds, setCreds] = useState<Record<string, string>>({});
-  const [reveal, setReveal] = useState<Record<string, boolean>>({});
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [newEmail, setNewEmail] = useState("");
-  const [newPass, setNewPass] = useState("");
-
-  const knownEmails = useMemo(() => {
-    const set = new Set<string>();
-    if (primaryImapUser && primaryImapUser.trim()) set.add(primaryImapUser.trim().toLowerCase());
-    for (const acc of emailAccounts || []) {
-      const rf = Array.isArray(acc.recipientFilters) ? acc.recipientFilters : [];
-      for (const r of rf) if (typeof r === "string" && r.trim()) set.add(r.trim().toLowerCase());
-      if (acc.user && String(acc.user).trim()) set.add(String(acc.user).trim().toLowerCase());
-    }
-    return set;
-  }, [emailAccounts, primaryImapUser]);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const res: any = await apiCall("manage-app", { action: "get_settings", key: "netflix_credentials" });
-        const v = res?.value;
-        if (v && typeof v === "object" && !Array.isArray(v)) {
-          const norm: Record<string, string> = {};
-          for (const [k, val] of Object.entries(v)) norm[String(k).toLowerCase()] = String(val || "");
-          setCreds(norm);
-        }
-      } catch { /* ignore */ } finally { setLoading(false); }
-    })();
-  }, []);
-
-  const rows = useMemo(() => {
-    const merged = new Set<string>([...knownEmails, ...Object.keys(creds)]);
-    return Array.from(merged).sort();
-  }, [knownEmails, creds]);
-
-  const save = useCallback(async () => {
-    setSaving(true);
-    try {
-      const clean: Record<string, string> = {};
-      for (const [k, v] of Object.entries(creds)) {
-        const email = k.trim().toLowerCase();
-        const pw = String(v || "");
-        if (email && pw) clean[email] = pw;
-      }
-      await apiCall("manage-app", { action: "set_settings", key: "netflix_credentials", value: clean });
-      notify.success("Netflix credentials saved");
-    } catch (e: any) {
-      notify.error(e?.message || "Save failed");
-    } finally { setSaving(false); }
-  }, [creds]);
-
-  const addRow = () => {
-    const email = newEmail.trim().toLowerCase();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { notify.error("Enter a valid email"); return; }
-    setCreds((prev) => ({ ...prev, [email]: newPass }));
-    setNewEmail(""); setNewPass("");
-  };
-
-  const removeRow = (email: string) => {
-    setCreds((prev) => {
-      const next = { ...prev };
-      delete next[email];
-      return next;
-    });
-  };
-
-  const filledCount = useMemo(
-    () => Object.values(creds).filter((v) => String(v || "").length > 0).length,
-    [creds],
-  );
-
+// --- TV Auto-Login header button + Coming Soon popup ---
+function TvAutoLoginButton() {
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
     window.addEventListener("keydown", onKey);
-    const prevOverflow = document.body.style.overflow;
+    const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       window.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prevOverflow;
+      document.body.style.overflow = prev;
     };
   }, [open]);
 
-  const totalKnown = rows.length;
-
-  return (
-    <>
-      {/* Trigger card — sits inside the TV Auto-Login tab */}
-      <section className="relative overflow-hidden rounded-2xl border border-slate-200 shadow-sm bg-gradient-to-br from-[#141414] via-[#1a0608] to-[#0a0a0a] text-white p-5 sm:p-6">
-        <div className="pointer-events-none absolute -top-20 -right-16 w-64 h-64 rounded-full bg-[#e50914]/25 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-24 -left-16 w-72 h-72 rounded-full bg-[#e50914]/10 blur-3xl" />
-
-        <div className="relative flex items-start gap-4 flex-wrap">
-          <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-gradient-to-br from-[#e50914] to-[#8b0610] shadow-lg shadow-[#e50914]/30 shrink-0">
-            <KeyRound className="w-6 h-6 text-white" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="text-[10px] uppercase tracking-[0.2em] text-[#e50914] font-bold">Netflix • Vault</div>
-            <h3 className="mt-0.5 text-lg sm:text-xl font-black tracking-tight">Netflix Login Credentials</h3>
-            <p className="mt-1.5 text-[12.5px] text-white/60 leading-relaxed max-w-lg">
-              Used by TV Auto-Login when Netflix asks for a password instead of an OTP. Stored securely, keyed by login email, updates apply on the next Start Test.
-            </p>
-            <div className="mt-3 flex items-center gap-2 flex-wrap">
-              <span className="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-full bg-white/[0.06] border border-white/10 text-white/80">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                {filledCount} saved
-              </span>
-              <span className="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-full bg-white/[0.06] border border-white/10 text-white/60">
-                {totalKnown} accounts
-              </span>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => setOpen(true)}
-            className="shrink-0 inline-flex items-center gap-2 h-11 px-5 rounded-xl font-bold text-sm bg-gradient-to-r from-[#e50914] to-[#b0060f] text-white shadow-lg shadow-[#e50914]/30 hover:brightness-110 active:scale-[0.98] transition"
-          >
-            <KeyRound className="w-4 h-4" />
-            Manage passwords
-          </button>
-        </div>
-      </section>
-
-      {/* Attractive Netflix-styled modal */}
-      {open && createPortal(
-        <div
-          className="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm animate-in fade-in duration-200 flex items-center justify-center p-4"
-          onClick={() => setOpen(false)}
-          role="dialog"
-          aria-modal="true"
-          aria-label="Manage Netflix credentials"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="relative w-full max-w-2xl max-h-[92svh] overflow-hidden rounded-3xl shadow-[0_25px_80px_-15px_rgba(229,9,20,0.5)] animate-in zoom-in-95 slide-in-from-bottom-4 duration-200 bg-gradient-to-b from-[#141414] via-[#1a0608] to-[#0a0a0a] border border-white/10"
-          >
-            <div className="pointer-events-none absolute -top-28 -right-16 w-72 h-72 rounded-full bg-[#e50914]/25 blur-3xl" />
-            <div className="pointer-events-none absolute -bottom-32 -left-16 w-80 h-80 rounded-full bg-[#e50914]/10 blur-3xl" />
-
-            <button
-              onClick={() => setOpen(false)}
-              aria-label="Close"
-              className="absolute top-3 right-3 z-10 w-9 h-9 rounded-full flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition"
-            >
-              <X className="w-4 h-4" />
-            </button>
-
-            <div className="relative p-6 sm:p-7 pb-4">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-gradient-to-br from-[#e50914] to-[#8b0610] shadow-lg shadow-[#e50914]/30">
-                  <KeyRound className="w-6 h-6 text-white" />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-[10px] uppercase tracking-[0.2em] text-[#e50914] font-bold">Netflix • Vault</div>
-                  <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">Manage passwords</h2>
-                </div>
-              </div>
-              <p className="mt-3 text-[12px] text-white/55 leading-relaxed">
-                Passwords are used only when Netflix skips OTP for an account. Tap Show to reveal, edit inline, then Save.
-              </p>
-            </div>
-
-            <div className="relative px-6 sm:px-7 pb-6 max-h-[62svh] overflow-y-auto">
-              {loading ? (
-                <div className="py-8 text-center text-white/60 text-sm">Loading…</div>
-              ) : (
-                <>
-                  <div className="space-y-2">
-                    {rows.length === 0 && (
-                      <div className="text-xs text-white/40 italic px-1">No email accounts configured yet. Add one below.</div>
-                    )}
-                    {rows.map((email) => {
-                      const val = creds[email] || "";
-                      const shown = reveal[email];
-                      const isKnown = knownEmails.has(email);
-                      const isFilled = val.length > 0;
-                      return (
-                        <div
-                          key={email}
-                          className={`group flex items-center gap-2 rounded-xl p-2.5 border transition ${
-                            isFilled
-                              ? "bg-white/[0.04] border-white/10 hover:border-[#e50914]/40"
-                              : "bg-white/[0.02] border-white/5 hover:border-white/15"
-                          }`}
-                        >
-                          <div className="flex-1 min-w-0">
-                            <div className="text-[12.5px] font-mono text-white truncate">{email}</div>
-                            <div className="flex items-center gap-1.5 mt-0.5">
-                              {isKnown ? (
-                                <span className="text-[9px] font-bold text-emerald-300 uppercase tracking-wider">IMAP</span>
-                              ) : (
-                                <span className="text-[9px] font-bold text-amber-300 uppercase tracking-wider">Custom</span>
-                              )}
-                              {isFilled && <span className="text-[9px] font-bold text-white/40 uppercase tracking-wider">• Saved</span>}
-                            </div>
-                          </div>
-                          <input
-                            type={shown ? "text" : "password"}
-                            value={val}
-                            onChange={(e) => setCreds((prev) => ({ ...prev, [email]: e.target.value }))}
-                            placeholder="Netflix password"
-                            className="w-36 sm:w-48 px-3 py-2 rounded-lg bg-black/40 border border-white/10 text-[12.5px] font-mono text-white placeholder-white/25 outline-none focus:border-[#e50914]/60 focus:bg-black/60 transition"
-                            autoComplete="off"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setReveal((p) => ({ ...p, [email]: !p[email] }))}
-                            className="text-[11px] px-2.5 py-2 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] font-semibold text-white/80 transition"
-                            aria-label={shown ? "Hide password" : "Show password"}
-                          >
-                            {shown ? "Hide" : "Show"}
-                          </button>
-                          {!isKnown && (
-                            <button
-                              type="button"
-                              onClick={() => removeRow(email)}
-                              className="text-[11px] px-2.5 py-2 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 font-semibold text-rose-300 transition"
-                            >
-                              Remove
-                            </button>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  <div className="mt-5 pt-4 border-t border-dashed border-white/10">
-                    <div className="text-[10px] font-bold text-white/50 uppercase tracking-[0.2em] mb-2">Add custom Netflix login</div>
-                    <div className="flex flex-col sm:flex-row gap-2">
-                      <input
-                        value={newEmail}
-                        onChange={(e) => setNewEmail(e.target.value)}
-                        placeholder="netflix-login@example.com"
-                        className="flex-1 px-3 py-2.5 rounded-lg bg-black/40 border border-white/10 text-[13px] font-mono text-white placeholder-white/25 outline-none focus:border-[#e50914]/60 transition"
-                        autoComplete="off"
-                      />
-                      <input
-                        value={newPass}
-                        onChange={(e) => setNewPass(e.target.value)}
-                        placeholder="password"
-                        className="flex-1 px-3 py-2.5 rounded-lg bg-black/40 border border-white/10 text-[13px] font-mono text-white placeholder-white/25 outline-none focus:border-[#e50914]/60 transition"
-                        autoComplete="off"
-                      />
-                      <button
-                        type="button"
-                        onClick={addRow}
-                        className="px-4 py-2.5 rounded-lg bg-white/[0.08] hover:bg-white/[0.15] text-white text-sm font-bold border border-white/10 transition"
-                      >
-                        + Add
-                      </button>
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-
-            <div className="relative flex items-center justify-between gap-3 px-6 sm:px-7 py-4 border-t border-white/10 bg-black/30">
-              <div className="flex items-center gap-1.5 text-[10.5px] text-white/40">
-                <ShieldCheck className="w-3 h-3" />
-                <span>Admin-only • Encrypted at rest</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setOpen(false)}
-                  className="px-4 h-10 rounded-xl text-sm font-bold text-white/70 hover:text-white hover:bg-white/[0.06] transition"
-                >
-                  Close
-                </button>
-                <button
-                  type="button"
-                  disabled={saving}
-                  onClick={save}
-                  className="px-5 h-10 rounded-xl bg-gradient-to-r from-[#e50914] to-[#b0060f] text-white text-sm font-black shadow-lg shadow-[#e50914]/30 hover:brightness-110 active:scale-[0.98] disabled:opacity-50 transition"
-                >
-                  {saving ? "Saving…" : "Save Credentials"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>,
-        document.body,
-      )}
-    </>
-  );
-}
-
-
-// --- TV Auto-Login header button + Coming Soon popup ---
-function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
-  const [open, setOpen] = useState(false);
-  const buttonRef = useRef<HTMLButtonElement | null>(null);
-  const [panelStyle, setPanelStyle] = useState<React.CSSProperties>({});
-
-  const [code, setCode] = useState<string[]>(["", "", "", "", "", "", "", ""]);
-  const [status, setStatus] = useState<"idle" | "verifying" | "pending">("idle");
-  const inputsRef = useRef<Array<HTMLInputElement | null>>([]);
-
-  const placePanel = useCallback(() => {
-    const rect = buttonRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const margin = 12;
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    const isMobile = vw < 640;
-    const width = isMobile ? vw - margin * 2 : Math.min(420, vw - margin * 2);
-    const estHeight = 520;
-    let left: number;
-    let top: number;
-    if (isMobile) {
-      left = margin;
-      top = Math.max(margin, (vh - estHeight) / 2);
-    } else {
-      left = Math.min(Math.max(margin, rect.right - width), vw - width - margin);
-      top = Math.min(rect.bottom + 10, Math.max(margin, vh - margin - estHeight));
-    }
-    setPanelStyle({ left, top, width, maxHeight: `calc(100svh - ${margin * 2}px)` });
-  }, []);
-
-  useEffect(() => {
-    if (!open) return;
-    placePanel();
-    setCode(["", "", "", "", "", "", "", ""]);
-    setStatus("idle");
-    const t = setTimeout(() => inputsRef.current[0]?.focus(), 60);
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
-    const onReposition = () => placePanel();
-    window.addEventListener("keydown", onKey);
-    window.addEventListener("resize", onReposition);
-    window.addEventListener("scroll", onReposition, true);
-    return () => {
-      clearTimeout(t);
-      window.removeEventListener("keydown", onKey);
-      window.removeEventListener("resize", onReposition);
-      window.removeEventListener("scroll", onReposition, true);
-    };
-  }, [open, placePanel]);
-
-  const setDigit = (i: number, v: string) => {
-    const d = v.replace(/\D/g, "").slice(-1);
-    setCode((prev) => {
-      const next = [...prev];
-      next[i] = d;
-      return next;
-    });
-    if (d && i < 7) inputsRef.current[i + 1]?.focus();
-  };
-
-  const onKeyDown = (i: number, e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Backspace" && !code[i] && i > 0) {
-      inputsRef.current[i - 1]?.focus();
-    } else if (e.key === "ArrowLeft" && i > 0) {
-      inputsRef.current[i - 1]?.focus();
-    } else if (e.key === "ArrowRight" && i < 7) {
-      inputsRef.current[i + 1]?.focus();
-    } else if (e.key === "Enter") {
-      submit();
-    }
-  };
-
-  const onPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
-    const text = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 8);
-    if (!text) return;
-    e.preventDefault();
-    const arr = ["", "", "", "", "", "", "", ""];
-    for (let i = 0; i < text.length; i++) arr[i] = text[i];
-    setCode(arr);
-    const focusIdx = Math.min(text.length, 7);
-    inputsRef.current[focusIdx]?.focus();
-  };
-
-  const full = code.join("");
-  const isComplete = full.length === 8;
-
-  const submit = () => {
-    if (!isComplete || status !== "idle") return;
-    setStatus("verifying");
-    setTimeout(() => setStatus("pending"), 1400);
-  };
-
   const popup = open ? createPortal(
     <div
-      className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
+      className="fixed inset-0 z-[100] animate-in fade-in duration-150"
       onClick={() => setOpen(false)}
       role="dialog"
       aria-modal="true"
-      aria-label="Enter Netflix TV code"
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        style={panelStyle}
-        className="fixed overflow-y-auto rounded-3xl shadow-[0_25px_80px_-15px_rgba(229,9,20,0.4)] animate-in zoom-in-95 slide-in-from-top-2 duration-200 origin-top-right"
+        className="absolute right-3 sm:right-4 top-[calc(env(safe-area-inset-top)+3.75rem)] w-[min(20rem,calc(100vw-1.5rem))] max-h-[calc(100svh-6rem)] overflow-y-auto rounded-2xl bg-white shadow-2xl border border-slate-200 p-5 animate-in zoom-in-95 slide-in-from-top-2 duration-150 origin-top-right"
       >
-        {/* Netflix-inspired cinematic card */}
-        <div className="relative overflow-hidden rounded-3xl bg-gradient-to-b from-[#141414] via-[#1a0608] to-[#0a0a0a] border border-white/10">
-          {/* Glow accents */}
-          <div className="pointer-events-none absolute -top-24 -right-16 w-64 h-64 rounded-full bg-[#e50914]/25 blur-3xl" />
-          <div className="pointer-events-none absolute -bottom-32 -left-16 w-72 h-72 rounded-full bg-[#e50914]/10 blur-3xl" />
-
-          {/* Close */}
-          <button
-            onClick={() => setOpen(false)}
-            aria-label="Close"
-            className="absolute top-3 right-3 z-10 w-8 h-8 rounded-full flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition"
-          >
-            <X className="w-4 h-4" />
-          </button>
-
-          <div className="relative p-6 sm:p-7">
-            {/* Header */}
-            <div className="flex flex-col items-center text-center">
-              <div className="w-14 h-14 rounded-2xl flex items-center justify-center bg-gradient-to-br from-[#e50914] to-[#8b0610] shadow-lg shadow-[#e50914]/30 mb-3">
-                <Tv className="w-7 h-7 text-white" />
-              </div>
-              <div className="text-[10px] uppercase tracking-[0.2em] text-[#e50914] font-bold">Netflix • TV</div>
-              <h2 className="mt-1 text-xl sm:text-2xl font-black text-white tracking-tight">Enter your code</h2>
-              <p className="mt-1.5 text-[11.5px] sm:text-xs text-white/60 leading-relaxed max-w-[300px]">
-                Enter the code displayed on your TV.
-              </p>
-            </div>
-
-            {/* Code inputs */}
-            <div className="mt-6 flex items-center justify-center gap-1.5 sm:gap-2">
-              {code.map((d, i) => (
-                <React.Fragment key={i}>
-                  {i === 4 && (
-                    <span aria-hidden className="shrink-0 w-2 sm:w-3 h-0.5 rounded-full bg-white/25 mx-0.5" />
-                  )}
-                  <input
-                    ref={(el) => { inputsRef.current[i] = el; }}
-                    value={d}
-                    onChange={(e) => setDigit(i, e.target.value)}
-                    onKeyDown={(e) => onKeyDown(i, e)}
-                    onPaste={onPaste}
-                    onFocus={(e) => e.currentTarget.select()}
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    maxLength={1}
-                    disabled={status !== "idle"}
-                    aria-label={`Digit ${i + 1}`}
-                    className={`aspect-square w-full min-w-0 flex-1 text-center text-lg sm:text-2xl font-black rounded-xl bg-white/[0.04] border-2 text-white caret-[#e50914] outline-none transition-all
-                      ${d ? "border-[#e50914] bg-[#e50914]/10 shadow-[0_0_20px_-4px_rgba(229,9,20,0.6)]" : "border-white/15"}
-                      focus:border-[#e50914] focus:bg-[#e50914]/10 focus:shadow-[0_0_24px_-4px_rgba(229,9,20,0.7)] focus:scale-[1.04]
-                      disabled:opacity-60`}
-                  />
-                </React.Fragment>
-              ))}
-            </div>
-
-
-            {/* Submit */}
-            <button
-              onClick={submit}
-              disabled={!isComplete || status !== "idle"}
-              className={`mt-6 w-full h-11 rounded-xl font-bold text-sm tracking-wide transition-all active:scale-[0.98]
-                ${isComplete && status === "idle"
-                  ? "bg-gradient-to-r from-[#e50914] to-[#b0060f] text-white shadow-lg shadow-[#e50914]/30 hover:shadow-[#e50914]/50 hover:brightness-110"
-                  : "bg-white/[0.06] text-white/40 cursor-not-allowed"}`}
-            >
-              {status === "verifying" ? (
-                <span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Verifying…</span>
-              ) : status === "pending" ? (
-                <span>Waiting for TV</span>
-              ) : (
-                "Continue"
-              )}
-            </button>
-
-            {/* Status / help */}
-            {status === "pending" ? (
-              <div className="mt-4 rounded-xl bg-amber-500/10 border border-amber-500/30 px-3 py-2.5 text-center">
-                <div className="text-[11px] font-bold text-amber-300">Auto-login rolling out soon</div>
-                <div className="text-[10.5px] text-amber-200/80 mt-0.5 leading-relaxed">
-                  We've received your code. Direct TV activation is launching shortly — meanwhile, sign in on your TV using the on-screen prompt.
-                </div>
-              </div>
-            ) : (
-              <div className="mt-4 flex items-center justify-center gap-1.5 text-[10.5px] text-white/40">
-                <ShieldCheck className="w-3 h-3" />
-                <span>Encrypted • One-time code • Never shared</span>
-              </div>
-            )}
+        <div className="flex items-center gap-2 mb-3">
+          <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-rose-100 text-rose-600">
+            <Tv className="w-5 h-5" />
+          </div>
+          <div className="min-w-0">
+            <div className="text-sm font-extrabold text-slate-900 leading-tight">TV Auto-Login</div>
+            <div className="text-[10px] text-slate-500">One-tap Netflix TV activation</div>
           </div>
         </div>
+        <p className="text-xs text-slate-700 leading-relaxed">
+          TV function is a feature that gives you <span className="font-bold">direct login to Netflix on your TV</span> — no typing codes, no waiting.
+        </p>
+        <div className="mt-3 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
+          <div className="text-[10px] uppercase tracking-wide text-slate-500 font-bold">Status</div>
+          <div className="text-xs font-semibold text-slate-900">Coming soon</div>
+          <div className="text-[10px] text-slate-500 mt-1">This feature is currently in development and will roll out shortly.</div>
+        </div>
+        <button
+          onClick={() => setOpen(false)}
+          className="mt-4 w-full h-9 rounded-lg bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 active:scale-[0.98] transition"
+        >
+          Got it
+        </button>
       </div>
     </div>,
     document.body,
   ) : null;
 
 
-  if (!visible) return null;
   return (
     <>
       <button
-        ref={buttonRef}
-        onClick={() => { placePanel(); setOpen(true); }}
+        onClick={() => setOpen(true)}
         className="relative flex items-center justify-center p-2.5 bg-slate-900 text-white rounded-full hover:bg-slate-800 transition-all active:scale-95"
         title="TV Auto-Login"
         aria-label="TV Auto-Login"
@@ -2979,68 +2450,16 @@ function emailHtmlForDisplay(email: Email | null) {
 interface UserData {
   id: string; username: string | null; name: string; role: "admin" | "user"; totpSecret?: string; mustChangePassword?: boolean; assignedAccounts?: string[] | null; profileAvatar?: string | null; profilePrefs?: UserProfilePrefs;
   isFree?: boolean; pinned?: boolean; sortOrder?: number | null; session_limit?: number | null; expiresAt?: string | null; locationRequired?: boolean;
-  tvOverride?: "on" | "off" | null;
-  tvFeatureEnabled?: boolean;
-}
-
-type TvOverrideValue = "inherit" | "on" | "off";
-type TvFeatureEvent =
-  | { type: "tv-global"; enabled: boolean; at: number }
-  | { type: "tv-profile"; userId: string; tvOverride: "on" | "off" | null; at: number };
-
-const TV_FEATURE_CHANNEL = "tv_feature_control_v1";
-
-function normalizeTvOverride(value: unknown): "on" | "off" | null {
-  return value === "on" || value === "off" ? value : null;
-}
-
-function tvOverridePayload(value: TvOverrideValue | "on" | "off" | null): "on" | "off" | "inherit" {
-  return value === "on" || value === "off" ? value : "inherit";
-}
-
-function broadcastTvFeatureEvent(event: TvFeatureEvent) {
-  if (typeof window === "undefined") return;
-  window.dispatchEvent(new CustomEvent<TvFeatureEvent>(TV_FEATURE_CHANNEL, { detail: event }));
-  try {
-    const channel = new BroadcastChannel(TV_FEATURE_CHANNEL);
-    channel.postMessage(event);
-    channel.close();
-  } catch {}
-}
-
-function applyTvOverrideToStoredUser(userId: string, tvOverride: "on" | "off" | null) {
-  try {
-    const raw = sessionGet("user" as any);
-    if (!raw) return;
-    const stored = JSON.parse(raw);
-    if (stored?.id !== userId) return;
-    sessionSet("user" as any, JSON.stringify({ ...stored, tvOverride }));
-  } catch {}
 }
 
 function isLocationRequiredForProfile(profile?: Partial<UserData> | null) {
-  if (!profile) return false;
-  // Trust the top-level flag the server sends (already role-aware). Fall back
-  // to nested prefs only if the top-level flag is missing.
-  if (typeof profile.locationRequired === "boolean") return profile.locationRequired;
-  const explicitOverride = profile.profilePrefs?.locationRequiredOverride === true;
+  if (!profile || profile.role === "admin") return false;
+  // Default: required unless explicitly disabled (false).
+  const top = profile.locationRequired;
   const nested = profile.profilePrefs?.locationRequired;
-  if (profile.role === "admin") return explicitOverride && nested === true;
-  return !(explicitOverride && nested === false);
-}
-
-// TV Auto-Login visibility: admins always see it (for QA). For regular users:
-// per-profile override wins (`on`/`off`); otherwise fall back to the global
-// `tvFeature.enabled` flag from bootstrap. Default = enabled.
-function isTvVisibleFor(
-  user: Partial<UserData> | null | undefined,
-  tvFeatureEnabled: boolean,
-): boolean {
-  if (!user) return false;
-  if (user.role === "admin" || (user as any)?.impersonated === true) return true;
-  if (user.tvOverride === "on") return true;
-  if (user.tvOverride === "off") return false;
-  return tvFeatureEnabled !== false;
+  const explicitOverride = profile.profilePrefs?.locationRequiredOverride === true;
+  if (explicitOverride && (top === false || nested === false)) return false;
+  return true;
 }
 
 function getUserRefreshAccountLabels(user: Partial<UserData>): string[] | null | undefined {
@@ -4226,87 +3645,36 @@ function ProfileSelectPage() {
 // ==================== ADMIN LOGIN ====================
 
 function AdminLoginPage() {
-  // Remembered-username store. Key is versioned + isolated from any legacy
-  // draft key that used to hold a password. What we persist:
-  //   { u: <base64(username)>, t: <ms timestamp> }
-  // - Username only. Password is NEVER written to any browser storage.
-  // - Value is base64-wrapped so a casual glance at devtools doesn't
-  //   reveal the operator email. It's obfuscation, not encryption —
-  //   real defense is (a) never storing the password and (b) the
-  //   /clearcookies logout flow that nukes all site storage on sign-out.
-  // - 30-day TTL so a stale email doesn't linger forever on shared devices.
-  // - Legacy `admin_login_draft_v1` (which could contain a plaintext
-  //   password field) is purged on mount.
-  const ADMIN_REMEMBER_KEY = "admin_login_remember_v2";
-  const LEGACY_DRAFT_KEY = "admin_login_draft_v1";
-  const REMEMBER_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-  const encodeU = (v: string) => {
-    try { return typeof btoa === "function" ? btoa(unescape(encodeURIComponent(v))) : v; } catch { return ""; }
-  };
-  const decodeU = (v: string) => {
-    try { return typeof atob === "function" ? decodeURIComponent(escape(atob(v))) : v; } catch { return ""; }
-  };
-  const readRememberedUsername = (): string => {
+  const ADMIN_DRAFT_KEY = "admin_login_draft_v1";
+  const readAdminDraft = (): { u: string; p: string } => {
     try {
-      if (typeof window === "undefined") return "";
-      // Purge legacy draft (may have password) — one-shot cleanup.
-      try { window.localStorage.removeItem(LEGACY_DRAFT_KEY); } catch { /* ignore */ }
-      const raw = window.localStorage.getItem(ADMIN_REMEMBER_KEY);
-      if (!raw) return "";
+      const raw = typeof window !== "undefined" ? window.localStorage.getItem(ADMIN_DRAFT_KEY) : null;
+      if (!raw) return { u: "", p: "" };
       const obj = JSON.parse(raw);
-      const t = Number(obj?.t) || 0;
-      if (!t || Date.now() - t > REMEMBER_TTL_MS) {
-        try { window.localStorage.removeItem(ADMIN_REMEMBER_KEY); } catch { /* ignore */ }
-        return "";
-      }
-      const u = typeof obj?.u === "string" ? decodeU(obj.u) : "";
-      return u;
-    } catch { return ""; }
+      return { u: typeof obj?.u === "string" ? obj.u : "", p: typeof obj?.p === "string" ? obj.p : "" };
+    } catch { return { u: "", p: "" }; }
   };
-  const [username, setUsername] = useState(readRememberedUsername);
-  const [password, setPassword] = useState("");
+  const initialDraft = readAdminDraft();
+  const [username, setUsername] = useState(initialDraft.u);
+  const [password, setPassword] = useState(initialDraft.p);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // Persist ONLY the username, base64-wrapped, with a timestamp for TTL.
-  // Password is intentionally never written to any browser storage.
-  // NOTE: no unmount cleanup — that's what was wiping the remembered email
-  // between navigations. Full teardown happens on /clearcookies logout.
   useEffect(() => {
     try {
-      const u = username.trim();
-      if (!u) {
-        window.localStorage.removeItem(ADMIN_REMEMBER_KEY);
-        return;
-      }
-      window.localStorage.setItem(
-        ADMIN_REMEMBER_KEY,
-        JSON.stringify({ u: encodeU(u), t: Date.now() })
-      );
+      window.localStorage.setItem(ADMIN_DRAFT_KEY, JSON.stringify({ u: username, p: password }));
     } catch { /* ignore quota */ }
-  }, [username]);
-
-
+  }, [username, password]);
   const [siteKey, setSiteKey] = useState<string | null>(null);
   const [captchaReady, setCaptchaReady] = useState(false);
   const [showCaptcha, setShowCaptcha] = useState(false);
   const [loginStage, setLoginStage] = useState<CaptchaStage | null>(null);
   const [gpsRequesting, setGpsRequesting] = useState(false);
   const [gpsPermissionMode, setGpsPermissionMode] = useState<GpsPermissionMode | null>(null);
-  // Per-admin GPS policy: default OFF. Only ON if the admin card toggle was
-  // explicitly enabled by another admin. Resolved from the bootstrap user list
-  // once the typed username matches a known admin — same flag the card shows.
-  const [adminUsers, setAdminUsers] = useState<any[]>([]);
-  const matchedAdmin = useMemo(() => {
-    const u = username.trim().toLowerCase();
-    if (!u) return null;
-    return adminUsers.find((x: any) => x?.role === "admin" && typeof x?.username === "string" && x.username.toLowerCase() === u) || null;
-  }, [username, adminUsers]);
-  const locationRequired = matchedAdmin ? isLocationRequiredForProfile(matchedAdmin) : false;
   const pendingClientGeoRef = useRef<LoginLocationPayload | null>(null);
   const armedGeoRef = useRef<Promise<LoginLocationPayload> | null>(null);
   const armedDeviceRef = useRef<Promise<DeviceFingerprint> | null>(null);
-  const gpsBlocked = locationRequired && gpsPermissionMode !== null;
+  const gpsBlocked = gpsPermissionMode !== null;
   const navigate = useNavigate();
   const { checkAuth } = useAuth();
 
@@ -4316,7 +3684,6 @@ function AdminLoginPage() {
       try {
         const bootstrap = await bootstrapFromSupabase({ force: true });
         if (cancelled) return;
-        setAdminUsers(Array.isArray(bootstrap.users) ? bootstrap.users : []);
         if (bootstrap.recaptcha?.enabled === true && bootstrap.recaptcha?.siteKey) {
           setSiteKey(bootstrap.recaptcha.siteKey);
           preloadRecaptchaScript();
@@ -4339,7 +3706,6 @@ function AdminLoginPage() {
   }, []);
 
   useEffect(() => {
-    if (!locationRequired) { setGpsPermissionMode(null); return; }
     if (typeof navigator === "undefined" || !navigator.geolocation) return;
     let cancelled = false;
     const primeGpsSheet = async () => {
@@ -4357,7 +3723,7 @@ function AdminLoginPage() {
     };
     void primeGpsSheet();
     return () => { cancelled = true; };
-  }, [locationRequired]);
+  }, []);
 
   const initiateLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -4365,11 +3731,6 @@ function AdminLoginPage() {
       const msg = "Username and password required";
       setError(msg);
       notify.error(msg);
-      return;
-    }
-    if (!locationRequired) {
-      setError("");
-      void startLocationThenLogin();
       return;
     }
     // FIRE GEO FIRST synchronously — preserve user activation (Chrome Incognito).
@@ -4385,7 +3746,6 @@ function AdminLoginPage() {
   };
 
   const armLoginTelemetry = () => {
-    if (!locationRequired) return;
     if (hasGrantedLocation(pendingClientGeoRef.current)) return;
     if (!armedGeoRef.current) armedGeoRef.current = beginGeolocationCapture();
     if (!armedDeviceRef.current) armedDeviceRef.current = beginDeviceFingerprintCapture();
@@ -4397,7 +3757,6 @@ function AdminLoginPage() {
   };
 
   const primeGpsEnableFromPointer = () => {
-    if (!locationRequired) return;
     if (gpsRequesting || loading) return;
     if (hasGrantedLocation(pendingClientGeoRef.current)) return;
     armedGeoRef.current = beginGeolocationCapture();
@@ -4442,23 +3801,18 @@ function AdminLoginPage() {
     setLoading(true);
     setError("");
     try {
-      let clientGeo: LoginLocationPayload | null = null;
-      if (locationRequired) {
-        clientGeo = hasGrantedLocation(pendingClientGeoRef.current) ? pendingClientGeoRef.current : await requireLoginLocation(preStartedGeo, preStartedDevice);
-        pendingClientGeoRef.current = clientGeo;
-      }
+      const clientGeo = hasGrantedLocation(pendingClientGeoRef.current) ? pendingClientGeoRef.current : await requireLoginLocation(preStartedGeo, preStartedDevice);
+      pendingClientGeoRef.current = clientGeo;
       if (!captchaReady) {
         setLoading(false);
-        if (locationRequired) {
-          notify.info("Location ready", { id: "gps-permission-ready", description: "Wait for security check, then tap Admin Sign In.", duration: 8500 });
-        }
+        notify.info("Location ready", { id: "gps-permission-ready", description: "Wait for security check, then tap Admin Sign In.", duration: 8500 });
         return;
       }
       if (siteKey) {
         setShowCaptcha(true);
         setLoading(false);
       } else {
-        await executeLogin(undefined, clientGeo ?? undefined);
+        await executeLogin(undefined, clientGeo);
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Login failed";
@@ -5565,17 +4919,7 @@ function RecipientsDrawer({ notification, onClose, onChanged }: { notification: 
 
 function AdminPanel() {
   usePageHead("Admin Dashboard — Netflix Mail", "Admin control panel for managing users, sessions, notifications, and email accounts.", "/admin/dashboard");
-  const ADMIN_ACTIVE_TAB_KEY = "admin_active_tab_v1";
-  const [activeTab, setActiveTab] = useState<"users" | "security" | "emails" | "settings" | "notifications" | "inbox" | "logins" | "allmails" | "deploy" | "tv">(() => {
-    try {
-      const raw = sessionStorage.getItem(ADMIN_ACTIVE_TAB_KEY);
-      if (!raw) return "users";
-      const allowed = new Set(["users", "security", "emails", "settings", "notifications", "inbox", "logins", "allmails", "deploy", "tv"]);
-      return allowed.has(raw) ? (raw as any) : "users";
-    } catch {
-      return "users";
-    }
-  });
+  const [activeTab, setActiveTab] = useState<"users" | "security" | "emails" | "settings" | "notifications" | "inbox" | "logins" | "allmails" | "deploy">("users");
   const [users, setUsers] = useState<UserData[]>(() => {
     // Instant hydrate from bootstrap cache so the users list renders on first paint.
     try {
@@ -5624,10 +4968,8 @@ function AdminPanel() {
   const [editSessionLimit, setEditSessionLimit] = useState<string>("");
   const [editExpiresAt, setEditExpiresAt] = useState<string>(""); // "YYYY-MM-DDTHH:mm" for free users only
   const [editAutoDelete, setEditAutoDelete] = useState<boolean>(true);
-  const [editTvOverride, setEditTvOverride] = useState<"inherit" | "on" | "off">("inherit");
   const [newIsFree, setNewIsFree] = useState(false);
   const [newFreeExpiresAt, setNewFreeExpiresAt] = useState<string>(""); // "YYYY-MM-DDTHH:mm"
-  const [newTvOverride, setNewTvOverride] = useState<"inherit" | "on" | "off">("inherit");
   const [dragUserId, setDragUserId] = useState<string | null>(null);
   const [reordering, setReordering] = useState(false);
   const [serverConfig, setServerConfig] = useState({
@@ -5665,36 +5007,8 @@ function AdminPanel() {
   // Location alert toggle
   const [ipwhoAlertEnabled, setIpwhoAlertEnabled] = useState(false);
   const [savingIpwho, setSavingIpwho] = useState(false);
-  const [locationPolicyRequired, setLocationPolicyRequired] = useState(true);
-  const [tvFeatureEnabled, setTvFeatureEnabled] = useState(true);
-  const [tvSearch, setTvSearch] = useState("");
-  const [savingTvFeature, setSavingTvFeature] = useState(false);
+  const [locationPolicyRequired, setLocationPolicyRequired] = useState(false);
   const [savingLocationPolicy, setSavingLocationPolicy] = useState(false);
-
-  useEffect(() => {
-    const applyEvent = (event: TvFeatureEvent) => {
-      if (!event || typeof event !== "object") return;
-      if (event.type === "tv-global") {
-        setTvFeatureEnabled(event.enabled !== false);
-        return;
-      }
-      if (event.type === "tv-profile") {
-        const next = normalizeTvOverride(event.tvOverride);
-        setUsers(prev => prev.map(u => u.id === event.userId ? { ...u, tvOverride: next } : u));
-      }
-    };
-    const onWindowEvent = (event: Event) => applyEvent((event as CustomEvent<TvFeatureEvent>).detail);
-    window.addEventListener(TV_FEATURE_CHANNEL, onWindowEvent);
-    let channel: BroadcastChannel | null = null;
-    try {
-      channel = new BroadcastChannel(TV_FEATURE_CHANNEL);
-      channel.onmessage = (event) => applyEvent(event.data as TvFeatureEvent);
-    } catch {}
-    return () => {
-      window.removeEventListener(TV_FEATURE_CHANNEL, onWindowEvent);
-      try { channel?.close(); } catch {}
-    };
-  }, []);
   // Maintenance mode
   const [maintenanceEnabled, setMaintenanceEnabled] = useState(false);
   const [maintenanceTitle, setMaintenanceTitle] = useState("");
@@ -5728,10 +5042,7 @@ function AdminPanel() {
   const [notifPlatformIcon, setNotifPlatformIcon] = useState<string>("");
   const [notifTemplate, setNotifTemplate] = useState<string>("");
   const [platformSearch, setPlatformSearch] = useState("");
-  const filteredPlatformOptions = useMemo(
-    () => PLATFORM_OPTIONS.filter((p) => platformMatchesSearch(p, platformSearch)),
-    [platformSearch],
-  );
+  const { ready: platformLogosReady, results: platformLogoResults } = usePlatformLogoAudit(false);
   const [notifLocked, setNotifLocked] = useState(false);
   const [notifShowFrequency, setNotifShowFrequency] = useState<"once" | "always" | "session" | "daily">("once");
   const [notifMode, setNotifMode] = useState<"popup" | "silent" | "banner">("popup");
@@ -5774,9 +5085,6 @@ function AdminPanel() {
   const { user: currentUser, checkAuth } = useAuth();
 
   const STATS_CACHE_KEY = "admin_stats_cache_v1";
-  // Admin settings cache — versioned, refresh-safe. Delete flows do NOT touch
-  // this cache (silent refresh branch below skips the write), so removing a
-  // user cannot wipe CAPTCHA keys or other admin settings.
   const [stats, setStats] = useState<{ totalUsers: number; totalEmails: number }>(() => {
     // Hydrate instantly from cache so the dashboard never flashes 0.
     try {
@@ -5797,18 +5105,14 @@ function AdminPanel() {
     try { localStorage.setItem(STATS_CACHE_KEY, JSON.stringify(stats)); } catch {}
   }, [stats]);
 
-  useEffect(() => {
-    try { sessionStorage.setItem(ADMIN_ACTIVE_TAB_KEY, activeTab); } catch {}
-  }, [activeTab]);
-
-  const availableAccounts = useMemo<string[]>(() => {
+  const getAvailableAccounts = (): string[] => {
     const labels = ["Primary"];
     emailAccounts.forEach(acc => {
       if (acc.label && !labels.includes(acc.label)) labels.push(acc.label);
     });
     return labels;
-  }, [emailAccounts]);
-  const normalizeSelectedAccounts = useCallback((raw: unknown) => normalizeAccountLabels(raw, availableAccounts), [availableAccounts]);
+  };
+  const normalizeSelectedAccounts = (raw: unknown) => normalizeAccountLabels(raw, getAvailableAccounts());
 
   const parseRecipientFilters = (value: string): string[] => Array.from(new Set(
     value
@@ -5819,30 +5123,15 @@ function AdminPanel() {
 
   const loadAdminData = useCallback(async (opts?: { silent?: boolean }) => {
     const silent = !!opts?.silent;
-    const isTransientAdminLoadError = (value: unknown) => /Secure connection|handshake|Failed to fetch|NetworkError|busy|timeout|temporar|unknown session|bad frame|non-binary|stale request|replay|origin mismatch/i.test(
-      value instanceof Error ? value.message : String(value || ""),
-    );
     // ONE composite server call replaces the 12 individual apiCalls.
     // - Bootstrap: users + emails count + notifications (+counts) + all settings + r2  → 1 HTTP request
     // - Refresh (silent): only the 3 live datasets, no settings → still 1 request
     // This keeps Supabase egress + edge-function invocations minimal so
     // free-tier limits don't get eaten by the admin panel.
     try {
-      let res: any;
-      try {
-        res = await apiCall("manage-app", {
-          action: silent ? "admin_dashboard_refresh" : "admin_dashboard_bootstrap",
-        });
-      } catch (err) {
-        if (!silent && isTransientAdminLoadError(err)) {
-          await new Promise((r) => setTimeout(r, 700));
-          res = await apiCall("manage-app", {
-            action: "admin_dashboard_bootstrap",
-          });
-        } else {
-          throw err;
-        }
-      }
+      const res: any = await apiCall("manage-app", {
+        action: silent ? "admin_dashboard_refresh" : "admin_dashboard_bootstrap",
+      });
       if (Array.isArray(res?.users)) {
         setUsers(res.users);
         setStats(prev => ({ ...prev, totalUsers: res.users.length }));
@@ -5906,8 +5195,7 @@ function AdminPanel() {
         const cs = Number(s.session_limits?.maxPerUser);
         if (Number.isFinite(cs) && cs >= 0) setConcurrentSessionLimit(String(cs));
         setIpwhoAlertEnabled(s.ipwho_alert?.enabled === true);
-        setLocationPolicyRequired(s.location_policy?.required !== false);
-        setTvFeatureEnabled(s.tv_feature?.enabled !== false);
+        setLocationPolicyRequired(s.location_policy?.required === true);
         const fac = Number(s.free_avatar_cooldown?.minutes);
         if (Number.isFinite(fac) && fac > 0) setFreeAvatarCooldownMinState(String(Math.floor(fac)));
 
@@ -5940,115 +5228,11 @@ function AdminPanel() {
             secretAccessKeySet: res.r2.secretAccessKeySet === true,
           }));
         }
-        // Cache settings + r2 so a page refresh shows the saved values
-        // instantly instead of flashing empty inputs while the server load runs.
-        try {
-          const serverVersion = Number(res.settings?.settings_version) || Date.now();
-          const prev = readAdminCache();
-          reconcileVersion(prev?.version ?? 0, serverVersion);
-          writeAdminCache({ version: serverVersion, settings: res.settings, r2: res.r2 || null });
-          emitSyncStatus({ kind: "saved" });
-        } catch (e) {
-          emitSyncStatus({ kind: "error", message: "Cache write failed" });
-        }
       }
     } catch (err) {
-      if (!silent) {
-        console.warn("[admin] dashboard load failed:", err);
-        emitSyncStatus({ kind: "error", message: err instanceof Error ? err.message : "Server sync failed" });
-      }
+      if (!silent) console.warn("[admin] dashboard load failed:", err);
     }
   }, [r2Dirty]);
-
-  // Hydrate settings state instantly from cache on mount so a refresh doesn't
-  // flash empty CAPTCHA/site-key/etc. fields before the server round-trip.
-  useEffect(() => {
-    try {
-      emitSyncStatus({ kind: "loading-local" });
-      const parsed = readAdminCache();
-      if (!parsed) { emitSyncStatus({ kind: "syncing-server" }); return; }
-      const s = parsed.settings;
-      if (!s) { emitSyncStatus({ kind: "syncing-server" }); return; }
-      if (!isCacheFresh(parsed)) emitSyncStatus({ kind: "stale-refetching" });
-      else emitSyncStatus({ kind: "syncing-server" });
-      if (s.recaptcha) {
-        setSiteKey(s.recaptcha.siteKey || "");
-        setSecretKeyVal(s.recaptcha.secretKey || "");
-        setCaptchaEnabled(s.recaptcha.enabled === true);
-      }
-      if (s.email_visibility) {
-        setEmailVisibilityEnabled(s.email_visibility.enabled === true);
-        if (Number(s.email_visibility.days) > 0) setEmailVisibilityDays(String(s.email_visibility.days));
-      }
-      if (s.email_auto_delete) {
-        setEmailAutoDeleteEnabled(s.email_auto_delete.enabled === true);
-        if (Number(s.email_auto_delete.days) > 0) setEmailAutoDeleteDays(String(s.email_auto_delete.days));
-        if (Number.isFinite(Number(s.email_auto_delete.hour))) setEmailAutoDeleteHour(String(s.email_auto_delete.hour));
-      }
-      if (s.netflix_promo) setBlockNetflixPromo(s.netflix_promo.block === true);
-      if (s.config) {
-        const c = s.config as any;
-        setServerConfig({
-          TELEGRAM_BOT_TOKEN: c.TELEGRAM_BOT_TOKEN || "",
-          TELEGRAM_CHAT_ID: c.TELEGRAM_CHAT_ID || "",
-          IMAP_HOST: c.IMAP_HOST || "",
-          IMAP_PORT: c.IMAP_PORT || "",
-          IMAP_USER: c.IMAP_USER || "",
-          IMAP_PASSWORD: c.IMAP_PASSWORD || "",
-        });
-      }
-      if (Array.isArray(s.primary_cloudflare_urls)) setPrimaryCfUrls(s.primary_cloudflare_urls);
-      if (s.email_filters) {
-        setShowSignInCodes(s.email_filters.showSignInCodes !== false);
-        setShowPasswordResets(s.email_filters.showPasswordResets === true);
-        setShowAccountUpdates(s.email_filters.showAccountUpdates === true);
-      }
-      if (Array.isArray(s.email_accounts)) {
-        const migrated = s.email_accounts.map((acc: any) => {
-          if (acc.cloudflareUrls && Array.isArray(acc.cloudflareUrls)) return { ...acc, recipientFilters: Array.isArray(acc.recipientFilters) ? acc.recipientFilters : [] };
-          const urls: string[] = [];
-          if (acc.cloudflareUrl && acc.cloudflareUrl.trim()) urls.push(acc.cloudflareUrl.trim());
-          const { cloudflareUrl, ...rest } = acc;
-          return { ...rest, cloudflareUrls: urls, recipientFilters: Array.isArray(acc.recipientFilters) ? acc.recipientFilters : [] };
-        });
-        setEmailAccounts(migrated);
-      }
-      const m1 = Number(s.session_config?.timeoutMinutes);
-      if (Number.isFinite(m1) && m1 >= 0) setSessionTimeoutMin(String(m1));
-      const m2 = Number(s.admin_session_config?.timeoutMinutes);
-      if (Number.isFinite(m2) && m2 >= 0) setAdminSessionTimeoutMin(String(m2));
-      const cs = Number(s.session_limits?.maxPerUser);
-      if (Number.isFinite(cs) && cs >= 0) setConcurrentSessionLimit(String(cs));
-      setIpwhoAlertEnabled(s.ipwho_alert?.enabled === true);
-      setLocationPolicyRequired(s.location_policy?.required !== false);
-      setTvFeatureEnabled(s.tv_feature?.enabled !== false);
-      const fac = Number(s.free_avatar_cooldown?.minutes);
-      if (Number.isFinite(fac) && fac > 0) setFreeAvatarCooldownMinState(String(Math.floor(fac)));
-      if (s.maintenance) {
-        const mnt = s.maintenance;
-        setMaintenanceEnabled(mnt.enabled === true);
-        setMaintenanceTitle(mnt.title || "");
-        setMaintenanceMessage(mnt.message || "");
-        setMaintenanceVersionFrom(mnt.versionFrom || "");
-        setMaintenanceVersionTo(mnt.versionTo || "");
-        prevSavedVersionToRef.current = mnt.versionTo || "";
-      }
-      const r2 = parsed?.r2;
-      if (r2) {
-        setR2Cfg({
-          accountId: r2.accountId || "",
-          accessKeyId: r2.accessKeyId || "",
-          secretAccessKey: r2.secretAccessKey || "",
-          bucket: r2.bucket || "",
-          publicBaseUrl: r2.publicBaseUrl || "",
-          pathPrefix: r2.pathPrefix || "notifications/",
-          enabled: r2.enabled === true,
-          secretAccessKeySet: r2.secretAccessKeySet === true,
-        });
-      }
-    } catch {}
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   useEffect(() => {
     // Initial full load
@@ -6471,63 +5655,6 @@ function AdminPanel() {
     } finally { setSavingLocationPolicy(false); }
   };
 
-  const toggleTvFeature = async () => {
-    const next = !tvFeatureEnabled;
-    const prevOverrides = users.map(u => ({ id: u.id, tvOverride: u.tvOverride ?? null }));
-    setTvFeatureEnabled(next);
-    // Optimistically clear all per-user overrides — global switch is TOP priority.
-    setUsers(prev => prev.map(x => ({ ...x, tvOverride: null })));
-    setSavingTvFeature(true);
-    try {
-      await apiCall("manage-app", { action: "set_tv_feature", enabled: next });
-      broadcastTvFeatureEvent({ type: "tv-global", enabled: next, at: Date.now() });
-      // Broadcast a per-profile inherit so any open user tabs drop their local override too.
-      prevOverrides.forEach(({ id, tvOverride }) => {
-        if (tvOverride !== null) {
-          applyTvOverrideToStoredUser(id, null);
-          patchBootstrapCacheUser(id, { tvOverride: null });
-          broadcastTvFeatureEvent({ type: "tv-profile", userId: id, tvOverride: null, at: Date.now() });
-        }
-      });
-      notify.success(next ? "TV shown for everyone (overrides reset)" : "TV hidden for everyone (overrides reset)");
-      // Ground-truth: re-fetch admin users so any stale override rows are corrected.
-      void loadAdminData({ silent: true });
-      await refreshBootstrap().catch(() => null);
-    } catch (err) {
-      setTvFeatureEnabled(!next);
-      setUsers(prev => prev.map(x => {
-        const p = prevOverrides.find(o => o.id === x.id);
-        return p ? { ...x, tvOverride: p.tvOverride } : x;
-      }));
-      notify.error(err instanceof Error ? err.message : "Failed");
-    } finally { setSavingTvFeature(false); }
-  };
-
-
-  const setProfileTvOverride = async (u: UserData, value: TvOverrideValue) => {
-    const next: "on" | "off" | null = normalizeTvOverride(value);
-    const previous = normalizeTvOverride(u.tvOverride);
-    try {
-      await apiCall("manage-app", { action: "update_user", id: u.id, tv_override: tvOverridePayload(next) });
-      setUsers(prev => prev.map(x => x.id === u.id ? { ...x, tvOverride: next } : x));
-      applyTvOverrideToStoredUser(u.id, next);
-      patchBootstrapCacheUser(u.id, { tvOverride: next });
-      broadcastTvFeatureEvent({ type: "tv-profile", userId: u.id, tvOverride: next, at: Date.now() });
-      notify.success(next === null ? `${u.name}: TV follows global setting` : next === "on" ? `${u.name}: TV forced ON` : `${u.name}: TV forced OFF`);
-      refreshBootstrap().catch(() => null);
-    } catch (err) {
-      setUsers(prev => prev.map(x => x.id === u.id ? { ...x, tvOverride: previous } : x));
-      notify.error(err instanceof Error ? err.message : "Failed to update TV override");
-    }
-  };
-
-  const toggleProfileTvOverride = async (u: UserData) => {
-    // 3-state cycle: inherit (null) -> on -> off -> inherit
-    const current: "on" | "off" | null = normalizeTvOverride(u.tvOverride);
-    const next: TvOverrideValue = current === null ? "on" : current === "on" ? "off" : "inherit";
-    await setProfileTvOverride(u, next);
-  };
-
   const reloadAdminNotifs = async () => {
     try {
       const nl = await apiCall("manage-app", { action: "admin_list_notifications" });
@@ -6731,7 +5858,6 @@ function AdminPanel() {
       }
       // Free profile: passwordless one-tap entry. Username is optional/manual only
       // (never generated); password is never sent for free profiles.
-      const tvOv: "on" | "off" | null = newTvOverride === "on" || newTvOverride === "off" ? newTvOverride : null;
       const body: any = newIsFree
         ? {
             action: "create",
@@ -6741,7 +5867,6 @@ function AdminPanel() {
             is_free: true,
             assigned_accounts: normalizeSelectedAccounts(newUserAccounts).length > 0 ? normalizeSelectedAccounts(newUserAccounts) : null,
             expires_at: expiresIso,
-            tv_override: tvOv,
           }
         : {
             action: "create",
@@ -6751,10 +5876,9 @@ function AdminPanel() {
             role: "user",
             assigned_accounts: normalizeSelectedAccounts(newUserAccounts).length > 0 ? normalizeSelectedAccounts(newUserAccounts) : null,
             is_free: false,
-            tv_override: tvOv,
           };
       const res: any = await apiCall("manage-app", body);
-      setNewUsername(""); setNewPassword(""); setNewName(""); setNewUserAccounts([]); setNewIsFree(false); setNewFreeExpiresAt(""); setNewTvOverride("inherit");
+      setNewUsername(""); setNewPassword(""); setNewName(""); setNewUserAccounts([]); setNewIsFree(false); setNewFreeExpiresAt("");
       if (!res?.user) throw new Error("Server did not return the created user");
       setUsers(prev => [...prev, res.user]);
       setStats(prev => ({ ...prev, totalUsers: prev.totalUsers + 1 }));
@@ -6931,24 +6055,19 @@ function AdminPanel() {
           expires_at = new Date(t).toISOString();
         }
       }
-      const tvOvOut: "on" | "off" | null = editTvOverride === "on" ? "on" : editTvOverride === "off" ? "off" : null;
       await apiCall("manage-app", {
         action: "update_user",
         id: userId,
         username: editUsername.trim() || null,
         assigned_accounts: normalizeSelectedAccounts(editAccountsList).length > 0 ? normalizeSelectedAccounts(editAccountsList) : null,
         session_limit,
-        tv_override: tvOverridePayload(editTvOverride),
         ...(expires_at !== undefined ? { expires_at } : {}),
         ...(isFreeTarget ? { auto_delete: editAutoDelete } : {}),
       });
       const nextAccounts = normalizeSelectedAccounts(editAccountsList).length > 0 ? normalizeSelectedAccounts(editAccountsList) : null;
       const nextUsername = editUsername.trim() || null;
       setEditingUserAccounts(null); setEditHint(null);
-      setUsers(prev => prev.map(u => u.id === userId ? { ...u, username: nextUsername as any, assignedAccounts: nextAccounts, session_limit, tvOverride: tvOvOut, ...(expires_at !== undefined ? { expiresAt: expires_at } as any : {}), ...(isFreeTarget ? { autoDelete: editAutoDelete } as any : {}) } : u));
-      applyTvOverrideToStoredUser(userId, tvOvOut);
-      patchBootstrapCacheUser(userId, { tvOverride: tvOvOut });
-      broadcastTvFeatureEvent({ type: "tv-profile", userId, tvOverride: tvOvOut, at: Date.now() });
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, username: nextUsername as any, assignedAccounts: nextAccounts, session_limit, ...(expires_at !== undefined ? { expiresAt: expires_at } as any : {}), ...(isFreeTarget ? { autoDelete: editAutoDelete } as any : {}) } : u));
       notify.success("User settings updated!");
     } catch (err) {
       notify.error(err instanceof Error ? err.message : "Failed to update");
@@ -6961,25 +6080,11 @@ function AdminPanel() {
     { id: "allmails" as const, label: "All Emails", icon: Mail },
     { id: "notifications" as const, label: "Notifications", icon: Bell },
     { id: "inbox" as const, label: "Inbox", icon: Mail },
-    { id: "tv" as const, label: "TV Auto-Login", icon: Tv },
     { id: "security" as const, label: "Security", icon: ShieldCheck },
     { id: "emails" as const, label: "Email Accounts", icon: Server },
     { id: "settings" as const, label: "Settings", icon: Settings },
     { id: "deploy" as const, label: "Deploy", icon: Server },
   ];
-
-  const nonAdminOrder = useMemo(() => users.filter((u) => u.role !== "admin").map((u) => u.id), [users]);
-  const nonAdminIndexById = useMemo(() => {
-    const map = new Map<string, number>();
-    nonAdminOrder.forEach((id, idx) => map.set(id, idx));
-    return map;
-  }, [nonAdminOrder]);
-  const tvUsers = useMemo(() => users.filter((u) => u.role !== "admin"), [users]);
-  const filteredTvUsers = useMemo(() => {
-    const q = tvSearch.trim().toLowerCase();
-    if (!q) return tvUsers;
-    return tvUsers.filter((u) => `${u.name} ${u.username || ""}`.toLowerCase().includes(q));
-  }, [tvSearch, tvUsers]);
 
 
   return (
@@ -6994,7 +6099,7 @@ function AdminPanel() {
             <span className="hidden sm:inline">Admin Control Panel</span>
             <span className="sm:hidden">Admin</span>
           </h2>
-          <button onClick={fastClearCookiesRedirect} className="p-2 hover:bg-slate-100 rounded-full transition-colors" title="Logout" aria-label="Logout">
+          <button onClick={() => { performSignOut(); }} className="p-2 hover:bg-slate-100 rounded-full transition-colors" title="Logout" aria-label="Logout">
             <LogOut className="w-5 h-5 text-slate-400" aria-hidden="true" />
           </button>
         </div>
@@ -7071,7 +6176,7 @@ function AdminPanel() {
                 <div>
                   <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Assign IMAP Accounts</label>
                   <div className="space-y-1.5">
-                    {availableAccounts.map(label => (
+                    {getAvailableAccounts().map(label => (
                       <label key={label} className="flex items-center gap-2 p-2 bg-slate-50 rounded-lg cursor-pointer hover:bg-slate-100 transition-colors">
                         <input type="checkbox" checked={newUserAccounts.includes(label)}
                           onChange={(e) => {
@@ -7097,23 +6202,6 @@ function AdminPanel() {
                     )}
                   </div>
                 )}
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase mb-2">TV Auto-Login</label>
-                  <div className="flex gap-2">
-                    {(["on", "off", "inherit"] as const).map(v => (
-                      <button
-                        key={v}
-                        type="button"
-                        onClick={() => setNewTvOverride(v)}
-                        className={`flex-1 text-xs font-bold py-2 rounded-lg border transition-all ${newTvOverride === v ? (v === "on" ? "bg-emerald-600 text-white border-emerald-600" : v === "off" ? "bg-rose-600 text-white border-rose-600" : "bg-slate-900 text-white border-slate-900") : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"}`}
-                      >
-                        {v === "on" ? "ON" : v === "off" ? "OFF" : "Default"}
-                      </button>
-                    ))}
-                  </div>
-                  <p className="text-[10px] text-slate-400 mt-1"><b>ON</b> = always show TV icon. <b>OFF</b> = always hide. <b>Default</b> = same as global switch.</p>
-                </div>
 
 
                 <button onClick={createUser}
@@ -7152,9 +6240,10 @@ function AdminPanel() {
                 {(() => { return null; })()}
                 {users.map(u => {
                   const canDrag = u.role !== "admin";
-                  const idx = nonAdminIndexById.get(u.id) ?? -1;
+                  const nonAdminList = users.filter(x => x.role !== "admin");
+                  const idx = nonAdminList.findIndex(x => x.id === u.id);
                   const isFirst = idx === 0;
-                  const isLast = idx === nonAdminOrder.length - 1;
+                  const isLast = idx === nonAdminList.length - 1;
                   const railColor = u.role === "admin" ? "from-red-500 to-red-700" : (u.isFree ? "from-emerald-400 to-emerald-600" : "from-blue-500 to-blue-700");
                   const glowColor = u.role === "admin" ? "shadow-red-500/20" : (u.isFree ? "shadow-emerald-500/20" : "shadow-blue-500/20");
                   return (
@@ -7202,39 +6291,9 @@ function AdminPanel() {
                             <span className={u.role === "admin" ? "text-red-600 font-bold uppercase" : (u.isFree ? "text-emerald-600 font-bold uppercase" : "text-blue-600 font-bold uppercase")}>{u.isFree ? "free" : u.role}</span>
                           </p>
                           <div className="flex flex-wrap gap-1 mt-1.5 sm:mt-2">
-                            <button
-                              type="button"
-                              onClick={(e) => { e.stopPropagation(); toggleProfileLocationRequired(u); }}
-                              title={isLocationRequiredForProfile(u) ? "GPS required — tap to turn OFF" : "GPS off — tap to turn ON"}
-                              className={`inline-flex items-center gap-1 text-[9px] font-black px-1.5 py-0.5 rounded border transition-all active:scale-95 ${isLocationRequiredForProfile(u) ? "bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100" : "bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200"}`}
-                            >
-                              {isLocationRequiredForProfile(u)
-                                ? <><MapPin className="w-2.5 h-2.5" /> GPS</>
-                                : <><MapPinOff className="w-2.5 h-2.5" /> OFF</>}
-                            </button>
-                            {u.role !== "admin" && (() => {
-                              const ov = u.tvOverride === "on" || u.tvOverride === "off" ? u.tvOverride : null;
-                              const effective = ov === "on" ? true : ov === "off" ? false : tvFeatureEnabled;
-                              const label = ov === "on" ? "TV ON" : ov === "off" ? "TV OFF" : (effective ? "TV" : "TV —");
-                              const cls = ov === "on"
-                                ? "bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100"
-                                : ov === "off"
-                                ? "bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200 line-through"
-                                : effective
-                                ? "bg-rose-50/60 text-rose-600 border-rose-100 hover:bg-rose-100"
-                                : "bg-slate-100 text-slate-400 border-slate-200 hover:bg-slate-200";
-                              const title = `TV Auto-Login for this profile — ${ov ? `forced ${ov.toUpperCase()}` : `inherit global (${tvFeatureEnabled ? "ON" : "OFF"})`}. Tap to cycle: inherit → on → off.`;
-                              return (
-                                <button
-                                  type="button"
-                                  onClick={(e) => { e.stopPropagation(); toggleProfileTvOverride(u); }}
-                                  title={title}
-                                  className={`inline-flex items-center gap-1 text-[9px] font-black px-1.5 py-0.5 rounded border transition-all active:scale-95 ${cls}`}
-                                >
-                                  <Tv className="w-2.5 h-2.5" /> {label}
-                                </button>
-                              );
-                            })()}
+                            {isLocationRequiredForProfile(u)
+                              ? <span className="inline-flex items-center gap-1 text-[9px] font-black bg-sky-50 text-sky-700 border border-sky-200 px-1.5 py-0.5 rounded"><MapPin className="w-2.5 h-2.5" /> GPS</span>
+                              : <span className="inline-flex items-center gap-1 text-[9px] font-black bg-slate-100 text-slate-500 border border-slate-200 px-1.5 py-0.5 rounded"><MapPinOff className="w-2.5 h-2.5" /> OFF</span>}
                             {u.assignedAccounts && u.assignedAccounts.length > 0 && u.assignedAccounts.map((a: string) => (
                               <span key={a} className="bg-blue-50 text-blue-700 border border-blue-200 text-[10px] px-1.5 py-0.5 rounded font-bold font-mono">{a}</span>
                             ))}
@@ -7295,8 +6354,6 @@ function AdminPanel() {
                                 setEditExpiresAt("");
                               }
                               setEditAutoDelete((u as any).autoDelete !== false);
-                              const ovInit = (u as any).tvOverride;
-                              setEditTvOverride(ovInit === "on" ? "on" : ovInit === "off" ? "off" : "inherit");
                             }} title="Edit"
                             className={`flex-1 flex items-center justify-center h-9 rounded-lg transition-all active:scale-95 ${editingUserAccounts === u.id ? "bg-white text-emerald-600 ring-1 ring-emerald-300 shadow-sm" : "text-slate-500 hover:bg-white hover:text-emerald-600 hover:shadow-sm"}`}>
                             <Edit className="w-4 h-4" />
@@ -7489,7 +6546,7 @@ function AdminPanel() {
                                 )}
                                 <p className="text-[11px] text-slate-500 mb-2">Tap a box to allow · untap to hide</p>
                                 <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-                                  {availableAccounts.map(label => {
+                                  {getAvailableAccounts().map(label => {
                                     const checked = editAccountsList.includes(label);
                                     return (
                                       <label key={label} className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all border-2 ${checked ? "bg-gradient-to-r from-rose-50 to-red-50 border-rose-300 shadow-sm" : "bg-slate-50 border-transparent hover:bg-slate-100"}`}>
@@ -7543,55 +6600,6 @@ function AdminPanel() {
                                   </div>
                                 </div>
                               )}
-
-                              {/* TV Auto-Login override (syncs with TV Remote Access tab) */}
-                              <div>
-                                <div className="flex items-center justify-between mb-2">
-                                  <label className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
-                                    <Tv className="w-4 h-4 text-rose-500" />
-                                    TV button for this person
-                                  </label>
-                                  {editTvOverride !== "inherit" && (
-                                    <button
-                                      type="button"
-                                      onClick={() => setEditTvOverride("inherit")}
-                                      className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 hover:underline underline-offset-2"
-                                    >
-                                      Same as everyone
-                                    </button>
-                                  )}
-                                </div>
-                                <div className="inline-flex w-full p-0.5 rounded-full bg-slate-100 border border-slate-200">
-                                  {([
-                                    { value: "on" as const,  label: "Show", Icon: Eye,    onCls: "bg-emerald-500 text-white shadow-sm" },
-                                    { value: "off" as const, label: "Hide", Icon: EyeOff, onCls: "bg-slate-900 text-white shadow-sm" },
-                                  ]).map((opt) => {
-                                    const active = editTvOverride === opt.value;
-                                    const Icon = opt.Icon;
-                                    return (
-                                      <button
-                                        key={opt.value}
-                                        type="button"
-                                        onClick={() => setEditTvOverride(opt.value)}
-                                        className={`flex-1 inline-flex items-center justify-center gap-1.5 h-9 rounded-full text-[12px] font-bold transition-all active:scale-[0.97] ${active ? opt.onCls : "text-slate-500 hover:text-slate-800"}`}
-                                        aria-pressed={active}
-                                      >
-                                        <Icon className="w-3.5 h-3.5" />
-                                        <span>{opt.label}</span>
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                                <p className="mt-1.5 text-[11px] text-slate-500">
-                                  {editTvOverride === "inherit"
-                                    ? <>Follows the global switch ({tvFeatureEnabled ? "currently visible" : "currently hidden"}).</>
-                                    : editTvOverride === "on"
-                                    ? "Always visible for this profile."
-                                    : "Always hidden for this profile."}
-                                </p>
-                              </div>
-
-
 
                               {/* Free profile expiry */}
                               {u.isFree && (
@@ -8120,12 +7128,6 @@ function AdminPanel() {
               </div>
             </section>
 
-            {/* TV Auto-Login + Netflix Credentials moved to the dedicated "TV Auto-Login" tab. */}
-
-
-
-
-
             {/* --- Cloudflare R2 Storage (for notification images) --- */}
             <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
               <div className="flex items-start justify-between gap-4 mb-4">
@@ -8252,150 +7254,6 @@ function AdminPanel() {
           <AllEmailsPanel />
         )}
 
-        {activeTab === "tv" && (
-          <div className="max-w-4xl mx-auto space-y-5">
-            {/* Header — plain, no stats, no gradients */}
-            <div className="px-1">
-              <h2 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-950 flex items-center gap-2.5">
-                <span className="inline-flex w-9 h-9 rounded-xl bg-slate-900 text-white items-center justify-center shadow-sm"><Tv className="w-5 h-5" /></span>
-                TV Remote Access
-              </h2>
-              <p className="text-sm text-slate-500 mt-1.5 ml-[46px]">Decide who sees the <b className="text-slate-800">Login on TV</b> button in their header.</p>
-            </div>
-
-            {/* Global — one iOS-style switch, one sentence */}
-            <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 sm:p-6">
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <p className="text-base sm:text-lg font-bold text-slate-950 leading-snug">Everyone gets the TV button</p>
-                  <p className="text-[13px] text-slate-500 mt-1 leading-relaxed">
-                    {tvFeatureEnabled
-                      ? "It's on. Every profile below sees the TV button — unless you turn a person off."
-                      : "It's off. Nobody sees the TV button — unless you turn a person on."}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={tvFeatureEnabled}
-                  onClick={() => { void toggleTvFeature(); }}
-                  disabled={savingTvFeature}
-                  className={`relative shrink-0 w-[62px] h-[34px] rounded-full transition-colors duration-200 disabled:opacity-60 focus:outline-none focus:ring-4 ring-offset-2 ${tvFeatureEnabled ? "bg-emerald-500 ring-emerald-200" : "bg-slate-300 ring-slate-200"}`}
-                >
-                  <span className={`absolute top-0.5 left-0.5 w-[30px] h-[30px] bg-white rounded-full shadow-md transition-transform duration-200 ease-out flex items-center justify-center ${tvFeatureEnabled ? "translate-x-[28px]" : "translate-x-0"}`}>
-                    {tvFeatureEnabled ? <Eye className="w-3.5 h-3.5 text-emerald-600" /> : <EyeOff className="w-3.5 h-3.5 text-slate-400" />}
-                  </span>
-                </button>
-              </div>
-            </section>
-
-            {/* Netflix Credentials — attractive modal-driven card */}
-            <NetflixCredentialsSection emailAccounts={emailAccounts} primaryImapUser={serverConfig.IMAP_USER} />
-
-            {/* People */}
-
-            <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-              <div className="px-5 sm:px-6 py-4 border-b border-slate-100 flex items-center justify-between gap-3 flex-wrap">
-                <div className="flex items-center gap-2 min-w-0">
-                  <h3 className="font-bold text-slate-950">People</h3>
-                  <span className="text-[11px] font-bold text-slate-500 bg-slate-100 rounded-full px-2 py-0.5">{filteredTvUsers.length}</span>
-                </div>
-                <div className="relative w-full sm:w-72">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <input
-                    value={tvSearch}
-                    onChange={(e) => setTvSearch(e.target.value)}
-                    placeholder="Search name or @username"
-                    className="w-full h-10 pl-9 pr-3 rounded-xl border border-slate-200 bg-slate-50 text-sm outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-300 focus:bg-white transition"
-                  />
-                </div>
-              </div>
-
-              <ul className="divide-y divide-slate-100">
-                {filteredTvUsers.map((u) => {
-                  const ov = normalizeTvOverride(u.tvOverride);
-                  const effective = ov === "on" ? true : ov === "off" ? false : tvFeatureEnabled;
-                  const overridden = ov !== null;
-                  return (
-                    <li key={u.id} className="flex items-center gap-3 sm:gap-4 px-5 sm:px-6 py-3.5 hover:bg-slate-50/60 transition-colors">
-                      <ProfileAvatar avatarId={getStableProfileAvatar(u)} name={u.name} className="w-10 h-10 !rounded-full ring-1 ring-slate-200 shadow-sm shrink-0" fallbackColor={u.isFree ? "bg-emerald-500" : "bg-blue-500"} />
-
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 min-w-0 flex-wrap">
-                          <p className="text-[14px] font-bold text-slate-900 truncate">{u.name}</p>
-                          <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${effective ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
-                            <span className={`w-1.5 h-1.5 rounded-full ${effective ? "bg-emerald-500" : "bg-slate-400"}`} />
-                            {effective ? "Visible" : "Hidden"}
-                          </span>
-                          {overridden && (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 shrink-0">
-                              Custom
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-0.5 min-w-0">
-                          <span className="font-mono truncate">{u.username ? `@${u.username}` : "free profile"}</span>
-                          {overridden && (
-                            <button
-                              type="button"
-                              onClick={() => { void setProfileTvOverride(u, "inherit"); }}
-                              className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 shrink-0"
-                              title="Remove custom setting — follow the global switch"
-                            >
-                              ↺ Reset
-                            </button>
-                          )}
-                        </div>
-                      </div>
-
-
-                      {/* Two-state segmented switch: Show / Hide.
-                          Highlights the *effective* state (so global OFF auto-ticks Hide
-                          for everyone without an override). Overridden = solid color,
-                          inherited-from-global = soft tint. */}
-                      <div className="shrink-0 inline-flex p-0.5 rounded-full bg-slate-100 border border-slate-200">
-                        {([
-                          { value: "on" as const,  label: "Show", Icon: Eye,    solid: "bg-emerald-500 text-white shadow-sm", soft: "bg-emerald-100 text-emerald-700" },
-                          { value: "off" as const, label: "Hide", Icon: EyeOff, solid: "bg-slate-900 text-white shadow-sm",   soft: "bg-slate-200 text-slate-700" },
-                        ]).map((opt) => {
-                          const isEffective = (opt.value === "on") === effective;
-                          const isOverride = ov === opt.value;
-                          const Icon = opt.Icon;
-                          const cls = isOverride ? opt.solid : isEffective ? opt.soft : "text-slate-500 hover:text-slate-800";
-                          return (
-                            <button
-                              key={opt.value}
-                              type="button"
-                              onClick={() => { void setProfileTvOverride(u, opt.value); }}
-                              className={`inline-flex items-center gap-1.5 px-3 sm:px-3.5 h-8 rounded-full text-[12px] font-bold transition-all active:scale-[0.97] ${cls}`}
-                              aria-pressed={isEffective}
-                            >
-                              <Icon className="w-3.5 h-3.5" />
-                              <span>{opt.label}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-
-                    </li>
-                  );
-                })}
-
-                {filteredTvUsers.length === 0 && (
-                  <li className="px-6 py-16 text-center">
-                    <div className="inline-flex p-3 rounded-full bg-slate-100 mb-3"><Search className="w-5 h-5 text-slate-400" /></div>
-                    <p className="text-sm font-bold text-slate-700">No people match your search</p>
-                    <p className="text-xs text-slate-500 mt-1">Try a different name or username.</p>
-                  </li>
-                )}
-              </ul>
-            </section>
-          </div>
-        )}
-
-
-
-
         {activeTab === "notifications" && (
           <div className="grid grid-cols-1 xl:grid-cols-[1.15fr_1fr] gap-4 sm:gap-6">
             {/* --- Composer --- */}
@@ -8470,18 +7328,21 @@ function AdminPanel() {
                     </div>
                     <div className="bg-black/30 border border-white/[0.06] rounded-xl p-2 max-h-[240px] overflow-y-auto [scrollbar-width:thin] [scrollbar-color:rgba(255,255,255,0.15)_transparent]">
                       <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5">
-                        {filteredPlatformOptions.map((p) => {
+                        {!platformLogosReady && (
+                          <div className="col-span-3 sm:col-span-4 py-8 text-center text-[11px] font-semibold text-slate-500">Loading platform logos…</div>
+                        )}
+                        {platformLogosReady && PLATFORM_OPTIONS.filter((p) => platformMatchesSearch(p, platformSearch)).map((p) => {
                           const active = resolvePlatformOption(notifPlatformIcon).id === p.id;
                           return (
                             <button key={p.id || "none"} type="button" onClick={() => setNotifPlatformIcon(p.id)}
                               className={`group relative flex flex-col items-center justify-center gap-1.5 py-2.5 px-1.5 rounded-lg border transition-all min-h-[74px] ${active ? "bg-orange-500/10 border-orange-500/60 shadow-md shadow-orange-500/10" : "bg-white/[0.02] border-white/[0.05] hover:bg-white/[0.05] hover:border-white/15"}`}>
-                              <PlatformChipVisual id={p.id} size={40} />
+                              <PlatformChipVisual id={p.id} size={40} audit={platformLogoResults[p.id || "__custom"]} />
                               <span className={`text-[9.5px] font-medium text-center leading-tight px-0.5 line-clamp-2 ${active ? "text-white" : "text-slate-400 group-hover:text-slate-200"}`}>{p.label}</span>
                             </button>
                           );
                         })}
                       </div>
-                      {filteredPlatformOptions.length === 0 && (
+                      {platformLogosReady && PLATFORM_OPTIONS.filter((p) => platformMatchesSearch(p, platformSearch)).length === 0 && (
                         <p className="text-center text-[11px] text-slate-500 py-4">No platform matches "{platformSearch}"</p>
                       )}
                     </div>
@@ -8652,7 +7513,7 @@ function AdminPanel() {
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
-                            {n.platform_icon ? <PlatformChipVisual id={n.platform_icon} size={20} /> : null}
+                            {n.platform_icon ? <PlatformChipVisual id={n.platform_icon} size={20} audit={platformLogoResults[resolvePlatformOption(n.platform_icon).id || "__custom"]} /> : null}
                             <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-semibold ${n.locked ? "bg-amber-50 text-amber-700 border border-amber-200" : "bg-emerald-50 text-emerald-700 border border-emerald-200"}`}>
                               {n.locked ? "🔒 Locked" : "🔓 User delete OK"}
                             </span>
@@ -8723,12 +7584,15 @@ function AdminPanel() {
                 <div>
                   <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1.5 block">Platform / Icon</label>
                   <div className="grid grid-cols-5 gap-1.5">
-                    {PLATFORM_OPTIONS.map((p) => {
+                    {!platformLogosReady && (
+                      <div className="col-span-5 py-6 text-center text-[11px] font-semibold text-slate-500">Loading platform logos…</div>
+                    )}
+                    {platformLogosReady && PLATFORM_OPTIONS.map((p) => {
                       const active = resolvePlatformOption(editingNotif.platform_icon).id === p.id;
                       return (
                         <button key={p.id || "none"} type="button" onClick={() => setEditingNotif({ ...editingNotif, platform_icon: p.id })}
                           className={`flex flex-col items-center gap-1.5 py-2.5 px-1 rounded-lg border transition-all ${active ? "border-orange-500 bg-orange-50" : "border-slate-200 hover:border-slate-300"}`}>
-                          <PlatformChipVisual id={p.id} size={40} />
+                          <PlatformChipVisual id={p.id} size={40} audit={platformLogoResults[p.id || "__custom"]} />
                           <span className="text-[9px] font-medium text-slate-600 text-center leading-tight">{p.label}</span>
                         </button>
                       );
@@ -10397,77 +9261,6 @@ function EmailViewer() {
   const [forcedPasswordChange] = useState(!!user.mustChangePassword);
   // Impersonation state is server-signed and backed by the parent admin session row.
   const isImpersonating = (user as any)?.impersonated === true;
-  // TV Auto-Login visibility priority: per-user override ALWAYS wins over
-  // the global switch. Show = forced visible even if admin's global is OFF.
-  // Hide = forced hidden even if admin's global is ON. No override = follow global.
-
-  const [viewerTvOverride, setViewerTvOverride] = useState<"on" | "off" | null>(() => normalizeTvOverride((user as any)?.tvOverride));
-  const [tvGlobalOn, setTvGlobalOn] = useState<boolean>(() => {
-    if (typeof (user as any)?.tvFeatureEnabled === "boolean") return (user as any).tvFeatureEnabled !== false;
-    const bs = readBootstrapCache();
-    return bs?.tvFeature?.enabled !== false;
-  });
-  useEffect(() => {
-    setViewerTvOverride(normalizeTvOverride((user as any)?.tvOverride));
-    if (typeof (user as any)?.tvFeatureEnabled === "boolean") setTvGlobalOn((user as any).tvFeatureEnabled !== false);
-  }, [user?.id, (user as any)?.tvOverride, (user as any)?.tvFeatureEnabled]);
-  useEffect(() => {
-    let cancelled = false;
-    const sync = async () => {
-      // Ground-truth check: hit get_settings directly so a stale bootstrap
-      // cache (local or worker) can't leave the TV icon visible after admin
-      // flipped the global toggle OFF.
-      try {
-        const res: any = await apiCall("manage-app", { action: "get_settings", key: "tv_feature" });
-        if (cancelled) return;
-        const enabled = res?.value?.enabled !== false;
-        setTvGlobalOn(enabled);
-      } catch {
-        // Fall back to bootstrap if get_settings fails.
-        try {
-          const bs = await refreshBootstrap();
-          if (!cancelled) setTvGlobalOn(bs?.tvFeature?.enabled !== false);
-        } catch {}
-      }
-    };
-    sync();
-    const onVis = () => { if (document.visibilityState === "visible") sync(); };
-    const applyEvent = (event: TvFeatureEvent) => {
-      if (!event || typeof event !== "object") return;
-      if (event.type === "tv-global") {
-        setTvGlobalOn(event.enabled !== false);
-        return;
-      }
-      if (event.type === "tv-profile" && event.userId === user.id) {
-        const next = normalizeTvOverride(event.tvOverride);
-        setViewerTvOverride(next);
-        applyTvOverrideToStoredUser(user.id, next);
-      }
-    };
-    const onWindowEvent = (event: Event) => applyEvent((event as CustomEvent<TvFeatureEvent>).detail);
-    document.addEventListener("visibilitychange", onVis);
-    window.addEventListener(TV_FEATURE_CHANNEL, onWindowEvent);
-    let channel: BroadcastChannel | null = null;
-    try {
-      channel = new BroadcastChannel(TV_FEATURE_CHANNEL);
-      channel.onmessage = (event) => applyEvent(event.data as TvFeatureEvent);
-    } catch {}
-    const id = window.setInterval(sync, 60_000);
-    return () => {
-      cancelled = true;
-      document.removeEventListener("visibilitychange", onVis);
-      window.removeEventListener(TV_FEATURE_CHANNEL, onWindowEvent);
-      try { channel?.close(); } catch {}
-      window.clearInterval(id);
-    };
-  }, [user.id]);
-  const tvVisible = useMemo(() => {
-    const ov = viewerTvOverride;
-    if (ov === "on") return true; // per-user override always wins over global
-    if (ov === "off") return false;
-    return tvGlobalOn;
-  }, [viewerTvOverride, tvGlobalOn]);
-
 
   const [refreshing, setRefreshing] = useState(false);
   const refreshingRef = useRef(false);
@@ -11201,34 +9994,8 @@ function EmailViewer() {
                 <button onClick={clearDiag} className="px-3 py-1.5 text-xs font-bold rounded-lg bg-white border border-slate-200 hover:bg-slate-100">Clear</button>
                 <button
                   onClick={async () => {
-                    const token = sessionGet("session_token" as any);
-                    const urls = resolvedWorkerUrls || [];
-                    if (!token || urls.length === 0) {
-                      notify.info("No worker configured or not signed in");
-                      return;
-                    }
-                    let totalInbox = 0, totalHtml = 0, okCount = 0;
-                    await Promise.all(urls.map(async (base) => {
-                      const t0 = Date.now();
-                      try {
-                        const res = await fetchWithTimeout(`${base}/api/cache/purge`, {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json", "X-Session-Token": token },
-                          body: "{}",
-                        }, 8000);
-                        const j = await res.json().catch(() => ({} as any));
-                        if (res.ok && j?.ok) {
-                          okCount++;
-                          totalInbox += Number(j.purged || 0);
-                          totalHtml += Number(j.htmlPurged || 0);
-                        }
-                        pushDiag({ ts: Date.now(), kind: "cache", endpoint: `${base}/api/cache/purge`, status: res.status, ms: Date.now() - t0, note: `inbox:${j?.purged ?? 0} html:${j?.htmlPurged ?? 0}` });
-                      } catch (e) {
-                        pushDiag({ ts: Date.now(), kind: "cache", endpoint: `${base}/api/cache/purge`, error: e instanceof Error ? e.message : String(e) });
-                      }
-                    }));
-                    if (okCount > 0) notify.success(`Purged ${totalInbox} inbox + ${totalHtml} HTML keys on ${okCount}/${urls.length} workers`);
-                    else notify.error("Cache purge failed on all workers");
+                    pushDiag({ ts: Date.now(), kind: "cache", endpoint: "worker cache purge", note: "blocked in encrypted-only mode" });
+                    notify.info("Worker cache purge is disabled in encrypted-only mode");
                   }}
                   className="px-3 py-1.5 text-xs font-bold rounded-lg bg-red-600 text-white hover:bg-red-700"
                 >Purge KV cache</button>
@@ -11284,8 +10051,7 @@ function EmailViewer() {
                 Admin
               </button>
             )}
-            {user.name?.toLowerCase() === "test" && <NetflixTestButton profileId={user.id} />}
-            <TvAutoLoginButton visible={tvVisible} />
+            <TvAutoLoginButton />
             <NotificationBell />
             <button
               onClick={() => fetchEmails()}
@@ -11308,7 +10074,7 @@ function EmailViewer() {
             )}
             {!isImpersonating && (
               <button
-                onClick={fastClearCookiesRedirect}
+                onClick={() => { performSignOut(); }}
                 className="flex items-center justify-center w-9 h-9 bg-red-600 text-white rounded-full transition-all active:scale-95 hover:bg-red-700"
                 title="Logout"
                 aria-label="Logout"
@@ -11351,8 +10117,7 @@ function EmailViewer() {
                 Back to Admin
               </button>
             )}
-            {user.name?.toLowerCase() === "test" && <NetflixTestButton profileId={user.id} />}
-            <TvAutoLoginButton visible={tvVisible} />
+            <TvAutoLoginButton />
             <NotificationBell />
             <button onClick={() => fetchEmails()}
               disabled={refreshing}
@@ -11378,7 +10143,7 @@ function EmailViewer() {
             )}
             {!isImpersonating && (
               <button
-                onClick={fastClearCookiesRedirect}
+                onClick={() => { performSignOut(); }}
                 className="flex items-center justify-center w-10 h-10 bg-red-600 text-white rounded-full transition-all active:scale-95 hover:bg-red-700 shadow-sm"
                 title="Logout"
                 aria-label="Logout"
@@ -11664,6 +10429,11 @@ function EmailViewer() {
 // everyone. The only carve-out is /admin* routes so admins can still sign in
 // and toggle maintenance off from the panel.
 
+function hasActiveAdminImpersonationBackup(): boolean {
+  try { sessionRemove("admin_backup" as any); } catch {}
+  return false;
+}
+
 function MaintenanceGate({ children }: { children: React.ReactNode }) {
   const { user, loading: authLoading, checkAuth } = useAuth();
   const navigate = useNavigate();
@@ -11687,7 +10457,7 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
     // Admin impersonating a user: keep the session alive so they can QA the
     // real user experience during maintenance. Source of truth is the
     // server-signed `impersonated` flag backed by the parent admin session row.
-    if (user.impersonated === true) return;
+    if (user.impersonated === true || hasActiveAdminImpersonationBackup()) return;
     const path = typeof window !== "undefined" ? window.location.pathname : "/";
     if (path.startsWith("/admin")) return;
     notify.info("🛠 Maintenance started", {
@@ -11695,8 +10465,8 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
       description: "You've been signed out while we perform updates.",
       duration: 4000,
     });
-    // Silent full reset via /clearcookies (Clear-Site-Data + JS fallback → 0 B).
-    fastClearCookiesRedirect();
+    // Silent full reset: purge cookies + session, then reload the page.
+    performSignOut();
   }, [maint.enabled, authLoading, user?.id, user?.role, user?.impersonated]);
 
 
@@ -11709,7 +10479,7 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
       } catch {}
     };
     const isAdminPath = window.location.pathname.startsWith("/admin");
-    const adminLike = user?.role === "admin" || user?.impersonated === true;
+    const adminLike = user?.role === "admin" || user?.impersonated === true || hasActiveAdminImpersonationBackup();
     if (!isAdminPath && !adminLike) load();
     const interval = window.setInterval(() => {
       if (document.visibilityState === "visible" && !window.location.pathname.startsWith("/admin")) load();
@@ -11748,7 +10518,8 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
   const isAdminRoute = path.startsWith("/admin");
   const isAdminImpersonating =
     user?.role === "admin" ||
-    user?.impersonated === true;
+    user?.impersonated === true ||
+    hasActiveAdminImpersonationBackup();
 
   const screenProps = {
     title: maint.title,
@@ -11785,60 +10556,43 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
 // SECONDARY (JS fallback via nukeBrowserIdentity): for local dev / hosts that
 // strip the header, we also wipe every surface from JavaScript. Both run.
 // ============================================================================
-// One-shot guard so React StrictMode / re-renders can't re-enter the wipe
-// and cause a redirect loop when the user pastes /clearcookies in the URL bar.
-let __clearCookiesFired = false;
 function ClearCookiesPage() {
-  // Fire synchronously during render (module scope, guarded) so navigation
-  // starts BEFORE effects — Clear-Site-Data killing the execution context
-  // no longer strands us on a "loading" screen.
-  if (!__clearCookiesFired && typeof window !== "undefined") {
-    __clearCookiesFired = true;
-    try { revokeSessionInBackground(); } catch {}
-    try { clearBrowserIdentityNow(); } catch {}
-    try { nukeBrowserIdentity().catch(() => {}); } catch {}
-    try { window.location.replace("/?_cc=" + Date.now()); } catch { window.location.href = "/"; }
-  }
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      // 1. Best-effort server logout — invalidate the httpOnly session cookie
+      //    on the DB side before we navigate away.
+      try {
+        const token = sessionGet("session_token" as any);
+        if (token) {
+          const { invokeEdge } = await import("./lib/secureTransport");
+          await Promise.race([
+            invokeEdge("manage-app", { action: "logout" }, { headers: { "X-Session-Token": token } }),
+            new Promise((r) => setTimeout(r, 2000)),
+          ]).catch(() => {});
+        }
+      } catch {}
+      // 2. Ping /clearcookies as a plain HEAD/GET so the browser processes
+      //    the `Clear-Site-Data: "*"` response header on hosts that serve it.
+      //    This alone forces site storage to 0 B on Netlify/Vercel.
+      try {
+        await fetch("/clearcookies", { method: "GET", cache: "no-store", credentials: "same-origin" }).catch(() => {});
+      } catch {}
+      // 3. JS fallback wipe — covers local dev + any host that strips the header.
+      try { await nukeBrowserIdentity(); } catch {}
+      if (cancelled) return;
+      // 4. Hard reload to "/" with a cache-buster so nothing in-memory survives
+      //    and any CDN edge cache is bypassed.
+      try { window.location.replace("/?_cc=" + Date.now()); } catch { window.location.href = "/"; }
+    })();
+    return () => { cancelled = true; };
+  }, []);
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-950 text-slate-200">
-      {/* Belt-and-suspenders: if JS is killed mid-navigation the browser
-          still bounces home after 1 s. */}
-      <meta httpEquiv="refresh" content="1;url=/" />
-      <div className="text-sm opacity-80">Signing out…</div>
+      <div className="text-sm opacity-80">Clearing cookies…</div>
     </div>
   );
 }
-
-// Fuzzy catch-all: if the typed path looks even vaguely like a logout /
-// clear intent (handles typos like /clesrcatch, /cler, /signot, /rest,
-// /cokie), route it through the same instant-wipe flow the in-app logout
-// button uses. Everything else silently bounces to `/`.
-function CatchAllRoute() {
-  const path = typeof window !== "undefined" ? window.location.pathname.toLowerCase() : "";
-  // Skip admin routes entirely — admins have their own logout flow and we
-  // don't want a typo like /admin/dashbord to wipe an admin session.
-  if (path.startsWith("/admin")) return <Navigate to="/" replace />;
-  // Strip non-letters so "/clear-cstch", "/viewer/clear", "/clear_cache/"
-  // all collapse to the same fuzzy string. This makes the check work at
-  // ANY depth (top-level `/clear` AND nested `/viewer/clear` alike).
-  const norm = path.replace(/[^a-z]/g, "");
-  const KEYWORDS = [
-    "clear", "cler", "clr", "clean",
-    "cookie", "cokie", "cookis",
-    "cache", "cach", "catch", "cstch",
-    "logout", "logot", "loout", "signout", "signot", "signoff", "sinout",
-    "reset", "rest",
-    "wipe", "purge", "nuke",
-  ];
-  const looksLikeClear = KEYWORDS.some((k) => norm.includes(k));
-  if (looksLikeClear) return <ClearCookiesPage />;
-  return <Navigate to="/" replace />;
-}
-
-
-
-
-
 
 
 // ==================== MAIN APP ====================
@@ -11847,7 +10601,6 @@ export default function App() {
     <Router>
       <AuthProvider>
         <ToastProvider />
-        <AdminSyncStatus />
         <ErrorBoundary>
           <MaintenanceGate>
             <Routes>
@@ -11858,12 +10611,8 @@ export default function App() {
               <Route path="/admin/viewer" element={<AdminUserViewRoute><EmailViewer /></AdminUserViewRoute>} />
               <Route path="/viewer" element={<ProtectedRoute role="user"><EmailViewer /></ProtectedRoute>} />
               <Route path="/guides/netflix-household-verification" element={<NetflixHouseholdVerificationGuide />} />
-              {/* Any URL that "looks like" a logout/clear intent runs the
-                  same instant-wipe flow. Covers typos like /clesrcatch,
-                  /cler, /signot, /logot, /rest, /cokie, etc. */}
-              <Route path="*" element={<CatchAllRoute />} />
+              <Route path="/clearcookies" element={<ClearCookiesPage />} />
             </Routes>
-
 
 
           </MaintenanceGate>
