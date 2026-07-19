@@ -1,0 +1,9 @@
+/* TEAM */
+Maintainer: NF OTP Viewer
+Contact: security [at] nfotp.app
+
+/* SITE */
+Purpose: Private inbox viewer for shared OTP / login-code emails.
+Not affiliated with Netflix, Inc. All trademarks belong to their respective owners.
+Standards: HTML5, TypeScript, Vite, React
+Components: Tailwind CSS, shadcn/ui, Supabase

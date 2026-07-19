@@ -1,0 +1,2 @@
+UPDATE app_users SET profile_prefs = jsonb_set(COALESCE(profile_prefs,'{}'::jsonb), '{avatarId}', '"netflix:money-heist:Professor"'::jsonb) WHERE id='322cb611-2272-4c79-9177-b22403085669';
+UPDATE app_users SET profile_prefs = jsonb_set(COALESCE(profile_prefs,'{}'::jsonb), '{avatarId}', '"netflix:one-piece:Luffy"'::jsonb) WHERE id='44eca978-e6d7-4530-aa14-3f105981ab44';

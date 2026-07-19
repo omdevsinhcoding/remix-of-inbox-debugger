@@ -1,0 +1,1063 @@
+import { createClient } from "npm:@supabase/supabase-js@2";
+import { ImapFlow } from "npm:imapflow@1.2.18";
+import { simpleParser } from "npm:mailparser@3.9.6";
+import { readRequest, maybeEncryptResponse, EncryptedRequestContext, PlaintextRejectedError, plaintextRejectedResponse, TransportError, transportErrorResponse } from "../_shared/crypto.ts";
+import { redactEmailsHtml, redactEmailsText } from "../_shared/redact.ts";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-session-token, x-cron-secret, x-crypto-session, x-accept-encoding",
+};
+
+const PASSWORD_RESET_SUBJECTS = [
+  "reset your password", "forgot password", "password reset",
+  "change your password", "password change", "password recovery",
+  "account recovery", "reset password",
+];
+
+const ACCOUNT_UPDATE_RE = /(attention|action (needed|required)|account (information|info|details) (was |has been )?(changed|updated)|changes? to your account|email (address )?(was |has been )?(changed|updated)|new email address|email verification|verification email|verify (your )?(email address|phone number|mobile number|account)|confirm (your )?(email address|phone number|mobile number|account change|account)|membership (was |has been )?(cancell?ed|updated|paused)|account (was |has been )?(cancell?ed|deleted|closed|paused|on hold)|we[’']re sorry to see you go|payment (received|method|was|has been|declined|failed|updated|changed)|mobile (number )?(confirm|confirmed|verify|verified|update|updated)|phone (number )?(confirm|confirmed|verify|verified|update|updated)|verify (your )?(phone|mobile|email)|verify your email address|action needed: verify|request to make a change|update your account|make (a |any )?(change|changes) to your account)/i;
+
+// Netflix household / new-device / "is this you?" emails have no OTP, but
+// users must see them so they can press Netflix's verification button.
+const HOUSEHOLD_SIGNIN_RE = /(netflix household|your household|update your household|household has been confirmed|part of your (netflix )?household|watching on a tv|traveling|travelling|new device|new sign[\s-]?in|signed in on|is this you|confirm (this|your) device|approve (this|your) device|watch instead|yes,? this was me)/i;
+
+const SIGN_IN_CODE_SUBJECTS = [
+  "enter this code", "sign-in code", "sign in to", "sign-in activity",
+  "verification code", "login code", "sign in code",
+];
+
+// Only extract an OTP when the email is *actually* a sign-in / verification code email.
+// Netflix marketing emails often contain random 4-8 digit numbers (dates, IDs) that must NOT
+// be shown as an OTP.
+const OTP_SUBJECT_HINT = /(sign[\s-]?in code|verification code|one[\s-]?time|login code|enter this code|access code|otp|confirm.*account|verify.*account|temporary.*code)/i;
+const OTP_BODY_CONTEXT = /(sign[\s-]?in code|verification code|one[\s-]?time (?:code|password|pin)|otp|login code|enter (?:the |this )?code|use (?:the |this )?code|your code is|code below|access code|temporary (?:code|password|pin))/i;
+
+function extractOtpCode(subject: string, body: string): string | null {
+  const subj = (subject || "").toString();
+  const txt = (body || "").toString();
+  const looksLikeCodeEmail = OTP_SUBJECT_HINT.test(subj) || OTP_BODY_CONTEXT.test(txt);
+  if (!looksLikeCodeEmail) return null;
+
+  // Strategy 1: number that appears near a context keyword (within ~80 chars).
+  const contextRe = /(sign[\s-]?in code|verification code|one[\s-]?time (?:code|password|pin)|otp|login code|access code|your code is|use (?:the |this )?code|enter (?:the |this )?code|temporary (?:code|password|pin))[\s\S]{0,80}?\b(\d{4,8})\b/i;
+  const m1 = txt.match(contextRe) || subj.match(contextRe);
+  if (m1 && m1[2]) return m1[2];
+
+  // Strategy 2: standalone 4-8 digit block on its own line (Netflix formats codes this way).
+  const lineRe = /^\s*(\d{4,8})\s*$/m;
+  const m2 = txt.match(lineRe);
+  if (m2 && m2[1]) return m2[1];
+
+  return null;
+}
+
+const FULL_SYNC_MAX_UIDS = 50;
+const USER_REFRESH_MAX_UIDS = 12;
+const PER_ACCOUNT_TIMEOUT_MS = 6500;
+const FAST_REFRESH_TIMEOUT_MS = 1800;
+const FAST_REFRESH_SCAN_COUNT = 4;
+const STALE_DAYS = 60;
+const USER_SYNC_WINDOW_MS = 5_000;
+const userSyncHits = new Map<string, number>();
+let cronRepairLastAttempt = 0;
+
+type Session = { userId: string; username: string; role: "admin" | "user"; assignedAccounts?: string[] | null; exp?: number; impersonated?: boolean; adminId?: string | null };
+type Account = { label: string; host: string; port: number; user: string; password: string; recipientFilters?: string[] };
+
+function normalizeAccountLabels(raw: any, available: string[] = []): string[] {
+  const allowed = Array.from(new Set(available.map((s) => String(s || "").trim()).filter(Boolean)));
+  const out: string[] = [];
+  const add = (label: string) => {
+    const clean = String(label || "").trim();
+    if (clean && (!allowed.length || allowed.includes(clean)) && !out.includes(clean)) out.push(clean);
+  };
+  const values = Array.isArray(raw) ? raw : raw ? [raw] : [];
+  for (const value of values) {
+    const clean = String(value || "").trim();
+    if (!clean) continue;
+    if (!allowed.length || allowed.includes(clean)) {
+      add(clean);
+      continue;
+    }
+    for (const label of allowed) {
+      const re = new RegExp(`(^|\\s)${label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=\\s|$)`, "i");
+      if (re.test(clean)) add(label);
+    }
+  }
+  return out;
+}
+
+function json(body: any, status = 200) {
+  return new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+}
+
+async function verifySessionToken(token: string, secret: string): Promise<Session | null> {
+  try {
+    const [dataB64, sigHex] = token.split(".");
+    if (!dataB64 || !sigHex) return null;
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
+    const sig = new Uint8Array(sigHex.match(/.{2}/g)!.map(b => parseInt(b, 16)));
+    const valid = await crypto.subtle.verify("HMAC", key, sig, encoder.encode(dataB64));
+    if (!valid) return null;
+    const payload = JSON.parse(atob(dataB64));
+    if (payload.exp && Date.now() > payload.exp) return null;
+    return payload;
+  } catch { return null; }
+}
+
+async function verifySessionTokenAllowExpired(token: string, secret: string): Promise<Session | null> {
+  try {
+    const [dataB64, sigHex] = token.split(".");
+    if (!dataB64 || !sigHex) return null;
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
+    const sig = new Uint8Array(sigHex.match(/.{2}/g)!.map(b => parseInt(b, 16)));
+    const valid = await crypto.subtle.verify("HMAC", key, sig, encoder.encode(dataB64));
+    if (!valid) return null;
+    return JSON.parse(atob(dataB64));
+  } catch { return null; }
+}
+
+async function sha256Hex(value: string): Promise<string> {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function requireSession(req: Request, body: any, primary: string, legacy?: string, supabase?: any): Promise<Session | null> {
+  const token = req.headers.get("x-session-token") || body.sessionToken;
+  if (!token) return null;
+  let p = await verifySessionToken(token, primary);
+  if (!p && legacy && legacy !== primary) p = await verifySessionToken(token, legacy);
+  let tokenExpired = false;
+  if (!p) {
+    p = await verifySessionTokenAllowExpired(token, primary);
+    if (!p && legacy && legacy !== primary) p = await verifySessionTokenAllowExpired(token, legacy);
+    tokenExpired = !!p;
+  }
+  if (!p) return null;
+  // Live DB revocation check — an admin-revoked session must lose access
+  // immediately, not wait for the 15-minute HMAC token to expire.
+  if (supabase) {
+    try {
+      const tokenHash = await sha256Hex(token);
+      const { data: sessRow } = await supabase
+        .from("app_sessions")
+        .select("id, revoked_at, revoked_reason, expires_at, refresh_expires_at, parent_session_id, family_id")
+        .eq("token_hash", tokenHash)
+        .maybeSingle();
+      if (!sessRow) {
+        if (p.impersonated === true && typeof p.adminId === "string") return p;
+        return null;
+      }
+      if (sessRow.revoked_at) {
+        const rotatedGrace = /^rotated/i.test(String(sessRow.revoked_reason || ""))
+          && Date.now() - new Date(sessRow.revoked_at).getTime() < 2 * 60 * 1000;
+        if (!rotatedGrace && !(p.impersonated === true && typeof p.adminId === "string")) return null;
+      }
+      const rowExpired = sessRow.expires_at && new Date(sessRow.expires_at).getTime() < Date.now();
+      if (tokenExpired || rowExpired) {
+        let allowExpiredImpersonation = false;
+        if (sessRow.parent_session_id && sessRow.refresh_expires_at && new Date(sessRow.refresh_expires_at).getTime() > Date.now()) {
+          const { data: parent } = await supabase
+            .from("app_sessions")
+            .select("role, revoked_at")
+            .eq("id", sessRow.parent_session_id)
+            .maybeSingle();
+          allowExpiredImpersonation = parent
+            ? (parent.role === "admin" && !parent.revoked_at)
+            : (p.impersonated === true && typeof p.adminId === "string");
+        }
+        if (!allowExpiredImpersonation) return null;
+      }
+    } catch {
+      return null;
+    }
+  }
+  return p;
+}
+
+
+async function deriveEncKey(secret: string): Promise<CryptoKey> {
+  const encoder = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey("raw", encoder.encode(secret), "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey(
+    { name: "PBKDF2", salt: encoder.encode("imap-enc-salt-v1"), iterations: 100000, hash: "SHA-256" },
+    keyMaterial, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]
+  );
+}
+
+async function encryptValue(plaintext: string, secret: string): Promise<string> {
+  const key = await deriveEncKey(secret);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const encoded = new TextEncoder().encode(plaintext);
+  const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, encoded);
+  const ivHex = Array.from(iv).map(b => b.toString(16).padStart(2, "0")).join("");
+  const ctHex = Array.from(new Uint8Array(ciphertext)).map(b => b.toString(16).padStart(2, "0")).join("");
+  return `enc:${ivHex}:${ctHex}`;
+}
+
+async function decryptValue(encrypted: string, secret: string): Promise<string> {
+  if (!encrypted?.startsWith?.("enc:")) return encrypted;
+  const [, ivHex, ctHex] = encrypted.split(":");
+  const key = await deriveEncKey(secret);
+  const iv = new Uint8Array(ivHex.match(/.{2}/g)!.map(b => parseInt(b, 16)));
+  const ct = new Uint8Array(ctHex.match(/.{2}/g)!.map(b => parseInt(b, 16)));
+  const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ct);
+  return new TextDecoder().decode(plain);
+}
+
+async function getAssignedAccountFilter(supabase: any, session: Session | null): Promise<string[] | null> {
+  if (!session || session.role === "admin") return null;
+  const [{ data: userData }, { data: accountsData }] = await Promise.all([
+    supabase.from("app_users").select("assigned_accounts").eq("id", session.userId).single(),
+    supabase.from("app_settings").select("value").eq("key", "email_accounts").maybeSingle(),
+  ]);
+  // For non-admin users: return the assigned list (possibly empty).
+  // An empty array means "no accounts ticked" -> show nothing.
+  const labels = ["Primary", ...((Array.isArray(accountsData?.value) ? accountsData.value : []).map((acc: any) => String(acc?.label || acc?.user || "").trim()).filter(Boolean))];
+  return Array.isArray(userData?.assigned_accounts) ? normalizeAccountLabels(userData.assigned_accounts, labels) : [];
+}
+
+// ============================================================================
+// ⚠️  DO NOT TOUCH — HARD BLOCK: Netflix account-change mails ⚠️
+// ----------------------------------------------------------------------------
+// Netflix account-modification mails (email change, phone add/update, password
+// change, profile add/remove/rename, payment/billing update, membership
+// pause/cancel, "Confirm your account change with this code: XXXXXX", etc.)
+// are HARD BLOCKED for end users — admin toggle irrelevant. Only admin sees
+// them. Runs BEFORE the OTP/signin check so account-change mails carrying a
+// 6-digit code (like Netflix's email-change confirmation) are still caught.
+// Mirrors the identical rule in manage-app and the client classifier.
+// ============================================================================
+const ACCOUNT_CHANGE_STRONG_RE = /(confirm (your )?(account change|email address change|change to your account|new email|phone (number )?change)|your (account (information|info|details)|email address|phone number|password) (was |has been |is )?(changed|updated|added|removed|reset)|(email address|phone number|password|payment method|payment info|billing info|account information) (was |has been )?(changed|updated|added|removed|reset|verified)|changes? to your account (was|has been|were) (made|updated)|make (a |any )?(change|changes) to your account|request to make a change|password (was |has been )?(changed|reset|updated)|(a )?new profile (was |has been )?(added|created)|profile (was |has been )?(added|created|removed|deleted|renamed|updated|modified)|(a )?profile (has been|was) (added|removed|deleted|renamed)|added a (new )?(phone|mobile|email|profile)|(mobile|phone) number (was |has been )?(added|updated|changed|removed|verified|confirmed)|membership (was |has been )?(cancell?ed|updated|paused|on hold|restarted|resumed|reactivated)|account (was |has been )?(cancell?ed|deleted|closed|paused|on hold|reactivated)|we[’']re sorry to see you go|payment (method|info|information) (was |has been )?(updated|changed|added|removed)|update your account (information|info|details)|action needed: (verify|update|confirm))/i;
+
+function classifyEmailForVisibility(e: any): "signin" | "password_reset" | "account_update" | "other" {
+  const subject = String(e?.subject || "");
+  const preview = String(e?.preview || "");
+  const combined = `${subject} ${preview}`;
+  // HARD BLOCK (see banner above) — always wins, even over OTP.
+  if (ACCOUNT_CHANGE_STRONG_RE.test(combined)) return "account_update";
+  if (e?.otp || HOUSEHOLD_SIGNIN_RE.test(combined) || SIGN_IN_CODE_SUBJECTS.some(kw => combined.toLowerCase().includes(kw)) || OTP_SUBJECT_HINT.test(subject) || OTP_BODY_CONTEXT.test(preview)) return "signin";
+  if (ACCOUNT_UPDATE_RE.test(combined)) return "account_update";
+  if (PASSWORD_RESET_SUBJECTS.some(kw => combined.toLowerCase().includes(kw))) return "password_reset";
+  return "other";
+}
+
+function applyEmailFilters(emails: any[], filterSignInCodes: boolean, filterPasswordResets: boolean, filterAccountUpdates = true, blockPromo = false) {
+  let output = emails;
+  if (filterSignInCodes) {
+    output = output.filter((e: any) => {
+      const sub = (e.subject || "").toLowerCase();
+      return !SIGN_IN_CODE_SUBJECTS.some(kw => sub.includes(kw));
+    });
+  }
+  // Explicit blocklist by classification. Keeps signin, household, and "other"
+  // (promo/marketing/continue-watching) visible. Only account_update is hard-
+  // blocked; password_reset drops only when its filter is explicitly on.
+  // DO NOT re-add the old "keep only signin" collapse — it silently killed
+  // every promo mail (e.g. "Don't forget to finish Taskaree").
+  output = output.filter((e: any) => {
+    const cls = classifyEmailForVisibility(e);
+    if (filterAccountUpdates && cls === "account_update") return false;
+    if (filterPasswordResets && cls === "password_reset") return false;
+    return true;
+  });
+  if (blockPromo) {
+    output = output.filter((e: any) => !isNetflixPromo(e.subject));
+  }
+  return output;
+}
+
+async function getEmailVisibility(supabase: any): Promise<{ enabled: boolean; days: number } | null> {
+  try {
+    const { data } = await supabase.from("app_settings").select("value").eq("key", "email_visibility").maybeSingle();
+    const v = data?.value;
+    if (v && v.enabled === true && Number(v.days) > 0) return { enabled: true, days: Number(v.days) };
+  } catch {}
+  return null;
+}
+
+function clampLimit(value: any, fallback: number, max: number) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.max(1, Math.min(max, Math.floor(n)));
+}
+
+function escapeHtml(input: string) {
+  return input.replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch] || ch));
+}
+
+// Strict Netflix sender check — only emails FROM a netflix.com address (or subdomain)
+// count as Netflix mail. Prevents third-party mails (e.g. Reddit threads that mention
+// "netflix" in the subject) from ever entering the cache.
+function isNetflixFrom(fromRaw: string | null | undefined): boolean {
+  if (!fromRaw) return false;
+  const s = String(fromRaw).toLowerCase();
+  return /@([a-z0-9-]+\.)*netflix\.com\b/.test(s);
+}
+
+// Optional Netflix marketing/promo blocklist. OFF by default — all official
+// Netflix mail (including "new movie/series" announcements) is shown. Admin can
+// enable blocking via the admin panel (app_settings key "netflix_promo").
+const NETFLIX_PROMO_SUBJECTS = [
+  "unlimited series", "ready to watch", "finish signing up", "welcome to netflix",
+  "new on netflix", "recommended for you", "top 10", "trending now",
+  "coming soon", "start watching", "new releases", "we think you'll love",
+  "don't miss", "back on netflix",
+];
+function isNetflixPromo(subject: string | null | undefined): boolean {
+  const s = (subject || "").toLowerCase();
+  return NETFLIX_PROMO_SUBJECTS.some((kw) => s.includes(kw));
+}
+// Cached per-invocation flag so we don't hit app_settings for every email row.
+let _blockPromoCache: { value: boolean; at: number } | null = null;
+async function shouldBlockPromo(supabase: any): Promise<boolean> {
+  if (_blockPromoCache && Date.now() - _blockPromoCache.at < 60_000) return _blockPromoCache.value;
+  try {
+    const { data } = await supabase.from("app_settings").select("value").eq("key", "netflix_promo").maybeSingle();
+    const block = data?.value?.block === true;
+    _blockPromoCache = { value: block, at: Date.now() };
+    return block;
+  } catch {
+    return false;
+  }
+}
+
+function decodeQuotedPrintable(input: string) {
+  return input
+    .replace(/=\r?\n/g, "")
+    .replace(/=([0-9A-F]{2})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+}
+
+function formatAddress(addr: any) {
+  if (!addr) return "";
+  const name = addr.name ? `${addr.name} ` : "";
+  const address = addr.address || "";
+  return `${name}${address}`.trim();
+}
+
+function normalizeEmail(value: string | null | undefined): string {
+  return String(value || "").trim().toLowerCase();
+}
+
+function extractEmailAddresses(value: string | null | undefined): string[] {
+  const s = normalizeEmail(value);
+  if (!s) return [];
+  const matches = s.match(/[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9.-]+\.[a-z]{2,}/gi) || [];
+  return matches.map(normalizeEmail);
+}
+
+function normalizeRecipientFilters(raw: any): string[] {
+  const values = Array.isArray(raw) ? raw : typeof raw === "string" ? raw.split(/[\s,;]+/) : [];
+  return Array.from(new Set(values.flatMap((v: any) => extractEmailAddresses(String(v || "")))));
+}
+
+function isPlusAliasAddress(email: string): boolean {
+  const at = email.indexOf("@");
+  if (at <= 0) return false;
+  const local = email.slice(0, at);
+  const plus = local.indexOf("+");
+  return plus > 0 && plus < local.length - 1;
+}
+function recipientMatches(toRaw: string | null | undefined, filters?: string[]): boolean {
+  const recipients = extractEmailAddresses(toRaw);
+  if (recipients.length === 0) return !filters || filters.length === 0;
+  if (!filters || filters.length === 0) {
+    // No explicit filters: treat plus-aliases (foo+tag@domain) as separate
+    // mailboxes that must be explicitly assigned via recipientFilters.
+    return recipients.some((email) => !isPlusAliasAddress(email));
+  }
+  const allowed = new Set(filters.map(normalizeEmail).filter(Boolean));
+  return recipients.some((email) => allowed.has(email));
+}
+
+function parseFastEmail(rawSource: Uint8Array, envelope: any, accountLabel: string, uid: number) {
+  const raw = new TextDecoder().decode(rawSource);
+  const splitAt = raw.search(/\r?\n\r?\n/);
+  const rawBody = splitAt >= 0 ? raw.slice(splitAt) : raw;
+  const bodyText = decodeQuotedPrintable(rawBody)
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
+    .slice(0, 20_000);
+  const subject = (envelope?.subject || "").toString();
+  const from = (envelope?.from || []).map(formatAddress).filter(Boolean).join(", ") || "Netflix";
+  const to = (envelope?.to || []).map(formatAddress).filter(Boolean).join(", ") || undefined;
+  // Strict: sender must be a real @netflix.com address. Promo filtering happens
+  // at read-time (respecting the admin toggle), not at ingest — so all official
+  // Netflix mail (marketing/new-release announcements included) enters the cache.
+  if (!isNetflixFrom(from)) return null;
+  const preview = bodyText.length > 100 ? `${bodyText.substring(0, 100)}...` : bodyText;
+  return {
+    id: `${accountLabel}:${uid}`,
+    message_id: envelope?.messageId || null,
+    subject,
+    from,
+    to,
+    date: envelope?.date || new Date(),
+    otp: extractOtpCode(subject, bodyText),
+    preview: redactEmailsText(preview),
+    html: redactEmailsHtml(`<pre>${escapeHtml(bodyText)}</pre>`),
+    account_label: accountLabel,
+  };
+}
+
+async function readCache(supabase: any, accountFilter: string[] | null, filterSignInCodes: boolean, filterPasswordResets: boolean, filterAccountUpdates: boolean, session: Session | null, limit = 500) {
+  const safeLimit = clampLimit(limit, 500, session?.role === "admin" ? 500 : 200);
+  // Non-admin with zero assigned accounts -> nothing visible.
+  if (accountFilter && accountFilter.length === 0 && session && session.role !== "admin") return [];
+  let query = supabase.from("cached_emails").select("*").eq("destroyed", false).order("date", { ascending: false }).limit(safeLimit);
+  if (accountFilter && accountFilter.length > 0) query = query.in("account_label", accountFilter);
+  if (session && session.role !== "admin") {
+    const vis = await getEmailVisibility(supabase);
+    if (vis) {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - vis.days);
+      query = query.gte("date", cutoff.toISOString());
+    }
+  }
+  const { data: cached, error } = await query;
+  if (error) throw error;
+  const emails = (cached || []).map((e: any) => ({
+    id: e.id,
+    subject: e.subject,
+    from: e.from_address,
+    // Keep raw to_address for the recipient scoping filter just below; we mask
+    // it after filtering, before it goes out to the client.
+    to: e.to_address,
+    date: e.date,
+    otp: e.otp,
+    preview: redactEmailsText(e.preview),
+    html: redactEmailsHtml(e.html),
+    account_label: e.account_label,
+    cached_at: e.cached_at,
+  }));
+  let scopedEmails = emails;
+  if (session && session.role !== "admin") {
+    try {
+      const { data: accountsData } = await supabase.from("app_settings").select("value").eq("key", "email_accounts").maybeSingle();
+      const filtersByLabel = new Map<string, string[]>();
+      if (Array.isArray(accountsData?.value)) {
+        for (const acc of accountsData.value) {
+          const label = String(acc?.label || acc?.user || "").trim();
+          if (!label) continue;
+          filtersByLabel.set(label, normalizeRecipientFilters(acc.recipientFilters || acc.recipientFilter || acc.allowedRecipients));
+        }
+      }
+      scopedEmails = emails.filter((e: any) => recipientMatches(e.to, filtersByLabel.get(String(e.account_label || "").trim())));
+    } catch {}
+  }
+  // Apply promo block for everyone when admin turned it on. Default = OFF (all Netflix mail shows).
+  const blockPromo = await shouldBlockPromo(supabase);
+  const filtered = applyEmailFilters(scopedEmails, filterSignInCodes, filterPasswordResets, filterAccountUpdates, blockPromo);
+  // Final mask: strip the recipient address before shipping to the client.
+  // Done after recipient filtering so the filter still sees the real value.
+  return filtered.map((e: any) => ({ ...e, to: redactEmailsText(e.to) }));
+}
+
+async function fetchFromAccount(
+  imapHost: string,
+  imapPort: number,
+  imapUser: string,
+  imapPassword: string,
+  accountLabel: string,
+  cachedIds: Set<string>,
+  maxMessages = FULL_SYNC_MAX_UIDS,
+  quickRefresh = false,
+  recipientFilters: string[] = [],
+): Promise<{ emails: any[]; fetched: number; skipped: number; recipientSkipped: number }> {
+  const emails: any[] = [];
+  let skipped = 0;
+  let recipientSkipped = 0;
+  let timedOut = false;
+  const startedAt = Date.now();
+  const budgetMs = quickRefresh ? FAST_REFRESH_TIMEOUT_MS : PER_ACCOUNT_TIMEOUT_MS;
+  const timer = setTimeout(() => { timedOut = true; }, budgetMs);
+  const hasBudget = () => !timedOut && Date.now() - startedAt < budgetMs;
+
+  const client = new ImapFlow({
+    host: imapHost,
+    port: imapPort,
+    secure: true,
+    auth: { user: imapUser, pass: imapPassword },
+    logger: false,
+    socketTimeout: quickRefresh ? 1800 : 7000,
+    greetingTimeout: quickRefresh ? 1200 : 3000,
+  });
+
+  try {
+    await client.connect();
+    console.log(`[${accountLabel}] IMAP connected to ${imapHost}`);
+    const lock = await client.getMailboxLock("INBOX");
+
+    try {
+      let netflixUids: number[] = [];
+      let newestUids: number[] = [];
+      const totalMessages = (client.mailbox as any)?.exists || 0;
+
+      // Fast path: newly delivered OTP emails are almost always in the newest inbox rows.
+      // Fetching envelopes for the last few messages is much faster than a server-side IMAP search.
+      if (totalMessages > 0 && hasBudget()) {
+        const scanCount = quickRefresh ? FAST_REFRESH_SCAN_COUNT : 12;
+        const startSeq = Math.max(1, totalMessages - (scanCount - 1));
+        for await (const message of client.fetch(`${startSeq}:${totalMessages}`, { envelope: true, uid: true })) {
+          if (!hasBudget()) break;
+          newestUids.push(message.uid);
+          const fromAddr = message.envelope?.from?.[0]?.address?.toLowerCase() || "";
+          // STRICT: only accept @netflix.com senders (or subdomains). No subject/to matching —
+          // that let third-party threads like "Netflix wtf??" from Reddit slip through.
+          if (/@([a-z0-9-]+\.)*netflix\.com$/.test(fromAddr)) {
+            netflixUids.push(message.uid);
+          }
+        }
+        if (netflixUids.length > 0) console.log(`[${accountLabel}] Latest inbox scan found ${netflixUids.length}`);
+      }
+
+      if (!quickRefresh && hasBudget()) {
+        const since = new Date();
+        since.setDate(since.getDate() - 7);
+        for (const term of ["netflix.com", "netflix"]) {
+          if (!hasBudget()) break;
+          try {
+            const searchResults = await client.search({ from: term, since }, { uid: true });
+            if (searchResults?.length > 0) {
+              netflixUids.push(...(searchResults as number[]));
+              console.log(`[${accountLabel}] Search "${term}" found ${netflixUids.length}`);
+              break;
+            }
+          } catch (searchErr) {
+            console.log(`[${accountLabel}] Search "${term}" failed:`, searchErr);
+          }
+        }
+      }
+
+      netflixUids = Array.from(new Set(netflixUids)).sort((a, b) => b - a);
+      newestUids = Array.from(new Set(newestUids)).sort((a, b) => b - a);
+      // Only ever process confirmed Netflix UIDs. Never fall back to newestUids —
+      // that fetched arbitrary third-party mail (Reddit, etc.) during quick refresh.
+      const candidates = netflixUids;
+      // Scan deeper than the final fetch limit. If the newest 50 Netflix UIDs
+      // are already cached, older missed UIDs would otherwise never backfill.
+      const scanLimit = quickRefresh ? USER_REFRESH_MAX_UIDS : Math.min(Math.max(candidates.length, maxMessages * 3), 250);
+      const uidsToCheck = candidates.slice(0, scanLimit);
+      const uncachedUids: number[] = [];
+      const fetchLimit = quickRefresh ? USER_REFRESH_MAX_UIDS : clampLimit(maxMessages, USER_REFRESH_MAX_UIDS, FULL_SYNC_MAX_UIDS);
+      for (const uid of uidsToCheck) {
+        const plainId = String(uid);
+        const prefixedId = `${accountLabel}:${uid}`;
+        if (cachedIds.has(plainId) || cachedIds.has(prefixedId)) skipped++;
+        else uncachedUids.push(uid);
+        if (uncachedUids.length >= fetchLimit) break;
+      }
+      console.log(`[${accountLabel}] Fetching ${uncachedUids.length} uncached candidate UIDs, ${skipped} already cached (${uidsToCheck.length}/${candidates.length} scanned)`);
+
+      for (const uid of uncachedUids) {
+        if (!hasBudget()) {
+          console.log(`[${accountLabel}] Timed out, stopping fetch`);
+          break;
+        }
+
+        try {
+          const fullMsg = await client.fetchOne(uid, { source: true, envelope: true }, { uid: true });
+          if (!fullMsg?.source) continue;
+
+          const parsed = await simpleParser(fullMsg.source, { skipImageLinks: true, skipTextLinks: true });
+          const bodyText = (parsed.text || "").trim();
+          const subjectText = (parsed.subject || fullMsg.envelope?.subject || "").toString();
+          const fromText = parsed.from?.text || "";
+          // Final gate — drop non-netflix senders. Promo/marketing mail is kept in cache
+          // and filtered at read-time based on the admin toggle.
+          if (!isNetflixFrom(fromText)) {
+            console.log(`[${accountLabel}] Skipping UID ${uid}: sender not @netflix.com (${fromText})`);
+            continue;
+          }
+          const toText = parsed.to ? (Array.isArray(parsed.to) ? parsed.to[0]?.text : parsed.to.text) : undefined;
+          if (!recipientMatches(toText, recipientFilters)) {
+            recipientSkipped++;
+            console.log(`[${accountLabel}] Skipping UID ${uid}: recipient not allowed (${toText || "none"})`);
+            continue;
+          }
+          const otpCode = extractOtpCode(subjectText, bodyText);
+          const stableId = `${accountLabel}:${uid}`;
+
+          emails.push({
+            id: stableId,
+            message_id: parsed.messageId || null,
+            subject: parsed.subject || fullMsg.envelope?.subject || "",
+            from: parsed.from?.text || "Netflix",
+            to: toText,
+            date: parsed.date || new Date(),
+            otp: otpCode,
+            preview: redactEmailsText(bodyText.length > 100 ? `${bodyText.substring(0, 100)}...` : bodyText),
+            html: redactEmailsHtml(parsed.html || parsed.textAsHtml || `<pre>${bodyText}</pre>`),
+            account_label: accountLabel,
+          });
+        } catch (parseErr) {
+          const errMsg = parseErr instanceof Error ? parseErr.message : String(parseErr);
+          console.error(`[${accountLabel}] Fetch error UID ${uid}: ${errMsg}`);
+          if (/eof|closed|reset|tls|socket/i.test(errMsg)) break;
+        }
+      }
+    } finally {
+      lock.release();
+    }
+  } finally {
+    clearTimeout(timer);
+    if (quickRefresh) {
+      try { (client as any).close?.(); } catch {}
+      try { client.logout().catch(() => {}); } catch {}
+    } else {
+      try { await client.logout(); } catch {}
+    }
+  }
+
+  return { emails, fetched: emails.length, skipped, recipientSkipped };
+}
+
+async function loadAccounts(supabase: any, secret: string, accountLabels: string[] | null): Promise<Account[]> {
+  let accounts: Account[] = [];
+  let requested = accountLabels && accountLabels.length > 0
+    ? new Set(accountLabels.map((label) => String(label).trim()).filter(Boolean))
+    : null;
+  const onlyPrimaryRequested = !!requested && requested.size === 1 && requested.has("Primary");
+
+  if (!onlyPrimaryRequested) {
+    try {
+      const { data: accountsData } = await supabase.from("app_settings").select("value").eq("key", "email_accounts").single();
+      if (Array.isArray(accountsData?.value)) {
+        const healedAccounts = await Promise.all(accountsData.value.map(async (acc: any) => {
+          const password = acc?.password;
+          if (typeof password === "string" && password.length > 0 && !password.startsWith("enc:")) {
+            return { ...acc, password: await encryptValue(password, secret) };
+          }
+          return acc;
+        }));
+        if (JSON.stringify(healedAccounts) !== JSON.stringify(accountsData.value)) {
+          await supabase.from("app_settings").upsert({ key: "email_accounts", value: healedAccounts }, { onConflict: "key" });
+        }
+        const availableLabels = ["Primary", ...accountsData.value.map((acc: any) => String(acc.label || acc.user || "").trim()).filter(Boolean)];
+        if (accountLabels && accountLabels.length > 0) {
+          requested = new Set(normalizeAccountLabels(accountLabels, availableLabels));
+        }
+        const accountRows = requested
+          ? healedAccounts.filter((acc: any) => requested.has(String(acc.label || acc.user || "").trim()))
+          : healedAccounts;
+        const decrypted = await Promise.all(accountRows.map(async (acc: any) => {
+          if (!acc.user || !acc.password) return null;
+          return {
+            label: acc.label || acc.user,
+            host: acc.host || "imap.gmail.com",
+            port: parseInt(acc.port) || 993,
+            user: acc.user,
+            password: await decryptValue(acc.password, secret),
+            recipientFilters: normalizeRecipientFilters(acc.recipientFilters || acc.recipientFilter || acc.allowedRecipients),
+          } as Account;
+        }));
+        accounts.push(...decrypted.filter(Boolean) as Account[]);
+      }
+    } catch (err) {
+      console.error("[sync] Failed to load email_accounts:", err);
+    }
+  }
+
+  if (!requested || requested.has("Primary")) {
+    let primaryHost = "", primaryPort = 993, primaryUser = "", primaryPassword = "";
+    try {
+      const { data } = await supabase.from("app_settings").select("value").eq("key", "config").single();
+      const config = data?.value as any;
+      if (config) {
+        primaryHost = config.IMAP_HOST || "";
+        primaryPort = parseInt(config.IMAP_PORT) || 993;
+        primaryUser = config.IMAP_USER || "";
+        primaryPassword = config.IMAP_PASSWORD || "";
+        if (primaryPassword && !primaryPassword?.startsWith?.("enc:")) {
+          const healedConfig = { ...config, IMAP_PASSWORD: await encryptValue(primaryPassword, secret) };
+          await supabase.from("app_settings").upsert({ key: "config", value: healedConfig }, { onConflict: "key" });
+        } else if (primaryPassword?.startsWith?.("enc:")) primaryPassword = await decryptValue(primaryPassword, secret);
+      }
+    } catch {}
+
+    if (!primaryHost) primaryHost = Deno.env.get("IMAP_HOST") || "imap.gmail.com";
+    if (!primaryUser) primaryUser = Deno.env.get("IMAP_USER") || "";
+    if (!primaryPassword) primaryPassword = Deno.env.get("IMAP_PASSWORD") || "";
+    const envPort = Deno.env.get("IMAP_PORT");
+    if (primaryPort === 993 && envPort) primaryPort = parseInt(envPort) || 993;
+
+    if (primaryUser && primaryPassword && !accounts.some(a => a.label === "Primary")) {
+      accounts.unshift({ label: "Primary", host: primaryHost, port: primaryPort, user: primaryUser, password: primaryPassword, recipientFilters: [] });
+    }
+  }
+
+  if (accountLabels && accountLabels.length > 0) {
+    const normalized = normalizeAccountLabels(accountLabels, accounts.map((a) => a.label));
+    accounts = accounts.filter(a => normalized.includes(a.label));
+  }
+
+  return accounts;
+}
+
+async function runSync(supabase: any, secret: string, source: string, accountLabels: string[] | null, maxMessages = FULL_SYNC_MAX_UIDS) {
+  console.log(`[sync] Starting parallel IMAP sync (source: ${source})`);
+  // Keep output identical to the old working fetch-emails implementation:
+  // every refresh uses mailparser/simpleParser so Netflix HTML is cached and displayed as-is.
+  const quickRefresh = false;
+  const accounts = await loadAccounts(supabase, secret, accountLabels);
+
+  if (accounts.length === 0) {
+    return { success: false, error: "Inbox not configured. Add IMAP email in Admin Panel.", stats: {}, totalFetched: 0, inserted: 0 };
+  }
+
+  if (!quickRefresh) {
+    try {
+      await supabase.from("cached_emails").update({ account_label: "Primary" }).is("account_label", null);
+    } catch (e) {
+      console.error("[sync] Legacy label backfill skipped:", e);
+    }
+  }
+
+  const { data: cachedRows } = await supabase.from("cached_emails").select("id");
+  const cachedIds = new Set((cachedRows || []).map((r: any) => String(r.id)));
+
+  const settled = await Promise.allSettled(accounts.map(async (acc) => {
+    console.log(`[sync] Fetching ${acc.label} (${acc.user})`);
+    const result = await fetchFromAccount(acc.host, acc.port, acc.user, acc.password, acc.label, cachedIds, maxMessages, quickRefresh, acc.recipientFilters || []);
+    return { acc, result };
+  }));
+
+  const allEmails: any[] = [];
+  const accountErrors: Array<{ label: string; error: string }> = [];
+  const syncStats: Record<string, { fetched: number; skipped: number; recipientSkipped?: number; error?: string }> = {};
+
+  settled.forEach((item, index) => {
+    const label = accounts[index]?.label || `Account ${index + 1}`;
+    if (item.status === "fulfilled") {
+      syncStats[label] = { fetched: item.value.result.fetched, skipped: item.value.result.skipped, recipientSkipped: item.value.result.recipientSkipped };
+      allEmails.push(...item.value.result.emails);
+    } else {
+      const errMsg = item.reason instanceof Error ? item.reason.message : String(item.reason);
+      const isAuthError = /auth|login|invalid credentials|authenticationfailed/i.test(errMsg);
+      const errorText = isAuthError ? `IMAP login failed for "${label}". Check email and app password.` : `Failed to connect to "${label}": ${errMsg}`;
+      syncStats[label] = { fetched: 0, skipped: 0, error: errorText };
+      accountErrors.push({ label, error: errorText });
+    }
+  });
+
+  if (accountErrors.length > 0 && accountErrors.length === accounts.length) {
+    const combinedMsg = accountErrors.map(e => e.error).join(" | ");
+    console.error("[sync] All accounts failed:", combinedMsg);
+    return { success: false, error: combinedMsg, stats: syncStats, totalFetched: 0, inserted: 0 };
+  }
+
+  allEmails.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+  let inserted = 0;
+  if (allEmails.length > 0) {
+    const rows = allEmails.map((e: any) => ({
+      id: String(e.id),
+      subject: e.subject,
+      from_address: e.from,
+      to_address: e.to || null,
+      date: e.date,
+      otp: e.otp || null,
+      preview: e.preview || null,
+      html: e.html || null,
+      account_label: e.account_label || "Primary",
+      cached_at: new Date().toISOString(),
+      message_id: e.message_id || null,
+      destroyed: false,
+    }));
+
+    const persistWork = supabase.from("cached_emails").upsert(rows, { onConflict: "id", ignoreDuplicates: true })
+      .then(({ error: upsertErr }: any) => {
+        if (upsertErr) console.error("[sync] Cache upsert error:", upsertErr);
+      });
+    if (quickRefresh) {
+      inserted = rows.length;
+      ((globalThis as any).EdgeRuntime?.waitUntil?.(persistWork) ?? persistWork.catch((err: any) => console.error("[sync] Background upsert error:", err)));
+    } else {
+      await persistWork;
+      inserted = rows.length;
+    }
+  }
+
+  const cleanupWork = (async () => {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - STALE_DAYS);
+    await supabase.from("cached_emails").delete().lt("date", cutoff.toISOString()).eq("destroyed", false);
+  })().catch((e) => console.error("[sync] Stale cleanup error:", e));
+  if (quickRefresh) ((globalThis as any).EdgeRuntime?.waitUntil?.(cleanupWork) ?? cleanupWork);
+  else await cleanupWork;
+
+  const response: any = {
+    success: true,
+    emails: allEmails,
+    stats: syncStats,
+    totalFetched: allEmails.length,
+      inserted,
+      duplicatesSkipped: Object.values(syncStats).reduce((s: number, v: any) => s + (v.skipped || 0), 0),
+  };
+  if (accountErrors.length > 0) response.warnings = accountErrors.map(e => e.error);
+  const recipientWarnings = Object.entries(syncStats)
+    .filter(([, v]: any) => Number(v.recipientSkipped || 0) > 0)
+    .map(([label, v]: any) => `${label}: ${v.recipientSkipped} Netflix email skipped by recipient filter`);
+  if (recipientWarnings.length > 0) response.warnings = [...(response.warnings || []), ...recipientWarnings];
+  if (Array.isArray(response.warnings) && response.warnings.length > 0) response.warning = response.warnings.join(" • ");
+  console.log(`[sync] Complete: ${allEmails.length} fetched/upserted across ${accounts.length} account(s)`);
+  return response;
+}
+
+async function repairCronScheduleIfNeeded(supabase: any, cronSecret: string) {
+  if (!cronSecret || Date.now() - cronRepairLastAttempt < 10 * 60_000) return;
+  cronRepairLastAttempt = Date.now();
+  try {
+    const { data: cfg } = await supabase.from("app_settings").select("value").eq("key", "cron_config").maybeSingle();
+    const interval = Math.max(1, Math.min(10, parseInt(String(cfg?.value?.interval || "1")) || 1));
+    const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+    try { await supabase.rpc("unschedule_email_sync"); } catch {}
+    const { error } = await supabase.rpc("schedule_email_sync", {
+      cron_expr: `*/${interval} * * * *`,
+      function_url: `${SUPABASE_URL}/functions/v1/fetch-emails`,
+      auth_key: cronSecret,
+    });
+    if (error) throw error;
+    await supabase.from("app_settings").upsert({ key: "cron_config", value: { active: true, interval } }, { onConflict: "key" });
+    console.log(`[cron] Repaired schedule with secret header at */${interval} minute(s)`);
+  } catch (err) {
+    console.error("[cron] Repair failed:", err instanceof Error ? err.message : String(err));
+  }
+}
+
+Deno.serve(async (originalReq) => {
+  if (originalReq.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+
+  // ---- transport encryption boundary ----
+  // Server-to-server callers may POST plaintext JSON. Browser callers include
+  // Sec-Fetch-Site and must still use encrypted transport.
+  const CRON_SHARED_SECRET_FOR_TRANSPORT = Deno.env.get("CRON_SHARED_SECRET") || "";
+  const SERVICE_ROLE_FOR_TRANSPORT = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+  const cronHeaderForTransport = originalReq.headers.get("x-cron-secret") || "";
+  const authHeaderForTransport = originalReq.headers.get("authorization") || "";
+  const sessionTokenForTransport = originalReq.headers.get("x-session-token") || "";
+  const secFetchSiteForTransport = originalReq.headers.get("sec-fetch-site") || "";
+  const hasValidCronSecret = !!CRON_SHARED_SECRET_FOR_TRANSPORT && cronHeaderForTransport === CRON_SHARED_SECRET_FOR_TRANSPORT;
+  const hasServiceRoleBearer = !!SERVICE_ROLE_FOR_TRANSPORT && authHeaderForTransport === `Bearer ${SERVICE_ROLE_FOR_TRANSPORT}`;
+  // Legacy pg_cron jobs in this project were created with the anon bearer but
+  // without x-cron-secret, so encrypted transport rejected them with 426 before
+  // the sync code ran. Accept only server-side plaintext here; the action gate
+  // below restricts it to mode=sync/source=cron and strips email contents.
+  const hasServerSideBearer = /^Bearer\s+\S+/i.test(authHeaderForTransport) && !secFetchSiteForTransport && originalReq.method === "POST";
+  const serverLikeSessionProxy = !!sessionTokenForTransport && !secFetchSiteForTransport;
+  const allowServerPlaintext = hasValidCronSecret || hasServiceRoleBearer || hasServerSideBearer || serverLikeSessionProxy;
+  let ctx: EncryptedRequestContext | null = null;
+  let parsedBody: any = null;
+  try {
+    const r = await readRequest(originalReq, { allowPlaintext: allowServerPlaintext });
+    parsedBody = r.body ?? {};
+    ctx = r.encrypted ? r.ctx : null;
+  } catch (e) {
+    if (e instanceof PlaintextRejectedError) return plaintextRejectedResponse();
+    if (e instanceof TransportError) return transportErrorResponse(e);
+    return new Response(JSON.stringify({ success: false, error: "bad request" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
+  const req = new Request(originalReq.url, {
+    method: originalReq.method,
+    headers: originalReq.headers,
+    body: JSON.stringify(parsedBody ?? {}),
+  });
+  const __run = async () => {
+  try {
+    const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    // F5: dedicated signing key with legacy fallback (see manage-app).
+    // ENCRYPTION_SECRET (=SERVICE_ROLE_KEY) stays for decrypting IMAP passwords in runSync.
+    const ENCRYPTION_SECRET = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const SIGNING_SECRET = Deno.env.get("SESSION_SIGNING_SECRET") || ENCRYPTION_SECRET;
+    const LEGACY_SIGNING = ENCRYPTION_SECRET;
+    const CRON_SHARED_SECRET = Deno.env.get("CRON_SHARED_SECRET") || "";
+
+    let body: any = {};
+    try { body = await req.json(); } catch {}
+    const mode = body.mode || "sync";
+    const source = body.source || "manual";
+    const session = await requireSession(req, body, SIGNING_SECRET, LEGACY_SIGNING, supabase);
+    const isCronSecret = !!CRON_SHARED_SECRET && req.headers.get("x-cron-secret") === CRON_SHARED_SECRET;
+
+
+    let filterSignInCodes = false;
+    let filterPasswordResets = false;
+    let filterAccountUpdates = false;
+    try {
+      const { data: filterData } = await supabase.from("app_settings").select("value").eq("key", "email_filters").single();
+      if (filterData?.value) {
+        if (filterData.value.showSignInCodes === false) filterSignInCodes = true;
+        if (filterData.value.showPasswordResets === false) filterPasswordResets = true;
+        if (filterData.value.showAccountUpdates === false) filterAccountUpdates = true;
+      }
+    } catch {}
+
+    // ⚠️ HARD BLOCK — for any non-admin session, account-change and
+    //    password-reset mails are ALWAYS filtered out. Admin toggle
+    //    irrelevant. See banner near ACCOUNT_CHANGE_STRONG_RE. DO NOT TOUCH.
+    if (session && session.role !== "admin") {
+      filterAccountUpdates = true;
+      filterPasswordResets = true;
+    }
+
+
+    const isLegacyPgCron = !session && !isCronSecret && hasServerSideBearer && mode === "sync" && source === "cron";
+    const isCron = isCronSecret || isLegacyPgCron;
+    if (isLegacyPgCron) repairCronScheduleIfNeeded(supabase, CRON_SHARED_SECRET).catch(() => {});
+
+    if (mode === "cron_status") {
+      if (!session || session.role !== "admin") return json({ success: false, error: "Admin session required" }, 401);
+      try {
+        const { data, error } = await supabase.rpc("get_cron_status");
+        if (error) throw error;
+        return json(data);
+      } catch {
+        const { data: fallback } = await supabase.from("app_settings").select("value").eq("key", "cron_config").single();
+        return json({ active: fallback?.value?.active || false, interval: fallback?.value?.interval || 3, lastSync: null });
+      }
+    }
+
+    if (mode === "cron_toggle") {
+      if (!session || session.role !== "admin") return json({ success: false, error: "Admin session required" }, 401);
+      const enabled = body.enabled === true;
+      const interval = parseInt(body.interval) || 3;
+      const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+      const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") || Deno.env.get("SUPABASE_PUBLISHABLE_KEY") || "";
+      if (!ANON_KEY) return json({ success: false, error: "SUPABASE_ANON_KEY is not configured" }, 500);
+      if (!CRON_SHARED_SECRET) return json({ success: false, error: "CRON_SHARED_SECRET is not configured" }, 500);
+
+      try {
+        try { await supabase.rpc("unschedule_email_sync"); } catch {}
+        if (enabled) {
+          const cronExpr = `*/${interval} * * * *`;
+          const { error: schedErr } = await supabase.rpc("schedule_email_sync", {
+            cron_expr: cronExpr,
+            function_url: `${SUPABASE_URL}/functions/v1/fetch-emails`,
+            auth_key: CRON_SHARED_SECRET,
+          });
+          if (schedErr) throw schedErr;
+        }
+        await supabase.from("app_settings").upsert({ key: "cron_config", value: { active: enabled, interval } }, { onConflict: "key" });
+        return json({ success: true, active: enabled, interval });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("[cron] Toggle error:", msg);
+        return json({ success: false, error: msg }, 500);
+      }
+    }
+
+    if (mode === "cache") {
+      if (!session) return json({ success: false, error: "Authentication required" }, 401);
+      const accountFilter = await getAssignedAccountFilter(supabase, session);
+      const emails = await readCache(supabase, accountFilter, filterSignInCodes, filterPasswordResets, filterAccountUpdates, session, body.limit);
+      return json(emails);
+    }
+
+    if (mode === "unfiltered_count") {
+      if (!session) return json({ success: false, error: "Authentication required" }, 401);
+      const accountFilter = await getAssignedAccountFilter(supabase, session);
+      if (session.role !== "admin" && accountFilter && accountFilter.length === 0) {
+        return json({ total: 0, error: null });
+      }
+      let query = supabase.from("cached_emails").select("id", { count: "exact", head: true }).eq("destroyed", false);
+      if (accountFilter && accountFilter.length > 0) query = query.in("account_label", accountFilter);
+      if (session.role !== "admin") {
+        const vis = await getEmailVisibility(supabase);
+        if (vis) {
+          const cutoff = new Date();
+          cutoff.setDate(cutoff.getDate() - vis.days);
+          query = query.gte("date", cutoff.toISOString());
+        }
+      }
+      const { count, error } = await query;
+      return json({ total: count || 0, error: error?.message || null });
+    }
+
+    const adminOrCron = (session?.role === "admin") || isCron;
+    const userRequestedSync = mode === "user_sync" || mode === "sync_async";
+    if (mode === "sync" && !adminOrCron) return json({ success: false, error: "Admin session or cron secret required" }, 401);
+    if (userRequestedSync && !session && !isCron) return json({ success: false, error: "Authentication required" }, 401);
+    if (!["sync", "sync_async", "user_sync"].includes(mode)) return json({ success: false, error: `Unknown mode: ${mode}` }, 400);
+
+    let accountLabels: string[] | null = null;
+    if (Array.isArray(body.accountLabels) && body.accountLabels.length > 0) accountLabels = body.accountLabels;
+
+    if (session && session.role !== "admin") {
+      const assigned = await getAssignedAccountFilter(supabase, session);
+      // Non-admin user: restrict sync scope to their assigned accounts.
+      // Empty assignment -> nothing to sync/display.
+      if (assigned && assigned.length === 0) {
+        return json({ success: true, accepted: true, emails: [], message: "No accounts assigned" }, mode === "sync_async" ? 202 : 200);
+      }
+      if (assigned && assigned.length > 0) accountLabels = accountLabels ? accountLabels.filter(l => assigned.includes(l)) : assigned;
+      if (mode === "sync_async" && source !== "user_refresh") {
+        const last = userSyncHits.get(session.userId) || 0;
+        if (Date.now() - last < USER_SYNC_WINDOW_MS) {
+          const cache = await readCache(supabase, assigned, filterSignInCodes, filterPasswordResets, filterAccountUpdates, session, body.limit);
+          return json({ success: true, rateLimited: true, message: "Please wait before refreshing again", emails: cache }, 202);
+        }
+        userSyncHits.set(session.userId, Date.now());
+      }
+    }
+
+    if (mode === "sync_async" && source !== "user_refresh") {
+      const accountFilterForCache = session ? await getAssignedAccountFilter(supabase, session) : null;
+      const cache = session ? await readCache(supabase, accountFilterForCache, filterSignInCodes, filterPasswordResets, filterAccountUpdates, session, body.limit).catch(() => []) : [];
+      const maxMessages = clampLimit(body.limit, USER_REFRESH_MAX_UIDS, FULL_SYNC_MAX_UIDS);
+      const work = runSync(supabase, ENCRYPTION_SECRET, source || "async", accountLabels, maxMessages).catch(err => console.error("[sync_async] background failed:", err));
+      ((globalThis as any).EdgeRuntime?.waitUntil?.(work) ?? work);
+      return json({ success: true, accepted: true, emails: cache }, 202);
+    }
+
+    const result = await runSync(supabase, ENCRYPTION_SECRET, source, accountLabels, clampLimit(body.limit, FULL_SYNC_MAX_UIDS, FULL_SYNC_MAX_UIDS));
+    if (userRequestedSync && session && result?.success === false) {
+      const accountFilterForCache = await getAssignedAccountFilter(supabase, session);
+      const cache = await readCache(supabase, accountFilterForCache, filterSignInCodes, filterPasswordResets, filterAccountUpdates, session, body.limit).catch(() => []);
+      return json({
+        success: true,
+        fallback: true,
+        warning: result.error || "Mail server is temporarily unavailable",
+        emails: cache,
+        stats: result.stats || {},
+        totalFetched: Array.isArray(cache) ? cache.length : 0,
+        inserted: 0,
+      });
+    }
+    if (!session && isCron && result?.success !== false) {
+      return json({
+        success: true,
+        source,
+        stats: result.stats || {},
+        totalFetched: result.totalFetched || 0,
+        inserted: result.inserted || 0,
+        duplicatesSkipped: result.duplicatesSkipped || 0,
+      });
+    }
+    if (session && session.role !== "admin" && result?.success !== false) {
+      const accountFilterForCache = await getAssignedAccountFilter(supabase, session);
+      result.emails = await readCache(supabase, accountFilterForCache, filterSignInCodes, filterPasswordResets, filterAccountUpdates, session, body.limit).catch(() => []);
+      result.totalFetched = Array.isArray(result.emails) ? result.emails.length : 0;
+    }
+    return json(result, result.success === false ? 502 : 200);
+  } catch (err) {
+    console.error("[sync] Fatal error:", err);
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    const isImapAuthError = /auth|login|invalid credentials|authenticationfailed/i.test(errorMessage);
+    return json({
+      success: false,
+      error: isImapAuthError
+        ? "IMAP login failed. Check the inbox email address and app password in Admin Panel."
+        : `Failed to fetch emails: ${errorMessage}`,
+    }, isImapAuthError ? 401 : 500);
+  }
+  };
+  const res = await __run();
+  return await maybeEncryptResponse(res, ctx);
+});
+
