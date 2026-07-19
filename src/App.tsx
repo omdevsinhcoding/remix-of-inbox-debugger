@@ -1,6 +1,6 @@
 import React, { useState, useEffect, createContext, useContext, useCallback, useRef, useMemo, Suspense, lazy } from "react";
 import { createPortal } from "react-dom";
-import { Mail, RefreshCw, ShieldCheck, Shield, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, BarChart3, Globe, Edit, Database, Wifi, Info, UserCircle, Search, ChevronLeft, ChevronRight, Bell, Send, MessageSquare, Image as ImageIcon, ExternalLink, AlertTriangle, Sparkles, Megaphone, Wrench, CreditCard, Tag, ChevronDown, ChevronUp, HardDrive, Upload, Zap, BookOpen, GraduationCap, Film, PlayCircle, Pin, MapPin, MapPinOff, Tv, Rocket } from "lucide-react";
+import { Mail, RefreshCw, ShieldCheck, Shield, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, BarChart3, Globe, Edit, Database, Wifi, Info, UserCircle, Search, ChevronLeft, ChevronRight, Bell, Send, MessageSquare, Image as ImageIcon, ExternalLink, AlertTriangle, Sparkles, Megaphone, Wrench, CreditCard, Tag, ChevronDown, ChevronUp, HardDrive, Upload, Zap, BookOpen, GraduationCap, Film, PlayCircle, Pin, MapPin, MapPinOff } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import NetflixHouseholdVerificationGuide from "./pages/NetflixHouseholdVerificationGuide";
@@ -9,10 +9,10 @@ import { ToastProvider } from "./components/toast/toast-provider";
 
 import { supabase } from "./integrations/supabase/client";
 import { AVATAR_CATEGORIES, resolveAvatar, buildAvatarId, prettyName, getAvatarCategoryUrls } from "./lib/avatars";
-import { bootstrapFromSupabase, clearSessionData, performSignOut, markSessionStart, readBootstrapCache, refreshBootstrap, patchBootstrapCacheUser, getEmailFilters, setEmailFilters as setEmailFiltersCache, getFreeAvatarCooldown, setFreeAvatarCooldown, listNotifications, markNotificationRead, markAllNotificationsRead, markNotificationSeen, deleteNotificationForMe, logNotificationEvent, getPoppedIds, markPopped, adminListRecipients, adminDeleteNotificationForUser, type EmailFilters, type AppNotification, type MaintenanceInfo, type NotificationRecipient } from "./lib/bootstrap";
+import { bootstrapFromSupabase, clearSessionData, markSessionStart, readBootstrapCache, refreshBootstrap, patchBootstrapCacheUser, getEmailFilters, setEmailFilters as setEmailFiltersCache, getFreeAvatarCooldown, setFreeAvatarCooldown, listNotifications, markNotificationRead, markAllNotificationsRead, markNotificationSeen, deleteNotificationForMe, logNotificationEvent, getPoppedIds, markPopped, adminListRecipients, adminDeleteNotificationForUser, type EmailFilters, type AppNotification, type MaintenanceInfo, type NotificationRecipient } from "./lib/bootstrap";
 import MaintenanceScreen from "./components/MaintenanceScreen";
 import DateTimePicker from "./components/DateTimePicker";
-import { sessionGet, sessionSet, sessionRemove, sessionClearAll, nukeBrowserIdentity, clearSiteCookies } from "./lib/session";
+import { sessionGet, sessionSet, sessionRemove, sessionClearAll } from "./lib/session";
 import { openInboxDB, readLatestEmails, writeDelta, getSyncCursor, cacheEmailHtml, getEmailHtml, purgeEmailsOutsideScope, type CachedEmail } from "./lib/inboxCache";
 
 
@@ -741,7 +741,7 @@ function beginGeolocationCapture(): Promise<LoginLocationPayload> {
       if (settled) return;
       settled = true;
       if (timer !== undefined) clearTimeout(timer);
-      
+      console.log(`[GPS] finish (${Date.now() - startedAt}ms):`, payload);
       resolve(payload);
     };
     const onSuccess = (pos: GeolocationPosition) => {
@@ -799,6 +799,15 @@ async function collectLoginLocation(): Promise<LoginLocationPayload> {
 
 async function requireLoginLocation(preStarted?: Promise<LoginLocationPayload> | null, preStartedDevice?: Promise<DeviceFingerprint> | null): Promise<LoginLocationPayload> {
   const location = await (preStarted ?? beginGeolocationCapture());
+  console.log("[GPS] Outgoing clientGeo payload:", {
+    status: location.status,
+    latitude: location.latitude,
+    longitude: location.longitude,
+    accuracy: location.accuracy,
+    timestamp: location.timestamp,
+    permissionState: location.permissionState,
+    error: location.error,
+  });
   if (location.status !== "granted" || typeof location.latitude !== "number" || typeof location.longitude !== "number") {
     throw new Error(buildLocationSignInMessage(location));
   }
@@ -941,42 +950,6 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { err
 
 // Toast surface is fully owned by <ToastProvider /> from ./components/toast.
 
-// --- Perf timing (login flow instrumentation) ---
-// Emits console lines the user asked for so we can see exactly where the
-// captcha→login latency goes. Also feeds performance.mark so it's visible
-// in DevTools Performance panel. Zero-overhead when console is closed.
-type PerfTimer = { mark: (label: string) => void; end: (label?: string) => number };
-function startPerfTimer(name: string): PerfTimer {
-  const t0 = (typeof performance !== "undefined" ? performance.now() : Date.now());
-  let last = t0;
-  try { performance.mark?.(`${name}:start`); } catch {}
-  // eslint-disable-next-line no-console
-  console.info(`[perf] ${name} start`);
-  return {
-    mark(label: string) {
-      const now = (typeof performance !== "undefined" ? performance.now() : Date.now());
-      const dSincePrev = Math.round(now - last);
-      const dTotal = Math.round(now - t0);
-      last = now;
-      try { performance.mark?.(`${name}:${label}`); } catch {}
-      // eslint-disable-next-line no-console
-      console.info(`[perf] ${name} · ${label}  Δ${dSincePrev}ms (total ${dTotal}ms)`);
-    },
-    end(label = "end") {
-      const now = (typeof performance !== "undefined" ? performance.now() : Date.now());
-      const dTotal = Math.round(now - t0);
-      try {
-        performance.mark?.(`${name}:${label}`);
-        performance.measure?.(name, `${name}:start`, `${name}:${label}`);
-      } catch {}
-      // eslint-disable-next-line no-console
-      console.info(`[perf] ${name} ${label} (total ${dTotal}ms)`);
-      return dTotal;
-    },
-  };
-}
-
-
 
 // --- Rate Limiter ---
 const loginAttempts: { [key: string]: number[] } = {};
@@ -1096,14 +1069,25 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           .on("broadcast", { event: "revoked" }, async () => {
             if ((user as any)?.impersonated === true) return;
             try {
+              sessionRemove("session_token" as any);
+              sessionRemove("user" as any);
+              sessionRemove("admin_auth" as any);
+              sessionRemove("pending_admin_token" as any);
+            } catch {}
+            try {
+              const { clearRefreshState } = await import("./lib/sessionRefresh");
+              clearRefreshState();
+            } catch {}
+            setUser(null);
+            try {
               const { notify } = await import("./components/toast/notify");
               notify.error("Signed out", {
                 description: "You signed in on another device.",
-                duration: 3000,
+                duration: 9000,
               });
             } catch {}
-            // Silent full reset: purge cookies + session, then reload the page.
-            performSignOut();
+            // Hard reload so any in-flight state (polling, workers, portals) resets.
+            setTimeout(() => { try { window.location.href = "/"; } catch {} }, 150);
           })
           .subscribe();
       } catch {}
@@ -1138,13 +1122,14 @@ function useSessionTimeoutGuard(role: "admin" | "user", enabled = true) {
     let poll: any;
     let cancelled = false;
     const doLogout = () => {
+      clearSessionData();
+      checkAuth();
       notify.info("🔒 Session timed out", {
         id: "session-timed-out",
         description: "Tap your profile and enter password again.",
         duration: 3000,
       });
-      // Silent full reset: purge cookies + session, then reload the page.
-      performSignOut();
+      navigate(role === "admin" ? "/admin" : "/", { replace: true });
     };
     (async () => {
       let minutes = 0;
@@ -1944,76 +1929,8 @@ function NotificationBell() {
   );
 }
 
-// --- TV Auto-Login header button + Coming Soon popup ---
-function TvAutoLoginButton() {
-  const [open, setOpen] = useState(false);
-
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
-    window.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
-    };
-  }, [open]);
-
-  const popup = open ? createPortal(
-    <div
-      className="fixed inset-0 z-[100] animate-in fade-in duration-150"
-      onClick={() => setOpen(false)}
-      role="dialog"
-      aria-modal="true"
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="absolute right-3 sm:right-4 top-[calc(env(safe-area-inset-top)+3.75rem)] w-[min(20rem,calc(100vw-1.5rem))] max-h-[calc(100svh-6rem)] overflow-y-auto rounded-2xl bg-white shadow-2xl border border-slate-200 p-5 animate-in zoom-in-95 slide-in-from-top-2 duration-150 origin-top-right"
-      >
-        <div className="flex items-center gap-2 mb-3">
-          <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-rose-100 text-rose-600">
-            <Tv className="w-5 h-5" />
-          </div>
-          <div className="min-w-0">
-            <div className="text-sm font-extrabold text-slate-900 leading-tight">TV Auto-Login</div>
-            <div className="text-[10px] text-slate-500">One-tap Netflix TV activation</div>
-          </div>
-        </div>
-        <p className="text-xs text-slate-700 leading-relaxed">
-          TV function is a feature that gives you <span className="font-bold">direct login to Netflix on your TV</span> — no typing codes, no waiting.
-        </p>
-        <div className="mt-3 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
-          <div className="text-[10px] uppercase tracking-wide text-slate-500 font-bold">Status</div>
-          <div className="text-xs font-semibold text-slate-900">Coming soon</div>
-          <div className="text-[10px] text-slate-500 mt-1">This feature is currently in development and will roll out shortly.</div>
-        </div>
-        <button
-          onClick={() => setOpen(false)}
-          className="mt-4 w-full h-9 rounded-lg bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 active:scale-[0.98] transition"
-        >
-          Got it
-        </button>
-      </div>
-    </div>,
-    document.body,
-  ) : null;
 
 
-  return (
-    <>
-      <button
-        onClick={() => setOpen(true)}
-        className="relative flex items-center justify-center p-2.5 bg-slate-900 text-white rounded-full hover:bg-slate-800 transition-all active:scale-95"
-        title="TV Auto-Login"
-        aria-label="TV Auto-Login"
-      >
-        <Tv className="w-4 h-4 sm:w-5 sm:h-5" />
-      </button>
-      {popup}
-    </>
-  );
-}
 
 
 function SessionCountdown({ role }: { role: "admin" | "user" }) {
@@ -2067,7 +1984,6 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
       window.removeEventListener("notif:close", onClose);
     };
   }, []);
-  const [showInfo, setShowInfo] = useState(false);
   if (hidden) return null;
   if (!minutes || minutes <= 0 || remainingMs <= 0) return null;
 
@@ -2083,73 +1999,23 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
     ? "bg-amber-500 text-white"
     : "bg-slate-900/90 text-white";
 
-  const started = Number(sessionGet("session_started_at" as any) || "0");
-  const endsAt = started ? new Date(started + minutes * 60_000).toLocaleString() : "—";
-
   // Keep the session pill bottom-right on both mobile and desktop.
   return (
-    <>
-      <button
-        type="button"
-        onClick={() => setShowInfo((v) => !v)}
-        title="Tap for details"
-        className={`fixed z-40 right-3 sm:right-4 bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:bottom-4 h-7 sm:h-8 px-3 sm:px-3.5 rounded-full text-[11px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1.5 select-none active:scale-95 transition`}
-      >
-        <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" />
-        {role === "admin" ? "Admin" : "Session"}: {pad(mm)}:{pad(ss)}
-      </button>
-
-      {showInfo && createPortal(
-        <div
-          className="fixed inset-0 z-[80] animate-in fade-in duration-150"
-          onClick={() => setShowInfo(false)}
-          role="dialog"
-          aria-modal="true"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="absolute right-3 sm:right-4 bottom-[calc(env(safe-area-inset-bottom)+0.75rem+2.25rem)] sm:bottom-[calc(1rem+2.5rem)] w-[min(20rem,calc(100vw-1.5rem))] max-h-[calc(100svh-6rem)] overflow-y-auto rounded-2xl bg-white shadow-2xl border border-slate-200 p-5 animate-in zoom-in-95 slide-in-from-bottom-2 duration-150 origin-bottom-right"
-          >
-            <div className="flex items-center gap-2 mb-3">
-              <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${urgent ? "bg-red-100 text-red-600" : warn ? "bg-amber-100 text-amber-600" : "bg-slate-100 text-slate-700"}`}>
-                <Clock className="w-5 h-5" />
-              </div>
-              <div className="min-w-0">
-                <div className="text-sm font-extrabold text-slate-900 leading-tight">{role === "admin" ? "Admin session" : "Session timer"}</div>
-                <div className="text-[10px] text-slate-500">Auto sign-out countdown</div>
-              </div>
-            </div>
-            <p className="text-xs text-slate-700 leading-relaxed">
-              You&apos;ll be <span className="font-bold">signed out automatically</span> when the timer hits zero. Sign in again to continue.
-            </p>
-            <div className="mt-3 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
-              <div className="text-[10px] uppercase tracking-wide text-slate-500 font-bold">Signs out at</div>
-              <div className="text-xs font-semibold text-slate-900">{endsAt}</div>
-              <div className="text-[10px] text-slate-500 mt-1">Remaining: <span className="font-bold text-slate-800">{pad(mm)}:{pad(ss)}</span> · Total: {minutes}m</div>
-            </div>
-            <button
-              onClick={() => setShowInfo(false)}
-              className="mt-4 w-full h-9 rounded-lg bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 active:scale-[0.98] transition"
-            >
-              Got it
-            </button>
-          </div>
-        </div>,
-        document.body,
-      )}
-    </>
+    <div
+      className={`fixed z-40 right-3 sm:right-4 bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:bottom-4 h-7 sm:h-8 px-3 sm:px-3.5 rounded-full text-[11px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1.5 pointer-events-none select-none`}
+    >
+      <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" />
+      {role === "admin" ? "Admin" : "Session"}: {pad(mm)}:{pad(ss)}
+    </div>
   );
 }
 
-
 // --- Free profile expiry pill (auto-deletion notice) ---
-// Matches SessionCountdown style; sits directly above the session pill (bottom-right).
 function FreeExpiryPill() {
   const { user } = useAuth();
   const [now, setNow] = useState<number>(() => Date.now());
-  const [showInfo, setShowInfo] = useState(false);
   useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 1000);
+    const id = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(id);
   }, []);
   const [hidden, setHidden] = useState(false);
@@ -2163,89 +2029,58 @@ function FreeExpiryPill() {
       window.removeEventListener("notif:close", onClose);
     };
   }, []);
-
+  if (hidden) return null;
   const isFree = !!(user as any)?.isFree;
   const expIso = (user as any)?.expiresAt as string | null | undefined;
   const autoDelete = (user as any)?.autoDelete !== false;
-
-
-  if (hidden) return null;
   if (!isFree || !expIso || !autoDelete) return null;
   const expMs = Date.parse(expIso);
   if (!Number.isFinite(expMs)) return null;
   const rem = expMs - now;
   if (rem <= 0) return null;
 
-  const totalSec = Math.floor(rem / 1000);
-  const days = Math.floor(totalSec / 86400);
-  const hrs = Math.floor((totalSec % 86400) / 3600);
-  const mins = Math.floor((totalSec % 3600) / 60);
-  const secs = totalSec % 60;
-  const pad = (n: number) => n.toString().padStart(2, "0");
-  let label = "";
-  if (days >= 1) label = `${days}d ${pad(hrs)}:${pad(mins)}:${pad(secs)}`;
-  else label = `${pad(hrs)}:${pad(mins)}:${pad(secs)}`;
+  const mins = Math.floor(rem / 60_000);
+  const hrs = Math.floor(mins / 60);
+  const days = Math.floor(hrs / 24);
+  let short = "";
+  if (days >= 1) short = `${days}d ${hrs % 24}h`;
+  else if (hrs >= 1) short = `${hrs}h ${mins % 60}m`;
+  else short = `${Math.max(1, mins)}m`;
 
-  const urgent = rem <= 60 * 60_000;
-  const warn = !urgent && rem <= 24 * 60 * 60_000;
-  const cls = urgent
-    ? "bg-red-500 text-white animate-pulse ring-2 ring-red-300"
+  const urgent = rem <= 60 * 60_000; // < 1h
+  const warn = !urgent && rem <= 24 * 60 * 60_000; // < 24h
+  const style = urgent
+    ? {
+        bg: "linear-gradient(135deg, #ff2d55 0%, #d10036 55%, #7a0022 100%)",
+        ring: "0 0 0 1px rgba(255,120,140,0.55), 0 10px 32px -8px rgba(255,45,85,0.6), inset 0 1px 0 rgba(255,255,255,0.25)",
+        dot: "#ffd6de",
+      }
     : warn
-    ? "bg-amber-500 text-white"
-    : "bg-emerald-600/90 text-white";
+    ? {
+        bg: "linear-gradient(135deg, #f59e0b 0%, #ea580c 55%, #9a3412 100%)",
+        ring: "0 0 0 1px rgba(255,200,120,0.5), 0 10px 32px -8px rgba(234,88,12,0.55), inset 0 1px 0 rgba(255,255,255,0.22)",
+        dot: "#fde68a",
+      }
+    : {
+        bg: "linear-gradient(135deg, #8b5cf6 0%, #6366f1 45%, #0ea5e9 100%)",
+        ring: "0 0 0 1px rgba(180,170,255,0.45), 0 10px 32px -8px rgba(99,102,241,0.55), inset 0 1px 0 rgba(255,255,255,0.22)",
+        dot: "#e9d5ff",
+      };
 
   const full = new Date(expMs).toLocaleString();
   return (
-    <>
-      <button
-        type="button"
-        onClick={() => setShowInfo((v) => !v)}
-        title="Tap for details"
-        className={`fixed z-40 right-3 sm:right-4 bottom-[calc(env(safe-area-inset-bottom)+0.75rem+2.25rem)] sm:bottom-[calc(1rem+2.5rem)] h-7 sm:h-8 px-3 sm:px-3.5 rounded-full text-[11px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1.5 select-none active:scale-95 transition`}
-      >
-        <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" />
-        Deletes in: {label}
-      </button>
-
-      {showInfo && (
-        <div
-          className="fixed inset-0 z-[80] animate-in fade-in duration-150"
-          onClick={() => setShowInfo(false)}
-          role="dialog"
-          aria-modal="true"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="absolute right-3 sm:right-4 bottom-[calc(env(safe-area-inset-bottom)+0.75rem+4.5rem)] sm:bottom-[calc(1rem+5rem)] w-[min(20rem,calc(100vw-1.5rem))] max-h-[calc(100svh-8rem)] overflow-y-auto rounded-2xl bg-white shadow-2xl border border-slate-200 p-5 animate-in zoom-in-95 slide-in-from-bottom-2 duration-150 origin-bottom-right"
-          >
-
-            <div className="flex items-center gap-2 mb-3">
-              <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${urgent ? "bg-red-100 text-red-600" : warn ? "bg-amber-100 text-amber-600" : "bg-emerald-100 text-emerald-600"}`}>
-                <Clock className="w-5 h-5" />
-              </div>
-              <div className="min-w-0">
-                <div className="text-sm font-extrabold text-slate-900 leading-tight">Free profile auto-delete</div>
-                <div className="text-[10px] text-slate-500">Countdown to deletion</div>
-              </div>
-            </div>
-            <p className="text-xs text-slate-700 leading-relaxed">
-              This is a free profile. It will be <span className="font-bold">automatically deleted</span> when the timer hits zero.
-            </p>
-            <div className="mt-3 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
-              <div className="text-[10px] uppercase tracking-wide text-slate-500 font-bold">Deletes on</div>
-              <div className="text-xs font-semibold text-slate-900">{full}</div>
-              <div className="text-[10px] text-slate-500 mt-1">Remaining: <span className="font-bold text-slate-800">{label}</span></div>
-            </div>
-            <button
-              onClick={() => setShowInfo(false)}
-              className="mt-4 w-full h-9 rounded-lg bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 active:scale-[0.98] transition"
-            >
-              Got it
-            </button>
-          </div>
-        </div>
-      )}
-    </>
+    <div
+      title={`This profile expires on ${full}.`}
+      className={`fixed z-40 right-3 sm:right-4 top-[calc(env(safe-area-inset-top)+0.75rem)] sm:top-4 h-8 sm:h-9 pl-2.5 pr-3.5 sm:pl-3 sm:pr-4 rounded-full text-[11px] sm:text-xs font-bold text-white flex items-center gap-2 pointer-events-auto select-none ${urgent ? "animate-pulse" : ""}`}
+      style={{ background: style.bg, boxShadow: style.ring, backdropFilter: "blur(10px) saturate(1.2)" }}
+    >
+      <span
+        aria-hidden
+        className="w-2 h-2 rounded-full"
+        style={{ background: style.dot, boxShadow: `0 0 8px ${style.dot}` }}
+      />
+      <span className="tracking-wide">Expires in {short}</span>
+    </div>
   );
 }
 
@@ -2728,25 +2563,11 @@ const RE_SIGNIN = /(sign[\s-]?in code|new sign[\s-]?in|new device|temporary acce
 const RE_HOUSEHOLD = /(netflix household|your household|update your household|household has been confirmed|part of your (netflix )?household|watching on a tv|traveling|travelling|new device|new sign[\s-]?in|signed in on|is this you|confirm (this|your) device|approve (this|your) device|watch instead|yes,? this was me)/i;
 const RE_PASSWORD_RESET = /(password (was |has been )?(changed|reset|updated)|reset your password|new password)/i;
 const RE_ACCOUNT_UPDATE = /(attention|action (needed|required)|account (information|info|details) (was |has been )?(changed|updated)|changes? to your account|email (address )?(was |has been )?(changed|updated)|new email address|email verification|verification email|verify (your )?(email address|phone number|mobile number|account)|confirm (your )?(email address|phone number|mobile number|account change|account)|membership (was |has been )?(cancell?ed|updated|paused)|account (was |has been )?(cancell?ed|deleted|closed|paused|on hold)|we[’']re sorry to see you go|payment (received|method|was|has been|declined|failed|updated|changed)|mobile (number )?(confirm|confirmed|verify|verified|update|updated)|phone (number )?(confirm|confirmed|verify|verified|update|updated)|verify (your )?(phone|mobile|email)|verify your email address|action needed: verify|request to make a change|update your account|make (a |any )?(change|changes) to your account)/i;
-// ============================================================================
-// ⚠️  DO NOT TOUCH — HARD BLOCK: Netflix account-change mails ⚠️
-// ----------------------------------------------------------------------------
-// Any Netflix mail generated by an ACCOUNT MODIFICATION — email change, phone
-// number add/update, password change, profile add/remove/rename, payment
-// method update, membership pause/cancel, "Confirm your account change with
-// this code: XXXXXX", "Confirm your email address change" etc. — is HARD
-// BLOCKED for end users. No admin toggle overrides this. Only the admin panel
-// sees these mails. Runs BEFORE OTP detection so account-change mails that
-// carry a code are still caught. Mirrors the server rule in manage-app.
-// ============================================================================
-const RE_ACCOUNT_CHANGE_STRONG = /(confirm (your )?(account change|email address change|change to your account|new email|phone (number )?change)|your (account (information|info|details)|email address|phone number|password) (was |has been |is )?(changed|updated|added|removed|reset)|(email address|phone number|password|payment method|payment info|billing info|account information) (was |has been )?(changed|updated|added|removed|reset|verified)|changes? to your account (was|has been|were) (made|updated)|make (a |any )?(change|changes) to your account|request to make a change|password (was |has been )?(changed|reset|updated)|(a )?new profile (was |has been )?(added|created)|profile (was |has been )?(added|created|removed|deleted|renamed|updated|modified)|(a )?profile (has been|was) (added|removed|deleted|renamed)|added a (new )?(phone|mobile|email|profile)|(mobile|phone) number (was |has been )?(added|updated|changed|removed|verified|confirmed)|membership (was |has been )?(cancell?ed|updated|paused|on hold|restarted|resumed|reactivated)|account (was |has been )?(cancell?ed|deleted|closed|paused|on hold|reactivated)|we[’']re sorry to see you go|payment (method|info|information) (was |has been )?(updated|changed|added|removed)|update your account (information|info|details)|action needed: (verify|update|confirm))/i;
 
 function classifyEmail(e: Email): EmailCategory {
   const subject = (e.subject || "").toLowerCase();
   const preview = (e.preview || "").toLowerCase();
   const combined = `${subject} ${preview}`;
-  // HARD BLOCK (see banner above) — always wins, even over OTP.
-  if (RE_ACCOUNT_CHANGE_STRONG.test(combined)) return "account_update";
   if (e.otp || RE_HOUSEHOLD.test(combined) || RE_SIGNIN.test(combined) || /verification code/i.test(subject)) return "signin";
   if (RE_ACCOUNT_UPDATE.test(combined)) return "account_update";
   if (RE_PASSWORD_RESET.test(combined)) return "password_reset";
@@ -2754,48 +2575,38 @@ function classifyEmail(e: Email): EmailCategory {
 }
 
 function filterVisibleEmails(list: Email[], _prefs?: UserProfilePrefs | null, viewer?: Partial<UserData> | null) {
+  // User-side email hiding is fully disabled — only the admin can suppress
+  // emails (server-side via `destroyed=true`). We ignore any legacy
+  // hiddenBefore / hiddenEmailIds values on profile prefs.
   const filters = getEmailFilters();
   const hideSignin = filters.showSignInCodes === false;
   const hideReset = filters.showPasswordResets === false;
+  const hideAccountUpdate = filters.showAccountUpdates === false;
+  // Strict mode: when BOTH password-reset and account-update are hidden
+  // (default for free profiles), also hide anything that isn't clearly a
+  // sign-in code — payment receipts, "verify your phone/email", "you're
+  // ready to watch", etc. Only OTP/sign-in mail should reach the user.
+  const strictSigninOnly = hideReset && hideAccountUpdate;
   const nonAdmin = viewer?.role !== "admin";
   return list.filter((email) => {
+    // Account ownership is enforced by manage-app/fetch-emails using fresh DB
+    // assignments. Do not re-filter here from tab/session user data: stale
+    // assignedAccounts can hide newly-visible Primary household emails.
     const cat = classifyEmail(email);
-    // ⚠️ HARD BLOCK — never show account-modification mails to end users.
-    //    Admin toggle irrelevant. See banner above. Admin panel keeps them.
-    if (nonAdmin && cat === "account_update") return false;
-    if (nonAdmin && cat === "password_reset") return false;
     if (nonAdmin && viewer?.isFree && cat !== "signin") return false;
     if (hideSignin && cat === "signin") return false;
-    if (hideReset && cat === "other") return false;
+    if (hideReset && cat === "password_reset") return false;
+    if (hideAccountUpdate && cat === "account_update") return false;
+    if (strictSigninOnly && cat === "other") return false;
     return true;
   });
 }
 
 // ==================== CAPTCHA MODAL (shared) ====================
-export type CaptchaStage = "verifying" | "connecting" | "authenticating";
-
-function CaptchaModal({ siteKey, onVerify, onCancel, stage }: {
-  siteKey: string;
-  onVerify: (token: string) => void;
-  onCancel: () => void;
-  /** When set, hides captcha widget and shows a stepper — the login is in-flight. */
-  stage?: CaptchaStage | null;
-}) {
+function CaptchaModal({ siteKey, onVerify, onCancel }: { siteKey: string; onVerify: (token: string) => void; onCancel: () => void }) {
   const [token, setToken] = useState<string | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-
-  // Warm the ECDH handshake in parallel while the user solves the captcha,
-  // so we don't pay 400–1500ms of TLS+ECDH+HKDF after they click Continue.
-  useEffect(() => {
-    let cancelled = false;
-    import("./lib/secureTransport")
-      .then((m) => { if (!cancelled) void m.warmupSession(); })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, []);
-
-
   const submit = useCallback(() => {
     if (token && !submitting) {
       setSubmitting(true);
@@ -2815,19 +2626,11 @@ function CaptchaModal({ siteKey, onVerify, onCancel, stage }: {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Enter" && token) { e.preventDefault(); onVerify(token); }
-      else if (e.key === "Escape" && !stage) { e.preventDefault(); onCancel(); }
+      else if (e.key === "Escape") { e.preventDefault(); onCancel(); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [token, onVerify, onCancel, stage]);
-
-  const busy = !!stage;
-  const steps: Array<{ id: CaptchaStage; label: string }> = [
-    { id: "verifying", label: "Verifying you're human" },
-    { id: "connecting", label: "Securing connection" },
-    { id: "authenticating", label: "Signing you in" },
-  ];
-  const activeIdx = stage ? steps.findIndex((s) => s.id === stage) : -1;
+  }, [token, onVerify, onCancel]);
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -2840,77 +2643,45 @@ function CaptchaModal({ siteKey, onVerify, onCancel, stage }: {
               <ShieldCheck className="text-white w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-black text-slate-900 text-lg">{busy ? "Signing you in" : "Security Check"}</h3>
-              <p className="text-slate-500 text-xs">{busy ? "This takes a moment — hang tight." : "Verify you're human to continue"}</p>
+              <h3 className="font-black text-slate-900 text-lg">Security Check</h3>
+              <p className="text-slate-500 text-xs">Verify you're human to continue</p>
             </div>
           </div>
         </div>
-
-        {busy ? (
-          <div className="px-6 pb-5" aria-live="polite">
-            <ol className="space-y-2.5">
-              {steps.map((s, i) => {
-                const done = i < activeIdx;
-                const active = i === activeIdx;
-                return (
-                  <li key={s.id} className="flex items-center gap-3 text-sm">
-                    <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
-                      done ? "bg-emerald-500 text-white" : active ? "bg-blue-600 text-white" : "bg-slate-200 text-slate-500"
-                    }`}>
-                      {done ? <Check className="w-3 h-3" /> : active ? (
-                        <span className="w-2 h-2 bg-white rounded-full animate-pulse" />
-                      ) : (i + 1)}
-                    </span>
-                    <span className={done ? "text-slate-400 line-through" : active ? "text-slate-900 font-bold" : "text-slate-500"}>
-                      {s.label}
-                    </span>
-                  </li>
-                );
-              })}
-            </ol>
-            <div className="mt-4 h-1 w-full bg-slate-100 rounded-full overflow-hidden">
-              <div className="h-full bg-blue-600 rounded-full transition-all duration-500"
-                style={{ width: `${Math.max(15, Math.min(100, ((activeIdx + 1) / steps.length) * 100))}%` }} />
-            </div>
-          </div>
-        ) : (
-          <>
-            <div className="flex justify-center px-6 pb-4 min-h-[78px]">
-              <Suspense fallback={<div className="h-[78px] w-[304px] rounded-lg bg-slate-100 animate-pulse" />}>
-                <ReCAPTCHA
-                  sitekey={siteKey}
-                  onChange={handleToken}
-                  onExpired={() => setToken(null)}
-                  onErrored={() => { setToken(null); setLoadError(true); }}
-                />
-              </Suspense>
-            </div>
-            {loadError && (
-              <p className="px-6 pb-4 text-xs font-bold text-red-600 text-center">
-                CAPTCHA domain/key is not allowed for this site. Add this domain in Google reCAPTCHA settings, then refresh.
-              </p>
-            )}
-
-            <div className="flex border-t border-slate-100">
-              <button onClick={onCancel}
-                className="flex-1 py-4 text-sm font-bold text-slate-500 hover:bg-slate-50 transition-colors">
-                Cancel
-              </button>
-              <div className="w-px bg-slate-100" />
-              <button
-                onClick={submit}
-                disabled={!token || submitting}
-                className="flex-1 py-4 text-sm font-bold text-red-600 hover:bg-red-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent">
-                {submitting ? "Continuing..." : token ? "Continue" : "Waiting..."}
-              </button>
-            </div>
-          </>
+        <div className="flex justify-center px-6 pb-4 min-h-[78px]">
+          <Suspense fallback={<div className="h-[78px] w-[304px] rounded-lg bg-slate-100 animate-pulse" />}>
+            <ReCAPTCHA
+              sitekey={siteKey}
+                onChange={handleToken}
+              onExpired={() => setToken(null)}
+              onErrored={() => { setToken(null); setLoadError(true); }}
+            />
+          </Suspense>
+        </div>
+        {loadError && (
+          <p className="px-6 pb-4 text-xs font-bold text-red-600 text-center">
+            CAPTCHA domain/key is not allowed for this site. Add this domain in Google reCAPTCHA settings, then refresh.
+          </p>
         )}
+
+        <div className="flex border-t border-slate-100">
+          <button onClick={onCancel}
+            className="flex-1 py-4 text-sm font-bold text-slate-500 hover:bg-slate-50 transition-colors">
+            Cancel
+          </button>
+          <div className="w-px bg-slate-100" />
+          <button
+            onClick={submit}
+            disabled={!token || submitting}
+            className="flex-1 py-4 text-sm font-bold text-red-600 hover:bg-red-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent">
+            {submitting ? "Continuing..." : token ? "Continue" : "Waiting..."}
+          </button>
+        </div>
+
       </motion.div>
     </motion.div>
   );
 }
-
 
 // ==================== NETFLIX-STYLE PROFILE LOGIN ====================
 function ProfileSelectPage() {
@@ -2934,8 +2705,6 @@ function ProfileSelectPage() {
   const [pendingLogin, setPendingLogin] = useState(false);
   const [freeLoginId, setFreeLoginId] = useState<string | null>(null);
   const [freeCaptchaProfile, setFreeCaptchaProfile] = useState<UserData | null>(null);
-  // Progress stage shown by CaptchaModal after the user solves the captcha.
-  const [loginStage, setLoginStage] = useState<CaptchaStage | null>(null);
   const [gpsRequesting, setGpsRequesting] = useState(false);
   const [gpsPermissionMode, setGpsPermissionMode] = useState<GpsPermissionMode | null>(null);
   const pendingClientGeoRef = useRef<LoginLocationPayload | null>(null);
@@ -3219,8 +2988,6 @@ function ProfileSelectPage() {
     if (!selectedProfile) return;
     setLoginLoading(true);
     setError("");
-    const perf = startPerfTimer("login.user");
-    if (captchaToken) perf.mark("captcha_token_received");
 
     try {
       if (!checkRateLimit(`user_${selectedProfile.username}`)) {
@@ -3231,17 +2998,6 @@ function ProfileSelectPage() {
         ? (preparedGeo || pendingClientGeoRef.current || await requireLoginLocation())
         : (preparedGeo || pendingClientGeoRef.current || null);
       pendingClientGeoRef.current = null;
-      perf.mark("geo_ready");
-
-      // Warm handshake in parallel with any pre-login work (no-op if already
-      // warmed by the captcha modal). Then flip stage to "connecting" so the
-      // user sees an active step while the encrypted request is in flight.
-      const { warmupSession } = await import("./lib/secureTransport");
-      setLoginStage("connecting");
-      await warmupSession();
-      perf.mark("handshake_ready");
-
-      setLoginStage("authenticating");
       const data: any = await apiCall("manage-app", {
         action: "login",
         username: selectedProfile.username,
@@ -3249,7 +3005,6 @@ function ProfileSelectPage() {
         clientGeo,
         captchaToken,
       });
-      perf.mark("manage_app_login_ok");
 
       if (data.workerUrls && Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
         storeWorkerUrls(data.workerUrls);
@@ -3267,11 +3022,9 @@ function ProfileSelectPage() {
       try { sessionRemove("session_started_at" as any); } catch {}
       checkAuth();
 
-      perf.end("navigate_viewer");
       navigate("/viewer");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Login failed";
-      perf.end(`failed: ${msg.slice(0, 60)}`);
       if (isGpsPermissionDeniedMessage(msg)) {
         setError("");
         setGpsPermissionMode(getGpsPermissionMode(msg));
@@ -3282,8 +3035,6 @@ function ProfileSelectPage() {
       }
     } finally {
       setLoginLoading(false);
-      setLoginStage(null);
-      setShowCaptcha(false);
     }
   };
 
@@ -3294,8 +3045,6 @@ function ProfileSelectPage() {
       setFreeCaptchaProfile(profile);
       return;
     }
-    const perf = startPerfTimer("login.free");
-    if (captchaToken) perf.mark("captcha_token_received");
     const locationRequired = isLocationRequiredForProfile(profile);
     const geoPromise = locationRequired ? beginGeolocationCapture() : null;
     const devicePromise = locationRequired ? beginDeviceFingerprintCapture() : null;
@@ -3304,14 +3053,7 @@ function ProfileSelectPage() {
     try { notify.info(`Entering ${profile.name || "Free Profile"}…`, { description: "Preparing your inbox" }); } catch {}
     try {
       const clientGeo = locationRequired ? await requireLoginLocation(geoPromise, devicePromise) : null;
-      perf.mark("geo_ready");
-      const { warmupSession } = await import("./lib/secureTransport");
-      setLoginStage("connecting");
-      await warmupSession();
-      perf.mark("handshake_ready");
-      setLoginStage("authenticating");
       const data: any = await apiCall("manage-app", { action: "login_free", user_id: profile.id, clientGeo, captchaToken });
-      perf.mark("manage_app_login_free_ok");
       if (!data?.success) throw new Error(data?.error || "Failed to enter profile");
       if (data.workerUrls && Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
         storeWorkerUrls(data.workerUrls);
@@ -3324,11 +3066,9 @@ function ProfileSelectPage() {
       } catch {}
       try { sessionRemove("session_started_at" as any); } catch {}
       checkAuth();
-      perf.end("navigate_viewer");
       navigate("/viewer");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to enter profile";
-      perf.end(`failed: ${msg.slice(0, 60)}`);
       if (isGpsPermissionDeniedMessage(msg)) {
         setError("");
         setGpsPermissionMode(getGpsPermissionMode(msg));
@@ -3339,10 +3079,8 @@ function ProfileSelectPage() {
       }
     } finally {
       setFreeLoginId(null);
-      setLoginStage(null);
     }
   };
-
 
   const loginFreeProfile = async (profile: UserData) => {
     if (freeLoginId) return;
@@ -3616,18 +3354,12 @@ function ProfileSelectPage() {
       </AnimatePresence>
 
       <AnimatePresence>
-        {(showCaptcha || (loginStage && !freeCaptchaProfile)) && siteKey && (
-          <CaptchaModal
-            siteKey={siteKey}
-            stage={loginStage}
-            onVerify={(token) => { void executeLogin(token); }}
-            onCancel={() => { pendingClientGeoRef.current = null; setShowCaptcha(false); }}
-          />
+        {showCaptcha && siteKey && (
+          <CaptchaModal siteKey={siteKey} onVerify={(token) => { setShowCaptcha(false); executeLogin(token); }} onCancel={() => { pendingClientGeoRef.current = null; setShowCaptcha(false); }} />
         )}
-        {(freeCaptchaProfile || (loginStage && !showCaptcha && !!freeLoginId)) && siteKey && (
+        {freeCaptchaProfile && siteKey && (
           <CaptchaModal
             siteKey={siteKey}
-            stage={loginStage}
             onVerify={(token) => {
               const p = freeCaptchaProfile;
               setFreeCaptchaProfile(null);
@@ -3637,7 +3369,6 @@ function ProfileSelectPage() {
           />
         )}
       </AnimatePresence>
-
     </div>
   );
 }
@@ -3668,7 +3399,6 @@ function AdminLoginPage() {
   const [siteKey, setSiteKey] = useState<string | null>(null);
   const [captchaReady, setCaptchaReady] = useState(false);
   const [showCaptcha, setShowCaptcha] = useState(false);
-  const [loginStage, setLoginStage] = useState<CaptchaStage | null>(null);
   const [gpsRequesting, setGpsRequesting] = useState(false);
   const [gpsPermissionMode, setGpsPermissionMode] = useState<GpsPermissionMode | null>(null);
   const pendingClientGeoRef = useRef<LoginLocationPayload | null>(null);
@@ -3877,23 +3607,12 @@ function AdminLoginPage() {
   const executeLogin = async (captchaToken?: string, preparedGeo?: LoginLocationPayload) => {
     setLoading(true);
     setError("");
-    const perf = startPerfTimer("login.admin");
-    if (captchaToken) perf.mark("captcha_token_received");
     try {
       if (!checkRateLimit(`admin_${username}`)) throw new Error("Too many attempts. Wait 1 minute.");
 
       const clientGeo = preparedGeo || pendingClientGeoRef.current || await requireLoginLocation();
       pendingClientGeoRef.current = null;
-      perf.mark("geo_ready");
-
-      const { warmupSession } = await import("./lib/secureTransport");
-      setLoginStage("connecting");
-      await warmupSession();
-      perf.mark("handshake_ready");
-
-      setLoginStage("authenticating");
       const data: any = await apiCall("manage-app", { action: "login", username, password, clientGeo, captchaToken });
-      perf.mark("manage_app_login_ok");
 
       if (data.user.role !== "admin") throw new Error("Access denied");
       if (data.pendingToken) {
@@ -3908,12 +3627,10 @@ function AdminLoginPage() {
       sessionSet("user" as any, JSON.stringify({ ...data.user, pending: true }));
       checkAuth();
 
-      perf.end("navigate_admin_auth");
       notify.success("Password verified. Complete 2FA to enter admin.");
       navigate("/admin-auth");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Login failed";
-      perf.end(`failed: ${msg.slice(0, 60)}`);
       if (isGpsPermissionDeniedMessage(msg)) {
         setError("");
         setGpsPermissionMode(getGpsPermissionMode(msg));
@@ -3924,11 +3641,8 @@ function AdminLoginPage() {
       }
     } finally {
       setLoading(false);
-      setLoginStage(null);
-      setShowCaptcha(false);
     }
   };
-
 
 
   return (
@@ -3987,16 +3701,10 @@ function AdminLoginPage() {
       </motion.div>
 
       <AnimatePresence>
-        {(showCaptcha || loginStage) && siteKey && (
-          <CaptchaModal
-            siteKey={siteKey}
-            stage={loginStage}
-            onVerify={(token) => { void executeLogin(token); }}
-            onCancel={() => { pendingClientGeoRef.current = null; setShowCaptcha(false); }}
-          />
+        {showCaptcha && siteKey && (
+          <CaptchaModal siteKey={siteKey} onVerify={(token) => { setShowCaptcha(false); executeLogin(token); }} onCancel={() => { pendingClientGeoRef.current = null; setShowCaptcha(false); }} />
         )}
       </AnimatePresence>
-
     </div>
   );
 }
@@ -5019,8 +4727,6 @@ function AdminPanel() {
   const [maintenanceVersionTo, setMaintenanceVersionTo] = useState("");
   const [savingMaintenance, setSavingMaintenance] = useState(false);
   const [creatingUser, setCreatingUser] = useState(false);
-  const [deleteConfirmUser, setDeleteConfirmUser] = useState<UserData | null>(null);
-  const [deletingUser, setDeletingUser] = useState(false);
   const prevSavedVersionToRef = useRef<string>("");
 
 
@@ -5966,16 +5672,12 @@ function AdminPanel() {
 
 
   const deleteUser = async (id: string) => {
-    setDeletingUser(true);
     try {
       await apiCall("manage-app", { action: "delete", id });
       setUsers(users.filter(u => u.id !== id));
       notify.success("User deleted!");
-      setDeleteConfirmUser(null);
     } catch (err) {
       notify.error("Failed: " + (err instanceof Error ? err.message : String(err)));
-    } finally {
-      setDeletingUser(false);
     }
   };
 
@@ -6099,7 +5801,7 @@ function AdminPanel() {
             <span className="hidden sm:inline">Admin Control Panel</span>
             <span className="sm:hidden">Admin</span>
           </h2>
-          <button onClick={() => { performSignOut(); }} className="p-2 hover:bg-slate-100 rounded-full transition-colors" title="Logout" aria-label="Logout">
+          <button onClick={() => { try { sessionClearAll(); } catch {} window.location.replace("/"); }} className="p-2 hover:bg-slate-100 rounded-full transition-colors" title="Logout" aria-label="Logout">
             <LogOut className="w-5 h-5 text-slate-400" aria-hidden="true" />
           </button>
         </div>
@@ -6365,108 +6067,13 @@ function AdminPanel() {
                             </button>
                           )}
                           <div className="w-px h-6 bg-slate-200" />
-                          <button onClick={() => setDeleteConfirmUser(u)} title="Delete user"
+                          <button onClick={() => deleteUser(u.id)} title="Delete user"
                             className="flex-1 flex items-center justify-center h-9 rounded-lg text-slate-500 hover:bg-red-50 hover:text-red-600 hover:shadow-sm transition-all active:scale-95">
 
                             <Trash2 className="w-4 h-4" />
                           </button>
                         </div>
                       )}
-
-                    {deleteConfirmUser?.id === u.id && createPortal(
-                      <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 animate-in fade-in duration-200"
-                        onClick={() => !deletingUser && setDeleteConfirmUser(null)}
-                        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
-                        {/* Cinematic backdrop */}
-                        <div className="absolute inset-0 bg-black/80 backdrop-blur-xl" />
-                        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_30%,rgba(244,63,94,0.18),transparent_60%)] pointer-events-none" />
-
-                        <div onClick={(e) => e.stopPropagation()}
-                          className="relative w-full max-w-[380px] rounded-3xl overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-4 duration-300"
-                          style={{
-                            background: "linear-gradient(180deg, rgba(24,24,32,0.98) 0%, rgba(12,12,18,0.98) 100%)",
-                            border: "1px solid rgba(255,255,255,0.08)",
-                            boxShadow: "0 40px 80px -20px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.04) inset, 0 30px 60px -30px rgba(244,63,94,0.35)",
-                          }}>
-                          {/* Top accent hairline */}
-                          <div className="h-px w-full bg-gradient-to-r from-transparent via-rose-500/60 to-transparent" />
-
-                          {/* Header */}
-                          <div className="px-6 pt-7 pb-5 text-center">
-                            <div className="relative mx-auto w-16 h-16 mb-4">
-                              <div className="absolute inset-0 rounded-full bg-rose-500/10 blur-xl" />
-                              <div className="relative w-16 h-16 rounded-full flex items-center justify-center"
-                                style={{
-                                  background: "linear-gradient(135deg, rgba(244,63,94,0.15), rgba(244,63,94,0.05))",
-                                  border: "1px solid rgba(244,63,94,0.3)",
-                                  boxShadow: "0 0 0 6px rgba(244,63,94,0.06), inset 0 1px 0 rgba(255,255,255,0.08)",
-                                }}>
-                                <Trash2 className="w-7 h-7 text-rose-400" strokeWidth={2} />
-                              </div>
-                            </div>
-                            <div className="text-white text-[19px] font-bold tracking-tight leading-tight">
-                              Permanently delete profile?
-                            </div>
-                            <div className="text-white/50 text-[13px] mt-1.5 leading-relaxed px-2">
-                              This will erase everything tied to this account. There is no undo.
-                            </div>
-                          </div>
-
-                          {/* User card */}
-                          <div className="mx-5 mb-4">
-                            <div className="flex items-center gap-3 rounded-2xl px-3.5 py-3"
-                              style={{
-                                background: "rgba(255,255,255,0.03)",
-                                border: "1px solid rgba(255,255,255,0.06)",
-                              }}>
-                              <div className="w-11 h-11 rounded-full flex items-center justify-center text-[14px] font-bold text-white/90 overflow-hidden shrink-0"
-                                style={{
-                                  background: "linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02))",
-                                  border: "1px solid rgba(255,255,255,0.08)",
-                                }}>
-                                {u.profileAvatar ? <img src={u.profileAvatar} alt="" className="w-full h-full object-cover" /> : (u.name || u.username || "?").slice(0, 1).toUpperCase()}
-                              </div>
-                              <div className="min-w-0 flex-1">
-                                <div className="text-[14px] font-semibold text-white truncate">{u.name || u.username || "Unnamed"}</div>
-                                {u.username && <div className="text-[11.5px] text-white/45 truncate mt-0.5">@{u.username}</div>}
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Actions */}
-                          <div className="px-5 pb-5 flex gap-2.5">
-                            <button
-                              onClick={() => setDeleteConfirmUser(null)}
-                              disabled={deletingUser}
-                              className="flex-1 h-11 rounded-xl text-white/80 text-[13.5px] font-semibold transition-all active:scale-[0.98] disabled:opacity-50 hover:text-white"
-                              style={{
-                                background: "rgba(255,255,255,0.04)",
-                                border: "1px solid rgba(255,255,255,0.08)",
-                              }}>
-                              Keep it
-                            </button>
-                            <button
-                              onClick={() => deleteUser(u.id)}
-                              disabled={deletingUser}
-                              className="flex-1 h-11 rounded-xl text-white text-[13.5px] font-bold transition-all active:scale-[0.98] disabled:opacity-60 flex items-center justify-center gap-1.5"
-                              style={{
-                                background: "linear-gradient(180deg, #f43f5e 0%, #e11d48 100%)",
-                                boxShadow: "0 8px 20px -6px rgba(244,63,94,0.5), inset 0 1px 0 rgba(255,255,255,0.15)",
-                              }}>
-                              {deletingUser ? (
-                                <><div className="w-3.5 h-3.5 rounded-full border-2 border-white/40 border-t-white animate-spin" /> Deleting…</>
-                              ) : (
-                                <><Trash2 className="w-4 h-4" /> Delete forever</>
-                              )}
-                            </button>
-                          </div>
-                        </div>
-                      </div>,
-                      document.body,
-                    )}
-
-
-
 
 
 
@@ -9743,11 +9350,13 @@ function EmailViewer() {
     [refreshAccountLabels],
   );
   useEffect(() => {
+    // eslint-disable-next-line no-console
     const runKey = `${user?.id || ""}:${instantInboxAccountKey}`;
+    console.log("[inbox] effect fired", { userId: user?.id, runKey, alreadyRan: instantInboxRunKeyRef.current === runKey });
     if (instantInboxRunKeyRef.current === runKey) return;
-    if (!user?.id) return;
+    if (!user?.id) { console.log("[inbox] no user.id, skipping"); return; }
     if (refreshAccountLabels === undefined) {
-      pushDiag({ ts: Date.now(), kind: "cache", endpoint: "idb:instant-paint", note: "account scope hydrating, painting local cache only" });
+      console.log("[inbox] account scope hydrating, painting local cache only");
       (async () => {
         try {
           const db = await openInboxDB(user.id);
@@ -9773,20 +9382,20 @@ function EmailViewer() {
       try {
         db = await openInboxDB(user.id);
         idbRef.current = db;
-        
+        console.log("[inbox] IDB opened for user", user.id);
         await purgeEmailsOutsideScope(db, refreshAccountLabels);
         await refreshEmailFiltersForViewer();
 
         // ---- (1) Instant paint from IDB ----
         const cached = await readLatestEmails(db, 200, refreshAccountLabels);
-        
+        console.log(`[inbox] IDB has ${cached.length} cached rows`);
         if (cached.length > 0) {
           setEmails(cached as unknown as Email[]);
           setLastUpdated(new Date());
           markInboxReady();
           const dt = performance.now() - t0;
           pushDiag({ ts: Date.now(), kind: "cache", endpoint: "idb:instant-paint", ms: Math.round(dt), note: `${cached.length} rows` });
-          
+          console.log(`[inbox] instant paint in ${dt.toFixed(1)}ms (${cached.length} rows from IDB)`);
         }
 
         // ---- (2) Delta sync via Supabase edge function ----
@@ -9796,7 +9405,16 @@ function EmailViewer() {
         // changes after that cursor. Otherwise old emails can never backfill.
         const cursor = cached.length === 0 ? 0 : storedCursor;
         const started = performance.now();
+        console.log(`[inbox] calling list_delta since=${cursor}${storedCursor && cursor === 0 ? ` (reset stale cursor ${storedCursor})` : ""}`);
         const delta = await apiCall("manage-app", { action: "list_delta", since: cursor, limit: cursor === 0 ? 1000 : 500 });
+        console.log("[inbox] list_delta response", {
+          success: delta?.success,
+          mode: delta?.mode,
+          rows: delta?.rows?.length || 0,
+          removed: delta?.removedIds?.length || 0,
+          newCursor: delta?.newCursor,
+          sample: delta?.rows?.[0],
+        });
         pushDiag({
           ts: Date.now(),
           kind: "sync",
@@ -9812,7 +9430,7 @@ function EmailViewer() {
         if (rows.length > 0 || removedIds.length > 0 || newCursor > cursor) {
           await writeDelta(db, { rows, removedIds, newCursor });
           const fresh = await readLatestEmails(db, 200, refreshAccountLabels);
-          
+          console.log(`[inbox] after writeDelta, IDB has ${fresh.length} rows → repaint`);
           if (fresh.length > 0) {
             setEmails(fresh as unknown as Email[]);
             setLastUpdated(new Date());
@@ -10051,7 +9669,6 @@ function EmailViewer() {
                 Admin
               </button>
             )}
-            <TvAutoLoginButton />
             <NotificationBell />
             <button
               onClick={() => fetchEmails()}
@@ -10074,7 +9691,7 @@ function EmailViewer() {
             )}
             {!isImpersonating && (
               <button
-                onClick={() => { performSignOut(); }}
+                onClick={() => { try { sessionClearAll(); } catch {} window.location.replace("/"); }}
                 className="flex items-center justify-center w-9 h-9 bg-red-600 text-white rounded-full transition-all active:scale-95 hover:bg-red-700"
                 title="Logout"
                 aria-label="Logout"
@@ -10117,7 +9734,6 @@ function EmailViewer() {
                 Back to Admin
               </button>
             )}
-            <TvAutoLoginButton />
             <NotificationBell />
             <button onClick={() => fetchEmails()}
               disabled={refreshing}
@@ -10143,7 +9759,7 @@ function EmailViewer() {
             )}
             {!isImpersonating && (
               <button
-                onClick={() => { performSignOut(); }}
+                onClick={() => { try { sessionClearAll(); } catch {} window.location.replace("/"); }}
                 className="flex items-center justify-center w-10 h-10 bg-red-600 text-white rounded-full transition-all active:scale-95 hover:bg-red-700 shadow-sm"
                 title="Logout"
                 aria-label="Logout"
@@ -10460,13 +10076,14 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
     if (user.impersonated === true || hasActiveAdminImpersonationBackup()) return;
     const path = typeof window !== "undefined" ? window.location.pathname : "/";
     if (path.startsWith("/admin")) return;
+    try { clearSessionData(); } catch {}
+    checkAuth();
     notify.info("🛠 Maintenance started", {
       id: "maint-kick",
       description: "You've been signed out while we perform updates.",
       duration: 4000,
     });
-    // Silent full reset: purge cookies + session, then reload the page.
-    performSignOut();
+    navigate("/", { replace: true });
   }, [maint.enabled, authLoading, user?.id, user?.role, user?.impersonated]);
 
 
@@ -10543,58 +10160,6 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
 }
 
 
-// ============================================================================
-// ⚠️  Netflix-style /clearcookies endpoint — site storage → 0 B ⚠️
-// ----------------------------------------------------------------------------
-// PRIMARY mechanism: the /clearcookies route ships with a `Clear-Site-Data: "*"`
-// response header (see netlify.toml + vercel.json). Merely LOADING this URL
-// tells the browser to purge cookies (incl. httpOnly), localStorage,
-// sessionStorage, IndexedDB, Cache Storage, service workers, HTTP cache, and
-// running execution contexts at the HTTP layer. That's the same trick
-// netflix.com/clearcookies uses.
-//
-// SECONDARY (JS fallback via nukeBrowserIdentity): for local dev / hosts that
-// strip the header, we also wipe every surface from JavaScript. Both run.
-// ============================================================================
-function ClearCookiesPage() {
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      // 1. Best-effort server logout — invalidate the httpOnly session cookie
-      //    on the DB side before we navigate away.
-      try {
-        const token = sessionGet("session_token" as any);
-        if (token) {
-          const { invokeEdge } = await import("./lib/secureTransport");
-          await Promise.race([
-            invokeEdge("manage-app", { action: "logout" }, { headers: { "X-Session-Token": token } }),
-            new Promise((r) => setTimeout(r, 2000)),
-          ]).catch(() => {});
-        }
-      } catch {}
-      // 2. Ping /clearcookies as a plain HEAD/GET so the browser processes
-      //    the `Clear-Site-Data: "*"` response header on hosts that serve it.
-      //    This alone forces site storage to 0 B on Netlify/Vercel.
-      try {
-        await fetch("/clearcookies", { method: "GET", cache: "no-store", credentials: "same-origin" }).catch(() => {});
-      } catch {}
-      // 3. JS fallback wipe — covers local dev + any host that strips the header.
-      try { await nukeBrowserIdentity(); } catch {}
-      if (cancelled) return;
-      // 4. Hard reload to "/" with a cache-buster so nothing in-memory survives
-      //    and any CDN edge cache is bypassed.
-      try { window.location.replace("/?_cc=" + Date.now()); } catch { window.location.href = "/"; }
-    })();
-    return () => { cancelled = true; };
-  }, []);
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-950 text-slate-200">
-      <div className="text-sm opacity-80">Clearing cookies…</div>
-    </div>
-  );
-}
-
-
 // ==================== MAIN APP ====================
 export default function App() {
   return (
@@ -10611,10 +10176,7 @@ export default function App() {
               <Route path="/admin/viewer" element={<AdminUserViewRoute><EmailViewer /></AdminUserViewRoute>} />
               <Route path="/viewer" element={<ProtectedRoute role="user"><EmailViewer /></ProtectedRoute>} />
               <Route path="/guides/netflix-household-verification" element={<NetflixHouseholdVerificationGuide />} />
-              <Route path="/clearcookies" element={<ClearCookiesPage />} />
             </Routes>
-
-
           </MaintenanceGate>
         </ErrorBoundary>
       </AuthProvider>

@@ -218,25 +218,10 @@ async function getAssignedAccountFilter(supabase: any, session: Session | null):
   return Array.isArray(userData?.assigned_accounts) ? normalizeAccountLabels(userData.assigned_accounts, labels) : [];
 }
 
-// ============================================================================
-// ⚠️  DO NOT TOUCH — HARD BLOCK: Netflix account-change mails ⚠️
-// ----------------------------------------------------------------------------
-// Netflix account-modification mails (email change, phone add/update, password
-// change, profile add/remove/rename, payment/billing update, membership
-// pause/cancel, "Confirm your account change with this code: XXXXXX", etc.)
-// are HARD BLOCKED for end users — admin toggle irrelevant. Only admin sees
-// them. Runs BEFORE the OTP/signin check so account-change mails carrying a
-// 6-digit code (like Netflix's email-change confirmation) are still caught.
-// Mirrors the identical rule in manage-app and the client classifier.
-// ============================================================================
-const ACCOUNT_CHANGE_STRONG_RE = /(confirm (your )?(account change|email address change|change to your account|new email|phone (number )?change)|your (account (information|info|details)|email address|phone number|password) (was |has been |is )?(changed|updated|added|removed|reset)|(email address|phone number|password|payment method|payment info|billing info|account information) (was |has been )?(changed|updated|added|removed|reset|verified)|changes? to your account (was|has been|were) (made|updated)|make (a |any )?(change|changes) to your account|request to make a change|password (was |has been )?(changed|reset|updated)|(a )?new profile (was |has been )?(added|created)|profile (was |has been )?(added|created|removed|deleted|renamed|updated|modified)|(a )?profile (has been|was) (added|removed|deleted|renamed)|added a (new )?(phone|mobile|email|profile)|(mobile|phone) number (was |has been )?(added|updated|changed|removed|verified|confirmed)|membership (was |has been )?(cancell?ed|updated|paused|on hold|restarted|resumed|reactivated)|account (was |has been )?(cancell?ed|deleted|closed|paused|on hold|reactivated)|we[’']re sorry to see you go|payment (method|info|information) (was |has been )?(updated|changed|added|removed)|update your account (information|info|details)|action needed: (verify|update|confirm))/i;
-
 function classifyEmailForVisibility(e: any): "signin" | "password_reset" | "account_update" | "other" {
   const subject = String(e?.subject || "");
   const preview = String(e?.preview || "");
   const combined = `${subject} ${preview}`;
-  // HARD BLOCK (see banner above) — always wins, even over OTP.
-  if (ACCOUNT_CHANGE_STRONG_RE.test(combined)) return "account_update";
   if (e?.otp || HOUSEHOLD_SIGNIN_RE.test(combined) || SIGN_IN_CODE_SUBJECTS.some(kw => combined.toLowerCase().includes(kw)) || OTP_SUBJECT_HINT.test(subject) || OTP_BODY_CONTEXT.test(preview)) return "signin";
   if (ACCOUNT_UPDATE_RE.test(combined)) return "account_update";
   if (PASSWORD_RESET_SUBJECTS.some(kw => combined.toLowerCase().includes(kw))) return "password_reset";
@@ -892,15 +877,6 @@ Deno.serve(async (originalReq) => {
         if (filterData.value.showAccountUpdates === false) filterAccountUpdates = true;
       }
     } catch {}
-
-    // ⚠️ HARD BLOCK — for any non-admin session, account-change and
-    //    password-reset mails are ALWAYS filtered out. Admin toggle
-    //    irrelevant. See banner near ACCOUNT_CHANGE_STRONG_RE. DO NOT TOUCH.
-    if (session && session.role !== "admin") {
-      filterAccountUpdates = true;
-      filterPasswordResets = true;
-    }
-
 
     const isLegacyPgCron = !session && !isCronSecret && hasServerSideBearer && mode === "sync" && source === "cron";
     const isCron = isCronSecret || isLegacyPgCron;
