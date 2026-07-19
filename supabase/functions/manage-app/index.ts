@@ -176,6 +176,71 @@ function shouldExposeEmailToUser(row: any, filters: EmailVisibilityFilters, _isF
 }
 
 
+const TOTP_STEP_SECONDS = 30;
+const TOTP_EXPIRED_CODE_GRACE_SECONDS = 5;
+
+function decodeBase32Secret(secret: string): Uint8Array {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  const clean = String(secret || "").toUpperCase().replace(/[^A-Z2-7]/g, "");
+  let bits = 0;
+  let value = 0;
+  const bytes: number[] = [];
+
+  for (const char of clean) {
+    const idx = alphabet.indexOf(char);
+    if (idx === -1) continue;
+    value = (value << 5) | idx;
+    bits += 5;
+    if (bits >= 8) {
+      bytes.push((value >>> (bits - 8)) & 0xff);
+      bits -= 8;
+    }
+  }
+
+  return new Uint8Array(bytes);
+}
+
+async function generateTotpAtStep(secret: string, step: number): Promise<string | null> {
+  const keyBytes = decodeBase32Secret(secret);
+  if (!keyBytes.length || !Number.isFinite(step) || step < 0) return null;
+
+  const counter = new ArrayBuffer(8);
+  const view = new DataView(counter);
+  view.setUint32(0, Math.floor(step / 0x100000000), false);
+  view.setUint32(4, step >>> 0, false);
+
+  const key = await crypto.subtle.importKey("raw", keyBytes, { name: "HMAC", hash: "SHA-1" }, false, ["sign"]);
+  const digest = new Uint8Array(await crypto.subtle.sign("HMAC", key, counter));
+  const offset = digest[digest.length - 1] & 0x0f;
+  const binary = ((digest[offset] & 0x7f) << 24)
+    | ((digest[offset + 1] & 0xff) << 16)
+    | ((digest[offset + 2] & 0xff) << 8)
+    | (digest[offset + 3] & 0xff);
+
+  return String(binary % 1_000_000).padStart(6, "0");
+}
+
+async function verifyTotpWithShortExpiredGrace(code: string, secret: string, nowMs = Date.now()): Promise<boolean> {
+  const normalizedCode = String(code || "").replace(/\s+/g, "");
+  if (!/^\d{6}$/.test(normalizedCode)) return false;
+
+  const nowSeconds = Math.floor(nowMs / 1000);
+  const currentStep = Math.floor(nowSeconds / TOTP_STEP_SECONDS);
+  const secondsIntoStep = nowSeconds % TOTP_STEP_SECONDS;
+  const currentCode = await generateTotpAtStep(secret, currentStep);
+  if (normalizedCode === currentCode) return true;
+
+  // When Google Authenticator rotates, allow the just-expired code for only
+  // the first 5 seconds of the new 30s window. Current code remains valid too.
+  if (secondsIntoStep < TOTP_EXPIRED_CODE_GRACE_SECONDS) {
+    const previousCode = await generateTotpAtStep(secret, currentStep - 1);
+    if (normalizedCode === previousCode) return true;
+  }
+
+  return false;
+}
+
+
 // --- Crypto helpers ---
 async function hashPassword(password: string): Promise<string> {
   const encoder = new TextEncoder();
@@ -2872,17 +2937,8 @@ Deno.serve(async (originalReq) => {
       if (!code || String(code).length < 6) throw new Error("TOTP code required");
       const { data: user, error } = await supabase.from("app_users").select("totp_secret").eq("id", pending.userId).single();
       if (error || !user?.totp_secret) throw new Error("TOTP is not configured");
-      // Grace window: accept current code. Also accept the just-expired
-      // previous code, but only during the first 5 seconds of a new 30s step.
       const codeStr = String(code).trim();
-      let valid = authenticator.check(codeStr, user.totp_secret);
-      if (!valid) {
-        const secsIntoStep = Math.floor(Date.now() / 1000) % 30;
-        if (secsIntoStep < 5) {
-          const prev = authenticator.clone({ epoch: Date.now() - 30_000 } as any);
-          valid = prev.check(codeStr, user.totp_secret);
-        }
-      }
+      const valid = await verifyTotpWithShortExpiredGrace(codeStr, user.totp_secret);
       if (!valid) throw new Error("Invalid Google Authenticator code");
       await supabase.from("app_admin_2fa_state").update({ totp_verified_at: new Date().toISOString() }).eq("token_hash", tokenHash).eq("user_id", pending.userId);
       return new Response(JSON.stringify({ success: true }), {
