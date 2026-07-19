@@ -58,15 +58,16 @@ if ! command -v node >/dev/null || [[ "$(node -v 2>/dev/null | cut -c2-3)" -lt 1
   apt-get install -y nodejs >/dev/null
 fi
 
-# Caddy
+# Caddy (official cloudsmith setup script)
+rm -f /etc/apt/sources.list.d/caddy-stable.list
 if ! command -v caddy >/dev/null; then
-  curl -fsSL "https://dl.cloudsmith.io/public/caddy/stable/gpg.key" | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-  curl -fsSL "https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt" \
-    | sed 's|^deb |deb [signed-by=/usr/share/keyrings/caddy-stable-archive-keyring.gpg] |' \
-    > /etc/apt/sources.list.d/caddy-stable.list
+  apt-get install -y debian-keyring debian-archive-keyring apt-transport-https curl >/dev/null
+  curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --batch --yes --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+  echo "deb [signed-by=/usr/share/keyrings/caddy-stable-archive-keyring.gpg] https://dl.cloudsmith.io/public/caddy/stable/deb/debian any-version main" > /etc/apt/sources.list.d/caddy-stable.list
   apt-get update -y >/dev/null
   apt-get install -y caddy >/dev/null
 fi
+
 
 CHROMIUM_BIN="$(command -v chromium || command -v chromium-browser)"
 NOVNC_DIR="/usr/share/novnc"
@@ -103,18 +104,10 @@ function pickSlot() {
   throw new Error("no free ports");
 }
 
-function spawnDetached(cmd, args, logfile) {
-  const out = existsSync(logfile) ? "a" : "w";
-  const fd = require("node:fs").openSync(logfile, out);
-  const p = spawn(cmd, args, { detached: true, stdio: ["ignore", fd, fd] });
-  p.unref();
-  return p.pid;
-}
-// ESM-friendly spawnDetached:
 import { openSync } from "node:fs";
-function spawnBg(cmd, args, logfile) {
+function spawnBg(cmd, args, logfile, env) {
   const fd = openSync(logfile, "a");
-  const p = spawn(cmd, args, { detached: true, stdio: ["ignore", fd, fd] });
+  const p = spawn(cmd, args, { detached: true, env: env || process.env, stdio: ["ignore", fd, fd] });
   p.unref();
   return p.pid;
 }
@@ -126,28 +119,19 @@ async function startSession(id, name) {
   mkdirSync(dir, { recursive: true });
   const port = pickSlot();
   const display = port - PORT_BASE + 90; // :90, :91, ...
+  const vncPort = 5900 + (port - PORT_BASE);
   const log = `/var/log/rbs/${id}.log`;
 
-  const xvfbPid  = spawnBg("Xvfb", [`:${display}`, "-screen", "0", "1280x800x24", "-nolisten", "tcp"], log);
-  await sleep(500);
+  const xvfbPid = spawnBg("Xvfb", [`:${display}`, "-screen", "0", "1280x800x24", "-nolisten", "tcp"], log);
+  await sleep(600);
   const chromiumPid = spawnBg(CHROMIUM, [
-    "--no-sandbox", "--no-first-run", "--no-default-browser-check",
-    "--disable-gpu", "--disable-dev-shm-usage",
-    "--start-maximized", "--window-size=1280,800",
-    `--user-data-dir=${dir}`,
-    "https://www.netflix.com/login"
-  ], log);
-  // Chromium needs DISPLAY env — respawn with env
-  try { process.kill(chromiumPid); } catch {}
-  const child = spawn(CHROMIUM, [
     "--no-sandbox","--no-first-run","--no-default-browser-check",
     "--disable-gpu","--disable-dev-shm-usage",
     "--start-maximized","--window-size=1280,800",
     `--user-data-dir=${dir}`,
     "https://www.netflix.com/login"
-  ], { detached:true, env:{...process.env, DISPLAY:`:${display}`}, stdio:["ignore", openSync(log,"a"), openSync(log,"a")] });
-  child.unref();
-  const chromiumPid2 = child.pid;
+  ], log, { ...process.env, DISPLAY: `:${display}` });
+
 
   await sleep(800);
   const x11vncPid = spawnBg("x11vnc", [
@@ -160,7 +144,7 @@ async function startSession(id, name) {
     String(port), `localhost:${5900 + (port - PORT_BASE)}`
   ], log);
 
-  state[id] = { name, port, display, pids:{ xvfb:xvfbPid, chromium:chromiumPid2, x11vnc:x11vncPid, ws:wsPid }, createdAt: Date.now() };
+  state[id] = { name, port, display, pids:{ xvfb:xvfbPid, chromium:chromiumPid, x11vnc:x11vncPid, ws:wsPid }, createdAt: Date.now() };
   saveState();
   return state[id];
 }
