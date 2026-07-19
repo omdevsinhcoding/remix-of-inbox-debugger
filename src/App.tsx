@@ -5228,6 +5228,76 @@ function AdminPanel() {
   const [savingTvFeature, setSavingTvFeature] = useState(false);
   const [savingLocationPolicy, setSavingLocationPolicy] = useState(false);
 
+  // VPS Access (admin-only setting stored at app_settings.vps_config)
+  const [vpsCfg, setVpsCfg] = useState<{ label: string; ip: string; port: string; username: string; keyFilename: string; sshKey: string; notes: string }>({
+    label: "Selenium VPS", ip: "", port: "22", username: "root", keyFilename: "vps-key.pem", sshKey: "", notes: "",
+  });
+  const [vpsLoading, setVpsLoading] = useState(false);
+  const [vpsSaving, setVpsSaving] = useState(false);
+  const [vpsRevealKey, setVpsRevealKey] = useState(false);
+  const vpsLoadedRef = useRef(false);
+
+  useEffect(() => {
+    if (activeTab !== "tv" || vpsLoadedRef.current) return;
+    vpsLoadedRef.current = true;
+    (async () => {
+      setVpsLoading(true);
+      try {
+        const res: any = await apiCall("manage-app", { action: "get_settings", key: "vps_config" });
+        const v = res?.value || {};
+        setVpsCfg((prev) => ({
+          label: typeof v.label === "string" ? v.label : prev.label,
+          ip: typeof v.ip === "string" ? v.ip : "",
+          port: v.port ? String(v.port) : "22",
+          username: typeof v.username === "string" && v.username ? v.username : "root",
+          keyFilename: typeof v.keyFilename === "string" && v.keyFilename ? v.keyFilename : "vps-key.pem",
+          sshKey: typeof v.sshKey === "string" ? v.sshKey : "",
+          notes: typeof v.notes === "string" ? v.notes : "",
+        }));
+      } catch (e: any) {
+        console.warn("[vps] load failed:", e?.message || e);
+      } finally {
+        setVpsLoading(false);
+      }
+    })();
+  }, [activeTab]);
+
+  const saveVpsConfig = async () => {
+    if (vpsSaving) return;
+    setVpsSaving(true);
+    try {
+      const value = {
+        label: vpsCfg.label.trim() || "VPS",
+        ip: vpsCfg.ip.trim(),
+        port: (parseInt(vpsCfg.port, 10) || 22).toString(),
+        username: vpsCfg.username.trim() || "root",
+        keyFilename: vpsCfg.keyFilename.trim() || "vps-key.pem",
+        sshKey: vpsCfg.sshKey,
+        notes: vpsCfg.notes,
+      };
+      await apiCall("manage-app", { action: "set_settings", key: "vps_config", value });
+      notify.success("VPS access saved");
+    } catch (e: any) {
+      notify.error("Failed to save VPS", { description: e?.message || String(e) });
+    } finally {
+      setVpsSaving(false);
+    }
+  };
+
+  const downloadSshKey = () => {
+    const content = vpsCfg.sshKey || "";
+    if (!content.trim()) { notify.error("No SSH key saved"); return; }
+    const filename = (vpsCfg.keyFilename || "vps-key.pem").replace(/[^\w.\-]/g, "_");
+    const blob = new Blob([content.endsWith("\n") ? content : content + "\n"], { type: "application/x-pem-file" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = filename; document.body.appendChild(a); a.click();
+    setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 300);
+    notify.success("Private key downloaded", { description: `chmod 600 ${filename} before connecting.` });
+  };
+
+
+
   useEffect(() => {
     const applyEvent = (event: TvFeatureEvent) => {
       if (!event || typeof event !== "object") return;
