@@ -5233,7 +5233,6 @@ function AdminPanel() {
   type NetflixCookieEntry = { id: string; accountLabel: string; name: string; cookies: string; updatedAt: number };
   const [netflixCookies, setNetflixCookies] = useState<NetflixCookieEntry[]>([]);
   const [ckSelectedAccount, setCkSelectedAccount] = useState<string>("");
-  const [ckSessionName, setCkSessionName] = useState("");
   const [ckCookieInput, setCkCookieInput] = useState("");
   const [ckSaving, setCkSaving] = useState(false);
   const [ckLoaded, setCkLoaded] = useState(false);
@@ -5252,27 +5251,27 @@ function AdminPanel() {
 
   const saveNetflixCookie = async () => {
     const accountLabel = ckSelectedAccount.trim();
-    const name = ckSessionName.trim();
     const cookies = ckCookieInput.trim();
     if (!accountLabel) { notify.error("Select an account first"); return; }
-    if (!name) { notify.error("Enter a session name"); return; }
     if (!cookies) { notify.error("Paste your Netflix cookies"); return; }
     if (cookies.length > 200_000) { notify.error("Cookies too large (max 200KB)"); return; }
     setCkSaving(true);
     try {
-      const existingIdx = netflixCookies.findIndex(c => c.accountLabel === accountLabel && c.name.toLowerCase() === name.toLowerCase());
+      const existingIdx = netflixCookies.findIndex(c => c.accountLabel === accountLabel);
       const entry: NetflixCookieEntry = {
         id: existingIdx >= 0 ? netflixCookies[existingIdx].id : `ck-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
-        accountLabel, name, cookies, updatedAt: Date.now(),
+        accountLabel,
+        name: accountLabel,
+        cookies,
+        updatedAt: Date.now(),
       };
       const updated = existingIdx >= 0
         ? netflixCookies.map((c, i) => i === existingIdx ? entry : c)
         : [entry, ...netflixCookies];
       setNetflixCookies(updated);
       await apiCall("manage-app", { action: "set_settings", key: "netflix_cookies", value: updated });
-      setCkSessionName("");
       setCkCookieInput("");
-      notify.success(existingIdx >= 0 ? "Session updated" : "Session saved");
+      notify.success(existingIdx >= 0 ? "Cookies updated" : "Cookies saved");
     } catch (err) {
       notify.error(err instanceof Error ? err.message : "Failed to save");
       loadNetflixCookies();
