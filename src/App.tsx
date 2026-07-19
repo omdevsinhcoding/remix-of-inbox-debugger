@@ -5322,7 +5322,7 @@ function AdminPanel() {
         data.expires = fallback.expires;
       }
       if (!data?.url) {
-        throw new Error(data?.error || `Request failed (${resp.status})`);
+        throw new Error(data?.error || `Request failed (${directStatus || "network"})`);
       }
       const expires: number | null = typeof data?.expires === "number" ? data.expires : null;
       notify.dismiss(tid);
