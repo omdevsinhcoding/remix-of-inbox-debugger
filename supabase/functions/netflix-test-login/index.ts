@@ -313,176 +313,73 @@ Deno.serve(async (req) => {
         if (filter) log("BOOT", `Using recipient-filter login email ${email} for account "${chosenLabel}"`);
         if (pollLabels.length > 1) log("BOOT", `Will poll same IMAP mailbox labels too: ${pollLabels.join(", ")}`);
 
-        log("BOOT", "Using uploaded simple flow: open Netflix login → enter email → click submit → detect OTP/password state. Stored Netflix Vault passwords are not submitted by this test.");
+        // ── Vault password (optional; VPS worker will use if provided) ──
+        const { data: vaultRow } = await supabase.from("app_settings").select("value").eq("key", "netflix_credentials").maybeSingle();
+        const vault: Record<string, string> = (vaultRow?.value && typeof vaultRow.value === "object") ? vaultRow.value as Record<string, string> : {};
+        const vaultLower: Record<string, string> = {};
+        for (const [k, v] of Object.entries(vault)) vaultLower[String(k).trim().toLowerCase()] = String(v || "");
+        const emailLc = email.toLowerCase();
+        const rawPassword = vaultLower[emailLc] || vaultLower[String(acc.user || "").trim().toLowerCase()] || "";
+        const password = rawPassword.trim();
+        log("BOOT", `Vault password for ${email}: ${password ? `yes (len=${password.length})` : "none"}`);
 
-        // ── Netflix flow ─────────────────────────────────────────────────
-        const jar: CookieJar = new Map();
-        const triggerTs = new Date().toISOString();
+        // ── Headless VPS worker ──────────────────────────────────────────
+        const workerUrl = Deno.env.get("NF_WORKER_URL");
+        const workerToken = Deno.env.get("NF_WORKER_TOKEN");
+        if (!workerUrl || !workerToken) throw new Error("NF_WORKER_URL / NF_WORKER_TOKEN not configured");
 
-        log("STEP-1", "GET https://www.netflix.com/login");
-        const loginPage = await nfFetch(`${NF_BASE}/login`, {}, jar);
-        const html = await loginPage.text();
-        const authURL = extractAuthURL(html);
-        const countryIso = extractRequestCountryIso(html);
-        log("STEP-1", `finalUrl=${loginPage.url}  status=${loginPage.status}  bytes=${html.length}  cookies=${jar.size}  authURL=${authURL ? "ok" : "MISSING"}  country=${countryIso}`);
-        log("STEP-1", `cookie names: ${cookieNames(jar) || "none"}`);
-        if (!authURL) {
-          const snippet = html.slice(0, 300).replace(/\s+/g, " ");
-          throw new Error(`Netflix did not return authURL. First 300 chars: ${snippet}`);
-        }
-
-        const persistSession = async (method: "password" | "otp") => {
-          log("STEP-5", "Verifying Netflix session with /browse before saving…");
-          const verify = await nfFetch(`${NF_BASE}/browse`, {
-            method: "GET",
-            headers: { "Referer": NF_BASE },
-          }, jar);
-          const verifyBody = await verify.text().catch(() => "");
-          const verified = looksLikeNetflixSignedIn(verifyBody, verify.url || "", verify.status);
-          log("STEP-5", `verify status=${verify.status} finalUrl=${verify.url} bytes=${verifyBody.length} validSession=${verified ? "yes" : "no"}`);
-          if (!verified) {
-            const preview = htmlText(verifyBody).slice(0, 180);
-            throw new Error(`Netflix cookies are not a real signed-in session; not saved. Verify URL=${verify.url || "-"}${preview ? ` preview="${preview}"` : ""}`);
-          }
-
-          const required = ["NetflixId", "SecureNetflixId", "gsid"];
-          const missing = required.filter((name) => !jar.has(name));
-          if (missing.length) {
-            throw new Error(`Netflix session verified but required real-session cookie(s) missing: ${missing.join(", ")}. Cookies seen: ${cookieNames(jar) || "none"}`);
-          }
-
-          log("STEP-5", `Storing verified browser-cookie export in netflix_sessions. Cookies: ${cookieNames(jar)}`);
-          const cookies = JSON.stringify(cookieJarToBrowserExport(jar));
-          const { error: upErr } = await supabase.from("netflix_sessions").upsert({
-            email, account_label: chosenLabel, cookies_json: cookies,
-            status: "active", last_login_at: new Date().toISOString(), last_error: null,
-          }, { onConflict: "email" });
-          if (upErr) throw new Error(`db upsert failed: ${upErr.message}`);
-          log("DONE", `Session persisted (${jar.size} cookies) via ${method} login`);
-          send("done", { ok: true, cookies: jar.size, email, account_label: chosenLabel, method });
-        };
-
-        let subBody = "";
-        let netflixMessage = "";
-        let loginState: LoginState = "unknown";
-
-        log("STEP-2", `Submit email only like uploaded script  userLoginId="${email}"  password=(empty)`);
-        const form = new URLSearchParams({
-          userLoginId: email, password: "", rememberMe: "true",
-          flow: "websiteSignUp", mode: "login", action: "loginAction",
-          withFields: "userLoginId,password,rememberMe,nextPage,showPassword",
-          authURL, nextPage: "", showPassword: "",
-        });
-        const sub = await nfFetch(`${NF_BASE}/login`, {
-          method: "POST", body: form,
+        log("VPS", `Calling headless worker ${workerUrl}/login (real Chromium, real IP)`);
+        const wRes = await fetch(`${workerUrl}/login`, {
+          method: "POST",
           headers: {
-            "Content-Type": "application/x-www-form-urlencoded",
-            "Referer": loginPage.url || `${NF_BASE}/login`,
-            "Origin": NF_BASE,
+            "Content-Type": "application/json",
+            "X-Worker-Token": workerToken,
           },
-        }, jar);
-        await new Promise((r) => setTimeout(r, 3000));
-        subBody = await sub.text().catch(() => "");
-        netflixMessage = extractNetflixMessage(subBody);
-        loginState = inferNetflixLoginState(subBody, sub.url || "");
-        log("STEP-2", `status=${sub.status}  finalUrl=${sub.url}  cookies=${jar.size}  bytes=${subBody.length}`);
-        log("STEP-2", `cookie names: ${cookieNames(jar) || "none"}`);
-        log("STEP-2", `Netflix login state detected: ${loginState}`);
-        if (netflixMessage) log("STEP-2", `Netflix said: ${netflixMessage.slice(0, 220)}`);
-        else log("STEP-2", `body preview: ${subBody.slice(0, 250).replace(/\s+/g, " ")}`);
-
-        if (loginState === "incorrect_password") {
-          throw new Error(`Netflix rejected the email-first submit for ${email}. No password was sent by this simple flow.`);
-        }
-        if (loginState === "blocked") {
-          throw new Error(`Netflix blocked this email-first test for ${email}: ${netflixMessage || "risk/reCAPTCHA validation required"}. This edge function cannot open a real Selenium/Chrome browser, so it stops here.`);
-        }
-        if (loginState === "password_required") {
-          throw new Error(`Netflix is asking for your password for ${email} (no OTP triggered at this step). Simple uploaded flow stops here.`);
+          body: JSON.stringify({ email, password, mode: password ? "password" : "email_only" }),
+        });
+        if (!wRes.ok || !wRes.body) {
+          const t = await wRes.text().catch(() => "");
+          throw new Error(`worker HTTP ${wRes.status}: ${t.slice(0, 300)}`);
         }
 
-        // Kick off IMAP sync so the OTP mail lands in cached_emails ASAP.
-        log("STEP-3", "Triggering IMAP sync via fetch-emails…");
-        try {
-          const syncRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/fetch-emails`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "x-cron-secret": Deno.env.get("CRON_SHARED_SECRET") || "" },
-            body: JSON.stringify({ mode: "sync", source: "netflix-test-login", accountLabels: pollLabels }),
-          });
-          const syncText = await syncRes.text().catch(() => "");
-          let syncSummary = syncText.slice(0, 350).replace(/\s+/g, " ");
-          try {
-            const parsed = JSON.parse(syncText);
-            syncSummary = `success=${parsed.success} totalFetched=${parsed.totalFetched ?? 0} inserted=${parsed.inserted ?? 0} warning=${parsed.warning || "-"}`;
-          } catch { /* keep text summary */ }
-          log("STEP-3", `IMAP sync trigger → status=${syncRes.status} ${syncSummary}`);
-        } catch (e) {
-          log("STEP-3", `sync trigger failed (continuing anyway): ${e instanceof Error ? e.message : String(e)}`);
-        }
-
-        log("STEP-3", `Polling latest Netflix mail  label="${chosenLabel}"  since=${triggerTs}`);
-        let code = "";
-        let matchedId = "";
-        const pollStart = Date.now();
-        let ticks = 0;
-        while (Date.now() - pollStart < 90_000) {
-          ticks++;
-          // Re-trigger sync every ~10s so new mail is pulled from IMAP.
-          if (ticks > 1 && ticks % 5 === 0) {
-            fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/fetch-emails`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json", "x-cron-secret": Deno.env.get("CRON_SHARED_SECRET") || "" },
-              body: JSON.stringify({ mode: "sync", source: "netflix-test-login-tick", accountLabels: pollLabels }),
-            }).then((r) => r.text()).then((txt) => {
-              try {
-                const parsed = JSON.parse(txt);
-                log("STEP-3", `background IMAP tick → success=${parsed.success} totalFetched=${parsed.totalFetched ?? 0} inserted=${parsed.inserted ?? 0}`);
-              } catch { /* ignore */ }
-            }).catch(() => {});
+        // Stream worker SSE → our SSE
+        const reader = wRes.body.getReader();
+        const dec = new TextDecoder();
+        let buf = "";
+        let workerResult: any = null;
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          const parts = buf.split("\n\n");
+          buf = parts.pop() || "";
+          for (const chunk of parts) {
+            const evLine = chunk.split("\n").find((l) => l.startsWith("event:"));
+            const dtLine = chunk.split("\n").find((l) => l.startsWith("data:"));
+            if (!evLine || !dtLine) continue;
+            const event = evLine.slice(6).trim();
+            let data: any = null;
+            try { data = JSON.parse(dtLine.slice(5).trim()); } catch { continue; }
+            if (event === "log") log("VPS", data.msg || "");
+            else if (event === "result") workerResult = data;
           }
-          const { data: rows, error: pollErr } = await supabase
-            .from("cached_emails")
-            .select("id, subject, preview, html, from_address, to_address, otp, date")
-            .in("account_label", pollLabels)
-            .gt("date", triggerTs)
-            .order("date", { ascending: false })
-            .limit(10);
-          if (pollErr) {
-            log("STEP-3", `DB poll error: ${pollErr.message}`);
-            await new Promise((r) => setTimeout(r, 2000));
-            continue;
-          }
-          if (rows && rows.length > 0 && ticks % 3 === 1) {
-            log("STEP-3", `tick #${ticks} → ${rows.length} row(s) since trigger. Latest: "${(rows[0].subject || "").slice(0, 80)}" from ${String(rows[0].from_address || "").slice(0, 80)} to ${String(rows[0].to_address || "").slice(0, 80)}`);
-          } else if (ticks % 3 === 1) {
-            log("STEP-3", `tick #${ticks} → no cached Netflix mail newer than trigger yet in labels: ${pollLabels.join(", ")}`);
-          }
-          for (const row of rows || []) {
-            const from = String(row.from_address || "").toLowerCase();
-            if (!from.includes("netflix")) continue;
-            const body = `${row.subject || ""} ${row.preview || ""} ${row.html || ""}`;
-            const m = row.otp ? [row.otp, row.otp] : body.match(/\b(\d{4}|\d{6}|\d{8})\b/);
-            if (m?.[1]) {
-              code = m[1]; matchedId = row.id;
-              log("STEP-3", `OTP found  id=${row.id}  subject="${(row.subject || "").slice(0, 80)}"  code=${code}`);
-              break;
-            }
-          }
-          if (code) break;
-          await new Promise((r) => setTimeout(r, 2000));
         }
-        if (!code) throw new Error(`OTP not received within 90s (polled ${ticks} times, from label="${chosenLabel}")`);
-        log("STEP-3", `Using code ${code} from email ${matchedId}`);
 
-        log("STEP-4", `POST OTP code=${code}`);
-        const otpForm = new URLSearchParams({ code, authURL, action: "loginAction" });
-        const otp = await nfFetch(`${NF_BASE}/login/help`, {
-          method: "POST", body: otpForm,
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        }, jar);
-        log("STEP-4", `status=${otp.status}  cookies=${jar.size}`);
+        if (!workerResult) throw new Error("worker closed without a result event");
+        if (!workerResult.ok) {
+          throw new Error(`headless login did not sign in. stage=${workerResult.stage || "-"} url=${workerResult.url || "-"} err=${workerResult.error || "-"}`);
+        }
 
-        await persistSession("otp");
+        const cookies = Array.isArray(workerResult.cookies) ? workerResult.cookies : [];
+        log("SAVE", `Persisting ${cookies.length} Netflix cookies to netflix_sessions (email=${email})`);
+        const { error: upErr } = await supabase.from("netflix_sessions").upsert({
+          email, account_label: chosenLabel,
+          cookies_json: JSON.stringify(cookies),
+          status: "active", last_login_at: new Date().toISOString(), last_error: null,
+        }, { onConflict: "email" });
+        if (upErr) throw new Error(`db upsert failed: ${upErr.message}`);
+        log("DONE", `Session persisted (${cookies.length} cookies) via headless VPS`);
+        send("done", { ok: true, cookies: cookies.length, email, account_label: chosenLabel, method: "vps_headless" });
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         send("error", { error: msg });
