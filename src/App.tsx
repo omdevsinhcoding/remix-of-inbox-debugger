@@ -8135,6 +8135,111 @@ function AdminPanel() {
                 </div>
               </div>
             </section>
+
+            {/* Connect with VPS — opens a popup */}
+            <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="px-5 sm:px-6 py-4 border-b border-slate-100 flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-full bg-slate-900 text-white flex items-center justify-center shadow-sm shrink-0">
+                    <Zap className="w-5 h-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <h3 className="font-black text-slate-950 leading-tight">Connect with VPS</h3>
+                    <p className="text-[12px] text-slate-500 mt-0.5">Open a quick connection helper for the saved VPS.</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setVpsConnectOpen(true)}
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-full bg-slate-900 px-4 text-[12px] font-black text-white transition hover:bg-slate-800"
+                >
+                  <Server className="w-4 h-4" />
+                  Connect
+                </button>
+              </div>
+            </section>
+
+            {vpsConnectOpen && createPortal(
+              <div
+                className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4"
+                onClick={() => setVpsConnectOpen(false)}
+              >
+                <div
+                  className="relative w-full max-w-md bg-white rounded-2xl border border-slate-200 shadow-2xl overflow-hidden"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="px-5 sm:px-6 py-4 border-b border-slate-100 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-10 h-10 rounded-full bg-slate-900 text-white flex items-center justify-center shadow-sm shrink-0">
+                        <Zap className="w-5 h-5" />
+                      </div>
+                      <div className="min-w-0">
+                        <h3 className="font-black text-slate-950 leading-tight">Connect with VPS</h3>
+                        <p className="text-[12px] text-slate-500 mt-0.5 truncate">
+                          {vpsCfg.ip ? vpsCfg.ip : "No VPS IP saved yet."}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setVpsConnectOpen(false)}
+                      className="w-9 h-9 rounded-full border border-slate-200 bg-white text-slate-600 flex items-center justify-center hover:bg-slate-50"
+                      aria-label="Close"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <div className="px-5 sm:px-6 py-5 space-y-4">
+                    <div>
+                      <p className="text-[12px] font-bold text-slate-500 uppercase tracking-wide">SSH command</p>
+                      <div className="mt-2 flex items-stretch gap-2">
+                        <code className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-[12px] font-bold text-slate-900 break-all">
+                          {`ssh -i ${vpsCfg.keyFilename || "vps-private-key.pem"} root@${vpsCfg.ip || "<vps-ip>"}`}
+                        </code>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            copyToClipboard(
+                              `ssh -i ${vpsCfg.keyFilename || "vps-private-key.pem"} root@${vpsCfg.ip || ""}`.trim(),
+                              "SSH command copied"
+                            )
+                          }
+                          className="inline-flex h-10 items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-[12px] font-black text-slate-800 transition hover:bg-slate-50"
+                        >
+                          <Copy className="w-4 h-4" />
+                          Copy
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl bg-slate-50 border border-slate-200 px-4 py-3 text-[12px] text-slate-600">
+                      Make sure the private key is downloaded to your machine and its permissions are <code className="font-mono font-bold text-slate-800">600</code> before running the command.
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={downloadSshKey}
+                        disabled={!vpsCfg.hasKey}
+                        className="inline-flex h-10 items-center justify-center gap-2 rounded-full bg-emerald-600 px-4 text-[12px] font-black text-white transition hover:bg-emerald-700 disabled:opacity-45"
+                      >
+                        <Download className="w-4 h-4" />
+                        Download key
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setVpsConnectOpen(false)}
+                        className="inline-flex h-10 items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-[12px] font-black text-slate-800 transition hover:bg-slate-50"
+                      >
+                        Close
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>,
+              document.body
+            )}
           </div>
         )}
 
