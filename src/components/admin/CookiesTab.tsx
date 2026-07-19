@@ -126,35 +126,100 @@ export function CookiesTab(p: Props) {
         ) : (
           <>
             <label className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500 mb-1.5 block">Account</label>
-            <select
-              value={p.ckSelectedAccount}
-              onChange={(e) => p.setCkSelectedAccount(e.target.value)}
-              className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-sm text-slate-900 focus:outline-none focus:border-slate-900 transition-all"
-            >
-              <option value="">— Choose an account —</option>
-              {p.emailAccounts.map((acc) => {
-                const email = p.accountValidationEmail(acc);
-                return (
-                  <option key={acc.label} value={acc.label}>
-                    {acc.label}{email ? ` — ${email}` : ""}
-                  </option>
-                );
-              })}
-            </select>
+
+            <div ref={ddRef} className="relative">
+              <button
+                type="button"
+                onClick={() => { setDdOpen(o => !o); setDdSearch(""); }}
+                className={`group w-full flex items-center gap-3 px-3 py-2.5 bg-white border rounded-xl text-left transition-all ${ddOpen ? "border-slate-900 ring-2 ring-slate-900/10 shadow-sm" : "border-slate-300 hover:border-slate-400"}`}
+              >
+                {selectedAcc ? (
+                  <>
+                    <span className={`inline-flex w-9 h-9 rounded-lg items-center justify-center text-white text-[12px] font-black shadow-sm ${avatarBg(selectedAcc.label)}`}>
+                      {initials(selectedAcc.label)}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-bold text-slate-900 truncate leading-tight">{selectedAcc.label}</span>
+                      <span className="block text-[11px] text-slate-500 truncate leading-tight mt-0.5">{p.accountValidationEmail(selectedAcc) || "no email"}</span>
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="inline-flex w-9 h-9 rounded-lg items-center justify-center bg-slate-100 text-slate-400">
+                      <Mail className="w-4 h-4" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm text-slate-400 leading-tight">Choose an account</span>
+                      <span className="block text-[11px] text-slate-400 leading-tight mt-0.5">{p.emailAccounts.length} available</span>
+                    </span>
+                  </>
+                )}
+                <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${ddOpen ? "rotate-180 text-slate-900" : ""}`} />
+              </button>
+
+              {ddOpen && (
+                <div className="absolute z-50 left-0 right-0 mt-2 bg-white border border-slate-200 rounded-2xl shadow-2xl shadow-slate-900/10 overflow-hidden">
+                  {p.emailAccounts.length > 6 && (
+                    <div className="p-2 border-b border-slate-100 bg-slate-50/50">
+                      <div className="relative">
+                        <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                        <input
+                          autoFocus
+                          value={ddSearch}
+                          onChange={(e) => setDdSearch(e.target.value)}
+                          placeholder="Search accounts…"
+                          className="w-full pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-900 focus:outline-none focus:border-slate-900"
+                        />
+                      </div>
+                    </div>
+                  )}
+                  <ul className="max-h-72 overflow-y-auto py-1">
+                    {filteredAccounts.length === 0 ? (
+                      <li className="px-3 py-6 text-center text-xs text-slate-400">No matches</li>
+                    ) : filteredAccounts.map((acc) => {
+                      const email = p.accountValidationEmail(acc);
+                      const isSel = acc.label === p.ckSelectedAccount;
+                      const hasCookies = p.netflixCookies.some(c => c.accountLabel === acc.label);
+                      return (
+                        <li key={acc.label}>
+                          <button
+                            type="button"
+                            onClick={() => { p.setCkSelectedAccount(acc.label); setDdOpen(false); }}
+                            className={`w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors ${isSel ? "bg-slate-900/[0.04]" : "hover:bg-slate-50"}`}
+                          >
+                            <span className={`inline-flex w-9 h-9 rounded-lg items-center justify-center text-white text-[12px] font-black shadow-sm shrink-0 ${avatarBg(acc.label)}`}>
+                              {initials(acc.label)}
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="flex items-center gap-1.5">
+                                <span className="text-sm font-bold text-slate-900 truncate leading-tight">{acc.label}</span>
+                                {hasCookies && (
+                                  <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-wider text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded-full">
+                                    <span className="w-1 h-1 bg-emerald-500 rounded-full" />Saved
+                                  </span>
+                                )}
+                              </span>
+                              <span className="block text-[11px] text-slate-500 truncate leading-tight mt-0.5">{email || "no email"}</span>
+                            </span>
+                            {isSel && <Check className="w-4 h-4 text-slate-900 shrink-0" />}
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
+            </div>
 
             {selectedAcc && (
               <div className="mt-3 flex items-start gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
                 <div className="min-w-0">
                   <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Validation email</p>
                   <p className="text-sm font-semibold text-slate-900 truncate">{validationEmail || <span className="text-slate-400">— none —</span>}</p>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
-                    {(selectedAcc.recipientFilters || []).length > 0
-                      ? "Using recipient filter"
-                      : "No recipient filter — using primary email"}
-                  </p>
                 </div>
               </div>
             )}
+
           </>
         )}
       </section>
