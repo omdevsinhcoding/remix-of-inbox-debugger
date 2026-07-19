@@ -2937,17 +2937,8 @@ Deno.serve(async (originalReq) => {
       if (!code || String(code).length < 6) throw new Error("TOTP code required");
       const { data: user, error } = await supabase.from("app_users").select("totp_secret").eq("id", pending.userId).single();
       if (error || !user?.totp_secret) throw new Error("TOTP is not configured");
-      // Grace window: accept current code. Also accept the just-expired
-      // previous code, but only during the first 5 seconds of a new 30s step.
       const codeStr = String(code).trim();
-      let valid = authenticator.check(codeStr, user.totp_secret);
-      if (!valid) {
-        const secsIntoStep = Math.floor(Date.now() / 1000) % 30;
-        if (secsIntoStep < 5) {
-          const prev = authenticator.clone({ epoch: Date.now() - 30_000 } as any);
-          valid = prev.check(codeStr, user.totp_secret);
-        }
-      }
+      const valid = await verifyTotpWithShortExpiredGrace(codeStr, user.totp_secret);
       if (!valid) throw new Error("Invalid Google Authenticator code");
       await supabase.from("app_admin_2fa_state").update({ totp_verified_at: new Date().toISOString() }).eq("token_hash", tokenHash).eq("user_id", pending.userId);
       return new Response(JSON.stringify({ success: true }), {
