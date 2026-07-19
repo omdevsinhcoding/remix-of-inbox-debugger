@@ -4214,6 +4214,7 @@ function AdminAuthPage() {
   const [qrCode, setQrCode] = useState("");
   const [secretKey, setSecretKey] = useState("");
   const [copied, setCopied] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
   const navigate = useNavigate();
   const otpRequested = React.useRef(false);
   const { user } = useAuth();
