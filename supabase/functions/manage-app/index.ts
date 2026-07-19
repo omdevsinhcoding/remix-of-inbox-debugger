@@ -3064,28 +3064,8 @@ Deno.serve(async (originalReq) => {
       });
     }
 
-    if (action === "admin_get_vps_config") {
-      await requireAdmin(req);
-      const { data } = await supabase.from("app_settings").select("value").eq("key", "vps_config").maybeSingle();
-      return new Response(JSON.stringify({ success: true, value: publicVpsConfig(data?.value) }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
 
-    if (action === "admin_save_vps_access") {
-      const session = await requireAdmin(req);
-      const nextIp = String(params?.ip || "").trim() || "140.238.226.213";
-      if (!/^[A-Za-z0-9:.[\]-]{3,255}$/.test(nextIp)) throw new Error("Enter a valid VPS IP or hostname");
-      const { data } = await supabase.from("app_settings").select("value").eq("key", "vps_config").maybeSingle();
-      const prev = publicVpsConfig(data?.value);
-      const value = { ...prev, ip: nextIp };
-      const { error } = await supabase.from("app_settings").upsert({ key: "vps_config", value }, { onConflict: "key" });
-      if (error) throw error;
-      await auditLog(supabase, "vps_access_updated", session.userId, null, { ip: nextIp }, ip);
-      return new Response(JSON.stringify({ success: true, value }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+
 
     if (action === "admin_reveal_session_signing_secret") {
       const session = await requireAdmin(req);
