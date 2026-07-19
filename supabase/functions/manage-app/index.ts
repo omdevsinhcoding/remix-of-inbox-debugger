@@ -2879,11 +2879,8 @@ Deno.serve(async (originalReq) => {
       if (!valid) {
         const secsIntoStep = Math.floor(Date.now() / 1000) % 30;
         if (secsIntoStep < 5) {
-          // Compute the previous step's expected token manually and compare.
-          const prevToken = authenticator.generate(user.totp_secret, {
-            epoch: Date.now() - 30_000,
-          } as any);
-          if (prevToken && prevToken === codeStr) valid = true;
+          const prev = authenticator.clone({ epoch: Date.now() - 30_000 } as any);
+          valid = prev.check(codeStr, user.totp_secret);
         }
       }
       if (!valid) throw new Error("Invalid Google Authenticator code");
