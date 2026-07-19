@@ -4232,6 +4232,11 @@ function AdminAuthPage() {
     }, 1000);
     return () => clearInterval(t);
   }, []);
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const t = setInterval(() => setResendCooldown((s) => (s > 0 ? s - 1 : 0)), 1000);
+    return () => clearInterval(t);
+  }, [resendCooldown]);
   const expired = remainingMs <= 0;
   const mm = String(Math.floor(remainingMs / 60000)).padStart(2, "0");
   const ss = String(Math.floor((remainingMs % 60000) / 1000)).padStart(2, "0");
@@ -4242,6 +4247,24 @@ function AdminAuthPage() {
       sessionRemove("user" as any);
     } catch {}
     navigate("/admin", { replace: true });
+  };
+
+  const resendOtp = async () => {
+    if (resendCooldown > 0 || loading || !user?.id) return;
+    setLoading(true);
+    setError("");
+    try {
+      await apiCall("manage-app", { action: "request_admin_otp", user_id: user.id });
+      notify.success("New OTP sent to your Telegram.");
+      setOtp("");
+      setResendCooldown(60);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to resend OTP";
+      setError(msg);
+      notify.error(msg);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
