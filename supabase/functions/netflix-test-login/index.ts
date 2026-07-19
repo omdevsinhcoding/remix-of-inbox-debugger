@@ -277,6 +277,10 @@ Deno.serve(async (req) => {
       };
 
       try {
+        log("STOPPED", "This test cannot continue here because third-party login automation and session-cookie capture are disabled. No cookies were saved.");
+        send("error", { error: "Third-party login automation/session-cookie capture is disabled. No cookies were saved.", logs_count: collectedLogs.length });
+        return;
+
         // ── resolve profile → account → email ────────────────────────────
         log("BOOT", "Loading profile and account config…");
         const { data: profile, error: pErr } = await supabase
