@@ -8072,7 +8072,7 @@ function AdminPanel() {
             seenKeys.add(key);
             expanded.push({ ...base, label, user: email, recipientFilters: [] });
           };
-          if (primaryEmail && !emailAccounts.some(a => (a.user || "").toLowerCase() === primaryEmail.toLowerCase())) {
+          if (primaryEmail) {
             pushEntry("Primary", primaryEmail, {
               label: "Primary",
               host: serverConfig.IMAP_HOST || "",
@@ -8083,6 +8083,7 @@ function AdminPanel() {
               recipientFilters: [],
             });
           }
+
           emailAccounts.forEach((acc) => {
             const filters = (acc.recipientFilters || []).map(f => f.trim()).filter(Boolean);
             if (filters.length === 0) {
