@@ -5305,10 +5305,9 @@ function AdminPanel() {
 
   // Account -> validation email(s) shown next to the label.
   const accountValidationEmail = (acc: EmailAccountConfig): string => {
-    const filters = (acc.recipientFilters || []).filter(Boolean);
-    if (filters.length > 0) return filters.join(", ");
     return acc.user || "";
   };
+
 
   const [revealedPasswords, setRevealedPasswords] = useState<Set<string>>(new Set());
   const togglePasswordReveal = (key: string) => {
