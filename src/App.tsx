@@ -8245,10 +8245,10 @@ function AdminPanel() {
             {vpsConnectOpen && createPortal(
               <div
                 className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4"
-                onClick={() => setVpsConnectOpen(false)}
+                onClick={() => { setVpsConnectOpen(false); setRbsActive(null); }}
               >
                 <div
-                  className="relative w-full max-w-md bg-white rounded-2xl border border-slate-200 shadow-2xl overflow-hidden"
+                  className="relative w-full max-w-5xl max-h-[92vh] bg-white rounded-2xl border border-slate-200 shadow-2xl overflow-hidden flex flex-col"
                   onClick={(e) => e.stopPropagation()}
                 >
                   <div className="px-5 sm:px-6 py-4 border-b border-slate-100 flex items-center justify-between gap-3">
@@ -8257,15 +8257,15 @@ function AdminPanel() {
                         <Zap className="w-5 h-5" />
                       </div>
                       <div className="min-w-0">
-                        <h3 className="font-black text-slate-950 leading-tight">Connect with VPS</h3>
+                        <h3 className="font-black text-slate-950 leading-tight">Connect with VPS — Remote Browser</h3>
                         <p className="text-[12px] text-slate-500 mt-0.5 truncate">
-                          {vpsCfg.ip ? vpsCfg.ip : "No VPS IP saved yet."}
+                          Persistent Chromium sessions on {vpsCfg.ip || "your VPS"}. Logins stay saved per session.
                         </p>
                       </div>
                     </div>
                     <button
                       type="button"
-                      onClick={() => setVpsConnectOpen(false)}
+                      onClick={() => { setVpsConnectOpen(false); setRbsActive(null); }}
                       className="w-9 h-9 rounded-full border border-slate-200 bg-white text-slate-600 flex items-center justify-center hover:bg-slate-50"
                       aria-label="Close"
                     >
@@ -8273,51 +8273,183 @@ function AdminPanel() {
                     </button>
                   </div>
 
-                  <div className="px-5 sm:px-6 py-5 space-y-4">
-                    <div>
-                      <p className="text-[12px] font-bold text-slate-500 uppercase tracking-wide">SSH command</p>
-                      <div className="mt-2 flex items-stretch gap-2">
-                        <code className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-[12px] font-bold text-slate-900 break-all">
-                          {`ssh -i ${vpsCfg.keyFilename || "vps-private-key.pem"} root@${vpsCfg.ip || "<vps-ip>"}`}
-                        </code>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            copyToClipboard(
-                              `ssh -i ${vpsCfg.keyFilename || "vps-private-key.pem"} root@${vpsCfg.ip || ""}`.trim(),
-                              "SSH command copied"
-                            )
-                          }
-                          className="inline-flex h-10 items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-[12px] font-black text-slate-800 transition hover:bg-slate-50"
-                        >
-                          <Copy className="w-4 h-4" />
-                          Copy
-                        </button>
+                  <div className="px-5 sm:px-6 py-5 space-y-5 overflow-y-auto">
+                    {/* Bootstrap helper */}
+                    <details className="rounded-xl border border-slate-200 bg-slate-50">
+                      <summary className="cursor-pointer px-4 py-3 text-[13px] font-black text-slate-800">
+                        1. One-time VPS bootstrap (run once via SSH)
+                      </summary>
+                      <div className="px-4 pb-4 space-y-2 text-[12px] text-slate-600">
+                        <p>SSH into your VPS and paste this. It installs Chromium, noVNC, agent + auto-HTTPS via sslip.io:</p>
+                        <div className="flex items-stretch gap-2">
+                          <code className="flex-1 rounded-lg bg-slate-900 text-slate-100 px-3 py-2 font-mono text-[11px] break-all">
+                            {`curl -fsSL ${typeof window !== "undefined" ? window.location.origin : ""}/vps-bootstrap.sh | sudo bash`}
+                          </code>
+                          <button
+                            type="button"
+                            onClick={() => copyToClipboard(`curl -fsSL ${window.location.origin}/vps-bootstrap.sh | sudo bash`, "Command copied")}
+                            className="inline-flex h-10 items-center gap-2 rounded-full border border-slate-300 bg-white px-3 text-[11px] font-black text-slate-800 hover:bg-slate-100"
+                          >
+                            <Copy className="w-3.5 h-3.5" /> Copy
+                          </button>
+                        </div>
+                        <p>At the end it prints an <b>Agent base URL</b> (like <code className="font-mono">https://140-238-226-213.sslip.io</code>) and an <b>Agent token</b>. Paste both below.</p>
+                      </div>
+                    </details>
+
+                    {/* Agent connection */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[11px] font-black uppercase tracking-wide text-slate-500">Agent base URL</label>
+                        <input
+                          value={rbsBase}
+                          onChange={(e) => setRbsBase(e.target.value)}
+                          placeholder="https://140-238-226-213.sslip.io"
+                          className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-sm text-slate-900 outline-none focus:border-slate-300 focus:bg-white focus:ring-2 focus:ring-slate-900/10"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-black uppercase tracking-wide text-slate-500">Agent token</label>
+                        <input
+                          value={rbsToken}
+                          onChange={(e) => setRbsToken(e.target.value)}
+                          placeholder="paste AGENT_TOKEN from bootstrap output"
+                          className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-sm text-slate-900 outline-none focus:border-slate-300 focus:bg-white focus:ring-2 focus:ring-slate-900/10"
+                        />
                       </div>
                     </div>
 
-                    <div className="rounded-xl bg-slate-50 border border-slate-200 px-4 py-3 text-[12px] text-slate-600">
-                      Make sure the private key is downloaded to your machine and its permissions are <code className="font-mono font-bold text-slate-800">600</code> before running the command.
+                    {rbsError && (
+                      <div className="rounded-xl bg-rose-50 border border-rose-200 px-4 py-2 text-[12px] text-rose-700 font-bold break-all">
+                        {rbsError}
+                      </div>
+                    )}
+
+                    {/* Sessions list */}
+                    <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+                      <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between gap-3">
+                        <div className="text-[13px] font-black text-slate-900">2. Sessions</div>
+                        <button
+                          type="button"
+                          onClick={rbsLoad}
+                          disabled={rbsBusy || !rbsBase || !rbsToken}
+                          className="inline-flex h-9 items-center gap-2 rounded-full border border-slate-200 bg-white px-3 text-[11px] font-black text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+                        >
+                          {rbsBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+                          Refresh
+                        </button>
+                      </div>
+
+                      <div className="p-3 flex flex-col sm:flex-row gap-2">
+                        <input
+                          value={rbsNewName}
+                          onChange={(e) => setRbsNewName(e.target.value)}
+                          placeholder="new session name (e.g. netflix-hiren)"
+                          className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-300 focus:bg-white focus:ring-2 focus:ring-slate-900/10"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => rbsCreate(rbsNewName)}
+                          disabled={rbsBusy || !rbsBase || !rbsToken || !rbsNewName.trim()}
+                          className="inline-flex h-10 items-center justify-center gap-2 rounded-full bg-slate-900 px-4 text-[12px] font-black text-white hover:bg-slate-800 disabled:opacity-50"
+                        >
+                          + Create & open
+                        </button>
+                      </div>
+
+                      <div className="divide-y divide-slate-100 max-h-72 overflow-y-auto">
+                        {rbsSessions.length === 0 && (
+                          <div className="px-4 py-6 text-center text-[12px] text-slate-500">
+                            {rbsBase && rbsToken ? "No sessions yet." : "Enter agent URL & token to load."}
+                          </div>
+                        )}
+                        {rbsSessions.map((s) => (
+                          <div key={s.id} className="px-4 py-3 flex items-center gap-3">
+                            <div className={`w-2 h-2 rounded-full shrink-0 ${s.running ? "bg-emerald-500" : "bg-slate-300"}`} />
+                            <div className="min-w-0 flex-1">
+                              <div className="text-[13px] font-black text-slate-900 truncate">{s.name || s.id}</div>
+                              <div className="text-[11px] text-slate-500">{s.running ? `running · port ${s.port}` : "saved · not running"}</div>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => rbsOpen(s)}
+                                disabled={rbsBusy}
+                                className="inline-flex h-8 items-center gap-1.5 rounded-full bg-slate-900 px-3 text-[11px] font-black text-white hover:bg-slate-800 disabled:opacity-50"
+                              >
+                                {s.running ? "Open" : "Start & open"}
+                              </button>
+                              {s.running && (
+                                <button
+                                  type="button"
+                                  onClick={() => rbsStop(s.id)}
+                                  disabled={rbsBusy}
+                                  className="inline-flex h-8 items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 text-[11px] font-black text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                                >
+                                  Stop
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => rbsDelete(s.id)}
+                                disabled={rbsBusy}
+                                className="inline-flex h-8 items-center gap-1.5 rounded-full border border-rose-200 bg-white px-3 text-[11px] font-black text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
 
-                    <div className="flex flex-col sm:flex-row gap-2 pt-1">
-                      <button
-                        type="button"
-                        onClick={downloadSshKey}
-                        disabled={!vpsCfg.hasKey}
-                        className="inline-flex h-10 items-center justify-center gap-2 rounded-full bg-emerald-600 px-4 text-[12px] font-black text-white transition hover:bg-emerald-700 disabled:opacity-45"
-                      >
-                        <Download className="w-4 h-4" />
-                        Download key
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setVpsConnectOpen(false)}
-                        className="inline-flex h-10 items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-[12px] font-black text-slate-800 transition hover:bg-slate-50"
-                      >
-                        Close
-                      </button>
-                    </div>
+                    {/* Live viewer */}
+                    {rbsActive && (
+                      <div className="rounded-xl border border-slate-200 bg-slate-950 overflow-hidden">
+                        <div className="px-4 py-2 flex items-center justify-between gap-3 text-white text-[12px]">
+                          <div className="font-black truncate">Live · {rbsActive.id}</div>
+                          <div className="flex items-center gap-3">
+                            <span className="font-mono">
+                              {(() => {
+                                const s = Math.max(0, Math.floor((rbsActive.expiresAt - Date.now()) / 1000));
+                                return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+                              })()}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setRbsActive(a => a ? { ...a, expiresAt: Date.now() + 10 * 60 * 1000 } : a)}
+                              className="rounded-full bg-white/10 hover:bg-white/20 px-3 py-1 text-[11px] font-black"
+                            >
+                              +10 min
+                            </button>
+                            <a
+                              href={rbsActive.url}
+                              target="_blank" rel="noreferrer"
+                              className="rounded-full bg-white/10 hover:bg-white/20 px-3 py-1 text-[11px] font-black"
+                            >
+                              Open in new tab
+                            </a>
+                            <button
+                              type="button"
+                              onClick={() => setRbsActive(null)}
+                              className="rounded-full bg-white/10 hover:bg-white/20 px-3 py-1 text-[11px] font-black"
+                            >
+                              Close viewer
+                            </button>
+                          </div>
+                        </div>
+                        <iframe
+                          key={rbsActive.url}
+                          src={rbsActive.url}
+                          title="Remote browser"
+                          className="w-full h-[60vh] bg-black"
+                          allow="clipboard-read; clipboard-write"
+                        />
+                        <div className="px-4 py-2 text-[11px] text-slate-400">
+                          First time only: if the browser blocks the frame, open the URL in a new tab once to accept the certificate, then reload.
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>,
