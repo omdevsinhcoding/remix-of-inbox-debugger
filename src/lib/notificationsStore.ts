@@ -22,6 +22,8 @@ let items: AppNotification[] = [];
 let etag: string | null = null;
 let loading = false;
 let inflight = false;
+let currentUserId: string | null = null;
+let version = 0;
 const listeners = new Set<Listener>();
 
 let pollTimer: number | null = null;
@@ -36,11 +38,13 @@ function emit() {
 export async function refreshNotifications(force = false): Promise<void> {
   if (inflight) return;
   inflight = true;
+  const runVersion = version;
+  const runUserId = currentUserId;
   const wasEmpty = items.length === 0;
   if (wasEmpty) { loading = true; emit(); }
   try {
     const res = await listNotificationsWithEtag(force ? null : etag);
-    // Only mutate + notify when payload actually changed.
+    if (runVersion !== version || runUserId !== currentUserId) return;
     if (!res.unchanged) {
       items = res.notifications;
       etag = res.etag;
@@ -48,11 +52,29 @@ export async function refreshNotifications(force = false): Promise<void> {
     } else if (res.etag && res.etag !== etag) {
       etag = res.etag;
     }
+  } catch {
+    // swallow — surface via empty state, never leave the spinner stuck.
   } finally {
-    loading = false;
+    // ALWAYS clear inflight + loading, even if the profile switched mid-flight.
+    // Previously the early-return here left `inflight=true` forever → new
+    // profile's bell spun with no new fetch ever firing.
     inflight = false;
-    if (wasEmpty) emit();
+    if (loading) {
+      loading = false;
+      emit();
+    }
   }
+}
+
+
+export function resetNotifications(userId: string | null = null): void {
+  currentUserId = userId;
+  version++;
+  items = [];
+  etag = null;
+  loading = false;
+  inflight = false;
+  emit();
 }
 
 function startPollingIfNeeded() {
@@ -78,13 +100,15 @@ function stopPollingIfIdle() {
   }
 }
 
-export function subscribeNotifications(fn: Listener): () => void {
+export function subscribeNotifications(fn: Listener, userId: string | null = null): () => void {
+  if (userId !== currentUserId) resetNotifications(userId);
   listeners.add(fn);
   // Immediate hydrate from current snapshot.
   try { fn(items, loading); } catch {}
   startPollingIfNeeded();
-  // First subscriber triggers initial fetch (no etag).
-  if (listeners.size === 1 && items.length === 0) {
+  // Any first subscriber for the current profile triggers fetch; `inflight`
+  // dedupes bell + auto-popup mounting together.
+  if (items.length === 0 && !inflight) {
     void refreshNotifications(true);
   }
   return () => {

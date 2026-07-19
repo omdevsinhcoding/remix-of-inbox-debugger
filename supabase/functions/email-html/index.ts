@@ -10,6 +10,7 @@
 //   authz_only=false/absent → returns { html, account_label } (full body).
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { redactEmailsHtml } from "../_shared/redact.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -119,7 +120,9 @@ Deno.serve(async (req) => {
     return json({
       success: true,
       id: (row as any).id,
-      html: (row as any).html || "",
+      // Defence-in-depth: also strip any address that a legacy cached row
+      // may still carry. Ingest-time redaction covers all new mail.
+      html: redactEmailsHtml((row as any).html || ""),
       account_label: accountLabel,
     });
   } catch (e) {

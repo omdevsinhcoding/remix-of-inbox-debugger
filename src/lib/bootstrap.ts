@@ -1,6 +1,7 @@
 import { supabase } from "../integrations/supabase/client";
 import { setAvatarBaseUrl } from "./avatars";
-import { sessionGet, sessionSet, sessionRemove, sessionClearAll } from "./session";
+import { sessionGet, sessionSet, clearBrowserIdentityNow, nukeBrowserIdentity } from "./session";
+
 
 const WORKER_URLS_KEY = "cloudflare_worker_urls";
 const BOOTSTRAP_CACHE_KEY = "bootstrap_cache_v1";
@@ -10,7 +11,9 @@ const BOOTSTRAP_TIMEOUT_MS = 20000;
 export type EmailFilters = { showSignInCodes?: boolean; showPasswordResets?: boolean; showAccountUpdates?: boolean };
 export type MaintenanceInfo = { enabled: boolean; title?: string; message?: string; eta?: string; startsAt?: string | null; endsAt?: string | null; versionFrom?: string; versionTo?: string; updated_at?: string | null };
 export type FreeAvatarCooldown = { minutes: number; lastAt: string | null };
-export type BootstrapResult = { users: any[]; recaptcha: any; workerUrls: string[]; emailFilters?: EmailFilters; maintenance?: MaintenanceInfo; avatarBaseUrl?: string; freeAvatarCooldown?: FreeAvatarCooldown };
+export type LocationPolicy = { required: boolean };
+export type TvFeature = { enabled: boolean };
+export type BootstrapResult = { users: any[]; recaptcha: any; workerUrls: string[]; emailFilters?: EmailFilters; maintenance?: MaintenanceInfo; avatarBaseUrl?: string; freeAvatarCooldown?: FreeAvatarCooldown; locationPolicy?: LocationPolicy; tvFeature?: TvFeature };
 
 // Module-level free-avatar cooldown cache — kept in sync with bootstrap.
 let currentFreeAvatarCooldown: FreeAvatarCooldown = { minutes: 5, lastAt: null };
@@ -63,53 +66,37 @@ export function markSessionStart() {
   try { sessionSet("session_started_at" as any, String(Date.now())); } catch {}
 }
 
-export function clearSessionData() {
-  // Best-effort: revoke session server-side so the DB row is deleted.
+export function revokeSessionInBackground() {
   try {
     const token = sessionGet("session_token" as any);
-    if (token) {
-      import("./secureTransport")
-        .then(({ invokeEdge }) => invokeEdge("manage-app", { action: "logout" }, { headers: { "X-Session-Token": token } }))
-        .catch(() => {});
-    }
+    if (!token) return;
+    import("./secureTransport")
+      .then(({ invokeEdge }) => invokeEdge("manage-app", { action: "logout" }, { headers: { "X-Session-Token": token } }))
+      .catch(() => {});
   } catch {}
-  try {
-    // Capture the user id BEFORE clearing so we can purge that profile's OTP cache too.
-    let uid: string | null = null;
-    try {
-      const raw = sessionGet("user" as any);
-      if (raw) uid = JSON.parse(raw)?.id || null;
-    } catch {}
-    sessionRemove("user" as any);
-    sessionRemove("session_token" as any);
-    sessionRemove("session_started_at" as any);
-    sessionRemove("admin_auth" as any);
-    sessionRemove("pending_admin_token" as any);
-    localStorage.removeItem("pending_admin_user");
-    // F4: impersonation backup is now in sessionStorage; sweep both stores for safety.
-    sessionRemove("admin_backup" as any);
-    try { sessionRemove("admin_backup" as any); } catch {}
-    // F8: purge cached Netflix OTP emails so the next profile on this device
-    // can't read the previous profile's inbox after a timeout/forced logout.
-    if (uid) localStorage.removeItem(`cached_emails_v1:${uid}`);
-    try {
-      // Belt-and-suspenders: sweep any lingering per-profile caches.
-      for (let i = localStorage.length - 1; i >= 0; i--) {
-        const k = localStorage.key(i);
-        if (k && k.startsWith("cached_emails_v1:")) localStorage.removeItem(k);
-      }
-    } catch {}
-    // C.2: clear refresh-token state and cancel scheduler.
-    try { import("./sessionRefresh").then(({ clearRefreshState }) => clearRefreshState()).catch(() => {}); } catch {}
-    try {
-      import("./inboxCache").then(({ clearInboxCache, clearAllInboxCaches }) => {
-        if (uid) clearInboxCache(uid).catch(() => {});
-        clearAllInboxCaches().catch(() => {});
-      }).catch(() => {});
-    } catch {}
-  } catch {}
-
 }
+
+// Instant "click-and-done" logout. Netflix-style:
+//   1. Fire server logout + browser deep-purge in background (no await).
+//   2. Wipe local session state synchronously so app re-hydrates as signed-out.
+//   3. Kick off a background fetch('/clearcookies') so the origin's
+//      `Clear-Site-Data: "*"` response header purges httpOnly cookies + caches
+//      without doing a top-level navigation (which was reload-looping and
+//      caused the 10-30 s "stuck" screen).
+//   4. Hard-replace to `/` immediately.
+export function fastClearCookiesRedirect() {
+  revokeSessionInBackground();
+  try { clearBrowserIdentityNow(); } catch {}
+  try { nukeBrowserIdentity().catch(() => {}); } catch {}
+  try {
+    // keepalive lets the fetch survive the navigation on the next line.
+    fetch("/clearcookies", { method: "GET", cache: "no-store", credentials: "same-origin", keepalive: true }).catch(() => {});
+  } catch {}
+  const dest = "/?_cc=" + Date.now();
+  try { window.location.replace(dest); } catch { try { window.location.href = dest; } catch {} }
+}
+
+
 
 
 export function readBootstrapCache(): BootstrapResult | null {
@@ -119,7 +106,7 @@ export function readBootstrapCache(): BootstrapResult | null {
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return null;
     if (!parsed.savedAt || Date.now() - parsed.savedAt > BOOTSTRAP_CACHE_TTL_MS) return null;
-    const result = { users: sanitizeBootstrapUsers(parsed.users || []), recaptcha: parsed.recaptcha, workerUrls: parsed.workerUrls || [], emailFilters: DEFAULT_EMAIL_FILTERS, maintenance: parsed.maintenance, avatarBaseUrl: parsed.avatarBaseUrl || "", freeAvatarCooldown: parsed.freeAvatarCooldown || { minutes: 5, lastAt: null } };
+    const result = { users: sanitizeBootstrapUsers(parsed.users || []), recaptcha: parsed.recaptcha, workerUrls: parsed.workerUrls || [], emailFilters: DEFAULT_EMAIL_FILTERS, maintenance: parsed.maintenance, avatarBaseUrl: parsed.avatarBaseUrl || "", freeAvatarCooldown: parsed.freeAvatarCooldown || { minutes: 5, lastAt: null }, locationPolicy: { required: parsed.locationPolicy?.required !== false }, tvFeature: { enabled: parsed.tvFeature?.enabled !== false } };
     setFreeAvatarCooldown(result.freeAvatarCooldown);
     setAvatarBaseUrl(result.avatarBaseUrl);
     return result;
@@ -160,7 +147,7 @@ export async function bootstrapFromSupabase(opts?: { force?: boolean }): Promise
       storeWorkerUrls(data.workerUrls);
     }
 
-    const result: BootstrapResult = { users: sanitizeBootstrapUsers(data.users || []), recaptcha: data.recaptcha, workerUrls: data.workerUrls || [], emailFilters: normalizeEmailFilters(data.emailFilters), maintenance: data.maintenance || { enabled: false }, avatarBaseUrl: data.avatarBaseUrl || "", freeAvatarCooldown: data.freeAvatarCooldown || { minutes: 5, lastAt: null } };
+    const result: BootstrapResult = { users: sanitizeBootstrapUsers(data.users || []), recaptcha: data.recaptcha, workerUrls: data.workerUrls || [], emailFilters: normalizeEmailFilters(data.emailFilters), maintenance: data.maintenance || { enabled: false }, avatarBaseUrl: data.avatarBaseUrl || "", freeAvatarCooldown: data.freeAvatarCooldown || { minutes: 5, lastAt: null }, locationPolicy: { required: data.locationPolicy?.required !== false }, tvFeature: { enabled: data.tvFeature?.enabled !== false } };
     setAvatarBaseUrl(result.avatarBaseUrl);
     setEmailFilters(result.emailFilters || DEFAULT_EMAIL_FILTERS);
     setFreeAvatarCooldown(result.freeAvatarCooldown);
@@ -260,11 +247,6 @@ export type NotificationsResult = {
   unchanged: boolean;
 };
 
-export async function listNotifications(): Promise<AppNotification[]> {
-  const r = await listNotificationsWithEtag(null);
-  return r.notifications;
-}
-
 // Etag-aware fetch: send last etag, receive {unchanged:true} + empty list, or fresh list + new etag.
 // Prefers the Cloudflare worker (`/api/notifications/list`) when configured —
 // it holds a 60 s per-user KV cache that cuts Supabase invocations ~95%.
@@ -275,6 +257,8 @@ export async function listNotificationsWithEtag(etag: string | null): Promise<No
   if (token && workerUrls.length > 0) {
     for (const base of workerUrls) {
       try {
+        const ctrl = new AbortController();
+        const timer = window.setTimeout(() => ctrl.abort(), 2500);
         const res = await fetch(`${base.replace(/\/+$/, "")}/api/notifications/list`, {
           method: "POST",
           headers: {
@@ -282,7 +266,8 @@ export async function listNotificationsWithEtag(etag: string | null): Promise<No
             "X-Session-Token": String(token),
           },
           body: JSON.stringify(etag ? { if_etag: etag } : {}),
-        });
+          signal: ctrl.signal,
+        }).finally(() => window.clearTimeout(timer));
         if (!res.ok) continue;
         const data = await res.json();
         if (!data?.success) continue;
@@ -297,10 +282,11 @@ export async function listNotificationsWithEtag(etag: string | null): Promise<No
     }
   }
   try {
-    const data = await callManage<{ notifications?: AppNotification[]; etag?: string; unchanged?: boolean }>(
-      "list_notifications",
-      etag ? { if_etag: etag } : {},
-    );
+    let timer: number | null = null;
+    const data = await Promise.race([
+      callManage<{ notifications?: AppNotification[]; etag?: string; unchanged?: boolean }>("list_notifications", etag ? { if_etag: etag } : {}),
+      new Promise<never>((_, reject) => { timer = window.setTimeout(() => reject(new Error("notifications timeout")), 6000); }),
+    ]).finally(() => { if (timer != null) window.clearTimeout(timer); });
     return {
       notifications: data.notifications || [],
       etag: data.etag || null,

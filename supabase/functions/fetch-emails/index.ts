@@ -2,6 +2,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { ImapFlow } from "npm:imapflow@1.2.18";
 import { simpleParser } from "npm:mailparser@3.9.6";
 import { readRequest, maybeEncryptResponse, EncryptedRequestContext, PlaintextRejectedError, plaintextRejectedResponse, TransportError, transportErrorResponse } from "../_shared/crypto.ts";
+import { redactEmailsHtml, redactEmailsText } from "../_shared/redact.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -218,10 +219,25 @@ async function getAssignedAccountFilter(supabase: any, session: Session | null):
   return Array.isArray(userData?.assigned_accounts) ? normalizeAccountLabels(userData.assigned_accounts, labels) : [];
 }
 
+// ============================================================================
+// ⚠️  DO NOT TOUCH — HARD BLOCK: Netflix account-change mails ⚠️
+// ----------------------------------------------------------------------------
+// Netflix account-modification mails (email change, phone add/update, password
+// change, profile add/remove/rename, payment/billing update, membership
+// pause/cancel, "Confirm your account change with this code: XXXXXX", etc.)
+// are HARD BLOCKED for end users — admin toggle irrelevant. Only admin sees
+// them. Runs BEFORE the OTP/signin check so account-change mails carrying a
+// 6-digit code (like Netflix's email-change confirmation) are still caught.
+// Mirrors the identical rule in manage-app and the client classifier.
+// ============================================================================
+const ACCOUNT_CHANGE_STRONG_RE = /(confirm (your )?(account change|email address change|change to your account|new email|phone (number )?change)|your (account (information|info|details)|email address|phone number|password) (was |has been |is )?(changed|updated|added|removed|reset)|(email address|phone number|password|payment method|payment info|billing info|account information) (was |has been )?(changed|updated|added|removed|reset|verified)|changes? to your account (was|has been|were) (made|updated)|make (a |any )?(change|changes) to your account|request to make a change|password (was |has been )?(changed|reset|updated)|(a )?new profile (was |has been )?(added|created)|profile (was |has been )?(added|created|removed|deleted|renamed|updated|modified)|(a )?profile (has been|was) (added|removed|deleted|renamed)|added a (new )?(phone|mobile|email|profile)|(mobile|phone) number (was |has been )?(added|updated|changed|removed|verified|confirmed)|membership (was |has been )?(cancell?ed|updated|paused|on hold|restarted|resumed|reactivated)|account (was |has been )?(cancell?ed|deleted|closed|paused|on hold|reactivated)|we[’']re sorry to see you go|payment (method|info|information) (was |has been )?(updated|changed|added|removed)|update your account (information|info|details)|action needed: (verify|update|confirm))/i;
+
 function classifyEmailForVisibility(e: any): "signin" | "password_reset" | "account_update" | "other" {
   const subject = String(e?.subject || "");
   const preview = String(e?.preview || "");
   const combined = `${subject} ${preview}`;
+  // HARD BLOCK (see banner above) — always wins, even over OTP.
+  if (ACCOUNT_CHANGE_STRONG_RE.test(combined)) return "account_update";
   if (e?.otp || HOUSEHOLD_SIGNIN_RE.test(combined) || SIGN_IN_CODE_SUBJECTS.some(kw => combined.toLowerCase().includes(kw)) || OTP_SUBJECT_HINT.test(subject) || OTP_BODY_CONTEXT.test(preview)) return "signin";
   if (ACCOUNT_UPDATE_RE.test(combined)) return "account_update";
   if (PASSWORD_RESET_SUBJECTS.some(kw => combined.toLowerCase().includes(kw))) return "password_reset";
@@ -236,18 +252,17 @@ function applyEmailFilters(emails: any[], filterSignInCodes: boolean, filterPass
       return !SIGN_IN_CODE_SUBJECTS.some(kw => sub.includes(kw));
     });
   }
-  if (filterPasswordResets) {
-    output = output.filter((e: any) => {
-      const sub = (e.subject || "").toLowerCase();
-      return !PASSWORD_RESET_SUBJECTS.some(kw => sub.includes(kw));
-    });
-  }
-  if (filterAccountUpdates) {
-    output = output.filter((e: any) => classifyEmailForVisibility(e) !== "account_update");
-  }
-  if (filterPasswordResets && filterAccountUpdates) {
-    output = output.filter((e: any) => classifyEmailForVisibility(e) === "signin");
-  }
+  // Explicit blocklist by classification. Keeps signin, household, and "other"
+  // (promo/marketing/continue-watching) visible. Only account_update is hard-
+  // blocked; password_reset drops only when its filter is explicitly on.
+  // DO NOT re-add the old "keep only signin" collapse — it silently killed
+  // every promo mail (e.g. "Don't forget to finish Taskaree").
+  output = output.filter((e: any) => {
+    const cls = classifyEmailForVisibility(e);
+    if (filterAccountUpdates && cls === "account_update") return false;
+    if (filterPasswordResets && cls === "password_reset") return false;
+    return true;
+  });
   if (blockPromo) {
     output = output.filter((e: any) => !isNetflixPromo(e.subject));
   }
@@ -385,8 +400,8 @@ function parseFastEmail(rawSource: Uint8Array, envelope: any, accountLabel: stri
     to,
     date: envelope?.date || new Date(),
     otp: extractOtpCode(subject, bodyText),
-    preview,
-    html: `<pre>${escapeHtml(bodyText)}</pre>`,
+    preview: redactEmailsText(preview),
+    html: redactEmailsHtml(`<pre>${escapeHtml(bodyText)}</pre>`),
     account_label: accountLabel,
   };
 }
@@ -411,11 +426,13 @@ async function readCache(supabase: any, accountFilter: string[] | null, filterSi
     id: e.id,
     subject: e.subject,
     from: e.from_address,
+    // Keep raw to_address for the recipient scoping filter just below; we mask
+    // it after filtering, before it goes out to the client.
     to: e.to_address,
     date: e.date,
     otp: e.otp,
-    preview: e.preview,
-    html: e.html,
+    preview: redactEmailsText(e.preview),
+    html: redactEmailsHtml(e.html),
     account_label: e.account_label,
     cached_at: e.cached_at,
   }));
@@ -436,7 +453,10 @@ async function readCache(supabase: any, accountFilter: string[] | null, filterSi
   }
   // Apply promo block for everyone when admin turned it on. Default = OFF (all Netflix mail shows).
   const blockPromo = await shouldBlockPromo(supabase);
-  return applyEmailFilters(scopedEmails, filterSignInCodes, filterPasswordResets, filterAccountUpdates, blockPromo);
+  const filtered = applyEmailFilters(scopedEmails, filterSignInCodes, filterPasswordResets, filterAccountUpdates, blockPromo);
+  // Final mask: strip the recipient address before shipping to the client.
+  // Done after recipient filtering so the filter still sees the real value.
+  return filtered.map((e: any) => ({ ...e, to: redactEmailsText(e.to) }));
 }
 
 async function fetchFromAccount(
@@ -572,8 +592,8 @@ async function fetchFromAccount(
             to: toText,
             date: parsed.date || new Date(),
             otp: otpCode,
-            preview: bodyText.length > 100 ? `${bodyText.substring(0, 100)}...` : bodyText,
-            html: parsed.html || parsed.textAsHtml || `<pre>${bodyText}</pre>`,
+            preview: redactEmailsText(bodyText.length > 100 ? `${bodyText.substring(0, 100)}...` : bodyText),
+            html: redactEmailsHtml(parsed.html || parsed.textAsHtml || `<pre>${bodyText}</pre>`),
             account_label: accountLabel,
           });
         } catch (parseErr) {
@@ -877,6 +897,15 @@ Deno.serve(async (originalReq) => {
         if (filterData.value.showAccountUpdates === false) filterAccountUpdates = true;
       }
     } catch {}
+
+    // ⚠️ HARD BLOCK — for any non-admin session, account-change and
+    //    password-reset mails are ALWAYS filtered out. Admin toggle
+    //    irrelevant. See banner near ACCOUNT_CHANGE_STRONG_RE. DO NOT TOUCH.
+    if (session && session.role !== "admin") {
+      filterAccountUpdates = true;
+      filterPasswordResets = true;
+    }
+
 
     const isLegacyPgCron = !session && !isCronSecret && hasServerSideBearer && mode === "sync" && source === "cron";
     const isCron = isCronSecret || isLegacyPgCron;
