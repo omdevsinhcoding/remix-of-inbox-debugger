@@ -8062,21 +8062,39 @@ function AdminPanel() {
 
         {activeTab === "cookies" && (() => {
           const primaryEmail = (serverConfig.IMAP_USER || "").trim();
-          const primaryLabel = "Primary";
-          const combinedAccounts: EmailAccountConfig[] = primaryEmail && !emailAccounts.some(a => (a.user || "").toLowerCase() === primaryEmail.toLowerCase())
-            ? [{
-                label: primaryLabel,
-                host: serverConfig.IMAP_HOST || "",
-                port: serverConfig.IMAP_PORT || "",
-                user: primaryEmail,
-                password: "",
-                cloudflareUrls: [],
-                recipientFilters: [],
-              }, ...emailAccounts]
-            : emailAccounts;
+          // Expand accounts: each recipient filter becomes its own dropdown entry.
+          // Also prepend the server primary IMAP user if it isn't already an account.
+          const expanded: EmailAccountConfig[] = [];
+          const seenKeys = new Set<string>();
+          const pushEntry = (label: string, email: string, base: EmailAccountConfig) => {
+            const key = `${label}::${email.toLowerCase()}`;
+            if (seenKeys.has(key)) return;
+            seenKeys.add(key);
+            expanded.push({ ...base, label, user: email, recipientFilters: [] });
+          };
+          if (primaryEmail && !emailAccounts.some(a => (a.user || "").toLowerCase() === primaryEmail.toLowerCase())) {
+            pushEntry("Primary", primaryEmail, {
+              label: "Primary",
+              host: serverConfig.IMAP_HOST || "",
+              port: serverConfig.IMAP_PORT || "",
+              user: primaryEmail,
+              password: "",
+              cloudflareUrls: [],
+              recipientFilters: [],
+            });
+          }
+          emailAccounts.forEach((acc) => {
+            const filters = (acc.recipientFilters || []).map(f => f.trim()).filter(Boolean);
+            if (filters.length === 0) {
+              pushEntry(acc.label, acc.user || "", acc);
+            } else {
+              // Each filter → separate entry using "<Label> · <filter>"
+              filters.forEach((f) => pushEntry(`${acc.label} · ${f}`, f, acc));
+            }
+          });
           return (
             <CookiesTab
-              emailAccounts={combinedAccounts}
+              emailAccounts={expanded}
               netflixCookies={netflixCookies}
               ckLoaded={ckLoaded}
               loadNetflixCookies={loadNetflixCookies}
@@ -8092,6 +8110,7 @@ function AdminPanel() {
             />
           );
         })()}
+
 
 
 
