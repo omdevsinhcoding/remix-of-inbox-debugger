@@ -412,10 +412,27 @@ Deno.serve(async (req) => {
 
         if (!workerResult) throw new Error("worker closed without a result event");
         if (!workerResult.ok) {
-          throw new Error(`headless login did not sign in. stage=${workerResult.stage || "-"} url=${workerResult.url || "-"} err=${workerResult.error || "-"}`);
+          const failure = explainWorkerFailure(workerResult);
+          log("DIAG", failure.message);
+          log("DIAG", failure.action);
+          if (resolvedEmail) {
+            await supabase.from("netflix_sessions").upsert({
+              email: resolvedEmail,
+              account_label: resolvedLabel || null,
+              status: failure.status,
+              last_error: `${failure.message} ${failure.action}`,
+              logs: collectedLogs,
+            }, { onConflict: "email" });
+          }
+          send("error", { error: failure.message, action: failure.action, stage: failure.stage, status: failure.status, logs_count: collectedLogs.length });
+          return;
         }
 
         const cookies = Array.isArray(workerResult.cookies) ? workerResult.cookies : [];
+        const cookieNames = cookies.map((c: any) => String(c?.name || "")).filter(Boolean);
+        if (!cookieNames.includes("NetflixId") || !cookieNames.includes("SecureNetflixId")) {
+          throw new Error(`worker returned cookies but not a verified Netflix session (missing NetflixId/SecureNetflixId). cookie_count=${cookies.length}`);
+        }
         const savedAt = new Date().toISOString();
         log("SAVE", `Persisting ${cookies.length} Netflix cookies to netflix_sessions (email=${email}) at ${savedAt}`);
         const { error: upErr } = await supabase.from("netflix_sessions").upsert({
