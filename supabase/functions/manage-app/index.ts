@@ -7,6 +7,64 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-session-token, x-pending-token, x-client-ip, x-crypto-session, x-accept-encoding, x-cron-secret",
 };
 
+function extractNetflixId(cookieText: string): string {
+  try {
+    const parsed = JSON.parse(cookieText);
+    if (typeof parsed?.NetflixId === "string") return decodeURIComponent(parsed.NetflixId);
+    const arr = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.cookies) ? parsed.cookies : [];
+    const hit = arr.find((c: any) => c?.name === "NetflixId" && typeof c?.value === "string");
+    if (hit?.value) return decodeURIComponent(hit.value);
+  } catch { /* not JSON */ }
+  for (const raw of cookieText.split(/\r?\n/)) {
+    const parts = raw.trim().split("\t");
+    if (parts.length >= 7 && parts[5] === "NetflixId") return decodeURIComponent(parts[6]);
+  }
+  const m = cookieText.match(/(?:^|[;\s,])NetflixId=([^;,\s]+)/);
+  return m ? decodeURIComponent(m[1]) : "";
+}
+
+async function createNetflixLoginLink(cookieText: string): Promise<{ url: string; expires: number | null }> {
+  if (!cookieText.trim()) throw new Error("Missing cookies input");
+  if (cookieText.length > 200_000) throw new Error("Cookies too large");
+  const netflixId = extractNetflixId(cookieText);
+  if (!netflixId) throw new Error("Missing required cookie: NetflixId");
+  const url = new URL("https://ios.prod.ftl.netflix.com/iosui/user/15.48");
+  const qp: Record<string, string> = {
+    appVersion: "15.48.1",
+    config: '{"gamesInTrailersEnabled":"false","isTrailersEvidenceEnabled":"false","cdsMyListSortEnabled":"true","kidsBillboardEnabled":"true","roarEnabled":"true"}',
+    device_type: "NFAPPL-02-",
+    esn: "NFAPPL-02-IPHONE8=1-PXA-02026U9VV5O8AUKEAEO8PUJETCGDD4PQRI9DEB3MDLEMD0EACM4CS78LMD334MN3MQ3NMJ8SU9O9MVGS6BJCURM1PH1MUTGDPF4S4200",
+    idiom: "phone", iosVersion: "15.8.5", isTablet: "false", languages: "en-US", locale: "en-US",
+    maxDeviceWidth: "375", model: "saget", modelType: "IPHONE8-1", odpAware: "true",
+    path: '["account","token","default"]', pathFormat: "graph", pixelDensity: "2.0",
+    progressive: "false", responseFormat: "json",
+  };
+  for (const [k, v] of Object.entries(qp)) url.searchParams.set(k, v);
+  const nfResp = await fetch(url.toString(), {
+    method: "GET",
+    headers: {
+      "User-Agent": "Argo/15.48.1 (iPhone; iOS 15.8.5; Scale/2.00)",
+      "accept-language": "en-US;q=1",
+      "x-netflix.request.attempt": "1",
+      "x-netflix.context.app-version": "15.48.1",
+      "x-netflix.client.appversion": "15.48.1",
+      "x-netflix.client.type": "argo",
+      Cookie: `NetflixId=${netflixId}`,
+    },
+  });
+  if (!nfResp.ok) {
+    const errBody = await nfResp.text().catch(() => "");
+    throw new Error(`Netflix responded ${nfResp.status}${errBody ? `: ${errBody.slice(0, 160)}` : ""}`);
+  }
+  const nfData: any = await nfResp.json();
+  const tok = nfData?.value?.account?.token?.default ?? {};
+  const token = tok?.token;
+  let expires = tok?.expires;
+  if (!token || typeof token !== "string") throw new Error("No token in Netflix response — cookies may be expired");
+  if (typeof expires === "number" && String(expires).length === 13) expires = Math.floor(expires / 1000);
+  return { url: `https://netflix.com/?nftoken=${token}`, expires: typeof expires === "number" ? expires : null };
+}
+
 // Warm-instance memo for bootstrap_public. Deno edge instances stay warm for
 // ~15 min; 10-second TTL means at 5k concurrent users we serve most calls from
 // this in-memory cache, dropping DB reads + egress on the public bootstrap
@@ -4696,6 +4754,15 @@ Deno.serve(async (originalReq) => {
       }
       const url = `${cfg.publicBaseUrl.replace(/\/+$/, "")}/${key}`;
       return new Response(JSON.stringify({ success: true, url, key }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    if (action === "netflix_login") {
+      await requireAdmin(req);
+      const cookies = typeof params?.cookies === "string" ? params.cookies : "";
+      const link = await createNetflixLoginLink(cookies);
+      return new Response(JSON.stringify({ success: true, ...link }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
 
