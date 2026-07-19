@@ -4214,6 +4214,7 @@ function AdminAuthPage() {
   const [qrCode, setQrCode] = useState("");
   const [secretKey, setSecretKey] = useState("");
   const [copied, setCopied] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
   const navigate = useNavigate();
   const otpRequested = React.useRef(false);
   const { user } = useAuth();
@@ -4231,6 +4232,11 @@ function AdminAuthPage() {
     }, 1000);
     return () => clearInterval(t);
   }, []);
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const t = setInterval(() => setResendCooldown((s) => (s > 0 ? s - 1 : 0)), 1000);
+    return () => clearInterval(t);
+  }, [resendCooldown]);
   const expired = remainingMs <= 0;
   const mm = String(Math.floor(remainingMs / 60000)).padStart(2, "0");
   const ss = String(Math.floor((remainingMs % 60000) / 1000)).padStart(2, "0");
@@ -4241,6 +4247,24 @@ function AdminAuthPage() {
       sessionRemove("user" as any);
     } catch {}
     navigate("/admin", { replace: true });
+  };
+
+  const resendOtp = async () => {
+    if (resendCooldown > 0 || loading || !user?.id) return;
+    setLoading(true);
+    setError("");
+    try {
+      await apiCall("manage-app", { action: "request_admin_otp", user_id: user.id });
+      notify.success("New OTP sent to your Telegram.");
+      setOtp("");
+      setResendCooldown(60);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to resend OTP";
+      setError(msg);
+      notify.error(msg);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -4424,6 +4448,10 @@ function AdminAuthPage() {
             <button type="submit" disabled={loading}
               className="w-full bg-gradient-to-r from-red-600 to-red-700 text-white font-bold py-4 rounded-2xl hover:from-red-500 hover:to-red-600 shadow-lg shadow-red-900/20 transition-all active:scale-[0.98] disabled:opacity-50">
               {loading ? "Verifying..." : "Verify Telegram OTP"}
+            </button>
+            <button type="button" onClick={resendOtp} disabled={loading || resendCooldown > 0}
+              className="w-full bg-slate-800/60 hover:bg-slate-800 border border-slate-700 text-slate-200 font-semibold py-3 rounded-2xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+              {resendCooldown > 0 ? `Resend OTP in ${resendCooldown}s` : "Resend OTP"}
             </button>
             {error && <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-xs p-4 rounded-xl text-center">{error}</div>}
           </form>
