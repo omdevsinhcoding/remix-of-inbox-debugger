@@ -5297,7 +5297,7 @@ function AdminPanel() {
     const tid = notify.loading("Generating Netflix login link…");
     try {
       const supaUrl = (import.meta as any).env?.VITE_SUPABASE_URL || "https://jsqchutnfdeljajkxmly.supabase.co";
-      const anon = (import.meta as any).env?.VITE_SUPABASE_PUBLISHABLE_KEY || (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || "";
+      const anon = (import.meta as any).env?.VITE_SUPABASE_PUBLISHABLE_KEY || (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpzcWNodXRuZmRlbGphamt4bWx5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxMjI5MzksImV4cCI6MjA4OTY5ODkzOX0.HYN4zMEYEiP-H5KD_iIbFpr0GsatNoeyw40FI2mW_eA";
       const resp = await fetch(`${String(supaUrl).replace(/\/+$/, "")}/functions/v1/netflix-login`, {
         method: "POST",
         headers: {
@@ -5306,7 +5306,14 @@ function AdminPanel() {
         },
         body: JSON.stringify({ cookies: entry.cookies }),
       });
-      const data: any = await resp.json().catch(() => ({}));
+      const raw = await resp.text().catch(() => "");
+      const data: any = raw ? (() => { try { return JSON.parse(raw); } catch { return { error: raw }; } })() : {};
+      if (resp.status === 404 || data?.code === "NOT_FOUND") {
+        const fallback: any = await apiCall("manage-app", { action: "netflix_login", cookies: entry.cookies });
+        if (!fallback?.success || !fallback?.url) throw new Error(fallback?.error || "Netflix login fallback failed");
+        data.url = fallback.url;
+        data.expires = fallback.expires;
+      }
       if (!resp.ok || !data?.url) {
         throw new Error(data?.error || `Request failed (${resp.status})`);
       }

@@ -1,6 +1,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { authenticator } from "npm:otplib@12.0.1";
 import { readRequest, maybeEncryptResponse, EncryptedRequestContext, PlaintextRejectedError, plaintextRejectedResponse, TransportError, transportErrorResponse } from "../_shared/crypto.ts";
+import { createNetflixLoginLink } from "../_shared/netflixLogin.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -4696,6 +4697,15 @@ Deno.serve(async (originalReq) => {
       }
       const url = `${cfg.publicBaseUrl.replace(/\/+$/, "")}/${key}`;
       return new Response(JSON.stringify({ success: true, url, key }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    if (action === "netflix_login") {
+      await requireAdmin(req);
+      const cookies = typeof params?.cookies === "string" ? params.cookies : "";
+      const link = await createNetflixLoginLink(cookies);
+      return new Response(JSON.stringify({ success: true, ...link }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
 
