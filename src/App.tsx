@@ -5235,7 +5235,6 @@ function AdminPanel() {
   const [vpsLoading, setVpsLoading] = useState(false);
   const [vpsSaving, setVpsSaving] = useState(false);
   const [vpsUploading, setVpsUploading] = useState(false);
-  const [vpsEditOpen, setVpsEditOpen] = useState(false);
   const vpsFileInputRef = useRef<HTMLInputElement | null>(null);
   const vpsLoadedRef = useRef(false);
 
@@ -5268,7 +5267,6 @@ function AdminPanel() {
     try {
       const res: any = await apiCall("manage-app", { action: "admin_save_vps_access", ip: vpsCfg.ip.trim() });
       if (res?.value) setVpsCfg((p) => ({ ...p, ...res.value }));
-      setVpsEditOpen(false);
       notify.success("VPS IP saved");
     } catch (e: any) {
       notify.error("Failed to save VPS", { description: e?.message || String(e) });
