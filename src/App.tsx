@@ -1941,7 +1941,7 @@ function NetflixTestButton({ profileId }: { profileId: string }) {
           try {
             const parsed = JSON.parse(dataStr);
             if (event === "log") setLogs((l) => [...l, parsed]);
-            else if (event === "done") { setOutcome("done"); setOutcomeMsg(`Session stored (${parsed.cookies} cookies)`); }
+            else if (event === "done") { setOutcome("done"); const when = parsed.saved_at ? new Date(parsed.saved_at).toLocaleString() : new Date().toLocaleString(); setOutcomeMsg(`Session stored (${parsed.cookies} cookies) • saved at ${when}`); }
             else if (event === "error") { setOutcome("error"); setOutcomeMsg(parsed.error || "unknown error"); }
           } catch { /* ignore malformed frame */ }
         }
