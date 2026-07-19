@@ -1,6 +1,6 @@
 import React, { useState, useEffect, createContext, useContext, useCallback, useRef, useMemo, Suspense, lazy } from "react";
 import { createPortal } from "react-dom";
-import { Mail, RefreshCw, ShieldCheck, Shield, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, Globe, Edit, Info, UserCircle, Search, ChevronRight, Bell, Send, MessageSquare, Image as ImageIcon, ExternalLink, AlertTriangle, Sparkles, Megaphone, Wrench, CreditCard, Tag, ChevronDown, ChevronUp, HardDrive, Upload, Zap, BookOpen, GraduationCap, Film, PlayCircle, Pin, MapPin, MapPinOff, Tv, Loader2, Download, Terminal } from "lucide-react";
+import { Mail, RefreshCw, ShieldCheck, Shield, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, Globe, Edit, Info, UserCircle, Search, ChevronRight, Bell, Send, MessageSquare, Image as ImageIcon, ExternalLink, AlertTriangle, Sparkles, Megaphone, Wrench, CreditCard, Tag, ChevronDown, ChevronUp, HardDrive, Upload, Zap, BookOpen, GraduationCap, Film, PlayCircle, Pin, MapPin, MapPinOff, Tv, Loader2, Download } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import NetflixHouseholdVerificationGuide from "./pages/NetflixHouseholdVerificationGuide";
@@ -5228,13 +5228,15 @@ function AdminPanel() {
   const [savingTvFeature, setSavingTvFeature] = useState(false);
   const [savingLocationPolicy, setSavingLocationPolicy] = useState(false);
 
-  // VPS Access (admin-only setting stored at app_settings.vps_config)
-  const [vpsCfg, setVpsCfg] = useState<{ label: string; ip: string; port: string; username: string; keyFilename: string; sshKey: string; notes: string }>({
-    label: "Selenium VPS", ip: "", port: "22", username: "root", keyFilename: "vps-key.pem", sshKey: "", notes: "",
+  // VPS Vault (admin-only metadata in app_settings; private key file lives in R2)
+  const [vpsCfg, setVpsCfg] = useState<{ ip: string; keyFilename: string; keyUploadedAt: string; keySize: number; hasKey: boolean }>({
+    ip: "140.238.226.213", keyFilename: "vps-private-key.pem", keyUploadedAt: "", keySize: 0, hasKey: false,
   });
   const [vpsLoading, setVpsLoading] = useState(false);
   const [vpsSaving, setVpsSaving] = useState(false);
-  const [vpsRevealKey, setVpsRevealKey] = useState(false);
+  const [vpsUploading, setVpsUploading] = useState(false);
+  const [vpsEditOpen, setVpsEditOpen] = useState(false);
+  const vpsFileInputRef = useRef<HTMLInputElement | null>(null);
   const vpsLoadedRef = useRef(false);
 
   useEffect(() => {
@@ -5243,16 +5245,14 @@ function AdminPanel() {
     (async () => {
       setVpsLoading(true);
       try {
-        const res: any = await apiCall("manage-app", { action: "get_settings", key: "vps_config" });
+        const res: any = await apiCall("manage-app", { action: "admin_get_vps_config" });
         const v = res?.value || {};
         setVpsCfg((prev) => ({
-          label: typeof v.label === "string" ? v.label : prev.label,
-          ip: typeof v.ip === "string" ? v.ip : "",
-          port: v.port ? String(v.port) : "22",
-          username: typeof v.username === "string" && v.username ? v.username : "root",
-          keyFilename: typeof v.keyFilename === "string" && v.keyFilename ? v.keyFilename : "vps-key.pem",
-          sshKey: typeof v.sshKey === "string" ? v.sshKey : "",
-          notes: typeof v.notes === "string" ? v.notes : "",
+          ip: typeof v.ip === "string" && v.ip ? v.ip : prev.ip,
+          keyFilename: typeof v.keyFilename === "string" && v.keyFilename ? v.keyFilename : prev.keyFilename,
+          keyUploadedAt: typeof v.keyUploadedAt === "string" ? v.keyUploadedAt : "",
+          keySize: Number(v.keySize) || 0,
+          hasKey: v.hasKey === true,
         }));
       } catch (e: any) {
         console.warn("[vps] load failed:", e?.message || e);
@@ -5266,17 +5266,10 @@ function AdminPanel() {
     if (vpsSaving) return;
     setVpsSaving(true);
     try {
-      const value = {
-        label: vpsCfg.label.trim() || "VPS",
-        ip: vpsCfg.ip.trim(),
-        port: (parseInt(vpsCfg.port, 10) || 22).toString(),
-        username: vpsCfg.username.trim() || "root",
-        keyFilename: vpsCfg.keyFilename.trim() || "vps-key.pem",
-        sshKey: vpsCfg.sshKey,
-        notes: vpsCfg.notes,
-      };
-      await apiCall("manage-app", { action: "set_settings", key: "vps_config", value });
-      notify.success("VPS access saved");
+      const res: any = await apiCall("manage-app", { action: "admin_save_vps_access", ip: vpsCfg.ip.trim() });
+      if (res?.value) setVpsCfg((p) => ({ ...p, ...res.value }));
+      setVpsEditOpen(false);
+      notify.success("VPS IP saved");
     } catch (e: any) {
       notify.error("Failed to save VPS", { description: e?.message || String(e) });
     } finally {
@@ -5284,16 +5277,51 @@ function AdminPanel() {
     }
   };
 
-  const downloadSshKey = () => {
-    const content = vpsCfg.sshKey || "";
-    if (!content.trim()) { notify.error("No SSH key saved"); return; }
-    const filename = (vpsCfg.keyFilename || "vps-key.pem").replace(/[^\w.\-]/g, "_");
-    const blob = new Blob([content.endsWith("\n") ? content : content + "\n"], { type: "application/x-pem-file" });
+  const uploadVpsKeyFile = async (file: File) => {
+    if (!file || vpsUploading) return;
+    setVpsUploading(true);
+    try {
+      const dataBase64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error("Could not read file"));
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.readAsDataURL(file);
+      });
+      const res: any = await apiCall("manage-app", {
+        action: "admin_upload_vps_key",
+        filename: file.name || "vps-private-key.pem",
+        contentType: file.type || "application/x-pem-file",
+        dataBase64,
+      });
+      if (res?.value) setVpsCfg((p) => ({ ...p, ...res.value }));
+      notify.success("Private key saved to Cloudflare");
+    } catch (e: any) {
+      notify.error("Key upload failed", { description: e?.message || String(e) });
+    } finally {
+      setVpsUploading(false);
+      if (vpsFileInputRef.current) vpsFileInputRef.current.value = "";
+    }
+  };
+
+  const downloadSshKey = async () => {
+    if (!vpsCfg.hasKey) { notify.error("No private key uploaded"); return; }
+    try {
+      const res: any = await apiCall("manage-app", { action: "admin_download_vps_key" });
+      const b64 = String(res?.dataBase64 || "");
+      if (!b64) throw new Error("Empty key response");
+      const raw = atob(b64);
+      const bytes = new Uint8Array(raw.length);
+      for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+      const filename = String(res?.filename || vpsCfg.keyFilename || "vps-private-key.pem").replace(/[^\w.\-]/g, "_");
+      const blob = new Blob([bytes], { type: "application/x-pem-file" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url; a.download = filename; document.body.appendChild(a); a.click();
     setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 300);
-    notify.success("Private key downloaded", { description: `chmod 600 ${filename} before connecting.` });
+      notify.success("Private key downloaded");
+    } catch (e: any) {
+      notify.error("Download failed", { description: e?.message || String(e) });
+    }
   };
 
 
@@ -8012,113 +8040,125 @@ function AdminPanel() {
               </ul>
             </section>
 
-            {/* ─────────── VPS Access — minimal ─────────── */}
-            <section className="rounded-2xl border border-slate-800 bg-slate-900/60 shadow-xl overflow-hidden">
-              <div className="px-5 sm:px-6 py-4 border-b border-slate-800 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-9 h-9 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center shrink-0">
-                    <Server className="w-4 h-4 text-slate-300" />
+            {/* ─────────── VPS Vault ─────────── */}
+            <section className="relative overflow-hidden rounded-3xl border border-red-500/20 bg-slate-950 shadow-2xl">
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_12%_0%,rgba(220,38,38,0.18),transparent_34%),radial-gradient(circle_at_88%_8%,rgba(15,23,42,0.95),transparent_38%)] pointer-events-none" />
+              <div className="relative p-5 sm:p-7">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="flex items-start gap-4 min-w-0">
+                    <div className="h-12 w-12 rounded-2xl bg-red-600/15 border border-red-500/25 flex items-center justify-center shadow-lg shadow-red-950/40 shrink-0">
+                      <HardDrive className="w-5 h-5 text-red-300" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="inline-flex items-center gap-2 rounded-full border border-red-500/20 bg-red-950/30 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-red-200">
+                        <Lock className="w-3 h-3" /> Cloudflare vault
+                      </div>
+                      <h3 className="mt-3 text-xl sm:text-2xl font-black text-white tracking-tight">VPS Access</h3>
+                      <p className="mt-1 text-sm text-slate-400">One tap for IP. One tap for the private key.</p>
+                    </div>
                   </div>
-                  <div className="min-w-0">
-                    <h3 className="text-[15px] font-semibold text-white truncate">VPS Access</h3>
-                    <p className="text-[12px] text-slate-500 truncate">Copy IP · download private key</p>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setVpsEditOpen((v) => !v)}
+                    className="self-start inline-flex items-center gap-2 rounded-full border border-slate-700/80 bg-slate-900/80 px-3.5 py-2 text-xs font-bold text-slate-200 hover:border-red-500/40 hover:text-white transition"
+                  >
+                    <Edit className="w-3.5 h-3.5" /> Manage
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setVpsRevealKey((v) => !v)}
-                  className="text-[11px] font-medium text-slate-400 hover:text-white px-2 py-1 rounded-md hover:bg-slate-800"
-                >
-                  {vpsRevealKey ? "Done" : "Edit"}
-                </button>
-              </div>
 
-              <div className="p-5 sm:p-6 space-y-3">
-                {vpsLoading ? (
-                  <div className="flex items-center gap-2 text-[12px] text-slate-500"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading…</div>
-                ) : (
-                  <>
-                    {/* IP row */}
-                    <button
-                      type="button"
-                      onClick={() => vpsCfg.ip.trim() ? copyToClipboard(vpsCfg.ip.trim(), "VPS IP copied") : notify.error("No IP saved")}
-                      className="w-full group flex items-center justify-between gap-3 px-4 py-3.5 rounded-xl bg-slate-800/60 border border-slate-700 hover:border-slate-600 hover:bg-slate-800 transition text-left"
-                    >
+                <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => vpsCfg.ip.trim() ? copyToClipboard(vpsCfg.ip.trim(), "VPS IP copied") : notify.error("No IP saved")}
+                    disabled={vpsLoading}
+                    className="group min-h-[132px] rounded-2xl border border-slate-800 bg-slate-900/75 p-5 text-left transition hover:-translate-y-0.5 hover:border-red-500/35 hover:bg-slate-900 disabled:opacity-60"
+                  >
+                    <div className="flex h-full items-center justify-between gap-4">
                       <div className="min-w-0">
-                        <div className="text-[10px] uppercase tracking-[0.14em] text-slate-500 font-semibold">VPS IP</div>
-                        <div className="font-mono text-sm text-white truncate mt-0.5">{vpsCfg.ip.trim() || "— not set —"}</div>
+                        <div className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Copy VPS IP</div>
+                        <div className="mt-3 font-mono text-2xl font-black text-white truncate">{vpsLoading ? "Loading…" : vpsCfg.ip.trim()}</div>
+                        <div className="mt-2 text-xs text-slate-500">Tap the card to copy</div>
                       </div>
-                      <span className="shrink-0 inline-flex items-center gap-1.5 text-[12px] font-semibold text-slate-300 group-hover:text-white">
-                        <Copy className="w-3.5 h-3.5" /> Copy
-                      </span>
-                    </button>
+                      <div className="h-12 w-12 rounded-2xl bg-slate-950 border border-slate-800 flex items-center justify-center group-hover:border-red-500/40 transition shrink-0">
+                        <Copy className="w-5 h-5 text-red-300" />
+                      </div>
+                    </div>
+                  </button>
 
-                    {/* Download key row */}
-                    <button
-                      type="button"
-                      onClick={downloadSshKey}
-                      disabled={!vpsCfg.sshKey.trim()}
-                      className="w-full group flex items-center justify-between gap-3 px-4 py-3.5 rounded-xl bg-slate-800/60 border border-slate-700 hover:border-slate-600 hover:bg-slate-800 disabled:opacity-50 disabled:hover:border-slate-700 disabled:hover:bg-slate-800/60 transition text-left"
-                    >
+                  <button
+                    type="button"
+                    onClick={downloadSshKey}
+                    disabled={vpsLoading || !vpsCfg.hasKey}
+                    className="group min-h-[132px] rounded-2xl border border-slate-800 bg-slate-900/75 p-5 text-left transition hover:-translate-y-0.5 hover:border-red-500/35 hover:bg-slate-900 disabled:opacity-45 disabled:hover:translate-y-0"
+                  >
+                    <div className="flex h-full items-center justify-between gap-4">
                       <div className="min-w-0">
-                        <div className="text-[10px] uppercase tracking-[0.14em] text-slate-500 font-semibold">Private SSH key</div>
-                        <div className="font-mono text-sm text-white truncate mt-0.5">
-                          {vpsCfg.sshKey.trim() ? (vpsCfg.keyFilename || "vps-key.pem") : "— no key saved —"}
-                        </div>
+                        <div className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Download private key</div>
+                        <div className="mt-3 font-mono text-base sm:text-lg font-black text-white truncate">{vpsCfg.hasKey ? vpsCfg.keyFilename : "No key uploaded"}</div>
+                        <div className="mt-2 text-xs text-slate-500">{vpsCfg.hasKey ? "Served securely from Cloudflare R2" : "Use Manage to upload once"}</div>
                       </div>
-                      <span className="shrink-0 inline-flex items-center gap-1.5 text-[12px] font-semibold text-slate-300 group-hover:text-white">
-                        <Download className="w-3.5 h-3.5" /> Download
-                      </span>
-                    </button>
+                      <div className="h-12 w-12 rounded-2xl bg-red-600 flex items-center justify-center shadow-lg shadow-red-950/40 transition group-hover:scale-105 shrink-0">
+                        <Download className="w-5 h-5 text-white" />
+                      </div>
+                    </div>
+                  </button>
+                </div>
 
-                    {/* Edit drawer */}
-                    {vpsRevealKey && (
-                      <div className="mt-2 pt-4 border-t border-slate-800 space-y-3">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                          <div>
-                            <label className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 mb-1 block">VPS IP</label>
-                            <input value={vpsCfg.ip} onChange={(e) => setVpsCfg((p) => ({ ...p, ip: e.target.value }))} placeholder="140.238.226.213"
-                              className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg dark-input text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-slate-500 font-mono" />
-                          </div>
-                          <div>
-                            <label className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 mb-1 block">Key filename</label>
-                            <input value={vpsCfg.keyFilename} onChange={(e) => setVpsCfg((p) => ({ ...p, keyFilename: e.target.value }))} placeholder="vps-key.pem"
-                              className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg dark-input text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-slate-500 font-mono" />
-                          </div>
-                        </div>
-                        <div>
-                          <div className="flex items-center justify-between mb-1">
-                            <label className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 flex items-center gap-1.5"><KeyRound className="w-3 h-3" /> Private key (paste .pem contents)</label>
-                            <label className="text-[11px] font-medium text-slate-300 hover:text-white cursor-pointer inline-flex items-center gap-1">
-                              <Upload className="w-3 h-3" /> Upload file
-                              <input type="file" accept=".pem,.key,.txt,*/*" className="hidden" onChange={async (e) => {
-                                const f = e.target.files?.[0]; if (!f) return;
-                                const text = await f.text();
-                                setVpsCfg((p) => ({ ...p, sshKey: text, keyFilename: p.keyFilename || f.name }));
-                                notify.success("Key loaded — click Save to store it");
-                              }} />
-                            </label>
-                          </div>
-                          <textarea
-                            value={vpsCfg.sshKey}
-                            onChange={(e) => setVpsCfg((p) => ({ ...p, sshKey: e.target.value }))}
-                            rows={5}
-                            spellCheck={false}
-                            placeholder={"-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----"}
-                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg dark-input text-[11.5px] text-white placeholder:text-slate-700 focus:outline-none focus:border-slate-500 font-mono resize-y"
+                <AnimatePresence initial={false}>
+                  {vpsEditOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0, y: -8 }}
+                      animate={{ opacity: 1, height: "auto", y: 0 }}
+                      exit={{ opacity: 0, height: 0, y: -8 }}
+                      transition={{ duration: 0.2 }}
+                      className="overflow-hidden"
+                    >
+                      <div className="mt-5 rounded-2xl border border-slate-800 bg-slate-950/80 p-4 sm:p-5">
+                        <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3">
+                          <input
+                            value={vpsCfg.ip}
+                            onChange={(e) => setVpsCfg((p) => ({ ...p, ip: e.target.value }))}
+                            placeholder="140.238.226.213"
+                            className="w-full rounded-xl border border-slate-800 bg-slate-900 px-4 py-3 font-mono text-sm font-bold text-white placeholder:text-slate-600 outline-none focus:border-red-500/50"
                           />
-                        </div>
-                        <div className="flex justify-end">
-                          <button type="button" onClick={saveVpsConfig} disabled={vpsSaving}
-                            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white text-slate-900 text-[12.5px] font-semibold hover:bg-slate-100 disabled:opacity-60">
-                            {vpsSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-                            {vpsSaving ? "Saving…" : "Save"}
+                          <button
+                            type="button"
+                            onClick={saveVpsConfig}
+                            disabled={vpsSaving}
+                            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-red-600 px-5 text-sm font-black text-white transition hover:bg-red-500 disabled:opacity-60"
+                          >
+                            {vpsSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                            Save IP
                           </button>
                         </div>
+                        <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-xl border border-slate-800 bg-slate-900/70 px-4 py-3">
+                          <div className="min-w-0">
+                            <div className="text-xs font-black text-white">Private SSH key</div>
+                            <div className="mt-0.5 text-xs text-slate-500 truncate">
+                              {vpsCfg.hasKey ? `${vpsCfg.keyFilename}${vpsCfg.keySize ? ` · ${(vpsCfg.keySize / 1024).toFixed(1)} KB` : ""}` : "Upload .pem / .key once, then Download works for admins."}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => vpsFileInputRef.current?.click()}
+                            disabled={vpsUploading}
+                            className="inline-flex items-center justify-center gap-2 rounded-xl border border-red-500/30 bg-red-950/35 px-4 py-2.5 text-xs font-black text-red-100 transition hover:bg-red-900/45 disabled:opacity-60"
+                          >
+                            {vpsUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                            {vpsUploading ? "Uploading…" : "Upload key"}
+                          </button>
+                          <input
+                            ref={vpsFileInputRef}
+                            type="file"
+                            accept=".pem,.key,.txt,*/*"
+                            className="hidden"
+                            onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadVpsKeyFile(f); }}
+                          />
+                        </div>
                       </div>
-                    )}
-                  </>
-                )}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             </section>
           </div>
