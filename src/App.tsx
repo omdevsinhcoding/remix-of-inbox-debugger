@@ -1886,15 +1886,12 @@ function NotificationBell() {
 // Streams live per-step logs from the netflix-test-login edge function
 // via SSE. Temporary QA tool, not production-facing.
 function NetflixTestButton({ profileId }: { profileId: string }) {
-  const CLIENT_TIMEOUT_MS = 65_000;
   const [open, setOpen] = useState(false);
   const [running, setRunning] = useState(false);
   const [logs, setLogs] = useState<Array<{ step: string; msg: string; ts: string }>>([]);
   const [outcome, setOutcome] = useState<"idle" | "done" | "error">("idle");
   const [outcomeMsg, setOutcomeMsg] = useState("");
   const abortRef = useRef<AbortController | null>(null);
-  const abortReasonRef = useRef<"manual" | "timeout" | null>(null);
-  const timeoutRef = useRef<number | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -1902,20 +1899,13 @@ function NetflixTestButton({ profileId }: { profileId: string }) {
   }, [logs]);
 
   const start = useCallback(async () => {
-    if (running) return;
     setOpen(true);
     setLogs([]);
     setOutcome("idle");
     setOutcomeMsg("");
     setRunning(true);
-    abortReasonRef.current = null;
     const controller = new AbortController();
     abortRef.current = controller;
-    timeoutRef.current = window.setTimeout(() => {
-      abortReasonRef.current = "timeout";
-      setLogs((l) => [...l, { step: "TIMEOUT", msg: `No final response after ${Math.round(CLIENT_TIMEOUT_MS / 1000)}s — stopping this run so it cannot stay stuck.`, ts: new Date().toISOString() }]);
-      controller.abort();
-    }, CLIENT_TIMEOUT_MS);
     try {
       const base = (import.meta.env.VITE_SUPABASE_URL as string) || "https://jsqchutnfdeljajkxmly.supabase.co";
       const token = getSessionToken() || "";
@@ -1957,28 +1947,17 @@ function NetflixTestButton({ profileId }: { profileId: string }) {
         }
       }
     } catch (e: any) {
-      if (e?.name === "AbortError") {
-        setOutcome("error");
-        setOutcomeMsg(abortReasonRef.current === "timeout" ? "Stopped after timeout. Worker did not finish cleanly." : "Stopped by admin.");
-      } else {
+      if (e?.name !== "AbortError") {
         setOutcome("error");
         setOutcomeMsg(e?.message || "network error");
       }
     } finally {
-      if (timeoutRef.current) window.clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
       setRunning(false);
       abortRef.current = null;
     }
-  }, [profileId, running]);
-
-  const stopRun = () => {
-    abortReasonRef.current = "manual";
-    abortRef.current?.abort();
-  };
+  }, [profileId]);
 
   const close = () => {
-    abortReasonRef.current = "manual";
     abortRef.current?.abort();
     setOpen(false);
   };
@@ -2024,11 +2003,8 @@ function NetflixTestButton({ profileId }: { profileId: string }) {
               )}
             </div>
             <div className="px-4 py-2.5 border-t border-slate-800 bg-slate-900/50 flex items-center justify-between">
-              <span className="text-[11px] text-slate-500">{running ? `Running… auto-stop in ${Math.round(CLIENT_TIMEOUT_MS / 1000)}s` : outcome === "idle" ? "Idle" : "Finished"}</span>
+              <span className="text-[11px] text-slate-500">{running ? "Running…" : outcome === "idle" ? "Idle" : "Finished"}</span>
               <div className="flex gap-2">
-                {running && (
-                  <button onClick={stopRun} className="text-xs px-3 py-1.5 rounded-full bg-slate-800 text-slate-100 hover:bg-slate-700 font-semibold">Stop</button>
-                )}
                 {!running && (
                   <button onClick={start} className="text-xs px-3 py-1.5 rounded-full bg-slate-800 text-slate-100 hover:bg-slate-700 font-semibold">Run again</button>
                 )}
