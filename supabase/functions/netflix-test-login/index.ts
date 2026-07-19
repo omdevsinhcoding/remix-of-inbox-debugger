@@ -344,6 +344,10 @@ Deno.serve(async (req) => {
         const onClientAbort = () => workerAbort.abort("client disconnected");
         req.signal.addEventListener("abort", onClientAbort, { once: true });
         const totalTimer = setTimeout(() => workerAbort.abort("worker total timeout"), WORKER_TOTAL_TIMEOUT_MS);
+        const cleanupWorkerTimeouts = () => {
+          clearTimeout(totalTimer);
+          req.signal.removeEventListener("abort", onClientAbort);
+        };
         let wRes: Response;
         try {
           wRes = await fetch(`${workerUrl}/login`, {
@@ -356,10 +360,12 @@ Deno.serve(async (req) => {
             signal: workerAbort.signal,
           });
         } catch (e) {
+          cleanupWorkerTimeouts();
           const reason = workerAbort.signal.aborted ? String(workerAbort.signal.reason || "timeout") : (e instanceof Error ? e.message : String(e));
           throw new Error(`headless worker did not respond: ${reason}`);
         }
         if (!wRes.ok || !wRes.body) {
+          cleanupWorkerTimeouts();
           const t = await wRes.text().catch(() => "");
           throw new Error(`worker HTTP ${wRes.status}: ${t.slice(0, 300)}`);
         }
@@ -392,8 +398,7 @@ Deno.serve(async (req) => {
             }
           }
         } finally {
-          clearTimeout(totalTimer);
-          req.signal.removeEventListener("abort", onClientAbort);
+          cleanupWorkerTimeouts();
         }
 
         if (!workerResult) throw new Error("worker closed without a result event");
