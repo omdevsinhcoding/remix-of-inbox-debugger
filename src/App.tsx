@@ -5314,7 +5314,7 @@ function AdminPanel() {
         data.url = fallback.url;
         data.expires = fallback.expires;
       }
-      if (!resp.ok || !data?.url) {
+      if (!data?.url) {
         throw new Error(data?.error || `Request failed (${resp.status})`);
       }
       const expires: number | null = typeof data?.expires === "number" ? data.expires : null;
