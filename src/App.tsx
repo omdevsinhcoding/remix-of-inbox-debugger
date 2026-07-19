@@ -5237,6 +5237,7 @@ function AdminPanel() {
   const [vpsUploading, setVpsUploading] = useState(false);
   const vpsFileInputRef = useRef<HTMLInputElement | null>(null);
   const vpsLoadedRef = useRef(false);
+  const [vpsConnectOpen, setVpsConnectOpen] = useState(false);
 
   useEffect(() => {
     if (activeTab !== "tv" || vpsLoadedRef.current) return;
