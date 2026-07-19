@@ -46,17 +46,6 @@ async function loadTvFeatureEnabled(supabase: any): Promise<boolean> {
     return true;
   }
 }
-function publicVpsConfig(value: any) {
-  const v = value && typeof value === "object" && !Array.isArray(value) ? value : {};
-  return {
-    ip: typeof v.ip === "string" && v.ip.trim() ? v.ip.trim() : "140.238.226.213",
-    keyFilename: typeof v.keyFilename === "string" && v.keyFilename.trim() ? v.keyFilename.trim() : "vps-private-key.pem",
-    keyObjectKey: typeof v.keyObjectKey === "string" ? v.keyObjectKey : "",
-    keyUploadedAt: typeof v.keyUploadedAt === "string" ? v.keyUploadedAt : "",
-    keySize: Number.isFinite(Number(v.keySize)) ? Number(v.keySize) : 0,
-    hasKey: typeof v.keyObjectKey === "string" && v.keyObjectKey.length > 0,
-  };
-}
 function isProfileLocationRequired(user: any, globalRequired = true) {
   if (!globalRequired || !user) return false;
   const prefs = user.profile_prefs && typeof user.profile_prefs === "object" && !Array.isArray(user.profile_prefs) ? user.profile_prefs : {};
