@@ -1882,449 +1882,6 @@ function NotificationBell() {
   );
 }
 
-// --- Netflix Test Login header button (visible only for the "Test" profile) ---
-// Streams live per-step logs from the netflix-test-login edge function
-// via SSE. Temporary QA tool, not production-facing.
-function NetflixTestButton({ profileId }: { profileId: string }) {
-  const [open, setOpen] = useState(false);
-  const [running, setRunning] = useState(false);
-  const [logs, setLogs] = useState<Array<{ step: string; msg: string; ts: string }>>([]);
-  const [outcome, setOutcome] = useState<"idle" | "done" | "error">("idle");
-  const [outcomeMsg, setOutcomeMsg] = useState("");
-  const [outcomeAction, setOutcomeAction] = useState("");
-  const abortRef = useRef<AbortController | null>(null);
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [logs]);
-
-  const start = useCallback(async () => {
-    setOpen(true);
-    setLogs([]);
-    setOutcome("idle");
-    setOutcomeMsg("");
-    setOutcomeAction("");
-    setRunning(true);
-    const controller = new AbortController();
-    abortRef.current = controller;
-    try {
-      const base = (import.meta.env.VITE_SUPABASE_URL as string) || "https://jsqchutnfdeljajkxmly.supabase.co";
-      const token = getSessionToken() || "";
-      const res = await fetch(`${base}/functions/v1/netflix-test-login`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Session-Token": token,
-          "apikey": (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string) || "",
-          "Accept": "text/event-stream",
-        },
-        body: JSON.stringify({ profile_id: profileId }),
-        signal: controller.signal,
-      });
-      if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
-      const reader = res.body.getReader();
-      const dec = new TextDecoder();
-      let buf = "";
-      // Parse SSE frames: `event: X\ndata: {...}\n\n`
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, { stream: true });
-        let idx;
-        while ((idx = buf.indexOf("\n\n")) >= 0) {
-          const frame = buf.slice(0, idx);
-          buf = buf.slice(idx + 2);
-          const evLine = frame.split("\n").find((l) => l.startsWith("event:")) || "";
-          const dataLine = frame.split("\n").find((l) => l.startsWith("data:")) || "";
-          const event = evLine.slice(6).trim();
-          const dataStr = dataLine.slice(5).trim();
-          if (!dataStr) continue;
-          try {
-            const parsed = JSON.parse(dataStr);
-            if (event === "log") setLogs((l) => [...l, parsed]);
-            else if (event === "done") { setOutcome("done"); const when = parsed.saved_at ? new Date(parsed.saved_at).toLocaleString() : new Date().toLocaleString(); setOutcomeMsg(`Session stored (${parsed.cookies} cookies) • saved at ${when}`); }
-            else if (event === "error") { setOutcome("error"); setOutcomeMsg(parsed.error || "unknown error"); setOutcomeAction(parsed.action || ""); }
-          } catch { /* ignore malformed frame */ }
-        }
-      }
-    } catch (e: any) {
-      if (e?.name !== "AbortError") {
-        setOutcome("error");
-        setOutcomeMsg(e?.message || "network error");
-        setOutcomeAction("");
-      }
-    } finally {
-      setRunning(false);
-      abortRef.current = null;
-    }
-  }, [profileId]);
-
-  const close = () => {
-    abortRef.current?.abort();
-    setOpen(false);
-  };
-
-  return (
-    <>
-      <button
-        type="button"
-        onClick={start}
-        disabled={running}
-        className="flex items-center gap-1.5 h-8 sm:h-9 px-3 rounded-full bg-gradient-to-r from-red-600 to-red-700 text-white text-[11px] sm:text-xs font-bold shadow-sm hover:from-red-700 hover:to-red-800 active:scale-95 disabled:opacity-60 transition"
-        title="Start Netflix test login"
-      >
-        <PlayCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-        <span className="hidden xs:inline">Start Test</span>
-        <span className="xs:hidden">Test</span>
-      </button>
-
-      {open && createPortal(
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-6 bg-black/70 backdrop-blur-sm">
-          <div className="w-full max-w-2xl bg-slate-950 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="flex items-center justify-between px-4 sm:px-5 py-3 border-b border-slate-800 bg-gradient-to-r from-slate-900 to-slate-950">
-              <div className="flex items-center gap-2 min-w-0">
-                <span className={`w-2 h-2 rounded-full ${running ? "bg-amber-400 animate-pulse" : outcome === "done" ? "bg-emerald-400" : outcome === "error" ? "bg-red-500" : "bg-slate-500"}`} />
-                <h3 className="text-sm sm:text-base font-bold text-white truncate">Netflix Test Login — Live Logs</h3>
-              </div>
-              <button onClick={close} className="text-slate-400 hover:text-white text-xl leading-none px-2">×</button>
-            </div>
-            <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 sm:p-4 font-mono text-[11px] sm:text-xs bg-black text-slate-200 space-y-1">
-              {logs.length === 0 && running && <div className="text-slate-500">Booting…</div>}
-              {logs.map((l, i) => (
-                <div key={i} className="flex gap-2">
-                  <span className="text-slate-600 shrink-0">{l.ts.slice(11, 19)}</span>
-                  <span className="text-sky-400 shrink-0 font-bold">[{l.step}]</span>
-                  <span className="text-slate-200 break-all">{l.msg}</span>
-                </div>
-              ))}
-              {outcome === "done" && (
-                <div className="mt-3 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-emerald-300 font-semibold">✅ {outcomeMsg}</div>
-              )}
-              {outcome === "error" && (
-                <div className="mt-3 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-red-300 font-semibold">
-                  <div>❌ {outcomeMsg}</div>
-                  {outcomeAction && <div className="mt-1 text-red-200/90 font-normal">Fix: {outcomeAction}</div>}
-                </div>
-              )}
-            </div>
-            <div className="px-4 py-2.5 border-t border-slate-800 bg-slate-900/50 flex items-center justify-between">
-              <span className="text-[11px] text-slate-500">{running ? "Running…" : outcome === "idle" ? "Idle" : "Finished"}</span>
-              <div className="flex gap-2">
-                {!running && (
-                  <button onClick={start} className="text-xs px-3 py-1.5 rounded-full bg-slate-800 text-slate-100 hover:bg-slate-700 font-semibold">Run again</button>
-                )}
-                <button onClick={close} className="text-xs px-3 py-1.5 rounded-full bg-red-600 text-white hover:bg-red-700 font-semibold">Close</button>
-              </div>
-            </div>
-          </div>
-        </div>,
-        document.body,
-      )}
-    </>
-  );
-}
-
-// --- Netflix Credentials manager (Admin panel → TV Auto-Login section) ---
-// Stores plaintext Netflix passwords keyed by email in app_settings key
-// `netflix_credentials`. Used by the netflix-test-login edge function to
-// perform password-based login when Netflix refuses OTP for that email.
-function NetflixCredentialsSection({ emailAccounts, primaryImapUser }: {
-  emailAccounts: Array<{ label?: string; user?: string; recipientFilters?: string[] }>;
-  primaryImapUser?: string;
-}) {
-  const [creds, setCreds] = useState<Record<string, string>>({});
-  const [reveal, setReveal] = useState<Record<string, boolean>>({});
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [newEmail, setNewEmail] = useState("");
-  const [newPass, setNewPass] = useState("");
-
-  const knownEmails = useMemo(() => {
-    const set = new Set<string>();
-    if (primaryImapUser && primaryImapUser.trim()) set.add(primaryImapUser.trim().toLowerCase());
-    for (const acc of emailAccounts || []) {
-      const rf = Array.isArray(acc.recipientFilters) ? acc.recipientFilters : [];
-      for (const r of rf) if (typeof r === "string" && r.trim()) set.add(r.trim().toLowerCase());
-      if (acc.user && String(acc.user).trim()) set.add(String(acc.user).trim().toLowerCase());
-    }
-    return set;
-  }, [emailAccounts, primaryImapUser]);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const res: any = await apiCall("manage-app", { action: "get_settings", key: "netflix_credentials" });
-        const v = res?.value;
-        if (v && typeof v === "object" && !Array.isArray(v)) {
-          const norm: Record<string, string> = {};
-          for (const [k, val] of Object.entries(v)) norm[String(k).toLowerCase()] = String(val || "");
-          setCreds(norm);
-        }
-      } catch { /* ignore */ } finally { setLoading(false); }
-    })();
-  }, []);
-
-  const rows = useMemo(() => {
-    const merged = new Set<string>([...knownEmails, ...Object.keys(creds)]);
-    return Array.from(merged).sort();
-  }, [knownEmails, creds]);
-
-  const save = useCallback(async () => {
-    setSaving(true);
-    try {
-      const clean: Record<string, string> = {};
-      for (const [k, v] of Object.entries(creds)) {
-        const email = k.trim().toLowerCase();
-        const pw = String(v || "");
-        if (email && pw) clean[email] = pw;
-      }
-      await apiCall("manage-app", { action: "set_settings", key: "netflix_credentials", value: clean });
-      notify.success("Netflix credentials saved");
-    } catch (e: any) {
-      notify.error(e?.message || "Save failed");
-    } finally { setSaving(false); }
-  }, [creds]);
-
-  const addRow = () => {
-    const email = newEmail.trim().toLowerCase();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { notify.error("Enter a valid email"); return; }
-    setCreds((prev) => ({ ...prev, [email]: newPass }));
-    setNewEmail(""); setNewPass("");
-  };
-
-  const removeRow = (email: string) => {
-    setCreds((prev) => {
-      const next = { ...prev };
-      delete next[email];
-      return next;
-    });
-  };
-
-  const filledCount = useMemo(
-    () => Object.values(creds).filter((v) => String(v || "").length > 0).length,
-    [creds],
-  );
-
-  const [open, setOpen] = useState(false);
-
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
-    window.addEventListener("keydown", onKey);
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prevOverflow;
-    };
-  }, [open]);
-
-  const totalKnown = rows.length;
-
-  return (
-    <>
-      {/* Trigger card — sits inside the TV Auto-Login tab */}
-      <section className="relative overflow-hidden rounded-2xl border border-slate-200 shadow-sm bg-gradient-to-br from-[#141414] via-[#1a0608] to-[#0a0a0a] text-white p-5 sm:p-6">
-        <div className="pointer-events-none absolute -top-20 -right-16 w-64 h-64 rounded-full bg-[#e50914]/25 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-24 -left-16 w-72 h-72 rounded-full bg-[#e50914]/10 blur-3xl" />
-
-        <div className="relative flex items-start gap-4 flex-wrap">
-          <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-gradient-to-br from-[#e50914] to-[#8b0610] shadow-lg shadow-[#e50914]/30 shrink-0">
-            <KeyRound className="w-6 h-6 text-white" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="text-[10px] uppercase tracking-[0.2em] text-[#e50914] font-bold">Netflix • Vault</div>
-            <h3 className="mt-0.5 text-lg sm:text-xl font-black tracking-tight">Netflix Login Credentials</h3>
-            <p className="mt-1.5 text-[12.5px] text-white/60 leading-relaxed max-w-lg">
-              Used by TV Auto-Login when Netflix asks for a password instead of an OTP. Stored securely, keyed by login email, updates apply on the next Start Test.
-            </p>
-            <div className="mt-3 flex items-center gap-2 flex-wrap">
-              <span className="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-full bg-white/[0.06] border border-white/10 text-white/80">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                {filledCount} saved
-              </span>
-              <span className="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-full bg-white/[0.06] border border-white/10 text-white/60">
-                {totalKnown} accounts
-              </span>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => setOpen(true)}
-            className="shrink-0 inline-flex items-center gap-2 h-11 px-5 rounded-xl font-bold text-sm bg-gradient-to-r from-[#e50914] to-[#b0060f] text-white shadow-lg shadow-[#e50914]/30 hover:brightness-110 active:scale-[0.98] transition"
-          >
-            <KeyRound className="w-4 h-4" />
-            Manage passwords
-          </button>
-        </div>
-      </section>
-
-      {/* Attractive Netflix-styled modal */}
-      {open && createPortal(
-        <div
-          className="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm animate-in fade-in duration-200 flex items-center justify-center p-4"
-          onClick={() => setOpen(false)}
-          role="dialog"
-          aria-modal="true"
-          aria-label="Manage Netflix credentials"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="relative w-full max-w-2xl max-h-[92svh] overflow-hidden rounded-3xl shadow-[0_25px_80px_-15px_rgba(229,9,20,0.5)] animate-in zoom-in-95 slide-in-from-bottom-4 duration-200 bg-gradient-to-b from-[#141414] via-[#1a0608] to-[#0a0a0a] border border-white/10"
-          >
-            <div className="pointer-events-none absolute -top-28 -right-16 w-72 h-72 rounded-full bg-[#e50914]/25 blur-3xl" />
-            <div className="pointer-events-none absolute -bottom-32 -left-16 w-80 h-80 rounded-full bg-[#e50914]/10 blur-3xl" />
-
-            <button
-              onClick={() => setOpen(false)}
-              aria-label="Close"
-              className="absolute top-3 right-3 z-10 w-9 h-9 rounded-full flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition"
-            >
-              <X className="w-4 h-4" />
-            </button>
-
-            <div className="relative p-6 sm:p-7 pb-4">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-gradient-to-br from-[#e50914] to-[#8b0610] shadow-lg shadow-[#e50914]/30">
-                  <KeyRound className="w-6 h-6 text-white" />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-[10px] uppercase tracking-[0.2em] text-[#e50914] font-bold">Netflix • Vault</div>
-                  <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">Manage passwords</h2>
-                </div>
-              </div>
-              <p className="mt-3 text-[12px] text-white/55 leading-relaxed">
-                Passwords are used only when Netflix skips OTP for an account. Tap Show to reveal, edit inline, then Save.
-              </p>
-            </div>
-
-            <div className="relative px-6 sm:px-7 pb-6 max-h-[62svh] overflow-y-auto">
-              {loading ? (
-                <div className="py-8 text-center text-white/60 text-sm">Loading…</div>
-              ) : (
-                <>
-                  <div className="space-y-2">
-                    {rows.length === 0 && (
-                      <div className="text-xs text-white/40 italic px-1">No email accounts configured yet. Add one below.</div>
-                    )}
-                    {rows.map((email) => {
-                      const val = creds[email] || "";
-                      const shown = reveal[email];
-                      const isKnown = knownEmails.has(email);
-                      const isFilled = val.length > 0;
-                      return (
-                        <div
-                          key={email}
-                          className={`group flex items-center gap-2 rounded-xl p-2.5 border transition ${
-                            isFilled
-                              ? "bg-white/[0.04] border-white/10 hover:border-[#e50914]/40"
-                              : "bg-white/[0.02] border-white/5 hover:border-white/15"
-                          }`}
-                        >
-                          <div className="flex-1 min-w-0">
-                            <div className="text-[12.5px] font-mono text-white truncate">{email}</div>
-                            <div className="flex items-center gap-1.5 mt-0.5">
-                              {isKnown ? (
-                                <span className="text-[9px] font-bold text-emerald-300 uppercase tracking-wider">IMAP</span>
-                              ) : (
-                                <span className="text-[9px] font-bold text-amber-300 uppercase tracking-wider">Custom</span>
-                              )}
-                              {isFilled && <span className="text-[9px] font-bold text-white/40 uppercase tracking-wider">• Saved</span>}
-                            </div>
-                          </div>
-                          <input
-                            type={shown ? "text" : "password"}
-                            value={val}
-                            onChange={(e) => setCreds((prev) => ({ ...prev, [email]: e.target.value }))}
-                            placeholder="Netflix password"
-                            className="w-36 sm:w-48 px-3 py-2 rounded-lg bg-black/40 border border-white/10 text-[12.5px] font-mono text-white placeholder-white/25 outline-none focus:border-[#e50914]/60 focus:bg-black/60 transition"
-                            autoComplete="off"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setReveal((p) => ({ ...p, [email]: !p[email] }))}
-                            className="text-[11px] px-2.5 py-2 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] font-semibold text-white/80 transition"
-                            aria-label={shown ? "Hide password" : "Show password"}
-                          >
-                            {shown ? "Hide" : "Show"}
-                          </button>
-                          {!isKnown && (
-                            <button
-                              type="button"
-                              onClick={() => removeRow(email)}
-                              className="text-[11px] px-2.5 py-2 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 font-semibold text-rose-300 transition"
-                            >
-                              Remove
-                            </button>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  <div className="mt-5 pt-4 border-t border-dashed border-white/10">
-                    <div className="text-[10px] font-bold text-white/50 uppercase tracking-[0.2em] mb-2">Add custom Netflix login</div>
-                    <div className="flex flex-col sm:flex-row gap-2">
-                      <input
-                        value={newEmail}
-                        onChange={(e) => setNewEmail(e.target.value)}
-                        placeholder="netflix-login@example.com"
-                        className="flex-1 px-3 py-2.5 rounded-lg bg-black/40 border border-white/10 text-[13px] font-mono text-white placeholder-white/25 outline-none focus:border-[#e50914]/60 transition"
-                        autoComplete="off"
-                      />
-                      <input
-                        value={newPass}
-                        onChange={(e) => setNewPass(e.target.value)}
-                        placeholder="password"
-                        className="flex-1 px-3 py-2.5 rounded-lg bg-black/40 border border-white/10 text-[13px] font-mono text-white placeholder-white/25 outline-none focus:border-[#e50914]/60 transition"
-                        autoComplete="off"
-                      />
-                      <button
-                        type="button"
-                        onClick={addRow}
-                        className="px-4 py-2.5 rounded-lg bg-white/[0.08] hover:bg-white/[0.15] text-white text-sm font-bold border border-white/10 transition"
-                      >
-                        + Add
-                      </button>
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-
-            <div className="relative flex items-center justify-between gap-3 px-6 sm:px-7 py-4 border-t border-white/10 bg-black/30">
-              <div className="flex items-center gap-1.5 text-[10.5px] text-white/40">
-                <ShieldCheck className="w-3 h-3" />
-                <span>Admin-only • Encrypted at rest</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setOpen(false)}
-                  className="px-4 h-10 rounded-xl text-sm font-bold text-white/70 hover:text-white hover:bg-white/[0.06] transition"
-                >
-                  Close
-                </button>
-                <button
-                  type="button"
-                  disabled={saving}
-                  onClick={save}
-                  className="px-5 h-10 rounded-xl bg-gradient-to-r from-[#e50914] to-[#b0060f] text-white text-sm font-black shadow-lg shadow-[#e50914]/30 hover:brightness-110 active:scale-[0.98] disabled:opacity-50 transition"
-                >
-                  {saving ? "Saving…" : "Save Credentials"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>,
-        document.body,
-      )}
-    </>
-  );
-}
-
-
 // --- TV Auto-Login header button + Coming Soon popup ---
 function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
   const [open, setOpen] = useState(false);
@@ -8120,11 +7677,23 @@ function AdminPanel() {
               </div>
             </section>
 
-            {/* TV Auto-Login + Netflix Credentials moved to the dedicated "TV Auto-Login" tab. */}
-
-
-
-
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+              <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
+                <div className="bg-rose-50 p-1.5 rounded-lg"><Tv className="w-4 h-4 text-rose-600" /></div>
+                TV Auto-Login
+              </h2>
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-sm font-semibold text-slate-800">Show TV icon to all users</p>
+                  <p className="text-xs text-slate-500 mt-1">Global default. When ON, every non-admin user sees the TV button unless a per-user override says OFF. When OFF, no user sees it unless a per-user override says ON. Admins always see it.</p>
+                </div>
+                <button onClick={toggleTvFeature} disabled={savingTvFeature}
+                  className={`relative w-12 h-6 rounded-full transition-colors flex-shrink-0 ${tvFeatureEnabled ? "bg-green-500" : "bg-slate-300"}`}
+                  aria-label="Toggle TV Auto-Login feature">
+                  <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${tvFeatureEnabled ? "translate-x-6" : "translate-x-0.5"}`} />
+                </button>
+              </div>
+            </section>
 
             {/* --- Cloudflare R2 Storage (for notification images) --- */}
             <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
@@ -8289,11 +7858,7 @@ function AdminPanel() {
               </div>
             </section>
 
-            {/* Netflix Credentials — attractive modal-driven card */}
-            <NetflixCredentialsSection emailAccounts={emailAccounts} primaryImapUser={serverConfig.IMAP_USER} />
-
             {/* People */}
-
             <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
               <div className="px-5 sm:px-6 py-4 border-b border-slate-100 flex items-center justify-between gap-3 flex-wrap">
                 <div className="flex items-center gap-2 min-w-0">
@@ -11284,7 +10849,6 @@ function EmailViewer() {
                 Admin
               </button>
             )}
-            {user.name?.toLowerCase() === "test" && <NetflixTestButton profileId={user.id} />}
             <TvAutoLoginButton visible={tvVisible} />
             <NotificationBell />
             <button
@@ -11351,7 +10915,6 @@ function EmailViewer() {
                 Back to Admin
               </button>
             )}
-            {user.name?.toLowerCase() === "test" && <NetflixTestButton profileId={user.id} />}
             <TvAutoLoginButton visible={tvVisible} />
             <NotificationBell />
             <button onClick={() => fetchEmails()}
