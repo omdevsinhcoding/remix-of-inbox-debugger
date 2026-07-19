@@ -5326,7 +5326,7 @@ function AdminPanel() {
         await rbsLoad();
       }
       const base = rbsBase.replace(/\/+$/, "");
-      const url = `${base}/vnc/${port}/vnc_lite.html?autoconnect=1&resize=scale&reconnect=1`;
+      const url = `${base}/vnc/${port}/vnc_lite.html?autoconnect=1&resize=scale&reconnect=1&path=vnc/${port}/`;
       if (tab) { try { tab.location.href = url; } catch { /* ignore */ } }
       setRbsActive({ id: s.id, port: port!, url, expiresAt: Date.now() + 10 * 60 * 1000 });
     } catch (e: any) {
