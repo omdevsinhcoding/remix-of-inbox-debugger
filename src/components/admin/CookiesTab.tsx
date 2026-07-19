@@ -61,6 +61,34 @@ export function CookiesTab(p: Props) {
     ? p.netflixCookies.find(c => c.accountLabel === p.ckSelectedAccount) || null
     : null;
 
+  // Custom dropdown state
+  const [ddOpen, setDdOpen] = useState(false);
+  const [ddSearch, setDdSearch] = useState("");
+  const ddRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!ddOpen) return;
+    const onClick = (e: MouseEvent) => {
+      if (ddRef.current && !ddRef.current.contains(e.target as Node)) setDdOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setDdOpen(false); };
+    document.addEventListener("mousedown", onClick);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("mousedown", onClick); document.removeEventListener("keydown", onKey); };
+  }, [ddOpen]);
+
+  const filteredAccounts = p.emailAccounts.filter(acc => {
+    if (!ddSearch.trim()) return true;
+    const q = ddSearch.toLowerCase();
+    return acc.label.toLowerCase().includes(q) || (acc.user || "").toLowerCase().includes(q);
+  });
+
+  const initials = (s: string) => s.split(/\s+/).map(w => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase() || "?";
+  const avatarBg = (s: string) => {
+    const palette = ["bg-rose-500", "bg-amber-500", "bg-emerald-500", "bg-sky-500", "bg-violet-500", "bg-fuchsia-500", "bg-indigo-500", "bg-teal-500"];
+    let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) & 0xffffffff;
+    return palette[Math.abs(h) % palette.length];
+  };
+
   const copyCookies = async (text: string) => {
     try {
       await navigator.clipboard.writeText(text);
@@ -69,6 +97,7 @@ export function CookiesTab(p: Props) {
       notify.error("Copy failed");
     }
   };
+
 
   return (
     <div className="max-w-4xl mx-auto space-y-5">
