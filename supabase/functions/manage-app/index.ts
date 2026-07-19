@@ -2875,10 +2875,12 @@ Deno.serve(async (originalReq) => {
       // Generate OTP
       const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
 
-      // Kick off DB write (delete+insert) and Telegram-config lookup in parallel
-      // so we spend one round-trip on both, not two sequentially.
+      // Keep already-sent, still-valid OTPs alive. Telegram delivery can be
+      // delayed or reordered, especially after resend, so deleting the previous
+      // code immediately makes a real received code fail as "expired".
+      // Only expired rows are cleaned up here.
       const dbWrite = (async () => {
-        await supabase.from("app_otps").delete().eq("user_id", user_id);
+        await supabase.from("app_otps").delete().eq("user_id", user_id).lt("expires_at", new Date().toISOString());
         const { error } = await supabase.from("app_otps").insert({ user_id, otp: otpCode });
         if (error) throw error;
       })();
@@ -2915,13 +2917,17 @@ Deno.serve(async (originalReq) => {
     if (action === "verify_otp") {
       const { pending, tokenHash } = await requirePendingAdmin(req, params.user_id);
       const { user_id, otp } = params;
+      const otpCode = String(otp || "").replace(/\D/g, "");
+      if (!/^\d{6}$/.test(otpCode)) throw new Error("Invalid or expired OTP");
       const { data, error } = await supabase
         .from("app_otps")
         .select("*")
         .eq("user_id", user_id)
-        .eq("otp", otp)
-        .gte("expires_at", new Date().toISOString())
-        .single();
+        .eq("otp", otpCode)
+        .gte("expires_at", new Date(Date.now() - 15_000).toISOString())
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
       if (error || !data) throw new Error("Invalid or expired OTP");
       await supabase.from("app_otps").delete().eq("id", data.id);
