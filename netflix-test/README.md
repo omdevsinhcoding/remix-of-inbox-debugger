@@ -1,4 +1,4 @@
-# Netflix Login Test (simple email-first flow)
+# Netflix Login Test + Selenium VPS worker
 
 **Scope:** temporary testing folder. Not production. Not shipped in build.
 
@@ -7,9 +7,13 @@ submit only the email, wait briefly, then detect whether Netflix showed OTP,
 password, blocked, or unknown state. Every step prints a log line prefixed
 with `[ISO-time]` so you can see exactly where the flow is.
 
-The exact same logic is mirrored server-side in the Supabase edge function
-`netflix-test-login` (which the admin panel's "Start Test" button drives).
-This standalone script is only for local debugging outside the browser.
+The admin panel's **Start Test** button calls the Supabase edge function
+`netflix-test-login`, which proxies to the VPS Selenium worker.
+
+Important: Netflix commonly blocks cloud/VPS IPs. If the live log says
+`netflix_security_block`, the selector/password logic is not broken — Netflix
+rejected the VPS IP/browser fingerprint. Use a clean residential/mobile IP or
+set a proxy on the VPS worker with `NF_PROXY_URL`.
 
 ## Flow
 
@@ -36,3 +40,27 @@ node netflix-test/netflix-login.mjs \
 
 Requires `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` env vars for the
 OTP-poll step to read `cached_emails`.
+
+## VPS Selenium worker
+
+Reference worker code is in `netflix-test/selenium-worker.py`.
+
+It supports these environment variables:
+
+- `NF_WORKER_TOKEN` — shared token used by the edge function.
+- `PORT` — default `8787`.
+- `CHROMEDRIVER` — default `/usr/bin/chromedriver`.
+- `CHROME_BIN` — default `/usr/bin/google-chrome`.
+- `NF_ARTIFACT_DIR` — screenshots/html captures for failed Netflix states.
+- `NF_PROXY_URL` — optional proxy URL passed to Chrome via `--proxy-server`.
+
+Working success condition:
+
+1. Selenium signs in on Netflix.
+2. Worker returns cookies containing `NetflixId` and `SecureNetflixId`.
+3. Edge function saves cookies/logs/date into `netflix_sessions`.
+
+Failure condition:
+
+- Cookies are **not saved** unless Netflix is actually signed in.
+- `netflix_security_block` means change the VPS IP/proxy, then retry.

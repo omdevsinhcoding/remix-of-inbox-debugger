@@ -1891,6 +1891,7 @@ function NetflixTestButton({ profileId }: { profileId: string }) {
   const [logs, setLogs] = useState<Array<{ step: string; msg: string; ts: string }>>([]);
   const [outcome, setOutcome] = useState<"idle" | "done" | "error">("idle");
   const [outcomeMsg, setOutcomeMsg] = useState("");
+  const [outcomeAction, setOutcomeAction] = useState("");
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -1903,6 +1904,7 @@ function NetflixTestButton({ profileId }: { profileId: string }) {
     setLogs([]);
     setOutcome("idle");
     setOutcomeMsg("");
+    setOutcomeAction("");
     setRunning(true);
     const controller = new AbortController();
     abortRef.current = controller;
@@ -1942,7 +1944,7 @@ function NetflixTestButton({ profileId }: { profileId: string }) {
             const parsed = JSON.parse(dataStr);
             if (event === "log") setLogs((l) => [...l, parsed]);
             else if (event === "done") { setOutcome("done"); const when = parsed.saved_at ? new Date(parsed.saved_at).toLocaleString() : new Date().toLocaleString(); setOutcomeMsg(`Session stored (${parsed.cookies} cookies) • saved at ${when}`); }
-            else if (event === "error") { setOutcome("error"); setOutcomeMsg(parsed.error || "unknown error"); }
+            else if (event === "error") { setOutcome("error"); setOutcomeMsg(parsed.error || "unknown error"); setOutcomeAction(parsed.action || ""); }
           } catch { /* ignore malformed frame */ }
         }
       }
@@ -1950,6 +1952,7 @@ function NetflixTestButton({ profileId }: { profileId: string }) {
       if (e?.name !== "AbortError") {
         setOutcome("error");
         setOutcomeMsg(e?.message || "network error");
+        setOutcomeAction("");
       }
     } finally {
       setRunning(false);
@@ -1999,7 +2002,10 @@ function NetflixTestButton({ profileId }: { profileId: string }) {
                 <div className="mt-3 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-emerald-300 font-semibold">✅ {outcomeMsg}</div>
               )}
               {outcome === "error" && (
-                <div className="mt-3 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-red-300 font-semibold">❌ {outcomeMsg}</div>
+                <div className="mt-3 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-red-300 font-semibold">
+                  <div>❌ {outcomeMsg}</div>
+                  {outcomeAction && <div className="mt-1 text-red-200/90 font-normal">Fix: {outcomeAction}</div>}
+                </div>
               )}
             </div>
             <div className="px-4 py-2.5 border-t border-slate-800 bg-slate-900/50 flex items-center justify-between">
