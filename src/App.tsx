@@ -8061,32 +8061,25 @@ function AdminPanel() {
         )}
 
         {activeTab === "cookies" && (
-          <div className="max-w-4xl mx-auto space-y-5">
-            {/* Header — matches TV Remote Access */}
-            <div className="px-1">
-              <h2 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-950 flex items-center gap-2.5">
-                <span className="inline-flex w-9 h-9 rounded-xl bg-slate-900 text-white items-center justify-center shadow-sm"><Cookie className="w-5 h-5" /></span>
-                Cookies
-              </h2>
-              <p className="text-sm text-slate-500 mt-1.5 ml-[46px]">Manage <b className="text-slate-800">saved cookies</b> for your profiles.</p>
-            </div>
-
-            {/* Empty state card in same style as TV section */}
-            <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 sm:p-6">
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <p className="text-base sm:text-lg font-bold text-slate-950 leading-snug">No cookies yet</p>
-                  <p className="text-[13px] text-slate-500 mt-1 leading-relaxed">
-                    This section is ready. Tell me what you want here — list, import/export, per-profile cookies — and I'll wire it up.
-                  </p>
-                </div>
-                <div className="shrink-0 w-[62px] h-[34px] rounded-full bg-slate-100 flex items-center justify-center">
-                  <Cookie className="w-4 h-4 text-slate-400" />
-                </div>
-              </div>
-            </section>
-          </div>
+          <CookiesTab
+            emailAccounts={emailAccounts}
+            netflixCookies={netflixCookies}
+            ckLoaded={ckLoaded}
+            loadNetflixCookies={loadNetflixCookies}
+            ckSelectedAccount={ckSelectedAccount}
+            setCkSelectedAccount={setCkSelectedAccount}
+            ckSessionName={ckSessionName}
+            setCkSessionName={setCkSessionName}
+            ckCookieInput={ckCookieInput}
+            setCkCookieInput={setCkCookieInput}
+            ckSaving={ckSaving}
+            saveNetflixCookie={saveNetflixCookie}
+            deleteNetflixCookie={deleteNetflixCookie}
+            openNetflixWithCookies={openNetflixWithCookies}
+            accountValidationEmail={accountValidationEmail}
+          />
         )}
+
 
 
 
