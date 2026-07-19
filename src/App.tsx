@@ -8060,23 +8060,39 @@ function AdminPanel() {
           </div>
         )}
 
-        {activeTab === "cookies" && (
-          <CookiesTab
-            emailAccounts={emailAccounts}
-            netflixCookies={netflixCookies}
-            ckLoaded={ckLoaded}
-            loadNetflixCookies={loadNetflixCookies}
-            ckSelectedAccount={ckSelectedAccount}
-            setCkSelectedAccount={setCkSelectedAccount}
-            ckCookieInput={ckCookieInput}
-            setCkCookieInput={setCkCookieInput}
-            ckSaving={ckSaving}
-            saveNetflixCookie={saveNetflixCookie}
-            deleteNetflixCookie={deleteNetflixCookie}
-            openNetflixWithCookies={openNetflixWithCookies}
-            accountValidationEmail={accountValidationEmail}
-          />
-        )}
+        {activeTab === "cookies" && (() => {
+          const primaryEmail = (serverConfig.IMAP_USER || "").trim();
+          const primaryLabel = "Primary";
+          const combinedAccounts: EmailAccountConfig[] = primaryEmail && !emailAccounts.some(a => (a.user || "").toLowerCase() === primaryEmail.toLowerCase())
+            ? [{
+                label: primaryLabel,
+                host: serverConfig.IMAP_HOST || "",
+                port: serverConfig.IMAP_PORT || "",
+                user: primaryEmail,
+                password: "",
+                cloudflareUrls: [],
+                recipientFilters: [],
+              }, ...emailAccounts]
+            : emailAccounts;
+          return (
+            <CookiesTab
+              emailAccounts={combinedAccounts}
+              netflixCookies={netflixCookies}
+              ckLoaded={ckLoaded}
+              loadNetflixCookies={loadNetflixCookies}
+              ckSelectedAccount={ckSelectedAccount}
+              setCkSelectedAccount={setCkSelectedAccount}
+              ckCookieInput={ckCookieInput}
+              setCkCookieInput={setCkCookieInput}
+              ckSaving={ckSaving}
+              saveNetflixCookie={saveNetflixCookie}
+              deleteNetflixCookie={deleteNetflixCookie}
+              openNetflixWithCookies={openNetflixWithCookies}
+              accountValidationEmail={accountValidationEmail}
+            />
+          );
+        })()}
+
 
 
 
