@@ -5239,6 +5239,89 @@ function AdminPanel() {
   const vpsLoadedRef = useRef(false);
   const [vpsConnectOpen, setVpsConnectOpen] = useState(false);
 
+  // === Remote Browser Sessions (agent on VPS via HTTPS/sslip.io) ===
+  type RbsSession = { id: string; name: string; port?: number; running: boolean; createdAt?: number };
+  const [rbsBase, setRbsBase] = useState<string>(() => localStorage.getItem("rbs_base") || "");
+  const [rbsToken, setRbsToken] = useState<string>(() => localStorage.getItem("rbs_token") || "");
+  const [rbsSessions, setRbsSessions] = useState<RbsSession[]>([]);
+  const [rbsBusy, setRbsBusy] = useState(false);
+  const [rbsError, setRbsError] = useState<string>("");
+  const [rbsNewName, setRbsNewName] = useState("");
+  const [rbsActive, setRbsActive] = useState<{ id: string; port: number; url: string; expiresAt: number } | null>(null);
+  const [rbsTick, setRbsTick] = useState(0);
+  useEffect(() => { const t = setInterval(() => setRbsTick(x => x + 1), 1000); return () => clearInterval(t); }, []);
+  useEffect(() => {
+    if (!rbsActive) return;
+    if (Date.now() >= rbsActive.expiresAt) setRbsActive(null);
+  }, [rbsTick, rbsActive]);
+
+  const rbsFetch = async (path: string, init: RequestInit = {}) => {
+    if (!rbsBase || !rbsToken) throw new Error("Agent URL/token not set");
+    const base = rbsBase.replace(/\/+$/, "");
+    const r = await fetch(`${base}/api${path}`, {
+      ...init,
+      headers: { ...(init.headers || {}), Authorization: `Bearer ${rbsToken}`, "Content-Type": "application/json" },
+    });
+    if (!r.ok) throw new Error(`${r.status} ${await r.text().catch(() => "")}`);
+    const ct = r.headers.get("content-type") || "";
+    return ct.includes("json") ? r.json() : r.text();
+  };
+  const rbsLoad = async () => {
+    setRbsError(""); setRbsBusy(true);
+    try {
+      const data = await rbsFetch("/sessions");
+      setRbsSessions((data as any)?.sessions || []);
+    } catch (e: any) { setRbsError(e?.message || String(e)); }
+    finally { setRbsBusy(false); }
+  };
+  const rbsCreate = async (name: string) => {
+    const clean = name.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-").slice(0, 40);
+    if (!clean) { setRbsError("Session name required"); return; }
+    setRbsError(""); setRbsBusy(true);
+    try {
+      const data: any = await rbsFetch("/sessions", { method: "POST", body: JSON.stringify({ id: clean, name: clean }) });
+      setRbsNewName("");
+      await rbsLoad();
+      if (data?.port) rbsOpen({ id: clean, name: clean, port: data.port, running: true });
+    } catch (e: any) { setRbsError(e?.message || String(e)); }
+    finally { setRbsBusy(false); }
+  };
+  const rbsOpen = async (s: RbsSession) => {
+    setRbsError(""); setRbsBusy(true);
+    try {
+      let port = s.port;
+      if (!s.running || !port) {
+        const data: any = await rbsFetch("/sessions", { method: "POST", body: JSON.stringify({ id: s.id, name: s.name }) });
+        port = data.port;
+        await rbsLoad();
+      }
+      const base = rbsBase.replace(/\/+$/, "");
+      const url = `${base}/vnc/${port}/vnc_lite.html?autoconnect=1&resize=scale&reconnect=1`;
+      setRbsActive({ id: s.id, port: port!, url, expiresAt: Date.now() + 10 * 60 * 1000 });
+    } catch (e: any) { setRbsError(e?.message || String(e)); }
+    finally { setRbsBusy(false); }
+  };
+  const rbsStop = async (id: string) => {
+    setRbsBusy(true); setRbsError("");
+    try { await rbsFetch(`/sessions/${id}/stop`, { method: "POST" }); await rbsLoad(); }
+    catch (e: any) { setRbsError(e?.message || String(e)); }
+    finally { setRbsBusy(false); }
+  };
+  const rbsDelete = async (id: string) => {
+    if (!confirm(`Delete session "${id}"? Saved logins for it will be wiped.`)) return;
+    setRbsBusy(true); setRbsError("");
+    try { await rbsFetch(`/sessions/${id}`, { method: "DELETE" }); await rbsLoad(); }
+    catch (e: any) { setRbsError(e?.message || String(e)); }
+    finally { setRbsBusy(false); }
+  };
+  useEffect(() => {
+    if (!vpsConnectOpen) return;
+    localStorage.setItem("rbs_base", rbsBase);
+    localStorage.setItem("rbs_token", rbsToken);
+    if (rbsBase && rbsToken) void rbsLoad();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vpsConnectOpen, rbsBase, rbsToken]);
+
   useEffect(() => {
     if (activeTab !== "tv" || vpsLoadedRef.current) return;
     vpsLoadedRef.current = true;
