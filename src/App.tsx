@@ -1,6 +1,6 @@
 import React, { useState, useEffect, createContext, useContext, useCallback, useRef, useMemo, Suspense, lazy } from "react";
 import { createPortal } from "react-dom";
-import { Mail, RefreshCw, ShieldCheck, Shield, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, Globe, Edit, Info, UserCircle, Search, ChevronRight, Bell, Send, MessageSquare, Image as ImageIcon, ExternalLink, AlertTriangle, Sparkles, Megaphone, Wrench, CreditCard, Tag, ChevronDown, ChevronUp, HardDrive, Upload, Zap, BookOpen, GraduationCap, Film, PlayCircle, Pin, MapPin, MapPinOff, Tv, Loader2, Download } from "lucide-react";
+import { Mail, RefreshCw, ShieldCheck, Shield, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, Globe, Edit, Info, UserCircle, Search, ChevronRight, Bell, Send, MessageSquare, Image as ImageIcon, ExternalLink, AlertTriangle, Sparkles, Megaphone, Wrench, CreditCard, Tag, ChevronDown, ChevronUp, HardDrive, Upload, Zap, BookOpen, GraduationCap, Film, PlayCircle, Pin, MapPin, MapPinOff, Tv, Loader2, Download, ClipboardPaste } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import NetflixHouseholdVerificationGuide from "./pages/NetflixHouseholdVerificationGuide";
@@ -5189,6 +5189,9 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
   });
   const [busy, setBusy] = React.useState(false);
   const [pasteText, setPasteText] = React.useState("");
+  const [mode, setMode] = React.useState<"file" | "paste">("file");
+  const [dragActive, setDragActive] = React.useState(false);
+  const dragCounter = React.useRef(0);
   const fileRef = React.useRef<HTMLInputElement | null>(null);
 
   const savePasted = () => {
@@ -5309,77 +5312,154 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
 
       {/* Step 2: upload */}
       {selected && selectedAcc && (
-        <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
-          <div className="flex items-center gap-3 mb-4">
-            <div className={`p-2 rounded-xl ${selectedAcc.key === "__primary__" ? "bg-green-50" : "bg-slate-100"}`}>
+        <section className="bg-white p-4 sm:p-6 rounded-2xl border shadow-sm">
+          {/* Account chip */}
+          <div className="flex items-center gap-3 mb-4 sm:mb-5 pb-4 border-b border-slate-100">
+            <div className={`p-2 rounded-xl flex-shrink-0 ${selectedAcc.key === "__primary__" ? "bg-green-50" : "bg-slate-100"}`}>
               <Mail className={`w-4 h-4 ${selectedAcc.key === "__primary__" ? "text-green-600" : "text-slate-500"}`} />
             </div>
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <p className="font-bold text-sm text-slate-900 truncate">{selectedAcc.label}</p>
-              <p className="text-xs text-slate-500 truncate">{selectedAcc.user || "—"}</p>
+              <p className="text-[11px] sm:text-xs text-slate-500 truncate">{selectedAcc.user || "—"}</p>
             </div>
+            <span className="hidden sm:inline text-[10px] font-bold uppercase tracking-wider text-slate-400 px-2 py-1 bg-slate-50 rounded-md">Step 2 / 2</span>
           </div>
 
-          <label
-            className={`block border-2 border-dashed rounded-2xl p-6 sm:p-8 text-center cursor-pointer transition-colors ${busy ? "border-slate-200 bg-slate-50 opacity-70" : "border-slate-300 hover:border-red-400 hover:bg-red-50/30"}`}
-            onDragOver={(e) => { e.preventDefault(); }}
-            onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) handleFile(f); }}
-          >
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".json,.txt,application/json,text/plain"
-              className="hidden"
-              disabled={busy}
-              onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
-            />
-            <Upload className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-            <p className="text-sm font-bold text-slate-900">{busy ? "Parsing…" : "Drop a cookie file here or click to browse"}</p>
-            <p className="text-xs text-slate-500 mt-1">Accepts JSON (EditThisCookie / Puppeteer) or Netscape cookies.txt • max 2 MB</p>
-          </label>
+          {/* Mode segmented control — production pattern (Vercel / Linear) */}
+          <div role="tablist" aria-label="Upload mode" className="grid grid-cols-2 gap-1 p-1 bg-slate-100 rounded-xl mb-4">
+            <button
+              role="tab"
+              aria-selected={mode === "file"}
+              onClick={() => setMode("file")}
+              className={`flex items-center justify-center gap-1.5 sm:gap-2 h-9 rounded-lg text-xs sm:text-sm font-bold transition-all ${mode === "file" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+            >
+              <Upload className="w-3.5 h-3.5" /> Upload file
+            </button>
+            <button
+              role="tab"
+              aria-selected={mode === "paste"}
+              onClick={() => setMode("paste")}
+              className={`flex items-center justify-center gap-1.5 sm:gap-2 h-9 rounded-lg text-xs sm:text-sm font-bold transition-all ${mode === "paste" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+            >
+              <ClipboardPaste className="w-3.5 h-3.5" /> Paste text
+            </button>
+          </div>
 
-          {/* OR — manual paste */}
-          <div className="mt-5">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="h-px flex-1 bg-slate-200" />
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">or paste manually</span>
-              <div className="h-px flex-1 bg-slate-200" />
-            </div>
-            <textarea
-              value={pasteText}
-              onChange={(e) => setPasteText(e.target.value)}
-              placeholder={'Paste cookies here — JSON array (EditThisCookie / Puppeteer) or Netscape cookies.txt lines…'}
-              rows={6}
-              disabled={busy}
-              className="w-full text-xs font-mono rounded-xl border border-slate-300 bg-white p-3 focus:outline-none focus:ring-2 focus:ring-red-400/60 focus:border-red-400 resize-y"
-              spellCheck={false}
-            />
-            <div className="flex items-center justify-between mt-2 gap-3">
-              <p className="text-[11px] text-slate-500 truncate">{pasteText ? `${pasteText.length.toLocaleString()} chars` : "Auto-detects JSON or Netscape format"}</p>
-              <div className="flex items-center gap-2">
-                {pasteText && (
-                  <button onClick={() => setPasteText("")} disabled={busy} className="text-xs font-bold text-slate-600 hover:text-slate-900 px-3 py-1.5 rounded-lg hover:bg-slate-100 transition-colors">Clear</button>
+          {/* FILE mode — dropzone */}
+          {mode === "file" && (
+            <label
+              htmlFor="cookies-file-input"
+              className={`relative block border-2 border-dashed rounded-2xl p-6 sm:p-10 text-center cursor-pointer transition-all select-none ${
+                busy
+                  ? "border-slate-200 bg-slate-50 opacity-70 cursor-wait"
+                  : dragActive
+                  ? "border-red-500 bg-red-50 scale-[1.01] shadow-inner"
+                  : "border-slate-300 hover:border-red-400 hover:bg-red-50/30"
+              }`}
+              onDragEnter={(e) => { e.preventDefault(); dragCounter.current += 1; setDragActive(true); }}
+              onDragLeave={(e) => { e.preventDefault(); dragCounter.current -= 1; if (dragCounter.current <= 0) { dragCounter.current = 0; setDragActive(false); } }}
+              onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; }}
+              onDrop={(e) => { e.preventDefault(); dragCounter.current = 0; setDragActive(false); const f = e.dataTransfer.files?.[0]; if (f) handleFile(f); }}
+            >
+              <input
+                id="cookies-file-input"
+                ref={fileRef}
+                type="file"
+                accept=".json,.txt,application/json,text/plain"
+                className="sr-only"
+                disabled={busy}
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
+              />
+              <div className={`mx-auto w-12 h-12 sm:w-14 sm:h-14 rounded-2xl flex items-center justify-center mb-3 transition-colors ${dragActive ? "bg-red-100" : "bg-slate-100"}`}>
+                {busy ? (
+                  <Loader2 className="w-6 h-6 text-slate-500 animate-spin" />
+                ) : (
+                  <Upload className={`w-6 h-6 ${dragActive ? "text-red-600" : "text-slate-500"}`} />
                 )}
-                <button
-                  onClick={savePasted}
-                  disabled={busy || !pasteText.trim()}
-                  className="text-xs font-black text-white bg-slate-900 hover:bg-black disabled:bg-slate-300 disabled:cursor-not-allowed px-4 py-2 rounded-lg transition-colors"
-                >
-                  {busy ? "Saving…" : "Save pasted cookies"}
-                </button>
+              </div>
+              <p className="text-sm sm:text-base font-bold text-slate-900">
+                {busy ? "Parsing your file…" : dragActive ? "Release to upload" : (
+                  <>
+                    <span className="hidden sm:inline">Drag &amp; drop or </span>
+                    <span className="text-red-600 underline underline-offset-2">choose a file</span>
+                  </>
+                )}
+              </p>
+              <p className="text-[11px] sm:text-xs text-slate-500 mt-1.5">JSON (EditThisCookie / Puppeteer) or Netscape cookies.txt</p>
+              <div className="flex items-center justify-center gap-1.5 mt-3 flex-wrap">
+                <span className="text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md">.json</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md">.txt</span>
+                <span className="text-[10px] font-bold text-slate-400">•</span>
+                <span className="text-[10px] font-medium text-slate-500">max 2 MB</span>
+              </div>
+            </label>
+          )}
+
+          {/* PASTE mode */}
+          {mode === "paste" && (
+            <div>
+              <div className="relative">
+                <textarea
+                  value={pasteText}
+                  onChange={(e) => setPasteText(e.target.value)}
+                  onPaste={() => { /* auto-detect happens on save */ }}
+                  placeholder={'[\n  { "name": "SessionId", "value": "…", "domain": ".netflix.com" }\n]\n\n— or —\n\n.netflix.com\tTRUE\t/\tTRUE\t1900000000\tSessionId\t…'}
+                  rows={8}
+                  disabled={busy}
+                  className="w-full text-[11px] sm:text-xs font-mono rounded-xl border border-slate-300 bg-slate-50 p-3 sm:p-4 focus:outline-none focus:ring-2 focus:ring-red-400/60 focus:border-red-400 focus:bg-white resize-y transition-colors placeholder:text-slate-400"
+                  spellCheck={false}
+                />
+                {pasteText && (
+                  <span className="absolute top-2 right-2 text-[10px] font-bold uppercase tracking-wider bg-white/90 text-slate-500 px-1.5 py-0.5 rounded border border-slate-200 backdrop-blur">
+                    {(pasteText.startsWith("[") || pasteText.startsWith("{")) ? "JSON" : "Netscape"}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center justify-between mt-3 gap-3 flex-wrap">
+                <p className="text-[11px] text-slate-500 flex items-center gap-1.5">
+                  {pasteText ? (
+                    <>
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                      {pasteText.length.toLocaleString()} chars
+                    </>
+                  ) : (
+                    <>
+                      <span className="w-1.5 h-1.5 rounded-full bg-slate-300" />
+                      Auto-detects JSON or Netscape
+                    </>
+                  )}
+                </p>
+                <div className="flex items-center gap-2">
+                  {pasteText && (
+                    <button onClick={() => setPasteText("")} disabled={busy} className="text-xs font-bold text-slate-600 hover:text-slate-900 px-3 py-2 rounded-lg hover:bg-slate-100 transition-colors">Clear</button>
+                  )}
+                  <button
+                    onClick={savePasted}
+                    disabled={busy || !pasteText.trim()}
+                    className="text-xs font-black text-white bg-slate-900 hover:bg-black disabled:bg-slate-300 disabled:cursor-not-allowed px-4 py-2 rounded-lg transition-colors inline-flex items-center gap-1.5"
+                  >
+                    {busy ? (<><Loader2 className="w-3.5 h-3.5 animate-spin" /> Saving…</>) : "Save cookies"}
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
+          {/* Stored preview */}
           {stored && (
-            <div className="mt-4 p-4 rounded-2xl bg-slate-50 border">
+            <div className="mt-4 sm:mt-5 p-3 sm:p-4 rounded-2xl bg-emerald-50/60 border border-emerald-200/70">
               <div className="flex items-center gap-3">
-                <div className="bg-emerald-100 p-2 rounded-xl"><CheckCircle2 className="w-4 h-4 text-emerald-700" /></div>
+                <div className="bg-emerald-100 p-2 rounded-xl flex-shrink-0"><CheckCircle2 className="w-4 h-4 text-emerald-700" /></div>
                 <div className="flex-1 min-w-0">
-                  <p className="font-bold text-sm text-slate-900 truncate">{stored.filename}</p>
-                  <p className="text-xs text-slate-500">{stored.format.toUpperCase()} • {stored.count} cookie{stored.count === 1 ? "" : "s"} • {new Date(stored.uploadedAt).toLocaleString()}</p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="font-bold text-sm text-slate-900 truncate">{stored.filename}</p>
+                    <span className="text-[10px] font-bold uppercase tracking-wider bg-white text-emerald-700 border border-emerald-200 px-1.5 py-0.5 rounded">{stored.format}</span>
+                  </div>
+                  <p className="text-[11px] sm:text-xs text-slate-600 mt-0.5">
+                    {stored.count} cookie{stored.count === 1 ? "" : "s"} · saved {new Date(stored.uploadedAt).toLocaleString()}
+                  </p>
                 </div>
-                <button onClick={removeForSelected} className="p-2 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Remove">
+                <button onClick={removeForSelected} className="p-2 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors flex-shrink-0" title="Remove stored cookies" aria-label="Remove stored cookies">
                   <Trash2 className="w-4 h-4" />
                 </button>
               </div>
