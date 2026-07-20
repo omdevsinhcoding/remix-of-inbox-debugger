@@ -5262,6 +5262,20 @@ function getSavedCookieCount(row: SavedCookieRow): number {
 }
 
 type SavedCookieRow = { imap_user: string; label?: string | null; filename?: string | null; format?: string | null; count: number; updated_at: string };
+type CookieDraftInfo = { length: number; kind: "JSON" | "Netscape" | "Text" | "" };
+
+function getCookieDraftInfo(text: string): CookieDraftInfo {
+  const trimmed = text.trim();
+  return {
+    length: trimmed.length,
+    kind: !trimmed ? "" : trimmed.startsWith("[") || trimmed.startsWith("{") ? "JSON" : /^# Netscape/i.test(trimmed) || /\t/.test(trimmed) ? "Netscape" : "Text",
+  };
+}
+
+function afterNextPaint(fn: () => void) {
+  if (typeof window === "undefined") { fn(); return; }
+  window.requestAnimationFrame(() => window.setTimeout(fn, 0));
+}
 
 function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; serverConfig: any }) {
   const accounts = React.useMemo(() => {
@@ -5301,11 +5315,41 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
   const [savedRows, setSavedRows] = React.useState<SavedCookieRow[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [busy, setBusy] = React.useState(false);
-  const [pasteText, setPasteText] = React.useState("");
+  const [pasteInfo, setPasteInfo] = React.useState<CookieDraftInfo>({ length: 0, kind: "" });
+  const [editLoadingFor, setEditLoadingFor] = React.useState<string | null>(null);
   const [mode, setMode] = React.useState<"paste" | "file">("paste");
   const [dragActive, setDragActive] = React.useState(false);
+  const pasteRef = React.useRef<HTMLTextAreaElement | null>(null);
+  const pendingPasteValue = React.useRef<string | null>("");
+  const draftDirtyRef = React.useRef(false);
+  const editLoadSeq = React.useRef(0);
+  const contentCache = React.useRef<Record<string, { content: string; filename: string; format: string }>>({});
   const dragCounter = React.useRef(0);
   const fileRef = React.useRef<HTMLInputElement | null>(null);
+
+  const applyDraftText = React.useCallback((value: string, markDirty = false) => {
+    const next = String(value || "");
+    pendingPasteValue.current = next;
+    if (pasteRef.current) {
+      pasteRef.current.value = next;
+      pendingPasteValue.current = null;
+    }
+    draftDirtyRef.current = markDirty;
+    setPasteInfo(getCookieDraftInfo(next));
+  }, []);
+
+  const bindPasteRef = React.useCallback((node: HTMLTextAreaElement | null) => {
+    pasteRef.current = node;
+    if (node && pendingPasteValue.current !== null) {
+      node.value = pendingPasteValue.current;
+      pendingPasteValue.current = null;
+    }
+  }, []);
+
+  const getDraftText = React.useCallback(() => {
+    if (pasteRef.current) return pasteRef.current.value;
+    return pendingPasteValue.current || "";
+  }, []);
 
   const savedByUser = React.useMemo(() => {
     const map: Record<string, SavedCookieRow> = {};
@@ -5353,7 +5397,8 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
       notify.success(`Saved ${cookies.length} cookie${cookies.length === 1 ? "" : "s"}`, {
         description: `${selected} • ${format.toUpperCase()}${savedByUser[selected.toLowerCase()] ? " (replaced previous)" : ""}`,
       });
-      setPasteText("");
+      delete contentCache.current[selected.toLowerCase()];
+      applyDraftText("");
       if (fileRef.current) fileRef.current.value = "";
       await refresh();
       setSelected(null);
@@ -5389,14 +5434,47 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
 
   const fetchContent = async (imapUser: string): Promise<{ content: string; filename: string; format: string } | null> => {
     try {
+      const key = imapUser.toLowerCase();
+      if (contentCache.current[key]) return contentCache.current[key];
       const res: any = await apiCall("manage-app", { action: "admin_cookies_get", imap_user: imapUser });
       if (!res?.item?.content) throw new Error("No content stored");
-      return { content: res.item.content, filename: res.item.filename || "cookies.txt", format: res.item.format || "text" };
+      const item = { content: res.item.content, filename: res.item.filename || "cookies.txt", format: res.item.format || "text" };
+      contentCache.current[key] = item;
+      return item;
     } catch (e: any) {
       notify.error("Fetch failed", { description: e?.message || String(e) });
       return null;
     }
   };
+
+  const openEditorForRow = React.useCallback((row: SavedCookieRow) => {
+    const imapUser = row.imap_user;
+    const key = imapUser.toLowerCase();
+    const seq = ++editLoadSeq.current;
+
+    setMode("paste");
+    applyDraftText("");
+    setSelected(imapUser);
+
+    const cached = contentCache.current[key];
+    if (cached) {
+      afterNextPaint(() => {
+        if (seq === editLoadSeq.current) applyDraftText(cached.content);
+      });
+      return;
+    }
+
+    afterNextPaint(() => {
+      if (seq !== editLoadSeq.current) return;
+      setEditLoadingFor(imapUser);
+      fetchContent(imapUser).then((data) => {
+        if (seq !== editLoadSeq.current || !data || draftDirtyRef.current) return;
+        applyDraftText(data.content);
+      }).finally(() => {
+        if (seq === editLoadSeq.current) setEditLoadingFor(null);
+      });
+    });
+  }, [applyDraftText]);
 
   const copyForRow = async (imapUser: string) => {
     const data = await fetchContent(imapUser);
@@ -5445,7 +5523,7 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
             </p>
           </div>
           {selected && (
-            <button onClick={() => { setSelected(null); setPasteText(""); }} className="ml-auto text-xs font-bold text-slate-600 hover:text-slate-900 flex items-center gap-1">
+            <button onClick={() => { editLoadSeq.current += 1; setSelected(null); setEditLoadingFor(null); applyDraftText(""); }} className="ml-auto text-xs font-bold text-slate-600 hover:text-slate-900 flex items-center gap-1">
               <ArrowLeft className="w-3.5 h-3.5" /> Back
             </button>
           )}
@@ -5471,7 +5549,7 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
                   return (
                     <li key={a.key}>
                       <button
-                        onClick={() => a.user && setSelected(a.user)}
+                         onClick={() => { if (!a.user) return; editLoadSeq.current += 1; setMode("paste"); applyDraftText(""); setSelected(a.user); }}
                         disabled={!a.user}
                         className="w-full flex items-center gap-3 py-3 px-2 rounded-xl hover:bg-slate-50 transition-colors text-left disabled:opacity-50"
                       >
@@ -5555,16 +5633,7 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
                         <Download className="w-3.5 h-3.5" /> Download
                       </button>
                       <button
-                        onClick={() => {
-                          // Switch to editor immediately for instant response
-                          setMode("paste");
-                          setPasteText("");
-                          setSelected(r.imap_user);
-                          // Prefill in background — no await, no UI block
-                          fetchContent(r.imap_user).then((data) => {
-                            if (data) setPasteText(data.content);
-                          });
-                        }}
+                        onClick={() => openEditorForRow(r)}
                         className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 px-3 py-1.5 rounded-lg transition-colors ml-auto"
                         title="Load current cookies into editor to edit or replace"
                       >
@@ -5604,6 +5673,12 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
             )}
           </div>
 
+          {editLoadingFor === selected && (
+            <div className="mb-4 flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-600">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading saved text… editor is ready.
+            </div>
+          )}
+
           {/* Paste FIRST, then Upload */}
           <div role="tablist" aria-label="Save mode" className="grid grid-cols-2 gap-1 p-1 bg-slate-100 rounded-xl mb-4">
             <button
@@ -5628,35 +5703,36 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
             <div>
               <div className="relative">
                 <textarea
-                  value={pasteText}
-                  onChange={(e) => setPasteText(e.target.value)}
+                  ref={bindPasteRef}
+                  onChange={(e) => { draftDirtyRef.current = true; setPasteInfo(getCookieDraftInfo(e.target.value)); }}
                   placeholder={'[\n  { "name": "SessionId", "value": "…", "domain": ".netflix.com" }\n]\n\n— or —\n\n.netflix.com\tTRUE\t/\tTRUE\t1900000000\tSessionId\t…'}
                   rows={10}
                   disabled={busy}
                   className="w-full text-[11px] sm:text-xs font-mono rounded-xl border border-slate-300 bg-slate-50 p-3 sm:p-4 focus:outline-none focus:ring-2 focus:ring-red-400/60 focus:border-red-400 focus:bg-white resize-y transition-colors placeholder:text-slate-400"
                   spellCheck={false}
                 />
-                {pasteText && (
+                {pasteInfo.length > 0 && (
                   <span className="absolute top-2 right-2 text-[10px] font-bold uppercase tracking-wider bg-white/90 text-slate-500 px-1.5 py-0.5 rounded border border-slate-200 backdrop-blur">
-                    {(pasteText.trim().startsWith("[") || pasteText.trim().startsWith("{")) ? "JSON" : "Netscape"}
+                    {pasteInfo.kind}
                   </span>
                 )}
               </div>
               <div className="flex items-center justify-between mt-3 gap-3 flex-wrap">
                 <p className="text-[11px] text-slate-500 flex items-center gap-1.5">
-                  <span className={`w-1.5 h-1.5 rounded-full ${pasteText ? "bg-emerald-500" : "bg-slate-300"}`} />
-                  {pasteText ? `${pasteText.length.toLocaleString()} chars` : "Auto-detects JSON or Netscape"}
+                  <span className={`w-1.5 h-1.5 rounded-full ${pasteInfo.length ? "bg-emerald-500" : "bg-slate-300"}`} />
+                  {pasteInfo.length ? `${pasteInfo.length.toLocaleString()} chars` : "Auto-detects JSON or Netscape"}
                 </p>
                 <div className="flex items-center gap-2">
-                  {pasteText && (
-                    <button onClick={() => setPasteText("")} disabled={busy} className="text-xs font-bold text-slate-600 hover:text-slate-900 px-3 py-2 rounded-lg hover:bg-slate-100 transition-colors">Clear</button>
+                  {pasteInfo.length > 0 && (
+                    <button onClick={() => applyDraftText("", true)} disabled={busy} className="text-xs font-bold text-slate-600 hover:text-slate-900 px-3 py-2 rounded-lg hover:bg-slate-100 transition-colors">Clear</button>
                   )}
                   <button
                     onClick={() => {
-                      const looksJson = pasteText.trim().startsWith("[") || pasteText.trim().startsWith("{");
-                      saveCookies(pasteText, looksJson ? "pasted-cookies.json" : "pasted-cookies.txt");
+                      const text = getDraftText();
+                      const looksJson = text.trim().startsWith("[") || text.trim().startsWith("{");
+                      saveCookies(text, looksJson ? "pasted-cookies.json" : "pasted-cookies.txt");
                     }}
-                    disabled={busy || !pasteText.trim()}
+                    disabled={busy || !pasteInfo.length}
                     className="text-xs font-black text-white bg-red-600 hover:bg-red-700 disabled:bg-slate-300 disabled:cursor-not-allowed px-4 py-2 rounded-lg transition-colors inline-flex items-center gap-1.5 shadow-sm"
                   >
                     {busy ? (<><Loader2 className="w-3.5 h-3.5 animate-spin" /> Saving…</>) : "Save cookies"}
