@@ -5175,8 +5175,9 @@ function parseCookiesAuto(text: string, filename: string): { cookies: CookieReco
   return { cookies: c, format: c.length ? "netscape" : "text" };
 }
 
+type SavedCookieRow = { imap_user: string; label?: string | null; filename?: string | null; format?: string | null; count: number; updated_at: string };
+
 function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; serverConfig: any }) {
-  const STORAGE_KEY = "admin_cookies_vault_v1";
   const accounts = React.useMemo(() => {
     const primary = { key: "__primary__", label: "Primary", user: serverConfig?.IMAP_USER || "", host: serverConfig?.IMAP_HOST || "" };
     const extras = (emailAccounts || []).map((a: any) => ({ key: a.label || a.user, label: a.label || a.user, user: a.user, host: a.host }));
