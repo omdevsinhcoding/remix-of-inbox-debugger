@@ -5375,6 +5375,7 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
                 {accounts.map((a) => {
                   const key = (a.user || "").toLowerCase();
                   const has = !!savedByUser[key];
+                  const isPrimary = a.key === "__primary__";
                   return (
                     <li key={a.key}>
                       <button
@@ -5382,12 +5383,21 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
                         disabled={!a.user}
                         className="w-full flex items-center gap-3 py-3 px-2 rounded-xl hover:bg-slate-50 transition-colors text-left disabled:opacity-50"
                       >
-                        <div className={`p-2 rounded-xl ${a.key === "__primary__" ? "bg-green-50" : "bg-slate-100"}`}>
-                          <Mail className={`w-4 h-4 ${a.key === "__primary__" ? "text-green-600" : "text-slate-500"}`} />
+                        <div className={`p-2 rounded-xl ${a.isFilter ? "bg-red-50" : isPrimary ? "bg-green-50" : "bg-slate-100"}`}>
+                          <Mail className={`w-4 h-4 ${a.isFilter ? "text-red-600" : isPrimary ? "text-green-600" : "text-slate-500"}`} />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="font-bold text-sm text-slate-900 truncate">{a.label}</p>
-                          <p className="text-xs text-slate-500 truncate">{a.user || "—"}{a.host ? ` • ${a.host}` : ""}</p>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <p className="font-bold text-sm text-slate-900 truncate">{a.label}</p>
+                            {a.isFilter && (
+                              <span className="text-[9px] font-black uppercase tracking-wider bg-red-50 text-red-700 border border-red-200 px-1.5 py-0.5 rounded">
+                                Recipient
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-slate-500 truncate">
+                            {a.isFilter ? `via ${a.parentLabel}${a.host ? ` • ${a.host}` : ""}` : `${a.user || "—"}${a.host ? ` • ${a.host}` : ""}`}
+                          </p>
                         </div>
                         {has && (
                           <span className="text-[10px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-700 px-2 py-1 rounded-full flex items-center gap-1">
