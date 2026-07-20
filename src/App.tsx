@@ -5227,6 +5227,12 @@ function parseCookieHeader(text: string): CookieRecord[] {
   return out;
 }
 
+function parseManualCookieText(text: string): CookieRecord[] {
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith("#"));
+  const chunks = lines.length ? lines : (text.trim() ? [text.trim()] : []);
+  return chunks.map((value, index) => ({ name: `manual_cookie_text_${index + 1}`, value }));
+}
+
 function parseCookiesAuto(text: string, filename: string): { cookies: CookieRecord[]; format: "json" | "netscape" | "devtools" | "header" | "text" } {
   const trimmed = text.trim();
   if (trimmed.startsWith("{") || trimmed.startsWith("[")) return { cookies: parseJsonCookies(trimmed), format: "json" };
@@ -5248,7 +5254,7 @@ function parseCookiesAuto(text: string, filename: string): { cookies: CookieReco
   if (netscape.length) return { cookies: netscape, format: "netscape" };
   const header = parseCookieHeader(trimmed);
   if (header.length) return { cookies: header, format: "header" };
-  return { cookies: [], format: "text" };
+  return { cookies: parseManualCookieText(trimmed), format: "text" };
 }
 
 function getSavedCookieCount(row: SavedCookieRow): number {
