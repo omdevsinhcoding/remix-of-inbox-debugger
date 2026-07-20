@@ -5189,6 +5189,9 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
   });
   const [busy, setBusy] = React.useState(false);
   const [pasteText, setPasteText] = React.useState("");
+  const [mode, setMode] = React.useState<"file" | "paste">("file");
+  const [dragActive, setDragActive] = React.useState(false);
+  const dragCounter = React.useRef(0);
   const fileRef = React.useRef<HTMLInputElement | null>(null);
 
   const savePasted = () => {
