@@ -5265,10 +5265,14 @@ type SavedCookieRow = { imap_user: string; label?: string | null; filename?: str
 type CookieDraftInfo = { length: number; kind: "JSON" | "Netscape" | "Text" | "" };
 
 function getCookieDraftInfo(text: string): CookieDraftInfo {
-  const trimmed = text.trim();
+  const raw = String(text || "");
+  let start = 0;
+  while (start < raw.length && /\s/.test(raw[start])) start += 1;
+  const first = raw[start] || "";
+  const sample = raw.slice(start, start + 512);
   return {
-    length: trimmed.length,
-    kind: !trimmed ? "" : trimmed.startsWith("[") || trimmed.startsWith("{") ? "JSON" : /^# Netscape/i.test(trimmed) || /\t/.test(trimmed) ? "Netscape" : "Text",
+    length: raw.trimStart().length,
+    kind: !first ? "" : first === "[" || first === "{" ? "JSON" : /^# Netscape/i.test(sample) || /\t/.test(sample) ? "Netscape" : "Text",
   };
 }
 
@@ -5432,7 +5436,7 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
     }
   };
 
-  const fetchContent = async (imapUser: string): Promise<{ content: string; filename: string; format: string } | null> => {
+  const fetchContent = React.useCallback(async (imapUser: string): Promise<{ content: string; filename: string; format: string } | null> => {
     try {
       const key = imapUser.toLowerCase();
       if (contentCache.current[key]) return contentCache.current[key];
@@ -5445,7 +5449,7 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
       notify.error("Fetch failed", { description: e?.message || String(e) });
       return null;
     }
-  };
+  }, []);
 
   const openEditorForRow = React.useCallback((row: SavedCookieRow) => {
     const imapUser = row.imap_user;
@@ -5474,7 +5478,7 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
         if (seq === editLoadSeq.current) setEditLoadingFor(null);
       });
     });
-  }, [applyDraftText]);
+  }, [applyDraftText, fetchContent]);
 
   const copyForRow = async (imapUser: string) => {
     const data = await fetchContent(imapUser);
