@@ -5184,73 +5184,135 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
     return [primary, ...extras];
   }, [emailAccounts, serverConfig]);
 
+  // `selected` is the imap_user (email address) of the account being edited.
   const [selected, setSelected] = React.useState<string | null>(null);
-  const [vault, setVault] = React.useState<Record<string, { filename: string; format: string; count: number; uploadedAt: string; content: string }>>(() => {
-    try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}"); } catch { return {}; }
-  });
+  const [savedRows, setSavedRows] = React.useState<SavedCookieRow[]>([]);
+  const [loading, setLoading] = React.useState(true);
   const [busy, setBusy] = React.useState(false);
   const [pasteText, setPasteText] = React.useState("");
-  const [mode, setMode] = React.useState<"file" | "paste">("file");
+  const [mode, setMode] = React.useState<"paste" | "file">("paste");
   const [dragActive, setDragActive] = React.useState(false);
   const dragCounter = React.useRef(0);
   const fileRef = React.useRef<HTMLInputElement | null>(null);
 
-  const savePasted = () => {
+  const savedByUser = React.useMemo(() => {
+    const map: Record<string, SavedCookieRow> = {};
+    for (const r of savedRows) map[String(r.imap_user || "").toLowerCase()] = r;
+    return map;
+  }, [savedRows]);
+
+  const refresh = React.useCallback(async () => {
+    try {
+      const res: any = await apiCall("manage-app", { action: "admin_cookies_list" });
+      setSavedRows(Array.isArray(res?.items) ? res.items : []);
+    } catch (e: any) {
+      notify.error("Could not load saved cookies", { description: e?.message || String(e) });
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => { refresh(); }, [refresh]);
+
+  const selectedAcc = React.useMemo(() => {
+    if (!selected) return null;
+    const key = selected.toLowerCase();
+    return accounts.find((a) => (a.user || "").toLowerCase() === key) || { key, label: selected, user: selected, host: "" };
+  }, [selected, accounts]);
+
+  const saveCookies = async (rawText: string, filename: string) => {
     if (!selected) return;
-    const text = pasteText.trim();
-    if (!text) { notify.error("Paste some cookies first"); return; }
-    if (text.length > 2 * 1024 * 1024) { notify.error("Pasted content too large (max 2 MB)"); return; }
+    const text = rawText.trim();
+    if (!text) { notify.error("Nothing to save — paste or upload some cookies first"); return; }
+    if (text.length > 2 * 1024 * 1024) { notify.error("Content too large (max 2 MB)"); return; }
     setBusy(true);
     try {
-      const looksJson = text.startsWith("[") || text.startsWith("{");
-      const fname = looksJson ? "pasted-cookies.json" : "pasted-cookies.txt";
-      const { cookies, format } = parseCookiesAuto(text, fname);
-      if (!cookies.length && format !== "text") throw new Error("No cookies detected in pasted text");
-      const next = { ...vault, [selected]: { filename: fname, format, count: cookies.length, uploadedAt: new Date().toISOString(), content: text } };
-      persist(next);
+      const { cookies, format } = parseCookiesAuto(text, filename);
+      if (!cookies.length && format !== "text") throw new Error("No cookies detected");
+      await apiCall("manage-app", {
+        action: "admin_cookies_save",
+        imap_user: selected,
+        label: selectedAcc?.label || selected,
+        filename,
+        format,
+        count: cookies.length,
+        content: text,
+      });
+      notify.success(`Saved ${cookies.length} cookie${cookies.length === 1 ? "" : "s"}`, {
+        description: `${selected} • ${format.toUpperCase()}${savedByUser[selected.toLowerCase()] ? " (replaced previous)" : ""}`,
+      });
       setPasteText("");
-      notify.success(`Saved ${cookies.length} cookie${cookies.length === 1 ? "" : "s"}`, { description: `Pasted • ${format.toUpperCase()}` });
+      if (fileRef.current) fileRef.current.value = "";
+      await refresh();
+      setSelected(null);
     } catch (e: any) {
-      notify.error("Could not parse pasted text", { description: e?.message || String(e) });
+      notify.error("Could not save cookies", { description: e?.message || String(e) });
     } finally {
       setBusy(false);
     }
-  };
-
-  const persist = (next: typeof vault) => {
-    setVault(next);
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch {}
   };
 
   const handleFile = async (file: File) => {
-    if (!selected) return;
     if (file.size > 2 * 1024 * 1024) { notify.error("File too large (max 2 MB)"); return; }
-    setBusy(true);
+    const text = await file.text();
+    await saveCookies(text, file.name);
+  };
+
+  const deleteSaved = async (imapUser: string) => {
+    if (!confirm(`Delete saved cookies for ${imapUser}? This cannot be undone.`)) return;
     try {
-      const text = await file.text();
-      const { cookies, format } = parseCookiesAuto(text, file.name);
-      if (!cookies.length && format !== "text") throw new Error("No cookies found in file");
-      const next = { ...vault, [selected]: { filename: file.name, format, count: cookies.length, uploadedAt: new Date().toISOString(), content: text } };
-      persist(next);
-      notify.success(`Saved ${cookies.length} cookie${cookies.length === 1 ? "" : "s"}`, { description: `${file.name} • ${format.toUpperCase()}` });
+      await apiCall("manage-app", { action: "admin_cookies_delete", imap_user: imapUser });
+      notify.success("Saved cookies deleted");
+      await refresh();
     } catch (e: any) {
-      notify.error("Could not parse file", { description: e?.message || String(e) });
-    } finally {
-      setBusy(false);
-      if (fileRef.current) fileRef.current.value = "";
+      notify.error("Delete failed", { description: e?.message || String(e) });
     }
   };
 
-  const removeForSelected = () => {
-    if (!selected) return;
-    const next = { ...vault };
-    delete next[selected];
-    persist(next);
-    notify.success("Cookies removed for this account");
+  const fetchContent = async (imapUser: string): Promise<{ content: string; filename: string; format: string } | null> => {
+    try {
+      const res: any = await apiCall("manage-app", { action: "admin_cookies_get", imap_user: imapUser });
+      if (!res?.item?.content) throw new Error("No content stored");
+      return { content: res.item.content, filename: res.item.filename || "cookies.txt", format: res.item.format || "text" };
+    } catch (e: any) {
+      notify.error("Fetch failed", { description: e?.message || String(e) });
+      return null;
+    }
   };
 
-  const selectedAcc = accounts.find((a) => a.key === selected) || null;
-  const stored = selected ? vault[selected] : null;
+  const copyForRow = async (imapUser: string) => {
+    const data = await fetchContent(imapUser);
+    if (!data) return;
+    try {
+      await navigator.clipboard.writeText(data.content);
+      notify.success("Cookies copied to clipboard");
+    } catch (e: any) {
+      notify.error("Copy failed", { description: e?.message || "Clipboard unavailable" });
+    }
+  };
+
+  const openLinkForRow = async (imapUser: string) => {
+    const data = await fetchContent(imapUser);
+    if (!data) return;
+    const blob = new Blob([data.content], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    window.open(url, "_blank", "noopener,noreferrer");
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  };
+
+  const downloadForRow = async (imapUser: string) => {
+    const data = await fetchContent(imapUser);
+    if (!data) return;
+    const safeName = imapUser.replace(/[^\w.\-@]/g, "_");
+    const ext = data.format === "json" ? ".json" : ".txt";
+    const name = `cookies-${safeName}${ext}`;
+    const blob = new Blob([data.content], { type: data.format === "json" ? "application/json" : "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = name; document.body.appendChild(a); a.click();
+    setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 300);
+    notify.success(`Downloaded ${name}`);
+  };
 
   return (
     <div className="space-y-4 sm:space-y-6">
@@ -5258,84 +5320,158 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
       <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
         <div className="flex items-center gap-3">
           <div className="bg-amber-50 p-2 rounded-xl"><Key className="w-5 h-5 text-amber-600" /></div>
-          <div>
+          <div className="min-w-0">
             <h2 className="font-black text-base sm:text-lg text-slate-900">Cookies Vault</h2>
-            <p className="text-xs text-slate-500 mt-0.5">Step {selected ? 2 : 1} of 2 — {selected ? "upload cookies for the selected IMAP account" : "select an IMAP account below"}.</p>
+            <p className="text-xs text-slate-500 mt-0.5">
+              {selected ? `Editing cookies for ${selected}` : "Manage saved cookies per IMAP account. Stored in Supabase."}
+            </p>
           </div>
           {selected && (
-            <button onClick={() => setSelected(null)} className="ml-auto text-xs font-bold text-slate-600 hover:text-slate-900 flex items-center gap-1">
-              <ArrowLeft className="w-3.5 h-3.5" /> Change account
+            <button onClick={() => { setSelected(null); setPasteText(""); }} className="ml-auto text-xs font-bold text-slate-600 hover:text-slate-900 flex items-center gap-1">
+              <ArrowLeft className="w-3.5 h-3.5" /> Back
             </button>
           )}
         </div>
       </section>
 
-      {/* Step 1: pick account */}
+      {/* STEP 1 — pick account + saved cookies list */}
       {!selected && (
-        <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
-          <h3 className="font-bold text-sm text-slate-900 mb-3 flex items-center gap-2">
-            <Server className="w-4 h-4 text-slate-400" /> Select an IMAP account
-            <span className="bg-slate-100 text-slate-600 text-xs px-2 py-0.5 rounded-full ml-auto">{accounts.length}</span>
-          </h3>
-          {accounts.length === 0 ? (
-            <p className="text-sm text-slate-500 py-6 text-center">No IMAP accounts configured yet. Add one under the "Email Accounts" tab.</p>
-          ) : (
-            <ul className="divide-y divide-slate-100">
-              {accounts.map((a) => {
-                const has = !!vault[a.key];
-                return (
-                  <li key={a.key}>
-                    <button
-                      onClick={() => setSelected(a.key)}
-                      className="w-full flex items-center gap-3 py-3 px-2 rounded-xl hover:bg-slate-50 transition-colors text-left"
-                    >
-                      <div className={`p-2 rounded-xl ${a.key === "__primary__" ? "bg-green-50" : "bg-slate-100"}`}>
-                        <Mail className={`w-4 h-4 ${a.key === "__primary__" ? "text-green-600" : "text-slate-500"}`} />
-                      </div>
+        <>
+          <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+            <h3 className="font-bold text-sm text-slate-900 mb-3 flex items-center gap-2">
+              <Server className="w-4 h-4 text-slate-400" /> Select an IMAP account
+              <span className="bg-slate-100 text-slate-600 text-xs px-2 py-0.5 rounded-full ml-auto">{accounts.length}</span>
+            </h3>
+            {accounts.length === 0 ? (
+              <p className="text-sm text-slate-500 py-6 text-center">No IMAP accounts configured yet. Add one under the "Email Accounts" tab.</p>
+            ) : (
+              <ul className="divide-y divide-slate-100">
+                {accounts.map((a) => {
+                  const key = (a.user || "").toLowerCase();
+                  const has = !!savedByUser[key];
+                  return (
+                    <li key={a.key}>
+                      <button
+                        onClick={() => a.user && setSelected(a.user)}
+                        disabled={!a.user}
+                        className="w-full flex items-center gap-3 py-3 px-2 rounded-xl hover:bg-slate-50 transition-colors text-left disabled:opacity-50"
+                      >
+                        <div className={`p-2 rounded-xl ${a.key === "__primary__" ? "bg-green-50" : "bg-slate-100"}`}>
+                          <Mail className={`w-4 h-4 ${a.key === "__primary__" ? "text-green-600" : "text-slate-500"}`} />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-bold text-sm text-slate-900 truncate">{a.label}</p>
+                          <p className="text-xs text-slate-500 truncate">{a.user || "—"}{a.host ? ` • ${a.host}` : ""}</p>
+                        </div>
+                        {has && (
+                          <span className="text-[10px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-700 px-2 py-1 rounded-full flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3" /> saved
+                          </span>
+                        )}
+                        <ChevronRight className="w-4 h-4 text-slate-300" />
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </section>
+
+          {/* Saved cookies list */}
+          <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+            <h3 className="font-bold text-sm text-slate-900 mb-3 flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-500" /> Saved Cookies
+              <span className="bg-slate-100 text-slate-600 text-xs px-2 py-0.5 rounded-full ml-auto">{savedRows.length}</span>
+            </h3>
+            {loading ? (
+              <div className="py-8 text-center text-sm text-slate-500 flex items-center justify-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin" /> Loading…
+              </div>
+            ) : savedRows.length === 0 ? (
+              <p className="text-sm text-slate-500 py-6 text-center">No cookies saved yet. Pick an account above to add some.</p>
+            ) : (
+              <ul className="space-y-2">
+                {savedRows.map((r) => (
+                  <li key={r.imap_user} className="rounded-2xl border border-slate-200 bg-slate-50/40 p-3 sm:p-4">
+                    <div className="flex items-start gap-3">
+                      <div className="bg-emerald-100 p-2 rounded-xl flex-shrink-0"><Mail className="w-4 h-4 text-emerald-700" /></div>
                       <div className="flex-1 min-w-0">
-                        <p className="font-bold text-sm text-slate-900 truncate">{a.label}</p>
-                        <p className="text-xs text-slate-500 truncate">{a.user || "—"}{a.host ? ` • ${a.host}` : ""}</p>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-bold text-sm text-slate-900 truncate">{r.imap_user}</p>
+                          {r.format && (
+                            <span className="text-[10px] font-bold uppercase tracking-wider bg-white text-emerald-700 border border-emerald-200 px-1.5 py-0.5 rounded">{r.format}</span>
+                          )}
+                        </div>
+                        <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5">
+                          {r.count} cookie{r.count === 1 ? "" : "s"} · saved {new Date(r.updated_at).toLocaleString()}
+                          {r.filename ? ` · ${r.filename}` : ""}
+                        </p>
                       </div>
-                      {has && (
-                        <span className="text-[10px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-700 px-2 py-1 rounded-full flex items-center gap-1">
-                          <CheckCircle2 className="w-3 h-3" /> {vault[a.key].count}
-                        </span>
-                      )}
-                      <ChevronRight className="w-4 h-4 text-slate-300" />
-                    </button>
+                    </div>
+                    <div className="mt-3 flex items-center gap-2 flex-wrap">
+                      <button
+                        onClick={() => copyForRow(r.imap_user)}
+                        className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 px-3 py-1.5 rounded-lg transition-colors"
+                        title="Copy cookie text to clipboard"
+                      >
+                        <Copy className="w-3.5 h-3.5" /> Copy
+                      </button>
+                      <button
+                        onClick={() => openLinkForRow(r.imap_user)}
+                        className="inline-flex items-center gap-1.5 text-xs font-black text-white bg-red-600 hover:bg-red-700 px-3 py-1.5 rounded-lg transition-colors shadow-sm"
+                        title="Open cookie content in a new tab"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" /> Open link
+                      </button>
+                      <button
+                        onClick={() => downloadForRow(r.imap_user)}
+                        className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 px-3 py-1.5 rounded-lg transition-colors"
+                        title="Download as .txt / .json"
+                      >
+                        <Download className="w-3.5 h-3.5" /> Download
+                      </button>
+                      <button
+                        onClick={() => setSelected(r.imap_user)}
+                        className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 px-3 py-1.5 rounded-lg transition-colors ml-auto"
+                        title="Replace saved cookies"
+                      >
+                        <Edit className="w-3.5 h-3.5" /> Change
+                      </button>
+                      <button
+                        onClick={() => deleteSaved(r.imap_user)}
+                        className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-600 hover:text-red-600 hover:bg-red-50 px-2 py-1.5 rounded-lg transition-colors"
+                        title="Delete saved cookies"
+                        aria-label={`Delete cookies for ${r.imap_user}`}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </li>
-                );
-              })}
-            </ul>
-          )}
-        </section>
+                ))}
+              </ul>
+            )}
+          </section>
+        </>
       )}
 
-      {/* Step 2: upload */}
+      {/* STEP 2 — paste first, then upload */}
       {selected && selectedAcc && (
         <section className="bg-white p-4 sm:p-6 rounded-2xl border shadow-sm">
-          {/* Account chip */}
           <div className="flex items-center gap-3 mb-4 sm:mb-5 pb-4 border-b border-slate-100">
-            <div className={`p-2 rounded-xl flex-shrink-0 ${selectedAcc.key === "__primary__" ? "bg-green-50" : "bg-slate-100"}`}>
-              <Mail className={`w-4 h-4 ${selectedAcc.key === "__primary__" ? "text-green-600" : "text-slate-500"}`} />
+            <div className="bg-slate-100 p-2 rounded-xl flex-shrink-0">
+              <Mail className="w-4 h-4 text-slate-500" />
             </div>
             <div className="min-w-0 flex-1">
               <p className="font-bold text-sm text-slate-900 truncate">{selectedAcc.label}</p>
               <p className="text-[11px] sm:text-xs text-slate-500 truncate">{selectedAcc.user || "—"}</p>
             </div>
-            <span className="hidden sm:inline text-[10px] font-bold uppercase tracking-wider text-slate-400 px-2 py-1 bg-slate-50 rounded-md">Step 2 / 2</span>
+            {savedByUser[selected.toLowerCase()] && (
+              <span className="text-[10px] font-bold uppercase tracking-wider bg-amber-50 text-amber-700 border border-amber-200 px-2 py-1 rounded-md">Will replace existing</span>
+            )}
           </div>
 
-          {/* Mode segmented control — production pattern (Vercel / Linear) */}
-          <div role="tablist" aria-label="Upload mode" className="grid grid-cols-2 gap-1 p-1 bg-slate-100 rounded-xl mb-4">
-            <button
-              role="tab"
-              aria-selected={mode === "file"}
-              onClick={() => setMode("file")}
-              className={`flex items-center justify-center gap-1.5 sm:gap-2 h-9 rounded-lg text-xs sm:text-sm font-bold transition-all ${mode === "file" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
-            >
-              <Upload className="w-3.5 h-3.5" /> Upload file
-            </button>
+          {/* Paste FIRST, then Upload */}
+          <div role="tablist" aria-label="Save mode" className="grid grid-cols-2 gap-1 p-1 bg-slate-100 rounded-xl mb-4">
             <button
               role="tab"
               aria-selected={mode === "paste"}
@@ -5344,9 +5480,58 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
             >
               <ClipboardPaste className="w-3.5 h-3.5" /> Paste text
             </button>
+            <button
+              role="tab"
+              aria-selected={mode === "file"}
+              onClick={() => setMode("file")}
+              className={`flex items-center justify-center gap-1.5 sm:gap-2 h-9 rounded-lg text-xs sm:text-sm font-bold transition-all ${mode === "file" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+            >
+              <Upload className="w-3.5 h-3.5" /> Upload file
+            </button>
           </div>
 
-          {/* FILE mode — dropzone */}
+          {mode === "paste" && (
+            <div>
+              <div className="relative">
+                <textarea
+                  value={pasteText}
+                  onChange={(e) => setPasteText(e.target.value)}
+                  placeholder={'[\n  { "name": "SessionId", "value": "…", "domain": ".netflix.com" }\n]\n\n— or —\n\n.netflix.com\tTRUE\t/\tTRUE\t1900000000\tSessionId\t…'}
+                  rows={10}
+                  disabled={busy}
+                  className="w-full text-[11px] sm:text-xs font-mono rounded-xl border border-slate-300 bg-slate-50 p-3 sm:p-4 focus:outline-none focus:ring-2 focus:ring-red-400/60 focus:border-red-400 focus:bg-white resize-y transition-colors placeholder:text-slate-400"
+                  spellCheck={false}
+                />
+                {pasteText && (
+                  <span className="absolute top-2 right-2 text-[10px] font-bold uppercase tracking-wider bg-white/90 text-slate-500 px-1.5 py-0.5 rounded border border-slate-200 backdrop-blur">
+                    {(pasteText.trim().startsWith("[") || pasteText.trim().startsWith("{")) ? "JSON" : "Netscape"}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center justify-between mt-3 gap-3 flex-wrap">
+                <p className="text-[11px] text-slate-500 flex items-center gap-1.5">
+                  <span className={`w-1.5 h-1.5 rounded-full ${pasteText ? "bg-emerald-500" : "bg-slate-300"}`} />
+                  {pasteText ? `${pasteText.length.toLocaleString()} chars` : "Auto-detects JSON or Netscape"}
+                </p>
+                <div className="flex items-center gap-2">
+                  {pasteText && (
+                    <button onClick={() => setPasteText("")} disabled={busy} className="text-xs font-bold text-slate-600 hover:text-slate-900 px-3 py-2 rounded-lg hover:bg-slate-100 transition-colors">Clear</button>
+                  )}
+                  <button
+                    onClick={() => {
+                      const looksJson = pasteText.trim().startsWith("[") || pasteText.trim().startsWith("{");
+                      saveCookies(pasteText, looksJson ? "pasted-cookies.json" : "pasted-cookies.txt");
+                    }}
+                    disabled={busy || !pasteText.trim()}
+                    className="text-xs font-black text-white bg-red-600 hover:bg-red-700 disabled:bg-slate-300 disabled:cursor-not-allowed px-4 py-2 rounded-lg transition-colors inline-flex items-center gap-1.5 shadow-sm"
+                  >
+                    {busy ? (<><Loader2 className="w-3.5 h-3.5 animate-spin" /> Saving…</>) : "Save cookies"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {mode === "file" && (
             <label
               htmlFor="cookies-file-input"
@@ -5372,99 +5557,18 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
                 onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
               />
               <div className={`mx-auto w-12 h-12 sm:w-14 sm:h-14 rounded-2xl flex items-center justify-center mb-3 transition-colors ${dragActive ? "bg-red-100" : "bg-slate-100"}`}>
-                {busy ? (
-                  <Loader2 className="w-6 h-6 text-slate-500 animate-spin" />
-                ) : (
-                  <Upload className={`w-6 h-6 ${dragActive ? "text-red-600" : "text-slate-500"}`} />
-                )}
+                {busy ? <Loader2 className="w-6 h-6 text-slate-500 animate-spin" /> : <Upload className={`w-6 h-6 ${dragActive ? "text-red-600" : "text-slate-500"}`} />}
               </div>
               <p className="text-sm sm:text-base font-bold text-slate-900">
-                {busy ? "Parsing your file…" : dragActive ? "Release to upload" : (
+                {busy ? "Saving…" : dragActive ? "Release to upload" : (
                   <>
                     <span className="hidden sm:inline">Drag &amp; drop or </span>
                     <span className="text-red-600 underline underline-offset-2">choose a file</span>
                   </>
                 )}
               </p>
-              <p className="text-[11px] sm:text-xs text-slate-500 mt-1.5">JSON (EditThisCookie / Puppeteer) or Netscape cookies.txt</p>
-              <div className="flex items-center justify-center gap-1.5 mt-3 flex-wrap">
-                <span className="text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md">.json</span>
-                <span className="text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md">.txt</span>
-                <span className="text-[10px] font-bold text-slate-400">•</span>
-                <span className="text-[10px] font-medium text-slate-500">max 2 MB</span>
-              </div>
+              <p className="text-[11px] sm:text-xs text-slate-500 mt-1.5">JSON (EditThisCookie / Puppeteer) or Netscape cookies.txt · max 2 MB</p>
             </label>
-          )}
-
-          {/* PASTE mode */}
-          {mode === "paste" && (
-            <div>
-              <div className="relative">
-                <textarea
-                  value={pasteText}
-                  onChange={(e) => setPasteText(e.target.value)}
-                  onPaste={() => { /* auto-detect happens on save */ }}
-                  placeholder={'[\n  { "name": "SessionId", "value": "…", "domain": ".netflix.com" }\n]\n\n— or —\n\n.netflix.com\tTRUE\t/\tTRUE\t1900000000\tSessionId\t…'}
-                  rows={8}
-                  disabled={busy}
-                  className="w-full text-[11px] sm:text-xs font-mono rounded-xl border border-slate-300 bg-slate-50 p-3 sm:p-4 focus:outline-none focus:ring-2 focus:ring-red-400/60 focus:border-red-400 focus:bg-white resize-y transition-colors placeholder:text-slate-400"
-                  spellCheck={false}
-                />
-                {pasteText && (
-                  <span className="absolute top-2 right-2 text-[10px] font-bold uppercase tracking-wider bg-white/90 text-slate-500 px-1.5 py-0.5 rounded border border-slate-200 backdrop-blur">
-                    {(pasteText.startsWith("[") || pasteText.startsWith("{")) ? "JSON" : "Netscape"}
-                  </span>
-                )}
-              </div>
-              <div className="flex items-center justify-between mt-3 gap-3 flex-wrap">
-                <p className="text-[11px] text-slate-500 flex items-center gap-1.5">
-                  {pasteText ? (
-                    <>
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                      {pasteText.length.toLocaleString()} chars
-                    </>
-                  ) : (
-                    <>
-                      <span className="w-1.5 h-1.5 rounded-full bg-slate-300" />
-                      Auto-detects JSON or Netscape
-                    </>
-                  )}
-                </p>
-                <div className="flex items-center gap-2">
-                  {pasteText && (
-                    <button onClick={() => setPasteText("")} disabled={busy} className="text-xs font-bold text-slate-600 hover:text-slate-900 px-3 py-2 rounded-lg hover:bg-slate-100 transition-colors">Clear</button>
-                  )}
-                  <button
-                    onClick={savePasted}
-                    disabled={busy || !pasteText.trim()}
-                    className="text-xs font-black text-white bg-slate-900 hover:bg-black disabled:bg-slate-300 disabled:cursor-not-allowed px-4 py-2 rounded-lg transition-colors inline-flex items-center gap-1.5"
-                  >
-                    {busy ? (<><Loader2 className="w-3.5 h-3.5 animate-spin" /> Saving…</>) : "Save cookies"}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Stored preview */}
-          {stored && (
-            <div className="mt-4 sm:mt-5 p-3 sm:p-4 rounded-2xl bg-emerald-50/60 border border-emerald-200/70">
-              <div className="flex items-center gap-3">
-                <div className="bg-emerald-100 p-2 rounded-xl flex-shrink-0"><CheckCircle2 className="w-4 h-4 text-emerald-700" /></div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <p className="font-bold text-sm text-slate-900 truncate">{stored.filename}</p>
-                    <span className="text-[10px] font-bold uppercase tracking-wider bg-white text-emerald-700 border border-emerald-200 px-1.5 py-0.5 rounded">{stored.format}</span>
-                  </div>
-                  <p className="text-[11px] sm:text-xs text-slate-600 mt-0.5">
-                    {stored.count} cookie{stored.count === 1 ? "" : "s"} · saved {new Date(stored.uploadedAt).toLocaleString()}
-                  </p>
-                </div>
-                <button onClick={removeForSelected} className="p-2 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors flex-shrink-0" title="Remove stored cookies" aria-label="Remove stored cookies">
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
           )}
         </section>
       )}
