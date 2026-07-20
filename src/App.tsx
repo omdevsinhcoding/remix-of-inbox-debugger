@@ -5284,14 +5284,20 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
     await saveCookies(text, file.name);
   };
 
-  const deleteSaved = async (imapUser: string) => {
-    if (!confirm(`Delete saved cookies for ${imapUser}? This cannot be undone.`)) return;
+  const [pendingDelete, setPendingDelete] = React.useState<SavedCookieRow | null>(null);
+  const [deleting, setDeleting] = React.useState(false);
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    setDeleting(true);
     try {
-      await apiCall("manage-app", { action: "admin_cookies_delete", imap_user: imapUser });
+      await apiCall("manage-app", { action: "admin_cookies_delete", imap_user: pendingDelete.imap_user });
       notify.success("Saved cookies deleted");
+      setPendingDelete(null);
       await refresh();
     } catch (e: any) {
       notify.error("Delete failed", { description: e?.message || String(e) });
+    } finally {
+      setDeleting(false);
     }
   };
 
