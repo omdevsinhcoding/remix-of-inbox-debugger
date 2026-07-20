@@ -1889,7 +1889,8 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
   const [panelStyle, setPanelStyle] = useState<React.CSSProperties>({});
 
   const [code, setCode] = useState<string[]>(["", "", "", "", "", "", "", ""]);
-  const [status, setStatus] = useState<"idle" | "verifying" | "pending">("idle");
+  const [status, setStatus] = useState<"idle" | "verifying" | "checking" | "in_progress" | "no_cookies" | "error">("idle");
+  const [resultInfo, setResultInfo] = useState<{ accountLabel?: string | null; imapMasked?: string | null; eventId?: string | null; message?: string | null }>({});
   const inputsRef = useRef<Array<HTMLInputElement | null>>([]);
 
   const placePanel = useCallback(() => {
@@ -1918,6 +1919,7 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
     placePanel();
     setCode(["", "", "", "", "", "", "", ""]);
     setStatus("idle");
+    setResultInfo({});
     const t = setTimeout(() => inputsRef.current[0]?.focus(), 60);
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
     const onReposition = () => placePanel();
@@ -1968,10 +1970,25 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
   const full = code.join("");
   const isComplete = full.length === 8;
 
-  const submit = () => {
+  const submit = async () => {
     if (!isComplete || status !== "idle") return;
     setStatus("verifying");
-    setTimeout(() => setStatus("pending"), 1400);
+    setResultInfo({});
+    // Brief verifying → checking transition so the UI reflects each phase.
+    setTimeout(() => setStatus((s) => (s === "verifying" ? "checking" : s)), 500);
+    try {
+      const res: any = await apiCall("manage-app", { action: "tv_submit_code", code: full });
+      if (!res?.success) throw new Error(res?.error || "Failed to submit code");
+      setResultInfo({
+        accountLabel: res.account_label,
+        imapMasked: res.imap_user_masked,
+        eventId: res.event_id,
+      });
+      setStatus(res.cookies_available ? "in_progress" : "no_cookies");
+    } catch (err) {
+      setResultInfo({ message: err instanceof Error ? err.message : "Something went wrong" });
+      setStatus("error");
+    }
   };
 
   const popup = open ? createPortal(
