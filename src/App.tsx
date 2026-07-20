@@ -5203,7 +5203,6 @@ function parseCookieHeader(text: string): CookieRecord[] {
   //  - "Set-Cookie: name=value; Path=/; …" (one per line, attributes stripped)
   //  - "Cookie: a=1; b=2" prefix
   const out: CookieRecord[] = [];
-  const seen = new Set<string>();
   const cleaned = text
     .split(/\r?\n/)
     .map((l) => l.replace(/^\s*(set-cookie|cookie)\s*:\s*/i, ""))
@@ -5220,8 +5219,6 @@ function parseCookieHeader(text: string): CookieRecord[] {
       const value = piece.slice(eq + 1).trim();
       if (!name || /\s/.test(name)) continue;
       if (/^(path|domain|expires|max-age|samesite|secure|httponly|priority|partitioned)$/i.test(name)) continue;
-      if (seen.has(name)) continue;
-      seen.add(name);
       out.push({ name, value });
       const rest = pieces.slice(i + 1).join(";").toLowerCase();
       if (/(^|;|\s)(path|domain|expires|max-age|samesite|secure|httponly)\b/.test(rest)) break;
@@ -5252,6 +5249,10 @@ function parseCookiesAuto(text: string, filename: string): { cookies: CookieReco
   const header = parseCookieHeader(trimmed);
   if (header.length) return { cookies: header, format: "header" };
   return { cookies: [], format: "text" };
+}
+
+function getSavedCookieCount(row: SavedCookieRow): number {
+  return Math.max(0, Number(row.count) || 0);
 }
 
 type SavedCookieRow = { imap_user: string; label?: string | null; filename?: string | null; format?: string | null; count: number; updated_at: string };
@@ -5524,7 +5525,7 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
                           )}
                         </div>
                         <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5">
-                          {r.count} cookie{r.count === 1 ? "" : "s"} · saved {new Date(r.updated_at).toLocaleString()}
+                          {getSavedCookieCount(r)} cookie{getSavedCookieCount(r) === 1 ? "" : "s"} · saved {new Date(r.updated_at).toLocaleString()}
                           {r.filename ? ` · ${r.filename}` : ""}
                         </p>
                       </div>
@@ -5725,7 +5726,7 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
                 </div>
                 <div className="flex items-center gap-2 text-xs">
                   <span className="font-bold text-slate-500 w-16 flex-shrink-0">Cookies</span>
-                  <span className="text-slate-900">{pendingDelete.count} {pendingDelete.format ? `· ${pendingDelete.format.toUpperCase()}` : ""}</span>
+                  <span className="text-slate-900">{getSavedCookieCount(pendingDelete)} {pendingDelete.format ? `· ${pendingDelete.format.toUpperCase()}` : ""}</span>
                 </div>
                 <div className="flex items-center gap-2 text-xs">
                   <span className="font-bold text-slate-500 w-16 flex-shrink-0">Saved</span>

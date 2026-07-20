@@ -4730,14 +4730,81 @@ Deno.serve(async (originalReq) => {
       return new Response(JSON.stringify({ success: true, filename: vps.keyFilename, dataBase64: btoa(binary) }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    const parseStoredCookieCount = (raw: unknown): number => {
+      const text = String(raw || "").trim();
+      if (!text) return 0;
+
+      const countJson = () => {
+        const data = JSON.parse(text);
+        const arr = Array.isArray(data)
+          ? data
+          : Array.isArray(data?.cookies)
+          ? data.cookies
+          : data && typeof data === "object" && data.name
+          ? [data]
+          : [];
+        return arr.filter((c: any) => String(c?.name ?? c?.Name ?? "").trim()).length;
+      };
+
+      try {
+        if (text.startsWith("{") || text.startsWith("[")) return countJson();
+      } catch (_) {}
+
+      const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+
+      const netscape = lines.filter((rawLine) => {
+        const line = rawLine.replace(/^#HttpOnly_/i, "");
+        if (!line || line.startsWith("#")) return false;
+        const parts = line.split("\t");
+        return parts.length >= 7 && !!parts[5];
+      }).length;
+      if (netscape > 0) return netscape;
+
+      if (text.includes("\t")) {
+        const rows = lines.map((l) => l.split("\t"));
+        const start = /^name$/i.test((rows[0]?.[0] || "").trim()) ? 1 : 0;
+        let devtools = 0;
+        for (let i = start; i < rows.length; i++) {
+          const name = (rows[i]?.[0] || "").trim();
+          if (name && !/\s/.test(name) && rows[i].length >= 3) devtools++;
+        }
+        if (devtools > 0) return devtools;
+      }
+
+      let header = 0;
+      for (const rawLine of text.split(/\r?\n/)) {
+        const line = rawLine.replace(/^\s*(set-cookie|cookie)\s*:\s*/i, "").trim();
+        if (!line || line.startsWith("#")) continue;
+        const pieces = line.split(";").map((p) => p.trim()).filter(Boolean);
+        for (let i = 0; i < pieces.length; i++) {
+          const eq = pieces[i].indexOf("=");
+          if (eq <= 0) continue;
+          const name = pieces[i].slice(0, eq).trim();
+          if (!name || /\s/.test(name)) continue;
+          if (/^(path|domain|expires|max-age|samesite|secure|httponly|priority|partitioned)$/i.test(name)) continue;
+          header++;
+          const rest = pieces.slice(i + 1).join(";").toLowerCase();
+          if (/(^|;|\s)(path|domain|expires|max-age|samesite|secure|httponly)\b/.test(rest)) break;
+        }
+      }
+      if (header > 0) return header;
+
+      try { return countJson(); } catch (_) {}
+      return 0;
+    };
+
     if (action === "admin_cookies_list") {
       await requireAdmin(req);
       const { data, error } = await supabase
         .from("imap_cookies")
-        .select("id, imap_user, label, filename, format, count, updated_at")
+        .select("id, imap_user, label, filename, format, count, content, updated_at")
         .order("updated_at", { ascending: false });
       if (error) throw new Error(error.message);
-      return new Response(JSON.stringify({ success: true, items: data || [] }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      const items = (data || []).map(({ content, count, ...row }: any) => ({
+        ...row,
+        count: Math.max(Number(count) || 0, parseStoredCookieCount(content)),
+      }));
+      return new Response(JSON.stringify({ success: true, items }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     if (action === "admin_cookies_get") {
@@ -4751,6 +4818,7 @@ Deno.serve(async (originalReq) => {
         .eq("imap_user", imapUser)
         .maybeSingle();
       if (error) throw new Error(error.message);
+      if (data) data.count = Math.max(Number(data.count) || 0, parseStoredCookieCount(data.content));
       return new Response(JSON.stringify({ success: true, item: data || null }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
@@ -4762,7 +4830,7 @@ Deno.serve(async (originalReq) => {
       const filename = String(p?.filename || "cookies.txt").slice(0, 200);
       const format = String(p?.format || "text").slice(0, 20);
       const label = p?.label ? String(p.label).slice(0, 200) : null;
-      const count = Math.max(0, Math.min(100000, Number(p?.count) || 0));
+      const count = Math.max(0, Math.min(100000, Math.max(Number(p?.count) || 0, parseStoredCookieCount(content))));
       if (!imapUser) throw new Error("imap_user required");
       if (!content) throw new Error("content required");
       if (content.length > 2 * 1024 * 1024) throw new Error("content too large (max 2 MB)");
