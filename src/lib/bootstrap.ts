@@ -128,6 +128,67 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 
 let bootstrapInFlight: Promise<BootstrapResult> | null = null;
 
+// Persisted ETag from the last worker/edge bootstrap response.
+// Enables `If-None-Match` requests that come back as HTTP 304 (no body,
+// no upstream DB read) whenever the settings/users snapshot is unchanged.
+const BOOTSTRAP_ETAG_KEY = "bootstrap_etag_v1";
+function readBootstrapEtag(): string | null {
+  try { return localStorage.getItem(BOOTSTRAP_ETAG_KEY); } catch { return null; }
+}
+function writeBootstrapEtag(etag: string | null) {
+  try {
+    if (etag) localStorage.setItem(BOOTSTRAP_ETAG_KEY, etag);
+    else localStorage.removeItem(BOOTSTRAP_ETAG_KEY);
+  } catch {}
+}
+
+// Try the Cloudflare worker's `/api/bootstrap` first. It fronts the edge
+// function with a shared KV cache + ETag so most calls resolve as a 304
+// (no DB read, no payload transfer). Falls back to `invokeEdge` on any
+// failure so the picker never breaks if the worker is misconfigured.
+async function fetchBootstrapViaWorker(): Promise<any | null> {
+  const workerUrls = (() => {
+    try {
+      const raw = typeof localStorage !== "undefined" ? localStorage.getItem(WORKER_URLS_KEY) : null;
+      const arr = raw ? JSON.parse(raw) : null;
+      return Array.isArray(arr) ? arr.filter((s: any) => typeof s === "string" && s.length > 0) : [];
+    } catch { return []; }
+  })();
+  if (workerUrls.length === 0) return null;
+  const etag = readBootstrapEtag();
+  for (const base of workerUrls) {
+    try {
+      const ctrl = new AbortController();
+      const timer = window.setTimeout(() => ctrl.abort(), 3500);
+      const res = await fetch(`${base.replace(/\/+$/, "")}/api/bootstrap`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(etag ? { "If-None-Match": `"${etag}"` } : {}),
+        },
+        body: "{}",
+        signal: ctrl.signal,
+      }).finally(() => window.clearTimeout(timer));
+      // 304 — nothing changed. Use the cached bootstrap payload.
+      if (res.status === 304) {
+        const cached = readBootstrapCache();
+        if (cached) return { ...cached, success: true, __from304: true };
+        // No local cache to pair with the 304 — force a full re-fetch.
+        continue;
+      }
+      if (!res.ok) continue;
+      const data = await res.json();
+      if (!data?.success) continue;
+      const nextEtag = (res.headers.get("etag") || "").replace(/^W\//, "").replace(/^"|"$/g, "") || (data.etag || "");
+      if (nextEtag) writeBootstrapEtag(nextEtag);
+      return data;
+    } catch {
+      // try next worker
+    }
+  }
+  return null;
+}
+
 export async function bootstrapFromSupabase(opts?: { force?: boolean }): Promise<BootstrapResult> {
   if (!opts?.force) {
     const cached = readBootstrapCache();
@@ -136,11 +197,15 @@ export async function bootstrapFromSupabase(opts?: { force?: boolean }): Promise
   }
 
   const request = (async () => {
-    const { invokeEdge } = await import("./secureTransport");
-    const data: any = await withTimeout(
-      invokeEdge("manage-app", { action: "bootstrap_public" }),
-      BOOTSTRAP_TIMEOUT_MS,
-    );
+    let data: any = await fetchBootstrapViaWorker();
+    if (!data) {
+      const { invokeEdge } = await import("./secureTransport");
+      data = await withTimeout(
+        invokeEdge("manage-app", { action: "bootstrap_public" }),
+        BOOTSTRAP_TIMEOUT_MS,
+      );
+      if (data?.etag) writeBootstrapEtag(data.etag);
+    }
     if (!data?.success) throw new Error(data?.error || "Bootstrap failed");
 
     if (Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
@@ -162,6 +227,7 @@ export async function bootstrapFromSupabase(opts?: { force?: boolean }): Promise
     if (bootstrapInFlight === request) bootstrapInFlight = null;
   }
 }
+
 
 
 export const bootstrapPromise: Promise<BootstrapResult> = bootstrapFromSupabase().catch((err) => {
