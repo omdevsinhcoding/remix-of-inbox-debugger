@@ -4790,7 +4790,7 @@ Deno.serve(async (originalReq) => {
       if (header > 0) return header;
 
       try { return countJson(); } catch (_) {}
-      return 0;
+      return lines.length || (text ? 1 : 0);
     };
 
     if (action === "admin_cookies_list") {
