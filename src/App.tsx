@@ -5338,6 +5338,39 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
             <p className="text-xs text-slate-500 mt-1">Accepts JSON (EditThisCookie / Puppeteer) or Netscape cookies.txt • max 2 MB</p>
           </label>
 
+          {/* OR — manual paste */}
+          <div className="mt-5">
+            <div className="flex items-center gap-3 mb-2">
+              <div className="h-px flex-1 bg-slate-200" />
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">or paste manually</span>
+              <div className="h-px flex-1 bg-slate-200" />
+            </div>
+            <textarea
+              value={pasteText}
+              onChange={(e) => setPasteText(e.target.value)}
+              placeholder={'Paste cookies here — JSON array (EditThisCookie / Puppeteer) or Netscape cookies.txt lines…'}
+              rows={6}
+              disabled={busy}
+              className="w-full text-xs font-mono rounded-xl border border-slate-300 bg-white p-3 focus:outline-none focus:ring-2 focus:ring-red-400/60 focus:border-red-400 resize-y"
+              spellCheck={false}
+            />
+            <div className="flex items-center justify-between mt-2 gap-3">
+              <p className="text-[11px] text-slate-500 truncate">{pasteText ? `${pasteText.length.toLocaleString()} chars` : "Auto-detects JSON or Netscape format"}</p>
+              <div className="flex items-center gap-2">
+                {pasteText && (
+                  <button onClick={() => setPasteText("")} disabled={busy} className="text-xs font-bold text-slate-600 hover:text-slate-900 px-3 py-1.5 rounded-lg hover:bg-slate-100 transition-colors">Clear</button>
+                )}
+                <button
+                  onClick={savePasted}
+                  disabled={busy || !pasteText.trim()}
+                  className="text-xs font-black text-white bg-slate-900 hover:bg-black disabled:bg-slate-300 disabled:cursor-not-allowed px-4 py-2 rounded-lg transition-colors"
+                >
+                  {busy ? "Saving…" : "Save pasted cookies"}
+                </button>
+              </div>
+            </div>
+          </div>
+
           {stored && (
             <div className="mt-4 p-4 rounded-2xl bg-slate-50 border">
               <div className="flex items-center gap-3">
