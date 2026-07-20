@@ -5123,12 +5123,13 @@ function RecipientsDrawer({ notification, onClose, onChanged }: { notification: 
 function AdminPanel() {
   usePageHead("Admin Dashboard — Netflix Mail", "Admin control panel for managing users, sessions, notifications, and email accounts.", "/admin/dashboard");
   const ADMIN_ACTIVE_TAB_KEY = "admin_active_tab_v1";
-  const [activeTab, setActiveTab] = useState<"users" | "security" | "emails" | "settings" | "notifications" | "inbox" | "logins" | "allmails" | "deploy" | "tv">(() => {
+  const [activeTab, setActiveTab] = useState<"users" | "security" | "emails" | "settings" | "notifications" | "inbox" | "logins" | "allmails" | "deploy" | "tv" | "cookies">(() => {
     try {
       const raw = sessionStorage.getItem(ADMIN_ACTIVE_TAB_KEY);
       if (!raw) return "users";
-      const allowed = new Set(["users", "security", "emails", "settings", "notifications", "inbox", "logins", "allmails", "deploy", "tv"]);
+      const allowed = new Set(["users", "security", "emails", "settings", "notifications", "inbox", "logins", "allmails", "deploy", "tv", "cookies"]);
       return allowed.has(raw) ? (raw as any) : "users";
+
     } catch {
       return "users";
     }
