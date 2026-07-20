@@ -5457,9 +5457,13 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
                         <Download className="w-3.5 h-3.5" /> Download
                       </button>
                       <button
-                        onClick={() => setSelected(r.imap_user)}
+                        onClick={async () => {
+                          const data = await fetchContent(r.imap_user);
+                          if (data) { setPasteText(data.content); setMode("paste"); }
+                          setSelected(r.imap_user);
+                        }}
                         className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 px-3 py-1.5 rounded-lg transition-colors ml-auto"
-                        title="Replace saved cookies"
+                        title="Load current cookies into editor to edit or replace"
                       >
                         <Edit className="w-3.5 h-3.5" /> Change
                       </button>
