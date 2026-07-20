@@ -5341,7 +5341,7 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
               onClick={() => setMode("paste")}
               className={`flex items-center justify-center gap-1.5 sm:gap-2 h-9 rounded-lg text-xs sm:text-sm font-bold transition-all ${mode === "paste" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
             >
-              <ClipboardIcon className="w-3.5 h-3.5" /> Paste text
+              <ClipboardPaste className="w-3.5 h-3.5" /> Paste text
             </button>
           </div>
 
