@@ -5129,7 +5129,7 @@ type CookieRecord = { name: string; value: string; domain?: string; path?: strin
 function parseNetscapeCookies(text: string): CookieRecord[] {
   const out: CookieRecord[] = [];
   for (const rawLine of text.split(/\r?\n/)) {
-    const line = rawLine.trim();
+    const line = rawLine.replace(/^#HttpOnly_/i, "").trim();
     if (!line || line.startsWith("#")) continue;
     const parts = line.split("\t");
     if (parts.length < 7) continue;
@@ -5147,9 +5147,42 @@ function parseNetscapeCookies(text: string): CookieRecord[] {
   return out;
 }
 
+// Chrome/Edge DevTools → Application → Cookies "Copy" gives a tab-separated
+// table: Name\tValue\tDomain\tPath\tExpires\tSize\tHttpOnly\tSecure\tSameSite\t...
+// (optional header row). Detect and parse that shape.
+function parseDevtoolsTable(text: string): CookieRecord[] {
+  const lines = text.split(/\r?\n/).map((l) => l.replace(/\r$/, "")).filter((l) => l.trim());
+  if (lines.length === 0) return [];
+  const rows = lines.map((l) => l.split("\t"));
+  if (!rows.every((r) => r.length >= 3)) return [];
+  const start = /^name$/i.test((rows[0][0] || "").trim()) ? 1 : 0;
+  const out: CookieRecord[] = [];
+  for (let i = start; i < rows.length; i++) {
+    const r = rows[i];
+    const name = (r[0] || "").trim();
+    if (!name || /\s/.test(name)) continue;
+    out.push({
+      name,
+      value: (r[1] ?? "").trim(),
+      domain: (r[2] ?? "").trim() || undefined,
+      path: (r[3] ?? "").trim() || undefined,
+      httpOnly: /^(true|✓|✔|yes)$/i.test((r[6] ?? "").trim()),
+      secure: /^(true|✓|✔|yes)$/i.test((r[7] ?? "").trim()),
+      sameSite: (r[8] ?? "").trim() || undefined,
+    });
+  }
+  return out;
+}
+
 function parseJsonCookies(text: string): CookieRecord[] {
   const data = JSON.parse(text);
-  const arr = Array.isArray(data) ? data : Array.isArray((data as any)?.cookies) ? (data as any).cookies : null;
+  const arr = Array.isArray(data)
+    ? data
+    : Array.isArray((data as any)?.cookies)
+    ? (data as any).cookies
+    : (data && typeof data === "object" && (data as any).name)
+    ? [data]
+    : null;
   if (!arr) throw new Error("JSON must be an array of cookies or { cookies: [...] }");
   return arr.map((c: any) => ({
     name: String(c.name ?? c.Name ?? ""),
@@ -5164,34 +5197,54 @@ function parseJsonCookies(text: string): CookieRecord[] {
 }
 
 function parseCookieHeader(text: string): CookieRecord[] {
-  // Handles both "a=1; b=2; c=3" (single header) and one "name=value" per line.
+  // Handles:
+  //  - "a=1; b=2; c=3" single Cookie header
+  //  - one "name=value" per line
+  //  - "Set-Cookie: name=value; Path=/; …" (one per line, attributes stripped)
+  //  - "Cookie: a=1; b=2" prefix
   const out: CookieRecord[] = [];
   const seen = new Set<string>();
-  const pieces = text
-    .split(/\r?\n|;/)
-    .map((p) => p.trim())
-    .filter((p) => p && !p.startsWith("#"));
-  for (const piece of pieces) {
-    const eq = piece.indexOf("=");
-    if (eq <= 0) continue;
-    const name = piece.slice(0, eq).trim();
-    const value = piece.slice(eq + 1).trim();
-    if (!name || /\s/.test(name)) continue;
-    // Skip cookie attributes if someone pasted a Set-Cookie line
-    if (/^(path|domain|expires|max-age|samesite|secure|httponly)$/i.test(name)) continue;
-    if (seen.has(name)) continue;
-    seen.add(name);
-    out.push({ name, value });
+  const cleaned = text
+    .split(/\r?\n/)
+    .map((l) => l.replace(/^\s*(set-cookie|cookie)\s*:\s*/i, ""))
+    .join("\n");
+  for (const rawLine of cleaned.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const pieces = line.split(";").map((p) => p.trim()).filter(Boolean);
+    for (let i = 0; i < pieces.length; i++) {
+      const piece = pieces[i];
+      const eq = piece.indexOf("=");
+      if (eq <= 0) continue;
+      const name = piece.slice(0, eq).trim();
+      const value = piece.slice(eq + 1).trim();
+      if (!name || /\s/.test(name)) continue;
+      if (/^(path|domain|expires|max-age|samesite|secure|httponly|priority|partitioned)$/i.test(name)) continue;
+      if (seen.has(name)) continue;
+      seen.add(name);
+      out.push({ name, value });
+      const rest = pieces.slice(i + 1).join(";").toLowerCase();
+      if (/(^|;|\s)(path|domain|expires|max-age|samesite|secure|httponly)\b/.test(rest)) break;
+    }
   }
   return out;
 }
 
-function parseCookiesAuto(text: string, filename: string): { cookies: CookieRecord[]; format: "json" | "netscape" | "header" | "text" } {
+function parseCookiesAuto(text: string, filename: string): { cookies: CookieRecord[]; format: "json" | "netscape" | "devtools" | "header" | "text" } {
   const trimmed = text.trim();
   if (trimmed.startsWith("{") || trimmed.startsWith("[")) return { cookies: parseJsonCookies(trimmed), format: "json" };
-  if (/^# Netscape/i.test(trimmed) || filename.toLowerCase().endsWith(".txt") || /\t.+\t.+\t.+\t.+\t.+\t/.test(trimmed)) {
+  if (/^# Netscape/i.test(trimmed)) {
     const c = parseNetscapeCookies(trimmed);
     if (c.length) return { cookies: c, format: "netscape" };
+  }
+  if (/\t/.test(trimmed)) {
+    const firstRow = trimmed.split(/\r?\n/)[0].split("\t");
+    if (firstRow.length >= 7 && !/^name$/i.test((firstRow[0] || "").trim())) {
+      const c = parseNetscapeCookies(trimmed);
+      if (c.length) return { cookies: c, format: "netscape" };
+    }
+    const dt = parseDevtoolsTable(trimmed);
+    if (dt.length) return { cookies: dt, format: "devtools" };
   }
   try { return { cookies: parseJsonCookies(trimmed), format: "json" }; } catch {}
   const netscape = parseNetscapeCookies(trimmed);
