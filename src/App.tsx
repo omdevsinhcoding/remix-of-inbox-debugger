@@ -5284,14 +5284,20 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
     await saveCookies(text, file.name);
   };
 
-  const deleteSaved = async (imapUser: string) => {
-    if (!confirm(`Delete saved cookies for ${imapUser}? This cannot be undone.`)) return;
+  const [pendingDelete, setPendingDelete] = React.useState<SavedCookieRow | null>(null);
+  const [deleting, setDeleting] = React.useState(false);
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    setDeleting(true);
     try {
-      await apiCall("manage-app", { action: "admin_cookies_delete", imap_user: imapUser });
+      await apiCall("manage-app", { action: "admin_cookies_delete", imap_user: pendingDelete.imap_user });
       notify.success("Saved cookies deleted");
+      setPendingDelete(null);
       await refresh();
     } catch (e: any) {
       notify.error("Delete failed", { description: e?.message || String(e) });
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -5478,7 +5484,7 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
                         <Edit className="w-3.5 h-3.5" /> Change
                       </button>
                       <button
-                        onClick={() => deleteSaved(r.imap_user)}
+                        onClick={() => setPendingDelete(r)}
                         className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-600 hover:text-red-600 hover:bg-red-50 px-2 py-1.5 rounded-lg transition-colors"
                         title="Delete saved cookies"
                         aria-label={`Delete cookies for ${r.imap_user}`}
@@ -5611,6 +5617,67 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
             </label>
           )}
         </section>
+      )}
+
+      {/* Delete confirmation modal */}
+      {pendingDelete && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-150"
+          onClick={() => !deleting && setPendingDelete(null)}
+        >
+          <div
+            className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-5 sm:p-6">
+              <div className="flex items-start gap-3">
+                <div className="bg-red-50 p-2.5 rounded-xl flex-shrink-0">
+                  <Trash2 className="w-5 h-5 text-red-600" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h3 className="font-black text-base text-slate-900">Delete saved cookies?</h3>
+                  <p className="text-xs text-slate-500 mt-1">This action can't be undone.</p>
+                </div>
+              </div>
+              <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-1.5">
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="font-bold text-slate-500 w-16 flex-shrink-0">Account</span>
+                  <span className="font-mono text-slate-900 truncate">{pendingDelete.imap_user}</span>
+                </div>
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="font-bold text-slate-500 w-16 flex-shrink-0">Cookies</span>
+                  <span className="text-slate-900">{pendingDelete.count} {pendingDelete.format ? `· ${pendingDelete.format.toUpperCase()}` : ""}</span>
+                </div>
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="font-bold text-slate-500 w-16 flex-shrink-0">Saved</span>
+                  <span className="text-slate-900">{new Date(pendingDelete.updated_at).toLocaleString()}</span>
+                </div>
+                {pendingDelete.filename && (
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className="font-bold text-slate-500 w-16 flex-shrink-0">File</span>
+                    <span className="text-slate-900 truncate">{pendingDelete.filename}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 px-5 sm:px-6 py-4 bg-slate-50 border-t border-slate-100">
+              <button
+                onClick={() => setPendingDelete(null)}
+                disabled={deleting}
+                className="text-xs font-bold text-slate-700 hover:bg-slate-200 px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDelete}
+                disabled={deleting}
+                className="text-xs font-black text-white bg-red-600 hover:bg-red-700 disabled:bg-red-400 px-4 py-2 rounded-lg transition-colors inline-flex items-center gap-1.5 shadow-sm"
+              >
+                {deleting ? (<><Loader2 className="w-3.5 h-3.5 animate-spin" /> Deleting…</>) : (<><Trash2 className="w-3.5 h-3.5" /> Delete cookies</>)}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
