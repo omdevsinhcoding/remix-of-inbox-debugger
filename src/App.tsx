@@ -5280,7 +5280,7 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
     setBusy(true);
     try {
       const { cookies, format } = parseCookiesAuto(text, filename);
-      if (!cookies.length && format !== "text") throw new Error("No cookies detected");
+      if (!cookies.length) throw new Error("No cookies detected — expected JSON, Netscape cookies.txt, or 'name=value; …' header format");
       await apiCall("manage-app", {
         action: "admin_cookies_save",
         imap_user: selected,
