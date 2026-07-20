@@ -1933,15 +1933,25 @@ Deno.serve(async (originalReq) => {
   // Browser callers must use encrypted transport. Server-to-server callers
   // (Cloudflare worker with a verified app session token) may POST plaintext
   // for narrow internal reads like email_filters.
+  // Additionally: a small allowlist of PUBLIC actions (no session, no user
+  // data) may be POSTed as plaintext so the Cloudflare worker can front them
+  // with KV + ETag caching. bootstrap_public is the highest-volume such call
+  // (~470k reads/window) — worker cache turns it into a 304 hit.
   const SESSION_TOKEN_FOR_TRANSPORT = originalReq.headers.get("x-session-token") || "";
   const SEC_FETCH_SITE_FOR_TRANSPORT = originalReq.headers.get("sec-fetch-site") || "";
   const allowServerPlaintext = !!SESSION_TOKEN_FOR_TRANSPORT && !SEC_FETCH_SITE_FOR_TRANSPORT;
+  const PUBLIC_PLAINTEXT_ACTIONS = new Set(["bootstrap_public"]);
   let __ctx: EncryptedRequestContext | null = null;
   let __parsedBody: any = null;
   try {
-    const __r = await readRequest(originalReq, { allowPlaintext: allowServerPlaintext });
+    // Always attempt plaintext parse; enforce per-action below so we can
+    // whitelist bootstrap_public without weakening any other action.
+    const __r = await readRequest(originalReq, { allowPlaintext: true });
     __parsedBody = __r.body ?? {};
     __ctx = __r.encrypted ? __r.ctx : null;
+    if (!__ctx && !allowServerPlaintext && !PUBLIC_PLAINTEXT_ACTIONS.has(__parsedBody?.action)) {
+      return plaintextRejectedResponse();
+    }
   } catch (e) {
     if (e instanceof PlaintextRejectedError) return plaintextRejectedResponse();
     if (e instanceof TransportError) return transportErrorResponse(e);
