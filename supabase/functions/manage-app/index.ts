@@ -4730,6 +4730,58 @@ Deno.serve(async (originalReq) => {
       return new Response(JSON.stringify({ success: true, filename: vps.keyFilename, dataBase64: btoa(binary) }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    if (action === "admin_cookies_list") {
+      await requireAdmin(req);
+      const { data, error } = await supabase
+        .from("imap_cookies")
+        .select("id, imap_user, label, filename, format, count, updated_at")
+        .order("updated_at", { ascending: false });
+      if (error) throw new Error(error.message);
+      return new Response(JSON.stringify({ success: true, items: data || [] }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    if (action === "admin_cookies_get") {
+      await requireAdmin(req);
+      const imapUser = String(body?.imap_user || "").trim().toLowerCase();
+      if (!imapUser) throw new Error("imap_user required");
+      const { data, error } = await supabase
+        .from("imap_cookies")
+        .select("imap_user, label, filename, format, count, content, updated_at")
+        .eq("imap_user", imapUser)
+        .maybeSingle();
+      if (error) throw new Error(error.message);
+      return new Response(JSON.stringify({ success: true, item: data || null }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    if (action === "admin_cookies_save") {
+      const session = await requireAdmin(req);
+      const imapUser = String(body?.imap_user || "").trim().toLowerCase();
+      const content = String(body?.content || "");
+      const filename = String(body?.filename || "cookies.txt").slice(0, 200);
+      const format = String(body?.format || "text").slice(0, 20);
+      const label = body?.label ? String(body.label).slice(0, 200) : null;
+      const count = Math.max(0, Math.min(100000, Number(body?.count) || 0));
+      if (!imapUser) throw new Error("imap_user required");
+      if (!content) throw new Error("content required");
+      if (content.length > 2 * 1024 * 1024) throw new Error("content too large (max 2 MB)");
+      const { error } = await supabase
+        .from("imap_cookies")
+        .upsert({ imap_user: imapUser, label, filename, format, count, content, updated_at: new Date().toISOString() }, { onConflict: "imap_user" });
+      if (error) throw new Error(error.message);
+      await auditLog(supabase, "imap_cookies_saved", session.userId, null, { imap_user: imapUser, filename, format, count }, ip);
+      return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    if (action === "admin_cookies_delete") {
+      const session = await requireAdmin(req);
+      const imapUser = String(body?.imap_user || "").trim().toLowerCase();
+      if (!imapUser) throw new Error("imap_user required");
+      const { error } = await supabase.from("imap_cookies").delete().eq("imap_user", imapUser);
+      if (error) throw new Error(error.message);
+      await auditLog(supabase, "imap_cookies_deleted", session.userId, null, { imap_user: imapUser }, ip);
+      return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     throw new Error("Unknown action: " + action);
 
   } catch (err) {
