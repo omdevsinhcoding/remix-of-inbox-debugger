@@ -5188,7 +5188,30 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
     try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}"); } catch { return {}; }
   });
   const [busy, setBusy] = React.useState(false);
+  const [pasteText, setPasteText] = React.useState("");
   const fileRef = React.useRef<HTMLInputElement | null>(null);
+
+  const savePasted = () => {
+    if (!selected) return;
+    const text = pasteText.trim();
+    if (!text) { notify.error("Paste some cookies first"); return; }
+    if (text.length > 2 * 1024 * 1024) { notify.error("Pasted content too large (max 2 MB)"); return; }
+    setBusy(true);
+    try {
+      const looksJson = text.startsWith("[") || text.startsWith("{");
+      const fname = looksJson ? "pasted-cookies.json" : "pasted-cookies.txt";
+      const { cookies, format } = parseCookiesAuto(text, fname);
+      if (!cookies.length && format !== "text") throw new Error("No cookies detected in pasted text");
+      const next = { ...vault, [selected]: { filename: fname, format, count: cookies.length, uploadedAt: new Date().toISOString(), content: text } };
+      persist(next);
+      setPasteText("");
+      notify.success(`Saved ${cookies.length} cookie${cookies.length === 1 ? "" : "s"}`, { description: `Pasted • ${format.toUpperCase()}` });
+    } catch (e: any) {
+      notify.error("Could not parse pasted text", { description: e?.message || String(e) });
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const persist = (next: typeof vault) => {
     setVault(next);
