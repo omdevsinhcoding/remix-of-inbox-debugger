@@ -5451,34 +5451,35 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
     }
   }, []);
 
-  const openEditorForRow = React.useCallback((row: SavedCookieRow) => {
+  const openEditorForRow = React.useCallback(async (row: SavedCookieRow) => {
     const imapUser = row.imap_user;
     const key = imapUser.toLowerCase();
     const seq = ++editLoadSeq.current;
 
-    setMode("paste");
-    applyDraftText("");
-    setSelected(imapUser);
-
     const cached = contentCache.current[key];
     if (cached) {
-      afterNextPaint(() => {
-        if (seq === editLoadSeq.current) applyDraftText(cached.content);
-      });
+      setMode("paste");
+      applyDraftText(cached.content);
+      setEditLoadingFor(null);
+      setSelected(imapUser);
       return;
     }
 
-    afterNextPaint(() => {
+    // Fetch FIRST — keep the user on the list with a spinner on the row —
+    // then transition to the editor only when the content is ready.
+    setEditLoadingFor(imapUser);
+    try {
+      const data = await fetchContent(imapUser);
       if (seq !== editLoadSeq.current) return;
-      setEditLoadingFor(imapUser);
-      fetchContent(imapUser).then((data) => {
-        if (seq !== editLoadSeq.current || !data || draftDirtyRef.current) return;
-        applyDraftText(data.content);
-      }).finally(() => {
-        if (seq === editLoadSeq.current) setEditLoadingFor(null);
-      });
-    });
+      if (!data) return;
+      setMode("paste");
+      applyDraftText(data.content);
+      setSelected(imapUser);
+    } finally {
+      if (seq === editLoadSeq.current) setEditLoadingFor(null);
+    }
   }, [applyDraftText, fetchContent]);
+
 
   const copyForRow = async (imapUser: string) => {
     const data = await fetchContent(imapUser);
