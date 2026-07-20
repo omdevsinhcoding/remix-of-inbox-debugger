@@ -5484,7 +5484,7 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
                         <Edit className="w-3.5 h-3.5" /> Change
                       </button>
                       <button
-                        onClick={() => deleteSaved(r.imap_user)}
+                        onClick={() => setPendingDelete(r)}
                         className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-600 hover:text-red-600 hover:bg-red-50 px-2 py-1.5 rounded-lg transition-colors"
                         title="Delete saved cookies"
                         aria-label={`Delete cookies for ${r.imap_user}`}
