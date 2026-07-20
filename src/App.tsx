@@ -5120,15 +5120,233 @@ function RecipientsDrawer({ notification, onClose, onChanged }: { notification: 
   );
 }
 
+// ============ Cookies Tab ============
+// Two-step admin flow: 1) pick an IMAP account, 2) upload cookies file
+// (JSON array/object or Netscape cookies.txt). Parsed client-side; persisted
+// per-account in localStorage so admin can revisit without re-uploading.
+type CookieRecord = { name: string; value: string; domain?: string; path?: string; expires?: number | null; secure?: boolean; httpOnly?: boolean; sameSite?: string };
+
+function parseNetscapeCookies(text: string): CookieRecord[] {
+  const out: CookieRecord[] = [];
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const parts = line.split("\t");
+    if (parts.length < 7) continue;
+    const [domain, , path, secure, expires, name, value] = parts;
+    if (!name) continue;
+    out.push({
+      name,
+      value: value ?? "",
+      domain,
+      path,
+      secure: /^true$/i.test(secure),
+      expires: Number(expires) || null,
+    });
+  }
+  return out;
+}
+
+function parseJsonCookies(text: string): CookieRecord[] {
+  const data = JSON.parse(text);
+  const arr = Array.isArray(data) ? data : Array.isArray((data as any)?.cookies) ? (data as any).cookies : null;
+  if (!arr) throw new Error("JSON must be an array of cookies or { cookies: [...] }");
+  return arr.map((c: any) => ({
+    name: String(c.name ?? c.Name ?? ""),
+    value: String(c.value ?? c.Value ?? ""),
+    domain: c.domain ?? c.Domain,
+    path: c.path ?? c.Path,
+    expires: typeof c.expirationDate === "number" ? c.expirationDate : (typeof c.expires === "number" ? c.expires : null),
+    secure: !!(c.secure ?? c.Secure),
+    httpOnly: !!(c.httpOnly ?? c.HttpOnly),
+    sameSite: c.sameSite ?? c.SameSite,
+  })).filter((c: CookieRecord) => c.name);
+}
+
+function parseCookiesAuto(text: string, filename: string): { cookies: CookieRecord[]; format: "json" | "netscape" | "text" } {
+  const trimmed = text.trim();
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) return { cookies: parseJsonCookies(trimmed), format: "json" };
+  if (/^# Netscape/i.test(trimmed) || filename.toLowerCase().endsWith(".txt") || /\t.+\t.+\t.+\t.+\t.+\t/.test(trimmed)) {
+    const c = parseNetscapeCookies(trimmed);
+    if (c.length) return { cookies: c, format: "netscape" };
+  }
+  try { return { cookies: parseJsonCookies(trimmed), format: "json" }; } catch {}
+  const c = parseNetscapeCookies(trimmed);
+  return { cookies: c, format: c.length ? "netscape" : "text" };
+}
+
+function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; serverConfig: any }) {
+  const STORAGE_KEY = "admin_cookies_vault_v1";
+  const accounts = React.useMemo(() => {
+    const primary = { key: "__primary__", label: "Primary", user: serverConfig?.IMAP_USER || "", host: serverConfig?.IMAP_HOST || "" };
+    const extras = (emailAccounts || []).map((a: any) => ({ key: a.label || a.user, label: a.label || a.user, user: a.user, host: a.host }));
+    return [primary, ...extras];
+  }, [emailAccounts, serverConfig]);
+
+  const [selected, setSelected] = React.useState<string | null>(null);
+  const [vault, setVault] = React.useState<Record<string, { filename: string; format: string; count: number; uploadedAt: string; content: string }>>(() => {
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}"); } catch { return {}; }
+  });
+  const [busy, setBusy] = React.useState(false);
+  const fileRef = React.useRef<HTMLInputElement | null>(null);
+
+  const persist = (next: typeof vault) => {
+    setVault(next);
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch {}
+  };
+
+  const handleFile = async (file: File) => {
+    if (!selected) return;
+    if (file.size > 2 * 1024 * 1024) { notify.error("File too large (max 2 MB)"); return; }
+    setBusy(true);
+    try {
+      const text = await file.text();
+      const { cookies, format } = parseCookiesAuto(text, file.name);
+      if (!cookies.length && format !== "text") throw new Error("No cookies found in file");
+      const next = { ...vault, [selected]: { filename: file.name, format, count: cookies.length, uploadedAt: new Date().toISOString(), content: text } };
+      persist(next);
+      notify.success(`Saved ${cookies.length} cookie${cookies.length === 1 ? "" : "s"}`, { description: `${file.name} • ${format.toUpperCase()}` });
+    } catch (e: any) {
+      notify.error("Could not parse file", { description: e?.message || String(e) });
+    } finally {
+      setBusy(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+
+  const removeForSelected = () => {
+    if (!selected) return;
+    const next = { ...vault };
+    delete next[selected];
+    persist(next);
+    notify.success("Cookies removed for this account");
+  };
+
+  const selectedAcc = accounts.find((a) => a.key === selected) || null;
+  const stored = selected ? vault[selected] : null;
+
+  return (
+    <div className="space-y-4 sm:space-y-6">
+      {/* Header */}
+      <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+        <div className="flex items-center gap-3">
+          <div className="bg-amber-50 p-2 rounded-xl"><Key className="w-5 h-5 text-amber-600" /></div>
+          <div>
+            <h2 className="font-black text-base sm:text-lg text-slate-900">Cookies Vault</h2>
+            <p className="text-xs text-slate-500 mt-0.5">Step {selected ? 2 : 1} of 2 — {selected ? "upload cookies for the selected IMAP account" : "select an IMAP account below"}.</p>
+          </div>
+          {selected && (
+            <button onClick={() => setSelected(null)} className="ml-auto text-xs font-bold text-slate-600 hover:text-slate-900 flex items-center gap-1">
+              <ArrowLeft className="w-3.5 h-3.5" /> Change account
+            </button>
+          )}
+        </div>
+      </section>
+
+      {/* Step 1: pick account */}
+      {!selected && (
+        <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+          <h3 className="font-bold text-sm text-slate-900 mb-3 flex items-center gap-2">
+            <Server className="w-4 h-4 text-slate-400" /> Select an IMAP account
+            <span className="bg-slate-100 text-slate-600 text-xs px-2 py-0.5 rounded-full ml-auto">{accounts.length}</span>
+          </h3>
+          {accounts.length === 0 ? (
+            <p className="text-sm text-slate-500 py-6 text-center">No IMAP accounts configured yet. Add one under the "Email Accounts" tab.</p>
+          ) : (
+            <ul className="divide-y divide-slate-100">
+              {accounts.map((a) => {
+                const has = !!vault[a.key];
+                return (
+                  <li key={a.key}>
+                    <button
+                      onClick={() => setSelected(a.key)}
+                      className="w-full flex items-center gap-3 py-3 px-2 rounded-xl hover:bg-slate-50 transition-colors text-left"
+                    >
+                      <div className={`p-2 rounded-xl ${a.key === "__primary__" ? "bg-green-50" : "bg-slate-100"}`}>
+                        <Mail className={`w-4 h-4 ${a.key === "__primary__" ? "text-green-600" : "text-slate-500"}`} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-bold text-sm text-slate-900 truncate">{a.label}</p>
+                        <p className="text-xs text-slate-500 truncate">{a.user || "—"}{a.host ? ` • ${a.host}` : ""}</p>
+                      </div>
+                      {has && (
+                        <span className="text-[10px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-700 px-2 py-1 rounded-full flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3" /> {vault[a.key].count}
+                        </span>
+                      )}
+                      <ChevronRight className="w-4 h-4 text-slate-300" />
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+      )}
+
+      {/* Step 2: upload */}
+      {selected && selectedAcc && (
+        <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
+          <div className="flex items-center gap-3 mb-4">
+            <div className={`p-2 rounded-xl ${selectedAcc.key === "__primary__" ? "bg-green-50" : "bg-slate-100"}`}>
+              <Mail className={`w-4 h-4 ${selectedAcc.key === "__primary__" ? "text-green-600" : "text-slate-500"}`} />
+            </div>
+            <div className="min-w-0">
+              <p className="font-bold text-sm text-slate-900 truncate">{selectedAcc.label}</p>
+              <p className="text-xs text-slate-500 truncate">{selectedAcc.user || "—"}</p>
+            </div>
+          </div>
+
+          <label
+            className={`block border-2 border-dashed rounded-2xl p-6 sm:p-8 text-center cursor-pointer transition-colors ${busy ? "border-slate-200 bg-slate-50 opacity-70" : "border-slate-300 hover:border-red-400 hover:bg-red-50/30"}`}
+            onDragOver={(e) => { e.preventDefault(); }}
+            onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) handleFile(f); }}
+          >
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".json,.txt,application/json,text/plain"
+              className="hidden"
+              disabled={busy}
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
+            />
+            <Upload className="w-8 h-8 text-slate-400 mx-auto mb-2" />
+            <p className="text-sm font-bold text-slate-900">{busy ? "Parsing…" : "Drop a cookie file here or click to browse"}</p>
+            <p className="text-xs text-slate-500 mt-1">Accepts JSON (EditThisCookie / Puppeteer) or Netscape cookies.txt • max 2 MB</p>
+          </label>
+
+          {stored && (
+            <div className="mt-4 p-4 rounded-2xl bg-slate-50 border">
+              <div className="flex items-center gap-3">
+                <div className="bg-emerald-100 p-2 rounded-xl"><CheckCircle2 className="w-4 h-4 text-emerald-700" /></div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-bold text-sm text-slate-900 truncate">{stored.filename}</p>
+                  <p className="text-xs text-slate-500">{stored.format.toUpperCase()} • {stored.count} cookie{stored.count === 1 ? "" : "s"} • {new Date(stored.uploadedAt).toLocaleString()}</p>
+                </div>
+                <button onClick={removeForSelected} className="p-2 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Remove">
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          )}
+        </section>
+      )}
+    </div>
+  );
+}
+
+
+
 function AdminPanel() {
   usePageHead("Admin Dashboard — Netflix Mail", "Admin control panel for managing users, sessions, notifications, and email accounts.", "/admin/dashboard");
   const ADMIN_ACTIVE_TAB_KEY = "admin_active_tab_v1";
-  const [activeTab, setActiveTab] = useState<"users" | "security" | "emails" | "settings" | "notifications" | "inbox" | "logins" | "allmails" | "deploy" | "tv">(() => {
+  const [activeTab, setActiveTab] = useState<"users" | "security" | "emails" | "settings" | "notifications" | "inbox" | "logins" | "allmails" | "deploy" | "tv" | "cookies">(() => {
     try {
       const raw = sessionStorage.getItem(ADMIN_ACTIVE_TAB_KEY);
       if (!raw) return "users";
-      const allowed = new Set(["users", "security", "emails", "settings", "notifications", "inbox", "logins", "allmails", "deploy", "tv"]);
+      const allowed = new Set(["users", "security", "emails", "settings", "notifications", "inbox", "logins", "allmails", "deploy", "tv", "cookies"]);
       return allowed.has(raw) ? (raw as any) : "users";
+
     } catch {
       return "users";
     }
@@ -6615,7 +6833,9 @@ function AdminPanel() {
     { id: "notifications" as const, label: "Notifications", icon: Bell },
     { id: "inbox" as const, label: "Inbox", icon: Mail },
     { id: "tv" as const, label: "TV Auto-Login", icon: Tv },
+    { id: "cookies" as const, label: "Cookies", icon: Key },
     { id: "security" as const, label: "Security", icon: ShieldCheck },
+
     { id: "emails" as const, label: "Email Accounts", icon: Server },
     { id: "settings" as const, label: "Settings", icon: Settings },
     { id: "deploy" as const, label: "Deploy", icon: Server },
@@ -8137,7 +8357,7 @@ function AdminPanel() {
           </div>
         )}
 
-
+        {activeTab === "cookies" && <CookiesTab emailAccounts={emailAccounts} serverConfig={serverConfig} />}
 
 
         {activeTab === "notifications" && (
