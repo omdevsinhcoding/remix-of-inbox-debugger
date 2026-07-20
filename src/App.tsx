@@ -6616,7 +6616,9 @@ function AdminPanel() {
     { id: "notifications" as const, label: "Notifications", icon: Bell },
     { id: "inbox" as const, label: "Inbox", icon: Mail },
     { id: "tv" as const, label: "TV Auto-Login", icon: Tv },
+    { id: "cookies" as const, label: "Cookies", icon: Key },
     { id: "security" as const, label: "Security", icon: ShieldCheck },
+
     { id: "emails" as const, label: "Email Accounts", icon: Server },
     { id: "settings" as const, label: "Settings", icon: Settings },
     { id: "deploy" as const, label: "Deploy", icon: Server },
