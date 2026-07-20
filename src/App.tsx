@@ -5531,7 +5531,7 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
                           )}
                         </div>
                         <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5">
-                          {getSavedCookieCount(r)} cookie{getSavedCookieCount(r) === 1 ? "" : "s"} · saved {new Date(r.updated_at).toLocaleString()}
+                          Saved {new Date(r.updated_at).toLocaleString()}
                           {r.filename ? ` · ${r.filename}` : ""}
                         </p>
                       </div>
@@ -5731,8 +5731,8 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
                   <span className="font-mono text-slate-900 truncate">{pendingDelete.imap_user}</span>
                 </div>
                 <div className="flex items-center gap-2 text-xs">
-                  <span className="font-bold text-slate-500 w-16 flex-shrink-0">Cookies</span>
-                  <span className="text-slate-900">{getSavedCookieCount(pendingDelete)} {pendingDelete.format ? `· ${pendingDelete.format.toUpperCase()}` : ""}</span>
+                  <span className="font-bold text-slate-500 w-16 flex-shrink-0">Format</span>
+                  <span className="text-slate-900">{pendingDelete.format ? pendingDelete.format.toUpperCase() : "—"}</span>
                 </div>
                 <div className="flex items-center gap-2 text-xs">
                   <span className="font-bold text-slate-500 w-16 flex-shrink-0">Saved</span>
