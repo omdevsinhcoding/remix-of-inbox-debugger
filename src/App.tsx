@@ -5179,9 +5179,35 @@ type SavedCookieRow = { imap_user: string; label?: string | null; filename?: str
 
 function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; serverConfig: any }) {
   const accounts = React.useMemo(() => {
-    const primary = { key: "__primary__", label: "Primary", user: serverConfig?.IMAP_USER || "", host: serverConfig?.IMAP_HOST || "" };
-    const extras = (emailAccounts || []).map((a: any) => ({ key: a.label || a.user, label: a.label || a.user, user: a.user, host: a.host }));
-    return [primary, ...extras];
+    type Acc = { key: string; label: string; user: string; host: string; isFilter?: boolean; parentLabel?: string };
+    const out: Acc[] = [];
+    const pushWithFilters = (base: Acc, filters: string[] | undefined) => {
+      const clean = (filters || []).map((f) => String(f || "").trim()).filter(Boolean);
+      if (clean.length === 0) { out.push(base); return; }
+      // Treat each recipient filter as its own "account" (higher priority)
+      for (const f of clean) {
+        out.push({
+          key: `${base.key}::${f.toLowerCase()}`,
+          label: f,
+          user: f,
+          host: base.host,
+          isFilter: true,
+          parentLabel: base.label,
+        });
+      }
+    };
+    pushWithFilters(
+      { key: "__primary__", label: "Primary", user: serverConfig?.IMAP_USER || "", host: serverConfig?.IMAP_HOST || "" },
+      serverConfig?.IMAP_RECIPIENT_FILTERS || serverConfig?.recipientFilters,
+    );
+    for (const a of (emailAccounts || [])) {
+      pushWithFilters(
+        { key: a.label || a.user, label: a.label || a.user, user: a.user, host: a.host },
+        a.recipientFilters,
+      );
+    }
+    // Recipient-filter entries take first priority
+    return out.sort((x, y) => Number(!!y.isFilter) - Number(!!x.isFilter));
   }, [emailAccounts, serverConfig]);
 
   // `selected` is the imap_user (email address) of the account being edited.
