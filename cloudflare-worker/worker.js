@@ -1119,3 +1119,105 @@ async function handleNotificationsInvalidate(env, session) {
   return new Response(JSON.stringify({ success: true }), { headers: notifHeaders() });
 }
 
+
+// ---------- Public bootstrap KV cache ----------
+// The bootstrap payload (profiles + settings + worker URLs) is identical for
+// every anonymous visitor. Caching it at the worker turns thousands of
+// concurrent cold loads into a single upstream fetch per TTL window plus
+// cheap 304s for repeat visitors that already hold the current ETag.
+const BOOTSTRAP_KEY = "bootstrap:snap:v1";
+const BOOTSTRAP_TTL_SECONDS = 60;
+
+function bootstrapHeaders(extra = {}) {
+  return {
+    ...CORS_HEADERS,
+    "Content-Type": "application/json",
+    "Cache-Control": "public, max-age=30, stale-while-revalidate=60",
+    "Access-Control-Expose-Headers": "ETag, X-Cache-Status, X-Cache-Age",
+    ...extra,
+  };
+}
+
+async function handleBootstrapPublic(request, env, ctx) {
+  if (!supabaseUrl(env) || !supabaseKey(env)) {
+    return new Response(JSON.stringify({ success: false, error: "Worker not configured" }), {
+      status: 500, headers: bootstrapHeaders(),
+    });
+  }
+
+  const clientEtag = (request.headers.get("If-None-Match") || "").replace(/^W\//, "").replace(/^"|"$/g, "");
+  const kv = getKV(env);
+
+  // ---- Cache lookup ----
+  if (kv) {
+    const raw = await kvGet(env, BOOTSTRAP_KEY);
+    if (raw) {
+      let cached = null;
+      try { cached = JSON.parse(raw); } catch {}
+      if (cached && cached.body && cached.at) {
+        const age = Math.round((Date.now() - cached.at) / 1000);
+        if (age < BOOTSTRAP_TTL_SECONDS) {
+          if (clientEtag && cached.etag && clientEtag === cached.etag) {
+            return new Response(null, {
+              status: 304,
+              headers: bootstrapHeaders({ ETag: `"${cached.etag}"`, "X-Cache-Status": "HIT_304", "X-Cache-Age": String(age) }),
+            });
+          }
+          return new Response(cached.body, {
+            headers: bootstrapHeaders({ ...(cached.etag ? { ETag: `"${cached.etag}"` } : {}), "X-Cache-Status": "HIT", "X-Cache-Age": String(age) }),
+          });
+        }
+      }
+    }
+  }
+
+  // ---- MISS: forward to manage-app plaintext ----
+  try {
+    const upstream = await fetch(`${supabaseUrl(env)}/functions/v1/manage-app`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${supabaseKey(env)}`,
+        "apikey": supabaseKey(env),
+        ...(clientEtag ? { "If-None-Match": `"${clientEtag}"` } : {}),
+      },
+      body: JSON.stringify({ action: "bootstrap_public" }),
+    });
+    const text = await upstream.text();
+    if (!upstream.ok) {
+      return new Response(text, {
+        status: upstream.status,
+        headers: bootstrapHeaders({ "X-Cache-Status": "MISS_ERR" }),
+      });
+    }
+    let parsed = null;
+    try { parsed = JSON.parse(text); } catch {}
+    const upstreamEtag = (upstream.headers.get("etag") || "").replace(/^W\//, "").replace(/^"|"$/g, "") || (parsed?.etag || "");
+
+    if (kv && parsed?.success && !parsed.unchanged) {
+      const store = { body: text, etag: upstreamEtag || null, at: Date.now() };
+      const write = (async () => {
+        try {
+          const primary = env.EMAIL_CACHE_V2 || env.EMAIL_CACHE;
+          if (primary) await primary.put(BOOTSTRAP_KEY, JSON.stringify(store), { expirationTtl: BOOTSTRAP_TTL_SECONDS + 60 });
+        } catch (err) { console.error("[bootstrap] KV write failed:", err.message || err); }
+      })();
+      if (ctx?.waitUntil) ctx.waitUntil(write); else await write;
+    }
+
+    if (clientEtag && parsed?.unchanged && upstreamEtag && clientEtag === upstreamEtag) {
+      return new Response(null, {
+        status: 304,
+        headers: bootstrapHeaders({ ETag: `"${upstreamEtag}"`, "X-Cache-Status": "MISS_304" }),
+      });
+    }
+
+    return new Response(text, {
+      headers: bootstrapHeaders({ ...(upstreamEtag ? { ETag: `"${upstreamEtag}"` } : {}), "X-Cache-Status": "MISS" }),
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ success: false, error: "Upstream failed: " + (err.message || "unknown") }), {
+      status: 502, headers: bootstrapHeaders({ "X-Cache-Status": "MISS_ERR" }),
+    });
+  }
+}
