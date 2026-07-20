@@ -5531,7 +5531,7 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
                           )}
                         </div>
                         <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5">
-                          {getSavedCookieCount(r)} cookie{getSavedCookieCount(r) === 1 ? "" : "s"} · saved {new Date(r.updated_at).toLocaleString()}
+                          Saved {new Date(r.updated_at).toLocaleString()}
                           {r.filename ? ` · ${r.filename}` : ""}
                         </p>
                       </div>
