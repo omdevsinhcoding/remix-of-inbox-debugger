@@ -5682,11 +5682,8 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
             )}
           </div>
 
-          {editLoadingFor === selected && (
-            <div className="mb-4 flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-600">
-              <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading saved text… editor is ready.
-            </div>
-          )}
+
+
 
           {/* Paste FIRST, then Upload */}
           <div role="tablist" aria-label="Save mode" className="grid grid-cols-2 gap-1 p-1 bg-slate-100 rounded-xl mb-4">
