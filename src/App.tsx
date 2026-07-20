@@ -5458,15 +5458,15 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
           <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
             <h3 className="font-bold text-sm text-slate-900 mb-3 flex items-center gap-2">
               <Server className="w-4 h-4 text-slate-400" /> Select an IMAP account
-              <span className="bg-slate-100 text-slate-600 text-xs px-2 py-0.5 rounded-full ml-auto">{accounts.length}</span>
+              <span className="bg-slate-100 text-slate-600 text-xs px-2 py-0.5 rounded-full ml-auto">{accounts.filter((a) => !savedByUser[(a.user || "").toLowerCase()]).length}</span>
             </h3>
             {accounts.length === 0 ? (
               <p className="text-sm text-slate-500 py-6 text-center">No IMAP accounts configured yet. Add one under the "Email Accounts" tab.</p>
+            ) : accounts.filter((a) => !savedByUser[(a.user || "").toLowerCase()]).length === 0 ? (
+              <p className="text-sm text-slate-500 py-6 text-center">All IMAP accounts already have saved cookies. Delete a saved entry below to re-add one.</p>
             ) : (
               <ul className="divide-y divide-slate-100">
-                {accounts.map((a) => {
-                  const key = (a.user || "").toLowerCase();
-                  const has = !!savedByUser[key];
+                {accounts.filter((a) => !savedByUser[(a.user || "").toLowerCase()]).map((a) => {
                   const isPrimary = a.key === "__primary__";
                   return (
                     <li key={a.key}>
@@ -5491,11 +5491,6 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
                             {a.isFilter ? `via ${a.parentLabel}${a.host ? ` • ${a.host}` : ""}` : `${a.user || "—"}${a.host ? ` • ${a.host}` : ""}`}
                           </p>
                         </div>
-                        {has && (
-                          <span className="text-[10px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-700 px-2 py-1 rounded-full flex items-center gap-1">
-                            <CheckCircle2 className="w-3 h-3" /> saved
-                          </span>
-                        )}
                         <ChevronRight className="w-4 h-4 text-slate-300" />
                       </button>
                     </li>
@@ -5504,6 +5499,7 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
               </ul>
             )}
           </section>
+
 
           {/* Saved cookies list */}
           <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
