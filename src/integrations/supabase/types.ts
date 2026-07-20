@@ -1017,6 +1017,62 @@ export type Database = {
         }
         Relationships: []
       }
+      tv_login_events: {
+        Row: {
+          account_label: string | null
+          code: string
+          cookies_available: boolean
+          created_at: string
+          id: string
+          imap_user: string | null
+          ip: string | null
+          metadata: Json
+          status: string
+          updated_at: string
+          user_agent: string | null
+          user_id: string | null
+          username: string | null
+        }
+        Insert: {
+          account_label?: string | null
+          code: string
+          cookies_available?: boolean
+          created_at?: string
+          id?: string
+          imap_user?: string | null
+          ip?: string | null
+          metadata?: Json
+          status?: string
+          updated_at?: string
+          user_agent?: string | null
+          user_id?: string | null
+          username?: string | null
+        }
+        Update: {
+          account_label?: string | null
+          code?: string
+          cookies_available?: boolean
+          created_at?: string
+          id?: string
+          imap_user?: string | null
+          ip?: string | null
+          metadata?: Json
+          status?: string
+          updated_at?: string
+          user_agent?: string | null
+          user_id?: string | null
+          username?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tv_login_events_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "app_users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never

@@ -4850,6 +4850,94 @@ Deno.serve(async (originalReq) => {
       return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    if (action === "tv_submit_code") {
+      const session = await requireSession(req);
+      const p = (params || {}) as any;
+      const code = String(p?.code || "").replace(/\D/g, "").slice(0, 8);
+      if (code.length !== 8) throw new Error("Enter the 8-digit code shown on your TV");
+
+      const { data: user } = await supabase
+        .from("app_users")
+        .select("id, username, name, assigned_accounts")
+        .eq("id", session.userId)
+        .maybeSingle();
+      if (!user) throw new Error("User not found");
+
+      // Resolve the user's IMAP accounts from email_accounts settings.
+      const { data: acctSetting } = await supabase.from("app_settings").select("value").eq("key", "email_accounts").maybeSingle();
+      const allAccounts: any[] = Array.isArray(acctSetting?.value) ? acctSetting.value : [];
+      const assignedLabels = (Array.isArray(user.assigned_accounts) ? user.assigned_accounts : [])
+        .map((v: any) => String(v || "").trim().toLowerCase())
+        .filter(Boolean);
+      const candidates = allAccounts
+        .map((acc: any) => ({
+          label: String(acc?.label || acc?.user || "").trim(),
+          imap_user: String(acc?.user || "").trim().toLowerCase(),
+        }))
+        .filter((c) => c.imap_user && (assignedLabels.length === 0 || assignedLabels.includes(c.label.toLowerCase()) || assignedLabels.includes("primary")));
+
+      let matched: { label: string; imap_user: string } | null = null;
+      let cookiesAvailable = false;
+      if (candidates.length > 0) {
+        const imapUsers = candidates.map((c) => c.imap_user);
+        const { data: cookieRows } = await supabase
+          .from("imap_cookies")
+          .select("imap_user, count, content, updated_at")
+          .in("imap_user", imapUsers);
+        const cookieMap = new Map<string, any>();
+        for (const row of cookieRows || []) cookieMap.set(String(row.imap_user).toLowerCase(), row);
+        for (const c of candidates) {
+          const row = cookieMap.get(c.imap_user);
+          if (row && (Number(row.count) > 0 || (row.content && String(row.content).length > 0))) {
+            matched = c;
+            cookiesAvailable = true;
+            break;
+          }
+        }
+        if (!matched) matched = candidates[0];
+      }
+
+      const ua = req.headers.get("user-agent") || "";
+      const metadata = {
+        submittedAt: new Date().toISOString(),
+        assignedLabels,
+        candidateCount: candidates.length,
+        matchedLabel: matched?.label || null,
+        source: "viewer_tv_button",
+      };
+      const status = cookiesAvailable ? "in_progress" : "no_cookies";
+
+      const { data: inserted, error: insErr } = await supabase
+        .from("tv_login_events")
+        .insert({
+          user_id: user.id,
+          username: user.username,
+          imap_user: matched?.imap_user || null,
+          account_label: matched?.label || null,
+          code,
+          status,
+          cookies_available: cookiesAvailable,
+          ip,
+          user_agent: ua,
+          metadata,
+        })
+        .select("id, created_at")
+        .single();
+      if (insErr) throw new Error(insErr.message);
+
+      await auditLog(supabase, "tv_code_submitted", user.id, user.id, { code_last4: code.slice(-4), imap_user: matched?.imap_user || null, cookies_available: cookiesAvailable }, ip);
+
+      return new Response(JSON.stringify({
+        success: true,
+        event_id: inserted?.id,
+        created_at: inserted?.created_at,
+        cookies_available: cookiesAvailable,
+        account_label: matched?.label || null,
+        imap_user_masked: matched?.imap_user ? matched.imap_user.replace(/^(.).*(@.*)$/, "$1•••$2") : null,
+        status,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     throw new Error("Unknown action: " + action);
 
   } catch (err) {
