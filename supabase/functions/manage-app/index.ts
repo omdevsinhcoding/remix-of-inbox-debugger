@@ -4742,7 +4742,8 @@ Deno.serve(async (originalReq) => {
 
     if (action === "admin_cookies_get") {
       await requireAdmin(req);
-      const imapUser = String(body?.imap_user || "").trim().toLowerCase();
+      const p = (params || {}) as any;
+      const imapUser = String(p?.imap_user || "").trim().toLowerCase();
       if (!imapUser) throw new Error("imap_user required");
       const { data, error } = await supabase
         .from("imap_cookies")
@@ -4755,12 +4756,13 @@ Deno.serve(async (originalReq) => {
 
     if (action === "admin_cookies_save") {
       const session = await requireAdmin(req);
-      const imapUser = String(body?.imap_user || "").trim().toLowerCase();
-      const content = String(body?.content || "");
-      const filename = String(body?.filename || "cookies.txt").slice(0, 200);
-      const format = String(body?.format || "text").slice(0, 20);
-      const label = body?.label ? String(body.label).slice(0, 200) : null;
-      const count = Math.max(0, Math.min(100000, Number(body?.count) || 0));
+      const p = (params || {}) as any;
+      const imapUser = String(p?.imap_user || "").trim().toLowerCase();
+      const content = String(p?.content || "");
+      const filename = String(p?.filename || "cookies.txt").slice(0, 200);
+      const format = String(p?.format || "text").slice(0, 20);
+      const label = p?.label ? String(p.label).slice(0, 200) : null;
+      const count = Math.max(0, Math.min(100000, Number(p?.count) || 0));
       if (!imapUser) throw new Error("imap_user required");
       if (!content) throw new Error("content required");
       if (content.length > 2 * 1024 * 1024) throw new Error("content too large (max 2 MB)");
@@ -4774,7 +4776,8 @@ Deno.serve(async (originalReq) => {
 
     if (action === "admin_cookies_delete") {
       const session = await requireAdmin(req);
-      const imapUser = String(body?.imap_user || "").trim().toLowerCase();
+      const p = (params || {}) as any;
+      const imapUser = String(p?.imap_user || "").trim().toLowerCase();
       if (!imapUser) throw new Error("imap_user required");
       const { error } = await supabase.from("imap_cookies").delete().eq("imap_user", imapUser);
       if (error) throw new Error(error.message);
