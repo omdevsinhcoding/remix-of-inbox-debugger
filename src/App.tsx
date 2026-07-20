@@ -5163,7 +5163,30 @@ function parseJsonCookies(text: string): CookieRecord[] {
   })).filter((c: CookieRecord) => c.name);
 }
 
-function parseCookiesAuto(text: string, filename: string): { cookies: CookieRecord[]; format: "json" | "netscape" | "text" } {
+function parseCookieHeader(text: string): CookieRecord[] {
+  // Handles both "a=1; b=2; c=3" (single header) and one "name=value" per line.
+  const out: CookieRecord[] = [];
+  const seen = new Set<string>();
+  const pieces = text
+    .split(/\r?\n|;/)
+    .map((p) => p.trim())
+    .filter((p) => p && !p.startsWith("#"));
+  for (const piece of pieces) {
+    const eq = piece.indexOf("=");
+    if (eq <= 0) continue;
+    const name = piece.slice(0, eq).trim();
+    const value = piece.slice(eq + 1).trim();
+    if (!name || /\s/.test(name)) continue;
+    // Skip cookie attributes if someone pasted a Set-Cookie line
+    if (/^(path|domain|expires|max-age|samesite|secure|httponly)$/i.test(name)) continue;
+    if (seen.has(name)) continue;
+    seen.add(name);
+    out.push({ name, value });
+  }
+  return out;
+}
+
+function parseCookiesAuto(text: string, filename: string): { cookies: CookieRecord[]; format: "json" | "netscape" | "header" | "text" } {
   const trimmed = text.trim();
   if (trimmed.startsWith("{") || trimmed.startsWith("[")) return { cookies: parseJsonCookies(trimmed), format: "json" };
   if (/^# Netscape/i.test(trimmed) || filename.toLowerCase().endsWith(".txt") || /\t.+\t.+\t.+\t.+\t.+\t/.test(trimmed)) {
@@ -5171,8 +5194,11 @@ function parseCookiesAuto(text: string, filename: string): { cookies: CookieReco
     if (c.length) return { cookies: c, format: "netscape" };
   }
   try { return { cookies: parseJsonCookies(trimmed), format: "json" }; } catch {}
-  const c = parseNetscapeCookies(trimmed);
-  return { cookies: c, format: c.length ? "netscape" : "text" };
+  const netscape = parseNetscapeCookies(trimmed);
+  if (netscape.length) return { cookies: netscape, format: "netscape" };
+  const header = parseCookieHeader(trimmed);
+  if (header.length) return { cookies: header, format: "header" };
+  return { cookies: [], format: "text" };
 }
 
 type SavedCookieRow = { imap_user: string; label?: string | null; filename?: string | null; format?: string | null; count: number; updated_at: string };
