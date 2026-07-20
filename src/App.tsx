@@ -5555,16 +5555,22 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
                         <Download className="w-3.5 h-3.5" /> Download
                       </button>
                       <button
-                        onClick={async () => {
-                          const data = await fetchContent(r.imap_user);
-                          if (data) { setPasteText(data.content); setMode("paste"); }
+                        onClick={() => {
+                          // Switch to editor immediately for instant response
+                          setMode("paste");
+                          setPasteText("");
                           setSelected(r.imap_user);
+                          // Prefill in background — no await, no UI block
+                          fetchContent(r.imap_user).then((data) => {
+                            if (data) setPasteText(data.content);
+                          });
                         }}
                         className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 px-3 py-1.5 rounded-lg transition-colors ml-auto"
                         title="Load current cookies into editor to edit or replace"
                       >
                         <Edit className="w-3.5 h-3.5" /> Change
                       </button>
+
                       <button
                         onClick={() => setPendingDelete(r)}
                         className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-600 hover:text-red-600 hover:bg-red-50 px-2 py-1.5 rounded-lg transition-colors"
