@@ -8140,7 +8140,7 @@ function AdminPanel() {
           </div>
         )}
 
-
+        {activeTab === "cookies" && <CookiesTab emailAccounts={emailAccounts} serverConfig={serverConfig} />}
 
 
         {activeTab === "notifications" && (
