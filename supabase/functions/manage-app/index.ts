@@ -4797,13 +4797,10 @@ Deno.serve(async (originalReq) => {
       await requireAdmin(req);
       const { data, error } = await supabase
         .from("imap_cookies")
-        .select("id, imap_user, label, filename, format, count, content, updated_at")
+        .select("id, imap_user, label, filename, format, count, updated_at")
         .order("updated_at", { ascending: false });
       if (error) throw new Error(error.message);
-      const items = (data || []).map(({ content, count, ...row }: any) => ({
-        ...row,
-        count: Math.max(Number(count) || 0, parseStoredCookieCount(content)),
-      }));
+      const items = (data || []).map((row: any) => ({ ...row, count: Math.max(Number(row.count) || 0, 0) }));
       return new Response(JSON.stringify({ success: true, items }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
