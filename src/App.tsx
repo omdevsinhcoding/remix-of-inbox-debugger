@@ -5451,34 +5451,35 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
     }
   }, []);
 
-  const openEditorForRow = React.useCallback((row: SavedCookieRow) => {
+  const openEditorForRow = React.useCallback(async (row: SavedCookieRow) => {
     const imapUser = row.imap_user;
     const key = imapUser.toLowerCase();
     const seq = ++editLoadSeq.current;
 
-    setMode("paste");
-    applyDraftText("");
-    setSelected(imapUser);
-
     const cached = contentCache.current[key];
     if (cached) {
-      afterNextPaint(() => {
-        if (seq === editLoadSeq.current) applyDraftText(cached.content);
-      });
+      setMode("paste");
+      applyDraftText(cached.content);
+      setEditLoadingFor(null);
+      setSelected(imapUser);
       return;
     }
 
-    afterNextPaint(() => {
+    // Fetch FIRST — keep the user on the list with a spinner on the row —
+    // then transition to the editor only when the content is ready.
+    setEditLoadingFor(imapUser);
+    try {
+      const data = await fetchContent(imapUser);
       if (seq !== editLoadSeq.current) return;
-      setEditLoadingFor(imapUser);
-      fetchContent(imapUser).then((data) => {
-        if (seq !== editLoadSeq.current || !data || draftDirtyRef.current) return;
-        applyDraftText(data.content);
-      }).finally(() => {
-        if (seq === editLoadSeq.current) setEditLoadingFor(null);
-      });
-    });
+      if (!data) return;
+      setMode("paste");
+      applyDraftText(data.content);
+      setSelected(imapUser);
+    } finally {
+      if (seq === editLoadSeq.current) setEditLoadingFor(null);
+    }
   }, [applyDraftText, fetchContent]);
+
 
   const copyForRow = async (imapUser: string) => {
     const data = await fetchContent(imapUser);
@@ -5638,11 +5639,15 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
                       </button>
                       <button
                         onClick={() => openEditorForRow(r)}
-                        className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 px-3 py-1.5 rounded-lg transition-colors ml-auto"
+                        disabled={editLoadingFor === r.imap_user}
+                        className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 px-3 py-1.5 rounded-lg transition-colors ml-auto disabled:opacity-60 disabled:cursor-wait"
                         title="Load current cookies into editor to edit or replace"
                       >
-                        <Edit className="w-3.5 h-3.5" /> Change
+                        {editLoadingFor === r.imap_user
+                          ? (<><Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading…</>)
+                          : (<><Edit className="w-3.5 h-3.5" /> Change</>)}
                       </button>
+
 
                       <button
                         onClick={() => setPendingDelete(r)}
@@ -5677,11 +5682,8 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
             )}
           </div>
 
-          {editLoadingFor === selected && (
-            <div className="mb-4 flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-600">
-              <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading saved text… editor is ready.
-            </div>
-          )}
+
+
 
           {/* Paste FIRST, then Upload */}
           <div role="tablist" aria-label="Save mode" className="grid grid-cols-2 gap-1 p-1 bg-slate-100 rounded-xl mb-4">
