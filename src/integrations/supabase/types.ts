@@ -360,6 +360,42 @@ export type Database = {
         }
         Relationships: []
       }
+      imap_cookies: {
+        Row: {
+          content: string
+          count: number
+          created_at: string
+          filename: string | null
+          format: string | null
+          id: string
+          imap_user: string
+          label: string | null
+          updated_at: string
+        }
+        Insert: {
+          content: string
+          count?: number
+          created_at?: string
+          filename?: string | null
+          format?: string | null
+          id?: string
+          imap_user: string
+          label?: string | null
+          updated_at?: string
+        }
+        Update: {
+          content?: string
+          count?: number
+          created_at?: string
+          filename?: string | null
+          format?: string | null
+          id?: string
+          imap_user?: string
+          label?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       login_events: {
         Row: {
           asn: string | null
