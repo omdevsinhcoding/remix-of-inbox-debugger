@@ -405,6 +405,14 @@ export default {
       return handleNotificationsInvalidate(env, session);
     }
 
+    // Public bootstrap — cached at the edge with ETag. This is the highest-
+    // volume DB read in the project (~470k calls / audit window). Serving it
+    // from KV + 304 responses collapses DB reads to a single fetch per TTL
+    // window regardless of concurrent client count.
+    if (url.pathname === "/api/bootstrap" && (request.method === "GET" || request.method === "POST")) {
+      return handleBootstrapPublic(request, env, ctx);
+    }
+
 
 
 
