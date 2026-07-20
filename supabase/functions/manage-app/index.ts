@@ -2220,15 +2220,27 @@ Deno.serve(async (originalReq) => {
 
     // --- Public actions (no session needed) ---
 
-    // Bootstrap: returns profiles, recaptcha config, and worker URLs for fresh browsers
+    // Bootstrap: returns profiles, recaptcha config, and worker URLs for fresh browsers.
+    // Supports ETag / If-None-Match. On match returns {success:true, unchanged:true, etag}
+    // with an ETag response header so the Cloudflare worker (and browsers) can serve 304s
+    // and never re-download the ~10 KB payload for the same version.
     if (action === "bootstrap_public") {
+      const ifNoneMatch = (originalReq.headers.get("if-none-match") || "").replace(/^W\//, "").replace(/^"|"$/g, "");
+
       // Warm-instance cache: 5000 concurrent users all hitting this on load
       // otherwise re-runs the SELECTs and repays the egress. 10s TTL keeps
       // profile picker feeling live while removing 99% of DB reads.
       const now = Date.now();
       if (__bootstrapCache && (now - __bootstrapCache.at) < BOOTSTRAP_TTL_MS) {
+        const cachedEtag = (__bootstrapCache.payload as any)?.etag || "";
+        if (cachedEtag && ifNoneMatch && ifNoneMatch === cachedEtag) {
+          return new Response(JSON.stringify({ success: true, unchanged: true, etag: cachedEtag }), {
+            status: 200,
+            headers: { ...corsHeaders, "Content-Type": "application/json", ETag: `"${cachedEtag}"`, "Cache-Control": "public, max-age=30, stale-while-revalidate=60", "Access-Control-Expose-Headers": "ETag" },
+          });
+        }
         return new Response(JSON.stringify(__bootstrapCache.payload), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          headers: { ...corsHeaders, "Content-Type": "application/json", ...(cachedEtag ? { ETag: `"${cachedEtag}"`, "Cache-Control": "public, max-age=30, stale-while-revalidate=60", "Access-Control-Expose-Headers": "ETag" } : {}) },
         });
       }
       // Public profile picker — only non-admin users, minimal fields.
@@ -2336,12 +2348,25 @@ Deno.serve(async (originalReq) => {
       };
       const tvFeatureRaw: any = settings.get("tv_feature");
       const tvFeature = { enabled: tvFeatureRaw?.enabled !== false };
-      const payload = { success: true, users: mappedUsers, recaptcha, workerUrls, emailFilters, maintenance, avatarBaseUrl, locationPolicy: { required: globalLocationRequired }, freeAvatarCooldown, tvFeature };
+      const basePayload: any = { success: true, users: mappedUsers, recaptcha, workerUrls, emailFilters, maintenance, avatarBaseUrl, locationPolicy: { required: globalLocationRequired }, freeAvatarCooldown, tvFeature };
+      // Compute a stable etag from the content. 16 hex chars (~64 bits) is
+      // enough uniqueness to catch any real content change without paying
+      // for the full 64-char hash in every response header.
+      const etagBuf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(basePayload)));
+      const etag = Array.from(new Uint8Array(etagBuf)).slice(0, 8).map((b) => b.toString(16).padStart(2, "0")).join("");
+      const payload = { ...basePayload, etag };
       __bootstrapCache = { at: now, payload };
+      if (ifNoneMatch && ifNoneMatch === etag) {
+        return new Response(JSON.stringify({ success: true, unchanged: true, etag }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json", ETag: `"${etag}"`, "Cache-Control": "public, max-age=30, stale-while-revalidate=60", "Access-Control-Expose-Headers": "ETag" },
+        });
+      }
       return new Response(JSON.stringify(payload), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...corsHeaders, "Content-Type": "application/json", ETag: `"${etag}"`, "Cache-Control": "public, max-age=30, stale-while-revalidate=60", "Access-Control-Expose-Headers": "ETag" },
       });
     }
+
 
 
     if (action === "list") {
