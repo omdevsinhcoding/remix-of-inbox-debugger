@@ -2071,20 +2071,47 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
                   : "bg-white/[0.06] text-white/40 cursor-not-allowed"}`}
             >
               {status === "verifying" ? (
-                <span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Verifying…</span>
-              ) : status === "pending" ? (
-                <span>Waiting for TV</span>
+                <span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Verifying code…</span>
+              ) : status === "checking" ? (
+                <span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Checking your account…</span>
+              ) : status === "in_progress" ? (
+                <span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> TV login in progress…</span>
+              ) : status === "no_cookies" ? (
+                <span>No cookies available</span>
+              ) : status === "error" ? (
+                <span>Try again</span>
               ) : (
                 "Continue"
               )}
             </button>
 
             {/* Status / help */}
-            {status === "pending" ? (
+            {status === "in_progress" ? (
+              <div className="mt-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 px-3 py-2.5 text-center">
+                <div className="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-300">
+                  <Loader2 className="w-3 h-3 animate-spin" /> Process Login on TV in progress
+                </div>
+                <div className="text-[10.5px] text-emerald-200/80 mt-1 leading-relaxed">
+                  Signing in{resultInfo.accountLabel ? <> with <span className="font-semibold">{resultInfo.accountLabel}</span></> : null}
+                  {resultInfo.imapMasked ? <> · {resultInfo.imapMasked}</> : null}. Keep your TV on the code screen.
+                </div>
+              </div>
+            ) : status === "no_cookies" ? (
               <div className="mt-4 rounded-xl bg-amber-500/10 border border-amber-500/30 px-3 py-2.5 text-center">
-                <div className="text-[11px] font-bold text-amber-300">Auto-login rolling out soon</div>
+                <div className="text-[11px] font-bold text-amber-300">Session not ready</div>
                 <div className="text-[10.5px] text-amber-200/80 mt-0.5 leading-relaxed">
-                  We've received your code. Direct TV activation is launching shortly — meanwhile, sign in on your TV using the on-screen prompt.
+                  Your code was received{resultInfo.accountLabel ? <> for <span className="font-semibold">{resultInfo.accountLabel}</span></> : null}, but no saved cookies are available yet. Please ask the admin to upload cookies for your account, then try again.
+                </div>
+              </div>
+            ) : status === "error" ? (
+              <div className="mt-4 rounded-xl bg-red-500/10 border border-red-500/30 px-3 py-2.5 text-center">
+                <div className="text-[11px] font-bold text-red-300">Couldn't submit code</div>
+                <div className="text-[10.5px] text-red-200/80 mt-0.5 leading-relaxed">{resultInfo.message || "Please try again."}</div>
+              </div>
+            ) : status === "checking" || status === "verifying" ? (
+              <div className="mt-4 rounded-xl bg-white/[0.04] border border-white/10 px-3 py-2.5 text-center">
+                <div className="text-[10.5px] text-white/70 leading-relaxed">
+                  {status === "verifying" ? "Verifying the 8-digit code…" : "Confirming your IMAP account and saved cookies…"}
                 </div>
               </div>
             ) : (
