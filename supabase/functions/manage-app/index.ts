@@ -4885,6 +4885,57 @@ Deno.serve(async (originalReq) => {
       return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    if (action === "tv_list_accounts") {
+      const session = await requireSession(req);
+      const { data: user } = await supabase
+        .from("app_users")
+        .select("id, assigned_accounts")
+        .eq("id", session.userId)
+        .maybeSingle();
+      if (!user) throw new Error("User not found");
+      const { data: acctSetting } = await supabase.from("app_settings").select("value").eq("key", "email_accounts").maybeSingle();
+      const allAccounts: any[] = Array.isArray(acctSetting?.value) ? acctSetting.value : [];
+      const assignedLabels = (Array.isArray(user.assigned_accounts) ? user.assigned_accounts : [])
+        .map((v: any) => String(v || "").trim().toLowerCase())
+        .filter(Boolean);
+      const candidates = allAccounts
+        .map((acc: any) => ({
+          label: String(acc?.label || acc?.user || "").trim(),
+          imap_user: String(acc?.user || "").trim().toLowerCase(),
+        }))
+        .filter((c) => c.imap_user && (assignedLabels.length === 0 || assignedLabels.includes(c.label.toLowerCase()) || assignedLabels.includes("primary")));
+
+      const imapUsers = candidates.map((c) => c.imap_user);
+      let cookieMap = new Map<string, boolean>();
+      if (imapUsers.length > 0) {
+        const { data: cookieRows } = await supabase
+          .from("imap_cookies")
+          .select("imap_user, count, content")
+          .in("imap_user", imapUsers);
+        for (const row of cookieRows || []) {
+          const has = Number((row as any).count) > 0 || (!!(row as any).content && String((row as any).content).length > 0);
+          cookieMap.set(String((row as any).imap_user).toLowerCase(), has);
+        }
+      }
+
+      const maskEmail = (em: string) => {
+        const at = em.indexOf("@");
+        if (at < 0) return em;
+        const local = em.slice(0, at);
+        const domain = em.slice(at);
+        if (local.length <= 6) return local[0] + "•••" + local.slice(-1) + domain;
+        return local.slice(0, 3) + "•••" + local.slice(-3) + domain;
+      };
+
+      const accounts = candidates.map((c) => ({
+        imap_user: c.imap_user,
+        imap_user_masked: maskEmail(c.imap_user),
+        label: c.label,
+        cookies_available: cookieMap.get(c.imap_user) === true,
+      }));
+      return new Response(JSON.stringify({ success: true, accounts }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     if (action === "tv_submit_code") {
       const session = await requireSession(req);
       const p = (params || {}) as any;
