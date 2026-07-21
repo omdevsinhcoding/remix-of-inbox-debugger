@@ -5051,10 +5051,13 @@ Deno.serve(async (originalReq) => {
 
       // Fire-and-forget dispatch to GitHub Actions runner (only when cookies are ready).
       let dispatched = false;
+      let dispatchDiag = "skipped";
+      console.log(`[tv_submit] event=${inserted?.id} cookiesAvailable=${cookiesAvailable} matched_imap=${matched?.imap_user || "-"}`);
       if (cookiesAvailable && inserted?.id && matched?.imap_user) {
         try {
           const pat = Deno.env.get("GITHUB_DISPATCH_PAT") || "";
           const repo = Deno.env.get("GITHUB_REPO") || "";
+          console.log(`[tv_submit] dispatch check pat_present=${!!pat} repo="${repo}"`);
           if (pat && repo && repo.includes("/")) {
             const dispatchRes = await fetch(`https://api.github.com/repos/${repo}/dispatches`, {
               method: "POST",
@@ -5070,20 +5073,30 @@ Deno.serve(async (originalReq) => {
                 client_payload: { event_id: inserted.id, ts: Date.now() },
               }),
             });
+            const txt = await dispatchRes.text().catch(() => "");
+            console.log(`[tv_submit] dispatch response status=${dispatchRes.status} body="${txt.slice(0, 200)}"`);
             dispatched = dispatchRes.ok;
             if (!dispatchRes.ok) {
-              const txt = await dispatchRes.text().catch(() => "");
+              dispatchDiag = `http_${dispatchRes.status}`;
               await supabase.from("tv_login_events").update({ status: "error", message: `Dispatch failed (${dispatchRes.status}): ${txt.slice(0, 200)}`, finished_at: new Date().toISOString() }).eq("id", inserted.id);
             } else {
+              dispatchDiag = "queued";
               await supabase.from("tv_login_events").update({ status: "queued" }).eq("id", inserted.id);
             }
           } else {
-            await supabase.from("tv_login_events").update({ status: "error", message: "Runner not configured (missing GITHUB_DISPATCH_PAT or GITHUB_REPO)", finished_at: new Date().toISOString() }).eq("id", inserted.id);
+            dispatchDiag = "no_config";
+            const msg = `Runner not configured (pat_present=${!!pat} repo="${repo}")`;
+            console.log(`[tv_submit] ${msg}`);
+            await supabase.from("tv_login_events").update({ status: "error", message: msg, finished_at: new Date().toISOString() }).eq("id", inserted.id);
           }
         } catch (e) {
-          await supabase.from("tv_login_events").update({ status: "error", message: `Dispatch error: ${e instanceof Error ? e.message : String(e)}`, finished_at: new Date().toISOString() }).eq("id", inserted.id);
+          dispatchDiag = "exception";
+          const em = e instanceof Error ? e.message : String(e);
+          console.log(`[tv_submit] dispatch exception: ${em}`);
+          await supabase.from("tv_login_events").update({ status: "error", message: `Dispatch error: ${em}`, finished_at: new Date().toISOString() }).eq("id", inserted.id);
         }
       }
+
 
       return new Response(JSON.stringify({
         success: true,
