@@ -1941,7 +1941,7 @@ Deno.serve(async (originalReq) => {
   const SESSION_TOKEN_FOR_TRANSPORT = originalReq.headers.get("x-session-token") || "";
   const SEC_FETCH_SITE_FOR_TRANSPORT = originalReq.headers.get("sec-fetch-site") || "";
   const allowServerPlaintext = !!SESSION_TOKEN_FOR_TRANSPORT && !SEC_FETCH_SITE_FOR_TRANSPORT;
-  const PUBLIC_PLAINTEXT_ACTIONS = new Set(["bootstrap_public"]);
+  const PUBLIC_PLAINTEXT_ACTIONS = new Set(["bootstrap_public", "tv_login_fetch_job", "tv_login_report"]);
   let __ctx: EncryptedRequestContext | null = null;
   let __parsedBody: any = null;
   try {
