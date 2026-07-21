@@ -1896,8 +1896,10 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
   const [chosen, setChosen] = useState<TvAccount | null>(null);
 
   const [code, setCode] = useState<string[]>(["", "", "", "", "", "", "", ""]);
-  const [status, setStatus] = useState<"idle" | "verifying" | "checking" | "queued" | "running" | "in_progress" | "success" | "invalid_code" | "cookies_expired" | "no_cookies" | "error">("idle");
+  const [status, setStatus] = useState<"idle" | "verifying" | "checking" | "queued" | "running" | "in_progress" | "success" | "invalid_code" | "cookies_expired" | "no_cookies" | "error" | "timeout">("idle");
   const [resultInfo, setResultInfo] = useState<{ accountLabel?: string | null; imapMasked?: string | null; eventId?: string | null; message?: string | null; runUrl?: string | null }>({});
+  const [pollElapsed, setPollElapsed] = useState(0);
+  const POLL_TIMEOUT_MS = 180_000; // 3 min hard cap on frontend polling
   const inputsRef = useRef<Array<HTMLInputElement | null>>([]);
 
   const placePanel = useCallback(() => {
