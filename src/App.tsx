@@ -1888,6 +1888,13 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const [panelStyle, setPanelStyle] = useState<React.CSSProperties>({});
 
+  type TvAccount = { imap_user: string; imap_user_masked: string; label: string; cookies_available: boolean };
+  const [step, setStep] = useState<"select" | "code">("select");
+  const [accounts, setAccounts] = useState<TvAccount[]>([]);
+  const [accountsLoading, setAccountsLoading] = useState(false);
+  const [accountsError, setAccountsError] = useState<string | null>(null);
+  const [chosen, setChosen] = useState<TvAccount | null>(null);
+
   const [code, setCode] = useState<string[]>(["", "", "", "", "", "", "", ""]);
   const [status, setStatus] = useState<"idle" | "verifying" | "checking" | "in_progress" | "no_cookies" | "error">("idle");
   const [resultInfo, setResultInfo] = useState<{ accountLabel?: string | null; imapMasked?: string | null; eventId?: string | null; message?: string | null }>({});
@@ -1901,7 +1908,7 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
     const vh = window.innerHeight;
     const isMobile = vw < 640;
     const width = isMobile ? vw - margin * 2 : Math.min(420, vw - margin * 2);
-    const estHeight = 520;
+    const estHeight = 560;
     let left: number;
     let top: number;
     if (isMobile) {
@@ -1914,25 +1921,48 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
     setPanelStyle({ left, top, width, maxHeight: `calc(100svh - ${margin * 2}px)` });
   }, []);
 
+  const loadAccounts = useCallback(async () => {
+    setAccountsLoading(true);
+    setAccountsError(null);
+    try {
+      const res: any = await apiCall("manage-app", { action: "tv_list_accounts" });
+      if (!res?.success) throw new Error(res?.error || "Failed to load accounts");
+      const list: TvAccount[] = Array.isArray(res.accounts) ? res.accounts : [];
+      setAccounts(list);
+    } catch (err) {
+      setAccountsError(err instanceof Error ? err.message : "Failed to load accounts");
+    } finally {
+      setAccountsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (!open) return;
     placePanel();
+    setStep("select");
+    setChosen(null);
     setCode(["", "", "", "", "", "", "", ""]);
     setStatus("idle");
     setResultInfo({});
-    const t = setTimeout(() => inputsRef.current[0]?.focus(), 60);
+    loadAccounts();
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
     const onReposition = () => placePanel();
     window.addEventListener("keydown", onKey);
     window.addEventListener("resize", onReposition);
     window.addEventListener("scroll", onReposition, true);
     return () => {
-      clearTimeout(t);
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("resize", onReposition);
       window.removeEventListener("scroll", onReposition, true);
     };
-  }, [open, placePanel]);
+  }, [open, placePanel, loadAccounts]);
+
+  useEffect(() => {
+    if (open && step === "code") {
+      const t = setTimeout(() => inputsRef.current[0]?.focus(), 60);
+      return () => clearTimeout(t);
+    }
+  }, [open, step]);
 
   const setDigit = (i: number, v: string) => {
     const d = v.replace(/\D/g, "").slice(-1);
@@ -1971,13 +2001,12 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
   const isComplete = full.length === 8;
 
   const submit = async () => {
-    if (!isComplete || status !== "idle") return;
+    if (!isComplete || status !== "idle" || !chosen) return;
     setStatus("verifying");
     setResultInfo({});
-    // Brief verifying → checking transition so the UI reflects each phase.
     setTimeout(() => setStatus((s) => (s === "verifying" ? "checking" : s)), 500);
     try {
-      const res: any = await apiCall("manage-app", { action: "tv_submit_code", code: full });
+      const res: any = await apiCall("manage-app", { action: "tv_submit_code", code: full, imap_user: chosen.imap_user });
       if (!res?.success) throw new Error(res?.error || "Failed to submit code");
       setResultInfo({
         accountLabel: res.account_label,
@@ -1990,6 +2019,7 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
       setStatus("error");
     }
   };
+
 
   const popup = open ? createPortal(
     <div
