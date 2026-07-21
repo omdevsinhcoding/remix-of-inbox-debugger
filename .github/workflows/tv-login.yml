@@ -24,6 +24,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          clean: false
+          persist-credentials: false
           sparse-checkout: scripts/tv-login-runner
           sparse-checkout-cone-mode: false
 
