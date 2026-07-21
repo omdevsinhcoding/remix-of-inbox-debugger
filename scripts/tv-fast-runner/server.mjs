@@ -148,7 +148,21 @@ async function runTvJob(eventId, runnerToken) {
     mark.nav = elapsed();
 
     const digitInputs = page.locator('input.pin-number-input, input[aria-label^="PIN entry input"], input[type="tel"]');
-    await digitInputs.first().waitFor({ timeout: Math.min(1500, remaining()) });
+    const hasCodeInput = await digitInputs.first().waitFor({ timeout: Math.min(1800, remaining()) }).then(() => true).catch(() => false);
+    if (!hasCodeInput) {
+      const bodyText = (await page.locator("body").innerText().catch(() => "")).toLowerCase();
+      const url = page.url();
+      await context.close().catch(() => {});
+      const timing = `timing fetch=${mark.fetch}ms browser=${mark.browser}ms nav=${mark.nav}ms total=${elapsed()}ms`;
+      const looksExpired = /sign ?in|log ?in|password|email|expired|unsupported|not available|something went wrong/i.test(bodyText) || /login|unsupportedbrowser/i.test(url);
+      await report(eventId, runnerToken, {
+        status: looksExpired ? "cookies_expired" : "error",
+        result: looksExpired ? "cookies_expired" : "no_code_input",
+        message: `${looksExpired ? "Cookies appear to be expired" : "Netflix code input did not appear"} | ${timing}`,
+      });
+      lastJob = { ...lastJob, status: looksExpired ? "cookies_expired" : "error", result: looksExpired ? "cookies_expired" : "no_code_input", finishedAt: new Date().toISOString(), timing };
+      return;
+    }
     const count = await digitInputs.count();
     if (count >= 8) {
       for (let i = 0; i < 8; i++) await digitInputs.nth(i).fill(code[i], { timeout: Math.min(500, remaining()) });
