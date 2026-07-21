@@ -599,7 +599,7 @@ async function handleCachePurge(env, session) {
     // the legacy v1 prefix (raw addresses) and the current v2 prefix and
     // deletes every match. list() paginates in 1000-key batches.
     if (session.role === "admin") {
-      for (const prefix of ["email_html:v1:", "email_html:v2:"]) {
+      for (const prefix of ["email_html:v1:", "email_html:v2:", "inbox:v1:user:", "notifs:v1:user:", "bootstrap:snap:"]) {
         let cursor = undefined;
         for (let i = 0; i < 20; i++) {
           const page = await kv.list({ prefix, cursor, limit: 1000 });
