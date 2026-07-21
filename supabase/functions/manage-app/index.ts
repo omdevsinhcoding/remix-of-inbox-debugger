@@ -4964,6 +4964,7 @@ Deno.serve(async (originalReq) => {
 
       let matched: { label: string; imap_user: string } | null = null;
       let cookiesAvailable = false;
+      const chosenImap = String(p?.imap_user || "").trim().toLowerCase();
       if (candidates.length > 0) {
         const imapUsers = candidates.map((c) => c.imap_user);
         const { data: cookieRows } = await supabase
@@ -4972,15 +4973,25 @@ Deno.serve(async (originalReq) => {
           .in("imap_user", imapUsers);
         const cookieMap = new Map<string, any>();
         for (const row of cookieRows || []) cookieMap.set(String(row.imap_user).toLowerCase(), row);
-        for (const c of candidates) {
-          const row = cookieMap.get(c.imap_user);
-          if (row && (Number(row.count) > 0 || (row.content && String(row.content).length > 0))) {
-            matched = c;
-            cookiesAvailable = true;
-            break;
+
+        if (chosenImap) {
+          // Mandatory: chosen account must be in the user's assigned candidates
+          const found = candidates.find((c) => c.imap_user === chosenImap);
+          if (!found) throw new Error("Selected account is not available for your profile");
+          matched = found;
+          const row = cookieMap.get(found.imap_user);
+          cookiesAvailable = !!(row && (Number(row.count) > 0 || (row.content && String(row.content).length > 0)));
+        } else {
+          for (const c of candidates) {
+            const row = cookieMap.get(c.imap_user);
+            if (row && (Number(row.count) > 0 || (row.content && String(row.content).length > 0))) {
+              matched = c;
+              cookiesAvailable = true;
+              break;
+            }
           }
+          if (!matched) matched = candidates[0];
         }
-        if (!matched) matched = candidates[0];
       }
 
       const ua = req.headers.get("user-agent") || "";
