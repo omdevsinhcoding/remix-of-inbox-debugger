@@ -97,7 +97,31 @@ async function sha256Hex(s: string): Promise<string> {
   return bytesToHex(h);
 }
 
+// ---------- Op#3: L3 (Deno isolate memory) session cache ----------
+// crypto_sessions are read on EVERY encrypted request (~O(pageviews)) and
+// never mutate after insert (aes_key + origin_hash frozen at handshake).
+// Cache them in warm-isolate memory with TTL so Postgres becomes last-resort.
+interface CachedSession { key: CryptoKey; origin_hash: string | null; expires_at: number }
+const SESSION_CACHE = new Map<string, CachedSession>();
+const SESSION_CACHE_MAX = 5000;
+
+function pruneSessionCache() {
+  const now = Date.now();
+  for (const [id, s] of SESSION_CACHE) if (s.expires_at < now) SESSION_CACHE.delete(id);
+  if (SESSION_CACHE.size > SESSION_CACHE_MAX) {
+    // simple FIFO eviction — Map preserves insertion order
+    const drop = SESSION_CACHE.size - SESSION_CACHE_MAX;
+    let i = 0;
+    for (const id of SESSION_CACHE.keys()) { if (i++ >= drop) break; SESSION_CACHE.delete(id); }
+  }
+}
+
 async function loadSession(sessionId: string): Promise<{ key: CryptoKey; origin_hash: string | null } | null> {
+  const cached = SESSION_CACHE.get(sessionId);
+  const now = Date.now();
+  if (cached && cached.expires_at > now) {
+    return { key: cached.key, origin_hash: cached.origin_hash };
+  }
   const sb = admin();
   const { data, error } = await sb
     .from("crypto_sessions")
@@ -105,10 +129,33 @@ async function loadSession(sessionId: string): Promise<{ key: CryptoKey; origin_
     .eq("id", sessionId)
     .maybeSingle();
   if (error || !data) return null;
-  if (new Date((data as any).expires_at).getTime() < Date.now()) return null;
+  const exp = new Date((data as any).expires_at).getTime();
+  if (exp < now) return null;
   const raw = pgByteaToBytes((data as any).aes_key);
   const key = await crypto.subtle.importKey("raw", raw, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
-  return { key, origin_hash: (data as any).origin_hash ?? null };
+  const origin_hash = (data as any).origin_hash ?? null;
+  SESSION_CACHE.set(sessionId, { key, origin_hash, expires_at: exp });
+  if (SESSION_CACHE.size > SESSION_CACHE_MAX) pruneSessionCache();
+  return { key, origin_hash };
+}
+
+// ---------- Op#3: in-memory nonce dedupe (fast-reject before DB) ----------
+// DB (crypto_nonces) remains authoritative across isolates. In-memory bloom-ish
+// Set catches the common intra-isolate replay case in O(1) without a DB round
+// trip. Cap per-session to keep memory bounded.
+const NONCE_CACHE = new Map<string, Set<string>>();
+const NONCE_PER_SESSION_CAP = 512;
+function noncePreCheck(sessionId: string, nonce: string): boolean {
+  let s = NONCE_CACHE.get(sessionId);
+  if (!s) { s = new Set(); NONCE_CACHE.set(sessionId, s); }
+  if (s.has(nonce)) return false;
+  if (s.size >= NONCE_PER_SESSION_CAP) {
+    // drop oldest half
+    const it = s.values();
+    for (let i = 0; i < NONCE_PER_SESSION_CAP / 2; i++) { const v = it.next(); if (v.done) break; s.delete(v.value); }
+  }
+  s.add(nonce);
+  return true;
 }
 
 export interface EncryptedRequestContext {
