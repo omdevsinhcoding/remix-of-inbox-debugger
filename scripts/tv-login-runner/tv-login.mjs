@@ -15,9 +15,12 @@ const TV_REPORT_URL = process.env.TV_REPORT_URL;
 const HMAC_KEY = process.env.TV_REPORT_HMAC_KEY;
 const RUN_URL = process.env.GITHUB_RUN_URL || "";
 const EVENT_PATH = process.env.EVENT_PATH;
+const DIRECT_EVENT_ID = process.env.EVENT_ID;
+const MAX_MS = Math.max(3000, Math.min(9000, Number(process.env.TV_LOGIN_MAX_MS || 9000)));
+const SCRIPT_STARTED_AT = Date.now();
 
-if (!TV_REPORT_URL || !HMAC_KEY || !EVENT_PATH) {
-  console.error("Missing required env: TV_REPORT_URL, TV_REPORT_HMAC_KEY, EVENT_PATH");
+if (!TV_REPORT_URL || !HMAC_KEY || (!DIRECT_EVENT_ID && !EVENT_PATH)) {
+  console.error("Missing required env: TV_REPORT_URL, TV_REPORT_HMAC_KEY, and EVENT_ID/EVENT_PATH");
   process.exit(1);
 }
 
@@ -120,10 +123,15 @@ function normalizeCookie(c) {
   return out;
 }
 
+const remaining = () => Math.max(1, MAX_MS - (Date.now() - SCRIPT_STARTED_AT));
+
 // ── Main ────────────────────────────────────────────────────────────
-const eventFile = await readFile(EVENT_PATH, "utf8");
-const eventObj = JSON.parse(eventFile);
-const EVENT_ID = eventObj?.client_payload?.event_id;
+let EVENT_ID = DIRECT_EVENT_ID;
+if (!EVENT_ID && EVENT_PATH) {
+  const eventFile = await readFile(EVENT_PATH, "utf8");
+  const eventObj = JSON.parse(eventFile);
+  EVENT_ID = eventObj?.client_payload?.event_id;
+}
 if (!EVENT_ID) {
   console.error("Missing event_id in client_payload");
   process.exit(1);
@@ -164,7 +172,7 @@ if (cookies.length === 0) {
 // 2) Launch browser & do login — aggressive perf: block heavy resources,
 //    skip images/media/fonts/analytics so /tv8 renders in ~1-2s instead of ~5-8s.
 const t0 = Date.now();
-const browser = await chromium.launch({
+  const browser = await chromium.launch({
   headless: true,
   args: [
     "--disable-blink-features=AutomationControlled",
@@ -203,13 +211,13 @@ try {
   });
 
   // domcontentloaded is enough — /tv8 form is server-rendered.
-  await page.goto("https://www.netflix.com/tv8", { waitUntil: "domcontentloaded", timeout: 15000 });
+  await page.goto("https://www.netflix.com/tv8", { waitUntil: "domcontentloaded", timeout: Math.min(3500, remaining()) });
   console.log(`[perf] tv8 loaded in ${Date.now() - t0}ms`);
 
   // Wait for a code input to appear.
   await page.waitForSelector(
     'input[maxlength="1"], input[data-uia*="digit"], input[type="tel"], input[inputmode="numeric"], input[name*="code" i]',
-    { timeout: 8000 },
+    { timeout: Math.min(2000, remaining()) },
   ).catch(() => {});
 
   const boxes = await page.locator('input[maxlength="1"], input[data-uia*="digit"], input[type="tel"][maxlength="1"]').all().catch(() => []);
@@ -219,16 +227,16 @@ try {
     }
   } else {
     const single = page.locator('input[type="tel"], input[inputmode="numeric"], input[name*="code" i]').first();
-    await single.waitFor({ timeout: 4000 });
+    await single.waitFor({ timeout: Math.min(1500, remaining()) });
     await single.fill(code);
   }
 
   const submit = page.locator('button[type="submit"], button:has-text("Continue"), button:has-text("Sign In"), button:has-text("Submit")').first();
-  await submit.click({ timeout: 4000 }).catch(() => {});
+  await submit.click({ timeout: Math.min(1000, remaining()) }).catch(() => {});
   console.log(`[perf] code submitted at ${Date.now() - t0}ms`);
 
-  // Poll for result — 200ms cadence, 6s cap.
-  const deadline = Date.now() + 6000;
+  // Poll for result inside the global 9s SLA.
+  const deadline = Date.now() + Math.min(3000, remaining());
   let bodyText = "";
   while (Date.now() < deadline) {
     await page.waitForTimeout(200);
