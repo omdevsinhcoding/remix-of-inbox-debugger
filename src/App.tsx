@@ -2015,6 +2015,7 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
         accountLabel: res.account_label,
         imapMasked: res.imap_user_masked,
         eventId: res.event_id,
+        message: res.message || null,
       });
       if (!res.cookies_available) { setStatus("no_cookies"); return; }
       setStatus(res.status === "queued" ? "queued" : res.status === "error" ? "error" : "in_progress");
