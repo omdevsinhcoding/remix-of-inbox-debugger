@@ -1896,8 +1896,8 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
   const [chosen, setChosen] = useState<TvAccount | null>(null);
 
   const [code, setCode] = useState<string[]>(["", "", "", "", "", "", "", ""]);
-  const [status, setStatus] = useState<"idle" | "verifying" | "checking" | "in_progress" | "no_cookies" | "error">("idle");
-  const [resultInfo, setResultInfo] = useState<{ accountLabel?: string | null; imapMasked?: string | null; eventId?: string | null; message?: string | null }>({});
+  const [status, setStatus] = useState<"idle" | "verifying" | "checking" | "queued" | "running" | "in_progress" | "success" | "invalid_code" | "cookies_expired" | "no_cookies" | "error">("idle");
+  const [resultInfo, setResultInfo] = useState<{ accountLabel?: string | null; imapMasked?: string | null; eventId?: string | null; message?: string | null; runUrl?: string | null }>({});
   const inputsRef = useRef<Array<HTMLInputElement | null>>([]);
 
   const placePanel = useCallback(() => {
