@@ -1,0 +1,35 @@
+name: TV Auto-Login (headless Netflix)
+
+on:
+  repository_dispatch:
+    types: [tv-login]
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install runner deps
+        working-directory: scripts/tv-login-runner
+        run: npm install --no-audit --no-fund
+
+      - name: Install Chromium for Playwright
+        working-directory: scripts/tv-login-runner
+        run: npx playwright install --with-deps chromium
+
+      - name: Run TV auto-login
+        working-directory: scripts/tv-login-runner
+        env:
+          EVENT_PATH: ${{ github.event_path }}
+          TV_REPORT_URL: ${{ secrets.TV_REPORT_URL }}
+          TV_REPORT_HMAC_KEY: ${{ secrets.TV_REPORT_HMAC_KEY }}
+          GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: node tv-login.mjs
