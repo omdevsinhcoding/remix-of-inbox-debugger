@@ -2176,9 +2176,10 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
                   </div>
                 ) : accounts.length === 0 ? (
                   <div className="rounded-xl bg-amber-500/10 border border-amber-500/30 px-3 py-3 text-center">
-                    <div className="text-[11px] font-bold text-amber-300">No accounts assigned</div>
-                    <div className="text-[10.5px] text-amber-200/80 mt-0.5">Please contact your admin to assign an account.</div>
+                    <div className="text-[11px] font-bold text-amber-300">Not configured</div>
+                    <div className="text-[10.5px] text-amber-200/80 mt-0.5 leading-relaxed">Your Netflix Account is not configured by the Admin for TV login.</div>
                   </div>
+
                 ) : (
                   <div className="flex flex-col gap-2 max-h-[280px] overflow-y-auto pr-1">
                     {accounts.map((acc) => {
