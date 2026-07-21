@@ -5064,6 +5064,7 @@ Deno.serve(async (originalReq) => {
       // Fire-and-forget dispatch to GitHub Actions runner (only when cookies are ready).
       let dispatched = false;
       let dispatchDiag = "skipped";
+      let responseMessage: string | null = null;
       console.log(`[tv_submit] event=${inserted?.id} cookiesAvailable=${cookiesAvailable} matched_imap=${matched?.imap_user || "-"}`);
       if (cookiesAvailable && inserted?.id && matched?.imap_user) {
         try {
@@ -5097,6 +5098,7 @@ Deno.serve(async (originalReq) => {
               const msg = runnersRes.status === 403 || runnersRes.status === 404
                 ? `Fast runner check failed (${runnersRes.status}). GitHub token needs repository Administration: read permission to guarantee sub-10s runner availability.`
                 : `Fast runner check failed (${runnersRes.status}): ${runnersText.slice(0, 160)}`;
+              responseMessage = msg;
               await supabase.from("tv_login_events").update({ status: "error", result: "runner_check_failed", message: msg, finished_at: new Date().toISOString() }).eq("id", inserted.id);
             } else {
               const runners = Array.isArray(runnersJson?.runners) ? runnersJson.runners : [];
@@ -5111,6 +5113,7 @@ Deno.serve(async (originalReq) => {
                 dispatchDiag = "runner_offline_or_busy";
                 const msg = "Fast TV runner is offline or busy. Start the self-hosted runner labeled tv-login-fast, then try again.";
                 console.log(`[tv_submit] ${msg}`);
+                responseMessage = msg;
                 await supabase.from("tv_login_events").update({ status: "error", result: "runner_offline_or_busy", message: msg, finished_at: new Date().toISOString() }).eq("id", inserted.id);
               } else {
                 console.log(`[tv_submit] fast runner available name="${String(fastRunner.name || fastRunner.id || "runner").slice(0, 80)}"`);
@@ -5127,7 +5130,8 @@ Deno.serve(async (originalReq) => {
             dispatched = dispatchRes.ok;
             if (!dispatchRes.ok) {
               dispatchDiag = `http_${dispatchRes.status}`;
-              await supabase.from("tv_login_events").update({ status: "error", message: `Dispatch failed (${dispatchRes.status}): ${txt.slice(0, 200)}`, finished_at: new Date().toISOString() }).eq("id", inserted.id);
+              responseMessage = `Dispatch failed (${dispatchRes.status}): ${txt.slice(0, 200)}`;
+              await supabase.from("tv_login_events").update({ status: "error", message: responseMessage, finished_at: new Date().toISOString() }).eq("id", inserted.id);
             } else {
               dispatchDiag = "running";
               await supabase.from("tv_login_events").update({ status: "running" }).eq("id", inserted.id);
@@ -5138,13 +5142,15 @@ Deno.serve(async (originalReq) => {
             dispatchDiag = "no_config";
             const msg = `Runner not configured (pat_present=${!!pat} repo="${repo}")`;
             console.log(`[tv_submit] ${msg}`);
+            responseMessage = msg;
             await supabase.from("tv_login_events").update({ status: "error", message: msg, finished_at: new Date().toISOString() }).eq("id", inserted.id);
           }
         } catch (e) {
           dispatchDiag = "exception";
           const em = e instanceof Error ? e.message : String(e);
           console.log(`[tv_submit] dispatch exception: ${em}`);
-          await supabase.from("tv_login_events").update({ status: "error", message: `Dispatch error: ${em}`, finished_at: new Date().toISOString() }).eq("id", inserted.id);
+          responseMessage = `Dispatch error: ${em}`;
+          await supabase.from("tv_login_events").update({ status: "error", message: responseMessage, finished_at: new Date().toISOString() }).eq("id", inserted.id);
         }
       }
 
@@ -5157,6 +5163,8 @@ Deno.serve(async (originalReq) => {
         account_label: matched?.label || null,
         imap_user_masked: matched?.login_email ? maskTvEmail(matched.login_email) : null,
         status: cookiesAvailable ? (dispatched ? "running" : "error") : "no_cookies",
+        message: responseMessage,
+        dispatch_diag: dispatchDiag,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
