@@ -174,10 +174,13 @@ try {
   await context.addCookies(cookies);
 
   const page = await context.newPage();
-  await page.goto("https://www.netflix.com/tv8", { waitUntil: "domcontentloaded", timeout: 45000 });
+  await page.goto("https://www.netflix.com/tv8", { waitUntil: "domcontentloaded", timeout: 25000 });
 
-  // Wait for the code input(s). Netflix uses either a single input or 8 separate boxes.
-  await page.waitForLoadState("networkidle", { timeout: 20000 }).catch(() => {});
+  // Wait for a code input to appear — either 8 boxes or one single field.
+  await page.waitForSelector(
+    'input[maxlength="1"], input[data-uia*="digit"], input[type="tel"], input[inputmode="numeric"], input[name*="code" i]',
+    { timeout: 12000 },
+  ).catch(() => {});
 
   // Try 8 separate inputs first
   const boxes = await page.locator('input[maxlength="1"], input[data-uia*="digit"], input[type="tel"][maxlength="1"]').all().catch(() => []);
@@ -188,17 +191,23 @@ try {
   } else {
     // Fallback: single input
     const single = page.locator('input[type="tel"], input[inputmode="numeric"], input[name*="code" i]').first();
-    await single.waitFor({ timeout: 10000 });
+    await single.waitFor({ timeout: 6000 });
     await single.fill(code);
   }
 
   // Submit
   const submit = page.locator('button[type="submit"], button:has-text("Continue"), button:has-text("Sign In"), button:has-text("Submit")').first();
-  await submit.click({ timeout: 10000 }).catch(() => {});
+  await submit.click({ timeout: 6000 }).catch(() => {});
 
-  // Wait a moment for result
-  await page.waitForTimeout(4000);
-  const bodyText = (await page.locator("body").innerText().catch(() => "")).toLowerCase();
+  // Wait for result — poll instead of a fixed 4s sleep so we finish as soon as Netflix responds.
+  const deadline = Date.now() + 8000;
+  let bodyText = "";
+  while (Date.now() < deadline) {
+    await page.waitForTimeout(400);
+    bodyText = (await page.locator("body").innerText().catch(() => "")).toLowerCase();
+    if (/success|signed in|logged in|welcome|activated|linked|connected|invalid|incorrect|wrong|not recognized|try again|expired/i.test(bodyText)) break;
+    if (!/\/tv8/i.test(page.url())) break;
+  }
 
   if (/success|signed in|logged in|welcome|activated|linked|connected/i.test(bodyText)) {
     status = "success"; result = "success"; message = "TV signed in successfully";
