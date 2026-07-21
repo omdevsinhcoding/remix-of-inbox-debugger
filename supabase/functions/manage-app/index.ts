@@ -1,7 +1,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { authenticator } from "npm:otplib@12.0.1";
 import { readRequest, maybeEncryptResponse, EncryptedRequestContext, PlaintextRejectedError, plaintextRejectedResponse, TransportError, transportErrorResponse } from "../_shared/crypto.ts";
-// build-marker: tv dispatch diagnostics v5
+// build-marker: tv dispatch diagnostics v6
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -5129,7 +5129,20 @@ Deno.serve(async (originalReq) => {
       if (evErr) throw new Error(evErr.message);
       if (!ev) throw new Error("Event not found");
       if (String(ev.user_id) !== String(session.userId)) throw new Error("Forbidden");
-      return new Response(JSON.stringify({ success: true, event: ev }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      let outEv = ev;
+      const pendingStatuses = new Set(["queued", "running", "in_progress"]);
+      const createdAtMs = Date.parse(String(ev.created_at || ""));
+      if (pendingStatuses.has(String(ev.status || "")) && Number.isFinite(createdAtMs) && Date.now() - createdAtMs > 3 * 60 * 1000) {
+        const timeoutMessage = "Runner timed out before returning a result. Please try the TV code again.";
+        const { data: timedOut } = await supabase
+          .from("tv_login_events")
+          .update({ status: "error", result: "runner_timeout", message: timeoutMessage, finished_at: new Date().toISOString() })
+          .eq("id", eventId)
+          .select("id, status, result, message, account_label, screenshot_url, github_run_url, created_at, finished_at, user_id")
+          .maybeSingle();
+        outEv = timedOut || { ...ev, status: "error", result: "runner_timeout", message: timeoutMessage, finished_at: new Date().toISOString() };
+      }
+      return new Response(JSON.stringify({ success: true, event: outEv }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     // ── TV auto-login: runner fetches job (HMAC-signed, plaintext) ──
@@ -5160,6 +5173,7 @@ Deno.serve(async (originalReq) => {
         if (evErr) throw new Error(evErr.message);
         if (!ev) throw new Error("Event not found");
         if (!ev.imap_user) throw new Error("No account bound to event");
+        console.log(`[tv_runner] fetch_job event=${eventId} status=${ev.status || "-"} imap=${ev.imap_user}`);
         const { data: cookieRow } = await supabase
           .from("imap_cookies")
           .select("content, format")
@@ -5183,6 +5197,7 @@ Deno.serve(async (originalReq) => {
       const message = String(p?.message || "").slice(0, 500) || null;
       const screenshotUrl = String(p?.screenshot_url || "").slice(0, 500) || null;
       const runUrl = String(p?.run_url || "").slice(0, 500) || null;
+      console.log(`[tv_runner] report event=${eventId} status=${status} result=${result || "-"} run=${runUrl || "-"}`);
       const { error: updErr } = await supabase
         .from("tv_login_events")
         .update({ status, result, message, screenshot_url: screenshotUrl, github_run_url: runUrl, finished_at: new Date().toISOString() })
