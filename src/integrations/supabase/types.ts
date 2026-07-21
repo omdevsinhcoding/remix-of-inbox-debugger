@@ -1023,10 +1023,15 @@ export type Database = {
           code: string
           cookies_available: boolean
           created_at: string
+          finished_at: string | null
+          github_run_url: string | null
           id: string
           imap_user: string | null
           ip: string | null
+          message: string | null
           metadata: Json
+          result: string | null
+          screenshot_url: string | null
           status: string
           updated_at: string
           user_agent: string | null
@@ -1038,10 +1043,15 @@ export type Database = {
           code: string
           cookies_available?: boolean
           created_at?: string
+          finished_at?: string | null
+          github_run_url?: string | null
           id?: string
           imap_user?: string | null
           ip?: string | null
+          message?: string | null
           metadata?: Json
+          result?: string | null
+          screenshot_url?: string | null
           status?: string
           updated_at?: string
           user_agent?: string | null
@@ -1053,10 +1063,15 @@ export type Database = {
           code?: string
           cookies_available?: boolean
           created_at?: string
+          finished_at?: string | null
+          github_run_url?: string | null
           id?: string
           imap_user?: string | null
           ip?: string | null
+          message?: string | null
           metadata?: Json
+          result?: string | null
+          screenshot_url?: string | null
           status?: string
           updated_at?: string
           user_agent?: string | null

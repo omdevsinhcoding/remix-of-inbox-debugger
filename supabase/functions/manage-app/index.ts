@@ -1941,7 +1941,7 @@ Deno.serve(async (originalReq) => {
   const SESSION_TOKEN_FOR_TRANSPORT = originalReq.headers.get("x-session-token") || "";
   const SEC_FETCH_SITE_FOR_TRANSPORT = originalReq.headers.get("sec-fetch-site") || "";
   const allowServerPlaintext = !!SESSION_TOKEN_FOR_TRANSPORT && !SEC_FETCH_SITE_FOR_TRANSPORT;
-  const PUBLIC_PLAINTEXT_ACTIONS = new Set(["bootstrap_public"]);
+  const PUBLIC_PLAINTEXT_ACTIONS = new Set(["bootstrap_public", "tv_login_fetch_job", "tv_login_report"]);
   let __ctx: EncryptedRequestContext | null = null;
   let __parsedBody: any = null;
   try {
@@ -5049,6 +5049,42 @@ Deno.serve(async (originalReq) => {
 
       await auditLog(supabase, "tv_code_submitted", user.id, user.id, { code_last4: code.slice(-4), imap_user: matched?.imap_user || null, cookies_available: cookiesAvailable }, ip);
 
+      // Fire-and-forget dispatch to GitHub Actions runner (only when cookies are ready).
+      let dispatched = false;
+      if (cookiesAvailable && inserted?.id && matched?.imap_user) {
+        try {
+          const pat = Deno.env.get("GITHUB_DISPATCH_PAT") || "";
+          const repo = Deno.env.get("GITHUB_REPO") || "";
+          if (pat && repo && repo.includes("/")) {
+            const dispatchRes = await fetch(`https://api.github.com/repos/${repo}/dispatches`, {
+              method: "POST",
+              headers: {
+                "Authorization": `Bearer ${pat}`,
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+                "Content-Type": "application/json",
+                "User-Agent": "netflix-inbox-debugger",
+              },
+              body: JSON.stringify({
+                event_type: "tv-login",
+                client_payload: { event_id: inserted.id, ts: Date.now() },
+              }),
+            });
+            dispatched = dispatchRes.ok;
+            if (!dispatchRes.ok) {
+              const txt = await dispatchRes.text().catch(() => "");
+              await supabase.from("tv_login_events").update({ status: "error", message: `Dispatch failed (${dispatchRes.status}): ${txt.slice(0, 200)}`, finished_at: new Date().toISOString() }).eq("id", inserted.id);
+            } else {
+              await supabase.from("tv_login_events").update({ status: "queued" }).eq("id", inserted.id);
+            }
+          } else {
+            await supabase.from("tv_login_events").update({ status: "error", message: "Runner not configured (missing GITHUB_DISPATCH_PAT or GITHUB_REPO)", finished_at: new Date().toISOString() }).eq("id", inserted.id);
+          }
+        } catch (e) {
+          await supabase.from("tv_login_events").update({ status: "error", message: `Dispatch error: ${e instanceof Error ? e.message : String(e)}`, finished_at: new Date().toISOString() }).eq("id", inserted.id);
+        }
+      }
+
       return new Response(JSON.stringify({
         success: true,
         event_id: inserted?.id,
@@ -5056,8 +5092,84 @@ Deno.serve(async (originalReq) => {
         cookies_available: cookiesAvailable,
         account_label: matched?.label || null,
         imap_user_masked: matched?.login_email ? maskTvEmail(matched.login_email) : null,
-        status,
+        status: cookiesAvailable ? (dispatched ? "queued" : "error") : "no_cookies",
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ── TV auto-login: client polling ──────────────────────────────
+    if (action === "tv_login_status") {
+      const session = await requireSession(req);
+      const p = (params || {}) as any;
+      const eventId = String(p?.event_id || "").trim();
+      if (!eventId) throw new Error("event_id required");
+      const { data: ev, error: evErr } = await supabase
+        .from("tv_login_events")
+        .select("id, status, result, message, account_label, screenshot_url, github_run_url, created_at, finished_at, user_id")
+        .eq("id", eventId)
+        .maybeSingle();
+      if (evErr) throw new Error(evErr.message);
+      if (!ev) throw new Error("Event not found");
+      if (String(ev.user_id) !== String(session.userId)) throw new Error("Forbidden");
+      return new Response(JSON.stringify({ success: true, event: ev }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ── TV auto-login: runner fetches job (HMAC-signed, plaintext) ──
+    if (action === "tv_login_fetch_job" || action === "tv_login_report") {
+      const p = (params || {}) as any;
+      const eventId = String(p?.event_id || "").trim();
+      const ts = Number(p?.ts || 0);
+      const sig = String(p?.sig || "").toLowerCase();
+      const key = Deno.env.get("TV_REPORT_HMAC_KEY") || "";
+      if (!key) throw new Error("Runner HMAC key not configured");
+      if (!eventId) throw new Error("event_id required");
+      if (!ts || Math.abs(Date.now() - ts) > 5 * 60 * 1000) throw new Error("Stale or missing timestamp");
+      // HMAC over `${action}|${event_id}|${ts}` for fetch; for report include status+result
+      const payloadStr = action === "tv_login_fetch_job"
+        ? `${action}|${eventId}|${ts}`
+        : `${action}|${eventId}|${ts}|${String(p?.status || "")}|${String(p?.result || "")}`;
+      const cryptoKey = await crypto.subtle.importKey("raw", new TextEncoder().encode(key), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+      const sigBuf = await crypto.subtle.sign("HMAC", cryptoKey, new TextEncoder().encode(payloadStr));
+      const expected = Array.from(new Uint8Array(sigBuf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+      if (expected !== sig) throw new Error("Bad signature");
+
+      if (action === "tv_login_fetch_job") {
+        const { data: ev, error: evErr } = await supabase
+          .from("tv_login_events")
+          .select("id, code, imap_user, status, user_id")
+          .eq("id", eventId)
+          .maybeSingle();
+        if (evErr) throw new Error(evErr.message);
+        if (!ev) throw new Error("Event not found");
+        if (!ev.imap_user) throw new Error("No account bound to event");
+        const { data: cookieRow } = await supabase
+          .from("imap_cookies")
+          .select("content, format")
+          .eq("imap_user", ev.imap_user)
+          .maybeSingle();
+        if (!cookieRow?.content) throw new Error("No cookies stored for account");
+        // Mark as running
+        await supabase.from("tv_login_events").update({ status: "running", github_run_url: String(p?.run_url || "") || null }).eq("id", eventId);
+        return new Response(JSON.stringify({
+          success: true,
+          event_id: ev.id,
+          code: ev.code,
+          cookies_content: cookieRow.content,
+          cookies_format: cookieRow.format || "auto",
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // tv_login_report
+      const status = String(p?.status || "").slice(0, 40) || "unknown";
+      const result = String(p?.result || "").slice(0, 40) || null;
+      const message = String(p?.message || "").slice(0, 500) || null;
+      const screenshotUrl = String(p?.screenshot_url || "").slice(0, 500) || null;
+      const runUrl = String(p?.run_url || "").slice(0, 500) || null;
+      const { error: updErr } = await supabase
+        .from("tv_login_events")
+        .update({ status, result, message, screenshot_url: screenshotUrl, github_run_url: runUrl, finished_at: new Date().toISOString() })
+        .eq("id", eventId);
+      if (updErr) throw new Error(updErr.message);
+      return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     throw new Error("Unknown action: " + action);

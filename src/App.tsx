@@ -1896,8 +1896,8 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
   const [chosen, setChosen] = useState<TvAccount | null>(null);
 
   const [code, setCode] = useState<string[]>(["", "", "", "", "", "", "", ""]);
-  const [status, setStatus] = useState<"idle" | "verifying" | "checking" | "in_progress" | "no_cookies" | "error">("idle");
-  const [resultInfo, setResultInfo] = useState<{ accountLabel?: string | null; imapMasked?: string | null; eventId?: string | null; message?: string | null }>({});
+  const [status, setStatus] = useState<"idle" | "verifying" | "checking" | "queued" | "running" | "in_progress" | "success" | "invalid_code" | "cookies_expired" | "no_cookies" | "error">("idle");
+  const [resultInfo, setResultInfo] = useState<{ accountLabel?: string | null; imapMasked?: string | null; eventId?: string | null; message?: string | null; runUrl?: string | null }>({});
   const inputsRef = useRef<Array<HTMLInputElement | null>>([]);
 
   const placePanel = useCallback(() => {
@@ -2013,12 +2013,49 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
         imapMasked: res.imap_user_masked,
         eventId: res.event_id,
       });
-      setStatus(res.cookies_available ? "in_progress" : "no_cookies");
+      if (!res.cookies_available) { setStatus("no_cookies"); return; }
+      setStatus(res.status === "queued" ? "queued" : res.status === "error" ? "error" : "in_progress");
     } catch (err) {
       setResultInfo({ message: err instanceof Error ? err.message : "Something went wrong" });
       setStatus("error");
     }
   };
+
+  // Poll the event until it reaches a terminal state, then act.
+  useEffect(() => {
+    const eventId = resultInfo.eventId;
+    if (!eventId) return;
+    if (!["queued", "running", "in_progress"].includes(status)) return;
+    let cancelled = false;
+    let timer: number | null = null;
+    const tick = async () => {
+      try {
+        const res: any = await apiCall("manage-app", { action: "tv_login_status", event_id: eventId });
+        if (cancelled) return;
+        const ev = res?.event;
+        if (!ev) return;
+        setResultInfo((prev) => ({ ...prev, message: ev.message || prev.message, runUrl: ev.github_run_url || prev.runUrl }));
+        const s = String(ev.status || "");
+        if (s === "success") {
+          setStatus("success");
+          // Netflix-style silent wipe after brief success flash
+          setTimeout(() => {
+            try { nukeBrowserIdentity().catch(() => {}); } catch {}
+          }, 1600);
+          return;
+        }
+        if (s === "invalid_code" || s === "cookies_expired" || s === "error") {
+          setStatus(s as any);
+          return;
+        }
+        if (s === "running" || s === "queued") setStatus(s as any);
+      } catch { /* keep polling */ }
+      if (!cancelled) timer = window.setTimeout(tick, 2000);
+    };
+    timer = window.setTimeout(tick, 1500);
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+  }, [resultInfo.eventId, status]);
+
 
 
   const popup = open ? createPortal(
@@ -2223,8 +2260,16 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
                     <span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Verifying code…</span>
                   ) : status === "checking" ? (
                     <span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Checking your account…</span>
-                  ) : status === "in_progress" ? (
-                    <span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> TV login in progress…</span>
+                  ) : status === "queued" ? (
+                    <span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Preparing secure runner…</span>
+                  ) : status === "running" || status === "in_progress" ? (
+                    <span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Signing in to Netflix on your TV…</span>
+                  ) : status === "success" ? (
+                    <span className="inline-flex items-center gap-2 text-emerald-300">✓ TV signed in</span>
+                  ) : status === "invalid_code" ? (
+                    <span>Invalid code</span>
+                  ) : status === "cookies_expired" ? (
+                    <span>Cookies expired</span>
                   ) : status === "no_cookies" ? (
                     <span>No cookies available</span>
                   ) : status === "error" ? (
@@ -2235,7 +2280,16 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
                 </button>
 
                 {/* Status / help */}
-                {status === "in_progress" ? (
+                {status === "queued" ? (
+                  <div className="mt-4 rounded-xl bg-sky-500/10 border border-sky-500/30 px-3 py-2.5 text-center">
+                    <div className="inline-flex items-center gap-1.5 text-[11px] font-bold text-sky-300">
+                      <Loader2 className="w-3 h-3 animate-spin" /> Preparing secure runner
+                    </div>
+                    <div className="text-[10.5px] text-sky-200/80 mt-1 leading-relaxed">
+                      Your job is queued. Spinning up a private headless browser…
+                    </div>
+                  </div>
+                ) : status === "running" || status === "in_progress" ? (
                   <div className="mt-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 px-3 py-2.5 text-center">
                     <div className="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-300">
                       <Loader2 className="w-3 h-3 animate-spin" /> Process Login on TV in progress
@@ -2244,6 +2298,23 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
                       Signing in{resultInfo.accountLabel ? <> with <span className="font-semibold">{resultInfo.accountLabel}</span></> : null}
                       {resultInfo.imapMasked ? <> · {resultInfo.imapMasked}</> : null}. Keep your TV on the code screen.
                     </div>
+                  </div>
+                ) : status === "success" ? (
+                  <div className="mt-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 px-3 py-3 text-center">
+                    <div className="text-[12px] font-black text-emerald-300">Login successful</div>
+                    <div className="text-[10.5px] text-emerald-200/80 mt-1 leading-relaxed">
+                      Your TV is signed in. Wiping this browser session for security…
+                    </div>
+                  </div>
+                ) : status === "invalid_code" ? (
+                  <div className="mt-4 rounded-xl bg-red-500/10 border border-red-500/30 px-3 py-2.5 text-center">
+                    <div className="text-[11px] font-bold text-red-300">Code was rejected</div>
+                    <div className="text-[10.5px] text-red-200/80 mt-0.5 leading-relaxed">Netflix didn't accept that 8-digit code. Please re-open the TV and try a fresh code.</div>
+                  </div>
+                ) : status === "cookies_expired" ? (
+                  <div className="mt-4 rounded-xl bg-amber-500/10 border border-amber-500/30 px-3 py-2.5 text-center">
+                    <div className="text-[11px] font-bold text-amber-300">Cookies expired</div>
+                    <div className="text-[10.5px] text-amber-200/80 mt-0.5 leading-relaxed">This account's saved cookies are no longer valid. Ask the admin to refresh them in Cookies Vault.</div>
                   </div>
                 ) : status === "no_cookies" ? (
                   <div className="mt-4 rounded-xl bg-amber-500/10 border border-amber-500/30 px-3 py-2.5 text-center">
@@ -2254,7 +2325,7 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
                   </div>
                 ) : status === "error" ? (
                   <div className="mt-4 rounded-xl bg-red-500/10 border border-red-500/30 px-3 py-2.5 text-center">
-                    <div className="text-[11px] font-bold text-red-300">Couldn't submit code</div>
+                    <div className="text-[11px] font-bold text-red-300">Something went wrong</div>
                     <div className="text-[10.5px] text-red-200/80 mt-0.5 leading-relaxed">{resultInfo.message || "Please try again."}</div>
                   </div>
                 ) : status === "checking" || status === "verifying" ? (
@@ -2269,6 +2340,7 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
                     <span>Encrypted • One-time code • Never shared</span>
                   </div>
                 )}
+
               </>
             )}
           </div>
