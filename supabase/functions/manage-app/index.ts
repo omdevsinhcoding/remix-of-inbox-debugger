@@ -5144,7 +5144,7 @@ Deno.serve(async (originalReq) => {
       if (!eventId) throw new Error("event_id required");
       const { data: ev, error: evErr } = await supabase
         .from("tv_login_events")
-        .select("id, status, result, message, account_label, screenshot_url, github_run_url, created_at, finished_at, user_id")
+        .select("id, status, result, message, account_label, screenshot_url, github_run_url, created_at, finished_at, user_id, metadata")
         .eq("id", eventId)
         .maybeSingle();
       if (evErr) throw new Error(evErr.message);
@@ -5152,14 +5152,16 @@ Deno.serve(async (originalReq) => {
       if (String(ev.user_id) !== String(session.userId)) throw new Error("Forbidden");
       let outEv = ev;
       const pendingStatuses = new Set(["queued", "running", "in_progress"]);
+      const runnerStartedAtMs = Date.parse(String((ev.metadata as any)?.runnerStartedAt || ""));
       const createdAtMs = Date.parse(String(ev.created_at || ""));
-      if (pendingStatuses.has(String(ev.status || "")) && Number.isFinite(createdAtMs) && Date.now() - createdAtMs > 10 * 1000) {
+      const timeoutAnchorMs = Number.isFinite(runnerStartedAtMs) ? runnerStartedAtMs : createdAtMs;
+      if (pendingStatuses.has(String(ev.status || "")) && Number.isFinite(timeoutAnchorMs) && Date.now() - timeoutAnchorMs > 10 * 1000) {
         const timeoutMessage = "Fast TV runner did not return within 10 seconds. Please try the TV code again.";
         const { data: timedOut } = await supabase
           .from("tv_login_events")
           .update({ status: "error", result: "runner_timeout", message: timeoutMessage, finished_at: new Date().toISOString() })
           .eq("id", eventId)
-          .select("id, status, result, message, account_label, screenshot_url, github_run_url, created_at, finished_at, user_id")
+          .select("id, status, result, message, account_label, screenshot_url, github_run_url, created_at, finished_at, user_id, metadata")
           .maybeSingle();
         outEv = timedOut || { ...ev, status: "error", result: "runner_timeout", message: timeoutMessage, finished_at: new Date().toISOString() };
       }
@@ -5202,7 +5204,7 @@ Deno.serve(async (originalReq) => {
       if (action === "tv_login_fetch_job") {
         const { data: ev, error: evErr } = await supabase
           .from("tv_login_events")
-          .select("id, code, imap_user, status, user_id")
+          .select("id, code, imap_user, status, user_id, metadata")
           .eq("id", eventId)
           .maybeSingle();
         if (evErr) throw new Error(evErr.message);
@@ -5217,7 +5219,11 @@ Deno.serve(async (originalReq) => {
           .maybeSingle();
         if (!cookieRow?.content) throw new Error("No cookies stored for account");
         // Mark as running
-        await supabase.from("tv_login_events").update({ status: "running", github_run_url: String(p?.run_url || "") || null }).eq("id", eventId);
+        await supabase.from("tv_login_events").update({
+          status: "running",
+          github_run_url: String(p?.run_url || "") || null,
+          metadata: { ...((ev.metadata as any) || {}), runnerStartedAt: new Date().toISOString() },
+        }).eq("id", eventId);
         return new Response(JSON.stringify({
           success: true,
           event_id: ev.id,
