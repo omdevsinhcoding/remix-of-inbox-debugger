@@ -4876,6 +4876,41 @@ Deno.serve(async (originalReq) => {
         });
     };
 
+    // ── Telegram reporting for TV auto-login flow ──
+    // Emits a rich, HTML-formatted alert for every TV login attempt, result,
+    // cookie-expiry issue, and user-initiated error report.
+    const escapeTgHtml = (s: unknown) =>
+      String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const sendTvLoginTelegram = async (kind: string, fields: Record<string, unknown>) => {
+      try {
+        const tg = await getTelegramConfig(supabase);
+        if (!tg) return;
+        const iconMap: Record<string, string> = {
+          attempt: "📺",
+          success: "✅",
+          invalid_code: "❌",
+          cookies_expired: "⚠️",
+          no_cookies: "🚫",
+          not_configured: "🚫",
+          runner_timeout: "⏱️",
+          netflix_timeout: "⏱️",
+          error: "🛑",
+          user_error_report: "🆘",
+        };
+        const icon = iconMap[kind] || "ℹ️";
+        const title = `${icon} <b>TV Login · ${escapeTgHtml(kind)}</b>`;
+        const rows: string[] = [];
+        for (const [k, v] of Object.entries(fields)) {
+          if (v === undefined || v === null || v === "") continue;
+          rows.push(`<b>${escapeTgHtml(k)}:</b> <code>${escapeTgHtml(v)}</code>`);
+        }
+        postTelegramBg(tg, { text: `${title}\n${rows.join("\n")}` });
+      } catch (e) {
+        console.warn("[tv_tg] send failed:", (e as Error).message);
+      }
+    };
+
+
     if (action === "admin_cookies_list") {
       await requireAdmin(req);
       const { data, error } = await supabase
@@ -5122,6 +5157,22 @@ Deno.serve(async (originalReq) => {
         }
       }
 
+      // Full-context Telegram alert for every TV login attempt.
+      void sendTvLoginTelegram(cookiesAvailable ? "attempt" : (matched ? "no_cookies" : "not_configured"), {
+        event_id: inserted?.id,
+        user: user.username,
+        user_id: user.id,
+        display_name: user.name,
+        account_label: matched?.label,
+        imap_user: matched?.imap_user,
+        login_email: matched?.login_email,
+        code_last4: code.slice(-4),
+        cookies_available: cookiesAvailable ? "yes" : "no",
+        dispatch: dispatchDiag,
+        ip,
+        user_agent: ua.slice(0, 160),
+        submitted_at: metadata.submittedAt,
+      });
 
       return new Response(JSON.stringify({
         success: true,
@@ -5135,6 +5186,54 @@ Deno.serve(async (originalReq) => {
         dispatch_diag: dispatchDiag,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
+
+    // ── User-triggered error report from TV modal ──
+    if (action === "tv_report_error") {
+      const session = await requireSession(req);
+      const p = (params || {}) as any;
+      const eventId = String(p?.event_id || "").trim();
+      const userNote = String(p?.note || "").slice(0, 500);
+      const uiStatus = String(p?.ui_status || "").slice(0, 40);
+      const uiMessage = String(p?.ui_message || "").slice(0, 500);
+      const { data: user } = await supabase
+        .from("app_users")
+        .select("id, username, name")
+        .eq("id", session.userId)
+        .maybeSingle();
+      let ev: any = null;
+      if (eventId) {
+        const { data } = await supabase
+          .from("tv_login_events")
+          .select("id, status, result, message, account_label, imap_user, code, created_at, finished_at, github_run_url, metadata")
+          .eq("id", eventId)
+          .maybeSingle();
+        if (data && String(data.user_id ?? user?.id) === String(user?.id)) ev = data;
+        else ev = data; // still include for admin visibility
+      }
+      void sendTvLoginTelegram("user_error_report", {
+        event_id: eventId || "(none)",
+        user: user?.username,
+        user_id: user?.id,
+        display_name: user?.name,
+        ui_status: uiStatus,
+        ui_message: uiMessage,
+        user_note: userNote || "(no note)",
+        event_status: ev?.status,
+        event_result: ev?.result,
+        event_message: ev?.message,
+        account_label: ev?.account_label,
+        imap_user: ev?.imap_user,
+        code_last4: typeof ev?.code === "string" ? ev.code.slice(-4) : undefined,
+        created_at: ev?.created_at,
+        finished_at: ev?.finished_at,
+        run_url: ev?.github_run_url,
+        ip,
+        user_agent: (req.headers.get("user-agent") || "").slice(0, 160),
+      });
+      await auditLog(supabase, "tv_user_error_report", user?.id || null, user?.id || null, { event_id: eventId, ui_status: uiStatus }, ip);
+      return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
 
     // ── TV auto-login: client polling ──────────────────────────────
     if (action === "tv_login_status") {
@@ -5240,13 +5339,42 @@ Deno.serve(async (originalReq) => {
       const screenshotUrl = String(p?.screenshot_url || "").slice(0, 500) || null;
       const runUrl = String(p?.run_url || "").slice(0, 500) || null;
       console.log(`[tv_runner] report event=${eventId} status=${status} result=${result || "-"} run=${runUrl || "-"}`);
+      const { data: preEv } = await supabase
+        .from("tv_login_events")
+        .select("id, username, user_id, account_label, imap_user, code, created_at")
+        .eq("id", eventId)
+        .maybeSingle();
       const { error: updErr } = await supabase
         .from("tv_login_events")
         .update({ status, result, message, screenshot_url: screenshotUrl, github_run_url: runUrl, finished_at: new Date().toISOString() })
         .eq("id", eventId);
       if (updErr) throw new Error(updErr.message);
+
+      // Detailed Telegram alert for every runner result. Cookies expired /
+      // errors are elevated so admin sees them immediately.
+      const kind = result === "cookies_expired" ? "cookies_expired"
+        : status === "success" ? "success"
+        : status === "invalid_code" ? "invalid_code"
+        : result === "runner_timeout" || result === "netflix_timeout" ? result
+        : "error";
+      void sendTvLoginTelegram(kind, {
+        event_id: eventId,
+        user: preEv?.username,
+        user_id: preEv?.user_id,
+        account_label: preEv?.account_label,
+        imap_user: preEv?.imap_user,
+        code_last4: typeof preEv?.code === "string" ? preEv.code.slice(-4) : undefined,
+        status,
+        result,
+        message,
+        run_url: runUrl,
+        started_at: preEv?.created_at,
+        finished_at: new Date().toISOString(),
+      });
+
       return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
+
 
     throw new Error("Unknown action: " + action);
 

@@ -1883,7 +1883,59 @@ function NotificationBell() {
 }
 
 // --- TV Auto-Login header button + Coming Soon popup ---
+function ReportErrorButton({ eventId, uiStatus, uiMessage }: { eventId: string | null; uiStatus: string; uiMessage: string | null }) {
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [note, setNote] = useState("");
+  const [showNote, setShowNote] = useState(false);
+  const send = async () => {
+    if (sending || sent) return;
+    setSending(true);
+    try {
+      const res: any = await apiCall("manage-app", {
+        action: "tv_report_error",
+        event_id: eventId,
+        note,
+        ui_status: uiStatus,
+        ui_message: uiMessage,
+      });
+      if (!res?.success) throw new Error(res?.error || "Failed to report");
+      setSent(true);
+      notify.success("Error report sent to admin", { description: "The admin has been notified in real-time." });
+    } catch (err) {
+      notify.error("Couldn't send report", { description: err instanceof Error ? err.message : "Please try again." });
+    } finally {
+      setSending(false);
+    }
+  };
+  return (
+    <div className="mt-2">
+      {showNote && !sent && (
+        <textarea
+          value={note}
+          onChange={(e) => setNote(e.target.value.slice(0, 500))}
+          placeholder="Optional: describe what happened…"
+          rows={2}
+          className="w-full mb-2 rounded-lg bg-white/[0.04] border border-white/10 px-3 py-2 text-[11.5px] text-white placeholder:text-white/30 outline-none focus:border-[#e50914]/60 resize-none"
+        />
+      )}
+      <button
+        onClick={sent ? undefined : (showNote ? send : () => setShowNote(true))}
+        disabled={sending || sent}
+        className={`w-full h-10 rounded-xl text-[12px] font-bold transition active:scale-[0.98] ${
+          sent
+            ? "bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 cursor-default"
+            : "bg-gradient-to-r from-amber-500/20 to-red-500/20 border border-amber-400/30 text-amber-200 hover:from-amber-500/30 hover:to-red-500/30"
+        }`}
+      >
+        {sent ? "✓ Admin notified" : sending ? "Sending…" : showNote ? "Send report to admin" : "🆘 Report error to admin"}
+      </button>
+    </div>
+  );
+}
+
 function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
+
   const [open, setOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const [panelStyle, setPanelStyle] = useState<React.CSSProperties>({});
@@ -2176,9 +2228,10 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
                   </div>
                 ) : accounts.length === 0 ? (
                   <div className="rounded-xl bg-amber-500/10 border border-amber-500/30 px-3 py-3 text-center">
-                    <div className="text-[11px] font-bold text-amber-300">No accounts assigned</div>
-                    <div className="text-[10.5px] text-amber-200/80 mt-0.5">Please contact your admin to assign an account.</div>
+                    <div className="text-[11px] font-bold text-amber-300">Not configured</div>
+                    <div className="text-[10.5px] text-amber-200/80 mt-0.5 leading-relaxed">Your Netflix Account is not configured by the Admin for TV login.</div>
                   </div>
+
                 ) : (
                   <div className="flex flex-col gap-2 max-h-[280px] overflow-y-auto pr-1">
                     {accounts.map((acc) => {
@@ -2392,21 +2445,29 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
                       )}
 
                       {terminal && (
-                        <div className="mt-3 flex items-center gap-2">
-                          <button
-                            onClick={resetForRetry}
-                            className="flex-1 h-10 rounded-xl text-[12px] font-bold bg-white/10 text-white hover:bg-white/15 active:scale-[0.98] transition"
-                          >
-                            Try again
-                          </button>
-                          <button
-                            onClick={() => setOpen(false)}
-                            className="flex-1 h-10 rounded-xl text-[12px] font-bold bg-white/[0.04] border border-white/10 text-white/70 hover:bg-white/[0.08] active:scale-[0.98] transition"
-                          >
-                            Close
-                          </button>
-                        </div>
+                        <>
+                          <div className="mt-3 flex items-center gap-2">
+                            <button
+                              onClick={resetForRetry}
+                              className="flex-1 h-10 rounded-xl text-[12px] font-bold bg-white/10 text-white hover:bg-white/15 active:scale-[0.98] transition"
+                            >
+                              Try again
+                            </button>
+                            <button
+                              onClick={() => setOpen(false)}
+                              className="flex-1 h-10 rounded-xl text-[12px] font-bold bg-white/[0.04] border border-white/10 text-white/70 hover:bg-white/[0.08] active:scale-[0.98] transition"
+                            >
+                              Close
+                            </button>
+                          </div>
+                          <ReportErrorButton
+                            eventId={resultInfo.eventId || null}
+                            uiStatus={status}
+                            uiMessage={resultInfo.message || null}
+                          />
+                        </>
                       )}
+
                     </>
                   );
                 })()}
