@@ -2260,8 +2260,16 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
                     <span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Verifying code…</span>
                   ) : status === "checking" ? (
                     <span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Checking your account…</span>
-                  ) : status === "in_progress" ? (
-                    <span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> TV login in progress…</span>
+                  ) : status === "queued" ? (
+                    <span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Preparing secure runner…</span>
+                  ) : status === "running" || status === "in_progress" ? (
+                    <span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Signing in to Netflix on your TV…</span>
+                  ) : status === "success" ? (
+                    <span className="inline-flex items-center gap-2 text-emerald-300">✓ TV signed in</span>
+                  ) : status === "invalid_code" ? (
+                    <span>Invalid code</span>
+                  ) : status === "cookies_expired" ? (
+                    <span>Cookies expired</span>
                   ) : status === "no_cookies" ? (
                     <span>No cookies available</span>
                   ) : status === "error" ? (
@@ -2272,7 +2280,16 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
                 </button>
 
                 {/* Status / help */}
-                {status === "in_progress" ? (
+                {status === "queued" ? (
+                  <div className="mt-4 rounded-xl bg-sky-500/10 border border-sky-500/30 px-3 py-2.5 text-center">
+                    <div className="inline-flex items-center gap-1.5 text-[11px] font-bold text-sky-300">
+                      <Loader2 className="w-3 h-3 animate-spin" /> Preparing secure runner
+                    </div>
+                    <div className="text-[10.5px] text-sky-200/80 mt-1 leading-relaxed">
+                      Your job is queued. Spinning up a private headless browser…
+                    </div>
+                  </div>
+                ) : status === "running" || status === "in_progress" ? (
                   <div className="mt-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 px-3 py-2.5 text-center">
                     <div className="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-300">
                       <Loader2 className="w-3 h-3 animate-spin" /> Process Login on TV in progress
@@ -2281,6 +2298,23 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
                       Signing in{resultInfo.accountLabel ? <> with <span className="font-semibold">{resultInfo.accountLabel}</span></> : null}
                       {resultInfo.imapMasked ? <> · {resultInfo.imapMasked}</> : null}. Keep your TV on the code screen.
                     </div>
+                  </div>
+                ) : status === "success" ? (
+                  <div className="mt-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 px-3 py-3 text-center">
+                    <div className="text-[12px] font-black text-emerald-300">Login successful</div>
+                    <div className="text-[10.5px] text-emerald-200/80 mt-1 leading-relaxed">
+                      Your TV is signed in. Wiping this browser session for security…
+                    </div>
+                  </div>
+                ) : status === "invalid_code" ? (
+                  <div className="mt-4 rounded-xl bg-red-500/10 border border-red-500/30 px-3 py-2.5 text-center">
+                    <div className="text-[11px] font-bold text-red-300">Code was rejected</div>
+                    <div className="text-[10.5px] text-red-200/80 mt-0.5 leading-relaxed">Netflix didn't accept that 8-digit code. Please re-open the TV and try a fresh code.</div>
+                  </div>
+                ) : status === "cookies_expired" ? (
+                  <div className="mt-4 rounded-xl bg-amber-500/10 border border-amber-500/30 px-3 py-2.5 text-center">
+                    <div className="text-[11px] font-bold text-amber-300">Cookies expired</div>
+                    <div className="text-[10.5px] text-amber-200/80 mt-0.5 leading-relaxed">This account's saved cookies are no longer valid. Ask the admin to refresh them in Cookies Vault.</div>
                   </div>
                 ) : status === "no_cookies" ? (
                   <div className="mt-4 rounded-xl bg-amber-500/10 border border-amber-500/30 px-3 py-2.5 text-center">
@@ -2291,7 +2325,7 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
                   </div>
                 ) : status === "error" ? (
                   <div className="mt-4 rounded-xl bg-red-500/10 border border-red-500/30 px-3 py-2.5 text-center">
-                    <div className="text-[11px] font-bold text-red-300">Couldn't submit code</div>
+                    <div className="text-[11px] font-bold text-red-300">Something went wrong</div>
                     <div className="text-[10.5px] text-red-200/80 mt-0.5 leading-relaxed">{resultInfo.message || "Please try again."}</div>
                   </div>
                 ) : status === "checking" || status === "verifying" ? (
@@ -2306,6 +2340,7 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
                     <span>Encrypted • One-time code • Never shared</span>
                   </div>
                 )}
+
               </>
             )}
           </div>
