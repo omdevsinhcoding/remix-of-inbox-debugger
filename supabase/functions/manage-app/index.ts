@@ -4852,28 +4852,40 @@ Deno.serve(async (originalReq) => {
         .filter(Boolean);
       const showAll = assigned.length === 0 || assigned.includes("primary") || assigned.includes("all");
 
-      return (Array.isArray(allAccounts) ? allAccounts : [])
-        .flatMap((acc: any, idx: number) => {
-          const label = String(acc?.label || acc?.user || "").trim();
-          const imap_user = String(acc?.user || "").trim().toLowerCase();
-          if (!imap_user) return [];
-          const recipientFilters = normalizeRecipientFilters(acc?.recipientFilters);
-          const loginEmail = (recipientFilters[0] || imap_user).toLowerCase();
+      // Each recipient filter is treated as a distinct TV account.
+      // If an account has no recipient filters, the IMAP user itself acts as
+      // the single implicit filter (legacy behavior).
+      const out: Array<{ account_key: string; label: string; imap_user: string; login_email: string; recipient_filters: string[] }> = [];
+      const seen = new Set<string>();
+      (Array.isArray(allAccounts) ? allAccounts : []).forEach((acc: any, idx: number) => {
+        const label = String(acc?.label || acc?.user || "").trim();
+        const imap_user = String(acc?.user || "").trim().toLowerCase();
+        if (!imap_user) return;
+        const recipientFilters = normalizeRecipientFilters(acc?.recipientFilters);
+        const filters = recipientFilters.length > 0 ? recipientFilters : [imap_user];
+        for (const filter of filters) {
+          const loginEmail = String(filter || "").trim().toLowerCase();
+          if (!loginEmail) continue;
           const matchKeys = new Set([
             label.toLowerCase(),
             imap_user,
             loginEmail,
             ...recipientFilters,
           ].filter(Boolean));
-          if (!showAll && !assigned.some((item) => matchKeys.has(item))) return [];
-          return [{
-            account_key: `${idx}:${imap_user}:${loginEmail}:${label.toLowerCase()}`,
-            label,
+          if (!showAll && !assigned.some((item) => matchKeys.has(item))) continue;
+          const key = `${idx}:${imap_user}:${loginEmail}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          out.push({
+            account_key: key,
+            label: filters.length > 1 ? `${label} · ${loginEmail}` : label,
             imap_user,
             login_email: loginEmail,
             recipient_filters: recipientFilters,
-          }];
-        });
+          });
+        }
+      });
+      return out;
     };
 
     // ── Telegram reporting for TV auto-login flow ──
@@ -4980,29 +4992,41 @@ Deno.serve(async (originalReq) => {
       const allAccounts: any[] = Array.isArray(acctSetting?.value) ? acctSetting.value : [];
       const candidates = resolveTvAccountCandidates(allAccounts, user.assigned_accounts);
 
-      const imapUsers = candidates.map((c) => c.imap_user);
-      let cookieMap = new Map<string, boolean>();
-      if (imapUsers.length > 0) {
+      // Cookies are keyed per recipient filter (login_email). An account is
+      // only surfaced to the user if the admin has explicitly configured
+      // cookies for THAT specific filter — never inherited from a sibling.
+      const lookupKeys = Array.from(new Set(candidates.map((c) => c.login_email))).filter(Boolean);
+      const cookieSet = new Set<string>();
+      if (lookupKeys.length > 0) {
         const { data: cookieRows } = await supabase
           .from("imap_cookies")
           .select("imap_user, count, content")
-          .in("imap_user", imapUsers);
+          .in("imap_user", lookupKeys);
         for (const row of cookieRows || []) {
           const has = Number((row as any).count) > 0 || (!!(row as any).content && String((row as any).content).length > 0);
-          cookieMap.set(String((row as any).imap_user).toLowerCase(), has);
+          if (has) cookieSet.add(String((row as any).imap_user).toLowerCase());
         }
       }
 
-      const accounts = candidates.map((c) => ({
-        account_key: c.account_key,
-        imap_user: c.imap_user,
-        imap_user_masked: maskTvEmail(c.login_email),
-        login_email_masked: maskTvEmail(c.login_email),
-        actual_imap_user_masked: maskTvEmail(c.imap_user),
-        label: c.label,
-        cookies_available: cookieMap.get(c.imap_user) === true,
-      }));
-      return new Response(JSON.stringify({ success: true, accounts }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      const accounts = candidates
+        .filter((c) => cookieSet.has(c.login_email))
+        .map((c) => ({
+          account_key: c.account_key,
+          imap_user: c.imap_user,
+          login_email: c.login_email,
+          imap_user_masked: maskTvEmail(c.login_email),
+          login_email_masked: maskTvEmail(c.login_email),
+          actual_imap_user_masked: maskTvEmail(c.imap_user),
+          label: c.label,
+          cookies_available: true,
+        }));
+      const notConfigured = accounts.length === 0;
+      return new Response(JSON.stringify({
+        success: true,
+        accounts,
+        not_configured: notConfigured,
+        message: notConfigured ? "Your Netflix Account is not configured by the Admin for TV login." : undefined,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     if (action === "tv_submit_code") {
@@ -5043,24 +5067,29 @@ Deno.serve(async (originalReq) => {
       const chosenImap = String(p?.imap_user || "").trim().toLowerCase();
       const chosenKey = String(p?.account_key || "").trim();
       if (candidates.length > 0) {
-        const imapUsers = candidates.map((c) => c.imap_user);
+        const lookupKeys = Array.from(new Set(candidates.map((c) => c.login_email))).filter(Boolean);
         const { data: cookieRows } = await supabase
           .from("imap_cookies")
           .select("imap_user, count, content, updated_at")
-          .in("imap_user", imapUsers);
+          .in("imap_user", lookupKeys);
         const cookieMap = new Map<string, any>();
         for (const row of cookieRows || []) cookieMap.set(String(row.imap_user).toLowerCase(), row);
 
         if (chosenKey || chosenImap) {
-          // Mandatory: chosen account must be in the user's assigned candidates
-          const found = candidates.find((c) => chosenKey ? c.account_key === chosenKey : c.imap_user === chosenImap);
+          // Mandatory: chosen filter must be in the user's assigned candidates.
+          // When only imap_user is provided (legacy client), pick the first
+          // candidate for that IMAP that has cookies configured.
+          const found = chosenKey
+            ? candidates.find((c) => c.account_key === chosenKey)
+            : candidates.find((c) => c.imap_user === chosenImap && cookieMap.has(c.login_email))
+              || candidates.find((c) => c.imap_user === chosenImap);
           if (!found) throw new Error("Selected account is not available for your profile");
           matched = found;
-          const row = cookieMap.get(found.imap_user);
+          const row = cookieMap.get(found.login_email);
           cookiesAvailable = !!(row && (Number(row.count) > 0 || (row.content && String(row.content).length > 0)));
         } else {
           for (const c of candidates) {
-            const row = cookieMap.get(c.imap_user);
+            const row = cookieMap.get(c.login_email);
             if (row && (Number(row.count) > 0 || (row.content && String(row.content).length > 0))) {
               matched = c;
               cookiesAvailable = true;
