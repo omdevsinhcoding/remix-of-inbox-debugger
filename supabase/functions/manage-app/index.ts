@@ -1,7 +1,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { authenticator } from "npm:otplib@12.0.1";
 import { readRequest, maybeEncryptResponse, EncryptedRequestContext, PlaintextRejectedError, plaintextRejectedResponse, TransportError, transportErrorResponse } from "../_shared/crypto.ts";
-// build-marker: tv dispatch diagnostics v6
+// build-marker: direct fast tv runner v7
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -5061,86 +5061,50 @@ Deno.serve(async (originalReq) => {
 
       await auditLog(supabase, "tv_code_submitted", user.id, user.id, { code_last4: code.slice(-4), imap_user: matched?.imap_user || null, cookies_available: cookiesAvailable }, ip);
 
-      // Fire-and-forget dispatch to GitHub Actions runner (only when cookies are ready).
+      // Fire-and-forget to a warm VPS runner (only when cookies are ready).
+      // GitHub Actions is intentionally NOT used here: runner allocation/queueing
+      // cannot guarantee the strict <10s SLA.
       let dispatched = false;
       let dispatchDiag = "skipped";
       let responseMessage: string | null = null;
       console.log(`[tv_submit] event=${inserted?.id} cookiesAvailable=${cookiesAvailable} matched_imap=${matched?.imap_user || "-"}`);
       if (cookiesAvailable && inserted?.id && matched?.imap_user) {
         try {
-          const pat = Deno.env.get("GITHUB_DISPATCH_PAT") || "";
-          const repoRaw = Deno.env.get("GITHUB_REPO") || "";
-          // Normalize: accept "owner/repo", full URL, or with trailing .git
-          const repo = repoRaw
-            .replace(/^https?:\/\/github\.com\//i, "")
-            .replace(/\.git$/i, "")
-            .replace(/^\/+|\/+$/g, "")
-            .trim();
-          console.log(`[tv_submit] dispatch check pat_present=${!!pat} repoRaw="${repoRaw}" repo="${repo}"`);
-          if (pat && repo && repo.includes("/")) {
-            const ghHeaders = {
-              "Authorization": `Bearer ${pat}`,
-              "Accept": "application/vnd.github+json",
-              "X-GitHub-Api-Version": "2022-11-28",
-              "Content-Type": "application/json",
-              "User-Agent": "netflix-inbox-debugger",
-            };
-            const runnersRes = await fetch(`https://api.github.com/repos/${repo}/actions/runners?per_page=100`, {
-              method: "GET",
-              headers: ghHeaders,
-            });
-            const runnersText = await runnersRes.text().catch(() => "");
-            let runnersJson: any = null;
-            try { runnersJson = runnersText ? JSON.parse(runnersText) : null; } catch {}
-            console.log(`[tv_submit] runner check status=${runnersRes.status} body="${runnersText.slice(0, 200)}"`);
-            if (!runnersRes.ok) {
-              dispatchDiag = `runner_check_${runnersRes.status}`;
-              const msg = runnersRes.status === 403 || runnersRes.status === 404
-                ? `Fast runner check failed (${runnersRes.status}). GitHub token needs repository Administration: read permission to guarantee sub-10s runner availability.`
-                : `Fast runner check failed (${runnersRes.status}): ${runnersText.slice(0, 160)}`;
-              responseMessage = msg;
-              await supabase.from("tv_login_events").update({ status: "error", result: "runner_check_failed", message: msg, finished_at: new Date().toISOString() }).eq("id", inserted.id);
-            } else {
-              const runners = Array.isArray(runnersJson?.runners) ? runnersJson.runners : [];
-              const fastRunner = runners.find((r: any) => {
-                const labelNames = Array.isArray(r?.labels) ? r.labels.map((l: any) => String(l?.name || "").toLowerCase()) : [];
-                return String(r?.status || "").toLowerCase() === "online"
-                  && r?.busy !== true
-                  && labelNames.includes("self-hosted")
-                  && labelNames.includes("tv-login-fast");
-              });
-              if (!fastRunner) {
-                dispatchDiag = "runner_offline_or_busy";
-                const msg = "Fast TV runner is offline or busy. Start the self-hosted runner labeled tv-login-fast, then try again.";
-                console.log(`[tv_submit] ${msg}`);
-                responseMessage = msg;
-                await supabase.from("tv_login_events").update({ status: "error", result: "runner_offline_or_busy", message: msg, finished_at: new Date().toISOString() }).eq("id", inserted.id);
-              } else {
-                console.log(`[tv_submit] fast runner available name="${String(fastRunner.name || fastRunner.id || "runner").slice(0, 80)}"`);
-            const dispatchRes = await fetch(`https://api.github.com/repos/${repo}/dispatches`, {
+          const runnerRaw = Deno.env.get("TV_FAST_RUNNER_URL") || "";
+          const runnerBase = runnerRaw.replace(/\/+$/g, "").trim();
+          const hmacKey = Deno.env.get("TV_REPORT_HMAC_KEY") || "";
+          console.log(`[tv_submit] direct runner check url_present=${!!runnerBase} hmac_present=${!!hmacKey}`);
+          if (runnerBase && hmacKey) {
+            const ts = Date.now();
+            const payloadStr = `tv_fast_run|${inserted.id}|${ts}`;
+            const cryptoKey = await crypto.subtle.importKey("raw", new TextEncoder().encode(hmacKey), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+            const sigBuf = await crypto.subtle.sign("HMAC", cryptoKey, new TextEncoder().encode(payloadStr));
+            const sig = Array.from(new Uint8Array(sigBuf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+            const runnerRes = await fetch(`${runnerBase}/run`, {
               method: "POST",
-              headers: ghHeaders,
-              body: JSON.stringify({
-                event_type: "tv-login",
-                client_payload: { event_id: inserted.id, ts: Date.now() },
-              }),
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ event_id: inserted.id, ts, sig }),
+              signal: AbortSignal.timeout(1800),
             });
-            const txt = await dispatchRes.text().catch(() => "");
-            console.log(`[tv_submit] dispatch response status=${dispatchRes.status} body="${txt.slice(0, 200)}"`);
-            dispatched = dispatchRes.ok;
-            if (!dispatchRes.ok) {
-              dispatchDiag = `http_${dispatchRes.status}`;
-              responseMessage = `Dispatch failed (${dispatchRes.status}): ${txt.slice(0, 200)}`;
-              await supabase.from("tv_login_events").update({ status: "error", message: responseMessage, finished_at: new Date().toISOString() }).eq("id", inserted.id);
+            const txt = await runnerRes.text().catch(() => "");
+            let runnerJson: any = null;
+            try { runnerJson = txt ? JSON.parse(txt) : null; } catch {}
+            console.log(`[tv_submit] direct runner response status=${runnerRes.status} body="${txt.slice(0, 220)}"`);
+            dispatched = runnerRes.ok && runnerJson?.success !== false;
+            if (!dispatched) {
+              dispatchDiag = `fast_runner_${runnerRes.status}`;
+              responseMessage = runnerJson?.error || runnerJson?.message || `Fast runner rejected the job (${runnerRes.status})`;
+              await supabase.from("tv_login_events").update({ status: "error", result: "fast_runner_unavailable", message: responseMessage, finished_at: new Date().toISOString() }).eq("id", inserted.id);
             } else {
-              dispatchDiag = "running";
-              await supabase.from("tv_login_events").update({ status: "running" }).eq("id", inserted.id);
-                }
-              }
+              dispatchDiag = "fast_runner_running";
+              responseMessage = runnerJson?.message || "Fast TV runner started.";
+              await supabase.from("tv_login_events").update({ status: "running", message: responseMessage }).eq("id", inserted.id);
             }
           } else {
             dispatchDiag = "no_config";
-            const msg = `Runner not configured (pat_present=${!!pat} repo="${repo}")`;
+            const msg = runnerBase
+              ? "Fast TV runner HMAC key is not configured."
+              : "Fast TV runner URL is not configured. Add TV_FAST_RUNNER_URL after starting the warm VPS runner.";
             console.log(`[tv_submit] ${msg}`);
             responseMessage = msg;
             await supabase.from("tv_login_events").update({ status: "error", message: msg, finished_at: new Date().toISOString() }).eq("id", inserted.id);
@@ -5148,8 +5112,8 @@ Deno.serve(async (originalReq) => {
         } catch (e) {
           dispatchDiag = "exception";
           const em = e instanceof Error ? e.message : String(e);
-          console.log(`[tv_submit] dispatch exception: ${em}`);
-          responseMessage = `Dispatch error: ${em}`;
+          console.log(`[tv_submit] direct runner exception: ${em}`);
+          responseMessage = `Fast runner error: ${em}`;
           await supabase.from("tv_login_events").update({ status: "error", message: responseMessage, finished_at: new Date().toISOString() }).eq("id", inserted.id);
         }
       }

@@ -220,7 +220,7 @@ try {
     { timeout: Math.min(2000, remaining()) },
   ).catch(() => {});
 
-  const boxes = await page.locator('input[maxlength="1"], input[data-uia*="digit"], input[type="tel"][maxlength="1"]').all().catch(() => []);
+  const boxes = await page.locator('input.pin-number-input, input[aria-label^="PIN entry input"], input[maxlength="1"], input[data-uia*="digit"], input[type="tel"][maxlength="1"]').all().catch(() => []);
   if (boxes.length >= 8) {
     for (let i = 0; i < 8; i++) {
       await boxes[i].fill(code[i]).catch(() => {});
@@ -231,8 +231,13 @@ try {
     await single.fill(code);
   }
 
-  const submit = page.locator('button[type="submit"], button:has-text("Continue"), button:has-text("Sign In"), button:has-text("Submit")').first();
-  await submit.click({ timeout: Math.min(1000, remaining()) }).catch(() => {});
+  await page.waitForFunction(() => {
+    const buttons = Array.from(document.querySelectorAll("button"));
+    const btn = buttons.find((b) => /enter code|continue|sign in|submit/i.test(b.textContent || "") || b.classList.contains("tvsignup-continue-button"));
+    return !!btn && !btn.disabled;
+  }, { timeout: Math.min(1200, remaining()) }).catch(() => {});
+  const submit = page.locator('button.tvsignup-continue-button, button:has-text("Enter code"), button:has-text("Continue"), button:has-text("Sign In"), button:has-text("Submit")').first();
+  await submit.click({ timeout: Math.min(1000, remaining()) });
   console.log(`[perf] code submitted at ${Date.now() - t0}ms`);
 
   // Poll for result inside the global 9s SLA.
