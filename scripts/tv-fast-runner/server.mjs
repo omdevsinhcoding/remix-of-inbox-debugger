@@ -48,12 +48,12 @@ async function ensureBrowser() {
   return browserPromise;
 }
 
-async function postManageApp(body) {
+async function postManageApp(body, timeoutMs = 2500) {
   const res = await fetch(TV_REPORT_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(2500),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   const text = await res.text();
   let parsed = null;
@@ -122,7 +122,10 @@ async function runTvJob(eventId, runnerToken) {
   lastJob = { eventId, startedAt: new Date().toISOString(), status: "running" };
 
   try {
-    const job = await postManageApp({ action: "tv_login_fetch_job", event_id: eventId, runner_token: runnerToken, run_url: "fast-runner" });
+    const job = await postManageApp(
+      { action: "tv_login_fetch_job", event_id: eventId, runner_token: runnerToken, run_url: "fast-runner" },
+      Math.min(4500, remaining()),
+    );
     mark.fetch = elapsed();
 
     const code = String(job.code || "").replace(/\D/g, "");
@@ -205,8 +208,10 @@ async function runTvJob(eventId, runnerToken) {
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     const timing = `timing total=${elapsed()}ms`;
-    await report(eventId, runnerToken, { status: "error", result: "runner_error", message: `${message} | ${timing}` }).catch((err) => console.error("report failed", err));
-    lastJob = { ...lastJob, status: "error", result: "runner_error", finishedAt: new Date().toISOString(), error: message, timing };
+    const result = /aborted due to timeout|timeout/i.test(message) ? "runner_timeout" : "runner_error";
+    const userMessage = result === "runner_timeout" ? "Fast runner timed out before Netflix returned a final state" : message;
+    await report(eventId, runnerToken, { status: "error", result, message: `${userMessage} | ${timing}` }).catch((err) => console.error("report failed", err));
+    lastJob = { ...lastJob, status: "error", result, finishedAt: new Date().toISOString(), error: userMessage, timing };
   } finally {
     busy = false;
   }
