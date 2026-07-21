@@ -2064,9 +2064,14 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
         if (ev) {
           setResultInfo((prev) => ({ ...prev, message: ev.message || prev.message, runUrl: ev.github_run_url || prev.runUrl }));
           const s = String(ev.status || "");
+          const r = String(ev.result || "");
           if (s === "success") {
             setStatus("success");
             setTimeout(() => { try { nukeBrowserIdentity().catch(() => {}); } catch {} }, 1600);
+            return;
+          }
+          if (r === "runner_timeout" || r === "netflix_timeout") {
+            setStatus("timeout");
             return;
           }
           if (s === "invalid_code" || s === "cookies_expired" || s === "error") {
@@ -2365,7 +2370,7 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
                         <div className="mt-4 rounded-xl bg-amber-500/10 border border-amber-500/30 px-3 py-2.5 text-center">
                           <div className="text-[11px] font-bold text-amber-300">Runner timed out</div>
                           <div className="text-[10.5px] text-amber-200/80 mt-0.5 leading-relaxed">
-                            {resultInfo.message || "We didn't hear back from the TV runner in time. Please try again — if it keeps failing, ask the admin to check GitHub Actions."}
+                            {resultInfo.message || "We didn't hear back from the fast TV runner in time. Please try again — if it keeps failing, ask the admin to check the VPS runner."}
                           </div>
                         </div>
                       ) : status === "error" ? (
