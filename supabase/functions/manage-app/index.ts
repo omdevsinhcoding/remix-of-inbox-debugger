@@ -4992,29 +4992,41 @@ Deno.serve(async (originalReq) => {
       const allAccounts: any[] = Array.isArray(acctSetting?.value) ? acctSetting.value : [];
       const candidates = resolveTvAccountCandidates(allAccounts, user.assigned_accounts);
 
-      const imapUsers = candidates.map((c) => c.imap_user);
-      let cookieMap = new Map<string, boolean>();
-      if (imapUsers.length > 0) {
+      // Cookies are keyed per recipient filter (login_email). An account is
+      // only surfaced to the user if the admin has explicitly configured
+      // cookies for THAT specific filter — never inherited from a sibling.
+      const lookupKeys = Array.from(new Set(candidates.map((c) => c.login_email))).filter(Boolean);
+      const cookieSet = new Set<string>();
+      if (lookupKeys.length > 0) {
         const { data: cookieRows } = await supabase
           .from("imap_cookies")
           .select("imap_user, count, content")
-          .in("imap_user", imapUsers);
+          .in("imap_user", lookupKeys);
         for (const row of cookieRows || []) {
           const has = Number((row as any).count) > 0 || (!!(row as any).content && String((row as any).content).length > 0);
-          cookieMap.set(String((row as any).imap_user).toLowerCase(), has);
+          if (has) cookieSet.add(String((row as any).imap_user).toLowerCase());
         }
       }
 
-      const accounts = candidates.map((c) => ({
-        account_key: c.account_key,
-        imap_user: c.imap_user,
-        imap_user_masked: maskTvEmail(c.login_email),
-        login_email_masked: maskTvEmail(c.login_email),
-        actual_imap_user_masked: maskTvEmail(c.imap_user),
-        label: c.label,
-        cookies_available: cookieMap.get(c.imap_user) === true,
-      }));
-      return new Response(JSON.stringify({ success: true, accounts }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      const accounts = candidates
+        .filter((c) => cookieSet.has(c.login_email))
+        .map((c) => ({
+          account_key: c.account_key,
+          imap_user: c.imap_user,
+          login_email: c.login_email,
+          imap_user_masked: maskTvEmail(c.login_email),
+          login_email_masked: maskTvEmail(c.login_email),
+          actual_imap_user_masked: maskTvEmail(c.imap_user),
+          label: c.label,
+          cookies_available: true,
+        }));
+      const notConfigured = accounts.length === 0;
+      return new Response(JSON.stringify({
+        success: true,
+        accounts,
+        not_configured: notConfigured,
+        message: notConfigured ? "Your Netflix Account is not configured by the Admin for TV login." : undefined,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     if (action === "tv_submit_code") {
