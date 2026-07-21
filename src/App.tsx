@@ -2393,21 +2393,29 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
                       )}
 
                       {terminal && (
-                        <div className="mt-3 flex items-center gap-2">
-                          <button
-                            onClick={resetForRetry}
-                            className="flex-1 h-10 rounded-xl text-[12px] font-bold bg-white/10 text-white hover:bg-white/15 active:scale-[0.98] transition"
-                          >
-                            Try again
-                          </button>
-                          <button
-                            onClick={() => setOpen(false)}
-                            className="flex-1 h-10 rounded-xl text-[12px] font-bold bg-white/[0.04] border border-white/10 text-white/70 hover:bg-white/[0.08] active:scale-[0.98] transition"
-                          >
-                            Close
-                          </button>
-                        </div>
+                        <>
+                          <div className="mt-3 flex items-center gap-2">
+                            <button
+                              onClick={resetForRetry}
+                              className="flex-1 h-10 rounded-xl text-[12px] font-bold bg-white/10 text-white hover:bg-white/15 active:scale-[0.98] transition"
+                            >
+                              Try again
+                            </button>
+                            <button
+                              onClick={() => setOpen(false)}
+                              className="flex-1 h-10 rounded-xl text-[12px] font-bold bg-white/[0.04] border border-white/10 text-white/70 hover:bg-white/[0.08] active:scale-[0.98] transition"
+                            >
+                              Close
+                            </button>
+                          </div>
+                          <ReportErrorButton
+                            eventId={resultInfo.eventId || null}
+                            uiStatus={status}
+                            uiMessage={resultInfo.message || null}
+                          />
+                        </>
                       )}
+
                     </>
                   );
                 })()}
