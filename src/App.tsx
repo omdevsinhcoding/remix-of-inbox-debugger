@@ -11179,7 +11179,7 @@ function EmailViewer() {
     setError(null);
     setLastUpdated(new Date());
     return merged;
-  }, [pushDiag, setEmails, emails]);
+  }, [pushDiag, setEmails, emails, fetchListDelta]);
 
   const loadCachedEmails = useCallback(async (opts?: { bust?: boolean; limit?: number }) => {
     const bust = !!opts?.bust;
