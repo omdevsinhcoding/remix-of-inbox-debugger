@@ -2083,9 +2083,9 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
           return;
         }
       }
-      if (!cancelled) timer = window.setTimeout(tick, 2000);
+      if (!cancelled) timer = window.setTimeout(tick, 700);
     };
-    timer = window.setTimeout(tick, 1500);
+    timer = window.setTimeout(tick, 500);
     return () => { cancelled = true; if (timer) clearTimeout(timer); };
   }, [resultInfo.eventId, status]);
 
