@@ -239,18 +239,20 @@ export async function readRequest(
           throw new TransportError("origin mismatch", 403);
         }
       }
-      // Insert nonce; unique-violation ⇒ replay
+      // Op#3: L3 fast-reject on in-isolate replay; DB is authoritative safety
+      // net across isolates but fires async so hot path stays sub-millisecond.
+      if (!noncePreCheck(sessionId, parsed.n)) {
+        throw new TransportError("replay", 400);
+      }
       const sb = admin();
       const nonceHex = "\\x" + Array.from(atob(parsed.n), (c) => c.charCodeAt(0).toString(16).padStart(2, "0")).join("");
-      const { error: nErr } = await sb
-        .from("crypto_nonces")
-        .insert({ session_id: sessionId, nonce: nonceHex });
-      if (nErr) {
-        // 23505 = unique_violation
-        if ((nErr as any).code === "23505") throw new TransportError("replay", 400);
-        // Non-fatal: log & continue (don't fail requests on transient DB errors)
-        console.warn("nonce insert error:", nErr.message);
-      }
+      sb.from("crypto_nonces")
+        .insert({ session_id: sessionId, nonce: nonceHex })
+        .then(({ error: nErr }: any) => {
+          if (nErr && (nErr as any).code !== "23505") {
+            console.warn("nonce insert error:", nErr.message);
+          }
+        });
       body = parsed.b ?? null;
     }
 
