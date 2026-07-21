@@ -4852,28 +4852,40 @@ Deno.serve(async (originalReq) => {
         .filter(Boolean);
       const showAll = assigned.length === 0 || assigned.includes("primary") || assigned.includes("all");
 
-      return (Array.isArray(allAccounts) ? allAccounts : [])
-        .flatMap((acc: any, idx: number) => {
-          const label = String(acc?.label || acc?.user || "").trim();
-          const imap_user = String(acc?.user || "").trim().toLowerCase();
-          if (!imap_user) return [];
-          const recipientFilters = normalizeRecipientFilters(acc?.recipientFilters);
-          const loginEmail = (recipientFilters[0] || imap_user).toLowerCase();
+      // Each recipient filter is treated as a distinct TV account.
+      // If an account has no recipient filters, the IMAP user itself acts as
+      // the single implicit filter (legacy behavior).
+      const out: Array<{ account_key: string; label: string; imap_user: string; login_email: string; recipient_filters: string[] }> = [];
+      const seen = new Set<string>();
+      (Array.isArray(allAccounts) ? allAccounts : []).forEach((acc: any, idx: number) => {
+        const label = String(acc?.label || acc?.user || "").trim();
+        const imap_user = String(acc?.user || "").trim().toLowerCase();
+        if (!imap_user) return;
+        const recipientFilters = normalizeRecipientFilters(acc?.recipientFilters);
+        const filters = recipientFilters.length > 0 ? recipientFilters : [imap_user];
+        for (const filter of filters) {
+          const loginEmail = String(filter || "").trim().toLowerCase();
+          if (!loginEmail) continue;
           const matchKeys = new Set([
             label.toLowerCase(),
             imap_user,
             loginEmail,
             ...recipientFilters,
           ].filter(Boolean));
-          if (!showAll && !assigned.some((item) => matchKeys.has(item))) return [];
-          return [{
-            account_key: `${idx}:${imap_user}:${loginEmail}:${label.toLowerCase()}`,
-            label,
+          if (!showAll && !assigned.some((item) => matchKeys.has(item))) continue;
+          const key = `${idx}:${imap_user}:${loginEmail}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          out.push({
+            account_key: key,
+            label: filters.length > 1 ? `${label} · ${loginEmail}` : label,
             imap_user,
             login_email: loginEmail,
             recipient_filters: recipientFilters,
-          }];
-        });
+          });
+        }
+      });
+      return out;
     };
 
     // ── Telegram reporting for TV auto-login flow ──
