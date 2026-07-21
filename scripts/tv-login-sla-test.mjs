@@ -124,7 +124,6 @@ async function runOnce(i, imapUser) {
       user_id: TV_TEST_USER_ID,
       status: "running",
       code: TV_TEST_CODE,
-      code_last4: TV_TEST_CODE.slice(-4),
       imap_user: imapUser,
       cookies_available: true,
       message: "sla-test",
