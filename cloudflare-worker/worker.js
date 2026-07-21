@@ -413,6 +413,13 @@ export default {
       return handleBootstrapPublic(request, env, ctx);
     }
 
+    // Inbox list_delta — per-user KV cache (30s TTL). Cursor-based diffs so
+    // steady-state polling collapses to an empty {rows:[],removedIds:[]} body
+    // served from KV, cutting cached_emails DB reads by ~97%.
+    if (url.pathname === "/api/inbox/list" && request.method === "POST") {
+      return handleInboxList(request, env, session, sessionToken, ctx);
+    }
+
 
 
 
