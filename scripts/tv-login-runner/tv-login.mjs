@@ -215,10 +215,21 @@ try {
   console.log(`[perf] tv8 loaded in ${Date.now() - t0}ms`);
 
   // Wait for a code input to appear.
-  await page.waitForSelector(
+  const hasCodeInput = await page.waitForSelector(
     'input[maxlength="1"], input[data-uia*="digit"], input[type="tel"], input[inputmode="numeric"], input[name*="code" i]',
     { timeout: Math.min(2000, remaining()) },
-  ).catch(() => {});
+  ).then(() => true).catch(() => false);
+
+  if (!hasCodeInput) {
+    const bodyText = (await page.locator("body").innerText().catch(() => "")).toLowerCase();
+    const url = page.url();
+    if (/sign ?in|log ?in|password|email|expired|unsupported|not available|something went wrong/i.test(bodyText) || /login|unsupportedbrowser/i.test(url)) {
+      status = "cookies_expired"; result = "cookies_expired"; message = "Cookies appear to be expired";
+    } else {
+      status = "error"; result = "no_code_input"; message = "Netflix code input did not appear";
+    }
+    throw new Error(message);
+  }
 
   const boxes = await page.locator('input.pin-number-input, input[aria-label^="PIN entry input"], input[maxlength="1"], input[data-uia*="digit"], input[type="tel"][maxlength="1"]').all().catch(() => []);
   if (boxes.length >= 8) {
