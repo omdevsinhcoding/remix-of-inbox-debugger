@@ -2056,101 +2056,223 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
                 <Tv className="w-7 h-7 text-white" />
               </div>
               <div className="text-[10px] uppercase tracking-[0.2em] text-[#e50914] font-bold">Netflix • TV</div>
-              <h2 className="mt-1 text-xl sm:text-2xl font-black text-white tracking-tight">Enter your code</h2>
+              <h2 className="mt-1 text-xl sm:text-2xl font-black text-white tracking-tight">
+                {step === "select" ? "Choose your account" : "Enter your code"}
+              </h2>
               <p className="mt-1.5 text-[11.5px] sm:text-xs text-white/60 leading-relaxed max-w-[300px]">
-                Enter the code displayed on your TV.
+                {step === "select"
+                  ? "Select the account you want to sign in on your TV."
+                  : "Enter the code displayed on your TV."}
               </p>
+
+              {/* Steps indicator */}
+              <div className="mt-3 inline-flex items-center gap-2 text-[10px] text-white/40">
+                <span className={`inline-flex items-center gap-1.5 ${step === "select" ? "text-white" : ""}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${step === "select" ? "bg-[#e50914]" : "bg-emerald-400"}`} />
+                  Account
+                </span>
+                <span className="w-4 h-px bg-white/15" />
+                <span className={`inline-flex items-center gap-1.5 ${step === "code" ? "text-white" : ""}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${step === "code" ? "bg-[#e50914]" : "bg-white/20"}`} />
+                  Code
+                </span>
+              </div>
             </div>
 
-            {/* Code inputs */}
-            <div className="mt-6 flex items-center justify-center gap-1.5 sm:gap-2">
-              {code.map((d, i) => (
-                <React.Fragment key={i}>
-                  {i === 4 && (
-                    <span aria-hidden className="shrink-0 w-2 sm:w-3 h-0.5 rounded-full bg-white/25 mx-0.5" />
-                  )}
-                  <input
-                    ref={(el) => { inputsRef.current[i] = el; }}
-                    value={d}
-                    onChange={(e) => setDigit(i, e.target.value)}
-                    onKeyDown={(e) => onKeyDown(i, e)}
-                    onPaste={onPaste}
-                    onFocus={(e) => e.currentTarget.select()}
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    maxLength={1}
-                    disabled={status !== "idle"}
-                    aria-label={`Digit ${i + 1}`}
-                    className={`aspect-square w-full min-w-0 flex-1 text-center text-lg sm:text-2xl font-black rounded-xl bg-white/[0.04] border-2 text-white caret-[#e50914] outline-none transition-all
-                      ${d ? "border-[#e50914] bg-[#e50914]/10 shadow-[0_0_20px_-4px_rgba(229,9,20,0.6)]" : "border-white/15"}
-                      focus:border-[#e50914] focus:bg-[#e50914]/10 focus:shadow-[0_0_24px_-4px_rgba(229,9,20,0.7)] focus:scale-[1.04]
-                      disabled:opacity-60`}
-                  />
-                </React.Fragment>
-              ))}
-            </div>
+            {step === "select" ? (
+              <div className="mt-5">
+                {accountsLoading ? (
+                  <div className="py-8 flex flex-col items-center justify-center gap-2 text-white/60">
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    <div className="text-[11px]">Loading your accounts…</div>
+                  </div>
+                ) : accountsError ? (
+                  <div className="rounded-xl bg-red-500/10 border border-red-500/30 px-3 py-3 text-center">
+                    <div className="text-[11px] font-bold text-red-300">Couldn't load accounts</div>
+                    <div className="text-[10.5px] text-red-200/80 mt-0.5">{accountsError}</div>
+                    <button
+                      onClick={loadAccounts}
+                      className="mt-2 h-8 px-3 rounded-lg text-[11px] font-bold bg-white/10 text-white hover:bg-white/15"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                ) : accounts.length === 0 ? (
+                  <div className="rounded-xl bg-amber-500/10 border border-amber-500/30 px-3 py-3 text-center">
+                    <div className="text-[11px] font-bold text-amber-300">No accounts assigned</div>
+                    <div className="text-[10.5px] text-amber-200/80 mt-0.5">Please contact your admin to assign an account.</div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-2 max-h-[280px] overflow-y-auto pr-1">
+                    {accounts.map((acc) => {
+                      const selected = chosen?.imap_user === acc.imap_user;
+                      return (
+                        <button
+                          key={acc.imap_user}
+                          onClick={() => setChosen(acc)}
+                          className={`group w-full flex items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-all active:scale-[0.99] ${
+                            selected
+                              ? "bg-[#e50914]/10 border-[#e50914] shadow-[0_0_20px_-4px_rgba(229,9,20,0.6)]"
+                              : "bg-white/[0.04] border-white/10 hover:bg-white/[0.07] hover:border-white/20"
+                          }`}
+                        >
+                          <div className={`shrink-0 w-9 h-9 rounded-lg flex items-center justify-center ${selected ? "bg-[#e50914]/20" : "bg-white/5"}`}>
+                            <Mail className={`w-4 h-4 ${selected ? "text-[#e50914]" : "text-white/60"}`} />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-[12.5px] font-bold text-white truncate tracking-tight">
+                              {acc.imap_user_masked}
+                            </div>
+                            <div className="mt-0.5 flex items-center gap-1.5 text-[10px]">
+                              {acc.label && (
+                                <span className="px-1.5 py-0.5 rounded-md bg-white/10 text-white/70 font-semibold">{acc.label}</span>
+                              )}
+                              {acc.cookies_available ? (
+                                <span className="inline-flex items-center gap-1 text-emerald-300"><span className="w-1 h-1 rounded-full bg-emerald-400" /> Cookies ready</span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 text-amber-300"><span className="w-1 h-1 rounded-full bg-amber-400" /> No cookies yet</span>
+                              )}
+                            </div>
+                          </div>
+                          <div className={`shrink-0 w-4 h-4 rounded-full border-2 flex items-center justify-center ${selected ? "border-[#e50914] bg-[#e50914]" : "border-white/25"}`}>
+                            {selected && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
 
+                <button
+                  onClick={() => { if (chosen) setStep("code"); }}
+                  disabled={!chosen}
+                  className={`mt-5 w-full h-11 rounded-xl font-bold text-sm tracking-wide transition-all active:scale-[0.98] ${
+                    chosen
+                      ? "bg-gradient-to-r from-[#e50914] to-[#b0060f] text-white shadow-lg shadow-[#e50914]/30 hover:shadow-[#e50914]/50 hover:brightness-110"
+                      : "bg-white/[0.06] text-white/40 cursor-not-allowed"
+                  }`}
+                >
+                  Continue
+                </button>
 
-            {/* Submit */}
-            <button
-              onClick={submit}
-              disabled={!isComplete || status !== "idle"}
-              className={`mt-6 w-full h-11 rounded-xl font-bold text-sm tracking-wide transition-all active:scale-[0.98]
-                ${isComplete && status === "idle"
-                  ? "bg-gradient-to-r from-[#e50914] to-[#b0060f] text-white shadow-lg shadow-[#e50914]/30 hover:shadow-[#e50914]/50 hover:brightness-110"
-                  : "bg-white/[0.06] text-white/40 cursor-not-allowed"}`}
-            >
-              {status === "verifying" ? (
-                <span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Verifying code…</span>
-              ) : status === "checking" ? (
-                <span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Checking your account…</span>
-              ) : status === "in_progress" ? (
-                <span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> TV login in progress…</span>
-              ) : status === "no_cookies" ? (
-                <span>No cookies available</span>
-              ) : status === "error" ? (
-                <span>Try again</span>
-              ) : (
-                "Continue"
-              )}
-            </button>
-
-            {/* Status / help */}
-            {status === "in_progress" ? (
-              <div className="mt-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 px-3 py-2.5 text-center">
-                <div className="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-300">
-                  <Loader2 className="w-3 h-3 animate-spin" /> Process Login on TV in progress
-                </div>
-                <div className="text-[10.5px] text-emerald-200/80 mt-1 leading-relaxed">
-                  Signing in{resultInfo.accountLabel ? <> with <span className="font-semibold">{resultInfo.accountLabel}</span></> : null}
-                  {resultInfo.imapMasked ? <> · {resultInfo.imapMasked}</> : null}. Keep your TV on the code screen.
-                </div>
-              </div>
-            ) : status === "no_cookies" ? (
-              <div className="mt-4 rounded-xl bg-amber-500/10 border border-amber-500/30 px-3 py-2.5 text-center">
-                <div className="text-[11px] font-bold text-amber-300">Session not ready</div>
-                <div className="text-[10.5px] text-amber-200/80 mt-0.5 leading-relaxed">
-                  Your code was received{resultInfo.accountLabel ? <> for <span className="font-semibold">{resultInfo.accountLabel}</span></> : null}, but no saved cookies are available yet. Please ask the admin to upload cookies for your account, then try again.
-                </div>
-              </div>
-            ) : status === "error" ? (
-              <div className="mt-4 rounded-xl bg-red-500/10 border border-red-500/30 px-3 py-2.5 text-center">
-                <div className="text-[11px] font-bold text-red-300">Couldn't submit code</div>
-                <div className="text-[10.5px] text-red-200/80 mt-0.5 leading-relaxed">{resultInfo.message || "Please try again."}</div>
-              </div>
-            ) : status === "checking" || status === "verifying" ? (
-              <div className="mt-4 rounded-xl bg-white/[0.04] border border-white/10 px-3 py-2.5 text-center">
-                <div className="text-[10.5px] text-white/70 leading-relaxed">
-                  {status === "verifying" ? "Verifying the 8-digit code…" : "Confirming your IMAP account and saved cookies…"}
+                <div className="mt-3 flex items-center justify-center gap-1.5 text-[10.5px] text-white/40">
+                  <ShieldCheck className="w-3 h-3" />
+                  <span>Account selection is required to continue</span>
                 </div>
               </div>
             ) : (
-              <div className="mt-4 flex items-center justify-center gap-1.5 text-[10.5px] text-white/40">
-                <ShieldCheck className="w-3 h-3" />
-                <span>Encrypted • One-time code • Never shared</span>
-              </div>
+              <>
+                {/* Selected account chip */}
+                {chosen && (
+                  <div className="mt-4 flex items-center justify-between gap-2 rounded-xl bg-white/[0.04] border border-white/10 px-3 py-2">
+                    <div className="min-w-0 flex items-center gap-2">
+                      <Mail className="w-3.5 h-3.5 text-white/60 shrink-0" />
+                      <div className="min-w-0">
+                        <div className="text-[11.5px] font-bold text-white truncate">{chosen.imap_user_masked}</div>
+                        {chosen.label && <div className="text-[9.5px] text-white/50 truncate">{chosen.label}</div>}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => { setStep("select"); setStatus("idle"); setCode(["", "", "", "", "", "", "", ""]); }}
+                      disabled={status !== "idle"}
+                      className="text-[10.5px] font-semibold text-[#e50914] hover:text-white transition disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      Change
+                    </button>
+                  </div>
+                )}
+
+                {/* Code inputs */}
+                <div className="mt-5 flex items-center justify-center gap-1.5 sm:gap-2">
+                  {code.map((d, i) => (
+                    <React.Fragment key={i}>
+                      {i === 4 && (
+                        <span aria-hidden className="shrink-0 w-2 sm:w-3 h-0.5 rounded-full bg-white/25 mx-0.5" />
+                      )}
+                      <input
+                        ref={(el) => { inputsRef.current[i] = el; }}
+                        value={d}
+                        onChange={(e) => setDigit(i, e.target.value)}
+                        onKeyDown={(e) => onKeyDown(i, e)}
+                        onPaste={onPaste}
+                        onFocus={(e) => e.currentTarget.select()}
+                        inputMode="numeric"
+                        autoComplete="one-time-code"
+                        maxLength={1}
+                        disabled={status !== "idle"}
+                        aria-label={`Digit ${i + 1}`}
+                        className={`aspect-square w-full min-w-0 flex-1 text-center text-lg sm:text-2xl font-black rounded-xl bg-white/[0.04] border-2 text-white caret-[#e50914] outline-none transition-all
+                          ${d ? "border-[#e50914] bg-[#e50914]/10 shadow-[0_0_20px_-4px_rgba(229,9,20,0.6)]" : "border-white/15"}
+                          focus:border-[#e50914] focus:bg-[#e50914]/10 focus:shadow-[0_0_24px_-4px_rgba(229,9,20,0.7)] focus:scale-[1.04]
+                          disabled:opacity-60`}
+                      />
+                    </React.Fragment>
+                  ))}
+                </div>
+
+                {/* Submit */}
+                <button
+                  onClick={submit}
+                  disabled={!isComplete || status !== "idle"}
+                  className={`mt-6 w-full h-11 rounded-xl font-bold text-sm tracking-wide transition-all active:scale-[0.98]
+                    ${isComplete && status === "idle"
+                      ? "bg-gradient-to-r from-[#e50914] to-[#b0060f] text-white shadow-lg shadow-[#e50914]/30 hover:shadow-[#e50914]/50 hover:brightness-110"
+                      : "bg-white/[0.06] text-white/40 cursor-not-allowed"}`}
+                >
+                  {status === "verifying" ? (
+                    <span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Verifying code…</span>
+                  ) : status === "checking" ? (
+                    <span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Checking your account…</span>
+                  ) : status === "in_progress" ? (
+                    <span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> TV login in progress…</span>
+                  ) : status === "no_cookies" ? (
+                    <span>No cookies available</span>
+                  ) : status === "error" ? (
+                    <span>Try again</span>
+                  ) : (
+                    "Continue"
+                  )}
+                </button>
+
+                {/* Status / help */}
+                {status === "in_progress" ? (
+                  <div className="mt-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 px-3 py-2.5 text-center">
+                    <div className="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-300">
+                      <Loader2 className="w-3 h-3 animate-spin" /> Process Login on TV in progress
+                    </div>
+                    <div className="text-[10.5px] text-emerald-200/80 mt-1 leading-relaxed">
+                      Signing in{resultInfo.accountLabel ? <> with <span className="font-semibold">{resultInfo.accountLabel}</span></> : null}
+                      {resultInfo.imapMasked ? <> · {resultInfo.imapMasked}</> : null}. Keep your TV on the code screen.
+                    </div>
+                  </div>
+                ) : status === "no_cookies" ? (
+                  <div className="mt-4 rounded-xl bg-amber-500/10 border border-amber-500/30 px-3 py-2.5 text-center">
+                    <div className="text-[11px] font-bold text-amber-300">Session not ready</div>
+                    <div className="text-[10.5px] text-amber-200/80 mt-0.5 leading-relaxed">
+                      Your code was received{resultInfo.accountLabel ? <> for <span className="font-semibold">{resultInfo.accountLabel}</span></> : null}, but no saved cookies are available yet. Please ask the admin to upload cookies for your account, then try again.
+                    </div>
+                  </div>
+                ) : status === "error" ? (
+                  <div className="mt-4 rounded-xl bg-red-500/10 border border-red-500/30 px-3 py-2.5 text-center">
+                    <div className="text-[11px] font-bold text-red-300">Couldn't submit code</div>
+                    <div className="text-[10.5px] text-red-200/80 mt-0.5 leading-relaxed">{resultInfo.message || "Please try again."}</div>
+                  </div>
+                ) : status === "checking" || status === "verifying" ? (
+                  <div className="mt-4 rounded-xl bg-white/[0.04] border border-white/10 px-3 py-2.5 text-center">
+                    <div className="text-[10.5px] text-white/70 leading-relaxed">
+                      {status === "verifying" ? "Verifying the 8-digit code…" : "Confirming your IMAP account and saved cookies…"}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-4 flex items-center justify-center gap-1.5 text-[10.5px] text-white/40">
+                    <ShieldCheck className="w-3 h-3" />
+                    <span>Encrypted • One-time code • Never shared</span>
+                  </div>
+                )}
+              </>
             )}
           </div>
+
         </div>
       </div>
     </div>,
