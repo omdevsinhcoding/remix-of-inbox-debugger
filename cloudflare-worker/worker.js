@@ -1228,3 +1228,99 @@ async function handleBootstrapPublic(request, env, ctx) {
     });
   }
 }
+
+// ==================== Inbox list_delta cache (Operation #2) ====================
+// Per-user KV cache in front of manage-app.list_delta. Cursor-based diffs
+// mean 99% of foreground polls return an empty {rows:[],removedIds:[]} body
+// served from KV within 30s. New mail arriving flips the cursor, so the next
+// poll misses cache and pulls the fresh diff; there is no coherency risk
+// beyond the 30-second TTL.
+const INBOX_KEY_PREFIX = "inbox:v1:user:";
+const INBOX_TTL_SECONDS = 30;
+
+function inboxListHeaders(extra = {}) {
+  return {
+    ...CORS_HEADERS,
+    "Content-Type": "application/json",
+    "Cache-Control": "no-store",
+    "Access-Control-Expose-Headers": "X-Cache-Status, X-Cache-Age",
+    ...extra,
+  };
+}
+
+async function handleInboxList(request, env, session, rawToken, ctx) {
+  if (!supabaseUrl(env) || !supabaseKey(env)) {
+    return new Response(JSON.stringify({ success: false, error: "Worker not configured" }), {
+      status: 500, headers: inboxListHeaders(),
+    });
+  }
+  if (!session?.userId || !rawToken) {
+    return new Response(JSON.stringify({ success: false, error: "session required" }), {
+      status: 401, headers: inboxListHeaders(),
+    });
+  }
+
+  let body = {};
+  try { body = await request.json(); } catch {}
+  const since = Number.isFinite(Number(body?.since)) ? Number(body.since) : 0;
+  const limit = Math.min(200, Math.max(1, Number(body?.limit) || 50));
+  const baseline = body?.baseline === true;
+
+  const kv = getKV(env);
+  const cacheKey = `${INBOX_KEY_PREFIX}${session.userId}:s${since}:b${baseline ? 1 : 0}:l${limit}`;
+
+  if (kv) {
+    const raw = await kvGet(env, cacheKey);
+    if (raw) {
+      let cached = null;
+      try { cached = JSON.parse(raw); } catch {}
+      if (cached?.body && cached.at) {
+        const age = Math.round((Date.now() - cached.at) / 1000);
+        if (age < INBOX_TTL_SECONDS) {
+          return new Response(cached.body, {
+            headers: inboxListHeaders({ "X-Cache-Status": "HIT", "X-Cache-Age": String(age) }),
+          });
+        }
+      }
+    }
+  }
+
+  try {
+    const upstream = await fetch(`${supabaseUrl(env)}/functions/v1/manage-app`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${supabaseKey(env)}`,
+        "apikey": supabaseKey(env),
+        "X-Session-Token": rawToken,
+      },
+      body: JSON.stringify({ action: "list_delta", since, limit, baseline }),
+    });
+    const text = await upstream.text();
+    if (!upstream.ok) {
+      return new Response(text, {
+        status: upstream.status,
+        headers: inboxListHeaders({ "X-Cache-Status": "MISS_ERR" }),
+      });
+    }
+    let parsed = null;
+    try { parsed = JSON.parse(text); } catch {}
+    if (kv && parsed?.success) {
+      const store = { body: text, at: Date.now() };
+      const write = (async () => {
+        try {
+          const primary = env.EMAIL_CACHE_V2 || env.EMAIL_CACHE;
+          if (primary) await primary.put(cacheKey, JSON.stringify(store), { expirationTtl: INBOX_TTL_SECONDS + 30 });
+        } catch (err) { console.error("[inbox-list] KV write failed:", err.message || err); }
+      })();
+      if (ctx?.waitUntil) ctx.waitUntil(write); else await write;
+    }
+    return new Response(text, {
+      headers: inboxListHeaders({ "X-Cache-Status": "MISS" }),
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ success: false, error: "Upstream failed: " + (err.message || "unknown") }), {
+      status: 502, headers: inboxListHeaders({ "X-Cache-Status": "MISS_ERR" }),
+    });
+  }
+}
