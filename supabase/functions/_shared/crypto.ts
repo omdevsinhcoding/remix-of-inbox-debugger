@@ -358,10 +358,10 @@ export async function handleHandshake(req: Request): Promise<Response> {
   try { checkSecFetchSite(req); } catch (e) { return transportErrorResponse(e); }
 
   const ip = getClientIp(req);
-  const ok = await rateLimitHandshake(ip);
-  if (!ok) {
+  if (!rateLimitHandshakeSync(ip)) {
     return new Response("rate limited", { status: 429, headers: cryptoCorsHeaders });
   }
+
 
   const buf = new Uint8Array(await req.arrayBuffer());
   if (buf.length !== 1 + 65 || buf[0] !== VERSION) {
