@@ -4970,6 +4970,18 @@ Deno.serve(async (originalReq) => {
       const code = String(p?.code || "").replace(/\D/g, "").slice(0, 8);
       if (code.length !== 8) throw new Error("Enter the 8-digit code shown on your TV");
 
+      const staleCutoffIso = new Date(Date.now() - 10_000).toISOString();
+      await supabase
+        .from("tv_login_events")
+        .update({
+          status: "error",
+          result: "runner_timeout",
+          message: "Fast TV runner did not start within 10 seconds. Please try again after the runner is online.",
+          finished_at: new Date().toISOString(),
+        })
+        .in("status", ["queued", "running", "in_progress"])
+        .lt("created_at", staleCutoffIso);
+
       const { data: user } = await supabase
         .from("app_users")
         .select("id, username, name, assigned_accounts")
@@ -5052,6 +5064,7 @@ Deno.serve(async (originalReq) => {
       // Fire-and-forget dispatch to GitHub Actions runner (only when cookies are ready).
       let dispatched = false;
       let dispatchDiag = "skipped";
+      let responseMessage: string | null = null;
       console.log(`[tv_submit] event=${inserted?.id} cookiesAvailable=${cookiesAvailable} matched_imap=${matched?.imap_user || "-"}`);
       if (cookiesAvailable && inserted?.id && matched?.imap_user) {
         try {
@@ -5065,15 +5078,48 @@ Deno.serve(async (originalReq) => {
             .trim();
           console.log(`[tv_submit] dispatch check pat_present=${!!pat} repoRaw="${repoRaw}" repo="${repo}"`);
           if (pat && repo && repo.includes("/")) {
+            const ghHeaders = {
+              "Authorization": `Bearer ${pat}`,
+              "Accept": "application/vnd.github+json",
+              "X-GitHub-Api-Version": "2022-11-28",
+              "Content-Type": "application/json",
+              "User-Agent": "netflix-inbox-debugger",
+            };
+            const runnersRes = await fetch(`https://api.github.com/repos/${repo}/actions/runners?per_page=100`, {
+              method: "GET",
+              headers: ghHeaders,
+            });
+            const runnersText = await runnersRes.text().catch(() => "");
+            let runnersJson: any = null;
+            try { runnersJson = runnersText ? JSON.parse(runnersText) : null; } catch {}
+            console.log(`[tv_submit] runner check status=${runnersRes.status} body="${runnersText.slice(0, 200)}"`);
+            if (!runnersRes.ok) {
+              dispatchDiag = `runner_check_${runnersRes.status}`;
+              const msg = runnersRes.status === 403 || runnersRes.status === 404
+                ? `Fast runner check failed (${runnersRes.status}). GitHub token needs repository Administration: read permission to guarantee sub-10s runner availability.`
+                : `Fast runner check failed (${runnersRes.status}): ${runnersText.slice(0, 160)}`;
+              responseMessage = msg;
+              await supabase.from("tv_login_events").update({ status: "error", result: "runner_check_failed", message: msg, finished_at: new Date().toISOString() }).eq("id", inserted.id);
+            } else {
+              const runners = Array.isArray(runnersJson?.runners) ? runnersJson.runners : [];
+              const fastRunner = runners.find((r: any) => {
+                const labelNames = Array.isArray(r?.labels) ? r.labels.map((l: any) => String(l?.name || "").toLowerCase()) : [];
+                return String(r?.status || "").toLowerCase() === "online"
+                  && r?.busy !== true
+                  && labelNames.includes("self-hosted")
+                  && labelNames.includes("tv-login-fast");
+              });
+              if (!fastRunner) {
+                dispatchDiag = "runner_offline_or_busy";
+                const msg = "Fast TV runner is offline or busy. Start the self-hosted runner labeled tv-login-fast, then try again.";
+                console.log(`[tv_submit] ${msg}`);
+                responseMessage = msg;
+                await supabase.from("tv_login_events").update({ status: "error", result: "runner_offline_or_busy", message: msg, finished_at: new Date().toISOString() }).eq("id", inserted.id);
+              } else {
+                console.log(`[tv_submit] fast runner available name="${String(fastRunner.name || fastRunner.id || "runner").slice(0, 80)}"`);
             const dispatchRes = await fetch(`https://api.github.com/repos/${repo}/dispatches`, {
               method: "POST",
-              headers: {
-                "Authorization": `Bearer ${pat}`,
-                "Accept": "application/vnd.github+json",
-                "X-GitHub-Api-Version": "2022-11-28",
-                "Content-Type": "application/json",
-                "User-Agent": "netflix-inbox-debugger",
-              },
+              headers: ghHeaders,
               body: JSON.stringify({
                 event_type: "tv-login",
                 client_payload: { event_id: inserted.id, ts: Date.now() },
@@ -5084,22 +5130,27 @@ Deno.serve(async (originalReq) => {
             dispatched = dispatchRes.ok;
             if (!dispatchRes.ok) {
               dispatchDiag = `http_${dispatchRes.status}`;
-              await supabase.from("tv_login_events").update({ status: "error", message: `Dispatch failed (${dispatchRes.status}): ${txt.slice(0, 200)}`, finished_at: new Date().toISOString() }).eq("id", inserted.id);
+              responseMessage = `Dispatch failed (${dispatchRes.status}): ${txt.slice(0, 200)}`;
+              await supabase.from("tv_login_events").update({ status: "error", message: responseMessage, finished_at: new Date().toISOString() }).eq("id", inserted.id);
             } else {
-              dispatchDiag = "queued";
-              await supabase.from("tv_login_events").update({ status: "queued" }).eq("id", inserted.id);
+              dispatchDiag = "running";
+              await supabase.from("tv_login_events").update({ status: "running" }).eq("id", inserted.id);
+                }
+              }
             }
           } else {
             dispatchDiag = "no_config";
             const msg = `Runner not configured (pat_present=${!!pat} repo="${repo}")`;
             console.log(`[tv_submit] ${msg}`);
+            responseMessage = msg;
             await supabase.from("tv_login_events").update({ status: "error", message: msg, finished_at: new Date().toISOString() }).eq("id", inserted.id);
           }
         } catch (e) {
           dispatchDiag = "exception";
           const em = e instanceof Error ? e.message : String(e);
           console.log(`[tv_submit] dispatch exception: ${em}`);
-          await supabase.from("tv_login_events").update({ status: "error", message: `Dispatch error: ${em}`, finished_at: new Date().toISOString() }).eq("id", inserted.id);
+          responseMessage = `Dispatch error: ${em}`;
+          await supabase.from("tv_login_events").update({ status: "error", message: responseMessage, finished_at: new Date().toISOString() }).eq("id", inserted.id);
         }
       }
 
@@ -5111,7 +5162,9 @@ Deno.serve(async (originalReq) => {
         cookies_available: cookiesAvailable,
         account_label: matched?.label || null,
         imap_user_masked: matched?.login_email ? maskTvEmail(matched.login_email) : null,
-        status: cookiesAvailable ? (dispatched ? "queued" : "error") : "no_cookies",
+        status: cookiesAvailable ? (dispatched ? "running" : "error") : "no_cookies",
+        message: responseMessage,
+        dispatch_diag: dispatchDiag,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
