@@ -11562,7 +11562,7 @@ function EmailViewer() {
         // changes after that cursor. Otherwise old emails can never backfill.
         const cursor = cached.length === 0 ? 0 : storedCursor;
         const started = performance.now();
-        const delta = await apiCall("manage-app", { action: "list_delta", since: cursor, limit: cursor === 0 ? 1000 : 500 });
+        const delta = await fetchListDelta({ since: cursor, limit: cursor === 0 ? 1000 : 500 });
         pushDiag({
           ts: Date.now(),
           kind: "sync",
