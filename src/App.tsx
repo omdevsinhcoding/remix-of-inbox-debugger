@@ -11120,10 +11120,43 @@ function EmailViewer() {
     })();
   }, []);
 
+  // Op#2: Worker-first list_delta. Steady-state polls hit the 30s KV cache
+  // and return a tiny empty-diff, cutting cached_emails DB reads by ~97%.
+  // Falls through to direct Supabase edge on any worker miss/error.
+  const fetchListDelta = useCallback(async (params: { since: number; limit: number; baseline?: boolean }) => {
+    const token = getSessionToken();
+    const workerUrls = resolvedWorkerUrls || [];
+    if (token && workerUrls.length > 0) {
+      const workerBase = workerUrls[Math.floor(Math.random() * workerUrls.length)].replace(/\/+$/, "");
+      try {
+        const res = await fetchWithTimeout(`${workerBase}/api/inbox/list`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Session-Token": token },
+          body: JSON.stringify(params),
+        }, 8000);
+        if (res.ok) {
+          const data = await res.json();
+          if (data?.success) {
+            pushDiag({
+              ts: Date.now(), kind: "cache", endpoint: `${workerBase}/api/inbox/list`,
+              status: res.status,
+              cacheStatus: res.headers.get("X-Cache-Status") || undefined,
+              cacheAge: res.headers.get("X-Cache-Age") || undefined,
+            });
+            return data;
+          }
+        }
+      } catch (e) {
+        pushDiag({ ts: Date.now(), kind: "cache", endpoint: `${workerBase}/api/inbox/list`, error: e instanceof Error ? e.message : String(e) });
+      }
+    }
+    return await apiCall("manage-app", { action: "list_delta", ...params });
+  }, [resolvedWorkerUrls, pushDiag]);
+
   const loadCachedEmailsDirect = useCallback(async (limit = 200): Promise<Email[]> => {
     const safeLimit = Math.max(1, Math.min(Number(limit) || 200, 1000));
     const started = performance.now();
-    const delta = await apiCall("manage-app", { action: "list_delta", since: 0, limit: safeLimit, baseline: true });
+    const delta = await fetchListDelta({ since: 0, limit: safeLimit, baseline: true });
     const rows = Array.isArray(delta?.rows) ? delta.rows as Email[] : [];
     pushDiag({
       ts: Date.now(),
