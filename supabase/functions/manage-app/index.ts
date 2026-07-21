@@ -5339,13 +5339,42 @@ Deno.serve(async (originalReq) => {
       const screenshotUrl = String(p?.screenshot_url || "").slice(0, 500) || null;
       const runUrl = String(p?.run_url || "").slice(0, 500) || null;
       console.log(`[tv_runner] report event=${eventId} status=${status} result=${result || "-"} run=${runUrl || "-"}`);
+      const { data: preEv } = await supabase
+        .from("tv_login_events")
+        .select("id, username, user_id, account_label, imap_user, code, created_at")
+        .eq("id", eventId)
+        .maybeSingle();
       const { error: updErr } = await supabase
         .from("tv_login_events")
         .update({ status, result, message, screenshot_url: screenshotUrl, github_run_url: runUrl, finished_at: new Date().toISOString() })
         .eq("id", eventId);
       if (updErr) throw new Error(updErr.message);
+
+      // Detailed Telegram alert for every runner result. Cookies expired /
+      // errors are elevated so admin sees them immediately.
+      const kind = result === "cookies_expired" ? "cookies_expired"
+        : status === "success" ? "success"
+        : status === "invalid_code" ? "invalid_code"
+        : result === "runner_timeout" || result === "netflix_timeout" ? result
+        : "error";
+      void sendTvLoginTelegram(kind, {
+        event_id: eventId,
+        user: preEv?.username,
+        user_id: preEv?.user_id,
+        account_label: preEv?.account_label,
+        imap_user: preEv?.imap_user,
+        code_last4: typeof preEv?.code === "string" ? preEv.code.slice(-4) : undefined,
+        status,
+        result,
+        message,
+        run_url: runUrl,
+        started_at: preEv?.created_at,
+        finished_at: new Date().toISOString(),
+      });
+
       return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
+
 
     throw new Error("Unknown action: " + action);
 
