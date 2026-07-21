@@ -4,26 +4,37 @@ on:
   repository_dispatch:
     types: [tv-login]
 
+# Run each dispatch immediately in parallel — never queue.
+concurrency:
+  group: tv-login-${{ github.event.client_payload.event_id }}
+  cancel-in-progress: false
+
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 2
+    # Playwright's official image ships Chromium + all system deps preinstalled,
+    # so we skip the ~30-60s `playwright install --with-deps` step entirely.
+    container:
+      image: mcr.microsoft.com/playwright:v1.48.0-jammy
+      options: --user root
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - name: Cache npm deps
+        uses: actions/cache@v4
         with:
-          node-version: '20'
+          path: scripts/tv-login-runner/node_modules
+          key: tv-runner-npm-${{ hashFiles('scripts/tv-login-runner/package.json') }}
 
-      - name: Install runner deps
+      - name: Install runner deps (fast)
         working-directory: scripts/tv-login-runner
-        run: npm install --no-audit --no-fund
-
-      - name: Install Chromium for Playwright
-        working-directory: scripts/tv-login-runner
-        run: npx playwright install --with-deps chromium
+        run: |
+          if [ ! -d node_modules/playwright ]; then
+            npm install --no-audit --no-fund --prefer-offline --no-progress
+          fi
 
       - name: Run TV auto-login
         working-directory: scripts/tv-login-runner
