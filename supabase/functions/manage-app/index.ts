@@ -5056,8 +5056,14 @@ Deno.serve(async (originalReq) => {
       if (cookiesAvailable && inserted?.id && matched?.imap_user) {
         try {
           const pat = Deno.env.get("GITHUB_DISPATCH_PAT") || "";
-          const repo = Deno.env.get("GITHUB_REPO") || "";
-          console.log(`[tv_submit] dispatch check pat_present=${!!pat} repo="${repo}"`);
+          const repoRaw = Deno.env.get("GITHUB_REPO") || "";
+          // Normalize: accept "owner/repo", full URL, or with trailing .git
+          const repo = repoRaw
+            .replace(/^https?:\/\/github\.com\//i, "")
+            .replace(/\.git$/i, "")
+            .replace(/^\/+|\/+$/g, "")
+            .trim();
+          console.log(`[tv_submit] dispatch check pat_present=${!!pat} repoRaw="${repoRaw}" repo="${repo}"`);
           if (pat && repo && repo.includes("/")) {
             const dispatchRes = await fetch(`https://api.github.com/repos/${repo}/dispatches`, {
               method: "POST",
