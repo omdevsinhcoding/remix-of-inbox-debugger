@@ -1,7 +1,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { authenticator } from "npm:otplib@12.0.1";
 import { readRequest, maybeEncryptResponse, EncryptedRequestContext, PlaintextRejectedError, plaintextRejectedResponse, TransportError, transportErrorResponse } from "../_shared/crypto.ts";
-// build-marker: tv_list_accounts v2
+// build-marker: tv_list_accounts recipient-aware v3
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -4829,6 +4829,47 @@ Deno.serve(async (originalReq) => {
       return lines.length || (text ? 1 : 0);
     };
 
+    const maskTvEmail = (em: string) => {
+      const email = String(em || "").trim().toLowerCase();
+      const at = email.indexOf("@");
+      if (at < 0) return email;
+      const local = email.slice(0, at);
+      const domain = email.slice(at);
+      if (!local) return email;
+      if (local.length <= 6) return `${local[0] || ""}•••${local.slice(-1)}${domain}`;
+      return `${local.slice(0, 3)}•••${local.slice(-3)}${domain}`;
+    };
+
+    const resolveTvAccountCandidates = (allAccounts: any[], assignedAccounts: any[]) => {
+      const assigned = (Array.isArray(assignedAccounts) ? assignedAccounts : [])
+        .map((v: any) => String(v || "").trim().toLowerCase())
+        .filter(Boolean);
+      const showAll = assigned.length === 0 || assigned.includes("primary") || assigned.includes("all");
+
+      return (Array.isArray(allAccounts) ? allAccounts : [])
+        .flatMap((acc: any, idx: number) => {
+          const label = String(acc?.label || acc?.user || "").trim();
+          const imap_user = String(acc?.user || "").trim().toLowerCase();
+          if (!imap_user) return [];
+          const recipientFilters = normalizeRecipientFilters(acc?.recipientFilters);
+          const loginEmail = (recipientFilters[0] || imap_user).toLowerCase();
+          const matchKeys = new Set([
+            label.toLowerCase(),
+            imap_user,
+            loginEmail,
+            ...recipientFilters,
+          ].filter(Boolean));
+          if (!showAll && !assigned.some((item) => matchKeys.has(item))) return [];
+          return [{
+            account_key: `${idx}:${imap_user}:${loginEmail}:${label.toLowerCase()}`,
+            label,
+            imap_user,
+            login_email: loginEmail,
+            recipient_filters: recipientFilters,
+          }];
+        });
+    };
+
     if (action === "admin_cookies_list") {
       await requireAdmin(req);
       const { data, error } = await supabase
@@ -4896,15 +4937,7 @@ Deno.serve(async (originalReq) => {
       if (!user) throw new Error("User not found");
       const { data: acctSetting } = await supabase.from("app_settings").select("value").eq("key", "email_accounts").maybeSingle();
       const allAccounts: any[] = Array.isArray(acctSetting?.value) ? acctSetting.value : [];
-      const assignedLabels = (Array.isArray(user.assigned_accounts) ? user.assigned_accounts : [])
-        .map((v: any) => String(v || "").trim().toLowerCase())
-        .filter(Boolean);
-      const candidates = allAccounts
-        .map((acc: any) => ({
-          label: String(acc?.label || acc?.user || "").trim(),
-          imap_user: String(acc?.user || "").trim().toLowerCase(),
-        }))
-        .filter((c) => c.imap_user && (assignedLabels.length === 0 || assignedLabels.includes(c.label.toLowerCase()) || assignedLabels.includes("primary")));
+      const candidates = resolveTvAccountCandidates(allAccounts, user.assigned_accounts);
 
       const imapUsers = candidates.map((c) => c.imap_user);
       let cookieMap = new Map<string, boolean>();
@@ -4919,18 +4952,12 @@ Deno.serve(async (originalReq) => {
         }
       }
 
-      const maskEmail = (em: string) => {
-        const at = em.indexOf("@");
-        if (at < 0) return em;
-        const local = em.slice(0, at);
-        const domain = em.slice(at);
-        if (local.length <= 6) return local[0] + "•••" + local.slice(-1) + domain;
-        return local.slice(0, 3) + "•••" + local.slice(-3) + domain;
-      };
-
       const accounts = candidates.map((c) => ({
+        account_key: c.account_key,
         imap_user: c.imap_user,
-        imap_user_masked: maskEmail(c.imap_user),
+        imap_user_masked: maskTvEmail(c.login_email),
+        login_email_masked: maskTvEmail(c.login_email),
+        actual_imap_user_masked: maskTvEmail(c.imap_user),
         label: c.label,
         cookies_available: cookieMap.get(c.imap_user) === true,
       }));
@@ -4956,16 +4983,12 @@ Deno.serve(async (originalReq) => {
       const assignedLabels = (Array.isArray(user.assigned_accounts) ? user.assigned_accounts : [])
         .map((v: any) => String(v || "").trim().toLowerCase())
         .filter(Boolean);
-      const candidates = allAccounts
-        .map((acc: any) => ({
-          label: String(acc?.label || acc?.user || "").trim(),
-          imap_user: String(acc?.user || "").trim().toLowerCase(),
-        }))
-        .filter((c) => c.imap_user && (assignedLabels.length === 0 || assignedLabels.includes(c.label.toLowerCase()) || assignedLabels.includes("primary")));
+      const candidates = resolveTvAccountCandidates(allAccounts, user.assigned_accounts);
 
-      let matched: { label: string; imap_user: string } | null = null;
+      let matched: { account_key: string; label: string; imap_user: string; login_email: string } | null = null;
       let cookiesAvailable = false;
       const chosenImap = String(p?.imap_user || "").trim().toLowerCase();
+      const chosenKey = String(p?.account_key || "").trim();
       if (candidates.length > 0) {
         const imapUsers = candidates.map((c) => c.imap_user);
         const { data: cookieRows } = await supabase
@@ -4975,9 +4998,9 @@ Deno.serve(async (originalReq) => {
         const cookieMap = new Map<string, any>();
         for (const row of cookieRows || []) cookieMap.set(String(row.imap_user).toLowerCase(), row);
 
-        if (chosenImap) {
+        if (chosenKey || chosenImap) {
           // Mandatory: chosen account must be in the user's assigned candidates
-          const found = candidates.find((c) => c.imap_user === chosenImap);
+          const found = candidates.find((c) => chosenKey ? c.account_key === chosenKey : c.imap_user === chosenImap);
           if (!found) throw new Error("Selected account is not available for your profile");
           matched = found;
           const row = cookieMap.get(found.imap_user);
@@ -5001,6 +5024,7 @@ Deno.serve(async (originalReq) => {
         assignedLabels,
         candidateCount: candidates.length,
         matchedLabel: matched?.label || null,
+        matchedLoginEmail: matched?.login_email || null,
         source: "viewer_tv_button",
       };
       const status = cookiesAvailable ? "in_progress" : "no_cookies";
@@ -5031,7 +5055,7 @@ Deno.serve(async (originalReq) => {
         created_at: inserted?.created_at,
         cookies_available: cookiesAvailable,
         account_label: matched?.label || null,
-        imap_user_masked: matched?.imap_user ? matched.imap_user.replace(/^(.).*(@.*)$/, "$1•••$2") : null,
+        imap_user_masked: matched?.login_email ? maskTvEmail(matched.login_email) : null,
         status,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }

@@ -1888,7 +1888,7 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const [panelStyle, setPanelStyle] = useState<React.CSSProperties>({});
 
-  type TvAccount = { imap_user: string; imap_user_masked: string; label: string; cookies_available: boolean };
+  type TvAccount = { account_key?: string; imap_user: string; imap_user_masked: string; actual_imap_user_masked?: string; label: string; cookies_available: boolean };
   const [step, setStep] = useState<"select" | "code">("select");
   const [accounts, setAccounts] = useState<TvAccount[]>([]);
   const [accountsLoading, setAccountsLoading] = useState(false);
@@ -2006,7 +2006,7 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
     setResultInfo({});
     setTimeout(() => setStatus((s) => (s === "verifying" ? "checking" : s)), 500);
     try {
-      const res: any = await apiCall("manage-app", { action: "tv_submit_code", code: full, imap_user: chosen.imap_user });
+      const res: any = await apiCall("manage-app", { action: "tv_submit_code", code: full, imap_user: chosen.imap_user, account_key: chosen.account_key });
       if (!res?.success) throw new Error(res?.error || "Failed to submit code");
       setResultInfo({
         accountLabel: res.account_label,
@@ -2105,10 +2105,10 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
                 ) : (
                   <div className="flex flex-col gap-2 max-h-[280px] overflow-y-auto pr-1">
                     {accounts.map((acc) => {
-                      const selected = chosen?.imap_user === acc.imap_user;
+                      const selected = (chosen?.account_key || chosen?.imap_user) === (acc.account_key || acc.imap_user);
                       return (
                         <button
-                          key={acc.imap_user}
+                          key={acc.account_key || acc.imap_user}
                           onClick={() => setChosen(acc)}
                           className={`group w-full flex items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-all active:scale-[0.99] ${
                             selected
