@@ -16,10 +16,10 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          sparse-checkout: scripts/tv-login-runner
+          sparse-checkout-cone-mode: false
+
 
       # Cache Playwright's Chromium browser (~150MB) across runs — restore takes ~2s
       # vs a ~30s fresh download. Key includes playwright version so upgrades bust it.
