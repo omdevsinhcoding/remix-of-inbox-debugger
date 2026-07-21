@@ -4876,6 +4876,41 @@ Deno.serve(async (originalReq) => {
         });
     };
 
+    // ── Telegram reporting for TV auto-login flow ──
+    // Emits a rich, HTML-formatted alert for every TV login attempt, result,
+    // cookie-expiry issue, and user-initiated error report.
+    const escapeTgHtml = (s: unknown) =>
+      String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const sendTvLoginTelegram = async (kind: string, fields: Record<string, unknown>) => {
+      try {
+        const tg = await getTelegramConfig(supabase);
+        if (!tg) return;
+        const iconMap: Record<string, string> = {
+          attempt: "📺",
+          success: "✅",
+          invalid_code: "❌",
+          cookies_expired: "⚠️",
+          no_cookies: "🚫",
+          not_configured: "🚫",
+          runner_timeout: "⏱️",
+          netflix_timeout: "⏱️",
+          error: "🛑",
+          user_error_report: "🆘",
+        };
+        const icon = iconMap[kind] || "ℹ️";
+        const title = `${icon} <b>TV Login · ${escapeTgHtml(kind)}</b>`;
+        const rows: string[] = [];
+        for (const [k, v] of Object.entries(fields)) {
+          if (v === undefined || v === null || v === "") continue;
+          rows.push(`<b>${escapeTgHtml(k)}:</b> <code>${escapeTgHtml(v)}</code>`);
+        }
+        postTelegramBg(tg, { text: `${title}\n${rows.join("\n")}` });
+      } catch (e) {
+        console.warn("[tv_tg] send failed:", (e as Error).message);
+      }
+    };
+
+
     if (action === "admin_cookies_list") {
       await requireAdmin(req);
       const { data, error } = await supabase
