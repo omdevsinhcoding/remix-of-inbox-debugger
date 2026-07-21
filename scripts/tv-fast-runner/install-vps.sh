@@ -22,7 +22,7 @@ EOF
 fi
 
 apt-get update
-apt-get install -y ca-certificates curl nodejs npm
+apt-get install -y ca-certificates curl nodejs
 cd "$APP_DIR"
 npm install
 npx playwright install --with-deps chromium
