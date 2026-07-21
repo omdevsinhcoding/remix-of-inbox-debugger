@@ -161,8 +161,20 @@ if (cookies.length === 0) {
   process.exit(1);
 }
 
-// 2) Launch browser & do login
-const browser = await chromium.launch({ headless: true, args: ["--disable-blink-features=AutomationControlled"] });
+// 2) Launch browser & do login — aggressive perf: block heavy resources,
+//    skip images/media/fonts/analytics so /tv8 renders in ~1-2s instead of ~5-8s.
+const t0 = Date.now();
+const browser = await chromium.launch({
+  headless: true,
+  args: [
+    "--disable-blink-features=AutomationControlled",
+    "--disable-dev-shm-usage",
+    "--no-sandbox",
+    "--disable-gpu",
+    "--disable-background-networking",
+    "--disable-features=Translate,MediaRouter",
+  ],
+});
 let status = "error", result = "unknown", message = "", screenshotUrl = "";
 
 try {
@@ -170,44 +182,61 @@ try {
     userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
     viewport: { width: 1280, height: 800 },
     locale: "en-US",
+    javaScriptEnabled: true,
   });
   await context.addCookies(cookies);
 
   const page = await context.newPage();
-  await page.goto("https://www.netflix.com/tv8", { waitUntil: "domcontentloaded", timeout: 25000 });
 
-  // Wait for a code input to appear — either 8 boxes or one single field.
+  // Block anything not needed to render + submit the tv8 form.
+  await page.route("**/*", (route) => {
+    const req = route.request();
+    const type = req.resourceType();
+    if (type === "image" || type === "media" || type === "font" || type === "stylesheet") {
+      return route.abort();
+    }
+    const url = req.url();
+    if (/googletagmanager|google-analytics|doubleclick|segment|nflxext\.com\/.*\.jpg|nflxso\.net\/.*\.png|assets\.nflxext\.com\/.*\.mp4/i.test(url)) {
+      return route.abort();
+    }
+    return route.continue();
+  });
+
+  // domcontentloaded is enough — /tv8 form is server-rendered.
+  await page.goto("https://www.netflix.com/tv8", { waitUntil: "domcontentloaded", timeout: 15000 });
+  console.log(`[perf] tv8 loaded in ${Date.now() - t0}ms`);
+
+  // Wait for a code input to appear.
   await page.waitForSelector(
     'input[maxlength="1"], input[data-uia*="digit"], input[type="tel"], input[inputmode="numeric"], input[name*="code" i]',
-    { timeout: 12000 },
+    { timeout: 8000 },
   ).catch(() => {});
 
-  // Try 8 separate inputs first
   const boxes = await page.locator('input[maxlength="1"], input[data-uia*="digit"], input[type="tel"][maxlength="1"]').all().catch(() => []);
   if (boxes.length >= 8) {
     for (let i = 0; i < 8; i++) {
       await boxes[i].fill(code[i]).catch(() => {});
     }
   } else {
-    // Fallback: single input
     const single = page.locator('input[type="tel"], input[inputmode="numeric"], input[name*="code" i]').first();
-    await single.waitFor({ timeout: 6000 });
+    await single.waitFor({ timeout: 4000 });
     await single.fill(code);
   }
 
-  // Submit
   const submit = page.locator('button[type="submit"], button:has-text("Continue"), button:has-text("Sign In"), button:has-text("Submit")').first();
-  await submit.click({ timeout: 6000 }).catch(() => {});
+  await submit.click({ timeout: 4000 }).catch(() => {});
+  console.log(`[perf] code submitted at ${Date.now() - t0}ms`);
 
-  // Wait for result — poll instead of a fixed 4s sleep so we finish as soon as Netflix responds.
-  const deadline = Date.now() + 8000;
+  // Poll for result — 200ms cadence, 6s cap.
+  const deadline = Date.now() + 6000;
   let bodyText = "";
   while (Date.now() < deadline) {
-    await page.waitForTimeout(400);
+    await page.waitForTimeout(200);
     bodyText = (await page.locator("body").innerText().catch(() => "")).toLowerCase();
     if (/success|signed in|logged in|welcome|activated|linked|connected|invalid|incorrect|wrong|not recognized|try again|expired/i.test(bodyText)) break;
     if (!/\/tv8/i.test(page.url())) break;
   }
+  console.log(`[perf] result detected at ${Date.now() - t0}ms`);
 
   if (/success|signed in|logged in|welcome|activated|linked|connected/i.test(bodyText)) {
     status = "success"; result = "success"; message = "TV signed in successfully";
@@ -216,7 +245,6 @@ try {
   } else if (/expired|session|log ?in|sign ?in|password/i.test(bodyText)) {
     status = "cookies_expired"; result = "cookies_expired"; message = "Cookies appear to be expired";
   } else {
-    // Fallback: consider it success if we're no longer on /tv8
     const url = page.url();
     if (!/\/tv8/i.test(url)) {
       status = "success"; result = "success"; message = `Redirected to ${url}`;
@@ -225,7 +253,7 @@ try {
     }
   }
 
-  console.log(`Result: ${status} | ${message.slice(0, 120)}`);
+  console.log(`Result: ${status} | ${message.slice(0, 120)} | total ${Date.now() - t0}ms`);
   await context.close();
 } catch (e) {
   status = "error"; result = "runner_error"; message = e?.message || String(e);
