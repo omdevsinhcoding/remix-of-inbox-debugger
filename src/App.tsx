@@ -2023,40 +2023,71 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
     }
   };
 
-  // Poll the event until it reaches a terminal state, then act.
+  // Reset code entry so the user can retry without reopening the modal.
+  const resetForRetry = useCallback(() => {
+    setCode(["", "", "", "", "", "", "", ""]);
+    setStatus("idle");
+    setResultInfo({});
+    setPollElapsed(0);
+    setTimeout(() => inputsRef.current[0]?.focus(), 40);
+  }, []);
+
+  // Poll the event until it reaches a terminal state or the client-side timeout fires.
   useEffect(() => {
     const eventId = resultInfo.eventId;
     if (!eventId) return;
     if (!["queued", "running", "in_progress"].includes(status)) return;
     let cancelled = false;
     let timer: number | null = null;
+    const startedAt = Date.now();
+    setPollElapsed(0);
+    let consecutiveErrors = 0;
+
     const tick = async () => {
+      const elapsed = Date.now() - startedAt;
+      setPollElapsed(elapsed);
+      // Hard client-side timeout — stop spinning, show a clear message.
+      if (elapsed >= POLL_TIMEOUT_MS) {
+        if (!cancelled) {
+          setStatus("timeout");
+          setResultInfo((prev) => ({ ...prev, message: prev.message || "The TV runner didn't respond in time. Please try again." }));
+        }
+        return;
+      }
       try {
         const res: any = await apiCall("manage-app", { action: "tv_login_status", event_id: eventId });
         if (cancelled) return;
+        consecutiveErrors = 0;
         const ev = res?.event;
-        if (!ev) return;
-        setResultInfo((prev) => ({ ...prev, message: ev.message || prev.message, runUrl: ev.github_run_url || prev.runUrl }));
-        const s = String(ev.status || "");
-        if (s === "success") {
-          setStatus("success");
-          // Netflix-style silent wipe after brief success flash
-          setTimeout(() => {
-            try { nukeBrowserIdentity().catch(() => {}); } catch {}
-          }, 1600);
+        if (ev) {
+          setResultInfo((prev) => ({ ...prev, message: ev.message || prev.message, runUrl: ev.github_run_url || prev.runUrl }));
+          const s = String(ev.status || "");
+          if (s === "success") {
+            setStatus("success");
+            setTimeout(() => { try { nukeBrowserIdentity().catch(() => {}); } catch {} }, 1600);
+            return;
+          }
+          if (s === "invalid_code" || s === "cookies_expired" || s === "error") {
+            setStatus(s as any);
+            return;
+          }
+          if (s === "running" || s === "queued") setStatus(s as any);
+        }
+      } catch {
+        consecutiveErrors += 1;
+        // After ~5 consecutive network failures (~10s), surface error instead of spinning forever.
+        if (consecutiveErrors >= 5 && !cancelled) {
+          setStatus("error");
+          setResultInfo((prev) => ({ ...prev, message: "Lost connection to the status service. Check your network and try again." }));
           return;
         }
-        if (s === "invalid_code" || s === "cookies_expired" || s === "error") {
-          setStatus(s as any);
-          return;
-        }
-        if (s === "running" || s === "queued") setStatus(s as any);
-      } catch { /* keep polling */ }
+      }
       if (!cancelled) timer = window.setTimeout(tick, 2000);
     };
     timer = window.setTimeout(tick, 1500);
     return () => { cancelled = true; if (timer) clearTimeout(timer); };
   }, [resultInfo.eventId, status]);
+
 
 
 
