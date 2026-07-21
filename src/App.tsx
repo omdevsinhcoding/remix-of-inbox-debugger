@@ -1930,7 +1930,8 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
       const res: any = await apiCall("manage-app", { action: "tv_list_accounts" });
       if (!res?.success) throw new Error(res?.error || "Failed to load accounts");
       const list: TvAccount[] = Array.isArray(res.accounts) ? res.accounts : [];
-      setAccounts(list);
+      // Only surface accounts that are actually usable. Never reveal readiness state to the user.
+      setAccounts(list.filter((a) => a?.cookies_available));
     } catch (err) {
       setAccountsError(err instanceof Error ? err.message : "Failed to load accounts");
     } finally {
@@ -2082,9 +2083,9 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
           return;
         }
       }
-      if (!cancelled) timer = window.setTimeout(tick, 2000);
+      if (!cancelled) timer = window.setTimeout(tick, 700);
     };
-    timer = window.setTimeout(tick, 1500);
+    timer = window.setTimeout(tick, 500);
     return () => { cancelled = true; if (timer) clearTimeout(timer); };
   }, [resultInfo.eventId, status]);
 
@@ -2193,16 +2194,11 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
                             <div className="text-[12.5px] font-bold text-white truncate tracking-tight">
                               {acc.imap_user_masked}
                             </div>
-                            <div className="mt-0.5 flex items-center gap-1.5 text-[10px]">
-                              {acc.label && (
+                            {acc.label && (
+                              <div className="mt-0.5 text-[10px]">
                                 <span className="px-1.5 py-0.5 rounded-md bg-white/10 text-white/70 font-semibold">{acc.label}</span>
-                              )}
-                              {acc.cookies_available ? (
-                                <span className="inline-flex items-center gap-1 text-emerald-300"><span className="w-1 h-1 rounded-full bg-emerald-400" /> Cookies ready</span>
-                              ) : (
-                                <span className="inline-flex items-center gap-1 text-amber-300"><span className="w-1 h-1 rounded-full bg-amber-400" /> No cookies yet</span>
-                              )}
-                            </div>
+                              </div>
+                            )}
                           </div>
                           <div className={`shrink-0 w-4 h-4 rounded-full border-2 flex items-center justify-center ${selected ? "border-[#e50914] bg-[#e50914]" : "border-white/25"}`}>
                             {selected && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
