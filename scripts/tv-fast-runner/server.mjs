@@ -3,17 +3,15 @@
 // no GitHub Actions queue, checkout, browser install, or runner allocation.
 
 import http from "node:http";
-import { createHmac, timingSafeEqual } from "node:crypto";
 import { chromium } from "playwright";
 
 const PORT = Number(process.env.PORT || 8788);
 const TV_REPORT_URL = process.env.TV_REPORT_URL;
-const HMAC_KEY = process.env.TV_REPORT_HMAC_KEY;
 const MAX_MS = Math.max(3000, Math.min(9000, Number(process.env.TV_LOGIN_MAX_MS || 9000)));
 const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36";
 
-if (!TV_REPORT_URL || !HMAC_KEY) {
-  console.error("Missing env: TV_REPORT_URL and TV_REPORT_HMAC_KEY are required.");
+if (!TV_REPORT_URL) {
+  console.error("Missing env: TV_REPORT_URL is required.");
   process.exit(1);
 }
 
@@ -22,15 +20,6 @@ let busy = false;
 let lastJob = null;
 
 const now = () => Date.now();
-const sign = (payload) => createHmac("sha256", HMAC_KEY).update(payload).digest("hex");
-const safeEq = (a, b) => {
-  try {
-    const aa = Buffer.from(String(a || ""), "hex");
-    const bb = Buffer.from(String(b || ""), "hex");
-    return aa.length === bb.length && timingSafeEqual(aa, bb);
-  } catch { return false; }
-};
-
 function json(res, status, body) {
   res.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store" });
   res.end(JSON.stringify(body));
@@ -73,10 +62,8 @@ async function postManageApp(body) {
   return parsed;
 }
 
-async function report(eventId, { status, result, message, screenshot_url = "" }) {
-  const ts = now();
-  const sig = sign(`tv_login_report|${eventId}|${ts}|${status || ""}|${result || ""}`);
-  await postManageApp({ action: "tv_login_report", event_id: eventId, ts, sig, status, result, message, screenshot_url, run_url: "fast-runner" });
+async function report(eventId, runnerToken, { status, result, message, screenshot_url = "" }) {
+  await postManageApp({ action: "tv_login_report", event_id: eventId, runner_token: runnerToken, status, result, message, screenshot_url, run_url: "fast-runner" });
 }
 
 function normalizeCookie(c) {
@@ -127,7 +114,7 @@ function parseCookies(raw) {
   return [];
 }
 
-async function runTvJob(eventId) {
+async function runTvJob(eventId, runnerToken) {
   const started = now();
   const mark = {};
   const elapsed = () => now() - started;
@@ -135,9 +122,7 @@ async function runTvJob(eventId) {
   lastJob = { eventId, startedAt: new Date().toISOString(), status: "running" };
 
   try {
-    const fetchTs = now();
-    const fetchSig = sign(`tv_login_fetch_job|${eventId}|${fetchTs}`);
-    const job = await postManageApp({ action: "tv_login_fetch_job", event_id: eventId, ts: fetchTs, sig: fetchSig, run_url: "fast-runner" });
+    const job = await postManageApp({ action: "tv_login_fetch_job", event_id: eventId, runner_token: runnerToken, run_url: "fast-runner" });
     mark.fetch = elapsed();
 
     const code = String(job.code || "").replace(/\D/g, "");
@@ -201,12 +186,12 @@ async function runTvJob(eventId) {
 
     await context.close().catch(() => {});
     const timing = `timing fetch=${mark.fetch}ms browser=${mark.browser}ms nav=${mark.nav}ms fill=${mark.fill}ms submit=${mark.submit}ms result=${mark.result}ms total=${elapsed()}ms`;
-    await report(eventId, { status, result, message: `${message} | ${timing}` });
+    await report(eventId, runnerToken, { status, result, message: `${message} | ${timing}` });
     lastJob = { ...lastJob, status, result, finishedAt: new Date().toISOString(), timing };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     const timing = `timing total=${elapsed()}ms`;
-    await report(eventId, { status: "error", result: "runner_error", message: `${message} | ${timing}` }).catch((err) => console.error("report failed", err));
+    await report(eventId, runnerToken, { status: "error", result: "runner_error", message: `${message} | ${timing}` }).catch((err) => console.error("report failed", err));
     lastJob = { ...lastJob, status: "error", result: "runner_error", finishedAt: new Date().toISOString(), error: message, timing };
   } finally {
     busy = false;
@@ -224,13 +209,11 @@ const server = http.createServer(async (req, res) => {
 
     const body = await readJson(req);
     const eventId = String(body.event_id || "").trim();
-    const ts = Number(body.ts || 0);
-    const sig = String(body.sig || "").toLowerCase();
-    if (!eventId || !ts || Math.abs(now() - ts) > 60_000) return json(res, 400, { success: false, error: "bad_request" });
-    if (!safeEq(sign(`tv_fast_run|${eventId}|${ts}`), sig)) return json(res, 403, { success: false, error: "bad_signature" });
+    const runnerToken = String(body.runner_token || "").trim();
+    if (!eventId || runnerToken.length < 32) return json(res, 400, { success: false, error: "bad_request" });
 
     busy = true;
-    runTvJob(eventId).catch((e) => { busy = false; console.error("job failed", e); });
+    runTvJob(eventId, runnerToken).catch((e) => { busy = false; console.error("job failed", e); });
     return json(res, 202, { success: true, status: "running", message: "Warm TV runner accepted the job." });
   } catch (e) {
     return json(res, 500, { success: false, error: e instanceof Error ? e.message : String(e) });

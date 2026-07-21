@@ -267,6 +267,12 @@ async function sha256Hex(value: string): Promise<string> {
   return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
+function randomHex(bytes = 32): string {
+  const arr = new Uint8Array(bytes);
+  crypto.getRandomValues(arr);
+  return Array.from(arr).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 function normalizeAccountLabels(raw: any, available: string[] = []): string[] {
   const allowed = Array.from(new Set(available.map((s) => String(s || "").trim()).filter(Boolean)));
   const out: string[] = [];
@@ -5072,18 +5078,18 @@ Deno.serve(async (originalReq) => {
         try {
           const runnerRaw = Deno.env.get("TV_FAST_RUNNER_URL") || "";
           const runnerBase = runnerRaw.replace(/\/+$/g, "").trim();
-          const hmacKey = Deno.env.get("TV_REPORT_HMAC_KEY") || "";
-          console.log(`[tv_submit] direct runner check url_present=${!!runnerBase} hmac_present=${!!hmacKey}`);
-          if (runnerBase && hmacKey) {
-            const ts = Date.now();
-            const payloadStr = `tv_fast_run|${inserted.id}|${ts}`;
-            const cryptoKey = await crypto.subtle.importKey("raw", new TextEncoder().encode(hmacKey), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-            const sigBuf = await crypto.subtle.sign("HMAC", cryptoKey, new TextEncoder().encode(payloadStr));
-            const sig = Array.from(new Uint8Array(sigBuf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+          console.log(`[tv_submit] direct runner check url_present=${!!runnerBase}`);
+          if (runnerBase) {
+            const runnerToken = randomHex(32);
+            const runnerTokenHash = await sha256Hex(runnerToken);
+            await supabase
+              .from("tv_login_events")
+              .update({ metadata: { ...metadata, runnerMode: "direct", runnerTokenHash } })
+              .eq("id", inserted.id);
             const runnerRes = await fetch(`${runnerBase}/run`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ event_id: inserted.id, ts, sig }),
+              body: JSON.stringify({ event_id: inserted.id, runner_token: runnerToken }),
               signal: AbortSignal.timeout(1800),
             });
             const txt = await runnerRes.text().catch(() => "");
@@ -5102,9 +5108,7 @@ Deno.serve(async (originalReq) => {
             }
           } else {
             dispatchDiag = "no_config";
-            const msg = runnerBase
-              ? "Fast TV runner HMAC key is not configured."
-              : "Fast TV runner URL is not configured. Add TV_FAST_RUNNER_URL after starting the warm VPS runner.";
+            const msg = "Fast TV runner URL is not configured. Add TV_FAST_RUNNER_URL after starting the warm VPS runner.";
             console.log(`[tv_submit] ${msg}`);
             responseMessage = msg;
             await supabase.from("tv_login_events").update({ status: "error", message: msg, finished_at: new Date().toISOString() }).eq("id", inserted.id);
@@ -5168,18 +5172,32 @@ Deno.serve(async (originalReq) => {
       const eventId = String(p?.event_id || "").trim();
       const ts = Number(p?.ts || 0);
       const sig = String(p?.sig || "").toLowerCase();
+      const runnerToken = String(p?.runner_token || "").trim();
       const key = Deno.env.get("TV_REPORT_HMAC_KEY") || "";
-      if (!key) throw new Error("Runner HMAC key not configured");
       if (!eventId) throw new Error("event_id required");
-      if (!ts || Math.abs(Date.now() - ts) > 5 * 60 * 1000) throw new Error("Stale or missing timestamp");
-      // HMAC over `${action}|${event_id}|${ts}` for fetch; for report include status+result
-      const payloadStr = action === "tv_login_fetch_job"
-        ? `${action}|${eventId}|${ts}`
-        : `${action}|${eventId}|${ts}|${String(p?.status || "")}|${String(p?.result || "")}`;
-      const cryptoKey = await crypto.subtle.importKey("raw", new TextEncoder().encode(key), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-      const sigBuf = await crypto.subtle.sign("HMAC", cryptoKey, new TextEncoder().encode(payloadStr));
-      const expected = Array.from(new Uint8Array(sigBuf)).map((b) => b.toString(16).padStart(2, "0")).join("");
-      if (expected !== sig) throw new Error("Bad signature");
+
+      let authed = false;
+      if (runnerToken) {
+        const { data: tokenEvent } = await supabase
+          .from("tv_login_events")
+          .select("metadata")
+          .eq("id", eventId)
+          .maybeSingle();
+        const expectedHash = String((tokenEvent?.metadata as any)?.runnerTokenHash || "");
+        authed = !!expectedHash && await sha256Hex(runnerToken) === expectedHash;
+      }
+      if (!authed) {
+        if (!key) throw new Error("Runner HMAC key not configured");
+        if (!ts || Math.abs(Date.now() - ts) > 5 * 60 * 1000) throw new Error("Stale or missing timestamp");
+        // HMAC over `${action}|${event_id}|${ts}` for fetch; for report include status+result
+        const payloadStr = action === "tv_login_fetch_job"
+          ? `${action}|${eventId}|${ts}`
+          : `${action}|${eventId}|${ts}|${String(p?.status || "")}|${String(p?.result || "")}`;
+        const cryptoKey = await crypto.subtle.importKey("raw", new TextEncoder().encode(key), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+        const sigBuf = await crypto.subtle.sign("HMAC", cryptoKey, new TextEncoder().encode(payloadStr));
+        const expected = Array.from(new Uint8Array(sigBuf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+        if (expected !== sig) throw new Error("Bad signature");
+      }
 
       if (action === "tv_login_fetch_job") {
         const { data: ev, error: evErr } = await supabase
@@ -5190,6 +5208,7 @@ Deno.serve(async (originalReq) => {
         if (evErr) throw new Error(evErr.message);
         if (!ev) throw new Error("Event not found");
         if (!ev.imap_user) throw new Error("No account bound to event");
+        if (!new Set(["queued", "running", "in_progress"]).has(String(ev.status || ""))) throw new Error("Event is not runnable");
         console.log(`[tv_runner] fetch_job event=${eventId} status=${ev.status || "-"} imap=${ev.imap_user}`);
         const { data: cookieRow } = await supabase
           .from("imap_cookies")

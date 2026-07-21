@@ -15,7 +15,6 @@ if [[ ! -f "$ENV_FILE" ]]; then
 PORT=8788
 TV_LOGIN_MAX_MS=9000
 TV_REPORT_URL=https://jsqchutnfdeljajkxmly.supabase.co/functions/v1/manage-app
-TV_REPORT_HMAC_KEY=paste_the_same_value_as_supabase_TV_REPORT_HMAC_KEY
 EOF
   chmod 600 "$ENV_FILE"
   echo "Created $ENV_FILE. Put your real TV_REPORT_HMAC_KEY there, then rerun this script." >&2
