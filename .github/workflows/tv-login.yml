@@ -10,54 +10,40 @@ concurrency:
 
 jobs:
   run:
-    runs-on: ubuntu-latest
-    timeout-minutes: 2
+    # Strict sub-10s execution is not possible on GitHub-hosted runners because
+    # runner allocation + browser/dependency setup regularly takes 30-60s.
+    # This job intentionally targets a pre-warmed self-hosted runner with:
+    #   - labels: self-hosted, tv-login-fast
+    #   - Node 20+
+    #   - scripts/tv-login-runner/node_modules already installed
+    #   - Playwright Chromium browser already installed/cached
+    runs-on: [self-hosted, tv-login-fast]
+    timeout-minutes: 1
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v4
         with:
+          clean: false
+          persist-credentials: false
           sparse-checkout: scripts/tv-login-runner
           sparse-checkout-cone-mode: false
 
-
-      # Cache Playwright's Chromium browser (~150MB) across runs — restore takes ~2s
-      # vs a ~30s fresh download. Key includes playwright version so upgrades bust it.
-      - name: Cache Playwright browsers
-        id: pw-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: pw-chromium-1.48.0-${{ runner.os }}
-
-      - name: Cache npm deps
-        uses: actions/cache@v4
-        with:
-          path: scripts/tv-login-runner/node_modules
-          key: tv-runner-npm-${{ hashFiles('scripts/tv-login-runner/package.json') }}
-
-      - name: Install runner deps
+      - name: Verify prewarmed runner
         working-directory: scripts/tv-login-runner
         run: |
-          if [ ! -d node_modules/playwright ]; then
-            npm install --no-audit --no-fund --prefer-offline --no-progress
-          fi
-
-      - name: Install Chromium (only on cache miss)
-        if: steps.pw-cache.outputs.cache-hit != 'true'
-        working-directory: scripts/tv-login-runner
-        run: npx playwright install --with-deps chromium
-
-      - name: Ensure system deps present (cache hit path)
-        if: steps.pw-cache.outputs.cache-hit == 'true'
-        working-directory: scripts/tv-login-runner
-        run: npx playwright install-deps chromium || true
+          node -v
+          test -d node_modules/playwright || { echo "tv-login-fast runner is not prewarmed: run npm install in scripts/tv-login-runner"; exit 12; }
+          node -e "import('playwright').then(async ({ chromium }) => { const b = await chromium.launch({ headless: true }); await b.close(); })"
 
       - name: Run TV auto-login
         working-directory: scripts/tv-login-runner
+        timeout-minutes: 1
         env:
+          EVENT_ID: ${{ github.event.client_payload.event_id }}
           EVENT_PATH: ${{ github.event_path }}
           TV_REPORT_URL: ${{ secrets.TV_REPORT_URL }}
           TV_REPORT_HMAC_KEY: ${{ secrets.TV_REPORT_HMAC_KEY }}
           GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          TV_LOGIN_MAX_MS: 9000
         run: node tv-login.mjs

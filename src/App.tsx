@@ -1899,7 +1899,7 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
   const [status, setStatus] = useState<"idle" | "verifying" | "checking" | "queued" | "running" | "in_progress" | "success" | "invalid_code" | "cookies_expired" | "no_cookies" | "error" | "timeout">("idle");
   const [resultInfo, setResultInfo] = useState<{ accountLabel?: string | null; imapMasked?: string | null; eventId?: string | null; message?: string | null; runUrl?: string | null }>({});
   const [pollElapsed, setPollElapsed] = useState(0);
-  const POLL_TIMEOUT_MS = 180_000; // 3 min hard cap on frontend polling
+  const POLL_TIMEOUT_MS = 9_500; // strict fast-runner SLA; stop spinning under 10s
   const inputsRef = useRef<Array<HTMLInputElement | null>>([]);
 
   const placePanel = useCallback(() => {
@@ -2051,7 +2051,7 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
       if (elapsed >= POLL_TIMEOUT_MS) {
         if (!cancelled) {
           setStatus("timeout");
-          setResultInfo((prev) => ({ ...prev, message: prev.message || "The TV runner didn't respond in time. Please try again." }));
+          setResultInfo((prev) => ({ ...prev, message: prev.message || "The fast TV runner did not return within 10 seconds. Please try again." }));
         }
         return;
       }

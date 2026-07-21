@@ -5132,8 +5132,8 @@ Deno.serve(async (originalReq) => {
       let outEv = ev;
       const pendingStatuses = new Set(["queued", "running", "in_progress"]);
       const createdAtMs = Date.parse(String(ev.created_at || ""));
-      if (pendingStatuses.has(String(ev.status || "")) && Number.isFinite(createdAtMs) && Date.now() - createdAtMs > 3 * 60 * 1000) {
-        const timeoutMessage = "Runner timed out before returning a result. Please try the TV code again.";
+      if (pendingStatuses.has(String(ev.status || "")) && Number.isFinite(createdAtMs) && Date.now() - createdAtMs > 10 * 1000) {
+        const timeoutMessage = "Fast TV runner did not return within 10 seconds. Please try the TV code again.";
         const { data: timedOut } = await supabase
           .from("tv_login_events")
           .update({ status: "error", result: "runner_timeout", message: timeoutMessage, finished_at: new Date().toISOString() })
