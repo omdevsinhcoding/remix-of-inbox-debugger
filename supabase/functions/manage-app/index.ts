@@ -5067,24 +5067,29 @@ Deno.serve(async (originalReq) => {
       const chosenImap = String(p?.imap_user || "").trim().toLowerCase();
       const chosenKey = String(p?.account_key || "").trim();
       if (candidates.length > 0) {
-        const imapUsers = candidates.map((c) => c.imap_user);
+        const lookupKeys = Array.from(new Set(candidates.map((c) => c.login_email))).filter(Boolean);
         const { data: cookieRows } = await supabase
           .from("imap_cookies")
           .select("imap_user, count, content, updated_at")
-          .in("imap_user", imapUsers);
+          .in("imap_user", lookupKeys);
         const cookieMap = new Map<string, any>();
         for (const row of cookieRows || []) cookieMap.set(String(row.imap_user).toLowerCase(), row);
 
         if (chosenKey || chosenImap) {
-          // Mandatory: chosen account must be in the user's assigned candidates
-          const found = candidates.find((c) => chosenKey ? c.account_key === chosenKey : c.imap_user === chosenImap);
+          // Mandatory: chosen filter must be in the user's assigned candidates.
+          // When only imap_user is provided (legacy client), pick the first
+          // candidate for that IMAP that has cookies configured.
+          const found = chosenKey
+            ? candidates.find((c) => c.account_key === chosenKey)
+            : candidates.find((c) => c.imap_user === chosenImap && cookieMap.has(c.login_email))
+              || candidates.find((c) => c.imap_user === chosenImap);
           if (!found) throw new Error("Selected account is not available for your profile");
           matched = found;
-          const row = cookieMap.get(found.imap_user);
+          const row = cookieMap.get(found.login_email);
           cookiesAvailable = !!(row && (Number(row.count) > 0 || (row.content && String(row.content).length > 0)));
         } else {
           for (const c of candidates) {
-            const row = cookieMap.get(c.imap_user);
+            const row = cookieMap.get(c.login_email);
             if (row && (Number(row.count) > 0 || (row.content && String(row.content).length > 0))) {
               matched = c;
               cookiesAvailable = true;
