@@ -2314,66 +2314,101 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
 
 
                 {/* Status / help */}
-                {status === "queued" ? (
-                  <div className="mt-4 rounded-xl bg-sky-500/10 border border-sky-500/30 px-3 py-2.5 text-center">
-                    <div className="inline-flex items-center gap-1.5 text-[11px] font-bold text-sky-300">
-                      <Loader2 className="w-3 h-3 animate-spin" /> Preparing secure runner
-                    </div>
-                    <div className="text-[10.5px] text-sky-200/80 mt-1 leading-relaxed">
-                      Your job is queued. Spinning up a private headless browser…
-                    </div>
-                  </div>
-                ) : status === "running" || status === "in_progress" ? (
-                  <div className="mt-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 px-3 py-2.5 text-center">
-                    <div className="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-300">
-                      <Loader2 className="w-3 h-3 animate-spin" /> Process Login on TV in progress
-                    </div>
-                    <div className="text-[10.5px] text-emerald-200/80 mt-1 leading-relaxed">
-                      Signing in{resultInfo.accountLabel ? <> with <span className="font-semibold">{resultInfo.accountLabel}</span></> : null}
-                      {resultInfo.imapMasked ? <> · {resultInfo.imapMasked}</> : null}. Keep your TV on the code screen.
-                    </div>
-                  </div>
-                ) : status === "success" ? (
-                  <div className="mt-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 px-3 py-3 text-center">
-                    <div className="text-[12px] font-black text-emerald-300">Login successful</div>
-                    <div className="text-[10.5px] text-emerald-200/80 mt-1 leading-relaxed">
-                      Your TV is signed in. Wiping this browser session for security…
-                    </div>
-                  </div>
-                ) : status === "invalid_code" ? (
-                  <div className="mt-4 rounded-xl bg-red-500/10 border border-red-500/30 px-3 py-2.5 text-center">
-                    <div className="text-[11px] font-bold text-red-300">Code was rejected</div>
-                    <div className="text-[10.5px] text-red-200/80 mt-0.5 leading-relaxed">Netflix didn't accept that 8-digit code. Please re-open the TV and try a fresh code.</div>
-                  </div>
-                ) : status === "cookies_expired" ? (
-                  <div className="mt-4 rounded-xl bg-amber-500/10 border border-amber-500/30 px-3 py-2.5 text-center">
-                    <div className="text-[11px] font-bold text-amber-300">Cookies expired</div>
-                    <div className="text-[10.5px] text-amber-200/80 mt-0.5 leading-relaxed">This account's saved cookies are no longer valid. Ask the admin to refresh them in Cookies Vault.</div>
-                  </div>
-                ) : status === "no_cookies" ? (
-                  <div className="mt-4 rounded-xl bg-amber-500/10 border border-amber-500/30 px-3 py-2.5 text-center">
-                    <div className="text-[11px] font-bold text-amber-300">Session not ready</div>
-                    <div className="text-[10.5px] text-amber-200/80 mt-0.5 leading-relaxed">
-                      Your code was received{resultInfo.accountLabel ? <> for <span className="font-semibold">{resultInfo.accountLabel}</span></> : null}, but no saved cookies are available yet. Please ask the admin to upload cookies for your account, then try again.
-                    </div>
-                  </div>
-                ) : status === "error" ? (
-                  <div className="mt-4 rounded-xl bg-red-500/10 border border-red-500/30 px-3 py-2.5 text-center">
-                    <div className="text-[11px] font-bold text-red-300">Something went wrong</div>
-                    <div className="text-[10.5px] text-red-200/80 mt-0.5 leading-relaxed">{resultInfo.message || "Please try again."}</div>
-                  </div>
-                ) : status === "checking" || status === "verifying" ? (
-                  <div className="mt-4 rounded-xl bg-white/[0.04] border border-white/10 px-3 py-2.5 text-center">
-                    <div className="text-[10.5px] text-white/70 leading-relaxed">
-                      {status === "verifying" ? "Verifying the 8-digit code…" : "Confirming your IMAP account and saved cookies…"}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="mt-4 flex items-center justify-center gap-1.5 text-[10.5px] text-white/40">
-                    <ShieldCheck className="w-3 h-3" />
-                    <span>Encrypted • One-time code • Never shared</span>
-                  </div>
-                )}
+                {(() => {
+                  const elapsedSec = Math.floor(pollElapsed / 1000);
+                  const remainingSec = Math.max(0, Math.ceil((POLL_TIMEOUT_MS - pollElapsed) / 1000));
+                  const terminal = ["invalid_code", "cookies_expired", "no_cookies", "error", "timeout"].includes(status);
+                  return (
+                    <>
+                      {status === "queued" ? (
+                        <div className="mt-4 rounded-xl bg-sky-500/10 border border-sky-500/30 px-3 py-2.5 text-center">
+                          <div className="inline-flex items-center gap-1.5 text-[11px] font-bold text-sky-300">
+                            <Loader2 className="w-3 h-3 animate-spin" /> Preparing secure runner
+                          </div>
+                          <div className="text-[10.5px] text-sky-200/80 mt-1 leading-relaxed">
+                            Your job is queued. Spinning up a private headless browser… <span className="opacity-70">({elapsedSec}s)</span>
+                          </div>
+                        </div>
+                      ) : status === "running" || status === "in_progress" ? (
+                        <div className="mt-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 px-3 py-2.5 text-center">
+                          <div className="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-300">
+                            <Loader2 className="w-3 h-3 animate-spin" /> Process Login on TV in progress
+                          </div>
+                          <div className="text-[10.5px] text-emerald-200/80 mt-1 leading-relaxed">
+                            Signing in{resultInfo.accountLabel ? <> with <span className="font-semibold">{resultInfo.accountLabel}</span></> : null}
+                            {resultInfo.imapMasked ? <> · {resultInfo.imapMasked}</> : null}. Keep your TV on the code screen.
+                          </div>
+                          <div className="text-[10px] text-emerald-200/60 mt-1">Elapsed {elapsedSec}s · timing out in {remainingSec}s</div>
+                        </div>
+                      ) : status === "success" ? (
+                        <div className="mt-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 px-3 py-3 text-center">
+                          <div className="text-[12px] font-black text-emerald-300">Login successful</div>
+                          <div className="text-[10.5px] text-emerald-200/80 mt-1 leading-relaxed">
+                            Your TV is signed in. Wiping this browser session for security…
+                          </div>
+                        </div>
+                      ) : status === "invalid_code" ? (
+                        <div className="mt-4 rounded-xl bg-red-500/10 border border-red-500/30 px-3 py-2.5 text-center">
+                          <div className="text-[11px] font-bold text-red-300">Code was rejected</div>
+                          <div className="text-[10.5px] text-red-200/80 mt-0.5 leading-relaxed">Netflix didn't accept that 8-digit code. Please re-open the TV and try a fresh code.</div>
+                        </div>
+                      ) : status === "cookies_expired" ? (
+                        <div className="mt-4 rounded-xl bg-amber-500/10 border border-amber-500/30 px-3 py-2.5 text-center">
+                          <div className="text-[11px] font-bold text-amber-300">Cookies expired</div>
+                          <div className="text-[10.5px] text-amber-200/80 mt-0.5 leading-relaxed">This account's saved cookies are no longer valid. Ask the admin to refresh them in Cookies Vault.</div>
+                        </div>
+                      ) : status === "no_cookies" ? (
+                        <div className="mt-4 rounded-xl bg-amber-500/10 border border-amber-500/30 px-3 py-2.5 text-center">
+                          <div className="text-[11px] font-bold text-amber-300">Session not ready</div>
+                          <div className="text-[10.5px] text-amber-200/80 mt-0.5 leading-relaxed">
+                            Your code was received{resultInfo.accountLabel ? <> for <span className="font-semibold">{resultInfo.accountLabel}</span></> : null}, but no saved cookies are available yet. Please ask the admin to upload cookies for your account, then try again.
+                          </div>
+                        </div>
+                      ) : status === "timeout" ? (
+                        <div className="mt-4 rounded-xl bg-amber-500/10 border border-amber-500/30 px-3 py-2.5 text-center">
+                          <div className="text-[11px] font-bold text-amber-300">Runner timed out</div>
+                          <div className="text-[10.5px] text-amber-200/80 mt-0.5 leading-relaxed">
+                            {resultInfo.message || "We didn't hear back from the TV runner in time. Please try again — if it keeps failing, ask the admin to check GitHub Actions."}
+                          </div>
+                        </div>
+                      ) : status === "error" ? (
+                        <div className="mt-4 rounded-xl bg-red-500/10 border border-red-500/30 px-3 py-2.5 text-center">
+                          <div className="text-[11px] font-bold text-red-300">Something went wrong</div>
+                          <div className="text-[10.5px] text-red-200/80 mt-0.5 leading-relaxed">{resultInfo.message || "Please try again."}</div>
+                        </div>
+                      ) : status === "checking" || status === "verifying" ? (
+                        <div className="mt-4 rounded-xl bg-white/[0.04] border border-white/10 px-3 py-2.5 text-center">
+                          <div className="text-[10.5px] text-white/70 leading-relaxed">
+                            {status === "verifying" ? "Verifying the 8-digit code…" : "Confirming your IMAP account and saved cookies…"}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="mt-4 flex items-center justify-center gap-1.5 text-[10.5px] text-white/40">
+                          <ShieldCheck className="w-3 h-3" />
+                          <span>Encrypted • One-time code • Never shared</span>
+                        </div>
+                      )}
+
+                      {terminal && (
+                        <div className="mt-3 flex items-center gap-2">
+                          <button
+                            onClick={resetForRetry}
+                            className="flex-1 h-10 rounded-xl text-[12px] font-bold bg-white/10 text-white hover:bg-white/15 active:scale-[0.98] transition"
+                          >
+                            Try again
+                          </button>
+                          <button
+                            onClick={() => setOpen(false)}
+                            className="flex-1 h-10 rounded-xl text-[12px] font-bold bg-white/[0.04] border border-white/10 text-white/70 hover:bg-white/[0.08] active:scale-[0.98] transition"
+                          >
+                            Close
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
+
 
               </>
             )}
