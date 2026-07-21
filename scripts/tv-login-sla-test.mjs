@@ -44,6 +44,7 @@ if (missing.length) {
 
 const iterations = Math.max(1, parseInt(ITERATIONS, 10) || 3);
 const slaMs = Math.max(1000, parseInt(SLA_MS, 10) || 10_000);
+const runnerUrl = (TV_FAST_RUNNER_URL.trim() || "http://140.238.226.213:8788").replace(/\/+$/g, "");
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false },
@@ -80,8 +81,7 @@ async function pickImapUser() {
 
 async function dispatch(eventId, runnerToken) {
   const t0 = Date.now();
-  const base = TV_FAST_RUNNER_URL.replace(/\/+$/g, "");
-  const res = await fetch(`${base}/run`, {
+  const res = await fetch(`${runnerUrl}/run`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "User-Agent": "tv-login-sla-test" },
     body: JSON.stringify({ event_id: eventId, runner_token: runnerToken }),
@@ -181,7 +181,7 @@ async function runOnce(i, imapUser) {
 (async () => {
   const imapUser = await pickImapUser();
   console.log(`TV login direct-runner SLA test — ${iterations} run(s), SLA < ${fmt(slaMs)}`);
-  console.log(`Runner: ${TV_FAST_RUNNER_URL.replace(/\/+$/g, "")}`);
+  console.log(`Runner: ${runnerUrl}`);
   console.log(`IMAP: ${mask(imapUser)}`);
   const results = [];
   for (let i = 0; i < iterations; i++) {
