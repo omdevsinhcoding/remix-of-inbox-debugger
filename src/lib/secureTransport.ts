@@ -32,6 +32,17 @@ function canGunzipResponse(): boolean {
   return typeof DecompressionStream !== "undefined";
 }
 
+function extractJsonError(text: string): string | null {
+  if (!text) return null;
+  try {
+    const parsed = JSON.parse(text);
+    const msg = parsed?.error || parsed?.message;
+    return typeof msg === "string" && msg.trim() ? msg.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
 type Session = { sidBytes: Uint8Array; key: CryptoKey; expiresAt: number };
 let sessionPromise: Promise<Session> | null = null;
 let serverTimeOffsetMs = 0;
@@ -245,6 +256,8 @@ export async function secureFetchJson(
   if (!ct.includes(CT_BINARY)) {
     resetSession();
     const preview = (await res.text().catch(() => "")).slice(0, 200);
+    const jsonError = extractJsonError(preview);
+    if (jsonError) throw new Error(jsonError);
     throw new Error(
       `secureTransport: non-binary response from ${functionName} (status ${res.status}, ct=${ct || "none"})${preview ? `: ${preview}` : ""}`,
     );
