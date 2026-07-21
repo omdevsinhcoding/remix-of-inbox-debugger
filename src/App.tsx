@@ -1930,7 +1930,8 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
       const res: any = await apiCall("manage-app", { action: "tv_list_accounts" });
       if (!res?.success) throw new Error(res?.error || "Failed to load accounts");
       const list: TvAccount[] = Array.isArray(res.accounts) ? res.accounts : [];
-      setAccounts(list);
+      // Only surface accounts that are actually usable. Never reveal readiness state to the user.
+      setAccounts(list.filter((a) => a?.cookies_available));
     } catch (err) {
       setAccountsError(err instanceof Error ? err.message : "Failed to load accounts");
     } finally {
