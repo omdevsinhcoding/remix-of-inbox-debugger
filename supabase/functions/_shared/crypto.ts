@@ -399,6 +399,12 @@ export async function handleHandshake(req: Request): Promise<Response> {
   if (error || !data) {
     return new Response("session store failed", { status: 500, headers: cryptoCorsHeaders });
   }
+  // Op#3: warm L3 immediately so first encrypted request skips Postgres.
+  try {
+    const aesKey = await crypto.subtle.importKey("raw", aesRaw, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
+    SESSION_CACHE.set(data.id, { key: aesKey, origin_hash: originHash, expires_at: expiresAt.getTime() });
+    if (SESSION_CACHE.size > SESSION_CACHE_MAX) pruneSessionCache();
+  } catch { /* non-fatal */ }
   const sidBytes = uuidStringToBytes(data.id);
   const expMs = BigInt(expiresAt.getTime());
   const out = new Uint8Array(1 + 16 + 65 + 8);
