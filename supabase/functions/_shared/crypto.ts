@@ -323,35 +323,36 @@ export async function maybeEncryptResponse(
 // Request : [ver(1)][clientPubRaw(65)]
 // Response: [ver(1)][sessionId(16)][serverPubRaw(65)][expiresAtMs(8, big-endian)]
 
-async function rateLimitHandshake(ip: string): Promise<boolean> {
-  const sb = admin();
-  const now = new Date();
-  const bucket = new Date(Math.floor(now.getTime() / 60_000) * 60_000).toISOString();
-  // increment count for this minute
-  const { data: existing } = await sb
-    .from("handshake_rate")
-    .select("count")
-    .eq("ip", ip)
-    .eq("minute_bucket", bucket)
-    .maybeSingle();
-  const nextCount = ((existing as any)?.count ?? 0) + 1;
-  await sb.from("handshake_rate")
-    .upsert({ ip, minute_bucket: bucket, count: nextCount }, { onConflict: "ip,minute_bucket" });
-  // Mobile carriers, campus Wi‑Fi, office networks, and preview deployments can
-  // put many legitimate users behind one NAT IP. 10/minute caused normal page
-  // loads to fail with a visible "handshake 429". Keep abuse protection, but
-  // allow production-level bursts from shared IPs.
-  if (nextCount > 180) return false;
-  // hourly total
-  const hourAgo = new Date(now.getTime() - 60 * 60_000).toISOString();
-  const { data: rows } = await sb
-    .from("handshake_rate")
-    .select("count")
-    .eq("ip", ip)
-    .gte("minute_bucket", hourAgo);
-  const total = (rows ?? []).reduce((s: number, r: any) => s + (r.count ?? 0), 0);
-  return total <= 1800;
+// Op#3: Pure in-memory rate limiter. `handshake_rate` DB writes are eliminated
+// on the hot path. Per-isolate counters reset on cold start (acceptable for an
+// abuse guard — cold starts are rare and legitimate bursts recover instantly).
+interface RateBucket { minute: number; count: number; hourStart: number; hourCount: number }
+const RATE_CACHE = new Map<string, RateBucket>();
+const RATE_CACHE_MAX = 20_000;
+
+function rateLimitHandshakeSync(ip: string): boolean {
+  const now = Date.now();
+  const minute = Math.floor(now / 60_000);
+  let b = RATE_CACHE.get(ip);
+  if (!b || b.minute !== minute) {
+    const hourStart = b && (now - b.hourStart) < 3_600_000 ? b.hourStart : now;
+    const hourCount = b && (now - b.hourStart) < 3_600_000 ? b.hourCount : 0;
+    b = { minute, count: 0, hourStart, hourCount };
+    RATE_CACHE.set(ip, b);
+  }
+  b.count += 1;
+  b.hourCount += 1;
+  if (RATE_CACHE.size > RATE_CACHE_MAX) {
+    // FIFO drop
+    const drop = RATE_CACHE.size - RATE_CACHE_MAX;
+    let i = 0;
+    for (const k of RATE_CACHE.keys()) { if (i++ >= drop) break; RATE_CACHE.delete(k); }
+  }
+  if (b.count > 180) return false;
+  if (b.hourCount > 1800) return false;
+  return true;
 }
+
 
 export async function handleHandshake(req: Request): Promise<Response> {
   try { checkSecFetchSite(req); } catch (e) { return transportErrorResponse(e); }
