@@ -2305,12 +2305,13 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
                     <span>Cookies expired</span>
                   ) : status === "no_cookies" ? (
                     <span>No cookies available</span>
-                  ) : status === "error" ? (
+                  ) : status === "error" || status === "timeout" ? (
                     <span>Try again</span>
                   ) : (
                     "Continue"
                   )}
                 </button>
+
 
                 {/* Status / help */}
                 {status === "queued" ? (
