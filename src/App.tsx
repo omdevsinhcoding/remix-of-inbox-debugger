@@ -12284,7 +12284,8 @@ function EmailViewer() {
                 Back to Admin
               </button>
             )}
-            <TvAutoLoginButton visible={tvVisible} />
+            <ViewSwitcher features={userFeatures} view={workflowView} onChange={setWorkflowView} />
+            <TvAutoLoginButton visible={tvVisible && userFeatures.tv} />
             <NotificationBell />
             <button onClick={() => fetchEmails()}
               disabled={refreshing}
