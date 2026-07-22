@@ -6,7 +6,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "r
 import NetflixHouseholdVerificationGuide from "./pages/NetflixHouseholdVerificationGuide";
 import { notify } from "./components/toast/notify";
 import { ToastProvider } from "./components/toast/toast-provider";
-import { WorkflowChooser, ViewSwitcher, DirectLinkView, useWorkflowView, resolveFeatures, countEnabled } from "./components/WorkflowViews";
+import { WorkflowChooser, ViewSwitcher, DirectLinkView, useWorkflowView, resolveFeatures, countEnabled, WorkflowSwitcher, prefetchWorkflowAccounts, readAccountsCache, writeAccountsCache } from "./components/WorkflowViews";
 
 import { supabase } from "./integrations/supabase/client";
 import { AVATAR_CATEGORIES, resolveAvatar, buildAvatarId, prettyName, getAvatarCategoryUrls } from "./lib/avatars";
@@ -2523,22 +2523,36 @@ function TvSignInPage() {
   const POLL_TIMEOUT_MS = 9_500;
   const inputsRef = useRef<Array<HTMLInputElement | null>>([]);
 
-  const loadAccounts = useCallback(async () => {
-    setAccountsLoading(true);
+  const loadAccounts = useCallback(async (opts?: { background?: boolean }) => {
+    const background = !!opts?.background;
+    if (!background) setAccountsLoading(true);
     setAccountsError(null);
     try {
       const res: any = await apiCall("manage-app", { action: "tv_list_accounts" });
       if (!res?.success) throw new Error(res?.error || "Failed to load accounts");
       const list: TvAccount[] = Array.isArray(res.accounts) ? res.accounts : [];
       setAccounts(list.filter((a) => a?.cookies_available));
+      try { writeAccountsCache("tv", res); } catch {}
     } catch (err) {
-      setAccountsError(err instanceof Error ? err.message : "Failed to load accounts");
+      if (!background) setAccountsError(err instanceof Error ? err.message : "Failed to load accounts");
     } finally {
-      setAccountsLoading(false);
+      if (!background) setAccountsLoading(false);
     }
   }, []);
 
-  useEffect(() => { loadAccounts(); }, [loadAccounts]);
+  useEffect(() => {
+    // Instant paint from session cache (populated by prefetchWorkflowAccounts), then
+    // silently refresh in background so switching to TV feels immediate.
+    const cached: any = readAccountsCache("tv");
+    if (cached?.accounts) {
+      const list: TvAccount[] = Array.isArray(cached.accounts) ? cached.accounts : [];
+      setAccounts(list.filter((a) => a?.cookies_available));
+      setAccountsLoading(false);
+      loadAccounts({ background: true });
+    } else {
+      loadAccounts();
+    }
+  }, [loadAccounts]);
 
   useEffect(() => {
     if (step === "code") {
@@ -2652,23 +2666,23 @@ function TvSignInPage() {
   const terminal = ["invalid_code", "cookies_expired", "no_cookies", "error", "timeout"].includes(status);
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] px-3 sm:px-4 py-6 sm:py-10 bg-gradient-to-b from-slate-50 via-white to-slate-50">
-      <div className="max-w-xl mx-auto">
+    <div className="min-h-[calc(100vh-4rem)] px-3 sm:px-4 py-6 sm:py-10 xl:py-16 bg-gradient-to-b from-slate-50 via-white to-slate-50">
+      <div className="max-w-xl md:max-w-2xl xl:max-w-3xl 2xl:max-w-4xl mx-auto">
         <div className="relative overflow-hidden rounded-3xl bg-gradient-to-b from-[#141414] via-[#1a0608] to-[#0a0a0a] border border-white/10 shadow-[0_25px_80px_-15px_rgba(229,9,20,0.35)]">
-          <div className="pointer-events-none absolute -top-24 -right-16 w-72 h-72 rounded-full bg-[#e50914]/25 blur-3xl" />
-          <div className="pointer-events-none absolute -bottom-32 -left-16 w-80 h-80 rounded-full bg-[#e50914]/10 blur-3xl" />
+          <div className="pointer-events-none absolute -top-24 -right-16 w-72 h-72 xl:w-[28rem] xl:h-[28rem] rounded-full bg-[#e50914]/25 blur-3xl" />
+          <div className="pointer-events-none absolute -bottom-32 -left-16 w-80 h-80 xl:w-[32rem] xl:h-[32rem] rounded-full bg-[#e50914]/10 blur-3xl" />
 
-          <div className="relative p-6 sm:p-10">
+          <div className="relative p-6 sm:p-10 xl:p-14 2xl:p-16">
             {/* Header */}
             <div className="flex flex-col items-center text-center">
-              <div className="w-16 h-16 rounded-2xl flex items-center justify-center bg-gradient-to-br from-[#e50914] to-[#8b0610] shadow-lg shadow-[#e50914]/30 mb-4">
-                <Tv className="w-8 h-8 text-white" />
+              <div className="w-16 h-16 xl:w-20 xl:h-20 2xl:w-24 2xl:h-24 rounded-2xl flex items-center justify-center bg-gradient-to-br from-[#e50914] to-[#8b0610] shadow-lg shadow-[#e50914]/30 mb-4">
+                <Tv className="w-8 h-8 xl:w-10 xl:h-10 2xl:w-12 2xl:h-12 text-white" />
               </div>
-              <div className="text-[10px] uppercase tracking-[0.24em] text-[#e50914] font-bold">Netflix • TV Sign-in</div>
-              <h1 className="mt-1.5 text-2xl sm:text-3xl font-black text-white tracking-tight">
+              <div className="text-[10px] xl:text-xs 2xl:text-sm uppercase tracking-[0.24em] text-[#e50914] font-bold">Netflix • TV Sign-in</div>
+              <h1 className="mt-1.5 text-2xl sm:text-3xl xl:text-4xl 2xl:text-5xl font-black text-white tracking-tight">
                 {step === "select" ? "Choose your account" : "Enter your code"}
               </h1>
-              <p className="mt-2 text-xs sm:text-[13px] text-white/60 leading-relaxed max-w-sm">
+              <p className="mt-2 text-xs sm:text-[13px] xl:text-base 2xl:text-lg text-white/60 leading-relaxed max-w-sm xl:max-w-xl">
                 {step === "select"
                   ? "Pick the Netflix account you want to sign in on your TV."
                   : "Type the 8-digit code shown on your Netflix TV screen."}
@@ -2697,7 +2711,7 @@ function TvSignInPage() {
                   <div className="rounded-xl bg-red-500/10 border border-red-500/30 px-4 py-3 text-center">
                     <div className="text-xs font-bold text-red-300">Couldn't load accounts</div>
                     <div className="text-[11px] text-red-200/80 mt-1">{accountsError}</div>
-                    <button onClick={loadAccounts} className="mt-2 h-8 px-3 rounded-lg text-[11px] font-bold bg-white/10 text-white hover:bg-white/15">Retry</button>
+                    <button onClick={() => loadAccounts()} className="mt-2 h-8 px-3 rounded-lg text-[11px] font-bold bg-white/10 text-white hover:bg-white/15">Retry</button>
                   </div>
                 ) : accounts.length === 0 ? (
                   <div className="rounded-xl bg-amber-500/10 border border-amber-500/30 px-4 py-4 text-center">
@@ -2785,7 +2799,7 @@ function TvSignInPage() {
                         maxLength={1}
                         disabled={status !== "idle"}
                         aria-label={`Digit ${i + 1}`}
-                        className={`aspect-square w-full min-w-0 flex-1 text-center text-xl sm:text-3xl font-black rounded-xl bg-white/[0.04] border-2 text-white caret-[#e50914] outline-none transition-all
+                        className={`aspect-square w-full min-w-0 flex-1 text-center text-xl sm:text-3xl xl:text-5xl 2xl:text-6xl font-black rounded-xl xl:rounded-2xl bg-white/[0.04] border-2 text-white caret-[#e50914] outline-none transition-all
                           ${d ? "border-[#e50914] bg-[#e50914]/10 shadow-[0_0_20px_-4px_rgba(229,9,20,0.6)]" : "border-white/15"}
                           focus:border-[#e50914] focus:bg-[#e50914]/10 focus:shadow-[0_0_24px_-4px_rgba(229,9,20,0.7)] focus:scale-[1.04]
                           disabled:opacity-60`}
@@ -2796,7 +2810,7 @@ function TvSignInPage() {
 
                 <button onClick={submit}
                   disabled={!isComplete || status !== "idle"}
-                  className={`mt-7 w-full h-12 rounded-xl font-bold text-sm tracking-wide transition-all active:scale-[0.98]
+                  className={`mt-7 w-full h-12 xl:h-14 2xl:h-16 rounded-xl xl:rounded-2xl font-bold text-sm xl:text-base 2xl:text-lg tracking-wide transition-all active:scale-[0.98]
                     ${isComplete && status === "idle"
                       ? "bg-gradient-to-r from-[#e50914] to-[#b0060f] text-white shadow-lg shadow-[#e50914]/30 hover:shadow-[#e50914]/50 hover:brightness-110"
                       : "bg-white/[0.06] text-white/40 cursor-not-allowed"}`}>
@@ -11779,6 +11793,8 @@ function EmailViewer() {
   }, [user, tvVisible]);
   const { view: workflowView, setChoice: setWorkflowView } = useWorkflowView(user, userFeatures);
   const [tvModalTrigger, setTvModalTrigger] = useState(0);
+  // Prefetch TV / Link accounts as soon as features resolve — avoids the 5s wait later.
+  useEffect(() => { try { prefetchWorkflowAccounts(apiCall, userFeatures); } catch {} }, [userFeatures.tv, userFeatures.link]);
 
 
 
@@ -12639,8 +12655,8 @@ function EmailViewer() {
                 Admin
               </button>
             )}
-            <ViewSwitcher features={userFeatures} view={workflowView} onChange={setWorkflowView} />
-            <TvAutoLoginButton visible={tvVisible && userFeatures.tv} />
+            <WorkflowSwitcher features={userFeatures} view={workflowView} onChange={setWorkflowView} compact />
+            <TvAutoLoginButton visible={false} />
             <NotificationBell />
             {workflowView === "gmail" && (
             <button
@@ -12708,8 +12724,8 @@ function EmailViewer() {
                 Back to Admin
               </button>
             )}
-            <ViewSwitcher features={userFeatures} view={workflowView} onChange={setWorkflowView} />
-            <TvAutoLoginButton visible={tvVisible && userFeatures.tv} />
+            <WorkflowSwitcher features={userFeatures} view={workflowView} onChange={setWorkflowView} />
+            <TvAutoLoginButton visible={false} />
             <NotificationBell />
             {workflowView === "gmail" && (
             <button onClick={() => fetchEmails()}
