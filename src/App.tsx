@@ -2523,22 +2523,36 @@ function TvSignInPage() {
   const POLL_TIMEOUT_MS = 9_500;
   const inputsRef = useRef<Array<HTMLInputElement | null>>([]);
 
-  const loadAccounts = useCallback(async () => {
-    setAccountsLoading(true);
+  const loadAccounts = useCallback(async (opts?: { background?: boolean }) => {
+    const background = !!opts?.background;
+    if (!background) setAccountsLoading(true);
     setAccountsError(null);
     try {
       const res: any = await apiCall("manage-app", { action: "tv_list_accounts" });
       if (!res?.success) throw new Error(res?.error || "Failed to load accounts");
       const list: TvAccount[] = Array.isArray(res.accounts) ? res.accounts : [];
       setAccounts(list.filter((a) => a?.cookies_available));
+      try { writeAccountsCache("tv", res); } catch {}
     } catch (err) {
-      setAccountsError(err instanceof Error ? err.message : "Failed to load accounts");
+      if (!background) setAccountsError(err instanceof Error ? err.message : "Failed to load accounts");
     } finally {
-      setAccountsLoading(false);
+      if (!background) setAccountsLoading(false);
     }
   }, []);
 
-  useEffect(() => { loadAccounts(); }, [loadAccounts]);
+  useEffect(() => {
+    // Instant paint from session cache (populated by prefetchWorkflowAccounts), then
+    // silently refresh in background so switching to TV feels immediate.
+    const cached: any = readAccountsCache("tv");
+    if (cached?.accounts) {
+      const list: TvAccount[] = Array.isArray(cached.accounts) ? cached.accounts : [];
+      setAccounts(list.filter((a) => a?.cookies_available));
+      setAccountsLoading(false);
+      loadAccounts({ background: true });
+    } else {
+      loadAccounts();
+    }
+  }, [loadAccounts]);
 
   useEffect(() => {
     if (step === "code") {
