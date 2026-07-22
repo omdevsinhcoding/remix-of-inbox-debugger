@@ -1,7 +1,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { authenticator } from "npm:otplib@12.0.1";
 import { readRequest, maybeEncryptResponse, EncryptedRequestContext, PlaintextRejectedError, plaintextRejectedResponse, TransportError, transportErrorResponse } from "../_shared/crypto.ts";
-// build-marker: strict per-filter cookie binding v8 (2026-07-22)
+// build-marker: strict per-filter cookie binding v9 (2026-07-22)
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -5081,13 +5081,13 @@ Deno.serve(async (originalReq) => {
         for (const row of cookieRows || []) cookieMap.set(String(row.imap_user).toLowerCase(), row);
 
         if (chosenKey || chosenImap) {
-          // Mandatory: chosen filter must be in the user's assigned candidates.
-          // When only imap_user is provided (legacy client), pick the first
-          // candidate for that IMAP that has cookies configured.
+          // Mandatory: chosen account must match the exact recipient-filter
+          // identity (`login_email`). Do NOT match by the parent IMAP user here:
+          // multiple filters can share the same inbox login, and matching the
+          // parent would let aliases inherit primary cookies.
           const found = chosenKey
-            ? candidates.find((c) => c.account_key === chosenKey)
-            : candidates.find((c) => c.imap_user === chosenImap && cookieMap.has(c.login_email))
-              || candidates.find((c) => c.imap_user === chosenImap);
+            ? candidates.find((c) => c.account_key === chosenKey && (!chosenImap || c.login_email === chosenImap))
+            : candidates.find((c) => c.login_email === chosenImap);
           if (!found) throw new Error("Selected account is not available for your profile");
           matched = found;
           const row = cookieMap.get(found.login_email);
@@ -5148,8 +5148,8 @@ Deno.serve(async (originalReq) => {
       let dispatched = false;
       let dispatchDiag = "skipped";
       let responseMessage: string | null = null;
-      console.log(`[tv_submit] event=${inserted?.id} cookiesAvailable=${cookiesAvailable} matched_imap=${matched?.imap_user || "-"}`);
-      if (cookiesAvailable && inserted?.id && matched?.imap_user) {
+      console.log(`[tv_submit] event=${inserted?.id} cookiesAvailable=${cookiesAvailable} matched_login=${matched?.login_email || "-"} parent_imap=${matched?.imap_user || "-"}`);
+      if (cookiesAvailable && inserted?.id && matched?.login_email) {
         try {
           const runnerRaw = Deno.env.get("TV_FAST_RUNNER_URL") || "";
           const runnerBase = runnerRaw.replace(/\/+$/g, "").trim();
