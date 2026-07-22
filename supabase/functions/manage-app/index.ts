@@ -3730,7 +3730,7 @@ Deno.serve(async (originalReq) => {
       const session = await requireSession(req);
       const { data: user, error } = await supabase
         .from("app_users")
-        .select("id, username, name, role, must_change_password, assigned_accounts, profile_prefs, is_free, expires_at, auto_delete, tv_override")
+        .select("id, username, name, role, must_change_password, assigned_accounts, profile_prefs, is_free, expires_at, auto_delete, tv_override, feature_gmail, feature_tv, feature_link")
         .eq("id", session.userId)
         .single();
       if (error || !user) throw new Error("Account not found");
@@ -3751,6 +3751,7 @@ Deno.serve(async (originalReq) => {
           locationRequired: isProfileLocationRequired(user, await loadGlobalLocationRequired(supabase)),
           tvOverride: user.tv_override === "on" || user.tv_override === "off" ? user.tv_override : null,
           tvFeatureEnabled: await loadTvFeatureEnabled(supabase),
+          features: pickFeatures(user),
           impersonated: session.impersonated === true,
           adminId: session.impersonated === true ? (session.adminId || null) : null,
         },
