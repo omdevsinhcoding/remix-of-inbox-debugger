@@ -126,7 +126,7 @@ function remaining(iso: string) {
   return `${m}m ${s.toString().padStart(2, "0")}s`;
 }
 
-export function DirectLinkView() {
+export function DirectLinkView({ apiCall, notify }: { apiCall: ApiCall; notify: Notify }) {
   const [accounts, setAccounts] = useState<{ account_key: string; login_email_masked: string; label: string }[]>([]);
   const [notConfigured, setNotConfigured] = useState<string | null>(null);
   const [loadingAccounts, setLoadingAccounts] = useState(true);
