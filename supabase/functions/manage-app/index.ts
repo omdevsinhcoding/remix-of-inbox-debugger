@@ -5013,10 +5013,13 @@ Deno.serve(async (originalReq) => {
       const session = await requireSession(req);
       const { data: user } = await supabase
         .from("app_users")
-        .select("id, assigned_accounts")
+        .select("id, assigned_accounts, feature_tv, role")
         .eq("id", session.userId)
         .maybeSingle();
       if (!user) throw new Error("User not found");
+      if (user.role !== "admin" && user.feature_tv === false) {
+        return new Response(JSON.stringify({ success: true, accounts: [], not_configured: true, message: "TV login isn't enabled for your account." }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
       const { data: settingsRows } = await supabase
         .from("app_settings")
         .select("key,value")
