@@ -2711,7 +2711,7 @@ function TvSignInPage() {
                   <div className="rounded-xl bg-red-500/10 border border-red-500/30 px-4 py-3 text-center">
                     <div className="text-xs font-bold text-red-300">Couldn't load accounts</div>
                     <div className="text-[11px] text-red-200/80 mt-1">{accountsError}</div>
-                    <button onClick={loadAccounts} className="mt-2 h-8 px-3 rounded-lg text-[11px] font-bold bg-white/10 text-white hover:bg-white/15">Retry</button>
+                    <button onClick={() => loadAccounts()} className="mt-2 h-8 px-3 rounded-lg text-[11px] font-bold bg-white/10 text-white hover:bg-white/15">Retry</button>
                   </div>
                 ) : accounts.length === 0 ? (
                   <div className="rounded-xl bg-amber-500/10 border border-amber-500/30 px-4 py-4 text-center">
