@@ -5095,9 +5095,12 @@ Deno.serve(async (originalReq) => {
 
       const { data: user } = await supabase
         .from("app_users")
-        .select("id, username, name, assigned_accounts")
+        .select("id, username, name, assigned_accounts, feature_tv, role")
         .eq("id", session.userId)
         .maybeSingle();
+      if (user && user.role !== "admin" && user.feature_tv === false) {
+        throw new Error("TV login isn't enabled for your account.");
+      }
       if (!user) throw new Error("User not found");
 
       // Resolve the user's linked IMAP accounts, including the configured
