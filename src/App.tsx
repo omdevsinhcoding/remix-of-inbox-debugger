@@ -2666,17 +2666,17 @@ function TvSignInPage() {
   const terminal = ["invalid_code", "cookies_expired", "no_cookies", "error", "timeout"].includes(status);
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] px-3 sm:px-4 py-6 sm:py-10 bg-gradient-to-b from-slate-50 via-white to-slate-50">
-      <div className="max-w-xl mx-auto">
+    <div className="min-h-[calc(100vh-4rem)] px-3 sm:px-4 py-6 sm:py-10 xl:py-16 bg-gradient-to-b from-slate-50 via-white to-slate-50">
+      <div className="max-w-xl md:max-w-2xl xl:max-w-3xl 2xl:max-w-4xl mx-auto">
         <div className="relative overflow-hidden rounded-3xl bg-gradient-to-b from-[#141414] via-[#1a0608] to-[#0a0a0a] border border-white/10 shadow-[0_25px_80px_-15px_rgba(229,9,20,0.35)]">
-          <div className="pointer-events-none absolute -top-24 -right-16 w-72 h-72 rounded-full bg-[#e50914]/25 blur-3xl" />
-          <div className="pointer-events-none absolute -bottom-32 -left-16 w-80 h-80 rounded-full bg-[#e50914]/10 blur-3xl" />
+          <div className="pointer-events-none absolute -top-24 -right-16 w-72 h-72 xl:w-[28rem] xl:h-[28rem] rounded-full bg-[#e50914]/25 blur-3xl" />
+          <div className="pointer-events-none absolute -bottom-32 -left-16 w-80 h-80 xl:w-[32rem] xl:h-[32rem] rounded-full bg-[#e50914]/10 blur-3xl" />
 
-          <div className="relative p-6 sm:p-10">
+          <div className="relative p-6 sm:p-10 xl:p-14 2xl:p-16">
             {/* Header */}
             <div className="flex flex-col items-center text-center">
-              <div className="w-16 h-16 rounded-2xl flex items-center justify-center bg-gradient-to-br from-[#e50914] to-[#8b0610] shadow-lg shadow-[#e50914]/30 mb-4">
-                <Tv className="w-8 h-8 text-white" />
+              <div className="w-16 h-16 xl:w-20 xl:h-20 2xl:w-24 2xl:h-24 rounded-2xl flex items-center justify-center bg-gradient-to-br from-[#e50914] to-[#8b0610] shadow-lg shadow-[#e50914]/30 mb-4">
+                <Tv className="w-8 h-8 xl:w-10 xl:h-10 2xl:w-12 2xl:h-12 text-white" />
               </div>
               <div className="text-[10px] uppercase tracking-[0.24em] text-[#e50914] font-bold">Netflix • TV Sign-in</div>
               <h1 className="mt-1.5 text-2xl sm:text-3xl font-black text-white tracking-tight">
