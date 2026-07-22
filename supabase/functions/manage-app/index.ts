@@ -47,6 +47,24 @@ async function loadTvFeatureEnabled(supabase: any): Promise<boolean> {
     return true;
   }
 }
+type UserFeatures = { gmail: boolean; tv: boolean; link: boolean };
+function pickFeatures(u: any): UserFeatures {
+  return {
+    gmail: u?.feature_gmail !== false,
+    tv:    u?.feature_tv    !== false,
+    link:  u?.feature_link  === true,
+  };
+}
+async function loadLinkDefaults(supabase: any): Promise<{ ttl_minutes: number; max_active_per_user: number }> {
+  try {
+    const { data } = await supabase.from("app_settings").select("value").eq("key", "link_defaults").maybeSingle();
+    const v = data?.value || {};
+    return {
+      ttl_minutes: Math.max(1, Math.min(1440, Number(v.ttl_minutes) || 15)),
+      max_active_per_user: Math.max(1, Math.min(20, Number(v.max_active_per_user) || 3)),
+    };
+  } catch { return { ttl_minutes: 15, max_active_per_user: 3 }; }
+}
 function publicVpsConfig(value: any) {
   const v = value && typeof value === "object" && !Array.isArray(value) ? value : {};
   return {
