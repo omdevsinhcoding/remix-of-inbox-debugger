@@ -12641,8 +12641,8 @@ function EmailViewer() {
                 Admin
               </button>
             )}
-            <ViewSwitcher features={userFeatures} view={workflowView} onChange={setWorkflowView} />
-            <TvAutoLoginButton visible={tvVisible && userFeatures.tv} />
+            <WorkflowSwitcher features={userFeatures} view={workflowView} onChange={setWorkflowView} compact />
+            <TvAutoLoginButton visible={false} />
             <NotificationBell />
             {workflowView === "gmail" && (
             <button
