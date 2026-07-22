@@ -6,7 +6,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "r
 import NetflixHouseholdVerificationGuide from "./pages/NetflixHouseholdVerificationGuide";
 import { notify } from "./components/toast/notify";
 import { ToastProvider } from "./components/toast/toast-provider";
-import { WorkflowChooser, ViewSwitcher, DirectLinkView, TvOnlyView, useWorkflowView, resolveFeatures, countEnabled } from "./components/WorkflowViews";
+import { WorkflowChooser, ViewSwitcher, DirectLinkView, useWorkflowView, resolveFeatures, countEnabled } from "./components/WorkflowViews";
 
 import { supabase } from "./integrations/supabase/client";
 import { AVATAR_CATEGORIES, resolveAvatar, buildAvatarId, prettyName, getAvatarCategoryUrls } from "./lib/avatars";
