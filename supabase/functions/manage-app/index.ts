@@ -1,7 +1,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { authenticator } from "npm:otplib@12.0.1";
 import { readRequest, maybeEncryptResponse, EncryptedRequestContext, PlaintextRejectedError, plaintextRejectedResponse, TransportError, transportErrorResponse } from "../_shared/crypto.ts";
-// build-marker: strict per-filter cookie binding v9 (2026-07-22)
+// build-marker: per-user features + nftoken direct links v10 (2026-07-22)
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -46,6 +46,24 @@ async function loadTvFeatureEnabled(supabase: any): Promise<boolean> {
   } catch {
     return true;
   }
+}
+type UserFeatures = { gmail: boolean; tv: boolean; link: boolean };
+function pickFeatures(u: any): UserFeatures {
+  return {
+    gmail: u?.feature_gmail !== false,
+    tv:    u?.feature_tv    !== false,
+    link:  u?.feature_link  === true,
+  };
+}
+async function loadLinkDefaults(supabase: any): Promise<{ ttl_minutes: number; max_active_per_user: number }> {
+  try {
+    const { data } = await supabase.from("app_settings").select("value").eq("key", "link_defaults").maybeSingle();
+    const v = data?.value || {};
+    return {
+      ttl_minutes: Math.max(1, Math.min(1440, Number(v.ttl_minutes) || 15)),
+      max_active_per_user: Math.max(1, Math.min(20, Number(v.max_active_per_user) || 3)),
+    };
+  } catch { return { ttl_minutes: 15, max_active_per_user: 3 }; }
 }
 function publicVpsConfig(value: any) {
   const v = value && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -2381,7 +2399,7 @@ Deno.serve(async (originalReq) => {
       await requireAdmin(req);
       const { data, error } = await supabase
         .from("app_users")
-        .select("id, username, name, role, assigned_accounts, profile_prefs, session_limit, is_free, pinned, sort_order, expires_at, auto_delete, tv_override")
+        .select("id, username, name, role, assigned_accounts, profile_prefs, session_limit, is_free, pinned, sort_order, expires_at, auto_delete, tv_override, feature_gmail, feature_tv, feature_link")
         .order("pinned", { ascending: false })
         .order("sort_order", { ascending: true, nullsFirst: false })
         .order("created_at", { ascending: true });
@@ -2400,6 +2418,7 @@ Deno.serve(async (originalReq) => {
         expiresAt: u.expires_at || null,
         autoDelete: u.auto_delete !== false,
         tvOverride: u.tv_override === "on" || u.tv_override === "off" ? u.tv_override : null,
+        features: pickFeatures(u),
       }));
       return new Response(JSON.stringify({ success: true, users: mappedData }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -3250,6 +3269,12 @@ Deno.serve(async (originalReq) => {
           patch.session_limit = n;
         }
       }
+      if (params?.features && typeof params.features === "object") {
+        const f = params.features as any;
+        if (typeof f.gmail === "boolean") patch.feature_gmail = f.gmail;
+        if (typeof f.tv === "boolean")    patch.feature_tv    = f.tv;
+        if (typeof f.link === "boolean")  patch.feature_link  = f.link;
+      }
       if (Object.keys(patch).length === 0) {
         return new Response(JSON.stringify({ success: true, noop: true }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -3712,7 +3737,7 @@ Deno.serve(async (originalReq) => {
       const session = await requireSession(req);
       const { data: user, error } = await supabase
         .from("app_users")
-        .select("id, username, name, role, must_change_password, assigned_accounts, profile_prefs, is_free, expires_at, auto_delete, tv_override")
+        .select("id, username, name, role, must_change_password, assigned_accounts, profile_prefs, is_free, expires_at, auto_delete, tv_override, feature_gmail, feature_tv, feature_link")
         .eq("id", session.userId)
         .single();
       if (error || !user) throw new Error("Account not found");
@@ -3733,6 +3758,7 @@ Deno.serve(async (originalReq) => {
           locationRequired: isProfileLocationRequired(user, await loadGlobalLocationRequired(supabase)),
           tvOverride: user.tv_override === "on" || user.tv_override === "off" ? user.tv_override : null,
           tvFeatureEnabled: await loadTvFeatureEnabled(supabase),
+          features: pickFeatures(user),
           impersonated: session.impersonated === true,
           adminId: session.impersonated === true ? (session.adminId || null) : null,
         },
@@ -3761,10 +3787,13 @@ Deno.serve(async (originalReq) => {
 
       const { data: u, error: uErr } = await supabase
         .from("app_users")
-        .select("assigned_accounts, role, is_free")
+        .select("assigned_accounts, role, is_free, feature_gmail")
         .eq("id", session.userId)
         .single();
       if (uErr || !u) throw new Error("User not found");
+      if (u.role !== "admin" && u.feature_gmail === false) {
+        return new Response(JSON.stringify({ success: true, emails: [], deleted_ids: [], next_since: cursor, feature_disabled: "gmail" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
 
       const isAdmin = u.role === "admin";
       const labels: string[] | null = Array.isArray(u.assigned_accounts) && u.assigned_accounts.length > 0
@@ -4980,14 +5009,193 @@ Deno.serve(async (originalReq) => {
       return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    if (action === "link_list_accounts" || action === "link_generate" || action === "link_list" || action === "link_revoke" || action === "link_extend") {
+      const session = await requireSession(req);
+      const { data: user } = await supabase
+        .from("app_users")
+        .select("id, username, name, assigned_accounts, feature_link, role")
+        .eq("id", session.userId)
+        .maybeSingle();
+      if (!user) throw new Error("User not found");
+      if (user.role !== "admin" && user.feature_link !== true) {
+        throw new Error("Direct Link isn't enabled for your account.");
+      }
+
+      // --- Shared: resolve candidate accounts w/ cookies ---
+      const { data: settingsRows } = await supabase.from("app_settings").select("key,value").in("key", ["config", "email_accounts", "link_defaults"]);
+      const settings = new Map((settingsRows || []).map((r: any) => [String(r.key), r.value]));
+      const cfg = settings.get("config") || {};
+      const primaryUser = String(cfg?.IMAP_USER || "").trim().toLowerCase();
+      const primaryAccount = primaryUser
+        ? [{ label: "Primary", user: primaryUser, host: cfg?.IMAP_HOST || "", recipientFilters: normalizeRecipientFilters(cfg?.IMAP_RECIPIENT_FILTERS || cfg?.recipientFilters) }]
+        : [];
+      const allAccounts: any[] = [...primaryAccount, ...(Array.isArray(settings.get("email_accounts")) ? settings.get("email_accounts") : [])];
+      const candidates = resolveTvAccountCandidates(allAccounts, user.assigned_accounts);
+      const lookupKeys = Array.from(new Set(candidates.map((c) => c.login_email))).filter(Boolean);
+      const cookieMap = new Map<string, string>();
+      if (lookupKeys.length > 0) {
+        const { data: cookieRows } = await supabase.from("imap_cookies").select("imap_user, content, count").in("imap_user", lookupKeys);
+        for (const row of cookieRows || []) {
+          const has = Number((row as any).count) > 0 || (!!(row as any).content && String((row as any).content).length > 0);
+          if (has) cookieMap.set(String((row as any).imap_user).toLowerCase(), String((row as any).content || ""));
+        }
+      }
+      const eligible = candidates.filter((c) => cookieMap.has(c.login_email));
+
+      if (action === "link_list_accounts") {
+        return new Response(JSON.stringify({
+          success: true,
+          accounts: eligible.map((c) => ({
+            account_key: c.account_key,
+            login_email: c.login_email,
+            login_email_masked: maskTvEmail(c.login_email),
+            label: c.label,
+          })),
+          not_configured: eligible.length === 0,
+          message: eligible.length === 0 ? "Admin hasn't set up Direct Link for your Netflix account yet." : undefined,
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      if (action === "link_list") {
+        const { data: rows } = await supabase
+          .from("nftoken_links")
+          .select("id, account_key, login_email, link_url, expires_at, created_at, revoked_at, status")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false })
+          .limit(20);
+        return new Response(JSON.stringify({
+          success: true,
+          links: (rows || []).map((r: any) => ({
+            ...r,
+            login_email_masked: maskTvEmail(r.login_email || ""),
+          })),
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      if (action === "link_revoke") {
+        const linkId = String((params || {}).id || "").trim();
+        if (!linkId) throw new Error("Link id required");
+        const { error } = await supabase.from("nftoken_links").update({ revoked_at: new Date().toISOString(), status: "revoked" }).eq("id", linkId).eq("user_id", user.id);
+        if (error) throw error;
+        return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      if (action === "link_extend") {
+        const linkId = String((params || {}).id || "").trim();
+        if (!linkId) throw new Error("Link id required");
+        const defaults = await loadLinkDefaults(supabase);
+        const newExp = new Date(Date.now() + defaults.ttl_minutes * 60_000).toISOString();
+        const { error } = await supabase.from("nftoken_links").update({ expires_at: newExp, status: "active", revoked_at: null }).eq("id", linkId).eq("user_id", user.id);
+        if (error) throw error;
+        return new Response(JSON.stringify({ success: true, expires_at: newExp }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // link_generate
+      const accountKey = String((params || {}).account_key || "").trim();
+      const match = eligible.find((c) => c.account_key === accountKey) || eligible[0];
+      if (!match) throw new Error("No configured Netflix account is available for a Direct Link.");
+      const cookieContent = cookieMap.get(match.login_email) || "";
+      if (!cookieContent) throw new Error("Cookies missing for the selected account.");
+
+      // Extract NetflixId cookie
+      let netflixId = "";
+      try {
+        const trimmed = cookieContent.trim();
+        if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
+          const arr = JSON.parse(trimmed);
+          const list = Array.isArray(arr) ? arr : (arr.cookies || []);
+          const n = list.find((c: any) => c && c.name === "NetflixId");
+          netflixId = n ? String(n.value || "") : "";
+        } else if (/\t/.test(trimmed)) {
+          for (const line of trimmed.split(/\r?\n/)) {
+            if (!line || line.startsWith("#")) continue;
+            const parts = line.split("\t");
+            if (parts.length >= 7 && parts[5] === "NetflixId") { netflixId = parts[6]; break; }
+          }
+        } else {
+          const m = /(?:^|;\s*)NetflixId=([^;]+)/.exec(trimmed);
+          netflixId = m ? m[1] : "";
+        }
+      } catch { netflixId = ""; }
+      if (!netflixId) throw new Error("Stored cookies don't include a NetflixId session.");
+
+      // Mint nftoken via Netflix iOS Argo API (direct fetch from edge; VPS not required)
+      let nftoken = "";
+      try {
+        const url = "https://ios.prod.ftl.netflix.com/iosui/user/15.48?path=%5B%22account%22%2C%22token%22%2C%22default%22%5D&method=call&responseFormat=hierarchical";
+        const nfRes = await fetch(url, {
+          method: "GET",
+          headers: {
+            "User-Agent": "Argo/15.48.1 (iPhone; iOS 15.8.5; Scale/2.00)",
+            "Accept": "application/json",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Cookie": `NetflixId=${netflixId}`,
+          },
+          signal: AbortSignal.timeout(6000),
+        });
+        const body = await nfRes.json().catch(() => ({}));
+        nftoken = String(body?.account?.token?.default?.token || body?.value?.account?.token?.default?.token || "");
+      } catch (e) {
+        console.error("nftoken mint failed", e);
+      }
+      if (!nftoken) throw new Error("Netflix rejected the stored session. Cookies may be expired.");
+
+      const defaults = await loadLinkDefaults(supabase);
+      const expiresAt = new Date(Date.now() + defaults.ttl_minutes * 60_000).toISOString();
+      const linkUrl = `https://www.netflix.com/?nftoken=${encodeURIComponent(nftoken)}`;
+      const { data: inserted, error: insErr } = await supabase.from("nftoken_links").insert({
+        user_id: user.id,
+        account_key: match.account_key,
+        login_email: match.login_email,
+        link_url: linkUrl,
+        expires_at: expiresAt,
+        status: "active",
+      }).select("id, created_at, expires_at").maybeSingle();
+      if (insErr) throw insErr;
+
+      // Admin Telegram notification (fire-and-forget)
+      try {
+        const botToken = Deno.env.get("TELEGRAM_BOT_TOKEN");
+        const chatId = Deno.env.get("TELEGRAM_CHAT_ID");
+        if (botToken && chatId) {
+          const istFmt = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" });
+          const text = [
+            "🔗 <b>Direct Link generated</b>",
+            `User: <b>${user.name || user.username}</b> (${user.username})`,
+            `Account: <code>${match.login_email}</code>`,
+            `Expires (IST): <b>${istFmt.format(new Date(expiresAt))}</b>`,
+          ].join("\n");
+          fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML", disable_web_page_preview: true }),
+          }).catch(() => {});
+        }
+      } catch {}
+
+      return new Response(JSON.stringify({
+        success: true,
+        link: {
+          id: inserted?.id,
+          link_url: linkUrl,
+          expires_at: expiresAt,
+          login_email_masked: maskTvEmail(match.login_email),
+          account_key: match.account_key,
+        },
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     if (action === "tv_list_accounts") {
       const session = await requireSession(req);
       const { data: user } = await supabase
         .from("app_users")
-        .select("id, assigned_accounts")
+        .select("id, assigned_accounts, feature_tv, role")
         .eq("id", session.userId)
         .maybeSingle();
       if (!user) throw new Error("User not found");
+      if (user.role !== "admin" && user.feature_tv === false) {
+        return new Response(JSON.stringify({ success: true, accounts: [], not_configured: true, message: "TV login isn't enabled for your account." }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
       const { data: settingsRows } = await supabase
         .from("app_settings")
         .select("key,value")
@@ -5063,9 +5271,12 @@ Deno.serve(async (originalReq) => {
 
       const { data: user } = await supabase
         .from("app_users")
-        .select("id, username, name, assigned_accounts")
+        .select("id, username, name, assigned_accounts, feature_tv, role")
         .eq("id", session.userId)
         .maybeSingle();
+      if (user && user.role !== "admin" && user.feature_tv === false) {
+        throw new Error("TV login isn't enabled for your account.");
+      }
       if (!user) throw new Error("User not found");
 
       // Resolve the user's linked IMAP accounts, including the configured

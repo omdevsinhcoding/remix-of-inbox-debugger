@@ -1,11 +1,12 @@
 import React, { useState, useEffect, createContext, useContext, useCallback, useRef, useMemo, Suspense, lazy } from "react";
 import { createPortal } from "react-dom";
-import { Mail, RefreshCw, ShieldCheck, Shield, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, Globe, Edit, Info, UserCircle, Search, ChevronRight, Bell, Send, MessageSquare, Image as ImageIcon, ExternalLink, AlertTriangle, Sparkles, Megaphone, Wrench, CreditCard, Tag, ChevronDown, ChevronUp, HardDrive, Upload, Zap, BookOpen, GraduationCap, Film, PlayCircle, Pin, MapPin, MapPinOff, Tv, Loader2, Download, ClipboardPaste } from "lucide-react";
+import { Mail, RefreshCw, ShieldCheck, Shield, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, Globe, Edit, Info, UserCircle, Search, ChevronRight, Bell, Send, MessageSquare, Image as ImageIcon, ExternalLink, AlertTriangle, Sparkles, Megaphone, Wrench, CreditCard, Tag, ChevronDown, ChevronUp, HardDrive, Upload, Zap, BookOpen, GraduationCap, Film, PlayCircle, Pin, MapPin, MapPinOff, Tv, Loader2, Download, ClipboardPaste, Link as LinkIcon } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import NetflixHouseholdVerificationGuide from "./pages/NetflixHouseholdVerificationGuide";
 import { notify } from "./components/toast/notify";
 import { ToastProvider } from "./components/toast/toast-provider";
+import { WorkflowChooser, ViewSwitcher, DirectLinkView, TvOnlyView, useWorkflowView, resolveFeatures, countEnabled } from "./components/WorkflowViews";
 
 import { supabase } from "./integrations/supabase/client";
 import { AVATAR_CATEGORIES, resolveAvatar, buildAvatarId, prettyName, getAvatarCategoryUrls } from "./lib/avatars";
@@ -7319,6 +7320,21 @@ function AdminPanel() {
     await setProfileTvOverride(u, next);
   };
 
+  const toggleUserFeature = async (u: UserData, key: "gmail" | "tv" | "link") => {
+    const cur = (u as any).features || { gmail: true, tv: true, link: false };
+    const nextVal = key === "link" ? !(cur[key] === true) : !(cur[key] !== false);
+    const nextFeatures = { ...cur, [key]: nextVal };
+    setUsers((prev) => prev.map((x) => x.id === u.id ? ({ ...x, features: nextFeatures } as any) : x));
+    try {
+      await apiCall("manage-app", { action: "update_user", id: u.id, features: { [key]: nextVal } });
+      notify.success(`${key === "gmail" ? "Gmail" : key === "tv" ? "TV" : "Direct Link"} ${nextVal ? "enabled" : "disabled"}`);
+    } catch (err) {
+      setUsers((prev) => prev.map((x) => x.id === u.id ? ({ ...x, features: cur } as any) : x));
+      notify.error(err instanceof Error ? err.message : "Failed to update feature");
+    }
+  };
+
+
   const reloadAdminNotifs = async () => {
     try {
       const nl = await apiCall("manage-app", { action: "admin_list_notifications" });
@@ -8027,6 +8043,24 @@ function AdminPanel() {
                                   <Tv className="w-2.5 h-2.5" /> {label}
                                 </button>
                               );
+                            })()}
+                            {u.role !== "admin" && (() => {
+                              const f = (u as any).features || { gmail: true, tv: true, link: false };
+                              const pill = (key: "gmail" | "link", label: string, Icon: any, onCls: string, offCls: string) => {
+                                const on = key === "link" ? f[key] === true : f[key] !== false;
+                                return (
+                                  <button key={key} type="button"
+                                    onClick={(e) => { e.stopPropagation(); toggleUserFeature(u, key); }}
+                                    title={`${label} workflow — tap to ${on ? "disable" : "enable"}`}
+                                    className={`inline-flex items-center gap-1 text-[9px] font-black px-1.5 py-0.5 rounded border transition-all active:scale-95 ${on ? onCls : `${offCls} line-through`}`}>
+                                    <Icon className="w-2.5 h-2.5" /> {label}
+                                  </button>
+                                );
+                              };
+                              return <>
+                                {pill("gmail", "GMAIL", Mail, "bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100", "bg-slate-100 text-slate-400 border-slate-200 hover:bg-slate-200")}
+                                {pill("link", "LINK", LinkIcon, "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100", "bg-slate-100 text-slate-400 border-slate-200 hover:bg-slate-200")}
+                              </>;
                             })()}
                             {u.assignedAccounts && u.assignedAccounts.length > 0 && u.assignedAccounts.map((a: string) => (
                               <span key={a} className="bg-blue-50 text-blue-700 border border-blue-200 text-[10px] px-1.5 py-0.5 rounded font-bold font-mono">{a}</span>
@@ -11352,6 +11386,16 @@ function EmailViewer() {
     return tvGlobalOn;
   }, [viewerTvOverride, tvGlobalOn]);
 
+  // Per-user feature flags (Gmail / TV / Direct Link). Admin-controlled.
+  const userFeatures = useMemo(() => {
+    const f = resolveFeatures(user);
+    // Respect existing tvVisible layering (global switch + per-user override)
+    return { ...f, tv: f.tv && tvVisible };
+  }, [user, tvVisible]);
+  const { view: workflowView, setChoice: setWorkflowView } = useWorkflowView(user, userFeatures);
+  const [tvModalTrigger, setTvModalTrigger] = useState(0);
+
+
 
   const [refreshing, setRefreshing] = useState(false);
   const refreshingRef = useRef(false);
@@ -12050,6 +12094,11 @@ function EmailViewer() {
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
       <h1 className="sr-only">Email Inbox — Netflix Mail</h1>
+      <AnimatePresence>
+        {workflowView === null && countEnabled(userFeatures) > 1 && (
+          <WorkflowChooser features={userFeatures} onPick={setWorkflowView} />
+        )}
+      </AnimatePresence>
       {showChangePassword && (
         <ChangePasswordModal user={user} onDone={() => setShowChangePassword(false)} forced={forcedPasswordChange && showChangePassword} />
       )}
@@ -12201,7 +12250,8 @@ function EmailViewer() {
                 Admin
               </button>
             )}
-            <TvAutoLoginButton visible={tvVisible} />
+            <ViewSwitcher features={userFeatures} view={workflowView} onChange={setWorkflowView} />
+            <TvAutoLoginButton visible={tvVisible && userFeatures.tv} />
             <NotificationBell />
             <button
               onClick={() => fetchEmails()}
@@ -12267,7 +12317,8 @@ function EmailViewer() {
                 Back to Admin
               </button>
             )}
-            <TvAutoLoginButton visible={tvVisible} />
+            <ViewSwitcher features={userFeatures} view={workflowView} onChange={setWorkflowView} />
+            <TvAutoLoginButton visible={tvVisible && userFeatures.tv} />
             <NotificationBell />
             <button onClick={() => fetchEmails()}
               disabled={refreshing}
@@ -12306,6 +12357,11 @@ function EmailViewer() {
       </header>
 
 
+      {workflowView === "link" && userFeatures.link ? (
+        <main className="max-w-6xl mx-auto"><DirectLinkView apiCall={apiCall} notify={notify} /></main>
+      ) : workflowView === "tv" && !userFeatures.gmail ? (
+        <main className="max-w-6xl mx-auto"><TvOnlyView onEnter={() => window.dispatchEvent(new CustomEvent("tv:open"))} /></main>
+      ) : (
       <main className="max-w-6xl mx-auto px-2 sm:px-4 h-[calc(100vh-3.5rem)] sm:h-[calc(100vh-4rem)] overflow-hidden">
         <div className="grid grid-cols-1 md:grid-cols-12 gap-4 sm:gap-8 h-full py-2 sm:py-4">
           <div className={`${selectedEmail ? "hidden md:block" : "block"} md:col-span-5 xl:col-span-4 flex flex-col overflow-hidden h-full`}>
@@ -12450,6 +12506,8 @@ function EmailViewer() {
           </div>
         </div>
       </main>
+      )}
+
 
       {/* ============ CHANGE PASSWORD MODAL ============ */}
       <AnimatePresence>
