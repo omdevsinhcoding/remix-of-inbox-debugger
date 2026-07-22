@@ -3787,10 +3787,13 @@ Deno.serve(async (originalReq) => {
 
       const { data: u, error: uErr } = await supabase
         .from("app_users")
-        .select("assigned_accounts, role, is_free")
+        .select("assigned_accounts, role, is_free, feature_gmail")
         .eq("id", session.userId)
         .single();
       if (uErr || !u) throw new Error("User not found");
+      if (u.role !== "admin" && u.feature_gmail === false) {
+        return new Response(JSON.stringify({ success: true, emails: [], deleted_ids: [], next_since: cursor, feature_disabled: "gmail" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
 
       const isAdmin = u.role === "admin";
       const labels: string[] | null = Array.isArray(u.assigned_accounts) && u.assigned_accounts.length > 0
