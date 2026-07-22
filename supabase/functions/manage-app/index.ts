@@ -5112,6 +5112,7 @@ Deno.serve(async (originalReq) => {
         candidateCount: candidates.length,
         matchedLabel: matched?.label || null,
         matchedLoginEmail: matched?.login_email || null,
+        parentImapUser: matched?.imap_user || null,
         source: "viewer_tv_button",
       };
       const status = cookiesAvailable ? "in_progress" : "no_cookies";
@@ -5121,7 +5122,11 @@ Deno.serve(async (originalReq) => {
         .insert({
           user_id: user.id,
           username: user.username,
-          imap_user: matched?.imap_user || null,
+          // Bind the event to the FILTER's login_email (the cookie key), not
+          // the parent IMAP user. This guarantees the runner will only ever
+          // load cookies configured for THIS specific filter — never the
+          // primary account's cookies.
+          imap_user: matched?.login_email || null,
           account_label: matched?.label || null,
           code,
           status,
@@ -5134,7 +5139,8 @@ Deno.serve(async (originalReq) => {
         .single();
       if (insErr) throw new Error(insErr.message);
 
-      await auditLog(supabase, "tv_code_submitted", user.id, user.id, { code_last4: code.slice(-4), imap_user: matched?.imap_user || null, cookies_available: cookiesAvailable }, ip);
+      await auditLog(supabase, "tv_code_submitted", user.id, user.id, { code_last4: code.slice(-4), imap_user: matched?.login_email || null, parent_imap: matched?.imap_user || null, cookies_available: cookiesAvailable }, ip);
+
 
       // Fire-and-forget to a warm VPS runner (only when cookies are ready).
       // GitHub Actions is intentionally NOT used here: runner allocation/queueing
