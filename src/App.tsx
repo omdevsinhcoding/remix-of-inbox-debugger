@@ -12253,6 +12253,7 @@ function EmailViewer() {
             <ViewSwitcher features={userFeatures} view={workflowView} onChange={setWorkflowView} />
             <TvAutoLoginButton visible={tvVisible && userFeatures.tv} />
             <NotificationBell />
+            {workflowView === "gmail" && (
             <button
               onClick={() => fetchEmails()}
               disabled={refreshing}
@@ -12262,6 +12263,7 @@ function EmailViewer() {
             >
               <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`} />
             </button>
+            )}
             {canChangePassword && (
               <button
                 onClick={() => setShowChangePwd(true)}
