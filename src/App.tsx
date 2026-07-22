@@ -12322,12 +12322,14 @@ function EmailViewer() {
             <ViewSwitcher features={userFeatures} view={workflowView} onChange={setWorkflowView} />
             <TvAutoLoginButton visible={tvVisible && userFeatures.tv} />
             <NotificationBell />
+            {workflowView === "gmail" && (
             <button onClick={() => fetchEmails()}
               disabled={refreshing}
               className="flex items-center px-4 py-2 bg-slate-900 text-white rounded-full text-sm font-bold hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-60">
               <RefreshCw className={`w-5 h-5 ${refreshing ? "animate-spin" : ""}`} />
               <span className="ml-1.5">Refresh</span>
             </button>
+            )}
             <button onClick={() => setShowProfile(true)}
               className="flex items-center px-3 py-2 bg-gradient-to-r from-violet-500 to-purple-600 text-white rounded-full text-sm font-bold hover:from-violet-600 hover:to-purple-700 transition-all active:scale-95 shadow-md shadow-purple-200"
               title="Profile">
