@@ -11911,6 +11911,10 @@ function EmailViewer() {
     [refreshAccountLabels],
   );
   useEffect(() => {
+    // Hard-gate: no Gmail/IMAP work unless the user is in the Gmail workflow.
+    // TV and Direct-Link views must never trigger list_delta, IDB paint,
+    // worker refresh, or any fetch-emails call.
+    if (workflowView !== "gmail") return;
     const runKey = `${user?.id || ""}:${instantInboxAccountKey}`;
     if (instantInboxRunKeyRef.current === runKey) return;
     if (!user?.id) return;
@@ -12003,7 +12007,7 @@ function EmailViewer() {
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, instantInboxAccountKey, markInboxReady]);
+  }, [user?.id, instantInboxAccountKey, markInboxReady, workflowView]);
 
 
   // Wrap email selection so full HTML is lazy-fetched on first click.
@@ -12253,6 +12257,7 @@ function EmailViewer() {
             <ViewSwitcher features={userFeatures} view={workflowView} onChange={setWorkflowView} />
             <TvAutoLoginButton visible={tvVisible && userFeatures.tv} />
             <NotificationBell />
+            {workflowView === "gmail" && (
             <button
               onClick={() => fetchEmails()}
               disabled={refreshing}
@@ -12262,6 +12267,7 @@ function EmailViewer() {
             >
               <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`} />
             </button>
+            )}
             {canChangePassword && (
               <button
                 onClick={() => setShowChangePwd(true)}
@@ -12320,12 +12326,14 @@ function EmailViewer() {
             <ViewSwitcher features={userFeatures} view={workflowView} onChange={setWorkflowView} />
             <TvAutoLoginButton visible={tvVisible && userFeatures.tv} />
             <NotificationBell />
+            {workflowView === "gmail" && (
             <button onClick={() => fetchEmails()}
               disabled={refreshing}
               className="flex items-center px-4 py-2 bg-slate-900 text-white rounded-full text-sm font-bold hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-60">
               <RefreshCw className={`w-5 h-5 ${refreshing ? "animate-spin" : ""}`} />
               <span className="ml-1.5">Refresh</span>
             </button>
+            )}
             <button onClick={() => setShowProfile(true)}
               className="flex items-center px-3 py-2 bg-gradient-to-r from-violet-500 to-purple-600 text-white rounded-full text-sm font-bold hover:from-violet-600 hover:to-purple-700 transition-all active:scale-95 shadow-md shadow-purple-200"
               title="Profile">
@@ -12359,7 +12367,7 @@ function EmailViewer() {
 
       {workflowView === "link" && userFeatures.link ? (
         <main className="max-w-6xl mx-auto"><DirectLinkView apiCall={apiCall} notify={notify} /></main>
-      ) : workflowView === "tv" && !userFeatures.gmail ? (
+      ) : workflowView === "tv" ? (
         <main className="max-w-6xl mx-auto"><TvOnlyView onEnter={() => window.dispatchEvent(new CustomEvent("tv:open"))} /></main>
       ) : (
       <main className="max-w-6xl mx-auto px-2 sm:px-4 h-[calc(100vh-3.5rem)] sm:h-[calc(100vh-4rem)] overflow-hidden">
