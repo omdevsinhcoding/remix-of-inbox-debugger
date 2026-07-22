@@ -8044,6 +8044,24 @@ function AdminPanel() {
                                 </button>
                               );
                             })()}
+                            {u.role !== "admin" && (() => {
+                              const f = (u as any).features || { gmail: true, tv: true, link: false };
+                              const pill = (key: "gmail" | "link", label: string, Icon: any, onCls: string, offCls: string) => {
+                                const on = key === "link" ? f[key] === true : f[key] !== false;
+                                return (
+                                  <button key={key} type="button"
+                                    onClick={(e) => { e.stopPropagation(); toggleUserFeature(u, key); }}
+                                    title={`${label} workflow — tap to ${on ? "disable" : "enable"}`}
+                                    className={`inline-flex items-center gap-1 text-[9px] font-black px-1.5 py-0.5 rounded border transition-all active:scale-95 ${on ? onCls : `${offCls} line-through`}`}>
+                                    <Icon className="w-2.5 h-2.5" /> {label}
+                                  </button>
+                                );
+                              };
+                              return <>
+                                {pill("gmail", "GMAIL", Mail, "bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100", "bg-slate-100 text-slate-400 border-slate-200 hover:bg-slate-200")}
+                                {pill("link", "LINK", LinkIcon, "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100", "bg-slate-100 text-slate-400 border-slate-200 hover:bg-slate-200")}
+                              </>;
+                            })()}
                             {u.assignedAccounts && u.assignedAccounts.length > 0 && u.assignedAccounts.map((a: string) => (
                               <span key={a} className="bg-blue-50 text-blue-700 border border-blue-200 text-[10px] px-1.5 py-0.5 rounded font-bold font-mono">{a}</span>
                             ))}
