@@ -3269,6 +3269,12 @@ Deno.serve(async (originalReq) => {
           patch.session_limit = n;
         }
       }
+      if (params?.features && typeof params.features === "object") {
+        const f = params.features as any;
+        if (typeof f.gmail === "boolean") patch.feature_gmail = f.gmail;
+        if (typeof f.tv === "boolean")    patch.feature_tv    = f.tv;
+        if (typeof f.link === "boolean")  patch.feature_link  = f.link;
+      }
       if (Object.keys(patch).length === 0) {
         return new Response(JSON.stringify({ success: true, noop: true }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
