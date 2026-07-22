@@ -11911,6 +11911,10 @@ function EmailViewer() {
     [refreshAccountLabels],
   );
   useEffect(() => {
+    // Hard-gate: no Gmail/IMAP work unless the user is in the Gmail workflow.
+    // TV and Direct-Link views must never trigger list_delta, IDB paint,
+    // worker refresh, or any fetch-emails call.
+    if (workflowView !== "gmail") return;
     const runKey = `${user?.id || ""}:${instantInboxAccountKey}`;
     if (instantInboxRunKeyRef.current === runKey) return;
     if (!user?.id) return;
