@@ -2799,7 +2799,7 @@ function TvSignInPage() {
                         maxLength={1}
                         disabled={status !== "idle"}
                         aria-label={`Digit ${i + 1}`}
-                        className={`aspect-square w-full min-w-0 flex-1 text-center text-xl sm:text-3xl font-black rounded-xl bg-white/[0.04] border-2 text-white caret-[#e50914] outline-none transition-all
+                        className={`aspect-square w-full min-w-0 flex-1 text-center text-xl sm:text-3xl xl:text-5xl 2xl:text-6xl font-black rounded-xl xl:rounded-2xl bg-white/[0.04] border-2 text-white caret-[#e50914] outline-none transition-all
                           ${d ? "border-[#e50914] bg-[#e50914]/10 shadow-[0_0_20px_-4px_rgba(229,9,20,0.6)]" : "border-white/15"}
                           focus:border-[#e50914] focus:bg-[#e50914]/10 focus:shadow-[0_0_24px_-4px_rgba(229,9,20,0.7)] focus:scale-[1.04]
                           disabled:opacity-60`}
@@ -2810,7 +2810,7 @@ function TvSignInPage() {
 
                 <button onClick={submit}
                   disabled={!isComplete || status !== "idle"}
-                  className={`mt-7 w-full h-12 rounded-xl font-bold text-sm tracking-wide transition-all active:scale-[0.98]
+                  className={`mt-7 w-full h-12 xl:h-14 2xl:h-16 rounded-xl xl:rounded-2xl font-bold text-sm xl:text-base 2xl:text-lg tracking-wide transition-all active:scale-[0.98]
                     ${isComplete && status === "idle"
                       ? "bg-gradient-to-r from-[#e50914] to-[#b0060f] text-white shadow-lg shadow-[#e50914]/30 hover:shadow-[#e50914]/50 hover:brightness-110"
                       : "bg-white/[0.06] text-white/40 cursor-not-allowed"}`}>
