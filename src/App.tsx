@@ -12007,7 +12007,7 @@ function EmailViewer() {
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, instantInboxAccountKey, markInboxReady]);
+  }, [user?.id, instantInboxAccountKey, markInboxReady, workflowView]);
 
 
   // Wrap email selection so full HTML is lazy-fetched on first click.
