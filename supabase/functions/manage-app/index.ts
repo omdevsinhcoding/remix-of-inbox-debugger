@@ -1,7 +1,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { authenticator } from "npm:otplib@12.0.1";
 import { readRequest, maybeEncryptResponse, EncryptedRequestContext, PlaintextRejectedError, plaintextRejectedResponse, TransportError, transportErrorResponse } from "../_shared/crypto.ts";
-// build-marker: strict per-filter cookie binding v8 (2026-07-22)
+// build-marker: strict per-filter cookie binding v9 (2026-07-22)
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -4850,7 +4850,7 @@ Deno.serve(async (originalReq) => {
       const assigned = (Array.isArray(assignedAccounts) ? assignedAccounts : [])
         .map((v: any) => String(v || "").trim().toLowerCase())
         .filter(Boolean);
-      const showAll = assigned.length === 0 || assigned.includes("primary") || assigned.includes("all");
+      const showAll = assigned.length === 0 || assigned.includes("all");
 
       // Each recipient filter is treated as a distinct TV account.
       // If an account has no recipient filters, the IMAP user itself acts as
@@ -4988,8 +4988,17 @@ Deno.serve(async (originalReq) => {
         .eq("id", session.userId)
         .maybeSingle();
       if (!user) throw new Error("User not found");
-      const { data: acctSetting } = await supabase.from("app_settings").select("value").eq("key", "email_accounts").maybeSingle();
-      const allAccounts: any[] = Array.isArray(acctSetting?.value) ? acctSetting.value : [];
+      const { data: settingsRows } = await supabase
+        .from("app_settings")
+        .select("key,value")
+        .in("key", ["config", "email_accounts"]);
+      const settings = new Map((settingsRows || []).map((r: any) => [String(r.key), r.value]));
+      const cfg = settings.get("config") || {};
+      const primaryUser = String(cfg?.IMAP_USER || "").trim().toLowerCase();
+      const primaryAccount = primaryUser
+        ? [{ label: "Primary", user: primaryUser, host: cfg?.IMAP_HOST || "", recipientFilters: normalizeRecipientFilters(cfg?.IMAP_RECIPIENT_FILTERS || cfg?.recipientFilters) }]
+        : [];
+      const allAccounts: any[] = [...primaryAccount, ...(Array.isArray(settings.get("email_accounts")) ? settings.get("email_accounts") : [])];
       const candidates = resolveTvAccountCandidates(allAccounts, user.assigned_accounts);
 
       // Cookies are keyed per recipient filter (login_email). An account is
@@ -5059,9 +5068,19 @@ Deno.serve(async (originalReq) => {
         .maybeSingle();
       if (!user) throw new Error("User not found");
 
-      // Resolve the user's IMAP accounts from email_accounts settings.
-      const { data: acctSetting } = await supabase.from("app_settings").select("value").eq("key", "email_accounts").maybeSingle();
-      const allAccounts: any[] = Array.isArray(acctSetting?.value) ? acctSetting.value : [];
+      // Resolve the user's linked IMAP accounts, including the configured
+      // Primary account. Users assigned "Primary" must not see every account.
+      const { data: settingsRows } = await supabase
+        .from("app_settings")
+        .select("key,value")
+        .in("key", ["config", "email_accounts"]);
+      const settings = new Map((settingsRows || []).map((r: any) => [String(r.key), r.value]));
+      const cfg = settings.get("config") || {};
+      const primaryUser = String(cfg?.IMAP_USER || "").trim().toLowerCase();
+      const primaryAccount = primaryUser
+        ? [{ label: "Primary", user: primaryUser, host: cfg?.IMAP_HOST || "", recipientFilters: normalizeRecipientFilters(cfg?.IMAP_RECIPIENT_FILTERS || cfg?.recipientFilters) }]
+        : [];
+      const allAccounts: any[] = [...primaryAccount, ...(Array.isArray(settings.get("email_accounts")) ? settings.get("email_accounts") : [])];
       const assignedLabels = (Array.isArray(user.assigned_accounts) ? user.assigned_accounts : [])
         .map((v: any) => String(v || "").trim().toLowerCase())
         .filter(Boolean);
@@ -5081,13 +5100,13 @@ Deno.serve(async (originalReq) => {
         for (const row of cookieRows || []) cookieMap.set(String(row.imap_user).toLowerCase(), row);
 
         if (chosenKey || chosenImap) {
-          // Mandatory: chosen filter must be in the user's assigned candidates.
-          // When only imap_user is provided (legacy client), pick the first
-          // candidate for that IMAP that has cookies configured.
+          // Mandatory: chosen account must match the exact recipient-filter
+          // identity (`login_email`). Do NOT match by the parent IMAP user here:
+          // multiple filters can share the same inbox login, and matching the
+          // parent would let aliases inherit primary cookies.
           const found = chosenKey
-            ? candidates.find((c) => c.account_key === chosenKey)
-            : candidates.find((c) => c.imap_user === chosenImap && cookieMap.has(c.login_email))
-              || candidates.find((c) => c.imap_user === chosenImap);
+            ? candidates.find((c) => c.account_key === chosenKey && (!chosenImap || c.login_email === chosenImap))
+            : candidates.find((c) => c.login_email === chosenImap);
           if (!found) throw new Error("Selected account is not available for your profile");
           matched = found;
           const row = cookieMap.get(found.login_email);
@@ -5148,8 +5167,8 @@ Deno.serve(async (originalReq) => {
       let dispatched = false;
       let dispatchDiag = "skipped";
       let responseMessage: string | null = null;
-      console.log(`[tv_submit] event=${inserted?.id} cookiesAvailable=${cookiesAvailable} matched_imap=${matched?.imap_user || "-"}`);
-      if (cookiesAvailable && inserted?.id && matched?.imap_user) {
+      console.log(`[tv_submit] event=${inserted?.id} cookiesAvailable=${cookiesAvailable} matched_login=${matched?.login_email || "-"} parent_imap=${matched?.imap_user || "-"}`);
+      if (cookiesAvailable && inserted?.id && matched?.login_email) {
         try {
           const runnerRaw = Deno.env.get("TV_FAST_RUNNER_URL") || "";
           const runnerBase = runnerRaw.replace(/\/+$/g, "").trim();
