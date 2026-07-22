@@ -2666,83 +2666,82 @@ function TvSignInPage() {
   const terminal = ["invalid_code", "cookies_expired", "no_cookies", "error", "timeout"].includes(status);
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] px-3 sm:px-4 py-6 sm:py-10 xl:py-16 bg-gradient-to-b from-slate-50 via-white to-slate-50">
-      <div className="max-w-xl md:max-w-2xl xl:max-w-3xl 2xl:max-w-4xl mx-auto">
-        <div className="relative overflow-hidden rounded-3xl bg-gradient-to-b from-[#141414] via-[#1a0608] to-[#0a0a0a] border border-white/10 shadow-[0_25px_80px_-15px_rgba(229,9,20,0.35)]">
-          <div className="pointer-events-none absolute -top-24 -right-16 w-72 h-72 xl:w-[28rem] xl:h-[28rem] rounded-full bg-[#e50914]/25 blur-3xl" />
-          <div className="pointer-events-none absolute -bottom-32 -left-16 w-80 h-80 xl:w-[32rem] xl:h-[32rem] rounded-full bg-[#e50914]/10 blur-3xl" />
+    <div className="min-h-[calc(100vh-4rem)] px-3 sm:px-6 py-8 sm:py-12 xl:py-16 bg-gradient-to-b from-white via-rose-50/40 to-white">
+      <div className="max-w-2xl xl:max-w-4xl 2xl:max-w-5xl mx-auto">
+        {/* Hero */}
+        <div className="text-center mb-8 xl:mb-10">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-rose-50 border border-rose-100 text-[10px] xl:text-xs font-bold uppercase tracking-[0.22em] text-rose-600">
+            <Tv className="w-3 h-3" /> Netflix · TV Sign-in
+          </div>
+          <h1 className="mt-3 text-3xl sm:text-4xl xl:text-5xl 2xl:text-6xl font-black text-slate-900 tracking-tight">
+            {step === "select" ? "Choose your account" : "Enter the 8-digit code"}
+          </h1>
+          <p className="mt-2 text-sm xl:text-base 2xl:text-lg text-slate-500 max-w-xl mx-auto">
+            {step === "select"
+              ? "Pick the Netflix account you want to sign in on your TV. We'll handle the rest in under 10 seconds."
+              : "Type the code shown on your Netflix TV screen. We'll auto-sign in and confirm here."}
+          </p>
+          {/* Stepper */}
+          <div className="mt-5 inline-flex items-center gap-3 text-[11px] xl:text-xs font-bold uppercase tracking-widest">
+            <span className={`inline-flex items-center gap-1.5 ${step === "select" ? "text-rose-600" : "text-emerald-600"}`}>
+              <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] ${step === "select" ? "bg-rose-600 text-white" : "bg-emerald-500 text-white"}`}>1</span>
+              Account
+            </span>
+            <span className="w-10 h-px bg-slate-200" />
+            <span className={`inline-flex items-center gap-1.5 ${step === "code" ? "text-rose-600" : "text-slate-400"}`}>
+              <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] ${step === "code" ? "bg-rose-600 text-white" : "bg-slate-200 text-slate-500"}`}>2</span>
+              Code
+            </span>
+          </div>
+        </div>
 
-          <div className="relative p-6 sm:p-10 xl:p-14 2xl:p-16">
-            {/* Header */}
-            <div className="flex flex-col items-center text-center">
-              <div className="w-16 h-16 xl:w-20 xl:h-20 2xl:w-24 2xl:h-24 rounded-2xl flex items-center justify-center bg-gradient-to-br from-[#e50914] to-[#8b0610] shadow-lg shadow-[#e50914]/30 mb-4">
-                <Tv className="w-8 h-8 xl:w-10 xl:h-10 2xl:w-12 2xl:h-12 text-white" />
-              </div>
-              <div className="text-[10px] xl:text-xs 2xl:text-sm uppercase tracking-[0.24em] text-[#e50914] font-bold">Netflix • TV Sign-in</div>
-              <h1 className="mt-1.5 text-2xl sm:text-3xl xl:text-4xl 2xl:text-5xl font-black text-white tracking-tight">
-                {step === "select" ? "Choose your account" : "Enter your code"}
-              </h1>
-              <p className="mt-2 text-xs sm:text-[13px] xl:text-base 2xl:text-lg text-white/60 leading-relaxed max-w-sm xl:max-w-xl">
-                {step === "select"
-                  ? "Pick the Netflix account you want to sign in on your TV."
-                  : "Type the 8-digit code shown on your Netflix TV screen."}
-              </p>
-              <div className="mt-4 inline-flex items-center gap-2 text-[10px] text-white/40">
-                <span className={`inline-flex items-center gap-1.5 ${step === "select" ? "text-white" : ""}`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${step === "select" ? "bg-[#e50914]" : "bg-emerald-400"}`} />
-                  Account
-                </span>
-                <span className="w-5 h-px bg-white/15" />
-                <span className={`inline-flex items-center gap-1.5 ${step === "code" ? "text-white" : ""}`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${step === "code" ? "bg-[#e50914]" : "bg-white/20"}`} />
-                  Code
-                </span>
-              </div>
-            </div>
+        {/* Card */}
+        <div className="relative rounded-3xl bg-white border border-slate-200 shadow-[0_25px_60px_-25px_rgba(2,6,23,0.15)] overflow-hidden">
+          <div aria-hidden className="pointer-events-none absolute -top-24 -right-16 w-64 h-64 xl:w-96 xl:h-96 rounded-full bg-rose-500/[0.06] blur-3xl" />
+          <div aria-hidden className="pointer-events-none absolute -bottom-32 -left-16 w-72 h-72 xl:w-[26rem] xl:h-[26rem] rounded-full bg-rose-500/[0.04] blur-3xl" />
 
+          <div className="relative p-6 sm:p-10 xl:p-14">
             {step === "select" ? (
-              <div className="mt-6">
+              <div>
                 {accountsLoading ? (
-                  <div className="py-10 flex flex-col items-center justify-center gap-2 text-white/60">
-                    <Loader2 className="w-6 h-6 animate-spin" />
+                  <div className="py-12 flex flex-col items-center justify-center gap-2 text-slate-500">
+                    <Loader2 className="w-6 h-6 animate-spin text-rose-500" />
                     <div className="text-xs">Loading your accounts…</div>
                   </div>
                 ) : accountsError ? (
-                  <div className="rounded-xl bg-red-500/10 border border-red-500/30 px-4 py-3 text-center">
-                    <div className="text-xs font-bold text-red-300">Couldn't load accounts</div>
-                    <div className="text-[11px] text-red-200/80 mt-1">{accountsError}</div>
-                    <button onClick={() => loadAccounts()} className="mt-2 h-8 px-3 rounded-lg text-[11px] font-bold bg-white/10 text-white hover:bg-white/15">Retry</button>
+                  <div className="rounded-2xl bg-red-50 border border-red-200 px-4 py-4 text-center">
+                    <div className="text-xs font-bold text-red-700">Couldn't load accounts</div>
+                    <div className="text-[11px] text-red-600/80 mt-1">{accountsError}</div>
+                    <button onClick={() => loadAccounts()} className="mt-2 h-8 px-3 rounded-lg text-[11px] font-bold bg-red-600 text-white hover:bg-red-700">Retry</button>
                   </div>
                 ) : accounts.length === 0 ? (
-                  <div className="rounded-xl bg-amber-500/10 border border-amber-500/30 px-4 py-4 text-center">
-                    <div className="text-xs font-bold text-amber-300">TV login not enabled yet</div>
-                    <div className="text-[11px] text-amber-200/80 mt-1 leading-relaxed">Admin hasn't set up TV login for your Netflix account yet. Please check back soon.</div>
+                  <div className="rounded-2xl bg-amber-50 border border-amber-200 px-4 py-6 text-center">
+                    <div className="text-sm font-bold text-amber-800">TV login not enabled yet</div>
+                    <div className="text-[12px] text-amber-700/90 mt-1 leading-relaxed">Admin hasn't set up TV login for your Netflix account yet. Please check back soon.</div>
                   </div>
                 ) : (
-                  <div className="flex flex-col gap-2 max-h-[340px] overflow-y-auto pr-1">
+                  <div className="grid gap-2.5 max-h-[360px] xl:max-h-[520px] overflow-y-auto pr-1">
                     {accounts.map((acc) => {
                       const selected = (chosen?.account_key || chosen?.imap_user) === (acc.account_key || acc.imap_user);
                       return (
                         <button key={acc.account_key || acc.imap_user}
                           onClick={() => setChosen(acc)}
-                          className={`group w-full flex items-center gap-3 rounded-xl border px-3 py-3 text-left transition-all active:scale-[0.99] ${
+                          className={`group w-full flex items-center gap-3 rounded-2xl border-2 px-4 py-3.5 xl:py-4 text-left transition-all active:scale-[0.99] ${
                             selected
-                              ? "bg-[#e50914]/10 border-[#e50914] shadow-[0_0_24px_-4px_rgba(229,9,20,0.6)]"
-                              : "bg-white/[0.04] border-white/10 hover:bg-white/[0.07] hover:border-white/20"
+                              ? "bg-rose-50 border-rose-500 shadow-[0_10px_30px_-12px_rgba(229,9,20,0.35)]"
+                              : "bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50"
                           }`}>
-                          <div className={`shrink-0 w-10 h-10 rounded-lg flex items-center justify-center ${selected ? "bg-[#e50914]/20" : "bg-white/5"}`}>
-                            <Mail className={`w-4 h-4 ${selected ? "text-[#e50914]" : "text-white/60"}`} />
+                          <div className={`shrink-0 w-11 h-11 xl:w-12 xl:h-12 rounded-xl flex items-center justify-center ${selected ? "bg-rose-100 text-rose-600" : "bg-slate-100 text-slate-500"}`}>
+                            <Mail className="w-5 h-5" />
                           </div>
                           <div className="min-w-0 flex-1">
-                            <div className="text-[13px] font-bold text-white truncate tracking-tight">{acc.imap_user_masked}</div>
+                            <div className="text-sm xl:text-base font-bold text-slate-900 truncate tracking-tight">{acc.imap_user_masked}</div>
                             {acc.label && (
-                              <div className="mt-0.5 text-[10px]">
-                                <span className="px-1.5 py-0.5 rounded-md bg-white/10 text-white/70 font-semibold">{acc.label}</span>
-                              </div>
+                              <div className="mt-1 text-[11px] inline-block px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 font-semibold">{acc.label}</div>
                             )}
                           </div>
-                          <div className={`shrink-0 w-4 h-4 rounded-full border-2 flex items-center justify-center ${selected ? "border-[#e50914] bg-[#e50914]" : "border-white/25"}`}>
-                            {selected && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
+                          <div className={`shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center ${selected ? "border-rose-500 bg-rose-500" : "border-slate-300"}`}>
+                            {selected && <span className="w-2 h-2 rounded-full bg-white" />}
                           </div>
                         </button>
                       );
@@ -2752,41 +2751,43 @@ function TvSignInPage() {
 
                 <button onClick={() => { if (chosen) setStep("code"); }}
                   disabled={!chosen}
-                  className={`mt-6 w-full h-12 rounded-xl font-bold text-sm tracking-wide transition-all active:scale-[0.98] ${
+                  className={`mt-6 w-full h-12 xl:h-14 rounded-xl xl:rounded-2xl font-black text-sm xl:text-base tracking-wide transition-all active:scale-[0.98] ${
                     chosen
-                      ? "bg-gradient-to-r from-[#e50914] to-[#b0060f] text-white shadow-lg shadow-[#e50914]/30 hover:shadow-[#e50914]/50 hover:brightness-110"
-                      : "bg-white/[0.06] text-white/40 cursor-not-allowed"
+                      ? "bg-gradient-to-r from-rose-600 to-red-600 text-white shadow-lg shadow-rose-600/25 hover:shadow-rose-600/40 hover:brightness-110"
+                      : "bg-slate-100 text-slate-400 cursor-not-allowed"
                   }`}>
-                  Continue
+                  Continue →
                 </button>
-                <div className="mt-3 flex items-center justify-center gap-1.5 text-[10.5px] text-white/40">
+                <div className="mt-3 flex items-center justify-center gap-1.5 text-[11px] text-slate-400">
                   <ShieldCheck className="w-3 h-3" />
                   <span>Account selection is required to continue</span>
                 </div>
               </div>
             ) : (
-              <div className="mt-6">
+              <div>
                 {chosen && (
-                  <div className="flex items-center justify-between gap-2 rounded-xl bg-white/[0.04] border border-white/10 px-3 py-2.5">
-                    <div className="min-w-0 flex items-center gap-2">
-                      <Mail className="w-3.5 h-3.5 text-white/60 shrink-0" />
+                  <div className="flex items-center justify-between gap-2 rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3">
+                    <div className="min-w-0 flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-lg bg-white border border-slate-200 flex items-center justify-center">
+                        <Mail className="w-4 h-4 text-slate-500" />
+                      </div>
                       <div className="min-w-0">
-                        <div className="text-xs font-bold text-white truncate">{chosen.imap_user_masked}</div>
-                        {chosen.label && <div className="text-[10px] text-white/50 truncate">{chosen.label}</div>}
+                        <div className="text-sm font-bold text-slate-900 truncate">{chosen.imap_user_masked}</div>
+                        {chosen.label && <div className="text-[11px] text-slate-500 truncate">{chosen.label}</div>}
                       </div>
                     </div>
                     <button onClick={() => { setStep("select"); setStatus("idle"); setCode(["", "", "", "", "", "", "", ""]); }}
                       disabled={status !== "idle"}
-                      className="text-[11px] font-semibold text-[#e50914] hover:text-white transition disabled:opacity-40 disabled:cursor-not-allowed">
+                      className="text-[11px] font-bold text-rose-600 hover:text-rose-700 transition disabled:opacity-40 disabled:cursor-not-allowed">
                       Change
                     </button>
                   </div>
                 )}
 
-                <div className="mt-6 flex items-center justify-center gap-1.5 sm:gap-2">
+                <div className="mt-8 flex items-center justify-center gap-1.5 sm:gap-2">
                   {code.map((d, i) => (
                     <React.Fragment key={i}>
-                      {i === 4 && <span aria-hidden className="shrink-0 w-2 sm:w-3 h-0.5 rounded-full bg-white/25 mx-0.5" />}
+                      {i === 4 && <span aria-hidden className="shrink-0 w-2 sm:w-3 h-0.5 rounded-full bg-slate-300 mx-0.5" />}
                       <input
                         ref={(el) => { inputsRef.current[i] = el; }}
                         value={d}
@@ -2799,10 +2800,10 @@ function TvSignInPage() {
                         maxLength={1}
                         disabled={status !== "idle"}
                         aria-label={`Digit ${i + 1}`}
-                        className={`aspect-square w-full min-w-0 flex-1 text-center text-xl sm:text-3xl xl:text-5xl 2xl:text-6xl font-black rounded-xl xl:rounded-2xl bg-white/[0.04] border-2 text-white caret-[#e50914] outline-none transition-all
-                          ${d ? "border-[#e50914] bg-[#e50914]/10 shadow-[0_0_20px_-4px_rgba(229,9,20,0.6)]" : "border-white/15"}
-                          focus:border-[#e50914] focus:bg-[#e50914]/10 focus:shadow-[0_0_24px_-4px_rgba(229,9,20,0.7)] focus:scale-[1.04]
-                          disabled:opacity-60`}
+                        className={`aspect-square w-full min-w-0 flex-1 text-center text-2xl sm:text-3xl xl:text-5xl 2xl:text-6xl font-black rounded-xl xl:rounded-2xl bg-white border-2 text-slate-900 caret-rose-500 outline-none transition-all
+                          ${d ? "border-rose-500 bg-rose-50 shadow-[0_8px_24px_-8px_rgba(229,9,20,0.4)]" : "border-slate-200"}
+                          focus:border-rose-500 focus:bg-rose-50 focus:shadow-[0_8px_24px_-8px_rgba(229,9,20,0.5)] focus:scale-[1.04]
+                          disabled:opacity-60 disabled:bg-slate-50`}
                       />
                     </React.Fragment>
                   ))}
@@ -2810,70 +2811,70 @@ function TvSignInPage() {
 
                 <button onClick={submit}
                   disabled={!isComplete || status !== "idle"}
-                  className={`mt-7 w-full h-12 xl:h-14 2xl:h-16 rounded-xl xl:rounded-2xl font-bold text-sm xl:text-base 2xl:text-lg tracking-wide transition-all active:scale-[0.98]
+                  className={`mt-8 w-full h-12 xl:h-14 2xl:h-16 rounded-xl xl:rounded-2xl font-black text-sm xl:text-base 2xl:text-lg tracking-wide transition-all active:scale-[0.98]
                     ${isComplete && status === "idle"
-                      ? "bg-gradient-to-r from-[#e50914] to-[#b0060f] text-white shadow-lg shadow-[#e50914]/30 hover:shadow-[#e50914]/50 hover:brightness-110"
-                      : "bg-white/[0.06] text-white/40 cursor-not-allowed"}`}>
+                      ? "bg-gradient-to-r from-rose-600 to-red-600 text-white shadow-lg shadow-rose-600/25 hover:shadow-rose-600/40 hover:brightness-110"
+                      : "bg-slate-100 text-slate-400 cursor-not-allowed"}`}>
                   {status === "verifying" ? (<span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Verifying code…</span>)
                     : status === "checking" ? (<span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Checking your account…</span>)
                     : status === "queued" ? (<span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Preparing secure runner…</span>)
                     : status === "running" || status === "in_progress" ? (<span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Signing in to Netflix on your TV…</span>)
-                    : status === "success" ? (<span className="inline-flex items-center gap-2 text-emerald-300">✓ TV signed in</span>)
+                    : status === "success" ? (<span className="inline-flex items-center gap-2 text-emerald-700">✓ TV signed in</span>)
                     : status === "invalid_code" ? (<span>Invalid code</span>)
                     : status === "cookies_expired" ? (<span>Cookies expired</span>)
                     : status === "no_cookies" ? (<span>No cookies available</span>)
                     : status === "error" || status === "timeout" ? (<span>Try again</span>)
-                    : ("Continue")}
+                    : ("Sign in on TV")}
                 </button>
 
                 {status === "queued" ? (
-                  <div className="mt-4 rounded-xl bg-sky-500/10 border border-sky-500/30 px-3 py-2.5 text-center">
-                    <div className="inline-flex items-center gap-1.5 text-[11px] font-bold text-sky-300"><Loader2 className="w-3 h-3 animate-spin" /> Preparing secure runner</div>
-                    <div className="text-[10.5px] text-sky-200/80 mt-1">Your job is queued. Spinning up a private headless browser… <span className="opacity-70">({elapsedSec}s)</span></div>
+                  <div className="mt-4 rounded-2xl bg-sky-50 border border-sky-200 px-4 py-3 text-center">
+                    <div className="inline-flex items-center gap-1.5 text-xs font-bold text-sky-700"><Loader2 className="w-3 h-3 animate-spin" /> Preparing secure runner</div>
+                    <div className="text-[11px] text-sky-600 mt-1">Your job is queued. Spinning up a private headless browser… <span className="opacity-70">({elapsedSec}s)</span></div>
                   </div>
                 ) : status === "running" || status === "in_progress" ? (
-                  <div className="mt-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 px-3 py-2.5 text-center">
-                    <div className="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-300"><Loader2 className="w-3 h-3 animate-spin" /> Signing in on your TV</div>
-                    <div className="text-[10.5px] text-emerald-200/80 mt-1">Keep your TV on the code screen. Elapsed {elapsedSec}s · timing out in {remainingSec}s</div>
+                  <div className="mt-4 rounded-2xl bg-emerald-50 border border-emerald-200 px-4 py-3 text-center">
+                    <div className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700"><Loader2 className="w-3 h-3 animate-spin" /> Signing in on your TV</div>
+                    <div className="text-[11px] text-emerald-600 mt-1">Keep your TV on the code screen. Elapsed {elapsedSec}s · timing out in {remainingSec}s</div>
                   </div>
                 ) : status === "success" ? (
-                  <div className="mt-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 px-3 py-3 text-center">
-                    <div className="text-[12px] font-black text-emerald-300">Login successful</div>
-                    <div className="text-[10.5px] text-emerald-200/80 mt-1">Your TV is signed in. Wiping this browser session for security…</div>
+                  <div className="mt-4 rounded-2xl bg-emerald-50 border border-emerald-200 px-4 py-4 text-center">
+                    <div className="text-sm font-black text-emerald-700">Login successful</div>
+                    <div className="text-[11px] text-emerald-600 mt-1">Your TV is signed in. Wiping this browser session for security…</div>
                   </div>
                 ) : status === "invalid_code" ? (
-                  <div className="mt-4 rounded-xl bg-red-500/10 border border-red-500/30 px-3 py-2.5 text-center">
-                    <div className="text-[11px] font-bold text-red-300">Code was rejected</div>
-                    <div className="text-[10.5px] text-red-200/80 mt-0.5">Netflix didn't accept that code. Re-open the TV and try a fresh code.</div>
+                  <div className="mt-4 rounded-2xl bg-red-50 border border-red-200 px-4 py-3 text-center">
+                    <div className="text-xs font-bold text-red-700">Code was rejected</div>
+                    <div className="text-[11px] text-red-600 mt-0.5">Netflix didn't accept that code. Re-open the TV and try a fresh code.</div>
                   </div>
                 ) : status === "cookies_expired" ? (
-                  <div className="mt-4 rounded-xl bg-amber-500/10 border border-amber-500/30 px-3 py-2.5 text-center">
-                    <div className="text-[11px] font-bold text-amber-300">Cookies expired</div>
-                    <div className="text-[10.5px] text-amber-200/80 mt-0.5">Saved cookies are no longer valid. Ask the admin to refresh them.</div>
+                  <div className="mt-4 rounded-2xl bg-amber-50 border border-amber-200 px-4 py-3 text-center">
+                    <div className="text-xs font-bold text-amber-800">Cookies expired</div>
+                    <div className="text-[11px] text-amber-700 mt-0.5">Saved cookies are no longer valid. Ask the admin to refresh them.</div>
                   </div>
                 ) : status === "no_cookies" ? (
-                  <div className="mt-4 rounded-xl bg-amber-500/10 border border-amber-500/30 px-3 py-2.5 text-center">
-                    <div className="text-[11px] font-bold text-amber-300">Session not ready</div>
-                    <div className="text-[10.5px] text-amber-200/80 mt-0.5">Code received, but no saved cookies are available yet. Ask the admin to upload cookies, then try again.</div>
+                  <div className="mt-4 rounded-2xl bg-amber-50 border border-amber-200 px-4 py-3 text-center">
+                    <div className="text-xs font-bold text-amber-800">Session not ready</div>
+                    <div className="text-[11px] text-amber-700 mt-0.5">Code received, but no saved cookies are available yet. Ask the admin to upload cookies, then try again.</div>
                   </div>
                 ) : status === "timeout" ? (
-                  <div className="mt-4 rounded-xl bg-amber-500/10 border border-amber-500/30 px-3 py-2.5 text-center">
-                    <div className="text-[11px] font-bold text-amber-300">Runner timed out</div>
-                    <div className="text-[10.5px] text-amber-200/80 mt-0.5">{resultInfo.message || "We didn't hear back in time. Please try again."}</div>
+                  <div className="mt-4 rounded-2xl bg-amber-50 border border-amber-200 px-4 py-3 text-center">
+                    <div className="text-xs font-bold text-amber-800">Runner timed out</div>
+                    <div className="text-[11px] text-amber-700 mt-0.5">{resultInfo.message || "We didn't hear back in time. Please try again."}</div>
                   </div>
                 ) : status === "error" ? (
-                  <div className="mt-4 rounded-xl bg-red-500/10 border border-red-500/30 px-3 py-2.5 text-center">
-                    <div className="text-[11px] font-bold text-red-300">Something went wrong</div>
-                    <div className="text-[10.5px] text-red-200/80 mt-0.5">{resultInfo.message || "Please try again."}</div>
+                  <div className="mt-4 rounded-2xl bg-red-50 border border-red-200 px-4 py-3 text-center">
+                    <div className="text-xs font-bold text-red-700">Something went wrong</div>
+                    <div className="text-[11px] text-red-600 mt-0.5">{resultInfo.message || "Please try again."}</div>
                   </div>
                 ) : status === "checking" || status === "verifying" ? (
-                  <div className="mt-4 rounded-xl bg-white/[0.04] border border-white/10 px-3 py-2.5 text-center">
-                    <div className="text-[10.5px] text-white/70">{status === "verifying" ? "Verifying the 8-digit code…" : "Confirming your IMAP account and saved cookies…"}</div>
+                  <div className="mt-4 rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 text-center">
+                    <div className="text-[11px] text-slate-600">{status === "verifying" ? "Verifying the 8-digit code…" : "Confirming your IMAP account and saved cookies…"}</div>
                   </div>
                 ) : (
-                  <div className="mt-4 flex items-center justify-center gap-1.5 text-[10.5px] text-white/40">
+                  <div className="mt-4 flex items-center justify-center gap-1.5 text-[11px] text-slate-400">
                     <ShieldCheck className="w-3 h-3" />
-                    <span>Encrypted • One-time code • Never shared</span>
+                    <span>Encrypted · One-time code · Never shared</span>
                   </div>
                 )}
 
@@ -2881,11 +2882,11 @@ function TvSignInPage() {
                   <>
                     <div className="mt-4 flex items-center gap-2">
                       <button onClick={resetForRetry}
-                        className="flex-1 h-11 rounded-xl text-[12px] font-bold bg-white/10 text-white hover:bg-white/15 active:scale-[0.98] transition">
+                        className="flex-1 h-11 rounded-xl text-xs font-bold bg-slate-900 text-white hover:bg-slate-800 active:scale-[0.98] transition">
                         Try again
                       </button>
                       <button onClick={() => { setStep("select"); setChosen(null); resetForRetry(); }}
-                        className="flex-1 h-11 rounded-xl text-[12px] font-bold bg-white/[0.04] border border-white/10 text-white/70 hover:bg-white/[0.08] active:scale-[0.98] transition">
+                        className="flex-1 h-11 rounded-xl text-xs font-bold bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 active:scale-[0.98] transition">
                         Change account
                       </button>
                     </div>
