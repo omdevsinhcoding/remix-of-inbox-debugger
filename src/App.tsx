@@ -11779,6 +11779,8 @@ function EmailViewer() {
   }, [user, tvVisible]);
   const { view: workflowView, setChoice: setWorkflowView } = useWorkflowView(user, userFeatures);
   const [tvModalTrigger, setTvModalTrigger] = useState(0);
+  // Prefetch TV / Link accounts as soon as features resolve — avoids the 5s wait later.
+  useEffect(() => { try { prefetchWorkflowAccounts(apiCall, userFeatures); } catch {} }, [userFeatures.tv, userFeatures.link]);
 
 
 
