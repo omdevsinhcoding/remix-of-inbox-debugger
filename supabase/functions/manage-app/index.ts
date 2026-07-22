@@ -4850,7 +4850,7 @@ Deno.serve(async (originalReq) => {
       const assigned = (Array.isArray(assignedAccounts) ? assignedAccounts : [])
         .map((v: any) => String(v || "").trim().toLowerCase())
         .filter(Boolean);
-      const showAll = assigned.length === 0 || assigned.includes("primary") || assigned.includes("all");
+      const showAll = assigned.length === 0 || assigned.includes("all");
 
       // Each recipient filter is treated as a distinct TV account.
       // If an account has no recipient filters, the IMAP user itself acts as
@@ -4988,8 +4988,17 @@ Deno.serve(async (originalReq) => {
         .eq("id", session.userId)
         .maybeSingle();
       if (!user) throw new Error("User not found");
-      const { data: acctSetting } = await supabase.from("app_settings").select("value").eq("key", "email_accounts").maybeSingle();
-      const allAccounts: any[] = Array.isArray(acctSetting?.value) ? acctSetting.value : [];
+      const { data: settingsRows } = await supabase
+        .from("app_settings")
+        .select("key,value")
+        .in("key", ["config", "email_accounts"]);
+      const settings = new Map((settingsRows || []).map((r: any) => [String(r.key), r.value]));
+      const cfg = settings.get("config") || {};
+      const primaryUser = String(cfg?.IMAP_USER || "").trim().toLowerCase();
+      const primaryAccount = primaryUser
+        ? [{ label: "Primary", user: primaryUser, host: cfg?.IMAP_HOST || "", recipientFilters: normalizeRecipientFilters(cfg?.IMAP_RECIPIENT_FILTERS || cfg?.recipientFilters) }]
+        : [];
+      const allAccounts: any[] = [...primaryAccount, ...(Array.isArray(settings.get("email_accounts")) ? settings.get("email_accounts") : [])];
       const candidates = resolveTvAccountCandidates(allAccounts, user.assigned_accounts);
 
       // Cookies are keyed per recipient filter (login_email). An account is
@@ -5059,9 +5068,19 @@ Deno.serve(async (originalReq) => {
         .maybeSingle();
       if (!user) throw new Error("User not found");
 
-      // Resolve the user's IMAP accounts from email_accounts settings.
-      const { data: acctSetting } = await supabase.from("app_settings").select("value").eq("key", "email_accounts").maybeSingle();
-      const allAccounts: any[] = Array.isArray(acctSetting?.value) ? acctSetting.value : [];
+      // Resolve the user's linked IMAP accounts, including the configured
+      // Primary account. Users assigned "Primary" must not see every account.
+      const { data: settingsRows } = await supabase
+        .from("app_settings")
+        .select("key,value")
+        .in("key", ["config", "email_accounts"]);
+      const settings = new Map((settingsRows || []).map((r: any) => [String(r.key), r.value]));
+      const cfg = settings.get("config") || {};
+      const primaryUser = String(cfg?.IMAP_USER || "").trim().toLowerCase();
+      const primaryAccount = primaryUser
+        ? [{ label: "Primary", user: primaryUser, host: cfg?.IMAP_HOST || "", recipientFilters: normalizeRecipientFilters(cfg?.IMAP_RECIPIENT_FILTERS || cfg?.recipientFilters) }]
+        : [];
+      const allAccounts: any[] = [...primaryAccount, ...(Array.isArray(settings.get("email_accounts")) ? settings.get("email_accounts") : [])];
       const assignedLabels = (Array.isArray(user.assigned_accounts) ? user.assigned_accounts : [])
         .map((v: any) => String(v || "").trim().toLowerCase())
         .filter(Boolean);
