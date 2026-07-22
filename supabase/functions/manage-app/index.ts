@@ -5012,7 +5012,11 @@ Deno.serve(async (originalReq) => {
         .filter((c) => cookieSet.has(c.login_email))
         .map((c) => ({
           account_key: c.account_key,
-          imap_user: c.imap_user,
+          // Bind the frontend selection to the FILTER identity (login_email),
+          // not the parent IMAP user. The runner will fetch cookies by this
+          // key, so a filter without its own cookies can never fall back to
+          // the primary account's cookies.
+          imap_user: c.login_email,
           login_email: c.login_email,
           imap_user_masked: maskTvEmail(c.login_email),
           login_email_masked: maskTvEmail(c.login_email),
@@ -5025,9 +5029,10 @@ Deno.serve(async (originalReq) => {
         success: true,
         accounts,
         not_configured: notConfigured,
-        message: notConfigured ? "Your Netflix Account is not configured by the Admin for TV login." : undefined,
+        message: notConfigured ? "Admin hasn't set up TV login for your Netflix account yet. Please check back soon." : undefined,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
+
 
     if (action === "tv_submit_code") {
       const session = await requireSession(req);
