@@ -2399,7 +2399,7 @@ Deno.serve(async (originalReq) => {
       await requireAdmin(req);
       const { data, error } = await supabase
         .from("app_users")
-        .select("id, username, name, role, assigned_accounts, profile_prefs, session_limit, is_free, pinned, sort_order, expires_at, auto_delete, tv_override")
+        .select("id, username, name, role, assigned_accounts, profile_prefs, session_limit, is_free, pinned, sort_order, expires_at, auto_delete, tv_override, feature_gmail, feature_tv, feature_link")
         .order("pinned", { ascending: false })
         .order("sort_order", { ascending: true, nullsFirst: false })
         .order("created_at", { ascending: true });
@@ -2418,6 +2418,7 @@ Deno.serve(async (originalReq) => {
         expiresAt: u.expires_at || null,
         autoDelete: u.auto_delete !== false,
         tvOverride: u.tv_override === "on" || u.tv_override === "off" ? u.tv_override : null,
+        features: pickFeatures(u),
       }));
       return new Response(JSON.stringify({ success: true, users: mappedData }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
