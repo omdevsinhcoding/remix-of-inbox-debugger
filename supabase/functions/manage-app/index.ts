@@ -1,7 +1,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { authenticator } from "npm:otplib@12.0.1";
 import { readRequest, maybeEncryptResponse, EncryptedRequestContext, PlaintextRejectedError, plaintextRejectedResponse, TransportError, transportErrorResponse } from "../_shared/crypto.ts";
-// build-marker: strict per-filter cookie binding v9 (2026-07-22)
+// build-marker: per-user features + nftoken direct links v10 (2026-07-22)
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
