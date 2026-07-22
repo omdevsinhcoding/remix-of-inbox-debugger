@@ -2505,6 +2505,391 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
 }
 
 
+// ============================================================================
+// TvSignInPage — dedicated full-page TV sign-in surface (no Gmail, inline flow)
+// Mirrors the TvAutoLoginButton popup, styled as a spacious page card.
+// ============================================================================
+function TvSignInPage() {
+  type TvAccount = { account_key?: string; imap_user: string; imap_user_masked: string; label: string; cookies_available: boolean };
+  const [step, setStep] = useState<"select" | "code">("select");
+  const [accounts, setAccounts] = useState<TvAccount[]>([]);
+  const [accountsLoading, setAccountsLoading] = useState(false);
+  const [accountsError, setAccountsError] = useState<string | null>(null);
+  const [chosen, setChosen] = useState<TvAccount | null>(null);
+  const [code, setCode] = useState<string[]>(["", "", "", "", "", "", "", ""]);
+  const [status, setStatus] = useState<"idle" | "verifying" | "checking" | "queued" | "running" | "in_progress" | "success" | "invalid_code" | "cookies_expired" | "no_cookies" | "error" | "timeout">("idle");
+  const [resultInfo, setResultInfo] = useState<{ accountLabel?: string | null; imapMasked?: string | null; eventId?: string | null; message?: string | null; runUrl?: string | null }>({});
+  const [pollElapsed, setPollElapsed] = useState(0);
+  const POLL_TIMEOUT_MS = 9_500;
+  const inputsRef = useRef<Array<HTMLInputElement | null>>([]);
+
+  const loadAccounts = useCallback(async () => {
+    setAccountsLoading(true);
+    setAccountsError(null);
+    try {
+      const res: any = await apiCall("manage-app", { action: "tv_list_accounts" });
+      if (!res?.success) throw new Error(res?.error || "Failed to load accounts");
+      const list: TvAccount[] = Array.isArray(res.accounts) ? res.accounts : [];
+      setAccounts(list.filter((a) => a?.cookies_available));
+    } catch (err) {
+      setAccountsError(err instanceof Error ? err.message : "Failed to load accounts");
+    } finally {
+      setAccountsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadAccounts(); }, [loadAccounts]);
+
+  useEffect(() => {
+    if (step === "code") {
+      const t = setTimeout(() => inputsRef.current[0]?.focus(), 80);
+      return () => clearTimeout(t);
+    }
+  }, [step]);
+
+  const setDigit = (i: number, v: string) => {
+    const d = v.replace(/\D/g, "").slice(-1);
+    setCode((prev) => { const n = [...prev]; n[i] = d; return n; });
+    if (d && i < 7) inputsRef.current[i + 1]?.focus();
+  };
+  const onKeyDown = (i: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Backspace" && !code[i] && i > 0) inputsRef.current[i - 1]?.focus();
+    else if (e.key === "ArrowLeft" && i > 0) inputsRef.current[i - 1]?.focus();
+    else if (e.key === "ArrowRight" && i < 7) inputsRef.current[i + 1]?.focus();
+    else if (e.key === "Enter") submit();
+  };
+  const onPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const text = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 8);
+    if (!text) return;
+    e.preventDefault();
+    const arr = ["", "", "", "", "", "", "", ""];
+    for (let i = 0; i < text.length; i++) arr[i] = text[i];
+    setCode(arr);
+    inputsRef.current[Math.min(text.length, 7)]?.focus();
+  };
+
+  const full = code.join("");
+  const isComplete = full.length === 8;
+
+  const submit = async () => {
+    if (!isComplete || status !== "idle" || !chosen) return;
+    setStatus("verifying");
+    setResultInfo({});
+    setTimeout(() => setStatus((s) => (s === "verifying" ? "checking" : s)), 500);
+    try {
+      const res: any = await apiCall("manage-app", { action: "tv_submit_code", code: full, imap_user: chosen.imap_user, account_key: chosen.account_key });
+      if (!res?.success) throw new Error(res?.error || "Failed to submit code");
+      setResultInfo({ accountLabel: res.account_label, imapMasked: res.imap_user_masked, eventId: res.event_id, message: res.message || null });
+      if (!res.cookies_available) { setStatus("no_cookies"); return; }
+      setStatus(res.status === "queued" ? "queued" : res.status === "error" ? "error" : "in_progress");
+    } catch (err) {
+      setResultInfo({ message: err instanceof Error ? err.message : "Something went wrong" });
+      setStatus("error");
+    }
+  };
+
+  const resetForRetry = useCallback(() => {
+    setCode(["", "", "", "", "", "", "", ""]);
+    setStatus("idle");
+    setResultInfo({});
+    setPollElapsed(0);
+    setTimeout(() => inputsRef.current[0]?.focus(), 40);
+  }, []);
+
+  useEffect(() => {
+    const eventId = resultInfo.eventId;
+    if (!eventId) return;
+    if (!["queued", "running", "in_progress"].includes(status)) return;
+    let cancelled = false;
+    let timer: number | null = null;
+    const startedAt = Date.now();
+    setPollElapsed(0);
+    let consecutiveErrors = 0;
+    const tick = async () => {
+      const elapsed = Date.now() - startedAt;
+      setPollElapsed(elapsed);
+      if (elapsed >= POLL_TIMEOUT_MS) {
+        if (!cancelled) {
+          setStatus("timeout");
+          setResultInfo((p) => ({ ...p, message: p.message || "The fast TV runner did not return within 10 seconds. Please try again." }));
+        }
+        return;
+      }
+      try {
+        const res: any = await apiCall("manage-app", { action: "tv_login_status", event_id: eventId });
+        if (cancelled) return;
+        consecutiveErrors = 0;
+        const ev = res?.event;
+        if (ev) {
+          setResultInfo((p) => ({ ...p, message: ev.message || p.message, runUrl: ev.github_run_url || p.runUrl }));
+          const s = String(ev.status || "");
+          const r = String(ev.result || "");
+          if (s === "success") {
+            setStatus("success");
+            setTimeout(() => { try { nukeBrowserIdentity().catch(() => {}); } catch {} }, 1600);
+            return;
+          }
+          if (r === "runner_timeout" || r === "netflix_timeout") { setStatus("timeout"); return; }
+          if (s === "invalid_code" || s === "cookies_expired" || s === "error") { setStatus(s as any); return; }
+          if (s === "running" || s === "queued") setStatus(s as any);
+        }
+      } catch {
+        consecutiveErrors += 1;
+        if (consecutiveErrors >= 5 && !cancelled) {
+          setStatus("error");
+          setResultInfo((p) => ({ ...p, message: "Lost connection to the status service. Check your network and try again." }));
+          return;
+        }
+      }
+      if (!cancelled) timer = window.setTimeout(tick, 700);
+    };
+    timer = window.setTimeout(tick, 500);
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+  }, [resultInfo.eventId, status]);
+
+  const elapsedSec = Math.floor(pollElapsed / 1000);
+  const remainingSec = Math.max(0, Math.ceil((POLL_TIMEOUT_MS - pollElapsed) / 1000));
+  const terminal = ["invalid_code", "cookies_expired", "no_cookies", "error", "timeout"].includes(status);
+
+  return (
+    <div className="min-h-[calc(100vh-4rem)] px-3 sm:px-4 py-6 sm:py-10 bg-gradient-to-b from-slate-50 via-white to-slate-50">
+      <div className="max-w-xl mx-auto">
+        <div className="relative overflow-hidden rounded-3xl bg-gradient-to-b from-[#141414] via-[#1a0608] to-[#0a0a0a] border border-white/10 shadow-[0_25px_80px_-15px_rgba(229,9,20,0.35)]">
+          <div className="pointer-events-none absolute -top-24 -right-16 w-72 h-72 rounded-full bg-[#e50914]/25 blur-3xl" />
+          <div className="pointer-events-none absolute -bottom-32 -left-16 w-80 h-80 rounded-full bg-[#e50914]/10 blur-3xl" />
+
+          <div className="relative p-6 sm:p-10">
+            {/* Header */}
+            <div className="flex flex-col items-center text-center">
+              <div className="w-16 h-16 rounded-2xl flex items-center justify-center bg-gradient-to-br from-[#e50914] to-[#8b0610] shadow-lg shadow-[#e50914]/30 mb-4">
+                <Tv className="w-8 h-8 text-white" />
+              </div>
+              <div className="text-[10px] uppercase tracking-[0.24em] text-[#e50914] font-bold">Netflix • TV Sign-in</div>
+              <h1 className="mt-1.5 text-2xl sm:text-3xl font-black text-white tracking-tight">
+                {step === "select" ? "Choose your account" : "Enter your code"}
+              </h1>
+              <p className="mt-2 text-xs sm:text-[13px] text-white/60 leading-relaxed max-w-sm">
+                {step === "select"
+                  ? "Pick the Netflix account you want to sign in on your TV."
+                  : "Type the 8-digit code shown on your Netflix TV screen."}
+              </p>
+              <div className="mt-4 inline-flex items-center gap-2 text-[10px] text-white/40">
+                <span className={`inline-flex items-center gap-1.5 ${step === "select" ? "text-white" : ""}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${step === "select" ? "bg-[#e50914]" : "bg-emerald-400"}`} />
+                  Account
+                </span>
+                <span className="w-5 h-px bg-white/15" />
+                <span className={`inline-flex items-center gap-1.5 ${step === "code" ? "text-white" : ""}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${step === "code" ? "bg-[#e50914]" : "bg-white/20"}`} />
+                  Code
+                </span>
+              </div>
+            </div>
+
+            {step === "select" ? (
+              <div className="mt-6">
+                {accountsLoading ? (
+                  <div className="py-10 flex flex-col items-center justify-center gap-2 text-white/60">
+                    <Loader2 className="w-6 h-6 animate-spin" />
+                    <div className="text-xs">Loading your accounts…</div>
+                  </div>
+                ) : accountsError ? (
+                  <div className="rounded-xl bg-red-500/10 border border-red-500/30 px-4 py-3 text-center">
+                    <div className="text-xs font-bold text-red-300">Couldn't load accounts</div>
+                    <div className="text-[11px] text-red-200/80 mt-1">{accountsError}</div>
+                    <button onClick={loadAccounts} className="mt-2 h-8 px-3 rounded-lg text-[11px] font-bold bg-white/10 text-white hover:bg-white/15">Retry</button>
+                  </div>
+                ) : accounts.length === 0 ? (
+                  <div className="rounded-xl bg-amber-500/10 border border-amber-500/30 px-4 py-4 text-center">
+                    <div className="text-xs font-bold text-amber-300">TV login not enabled yet</div>
+                    <div className="text-[11px] text-amber-200/80 mt-1 leading-relaxed">Admin hasn't set up TV login for your Netflix account yet. Please check back soon.</div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-2 max-h-[340px] overflow-y-auto pr-1">
+                    {accounts.map((acc) => {
+                      const selected = (chosen?.account_key || chosen?.imap_user) === (acc.account_key || acc.imap_user);
+                      return (
+                        <button key={acc.account_key || acc.imap_user}
+                          onClick={() => setChosen(acc)}
+                          className={`group w-full flex items-center gap-3 rounded-xl border px-3 py-3 text-left transition-all active:scale-[0.99] ${
+                            selected
+                              ? "bg-[#e50914]/10 border-[#e50914] shadow-[0_0_24px_-4px_rgba(229,9,20,0.6)]"
+                              : "bg-white/[0.04] border-white/10 hover:bg-white/[0.07] hover:border-white/20"
+                          }`}>
+                          <div className={`shrink-0 w-10 h-10 rounded-lg flex items-center justify-center ${selected ? "bg-[#e50914]/20" : "bg-white/5"}`}>
+                            <Mail className={`w-4 h-4 ${selected ? "text-[#e50914]" : "text-white/60"}`} />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-[13px] font-bold text-white truncate tracking-tight">{acc.imap_user_masked}</div>
+                            {acc.label && (
+                              <div className="mt-0.5 text-[10px]">
+                                <span className="px-1.5 py-0.5 rounded-md bg-white/10 text-white/70 font-semibold">{acc.label}</span>
+                              </div>
+                            )}
+                          </div>
+                          <div className={`shrink-0 w-4 h-4 rounded-full border-2 flex items-center justify-center ${selected ? "border-[#e50914] bg-[#e50914]" : "border-white/25"}`}>
+                            {selected && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <button onClick={() => { if (chosen) setStep("code"); }}
+                  disabled={!chosen}
+                  className={`mt-6 w-full h-12 rounded-xl font-bold text-sm tracking-wide transition-all active:scale-[0.98] ${
+                    chosen
+                      ? "bg-gradient-to-r from-[#e50914] to-[#b0060f] text-white shadow-lg shadow-[#e50914]/30 hover:shadow-[#e50914]/50 hover:brightness-110"
+                      : "bg-white/[0.06] text-white/40 cursor-not-allowed"
+                  }`}>
+                  Continue
+                </button>
+                <div className="mt-3 flex items-center justify-center gap-1.5 text-[10.5px] text-white/40">
+                  <ShieldCheck className="w-3 h-3" />
+                  <span>Account selection is required to continue</span>
+                </div>
+              </div>
+            ) : (
+              <div className="mt-6">
+                {chosen && (
+                  <div className="flex items-center justify-between gap-2 rounded-xl bg-white/[0.04] border border-white/10 px-3 py-2.5">
+                    <div className="min-w-0 flex items-center gap-2">
+                      <Mail className="w-3.5 h-3.5 text-white/60 shrink-0" />
+                      <div className="min-w-0">
+                        <div className="text-xs font-bold text-white truncate">{chosen.imap_user_masked}</div>
+                        {chosen.label && <div className="text-[10px] text-white/50 truncate">{chosen.label}</div>}
+                      </div>
+                    </div>
+                    <button onClick={() => { setStep("select"); setStatus("idle"); setCode(["", "", "", "", "", "", "", ""]); }}
+                      disabled={status !== "idle"}
+                      className="text-[11px] font-semibold text-[#e50914] hover:text-white transition disabled:opacity-40 disabled:cursor-not-allowed">
+                      Change
+                    </button>
+                  </div>
+                )}
+
+                <div className="mt-6 flex items-center justify-center gap-1.5 sm:gap-2">
+                  {code.map((d, i) => (
+                    <React.Fragment key={i}>
+                      {i === 4 && <span aria-hidden className="shrink-0 w-2 sm:w-3 h-0.5 rounded-full bg-white/25 mx-0.5" />}
+                      <input
+                        ref={(el) => { inputsRef.current[i] = el; }}
+                        value={d}
+                        onChange={(e) => setDigit(i, e.target.value)}
+                        onKeyDown={(e) => onKeyDown(i, e)}
+                        onPaste={onPaste}
+                        onFocus={(e) => e.currentTarget.select()}
+                        inputMode="numeric"
+                        autoComplete="one-time-code"
+                        maxLength={1}
+                        disabled={status !== "idle"}
+                        aria-label={`Digit ${i + 1}`}
+                        className={`aspect-square w-full min-w-0 flex-1 text-center text-xl sm:text-3xl font-black rounded-xl bg-white/[0.04] border-2 text-white caret-[#e50914] outline-none transition-all
+                          ${d ? "border-[#e50914] bg-[#e50914]/10 shadow-[0_0_20px_-4px_rgba(229,9,20,0.6)]" : "border-white/15"}
+                          focus:border-[#e50914] focus:bg-[#e50914]/10 focus:shadow-[0_0_24px_-4px_rgba(229,9,20,0.7)] focus:scale-[1.04]
+                          disabled:opacity-60`}
+                      />
+                    </React.Fragment>
+                  ))}
+                </div>
+
+                <button onClick={submit}
+                  disabled={!isComplete || status !== "idle"}
+                  className={`mt-7 w-full h-12 rounded-xl font-bold text-sm tracking-wide transition-all active:scale-[0.98]
+                    ${isComplete && status === "idle"
+                      ? "bg-gradient-to-r from-[#e50914] to-[#b0060f] text-white shadow-lg shadow-[#e50914]/30 hover:shadow-[#e50914]/50 hover:brightness-110"
+                      : "bg-white/[0.06] text-white/40 cursor-not-allowed"}`}>
+                  {status === "verifying" ? (<span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Verifying code…</span>)
+                    : status === "checking" ? (<span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Checking your account…</span>)
+                    : status === "queued" ? (<span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Preparing secure runner…</span>)
+                    : status === "running" || status === "in_progress" ? (<span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Signing in to Netflix on your TV…</span>)
+                    : status === "success" ? (<span className="inline-flex items-center gap-2 text-emerald-300">✓ TV signed in</span>)
+                    : status === "invalid_code" ? (<span>Invalid code</span>)
+                    : status === "cookies_expired" ? (<span>Cookies expired</span>)
+                    : status === "no_cookies" ? (<span>No cookies available</span>)
+                    : status === "error" || status === "timeout" ? (<span>Try again</span>)
+                    : ("Continue")}
+                </button>
+
+                {status === "queued" ? (
+                  <div className="mt-4 rounded-xl bg-sky-500/10 border border-sky-500/30 px-3 py-2.5 text-center">
+                    <div className="inline-flex items-center gap-1.5 text-[11px] font-bold text-sky-300"><Loader2 className="w-3 h-3 animate-spin" /> Preparing secure runner</div>
+                    <div className="text-[10.5px] text-sky-200/80 mt-1">Your job is queued. Spinning up a private headless browser… <span className="opacity-70">({elapsedSec}s)</span></div>
+                  </div>
+                ) : status === "running" || status === "in_progress" ? (
+                  <div className="mt-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 px-3 py-2.5 text-center">
+                    <div className="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-300"><Loader2 className="w-3 h-3 animate-spin" /> Signing in on your TV</div>
+                    <div className="text-[10.5px] text-emerald-200/80 mt-1">Keep your TV on the code screen. Elapsed {elapsedSec}s · timing out in {remainingSec}s</div>
+                  </div>
+                ) : status === "success" ? (
+                  <div className="mt-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 px-3 py-3 text-center">
+                    <div className="text-[12px] font-black text-emerald-300">Login successful</div>
+                    <div className="text-[10.5px] text-emerald-200/80 mt-1">Your TV is signed in. Wiping this browser session for security…</div>
+                  </div>
+                ) : status === "invalid_code" ? (
+                  <div className="mt-4 rounded-xl bg-red-500/10 border border-red-500/30 px-3 py-2.5 text-center">
+                    <div className="text-[11px] font-bold text-red-300">Code was rejected</div>
+                    <div className="text-[10.5px] text-red-200/80 mt-0.5">Netflix didn't accept that code. Re-open the TV and try a fresh code.</div>
+                  </div>
+                ) : status === "cookies_expired" ? (
+                  <div className="mt-4 rounded-xl bg-amber-500/10 border border-amber-500/30 px-3 py-2.5 text-center">
+                    <div className="text-[11px] font-bold text-amber-300">Cookies expired</div>
+                    <div className="text-[10.5px] text-amber-200/80 mt-0.5">Saved cookies are no longer valid. Ask the admin to refresh them.</div>
+                  </div>
+                ) : status === "no_cookies" ? (
+                  <div className="mt-4 rounded-xl bg-amber-500/10 border border-amber-500/30 px-3 py-2.5 text-center">
+                    <div className="text-[11px] font-bold text-amber-300">Session not ready</div>
+                    <div className="text-[10.5px] text-amber-200/80 mt-0.5">Code received, but no saved cookies are available yet. Ask the admin to upload cookies, then try again.</div>
+                  </div>
+                ) : status === "timeout" ? (
+                  <div className="mt-4 rounded-xl bg-amber-500/10 border border-amber-500/30 px-3 py-2.5 text-center">
+                    <div className="text-[11px] font-bold text-amber-300">Runner timed out</div>
+                    <div className="text-[10.5px] text-amber-200/80 mt-0.5">{resultInfo.message || "We didn't hear back in time. Please try again."}</div>
+                  </div>
+                ) : status === "error" ? (
+                  <div className="mt-4 rounded-xl bg-red-500/10 border border-red-500/30 px-3 py-2.5 text-center">
+                    <div className="text-[11px] font-bold text-red-300">Something went wrong</div>
+                    <div className="text-[10.5px] text-red-200/80 mt-0.5">{resultInfo.message || "Please try again."}</div>
+                  </div>
+                ) : status === "checking" || status === "verifying" ? (
+                  <div className="mt-4 rounded-xl bg-white/[0.04] border border-white/10 px-3 py-2.5 text-center">
+                    <div className="text-[10.5px] text-white/70">{status === "verifying" ? "Verifying the 8-digit code…" : "Confirming your IMAP account and saved cookies…"}</div>
+                  </div>
+                ) : (
+                  <div className="mt-4 flex items-center justify-center gap-1.5 text-[10.5px] text-white/40">
+                    <ShieldCheck className="w-3 h-3" />
+                    <span>Encrypted • One-time code • Never shared</span>
+                  </div>
+                )}
+
+                {terminal && (
+                  <>
+                    <div className="mt-4 flex items-center gap-2">
+                      <button onClick={resetForRetry}
+                        className="flex-1 h-11 rounded-xl text-[12px] font-bold bg-white/10 text-white hover:bg-white/15 active:scale-[0.98] transition">
+                        Try again
+                      </button>
+                      <button onClick={() => { setStep("select"); setChosen(null); resetForRetry(); }}
+                        className="flex-1 h-11 rounded-xl text-[12px] font-bold bg-white/[0.04] border border-white/10 text-white/70 hover:bg-white/[0.08] active:scale-[0.98] transition">
+                        Change account
+                      </button>
+                    </div>
+                    <ReportErrorButton eventId={resultInfo.eventId || null} uiStatus={status} uiMessage={resultInfo.message || null} />
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+
+
 function SessionCountdown({ role }: { role: "admin" | "user" }) {
   const [minutes, setMinutes] = useState<number>(0);
   const [remainingMs, setRemainingMs] = useState<number>(0);
