@@ -159,6 +159,9 @@ export type Database = {
           auto_delete: boolean
           created_at: string
           expires_at: string | null
+          feature_gmail: boolean
+          feature_link: boolean
+          feature_tv: boolean
           id: string
           is_free: boolean
           must_change_password: boolean
@@ -178,6 +181,9 @@ export type Database = {
           auto_delete?: boolean
           created_at?: string
           expires_at?: string | null
+          feature_gmail?: boolean
+          feature_link?: boolean
+          feature_tv?: boolean
           id?: string
           is_free?: boolean
           must_change_password?: boolean
@@ -197,6 +203,9 @@ export type Database = {
           auto_delete?: boolean
           created_at?: string
           expires_at?: string | null
+          feature_gmail?: boolean
+          feature_link?: boolean
+          feature_tv?: boolean
           id?: string
           is_free?: boolean
           must_change_password?: boolean
@@ -650,6 +659,59 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      nftoken_links: {
+        Row: {
+          account_key: string
+          account_label: string | null
+          created_at: string
+          expires_at: string
+          id: string
+          link: string
+          login_email: string
+          meta: Json
+          revoked_at: string | null
+          source_ip: string | null
+          user_agent: string | null
+          user_id: string
+        }
+        Insert: {
+          account_key: string
+          account_label?: string | null
+          created_at?: string
+          expires_at: string
+          id?: string
+          link: string
+          login_email: string
+          meta?: Json
+          revoked_at?: string | null
+          source_ip?: string | null
+          user_agent?: string | null
+          user_id: string
+        }
+        Update: {
+          account_key?: string
+          account_label?: string | null
+          created_at?: string
+          expires_at?: string
+          id?: string
+          link?: string
+          login_email?: string
+          meta?: Json
+          revoked_at?: string | null
+          source_ip?: string | null
+          user_agent?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nftoken_links_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "app_users"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       notification_events: {
         Row: {
