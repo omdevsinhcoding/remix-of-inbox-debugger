@@ -7320,6 +7320,21 @@ function AdminPanel() {
     await setProfileTvOverride(u, next);
   };
 
+  const toggleUserFeature = async (u: UserData, key: "gmail" | "tv" | "link") => {
+    const cur = (u as any).features || { gmail: true, tv: true, link: false };
+    const nextVal = key === "link" ? !(cur[key] === true) : !(cur[key] !== false);
+    const nextFeatures = { ...cur, [key]: nextVal };
+    setUsers((prev) => prev.map((x) => x.id === u.id ? ({ ...x, features: nextFeatures } as any) : x));
+    try {
+      await apiCall("manage-app", { action: "update_user", id: u.id, features: { [key]: nextVal } });
+      notify.success(`${key === "gmail" ? "Gmail" : key === "tv" ? "TV" : "Direct Link"} ${nextVal ? "enabled" : "disabled"}`);
+    } catch (err) {
+      setUsers((prev) => prev.map((x) => x.id === u.id ? ({ ...x, features: cur } as any) : x));
+      notify.error(err instanceof Error ? err.message : "Failed to update feature");
+    }
+  };
+
+
   const reloadAdminNotifs = async () => {
     try {
       const nl = await apiCall("manage-app", { action: "admin_list_notifications" });
