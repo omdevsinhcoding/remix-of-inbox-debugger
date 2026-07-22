@@ -2678,11 +2678,11 @@ function TvSignInPage() {
               <div className="w-16 h-16 xl:w-20 xl:h-20 2xl:w-24 2xl:h-24 rounded-2xl flex items-center justify-center bg-gradient-to-br from-[#e50914] to-[#8b0610] shadow-lg shadow-[#e50914]/30 mb-4">
                 <Tv className="w-8 h-8 xl:w-10 xl:h-10 2xl:w-12 2xl:h-12 text-white" />
               </div>
-              <div className="text-[10px] uppercase tracking-[0.24em] text-[#e50914] font-bold">Netflix • TV Sign-in</div>
-              <h1 className="mt-1.5 text-2xl sm:text-3xl font-black text-white tracking-tight">
+              <div className="text-[10px] xl:text-xs 2xl:text-sm uppercase tracking-[0.24em] text-[#e50914] font-bold">Netflix • TV Sign-in</div>
+              <h1 className="mt-1.5 text-2xl sm:text-3xl xl:text-4xl 2xl:text-5xl font-black text-white tracking-tight">
                 {step === "select" ? "Choose your account" : "Enter your code"}
               </h1>
-              <p className="mt-2 text-xs sm:text-[13px] text-white/60 leading-relaxed max-w-sm">
+              <p className="mt-2 text-xs sm:text-[13px] xl:text-base 2xl:text-lg text-white/60 leading-relaxed max-w-sm xl:max-w-xl">
                 {step === "select"
                   ? "Pick the Netflix account you want to sign in on your TV."
                   : "Type the 8-digit code shown on your Netflix TV screen."}
