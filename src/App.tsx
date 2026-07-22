@@ -11353,6 +11353,16 @@ function EmailViewer() {
     return tvGlobalOn;
   }, [viewerTvOverride, tvGlobalOn]);
 
+  // Per-user feature flags (Gmail / TV / Direct Link). Admin-controlled.
+  const userFeatures = useMemo(() => {
+    const f = resolveFeatures(user);
+    // Respect existing tvVisible layering (global switch + per-user override)
+    return { ...f, tv: f.tv && tvVisible };
+  }, [user, tvVisible]);
+  const { view: workflowView, setChoice: setWorkflowView } = useWorkflowView(user, userFeatures);
+  const [tvModalTrigger, setTvModalTrigger] = useState(0);
+
+
 
   const [refreshing, setRefreshing] = useState(false);
   const refreshingRef = useRef(false);
