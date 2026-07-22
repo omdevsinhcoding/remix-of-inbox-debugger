@@ -12753,7 +12753,7 @@ function EmailViewer() {
       {workflowView === "link" && userFeatures.link ? (
         <main className="max-w-6xl mx-auto"><DirectLinkView apiCall={apiCall} notify={notify} /></main>
       ) : workflowView === "tv" ? (
-        <main className="max-w-6xl mx-auto"><TvOnlyView onEnter={() => window.dispatchEvent(new CustomEvent("tv:open"))} /></main>
+        <main className="max-w-6xl mx-auto"><TvSignInPage /></main>
       ) : (
       <main className="max-w-6xl mx-auto px-2 sm:px-4 h-[calc(100vh-3.5rem)] sm:h-[calc(100vh-4rem)] overflow-hidden">
         <div className="grid grid-cols-1 md:grid-cols-12 gap-4 sm:gap-8 h-full py-2 sm:py-4">
