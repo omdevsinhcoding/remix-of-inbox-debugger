@@ -7,7 +7,7 @@ import { chromium } from "playwright";
 
 const PORT = Number(process.env.PORT || 8788);
 const TV_REPORT_URL = process.env.TV_REPORT_URL;
-const MAX_MS = Math.max(3000, Math.min(15000, Number(process.env.TV_LOGIN_MAX_MS || 15000)));
+const MAX_MS = Math.max(3000, Math.min(22000, Number(process.env.TV_LOGIN_MAX_MS || 20000)));
 const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36";
 
 if (!TV_REPORT_URL) {
@@ -151,12 +151,12 @@ async function runTvJob(eventId, runnerToken) {
     });
 
     stage = "open_netflix_tv8";
-    await page.goto("https://www.netflix.com/tv8", { waitUntil: "domcontentloaded", timeout: Math.min(4200, remaining()) });
+    await page.goto("https://www.netflix.com/tv8", { waitUntil: "domcontentloaded", timeout: Math.min(7000, remaining()) });
     mark.nav = elapsed();
 
     stage = "wait_code_input";
     const digitInputs = page.locator('input.pin-number-input, input[aria-label^="PIN entry input"], input[type="tel"]');
-    const hasCodeInput = await digitInputs.first().waitFor({ timeout: Math.min(2400, remaining()) }).then(() => true).catch(() => false);
+    const hasCodeInput = await digitInputs.first().waitFor({ timeout: Math.min(4000, remaining()) }).then(() => true).catch(() => false);
     if (!hasCodeInput) {
       const bodyText = (await page.locator("body").innerText().catch(() => "")).toLowerCase();
       const url = page.url();
@@ -191,7 +191,7 @@ async function runTvJob(eventId, runnerToken) {
 
     stage = "wait_netflix_result";
     let bodyText = "";
-    const deadline = now() + Math.min(4200, remaining());
+    const deadline = now() + Math.min(6500, remaining());
     while (now() < deadline) {
       await page.waitForTimeout(180);
       bodyText = (await page.locator("body").innerText().catch(() => "")).toLowerCase();

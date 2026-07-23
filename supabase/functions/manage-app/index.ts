@@ -42,7 +42,7 @@ const BOOTSTRAP_TTL_MS = 10_000;
 function invalidateBootstrapCache() { __bootstrapCache = null; }
 
 const TV_RUNNER_START_TIMEOUT_MS = 30_000;
-const TV_RUNNER_RESULT_TIMEOUT_MS = 16_000;
+const TV_RUNNER_RESULT_TIMEOUT_MS = 24_000;
 const TV_RUNNER_DISPATCH_TIMEOUT_MS = 3_500;
 
 type EmailVisibilityFilters = { showSignInCodes?: boolean; showPasswordResets?: boolean; showAccountUpdates?: boolean };
