@@ -24,16 +24,21 @@ export function countEnabled(f: UserFeatures) {
   return (f.gmail ? 1 : 0) + (f.tv ? 1 : 0) + (f.link ? 1 : 0);
 }
 
-const VIEW_KEY = "nf.view.v1";
-const VIEW_FEATURES_KEY = "nf.view.features.v1";
-const VIEW_REQUEST_KEY = "nf.view.request.v1";
-
+// No browser storage — the last chosen workflow lives on the server
+// (`app_users.last_workflow_view`) so it follows the user across browsers
+// and devices. A same-tab module variable carries a one-shot admin
+// impersonation override across an SPA navigation without touching storage.
+let __pendingWorkflowView: WorkflowView | null = null;
 export function requestWorkflowView(view: WorkflowView) {
-  try { sessionStorage.setItem(VIEW_REQUEST_KEY, view); } catch {}
+  __pendingWorkflowView = view;
+}
+export function consumePendingWorkflowView(): WorkflowView | null {
+  const v = __pendingWorkflowView;
+  __pendingWorkflowView = null;
+  return v;
 }
 
 export function useWorkflowView(user: any, features: UserFeatures) {
-  const featureSignature = `${features.gmail ? "1" : "0"}${features.tv ? "1" : "0"}${features.link ? "1" : "0"}`;
   const pickDefault = (): WorkflowView | null => {
     if (features.gmail) return "gmail";
     if (features.tv) return "tv";
@@ -41,34 +46,17 @@ export function useWorkflowView(user: any, features: UserFeatures) {
     return null;
   };
   const [view, setView] = useState<WorkflowView | null>(() => {
-    try {
-      const requested = sessionStorage.getItem(VIEW_REQUEST_KEY) as WorkflowView | null;
-      if (requested && features[requested]) {
-        sessionStorage.removeItem(VIEW_REQUEST_KEY);
-        return requested;
-      }
-      const storedSig = sessionStorage.getItem(VIEW_FEATURES_KEY);
-      const stored = sessionStorage.getItem(VIEW_KEY) as WorkflowView | null;
-      if (storedSig === featureSignature && stored && features[stored]) return stored;
-    } catch {}
-    // Show the welcome/chooser whenever the user has 2+ workflows enabled.
-    // With just 1 workflow, we auto-open it (no need to ask).
+    const requested = consumePendingWorkflowView();
+    if (requested && features[requested]) return requested;
+    // With only 1 workflow enabled we auto-open it — no need to ask.
     if (countEnabled(features) < 2) return pickDefault();
+    // 2+ workflows → always show the chooser. The chooser itself pre-
+    // selects the DB-remembered last choice and auto-opens it after 10s.
     return null;
   });
   useEffect(() => {
-    if (view) { try { sessionStorage.setItem(VIEW_KEY, view); sessionStorage.setItem(VIEW_FEATURES_KEY, featureSignature); } catch {} }
-  }, [view, featureSignature]);
-  useEffect(() => {
     if (view && !features[view]) setView(null);
-    try {
-      const storedSig = sessionStorage.getItem(VIEW_FEATURES_KEY);
-      if (storedSig && storedSig !== featureSignature && countEnabled(features) >= 2) {
-        sessionStorage.removeItem(VIEW_KEY);
-        setView(null);
-      }
-    } catch {}
-  }, [features, view, featureSignature]);
+  }, [features, view]);
   const setChoice = useCallback((v: WorkflowView) => setView(v), []);
   const clearChoice = useCallback(() => setView(null), []);
   return { view, setChoice, clearChoice };
