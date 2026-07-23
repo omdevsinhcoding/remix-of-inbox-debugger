@@ -18,7 +18,7 @@ import { openInboxDB, readLatestEmails, writeDelta, getSyncCursor, cacheEmailHtm
 import { readAdminCache, writeAdminCache, isCacheFresh, reconcileVersion, emitSyncStatus } from "./lib/adminSettingsCache";
 import { AdminSyncStatus } from "./components/AdminSyncStatus";
 import { useAdminSlice } from "./hooks/useAdminSlice";
-import { AdminSliceKeys, prefetch as prefetchAdminSlices, invalidate as invalidateAdminSlice, setSlice as setAdminSlice, clearAllSlices as clearAllAdminSlices } from "./lib/adminData";
+import { AdminSliceKeys, setSlice as setAdminSlice, clearAllSlices as clearAllAdminSlices } from "./lib/adminData";
 
 
 // Lazy-loaded heavy auth-only libs — kept out of the public first-load chunk.
@@ -5467,6 +5467,7 @@ function LoginEventsPanel() {
 function AllEmailsPanel() {
   const [emails, setEmails] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [accountLabel, setAccountLabel] = useState("");
@@ -5478,20 +5479,42 @@ function AllEmailsPanel() {
   // "picker" = show account cards, "list" = show emails for chosen account (or all).
   const [view, setView] = useState<"picker" | "list">("picker");
   const limit = 100;
+  const pageCacheRef = useRef(new Map<string, { at: number; emails: any[]; total: number; hasMore: boolean }>());
+  const PAGE_CACHE_TTL_MS = 20_000;
 
 
   const load = useCallback(async (nextOffset = 0, labelOverride?: string) => {
+    const effectiveLabel = labelOverride !== undefined ? labelOverride : accountLabel;
+    const cacheKey = JSON.stringify([effectiveLabel || "", nextOffset, search || ""]);
+    const cached = pageCacheRef.current.get(cacheKey);
+    if (cached && Date.now() - cached.at < PAGE_CACHE_TTL_MS) {
+      setEmails(cached.emails);
+      setTotal(cached.total);
+      setHasMore(cached.hasMore);
+      setOffset(nextOffset);
+      setSelected(new Set());
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
-      const effectiveLabel = labelOverride !== undefined ? labelOverride : accountLabel;
       const res: any = await apiCall("manage-app", {
         action: "admin_list_emails",
         limit, offset: nextOffset,
         search: search || undefined,
         accountLabel: effectiveLabel || undefined,
       });
-      setEmails(res?.emails || []);
-      setTotal(res?.total || 0);
+      const nextEmails = res?.emails || [];
+      const nextTotal = res?.total || 0;
+      const nextHasMore = res?.hasMore === true;
+      pageCacheRef.current.set(cacheKey, { at: Date.now(), emails: nextEmails, total: nextTotal, hasMore: nextHasMore });
+      if (pageCacheRef.current.size > 30) {
+        const oldestKey = pageCacheRef.current.keys().next().value;
+        if (typeof oldestKey === "string") pageCacheRef.current.delete(oldestKey);
+      }
+      setEmails(nextEmails);
+      setTotal(nextTotal);
+      setHasMore(nextHasMore);
       setOffset(nextOffset);
       setSelected(new Set());
     } catch (e: any) {
@@ -5537,6 +5560,7 @@ function AllEmailsPanel() {
     setView("picker");
     setEmails([]);
     setTotal(0);
+    setHasMore(false);
     setSelected(new Set());
     setViewing(null);
   };
@@ -5557,6 +5581,7 @@ function AllEmailsPanel() {
       const res: any = await apiCall("manage-app", { action: "admin_delete_emails", ids });
       notify.success(`Suppressed ${res?.deleted ?? ids.length} email${(res?.deleted ?? ids.length) === 1 ? "" : "s"}`);
       if (viewing && ids.includes(viewing.id)) setViewing(null);
+      pageCacheRef.current.clear();
       await load(offset);
     } catch (e: any) { notify.error(e?.message || "Delete failed"); }
   };
@@ -5691,12 +5716,13 @@ function AllEmailsPanel() {
       </div>
 
 
-      {loading ? (
+      {loading && emails.length === 0 ? (
         <div className="py-12 text-center text-slate-500 text-sm">Loading…</div>
       ) : emails.length === 0 ? (
         <div className="py-12 text-center text-slate-500 text-sm">No emails found.</div>
       ) : (
         <>
+          {loading && <div className="mb-2 text-[11px] font-bold text-amber-600">Refreshing cached results…</div>}
           <div className="overflow-auto border rounded-lg max-h-[65vh]">
             <table className="w-full text-xs sm:text-sm min-w-[800px]">
               <thead className="bg-slate-50 text-left text-slate-600 uppercase text-[10px] tracking-wider sticky top-0 z-10">
@@ -5725,10 +5751,10 @@ function AllEmailsPanel() {
             </table>
           </div>
           <div className="flex items-center justify-between mt-3 text-xs text-slate-600">
-            <span>Showing {offset + 1}–{Math.min(offset + emails.length, total)} of {total}</span>
+            <span>Showing {offset + 1}–{offset + emails.length}{hasMore ? "+" : ` of ${total}`}</span>
             <div className="flex gap-2">
               <button disabled={offset === 0} onClick={() => load(Math.max(0, offset - limit))} className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg font-semibold disabled:opacity-40">Prev</button>
-              <button disabled={offset + limit >= total} onClick={() => load(offset + limit)} className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg font-semibold disabled:opacity-40">Next</button>
+              <button disabled={!hasMore} onClick={() => load(offset + limit)} className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg font-semibold disabled:opacity-40">Next</button>
             </div>
           </div>
         </>
@@ -5955,7 +5981,7 @@ function RecipientsDrawer({ notification, onClose, onChanged }: { notification: 
 // ============ Cookies Tab ============
 // Two-step admin flow: 1) pick an IMAP account, 2) upload cookies file
 // (JSON array/object or Netscape cookies.txt). Parsed client-side; persisted
-// per-account in localStorage so admin can revisit without re-uploading.
+// server-side per account so no browser localStorage is needed.
 type CookieRecord = { name: string; value: string; domain?: string; path?: string; expires?: number | null; secure?: boolean; httpOnly?: boolean; sameSite?: string };
 
 function parseNetscapeCookies(text: string): CookieRecord[] {
@@ -6814,8 +6840,9 @@ function AdminPanel() {
     return (res?.value || {}) as any;
   }, []);
   const { data: vpsData, refreshing: vpsRefreshing } = useAdminSlice<any>(
-    activeTab === "tv" ? AdminSliceKeys.vps : "__vps_idle__",
+    AdminSliceKeys.vps,
     vpsFetcher,
+    { enabled: activeTab === "tv" },
   );
   React.useEffect(() => { setVpsLoading(vpsRefreshing); }, [vpsRefreshing]);
   React.useEffect(() => {
@@ -7002,7 +7029,7 @@ function AdminPanel() {
   const [stats, setStats] = useState<{ totalUsers: number; totalEmails: number }>(() => {
     // Hydrate instantly from cache so the dashboard never flashes 0.
     try {
-      const cached = localStorage.getItem(STATS_CACHE_KEY);
+      const cached = sessionStorage.getItem(STATS_CACHE_KEY);
       if (cached) {
         const parsed = JSON.parse(cached);
         if (parsed && typeof parsed.totalUsers === "number" && typeof parsed.totalEmails === "number") return parsed;
@@ -7016,64 +7043,12 @@ function AdminPanel() {
     return { totalUsers: 0, totalEmails: 0 };
   });
   useEffect(() => {
-    try { localStorage.setItem(STATS_CACHE_KEY, JSON.stringify(stats)); } catch {}
+    try { sessionStorage.setItem(STATS_CACHE_KEY, JSON.stringify(stats)); } catch {}
   }, [stats]);
 
   useEffect(() => {
     try { sessionStorage.setItem(ADMIN_ACTIVE_TAB_KEY, activeTab); } catch {}
   }, [activeTab]);
-
-  // Parallel warm-up: fire every tab's fetcher on mount so switching tabs is
-  // instant. Each entry is deduped by adminData store, so it's safe to also
-  // register the same fetcher inside the tab component.
-  useEffect(() => {
-    prefetchAdminSlices([
-      {
-        key: AdminSliceKeys.loginEvents + ":__all__",
-        fetcher: async () => {
-          const r: any = await apiCall("manage-app", { action: "list_login_events", limit: 300 });
-          return (r?.events || []) as any[];
-        },
-      },
-      {
-        key: AdminSliceKeys.cookies,
-        fetcher: async () => {
-          const r: any = await apiCall("manage-app", { action: "admin_cookies_list" });
-          return (Array.isArray(r?.items) ? r.items : []) as any[];
-        },
-      },
-      {
-        key: AdminSliceKeys.emailAccounts,
-        fetcher: async () => {
-          const [accData, cfgData]: any = await Promise.all([
-            apiCall("manage-app", { action: "get_settings", key: "email_accounts" }),
-            apiCall("manage-app", { action: "get_settings", key: "config" }),
-          ]);
-          const labels = Array.isArray(accData?.value)
-            ? accData.value.map((a: any) => ({ label: String(a.label || a.user || "").trim(), user: String(a.user || "").trim() })).filter((a: any) => a.label)
-            : [];
-          const primary = typeof cfgData?.value?.IMAP_USER === "string" ? cfgData.value.IMAP_USER.trim() : "";
-          return { labels, primary };
-        },
-      },
-      {
-        key: AdminSliceKeys.vps,
-        fetcher: async () => {
-          const r: any = await apiCall("manage-app", { action: "admin_get_vps_config" });
-          return (r?.value || {}) as any;
-        },
-      },
-      {
-        key: AdminSliceKeys.notifications,
-        fetcher: async () => {
-          const r: any = await apiCall("manage-app", { action: "admin_list_notifications" });
-          return Array.isArray(r?.notifications) ? r.notifications : [];
-        },
-      },
-    ]);
-  }, []);
-
-
 
   const availableAccounts = useMemo<string[]>(() => {
     const labels = ["Primary"];
@@ -7125,6 +7100,12 @@ function AdminPanel() {
         setStats(prev => ({ ...prev, totalEmails: res.emailsTotal }));
       }
       if (Array.isArray(res?.notifications)) setAdminNotifs(res.notifications);
+      if (!silent) {
+        if (Array.isArray(res?.notifications)) setAdminSlice(AdminSliceKeys.notifications, res.notifications);
+        if (Array.isArray(res?.cookies)) setAdminSlice(AdminSliceKeys.cookies, res.cookies);
+        if (Array.isArray(res?.loginEvents)) setAdminSlice(`${AdminSliceKeys.loginEvents}:__all__`, res.loginEvents);
+        if (res?.vpsAccess) setAdminSlice(AdminSliceKeys.vps, res.vpsAccess);
+      }
 
       if (!silent && res?.settings) {
         const s = res.settings;
@@ -7172,6 +7153,11 @@ function AdminPanel() {
             return { ...rest, cloudflareUrls: urls, recipientFilters: Array.isArray(acc.recipientFilters) ? acc.recipientFilters : [] };
           });
           setEmailAccounts(migrated);
+          const labels = migrated
+            .map((a: any) => ({ label: String(a.label || a.user || "").trim(), user: String(a.user || "").trim() }))
+            .filter((a: any) => a.label);
+          const primary = typeof s.config?.IMAP_USER === "string" ? s.config.IMAP_USER.trim() : "";
+          setAdminSlice(AdminSliceKeys.emailAccounts, { labels, primary });
         }
         const m1 = Number(s.session_config?.timeoutMinutes);
         if (Number.isFinite(m1) && m1 >= 0) setSessionTimeoutMin(String(m1));
@@ -7829,22 +7815,18 @@ function AdminPanel() {
   };
 
 
-  const reloadAdminNotifs = React.useCallback(async () => {
-    try {
-      // Force a refetch through the SWR store so any prefetched cache is refreshed.
-      invalidateAdminSlice(AdminSliceKeys.notifications);
-      const nl: any = await apiCall("manage-app", { action: "admin_list_notifications" });
-      const list = Array.isArray(nl?.notifications) ? nl.notifications : [];
-      setAdminNotifs(list);
-      setAdminSlice(AdminSliceKeys.notifications, list);
-    } catch (err) { console.warn(err); }
-  }, []);
   // Hydrate notifications from SWR cache on mount (instant paint after prefetch).
   const notifFetcher = React.useCallback(async () => {
     const nl: any = await apiCall("manage-app", { action: "admin_list_notifications" });
     return Array.isArray(nl?.notifications) ? nl.notifications : [];
   }, []);
-  const { data: cachedNotifs } = useAdminSlice<any[]>(AdminSliceKeys.notifications, notifFetcher);
+  const { data: cachedNotifs, refresh: refreshAdminNotifs } = useAdminSlice<any[]>(AdminSliceKeys.notifications, notifFetcher, { enabled: activeTab === "notifications" && adminNotifs.length === 0 });
+  const reloadAdminNotifs = React.useCallback(async () => {
+    try {
+      const list = await refreshAdminNotifs(true);
+      setAdminNotifs(Array.isArray(list) ? list : []);
+    } catch (err) { console.warn(err); }
+  }, [refreshAdminNotifs]);
   React.useEffect(() => {
     if (Array.isArray(cachedNotifs) && cachedNotifs.length) setAdminNotifs(cachedNotifs);
   }, [cachedNotifs]);
@@ -7955,14 +7937,14 @@ function AdminPanel() {
     if (!confirm("This suppresses matching emails for every user forever. Future syncs will not bring them back. Continue?")) return;
     setClearingInbox(true);
     try {
-      const res = await apiCall("manage-app", {
+      await apiCall("manage-app", {
         action: "admin_clear_inbox",
         mode: inboxMode,
         accountLabel: inboxMode === "label" ? inboxLabel : undefined,
         days: inboxMode === "days" ? Number(inboxDays) : undefined,
         confirm: inboxMode === "all" ? inboxConfirm : undefined,
       });
-      notify.success(`Suppressed ${res.deleted || 0} email(s)`);
+      notify.success("Matching emails suppressed");
       setInboxConfirm("");
     } catch (err) {
       notify.error(err instanceof Error ? err.message : "Failed");
