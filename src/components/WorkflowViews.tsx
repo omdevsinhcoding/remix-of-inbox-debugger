@@ -288,6 +288,21 @@ export function DirectLinkView({ apiCall, notify }: { apiCall: ApiCall; notify: 
     return links.find(l => l.account_key === chosen.account_key && l.status === "active" && new Date(l.expires_at).getTime() > Date.now()) || null;
   }, [links, chosen]);
 
+  // Auto-generate a fresh link when the active one expires (and the user is on the link step).
+  const autoGenRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (step !== "link" || !chosen || busy) return;
+    if (activeLink) { autoGenRef.current = null; return; }
+    // Guard so we don't loop if the API keeps failing.
+    const key = chosen.account_key;
+    if (autoGenRef.current === key) return;
+    // Only auto-generate if we've already loaded (avoid triggering on very first mount before links load)
+    if (links.length === 0 && loadingAccounts) return;
+    autoGenRef.current = key;
+    generate();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeLink, step, chosen, busy]);
+
   return (
     <div className="min-h-[calc(100vh-4rem)] px-3 sm:px-6 py-8 sm:py-12 xl:py-16 bg-gradient-to-b from-white via-rose-50/40 to-white">
       <div className="max-w-2xl xl:max-w-4xl 2xl:max-w-5xl mx-auto">
