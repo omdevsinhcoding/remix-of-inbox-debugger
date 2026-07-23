@@ -7,7 +7,7 @@ import { chromium } from "playwright";
 
 const PORT = Number(process.env.PORT || 8788);
 const TV_REPORT_URL = process.env.TV_REPORT_URL;
-const MAX_MS = Math.max(3000, Math.min(9000, Number(process.env.TV_LOGIN_MAX_MS || 9000)));
+const MAX_MS = Math.max(3000, Math.min(15000, Number(process.env.TV_LOGIN_MAX_MS || 15000)));
 const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36";
 
 if (!TV_REPORT_URL) {
