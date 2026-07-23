@@ -1955,7 +1955,7 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
   const [status, setStatus] = useState<"idle" | "verifying" | "checking" | "queued" | "running" | "in_progress" | "success" | "invalid_code" | "cookies_expired" | "no_cookies" | "error" | "timeout">("idle");
   const [resultInfo, setResultInfo] = useState<{ accountLabel?: string | null; imapMasked?: string | null; eventId?: string | null; message?: string | null; runUrl?: string | null }>({});
   const [pollElapsed, setPollElapsed] = useState(0);
-  const POLL_TIMEOUT_MS = 18_000; // give Netflix/result reporting enough headroom; runner still targets <10s
+  const POLL_TIMEOUT_MS = 26_000; // give Netflix/result reporting enough headroom; runner still targets <10s
   const inputsRef = useRef<Array<HTMLInputElement | null>>([]);
 
   const placePanel = useCallback(() => {
@@ -2525,7 +2525,7 @@ function TvSignInPage() {
   const [status, setStatus] = useState<"idle" | "verifying" | "checking" | "queued" | "running" | "in_progress" | "success" | "invalid_code" | "cookies_expired" | "no_cookies" | "error" | "timeout">("idle");
   const [resultInfo, setResultInfo] = useState<{ accountLabel?: string | null; imapMasked?: string | null; eventId?: string | null; message?: string | null; runUrl?: string | null }>({});
   const [pollElapsed, setPollElapsed] = useState(0);
-  const POLL_TIMEOUT_MS = 18_000;
+  const POLL_TIMEOUT_MS = 26_000;
   const inputsRef = useRef<Array<HTMLInputElement | null>>([]);
 
   const applyAccounts = useCallback((list: TvAccount[]) => {
