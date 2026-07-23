@@ -85,14 +85,23 @@ function pickFeatures(u: any): UserFeatures {
 }
 function publicVpsConfig(value: any) {
   const v = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const ip = typeof v.ip === "string" && v.ip.trim() ? v.ip.trim() : "140.238.226.213";
+  const runnerUrl = typeof v.runnerUrl === "string" && v.runnerUrl.trim() ? v.runnerUrl.trim().replace(/\/+$/g, "") : "";
   return {
-    ip: typeof v.ip === "string" && v.ip.trim() ? v.ip.trim() : "140.238.226.213",
+    ip,
+    runnerUrl,
     keyFilename: typeof v.keyFilename === "string" && v.keyFilename.trim() ? v.keyFilename.trim() : "vps-private-key.pem",
     keyObjectKey: typeof v.keyObjectKey === "string" ? v.keyObjectKey : "",
     keyUploadedAt: typeof v.keyUploadedAt === "string" ? v.keyUploadedAt : "",
     keySize: Number.isFinite(Number(v.keySize)) ? Number(v.keySize) : 0,
     hasKey: typeof v.keyObjectKey === "string" && v.keyObjectKey.length > 0,
   };
+}
+function effectiveTvRunnerUrl(vpsCfgValue: any): string {
+  const cfg = publicVpsConfig(vpsCfgValue);
+  if (cfg.runnerUrl) return cfg.runnerUrl;
+  const env = (Deno.env.get("TV_FAST_RUNNER_URL") || "").trim().replace(/\/+$/g, "");
+  return env;
 }
 function isProfileLocationRequired(user: any, globalRequired = true) {
   if (!globalRequired || !user) return false;
@@ -3093,16 +3102,61 @@ Deno.serve(async (originalReq) => {
       const session = await requireAdmin(req);
       const nextIp = String(params?.ip || "").trim() || "140.238.226.213";
       if (!/^[A-Za-z0-9:.[\]-]{3,255}$/.test(nextIp)) throw new Error("Enter a valid VPS IP or hostname");
+      let nextRunnerUrl = String(params?.runnerUrl || "").trim().replace(/\/+$/g, "");
+      if (nextRunnerUrl) {
+        try {
+          const u = new URL(nextRunnerUrl);
+          if (!/^https?:$/.test(u.protocol)) throw new Error("bad proto");
+          nextRunnerUrl = u.toString().replace(/\/+$/g, "");
+        } catch {
+          throw new Error("Runner URL must be like http://IP:8788");
+        }
+      }
       const { data } = await supabase.from("app_settings").select("value").eq("key", "vps_config").maybeSingle();
       const prev = publicVpsConfig(data?.value);
-      const value = { ...prev, ip: nextIp };
+      const value = { ...prev, ip: nextIp, runnerUrl: nextRunnerUrl };
       const { error } = await supabase.from("app_settings").upsert({ key: "vps_config", value }, { onConflict: "key" });
       invalidateAllSettings();
       if (error) throw error;
-      await auditLog(supabase, "vps_access_updated", session.userId, null, { ip: nextIp }, ip);
-      return new Response(JSON.stringify({ success: true, value }), {
+      await auditLog(supabase, "vps_access_updated", session.userId, null, { ip: nextIp, runnerUrl: nextRunnerUrl || null }, ip);
+      return new Response(JSON.stringify({ success: true, value: publicVpsConfig(value) }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    if (action === "admin_test_vps_runner") {
+      await requireAdmin(req);
+      const { data } = await supabase.from("app_settings").select("value").eq("key", "vps_config").maybeSingle();
+      const url = effectiveTvRunnerUrl(data?.value);
+      if (!url) {
+        return new Response(JSON.stringify({ success: false, ok: false, message: "Runner URL is not configured." }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const started = Date.now();
+      try {
+        const r = await fetch(`${url}/health`, { method: "GET", signal: AbortSignal.timeout(5000) });
+        const txt = await r.text().catch(() => "");
+        let body: any = null; try { body = txt ? JSON.parse(txt) : null; } catch {}
+        const ms = Date.now() - started;
+        return new Response(JSON.stringify({
+          success: true,
+          ok: r.ok,
+          status: r.status,
+          latencyMs: ms,
+          url,
+          body: body ?? txt.slice(0, 400),
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      } catch (e: any) {
+        return new Response(JSON.stringify({
+          success: true,
+          ok: false,
+          status: 0,
+          latencyMs: Date.now() - started,
+          url,
+          message: e?.message || String(e),
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
     }
 
     if (action === "admin_reveal_session_signing_secret") {
@@ -5576,8 +5630,8 @@ Deno.serve(async (originalReq) => {
       console.log(`[tv_submit] event=${inserted?.id} cookiesAvailable=${cookiesAvailable} matched_login=${matched?.login_email || "-"} parent_imap=${matched?.imap_user || "-"}`);
       if (cookiesAvailable && inserted?.id && matched?.login_email) {
         try {
-          const runnerRaw = Deno.env.get("TV_FAST_RUNNER_URL") || "";
-          const runnerBase = runnerRaw.replace(/\/+$/g, "").trim();
+          const { data: vpsRowForRunner } = await supabase.from("app_settings").select("value").eq("key", "vps_config").maybeSingle();
+          const runnerBase = effectiveTvRunnerUrl(vpsRowForRunner?.value);
           console.log(`[tv_submit] direct runner check url_present=${!!runnerBase}`);
           if (runnerBase) {
             const runnerToken = randomHex(32);
