@@ -5075,33 +5075,85 @@ Deno.serve(async (originalReq) => {
     // cookie-expiry issue, and user-initiated error report.
     const escapeTgHtml = (s: unknown) =>
       String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const redactTgValue = (value: unknown) =>
+      String(value ?? "").replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, (m) => maskTvEmail(m));
+    const humanTgKey = (key: string) => key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+    const splitTiming = (message: string) => {
+      const idx = message.toLowerCase().indexOf("| timing");
+      if (idx < 0) return { main: message, timing: "" };
+      return { main: message.slice(0, idx).trim(), timing: message.slice(idx + 1).trim() };
+    };
     const sendTvLoginTelegram = async (kind: string, fields: Record<string, unknown>) => {
       try {
         const tg = await getTelegramConfig(supabase);
         if (!tg) return;
-        const iconMap: Record<string, string> = {
-          attempt: "📺",
-          success: "✅",
-          invalid_code: "❌",
-          cookies_expired: "⚠️",
-          no_cookies: "🚫",
-          not_configured: "🚫",
-          runner_timeout: "⏱️",
-          netflix_timeout: "⏱️",
-          error: "🛑",
-          user_error_report: "🆘",
+        const titleMap: Record<string, string> = {
+          attempt: "TV Login — Attempt started",
+          success: "TV Login — Success",
+          invalid_code: "TV Login — Invalid code",
+          cookies_expired: "TV Login — Cookies expired",
+          no_cookies: "TV Login — No cookies configured",
+          not_configured: "TV Login — Not configured",
+          runner_timeout: "TV Login — Runner timeout",
+          netflix_timeout: "TV Login — Netflix timeout",
+          error: "TV Login — Error",
+          user_error_report: "TV Login — User report",
         };
-        const icon = iconMap[kind] || "ℹ️";
-        const title = `${icon} <b>TV Login · ${escapeTgHtml(kind)}</b>`;
-        const rows: string[] = [];
-        for (const [k, v] of Object.entries(fields)) {
-          if (v === undefined || v === null || v === "") continue;
-          rows.push(`<b>${escapeTgHtml(k)}:</b> <code>${escapeTgHtml(v)}</code>`);
-        }
-        postTelegramBg(tg, { text: `${title}\n${rows.join("\n")}` });
+        const get = (key: string) => {
+          const v = fields[key];
+          if (v === undefined || v === null || v === "") return "";
+          return redactTgValue(v);
+        };
+        const row = (key: string, label = humanTgKey(key)) => {
+          const v = get(key);
+          return v ? `${escapeTgHtml(label)}: <code>${escapeTgHtml(v)}</code>` : "";
+        };
+        const section = (label: string, rows: string[]) => {
+          const body = rows.filter(Boolean).join("\n");
+          return body ? `<b>${escapeTgHtml(label)}</b>\n${body}` : "";
+        };
+        const rawMessage = get("message") || get("event_message") || get("ui_message");
+        const { main: mainMessage, timing } = splitTiming(rawMessage);
+        const timingRows = timing
+          ? timing.replace(/^timing\s*/i, "").split(/\s+/).filter(Boolean).map((part) => `<code>${escapeTgHtml(part)}</code>`)
+          : [];
+        const parts = [
+          `<b>${escapeTgHtml(titleMap[kind] || `TV Login — ${kind}`)}</b>`,
+          section("Result", [row("status"), row("result"), row("dispatch"), row("code_last4", "Code last 4")]),
+          section("User", [row("user"), row("display_name", "Display name"), row("user_id", "User ID"), row("ip", "IP")]),
+          section("Account", [row("account_label", "Label"), row("imap_user", "Account"), row("login_email", "Login"), row("cookies_available", "Cookies")]),
+          mainMessage ? section("Message", [`<code>${escapeTgHtml(redactTgValue(mainMessage))}</code>`]) : "",
+          timingRows.length ? section("Timing", timingRows) : "",
+          section("Runtime", [row("run_url", "Runner"), row("started_at", "Started"), row("finished_at", "Finished"), row("submitted_at", "Submitted")]),
+          get("user_note") ? section("User note", [`<code>${escapeTgHtml(get("user_note"))}</code>`]) : "",
+        ].filter(Boolean);
+        const text = parts.join("\n\n");
+        postTelegramBg(tg, { text: text.slice(0, 3900) });
       } catch (e) {
         console.warn("[tv_tg] send failed:", (e as Error).message);
       }
+    };
+
+    const dispatchGithubTvFallback = async (eventId: string, reason: string) => {
+      const repo = Deno.env.get("GITHUB_REPO") || "";
+      const pat = Deno.env.get("GITHUB_DISPATCH_PAT") || "";
+      if (!repo || !pat || !eventId) return { ok: false, diag: "github_not_configured", message: "Backup TV runner is not configured." };
+      const ghRes = await fetch(`https://api.github.com/repos/${repo}/dispatches`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${pat}`,
+          "Accept": "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ event_type: "tv-login", client_payload: { event_id: eventId, fallback_reason: reason, ts: Date.now() } }),
+        signal: AbortSignal.timeout(4000),
+      });
+      if (ghRes.status === 204) {
+        return { ok: true, diag: "github_backup_queued", message: "Fast runner is unavailable, so a backup runner has started." };
+      }
+      const body = await ghRes.text().catch(() => "");
+      return { ok: false, diag: `github_${ghRes.status}`, message: body.slice(0, 180) || `Backup runner dispatch failed (${ghRes.status}).` };
     };
 
 
