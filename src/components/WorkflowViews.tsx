@@ -319,7 +319,48 @@ export function DirectLinkView({ apiCall, notify }: { apiCall: ApiCall; notify: 
                     </label>
                   ))}
                 </div>
-                <button onClick={generate} disabled={!selectedKey || busy}
+
+                {/* Expiry picker */}
+                <div className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4 xl:p-5 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 text-slate-800 text-sm font-bold">
+                      <CalendarClock className="w-4 h-4 text-emerald-600" /> Link expiry
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setCustomMode(m => !m)}
+                      className={`text-[11px] font-bold px-2.5 h-7 rounded-full transition-all ${customMode ? "bg-emerald-600 text-white" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-100"}`}
+                    >
+                      {customMode ? "Using custom date" : "Custom date"}
+                    </button>
+                  </div>
+                  {!customMode ? (
+                    <div className="flex flex-wrap gap-2">
+                      {TTL_PRESETS.map(p => (
+                        <button key={p.ttl} type="button" onClick={() => setTtl(p.ttl)}
+                          className={`h-8 px-3 rounded-full text-[11px] font-bold border transition-all ${ttl === p.ttl ? "bg-slate-900 text-white border-slate-900" : "bg-white text-slate-700 border-slate-200 hover:border-slate-300"}`}>
+                          {p.label}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div>
+                      <input
+                        type="datetime-local"
+                        value={customExpiry}
+                        min={new Date(Date.now() + 60_000).toISOString().slice(0, 16)}
+                        onChange={(e) => setCustomExpiry(e.target.value)}
+                        className="w-full h-10 px-3 rounded-xl border border-slate-200 bg-white text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+                      />
+                      <div className="text-[10.5px] text-slate-500 mt-1.5">Max 30 days · times shown in your local timezone</div>
+                    </div>
+                  )}
+                  <div className="text-[11px] text-slate-500">
+                    Effective expiry: <b className="text-slate-800">{effectiveTtl < 60 ? `${effectiveTtl} min` : effectiveTtl < 1440 ? `${Math.round(effectiveTtl/60)} h` : `${Math.round(effectiveTtl/1440)} d`}</b>
+                  </div>
+                </div>
+
+                <button onClick={generate} disabled={!selectedKey || busy || (customMode && !customExpiry)}
                   className="w-full h-12 xl:h-14 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-black text-sm xl:text-base shadow-lg shadow-emerald-900/20 disabled:opacity-60 active:scale-[0.99] flex items-center justify-center gap-2">
                   {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
                   {busy ? "Generating link…" : "Generate Direct Link"}
