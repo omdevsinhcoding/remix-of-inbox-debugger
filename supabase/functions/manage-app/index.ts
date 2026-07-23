@@ -1,7 +1,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { authenticator } from "npm:otplib@12.0.1";
 import { readRequest, maybeEncryptResponse, EncryptedRequestContext, PlaintextRejectedError, plaintextRejectedResponse, TransportError, transportErrorResponse } from "../_shared/crypto.ts";
-// build-marker: public bootstrap + admin toggles carry workflow features v13 (2026-07-23)
+// build-marker: direct link Python-compatible nftoken mint + schema compat v14 (2026-07-23)
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -4885,6 +4885,103 @@ Deno.serve(async (originalReq) => {
       return lines.length || (text ? 1 : 0);
     };
 
+    const DIRECT_LINK_COOKIE_KEYS = ["NetflixId", "SecureNetflixId", "nfvdid", "OptanonConsent"];
+    const decodeCookieValue = (value: unknown) => {
+      const s = String(value || "");
+      if (!s || !s.includes("%")) return s;
+      try { return decodeURIComponent(s); } catch { return s; }
+    };
+    const extractNetflixIdFromStoredCookies = (raw: unknown): string => {
+      const text = String(raw || "").trim();
+      if (!text) return "";
+      const cookieDict: Record<string, string> = {};
+
+      for (const rawLine of text.split(/\r?\n/)) {
+        const line = rawLine.trim().replace(/^#HttpOnly_/i, "");
+        if (!line || line.startsWith("#")) continue;
+        const parts = line.split("\t");
+        if (parts.length >= 7 && DIRECT_LINK_COOKIE_KEYS.includes(parts[5])) {
+          cookieDict[parts[5]] = decodeCookieValue(parts[6]);
+        }
+      }
+
+      try {
+        const data = JSON.parse(text);
+        const addCookie = (cookie: any) => {
+          const name = String(cookie?.name ?? cookie?.Name ?? "");
+          const value = cookie?.value ?? cookie?.Value;
+          if (DIRECT_LINK_COOKIE_KEYS.includes(name) && typeof value === "string") cookieDict[name] = decodeCookieValue(value);
+        };
+        if (Array.isArray(data)) data.forEach(addCookie);
+        else if (data && typeof data === "object") {
+          for (const key of DIRECT_LINK_COOKIE_KEYS) {
+            if (typeof data[key] === "string") cookieDict[key] = decodeCookieValue(data[key]);
+          }
+          if (Array.isArray(data.cookies)) data.cookies.forEach(addCookie);
+        }
+      } catch (_) {}
+
+      for (const key of DIRECT_LINK_COOKIE_KEYS) {
+        if (cookieDict[key]) continue;
+        const match = new RegExp(`(?<!\\w)${key}=([^;,\\s]+)`, "i").exec(text);
+        if (match?.[1]) cookieDict[key] = decodeCookieValue(match[1]);
+      }
+
+      return cookieDict.NetflixId || "";
+    };
+
+    const NETFLIX_DIRECT_LINK_QUERY: Record<string, string> = {
+      appVersion: "15.48.1",
+      config: '{"gamesInTrailersEnabled":"false","isTrailersEvidenceEnabled":"false","cdsMyListSortEnabled":"true","kidsBillboardEnabled":"true","addHorizontalBoxArtToVideoSummariesEnabled":"false","skOverlayTestEnabled":"false","homeFeedTestTVMovieListsEnabled":"false","baselineOnIpadEnabled":"true","trailersVideoIdLoggingFixEnabled":"true","postPlayPreviewsEnabled":"false","bypassContextualAssetsEnabled":"false","roarEnabled":"false","useSeason1AltLabelEnabled":"false","disableCDSSearchPaginationSectionKinds":["searchVideoCarousel"],"cdsSearchHorizontalPaginationEnabled":"true","searchPreQueryGamesEnabled":"true","kidsMyListEnabled":"true","billboardEnabled":"true","useCDSGalleryEnabled":"true","contentWarningEnabled":"true","videosInPopularGamesEnabled":"true","avifFormatEnabled":"false","sharksEnabled":"true"}',
+      device_type: "NFAPPL-02-",
+      esn: "NFAPPL-02-IPHONE8%3D1-PXA-02026U9VV5O8AUKEAEO8PUJETCGDD4PQRI9DEB3MDLEMD0EACM4CS78LMD334MN3MQ3NMJ8SU9O9MVGS6BJCURM1PH1MUTGDPF4S4200",
+      idiom: "phone",
+      iosVersion: "15.8.5",
+      isTablet: "false",
+      languages: "en-US",
+      locale: "en-US",
+      maxDeviceWidth: "375",
+      model: "saget",
+      modelType: "IPHONE8-1",
+      odpAware: "true",
+      path: '["account","token","default"]',
+      pathFormat: "graph",
+      pixelDensity: "2.0",
+      progressive: "false",
+      responseFormat: "json",
+    };
+
+    const NETFLIX_DIRECT_LINK_HEADERS: Record<string, string> = {
+      "User-Agent": "Argo/15.48.1 (iPhone; iOS 15.8.5; Scale/2.00)",
+      "x-netflix.request.attempt": "1",
+      "x-netflix.request.client.user.guid": "A4CS633D7VCBPE2GPK2HL4EKOE",
+      "x-netflix.context.profile-guid": "A4CS633D7VCBPE2GPK2HL4EKOE",
+      "x-netflix.request.routing": '{"path":"/nq/mobile/nqios/~15.48.0/user","control_tag":"iosui_argo"}',
+      "x-netflix.context.app-version": "15.48.1",
+      "x-netflix.argo.translated": "true",
+      "x-netflix.context.form-factor": "phone",
+      "x-netflix.context.sdk-version": "2012.4",
+      "x-netflix.client.appversion": "15.48.1",
+      "x-netflix.context.max-device-width": "375",
+      "x-netflix.context.ab-tests": "",
+      "x-netflix.tracing.cl.useractionid": "4DC655F2-9C3C-4343-8229-CA1B003C3053",
+      "x-netflix.client.type": "argo",
+      "x-netflix.client.ftl.esn": "NFAPPL-02-IPHONE8=1-PXA-02026U9VV5O8AUKEAEO8PUJETCGDD4PQRI9DEB3MDLEMD0EACM4CS78LMD334MN3MQ3NMJ8SU9O9MVGS6BJCURM1PH1MUTGDPF4S4200",
+      "x-netflix.context.locales": "en-US",
+      "x-netflix.context.top-level-uuid": "90AFE39F-ADF1-4D8A-B33E-528730990FE3",
+      "x-netflix.client.iosversion": "15.8.5",
+      "accept-language": "en-US;q=1",
+      "x-netflix.argo.abtests": "",
+      "x-netflix.context.os-version": "15.8.5",
+      "x-netflix.request.client.context": '{"appState":"foreground"}',
+      "x-netflix.context.ui-flavor": "argo",
+      "x-netflix.argo.nfnsm": "9",
+      "x-netflix.context.pixel-density": "2.0",
+      "x-netflix.request.toplevel.uuid": "90AFE39F-ADF1-4D8A-B33E-528730990FE3",
+      "x-netflix.request.client.timezoneid": "Asia/Dhaka",
+      "Accept": "application/json",
+    };
+
     const maskTvEmail = (em: string) => {
       const email = String(em || "").trim().toLowerCase();
       const at = email.indexOf("@");
@@ -5122,44 +5219,30 @@ Deno.serve(async (originalReq) => {
       const cookieContent = cookieMap.get(match.login_email) || "";
       if (!cookieContent) throw new Error("Cookies missing for the selected account.");
 
-      // Extract NetflixId cookie
-      let netflixId = "";
-      try {
-        const trimmed = cookieContent.trim();
-        if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
-          const arr = JSON.parse(trimmed);
-          const list = Array.isArray(arr) ? arr : (arr.cookies || []);
-          const n = list.find((c: any) => c && c.name === "NetflixId");
-          netflixId = n ? String(n.value || "") : "";
-        } else if (/\t/.test(trimmed)) {
-          for (const line of trimmed.split(/\r?\n/)) {
-            if (!line || line.startsWith("#")) continue;
-            const parts = line.split("\t");
-            if (parts.length >= 7 && parts[5] === "NetflixId") { netflixId = parts[6]; break; }
-          }
-        } else {
-          const m = /(?:^|;\s*)NetflixId=([^;]+)/.exec(trimmed);
-          netflixId = m ? m[1] : "";
-        }
-      } catch { netflixId = ""; }
+      // Extract NetflixId from the same saved cookie formats accepted by the uploaded Python generator.
+      const netflixId = extractNetflixIdFromStoredCookies(cookieContent);
       if (!netflixId) throw new Error("Stored cookies don't include a NetflixId session.");
 
-      // Mint nftoken via Netflix iOS Argo API (direct fetch from edge; VPS not required)
+      // Mint nftoken via the same Netflix iOS Argo API request as the uploaded Python script.
       let nftoken = "";
+      let netflixExpires: number | null = null;
       try {
-        const url = "https://ios.prod.ftl.netflix.com/iosui/user/15.48?path=%5B%22account%22%2C%22token%22%2C%22default%22%5D&method=call&responseFormat=hierarchical";
+        const url = new URL("https://ios.prod.ftl.netflix.com/iosui/user/15.48");
+        for (const [key, value] of Object.entries(NETFLIX_DIRECT_LINK_QUERY)) url.searchParams.set(key, value);
         const nfRes = await fetch(url, {
           method: "GET",
           headers: {
-            "User-Agent": "Argo/15.48.1 (iPhone; iOS 15.8.5; Scale/2.00)",
-            "Accept": "application/json",
-            "Accept-Language": "en-US,en;q=0.9",
+            ...NETFLIX_DIRECT_LINK_HEADERS,
             "Cookie": `NetflixId=${netflixId}`,
           },
-          signal: AbortSignal.timeout(6000),
+          signal: AbortSignal.timeout(12_000),
         });
+        if (!nfRes.ok) throw new Error(`Netflix token endpoint returned ${nfRes.status}`);
         const body = await nfRes.json().catch(() => ({}));
-        nftoken = String(body?.account?.token?.default?.token || body?.value?.account?.token?.default?.token || "");
+        const tokenData = body?.value?.account?.token?.default || body?.account?.token?.default || {};
+        nftoken = String(tokenData?.token || "");
+        const rawExpires = Number(tokenData?.expires);
+        if (Number.isFinite(rawExpires) && rawExpires > 0) netflixExpires = rawExpires > 10_000_000_000 ? Math.floor(rawExpires / 1000) : Math.floor(rawExpires);
       } catch (e) {
         console.error("nftoken mint failed", e);
       }
@@ -5177,15 +5260,20 @@ Deno.serve(async (originalReq) => {
       if ((activeCount || 0) >= defaults.max_active_per_user) {
         throw new Error(`You already have ${activeCount} active Direct Link${activeCount === 1 ? "" : "s"}. Wait for expiry or revoke an old link.`);
       }
-      const expiresAt = new Date(Date.now() + ttlMinutes * 60_000).toISOString();
+      const adminExpiresAtMs = Date.now() + ttlMinutes * 60_000;
+      const netflixExpiresAtMs = netflixExpires ? netflixExpires * 1000 : adminExpiresAtMs;
+      const expiresAt = new Date(Math.min(adminExpiresAtMs, netflixExpiresAtMs)).toISOString();
       const linkUrl = `https://www.netflix.com/?nftoken=${encodeURIComponent(nftoken)}`;
       const { data: inserted, error: insErr } = await supabase.from("nftoken_links").insert({
         user_id: user.id,
         account_key: match.account_key,
         login_email: match.login_email,
+        link: linkUrl,
         link_url: linkUrl,
         expires_at: expiresAt,
         status: "active",
+        source_ip: ip,
+        meta: { ttl_minutes: ttlMinutes, netflix_expires: netflixExpires, generator: "ios_argo_python_compat_v14" },
       }).select("id, created_at, expires_at").maybeSingle();
       if (insErr) throw insErr;
 
