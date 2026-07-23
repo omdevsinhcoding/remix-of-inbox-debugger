@@ -6679,7 +6679,7 @@ function AdminPanel() {
     try {
       const raw = sessionStorage.getItem(ADMIN_ACTIVE_TAB_KEY);
       if (!raw) return "users";
-      const allowed = new Set(["users", "security", "emails", "settings", "notifications", "inbox", "logins", "allmails", "deploy", "tv", "cookies"]);
+      const allowed = new Set(["users", "security", "emails", "settings", "notifications", "inbox", "logins", "allmails", "deploy", "tv", "cookies", "directlink"]);
       return allowed.has(raw) ? (raw as any) : "users";
 
     } catch {
@@ -6779,6 +6779,9 @@ function AdminPanel() {
   const [tvFeatureEnabled, setTvFeatureEnabled] = useState(true);
   const [tvSearch, setTvSearch] = useState("");
   const [savingTvFeature, setSavingTvFeature] = useState(false);
+  const [linkExpiryMinutes, setLinkExpiryMinutes] = useState("60");
+  const [linkMaxActive, setLinkMaxActive] = useState("3");
+  const [savingLinkDefaults, setSavingLinkDefaults] = useState(false);
   const [savingLocationPolicy, setSavingLocationPolicy] = useState(false);
 
   // VPS Vault (admin-only metadata in app_settings; private key file lives in R2)
@@ -7114,6 +7117,12 @@ function AdminPanel() {
         setIpwhoAlertEnabled(s.ipwho_alert?.enabled === true);
         setLocationPolicyRequired(s.location_policy?.required !== false);
         setTvFeatureEnabled(s.tv_feature?.enabled !== false);
+        if (s.link_defaults) {
+          const ttl = Number(s.link_defaults.ttl_minutes);
+          const max = Number(s.link_defaults.max_active_per_user);
+          if (Number.isFinite(ttl) && ttl > 0) setLinkExpiryMinutes(String(Math.floor(ttl)));
+          if (Number.isFinite(max) && max > 0) setLinkMaxActive(String(Math.floor(max)));
+        }
         const fac = Number(s.free_avatar_cooldown?.minutes);
         if (Number.isFinite(fac) && fac > 0) setFreeAvatarCooldownMinState(String(Math.floor(fac)));
 
@@ -7228,6 +7237,12 @@ function AdminPanel() {
       setIpwhoAlertEnabled(s.ipwho_alert?.enabled === true);
       setLocationPolicyRequired(s.location_policy?.required !== false);
       setTvFeatureEnabled(s.tv_feature?.enabled !== false);
+      if (s.link_defaults) {
+        const ttl = Number(s.link_defaults.ttl_minutes);
+        const max = Number(s.link_defaults.max_active_per_user);
+        if (Number.isFinite(ttl) && ttl > 0) setLinkExpiryMinutes(String(Math.floor(ttl)));
+        if (Number.isFinite(max) && max > 0) setLinkMaxActive(String(Math.floor(max)));
+      }
       const fac = Number(s.free_avatar_cooldown?.minutes);
       if (Number.isFinite(fac) && fac > 0) setFreeAvatarCooldownMinState(String(Math.floor(fac)));
       if (s.maintenance) {
@@ -7331,6 +7346,26 @@ function AdminPanel() {
       notify.error(err instanceof Error ? err.message : "Failed to save session limit");
     } finally {
       setSavingConcurrentSessionLimit(false);
+    }
+  };
+
+  const saveLinkDefaults = async () => {
+    const ttl = Math.max(1, Math.min(43200, Math.floor(Number(linkExpiryMinutes) || 60)));
+    const max = Math.max(1, Math.min(20, Math.floor(Number(linkMaxActive) || 3)));
+    setSavingLinkDefaults(true);
+    try {
+      await apiCall("manage-app", {
+        action: "set_settings",
+        key: "link_defaults",
+        value: { ttl_minutes: ttl, max_active_per_user: max },
+      });
+      setLinkExpiryMinutes(String(ttl));
+      setLinkMaxActive(String(max));
+      notify.success(`Direct Link expiry set to ${ttl < 60 ? `${ttl} min` : ttl < 1440 ? `${Math.round(ttl / 60)} hr` : `${Math.round(ttl / 1440)} day`}`);
+    } catch (err) {
+      notify.error(err instanceof Error ? err.message : "Failed to save Direct Link settings");
+    } finally {
+      setSavingLinkDefaults(false);
     }
   };
 
@@ -7738,12 +7773,13 @@ function AdminPanel() {
     const cur = (u as any).features || { gmail: true, tv: true, link: false };
     const nextVal = key === "link" ? !(cur[key] === true) : !(cur[key] !== false);
     const nextFeatures = { ...cur, [key]: nextVal };
-    setUsers((prev) => prev.map((x) => x.id === u.id ? ({ ...x, features: nextFeatures } as any) : x));
+    const flatKey = key === "gmail" ? "feature_gmail" : key === "tv" ? "feature_tv" : "feature_link";
+    setUsers((prev) => prev.map((x) => x.id === u.id ? ({ ...x, features: nextFeatures, [flatKey]: nextVal } as any) : x));
     try {
       await apiCall("manage-app", { action: "update_user", id: u.id, features: { [key]: nextVal } });
       notify.success(`${key === "gmail" ? "Gmail" : key === "tv" ? "TV" : "Direct Link"} ${nextVal ? "enabled" : "disabled"}`);
     } catch (err) {
-      setUsers((prev) => prev.map((x) => x.id === u.id ? ({ ...x, features: cur } as any) : x));
+      setUsers((prev) => prev.map((x) => x.id === u.id ? ({ ...x, features: cur, [flatKey]: (u as any)[flatKey] } as any) : x));
       notify.error(err instanceof Error ? err.message : "Failed to update feature");
     }
   };
@@ -9740,13 +9776,56 @@ function AdminPanel() {
             </div>
 
             <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 sm:p-6">
-              <div className="flex items-center gap-2 mb-3">
-                <Sparkles className="w-4 h-4 text-emerald-600" />
-                <h3 className="text-sm font-black text-slate-900 uppercase tracking-wider">How expiry works</h3>
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-5">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <Clock className="w-4 h-4 text-emerald-600" />
+                    <h3 className="text-sm font-black text-slate-900 uppercase tracking-wider">Default link expiry</h3>
+                  </div>
+                  <p className="text-[13px] text-slate-600 leading-relaxed">Admin controls expiry here. Users only see Generate, Copy, Open, and expiry status.</p>
+                </div>
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-black px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> Admin controlled
+                </span>
               </div>
-              <p className="text-[13px] text-slate-600 leading-relaxed">
-                Users choose their own link expiry from the Direct Link page — presets of <b>15 min</b>, <b>1 hour</b>, <b>6 hours</b>, <b>24 hours</b>, <b>7 days</b>, plus a custom date/time picker (up to 30 days).
-              </p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-3 items-end">
+                <div>
+                  <label className="block text-[11px] font-black text-slate-500 uppercase tracking-wider mb-1.5">Expiry minutes</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={43200}
+                    value={linkExpiryMinutes}
+                    onChange={(e) => setLinkExpiryMinutes(e.target.value)}
+                    className="w-full h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-bold text-slate-900 outline-none focus:bg-white focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
+                    placeholder="60"
+                  />
+                  <p className="text-[10.5px] text-slate-400 mt-1">1 minute to 30 days.</p>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-black text-slate-500 uppercase tracking-wider mb-1.5">Max active links/user</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={20}
+                    value={linkMaxActive}
+                    onChange={(e) => setLinkMaxActive(e.target.value)}
+                    className="w-full h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-bold text-slate-900 outline-none focus:bg-white focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
+                    placeholder="3"
+                  />
+                  <p className="text-[10.5px] text-slate-400 mt-1">Prevents unlimited active links.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={saveLinkDefaults}
+                  disabled={savingLinkDefaults}
+                  className="h-11 px-5 rounded-xl bg-slate-900 text-white text-xs font-black hover:bg-slate-800 disabled:opacity-60 inline-flex items-center justify-center gap-2"
+                >
+                  {savingLinkDefaults ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                  Save
+                </button>
+              </div>
             </section>
 
             <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 sm:p-6">
@@ -9761,7 +9840,7 @@ function AdminPanel() {
                 </button>
               </div>
               <div className="divide-y divide-slate-100 mt-4">
-                {users.filter((u) => u.role !== "admin" && (u as any).feature_link === true).map((u) => (
+                {users.filter((u) => u.role !== "admin" && (((u as any).features?.link === true) || (u as any).feature_link === true)).map((u) => (
                   <div key={u.id} className="py-2.5 flex items-center justify-between gap-3">
                     <div className="min-w-0">
                       <div className="text-sm font-bold text-slate-900 truncate">{u.name || u.username}</div>
@@ -9770,7 +9849,7 @@ function AdminPanel() {
                     <span className="text-[10px] font-black tracking-wider px-2 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">LINK · ON</span>
                   </div>
                 ))}
-                {users.filter((u) => u.role !== "admin" && (u as any).feature_link === true).length === 0 && (
+                {users.filter((u) => u.role !== "admin" && (((u as any).features?.link === true) || (u as any).feature_link === true)).length === 0 && (
                   <div className="py-8 text-center text-[12px] text-slate-500">
                     No profiles have Direct Link enabled yet. Turn on the <b>LINK</b> pill for a user in the Users tab.
                   </div>

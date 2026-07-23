@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Mail, Tv, Link as LinkIcon, Copy, RefreshCw, Loader2, ShieldCheck, Clock, Trash2, X, ChevronRight, LayoutGrid, Sparkles, Check, LogOut, CalendarClock } from "lucide-react";
+import { Mail, Tv, Link as LinkIcon, Copy, RefreshCw, Loader2, ShieldCheck, Clock, Trash2, X, ChevronRight, LayoutGrid, Sparkles, Check, LogOut } from "lucide-react";
 
 type ApiCall = (fn: string, body: any) => Promise<any>;
 type Notify = { success: (m: string) => void; error: (m: string) => void };
@@ -13,7 +13,11 @@ export function resolveFeatures(user: any): UserFeatures {
   if (f && typeof f === "object") {
     return { gmail: f.gmail !== false, tv: f.tv !== false, link: f.link === true };
   }
-  return { gmail: true, tv: true, link: false };
+  return {
+    gmail: user?.feature_gmail !== false,
+    tv: user?.feature_tv !== false,
+    link: user?.feature_link === true,
+  };
 }
 
 export function countEnabled(f: UserFeatures) {
@@ -21,8 +25,10 @@ export function countEnabled(f: UserFeatures) {
 }
 
 const VIEW_KEY = "nf.view.v1";
+const VIEW_FEATURES_KEY = "nf.view.features.v1";
 
 export function useWorkflowView(user: any, features: UserFeatures) {
+  const featureSignature = `${features.gmail ? "1" : "0"}${features.tv ? "1" : "0"}${features.link ? "1" : "0"}`;
   const pickDefault = (): WorkflowView | null => {
     if (features.gmail) return "gmail";
     if (features.tv) return "tv";
@@ -31,8 +37,9 @@ export function useWorkflowView(user: any, features: UserFeatures) {
   };
   const [view, setView] = useState<WorkflowView | null>(() => {
     try {
+      const storedSig = sessionStorage.getItem(VIEW_FEATURES_KEY);
       const stored = sessionStorage.getItem(VIEW_KEY) as WorkflowView | null;
-      if (stored && features[stored]) return stored;
+      if (storedSig === featureSignature && stored && features[stored]) return stored;
     } catch {}
     // Show the welcome/chooser whenever the user has 2+ workflows enabled.
     // With just 1 workflow, we auto-open it (no need to ask).
@@ -40,11 +47,18 @@ export function useWorkflowView(user: any, features: UserFeatures) {
     return null;
   });
   useEffect(() => {
-    if (view) { try { sessionStorage.setItem(VIEW_KEY, view); } catch {} }
-  }, [view]);
+    if (view) { try { sessionStorage.setItem(VIEW_KEY, view); sessionStorage.setItem(VIEW_FEATURES_KEY, featureSignature); } catch {} }
+  }, [view, featureSignature]);
   useEffect(() => {
     if (view && !features[view]) setView(null);
-  }, [features, view]);
+    try {
+      const storedSig = sessionStorage.getItem(VIEW_FEATURES_KEY);
+      if (storedSig && storedSig !== featureSignature && countEnabled(features) >= 2) {
+        sessionStorage.removeItem(VIEW_KEY);
+        setView(null);
+      }
+    } catch {}
+  }, [features, view, featureSignature]);
   const setChoice = useCallback((v: WorkflowView) => setView(v), []);
   const clearChoice = useCallback(() => setView(null), []);
   return { view, setChoice, clearChoice };
@@ -174,6 +188,7 @@ export function DirectLinkView({ apiCall, notify }: { apiCall: ApiCall; notify: 
   const [links, setLinks] = useState<LinkRow[]>([]);
   const [selectedKey, setSelectedKey] = useState<string>("");
   const [busy, setBusy] = useState(false);
+  const [defaultTtl, setDefaultTtl] = useState<number>(60);
   const [, tick] = useState(0);
 
   useEffect(() => {
@@ -186,6 +201,8 @@ export function DirectLinkView({ apiCall, notify }: { apiCall: ApiCall; notify: 
     try {
       const res: any = await apiCall("manage-app", { action: "link_list_accounts" });
       const acc = Array.isArray(res?.accounts) ? res.accounts : [];
+      const ttl = Number(res?.defaults?.ttl_minutes);
+      if (Number.isFinite(ttl) && ttl > 0) setDefaultTtl(Math.floor(ttl));
       setAccounts(acc);
       setSelectedKey(prev => prev && acc.find((a: any) => a.account_key === prev) ? prev : (acc[0]?.account_key || ""));
       setNotConfigured(res?.not_configured ? (res.message || "Not configured") : null);
@@ -199,37 +216,21 @@ export function DirectLinkView({ apiCall, notify }: { apiCall: ApiCall; notify: 
   const loadLinks = useCallback(async () => {
     try {
       const res: any = await apiCall("manage-app", { action: "link_list" });
+      const ttl = Number(res?.defaults?.ttl_minutes);
+      if (Number.isFinite(ttl) && ttl > 0) setDefaultTtl(Math.floor(ttl));
       setLinks(Array.isArray(res?.links) ? res.links : []);
     } catch {}
   }, []);
 
   useEffect(() => { loadAccounts(); loadLinks(); }, [loadAccounts, loadLinks]);
 
-  // Expiry picker (client-driven ttl_minutes; server clamps to admin max)
-  const TTL_PRESETS: { label: string; ttl: number }[] = [
-    { label: "15 min",  ttl: 15 },
-    { label: "1 hour",  ttl: 60 },
-    { label: "6 hours", ttl: 360 },
-    { label: "24 hours", ttl: 1440 },
-    { label: "7 days",   ttl: 10080 },
-  ];
-  const [ttl, setTtl] = useState<number>(60);
-  const [customMode, setCustomMode] = useState(false);
-  const [customExpiry, setCustomExpiry] = useState<string>(""); // datetime-local value
-
-  const effectiveTtl = useMemo(() => {
-    if (customMode && customExpiry) {
-      const ms = new Date(customExpiry).getTime() - Date.now();
-      if (Number.isFinite(ms) && ms > 0) return Math.max(1, Math.min(43200, Math.round(ms / 60000)));
-    }
-    return ttl;
-  }, [customMode, customExpiry, ttl]);
+  const ttlLabel = useMemo(() => defaultTtl < 60 ? `${defaultTtl} min` : defaultTtl < 1440 ? `${Math.round(defaultTtl / 60)} hour${Math.round(defaultTtl / 60) === 1 ? "" : "s"}` : `${Math.round(defaultTtl / 1440)} day${Math.round(defaultTtl / 1440) === 1 ? "" : "s"}`, [defaultTtl]);
 
   const generate = useCallback(async () => {
     if (!selectedKey || busy) return;
     setBusy(true);
     try {
-      const res: any = await apiCall("manage-app", { action: "link_generate", account_key: selectedKey, ttl_minutes: effectiveTtl });
+      const res: any = await apiCall("manage-app", { action: "link_generate", account_key: selectedKey });
       if (res?.link?.link_url) {
         notify.success("Direct Link ready");
         try { await navigator.clipboard.writeText(res.link.link_url); } catch {}
@@ -240,7 +241,7 @@ export function DirectLinkView({ apiCall, notify }: { apiCall: ApiCall; notify: 
     } finally {
       setBusy(false);
     }
-  }, [selectedKey, busy, loadLinks, effectiveTtl]);
+  }, [selectedKey, busy, loadLinks]);
 
   const revoke = useCallback(async (id: string) => {
     try {
@@ -320,47 +321,15 @@ export function DirectLinkView({ apiCall, notify }: { apiCall: ApiCall; notify: 
                   ))}
                 </div>
 
-                {/* Expiry picker */}
-                <div className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4 xl:p-5 space-y-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 text-slate-800 text-sm font-bold">
-                      <CalendarClock className="w-4 h-4 text-emerald-600" /> Link expiry
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setCustomMode(m => !m)}
-                      className={`text-[11px] font-bold px-2.5 h-7 rounded-full transition-all ${customMode ? "bg-emerald-600 text-white" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-100"}`}
-                    >
-                      {customMode ? "Using custom date" : "Custom date"}
-                    </button>
+                <div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4 xl:p-5 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-black text-slate-900">Expiry set by admin</div>
+                    <div className="text-[12px] text-slate-500 mt-0.5">This link will stay valid for <b className="text-emerald-700">{ttlLabel}</b>.</div>
                   </div>
-                  {!customMode ? (
-                    <div className="flex flex-wrap gap-2">
-                      {TTL_PRESETS.map(p => (
-                        <button key={p.ttl} type="button" onClick={() => setTtl(p.ttl)}
-                          className={`h-8 px-3 rounded-full text-[11px] font-bold border transition-all ${ttl === p.ttl ? "bg-slate-900 text-white border-slate-900" : "bg-white text-slate-700 border-slate-200 hover:border-slate-300"}`}>
-                          {p.label}
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <div>
-                      <input
-                        type="datetime-local"
-                        value={customExpiry}
-                        min={new Date(Date.now() + 60_000).toISOString().slice(0, 16)}
-                        onChange={(e) => setCustomExpiry(e.target.value)}
-                        className="w-full h-10 px-3 rounded-xl border border-slate-200 bg-white text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
-                      />
-                      <div className="text-[10.5px] text-slate-500 mt-1.5">Max 30 days · times shown in your local timezone</div>
-                    </div>
-                  )}
-                  <div className="text-[11px] text-slate-500">
-                    Effective expiry: <b className="text-slate-800">{effectiveTtl < 60 ? `${effectiveTtl} min` : effectiveTtl < 1440 ? `${Math.round(effectiveTtl/60)} h` : `${Math.round(effectiveTtl/1440)} d`}</b>
-                  </div>
+                  <Clock className="w-5 h-5 text-emerald-600 shrink-0" />
                 </div>
 
-                <button onClick={generate} disabled={!selectedKey || busy || (customMode && !customExpiry)}
+                <button onClick={generate} disabled={!selectedKey || busy}
                   className="w-full h-12 xl:h-14 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-black text-sm xl:text-base shadow-lg shadow-emerald-900/20 disabled:opacity-60 active:scale-[0.99] flex items-center justify-center gap-2">
                   {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
                   {busy ? "Generating link…" : "Generate Direct Link"}
