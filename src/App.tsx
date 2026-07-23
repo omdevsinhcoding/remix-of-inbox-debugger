@@ -2350,6 +2350,7 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
                 </div>
 
                 {/* Submit */}
+                {!["invalid_code","cookies_expired","no_cookies","error","timeout"].includes(status) && (
                 <button
                   onClick={submit}
                   disabled={!isComplete || status !== "idle"}
@@ -2368,18 +2369,11 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
                     <span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Signing in to Netflix on your TV…</span>
                   ) : status === "success" ? (
                     <span className="inline-flex items-center gap-2 text-emerald-300">✓ TV signed in</span>
-                  ) : status === "invalid_code" ? (
-                    <span>Invalid code</span>
-                  ) : status === "cookies_expired" ? (
-                    <span>Cookies expired</span>
-                  ) : status === "no_cookies" ? (
-                    <span>No cookies available</span>
-                  ) : status === "error" || status === "timeout" ? (
-                    <span>Try again</span>
                   ) : (
                     "Continue"
                   )}
                 </button>
+                )}
 
 
                 {/* Status / help */}
