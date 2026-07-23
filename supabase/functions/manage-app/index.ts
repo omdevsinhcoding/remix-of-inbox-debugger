@@ -5630,8 +5630,8 @@ Deno.serve(async (originalReq) => {
       console.log(`[tv_submit] event=${inserted?.id} cookiesAvailable=${cookiesAvailable} matched_login=${matched?.login_email || "-"} parent_imap=${matched?.imap_user || "-"}`);
       if (cookiesAvailable && inserted?.id && matched?.login_email) {
         try {
-          const runnerRaw = Deno.env.get("TV_FAST_RUNNER_URL") || "";
-          const runnerBase = runnerRaw.replace(/\/+$/g, "").trim();
+          const { data: vpsRowForRunner } = await supabase.from("app_settings").select("value").eq("key", "vps_config").maybeSingle();
+          const runnerBase = effectiveTvRunnerUrl(vpsRowForRunner?.value);
           console.log(`[tv_submit] direct runner check url_present=${!!runnerBase}`);
           if (runnerBase) {
             const runnerToken = randomHex(32);
