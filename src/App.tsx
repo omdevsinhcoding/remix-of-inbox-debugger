@@ -6872,7 +6872,7 @@ function AdminPanel() {
     if (vpsSaving) return;
     setVpsSaving(true);
     try {
-      const res: any = await apiCall("manage-app", { action: "admin_save_vps_access", ip: vpsCfg.ip.trim(), runnerUrl: vpsCfg.runnerUrl.trim() });
+      const res: any = await apiCall("manage-app", { action: "admin_save_vps_access", ip: vpsCfg.ip.trim(), runnerUrl: vpsCfg.runnerUrl.trim(), mode: vpsCfg.mode });
       if (res?.value) setVpsCfg((p) => ({ ...p, ...res.value }));
       notify.success("VPS settings saved");
     } catch (e: any) {
