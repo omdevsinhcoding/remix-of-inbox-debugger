@@ -12726,7 +12726,7 @@ function EmailViewer() {
       <h1 className="sr-only">Email Inbox — Netflix Mail</h1>
       <AnimatePresence>
         {workflowView === null && countEnabled(userFeatures) >= 2 && (
-          <WorkflowChooser features={userFeatures} user={user} onPick={setWorkflowView} onLogout={fastClearCookiesRedirect} />
+          <WorkflowChooser features={userFeatures} user={user} lastView={(user as any)?.lastWorkflowView || null} onPick={setWorkflowView} onLogout={fastClearCookiesRedirect} />
         )}
       </AnimatePresence>
       {showChangePassword && (
