@@ -7937,14 +7937,14 @@ function AdminPanel() {
     if (!confirm("This suppresses matching emails for every user forever. Future syncs will not bring them back. Continue?")) return;
     setClearingInbox(true);
     try {
-      const res = await apiCall("manage-app", {
+      await apiCall("manage-app", {
         action: "admin_clear_inbox",
         mode: inboxMode,
         accountLabel: inboxMode === "label" ? inboxLabel : undefined,
         days: inboxMode === "days" ? Number(inboxDays) : undefined,
         confirm: inboxMode === "all" ? inboxConfirm : undefined,
       });
-      notify.success(`Suppressed ${res.deleted || 0} email(s)`);
+      notify.success("Matching emails suppressed");
       setInboxConfirm("");
     } catch (err) {
       notify.error(err instanceof Error ? err.message : "Failed");
