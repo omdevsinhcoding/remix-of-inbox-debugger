@@ -7814,12 +7814,26 @@ function AdminPanel() {
   };
 
 
-  const reloadAdminNotifs = async () => {
+  const reloadAdminNotifs = React.useCallback(async () => {
     try {
-      const nl = await apiCall("manage-app", { action: "admin_list_notifications" });
-      if (Array.isArray(nl?.notifications)) setAdminNotifs(nl.notifications);
+      // Force a refetch through the SWR store so any prefetched cache is refreshed.
+      invalidateAdminSlice(AdminSliceKeys.notifications);
+      const nl: any = await apiCall("manage-app", { action: "admin_list_notifications" });
+      const list = Array.isArray(nl?.notifications) ? nl.notifications : [];
+      setAdminNotifs(list);
+      setAdminSlice(AdminSliceKeys.notifications, list);
     } catch (err) { console.warn(err); }
-  };
+  }, []);
+  // Hydrate notifications from SWR cache on mount (instant paint after prefetch).
+  const notifFetcher = React.useCallback(async () => {
+    const nl: any = await apiCall("manage-app", { action: "admin_list_notifications" });
+    return Array.isArray(nl?.notifications) ? nl.notifications : [];
+  }, []);
+  const { data: cachedNotifs } = useAdminSlice<any[]>(AdminSliceKeys.notifications, notifFetcher);
+  React.useEffect(() => {
+    if (Array.isArray(cachedNotifs) && cachedNotifs.length) setAdminNotifs(cachedNotifs);
+  }, [cachedNotifs]);
+
 
   const sendNotification = async () => {
     if (!notifTitle.trim() || !notifBody.trim()) { notify.error("Title and body required"); return; }
