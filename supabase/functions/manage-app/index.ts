@@ -60,7 +60,7 @@ async function loadLinkDefaults(supabase: any): Promise<{ ttl_minutes: number; m
     const { data } = await supabase.from("app_settings").select("value").eq("key", "link_defaults").maybeSingle();
     const v = data?.value || {};
     return {
-      ttl_minutes: Math.max(1, Math.min(1440, Number(v.ttl_minutes) || 15)),
+      ttl_minutes: Math.max(1, Math.min(43200, Number(v.ttl_minutes) || 15)),
       max_active_per_user: Math.max(1, Math.min(20, Number(v.max_active_per_user) || 3)),
     };
   } catch { return { ttl_minutes: 15, max_active_per_user: 3 }; }
