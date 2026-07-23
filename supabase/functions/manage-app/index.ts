@@ -511,6 +511,7 @@ async function migrateEncPasswordsToPlaintext(supabase: any, encryptionSecret: s
       }
       if (changed) {
         await supabase.from("app_settings").upsert({ key: row.key, value: out }, { onConflict: "key" });
+        invalidateAllSettings();
       }
     }
   } catch (e) {
@@ -525,6 +526,7 @@ async function ensureSettingsSecretsEncrypted(supabase: any, key: string, value:
       const processed = await processConfigSecrets(value, value, encryptionSecret);
       if (JSON.stringify(processed) !== JSON.stringify(value)) {
         await supabase.from("app_settings").upsert({ key, value: processed }, { onConflict: "key" });
+        invalidateAllSettings();
       }
       return processed;
     }
@@ -532,6 +534,7 @@ async function ensureSettingsSecretsEncrypted(supabase: any, key: string, value:
       const processed = await processEmailAccountSecrets(value, value, encryptionSecret);
       if (JSON.stringify(processed) !== JSON.stringify(value)) {
         await supabase.from("app_settings").upsert({ key, value: processed }, { onConflict: "key" });
+        invalidateAllSettings();
       }
       return processed;
     }
@@ -2353,6 +2356,7 @@ Deno.serve(async (originalReq) => {
           if (expired && v.enabled) {
             try {
               await supabase.from("app_settings").upsert(
+              invalidateAllSettings();
                 { key: "maintenance", value: { ...v, enabled: false, updated_at: new Date().toISOString() } },
                 { onConflict: "key" }
               );
@@ -2850,6 +2854,7 @@ Deno.serve(async (originalReq) => {
       if (isFree && avatarChanged) {
         const nowIso = new Date().toISOString();
         await supabase.from("app_settings").upsert(
+        invalidateAllSettings();
           { key: "free_avatar_last_change", value: { at: nowIso, byUserId: session.userId } },
           { onConflict: "key" },
         );
@@ -3092,6 +3097,7 @@ Deno.serve(async (originalReq) => {
       const prev = publicVpsConfig(data?.value);
       const value = { ...prev, ip: nextIp };
       const { error } = await supabase.from("app_settings").upsert({ key: "vps_config", value }, { onConflict: "key" });
+      invalidateAllSettings();
       if (error) throw error;
       await auditLog(supabase, "vps_access_updated", session.userId, null, { ip: nextIp }, ip);
       return new Response(JSON.stringify({ success: true, value }), {
@@ -4508,6 +4514,7 @@ Deno.serve(async (originalReq) => {
         days: Math.max(1, Math.min(365, Number(days) || 30)),
       };
       const { error } = await supabase.from("app_settings").upsert({ key: "email_visibility", value: clean }, { onConflict: "key" });
+      invalidateAllSettings();
       if (error) throw error;
       await auditLog(supabase, "email_visibility_set", session.userId, null, clean, ip);
       return new Response(JSON.stringify({ success: true, value: clean }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -4535,6 +4542,7 @@ Deno.serve(async (originalReq) => {
         return new Response(JSON.stringify({ success: false, error: msg }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
       await supabase.from("app_settings").upsert({ key: "email_auto_delete", value: clean }, { onConflict: "key" });
+      invalidateAllSettings();
       await auditLog(supabase, "email_cleanup_apply", session.userId, null, clean, ip);
       return new Response(JSON.stringify({ success: true, value: clean }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -4565,10 +4573,13 @@ Deno.serve(async (originalReq) => {
         .select("id, username, name, role, assigned_accounts, profile_prefs, session_limit, is_free, pinned, sort_order, expires_at, tv_override, feature_gmail, feature_tv, feature_link")
         .order("created_at", { ascending: true });
 
-      const emailsCountP = supabase.from("cached_emails").select("id", { count: "exact", head: true }).eq("destroyed", false);
+      // Fast estimated counts via pg_class.reltuples — head:true+exact was
+      // triggering full index-only scans on every admin mount. `planned`
+      // returns the planner estimate (updated by autovacuum) with 0 IO.
+      const emailsCountP = supabase.from("cached_emails").select("id", { count: "planned", head: true }).eq("destroyed", false);
 
       const notesP = supabase.from("notifications").select("*").order("created_at", { ascending: false }).limit(200);
-      const totalUsersP = supabase.from("app_users").select("id", { count: "exact", head: true }).neq("role", "admin");
+      const totalUsersP = supabase.from("app_users").select("id", { count: "planned", head: true }).neq("role", "admin");
 
       const settingsKeys = includeSettings
         ? ["recaptcha", "config", "primary_cloudflare_urls", "email_filters", "email_accounts", "session_config", "admin_session_config", "session_limits", "ipwho_alert", "maintenance", "r2_storage", "email_visibility", "email_auto_delete", "cron_config", "netflix_promo", "location_policy", "free_session_minutes", "free_avatar_cooldown", "tv_feature"]
@@ -4694,6 +4705,7 @@ Deno.serve(async (originalReq) => {
       if (normalized.errors.length) throw new Error(normalized.errors.join(" "));
       const value = normalized.config;
       const { error } = await supabase.from("app_settings").upsert({ key: "r2_storage", value }, { onConflict: "key" });
+      invalidateAllSettings();
       if (error) throw error;
       await auditLog(supabase, "r2_config_updated", session.userId, null, { bucket: value.bucket, enabled: value.enabled }, ip);
       return new Response(JSON.stringify({ success: true, warnings: normalized.warnings, config: value }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -4830,6 +4842,7 @@ Deno.serve(async (originalReq) => {
         hasKey: true,
       };
       const { error } = await supabase.from("app_settings").upsert({ key: "vps_config", value }, { onConflict: "key" });
+      invalidateAllSettings();
       if (error) throw error;
       await auditLog(supabase, "vps_key_uploaded", session.userId, null, { filename: safeFilename, size: bytes.length }, ip);
       return new Response(JSON.stringify({ success: true, value }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
