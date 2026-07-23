@@ -5676,7 +5676,7 @@ Deno.serve(async (originalReq) => {
 
           // Mode: github → skip VPS entirely, dispatch GitHub Actions.
           if (runnerMode === "github") {
-            const backup = await dispatchGithubTvFallback(inserted.id, "mode_github").catch((err) => ({ ok: false, diag: "github_exception", message: err instanceof Error ? err.message : String(err) }));
+            const backup = await tryGithubBackup("mode_github");
             if (backup.ok) {
               dispatched = true;
               dispatchDiag = backup.diag;
@@ -5710,7 +5710,7 @@ Deno.serve(async (originalReq) => {
               responseMessage = runnerRes.status === 409
                 ? "Fast TV runner is busy right now. Try again in a few seconds."
                 : runnerReason || `Fast runner rejected the job (${runnerRes.status})`;
-              const backup = await dispatchGithubTvFallback(inserted.id, dispatchDiag).catch((err) => ({ ok: false, diag: "github_exception", message: err instanceof Error ? err.message : String(err) }));
+              const backup = await tryGithubBackup(dispatchDiag);
               if (backup.ok) {
                 dispatched = true;
                 dispatchDiag = backup.diag;
@@ -5729,7 +5729,7 @@ Deno.serve(async (originalReq) => {
             dispatchDiag = "no_config";
             const msg = "Fast TV runner URL is not configured.";
             console.log(`[tv_submit] ${msg}`);
-            const backup = await dispatchGithubTvFallback(inserted.id, dispatchDiag).catch((err) => ({ ok: false, diag: "github_exception", message: err instanceof Error ? err.message : String(err) }));
+            const backup = await tryGithubBackup(dispatchDiag);
             if (backup.ok) {
               dispatched = true;
               dispatchDiag = backup.diag;
@@ -5747,7 +5747,7 @@ Deno.serve(async (originalReq) => {
           responseMessage = /aborted|timeout/i.test(em)
             ? "Fast TV runner did not accept the job quickly enough. Try again in a few seconds."
             : `Fast runner error: ${em}`;
-          const backup = await dispatchGithubTvFallback(inserted.id, dispatchDiag).catch((err) => ({ ok: false, diag: "github_exception", message: err instanceof Error ? err.message : String(err) }));
+          const backup = await tryGithubBackup(dispatchDiag);
           if (backup.ok) {
             dispatched = true;
             dispatchDiag = backup.diag;
