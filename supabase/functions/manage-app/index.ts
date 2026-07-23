@@ -5201,8 +5201,14 @@ Deno.serve(async (originalReq) => {
         const body = await nfRes.json().catch(() => ({}));
         const tokenData = body?.value?.account?.token?.default || body?.account?.token?.default || {};
         nftoken = String(tokenData?.token || "");
-        const rawExpires = Number(tokenData?.expires);
-        if (Number.isFinite(rawExpires) && rawExpires > 0) netflixExpires = rawExpires > 10_000_000_000 ? Math.floor(rawExpires / 1000) : Math.floor(rawExpires);
+        // Match Python exactly: if len(str(expires)) == 13 -> ms; else assume seconds.
+        const rawExpiresVal = tokenData?.expires;
+        const rawExpires = Number(rawExpiresVal);
+        if (Number.isFinite(rawExpires) && rawExpires > 0) {
+          const asStr = String(Math.trunc(rawExpires));
+          netflixExpires = asStr.length === 13 ? Math.floor(rawExpires / 1000) : Math.floor(rawExpires);
+        }
+        console.log("[link_generate] netflix raw expires=", rawExpiresVal, "resolved seconds=", netflixExpires);
       } catch (e) {
         console.error("nftoken mint failed", e);
       }
