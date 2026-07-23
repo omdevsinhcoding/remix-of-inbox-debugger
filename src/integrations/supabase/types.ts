@@ -667,11 +667,13 @@ export type Database = {
           created_at: string
           expires_at: string
           id: string
-          link: string
+          link: string | null
+          link_url: string | null
           login_email: string
           meta: Json
           revoked_at: string | null
           source_ip: string | null
+          status: string
           user_agent: string | null
           user_id: string
         }
@@ -681,11 +683,13 @@ export type Database = {
           created_at?: string
           expires_at: string
           id?: string
-          link: string
+          link?: string | null
+          link_url?: string | null
           login_email: string
           meta?: Json
           revoked_at?: string | null
           source_ip?: string | null
+          status?: string
           user_agent?: string | null
           user_id: string
         }
@@ -695,11 +699,13 @@ export type Database = {
           created_at?: string
           expires_at?: string
           id?: string
-          link?: string
+          link?: string | null
+          link_url?: string | null
           login_email?: string
           meta?: Json
           revoked_at?: string | null
           source_ip?: string | null
+          status?: string
           user_agent?: string | null
           user_id?: string
         }
