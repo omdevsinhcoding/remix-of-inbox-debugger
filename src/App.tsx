@@ -9829,31 +9829,49 @@ function AdminPanel() {
             </section>
 
             <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 sm:p-6">
-              <div className="flex items-center justify-between mb-3">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
                 <div>
-                  <h3 className="text-sm font-black text-slate-900 uppercase tracking-wider">Enabled profiles</h3>
-                  <p className="text-[12px] text-slate-500 mt-0.5">Toggle Direct Link access per user in the <b>Users</b> tab (the green <b>LINK</b> pill).</p>
+                  <h3 className="text-sm font-black text-slate-900 uppercase tracking-wider">Profile access</h3>
+                  <p className="text-[12px] text-slate-500 mt-0.5">Toggle Direct Link for each user right here. Green = enabled.</p>
                 </div>
-                <button onClick={() => setActiveTab("users")}
-                  className="h-9 px-3.5 rounded-full bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 active:scale-95 transition-transform">
-                  Open Users
-                </button>
+                {(() => {
+                  const nonAdmins = users.filter((u) => u.role !== "admin");
+                  const on = nonAdmins.filter((u) => ((u as any).features?.link === true) || (u as any).feature_link === true).length;
+                  return (
+                    <span className="text-[11px] font-black px-2.5 py-1 rounded-full bg-slate-100 text-slate-700 border border-slate-200 shrink-0 self-start">
+                      {on} / {nonAdmins.length} enabled
+                    </span>
+                  );
+                })()}
               </div>
-              <div className="divide-y divide-slate-100 mt-4">
-                {users.filter((u) => u.role !== "admin" && (((u as any).features?.link === true) || (u as any).feature_link === true)).map((u) => (
-                  <div key={u.id} className="py-2.5 flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="text-sm font-bold text-slate-900 truncate">{u.name || u.username}</div>
-                      <div className="text-[11px] text-slate-500 truncate">@{u.username}</div>
-                    </div>
-                    <span className="text-[10px] font-black tracking-wider px-2 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">LINK · ON</span>
-                  </div>
-                ))}
-                {users.filter((u) => u.role !== "admin" && (((u as any).features?.link === true) || (u as any).feature_link === true)).length === 0 && (
-                  <div className="py-8 text-center text-[12px] text-slate-500">
-                    No profiles have Direct Link enabled yet. Turn on the <b>LINK</b> pill for a user in the Users tab.
-                  </div>
+              <div className="divide-y divide-slate-100">
+                {users.filter((u) => u.role !== "admin").length === 0 && (
+                  <div className="py-8 text-center text-[12px] text-slate-500">No users yet.</div>
                 )}
+                {users.filter((u) => u.role !== "admin").map((u) => {
+                  const enabled = ((u as any).features?.link === true) || (u as any).feature_link === true;
+                  return (
+                    <div key={u.id} className="py-3 flex items-center justify-between gap-3">
+                      <div className="min-w-0 flex items-center gap-3">
+                        <div className={`w-9 h-9 rounded-full flex items-center justify-center text-[12px] font-black ${enabled ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
+                          {(u.name || u.username || "?").slice(0, 2).toUpperCase()}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-sm font-bold text-slate-900 truncate">{u.name || u.username}</div>
+                          <div className="text-[11px] text-slate-500 truncate">@{u.username}</div>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => toggleUserFeature(u, "link")}
+                        className={`relative inline-flex h-7 w-12 shrink-0 rounded-full transition-colors ${enabled ? "bg-emerald-500" : "bg-slate-300"}`}
+                        aria-label={enabled ? "Disable Direct Link" : "Enable Direct Link"}
+                      >
+                        <span className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-all ${enabled ? "left-[22px]" : "left-0.5"}`} />
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             </section>
           </div>
