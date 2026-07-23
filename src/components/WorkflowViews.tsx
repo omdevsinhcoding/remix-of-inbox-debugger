@@ -497,7 +497,6 @@ export function DirectLinkView({ apiCall, notify }: { apiCall: ApiCall; notify: 
                       <>
                         <button onClick={() => copy(l.link_url)} className="p-2 rounded-lg hover:bg-slate-100" title="Copy link"><Copy className="w-4 h-4 text-slate-600" /></button>
                         <a href={l.link_url} target="_blank" rel="noopener noreferrer" className="px-3 h-8 rounded-lg bg-slate-900 text-white text-[11px] font-bold flex items-center hover:bg-slate-800">Open</a>
-                        <button onClick={() => revoke(l.id)} className="p-2 rounded-lg hover:bg-red-50" title="Revoke"><Trash2 className="w-4 h-4 text-red-500" /></button>
                       </>
                     )}
                   </li>
