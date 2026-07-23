@@ -2595,6 +2595,7 @@ Deno.serve(async (originalReq) => {
           locationRequired,
           tvOverride: user.tv_override === "on" || user.tv_override === "off" ? user.tv_override : null,
           tvFeatureEnabled: await loadTvFeatureEnabled(supabase),
+          features: pickFeatures(user),
         },
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
