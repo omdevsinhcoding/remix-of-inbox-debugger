@@ -2,7 +2,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { authenticator } from "npm:otplib@12.0.1";
 import { readRequest, maybeEncryptResponse, EncryptedRequestContext, PlaintextRejectedError, plaintextRejectedResponse, TransportError, transportErrorResponse } from "../_shared/crypto.ts";
 import { getSetting, invalidateSetting, invalidateAllSettings } from "../_shared/settingsCache.ts";
-// build-marker: admin-io-collapse v20 (2026-07-23) — composite admin bootstrap + no read-side worker pushes/count scans
+// build-marker: tv-runner-observability v21 (2026-07-23) — wider result window + clearer runner errors
 
 // Wrap `app_settings` writes so the shared TTL cache is invalidated the moment
 // an admin changes a value. Prevents 30-second staleness on toggles.
@@ -40,6 +40,10 @@ const corsHeaders = {
 let __bootstrapCache: { at: number; payload: any } | null = null;
 const BOOTSTRAP_TTL_MS = 10_000;
 function invalidateBootstrapCache() { __bootstrapCache = null; }
+
+const TV_RUNNER_START_TIMEOUT_MS = 30_000;
+const TV_RUNNER_RESULT_TIMEOUT_MS = 16_000;
+const TV_RUNNER_DISPATCH_TIMEOUT_MS = 3_500;
 
 type EmailVisibilityFilters = { showSignInCodes?: boolean; showPasswordResets?: boolean; showAccountUpdates?: boolean };
 function publicProfilePrefs(value: any) {
@@ -2357,10 +2361,10 @@ Deno.serve(async (originalReq) => {
           // If we auto-expired, persist the disable so admins see it too.
           if (expired && v.enabled) {
             try {
-              await supabase.from("app_settings").upsert(
-              invalidateAllSettings();
-                { key: "maintenance", value: { ...v, enabled: false, updated_at: new Date().toISOString() } },
-                { onConflict: "key" }
+              await upsertSetting(
+                supabase,
+                "maintenance",
+                { ...v, enabled: false, updated_at: new Date().toISOString() },
               );
             } catch {}
           }
@@ -2857,11 +2861,7 @@ Deno.serve(async (originalReq) => {
       let cooldownNow: { minutes: number; lastAt: string | null } | null = null;
       if (isFree && avatarChanged) {
         const nowIso = new Date().toISOString();
-        await supabase.from("app_settings").upsert(
-        invalidateAllSettings();
-          { key: "free_avatar_last_change", value: { at: nowIso, byUserId: session.userId } },
-          { onConflict: "key" },
-        );
+        await upsertSetting(supabase, "free_avatar_last_change", { at: nowIso, byUserId: session.userId });
         const { data: cdRow } = await supabase
           .from("app_settings").select("value").eq("key", "free_avatar_cooldown").maybeSingle();
         const minutesRaw = Number((cdRow?.value as any)?.minutes);
@@ -5402,13 +5402,13 @@ Deno.serve(async (originalReq) => {
       const code = String(p?.code || "").replace(/\D/g, "").slice(0, 8);
       if (code.length !== 8) throw new Error("Enter the 8-digit code shown on your TV");
 
-      const staleCutoffIso = new Date(Date.now() - 10_000).toISOString();
+      const staleCutoffIso = new Date(Date.now() - 60_000).toISOString();
       await supabase
         .from("tv_login_events")
         .update({
           status: "error",
           result: "runner_timeout",
-          message: "Fast TV runner did not start within 10 seconds. Please try again after the runner is online.",
+          message: "Fast TV runner did not report back. Please try again after the runner is online.",
           finished_at: new Date().toISOString(),
         })
         .in("status", ["queued", "running", "in_progress"])
@@ -5538,7 +5538,7 @@ Deno.serve(async (originalReq) => {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ event_id: inserted.id, runner_token: runnerToken }),
-              signal: AbortSignal.timeout(1800),
+              signal: AbortSignal.timeout(TV_RUNNER_DISPATCH_TIMEOUT_MS),
             });
             const txt = await runnerRes.text().catch(() => "");
             let runnerJson: any = null;
@@ -5547,7 +5547,10 @@ Deno.serve(async (originalReq) => {
             dispatched = runnerRes.ok && runnerJson?.success !== false;
             if (!dispatched) {
               dispatchDiag = `fast_runner_${runnerRes.status}`;
-              responseMessage = runnerJson?.error || runnerJson?.message || `Fast runner rejected the job (${runnerRes.status})`;
+              const runnerReason = runnerJson?.message || runnerJson?.error || txt.slice(0, 160);
+              responseMessage = runnerRes.status === 409
+                ? "Fast TV runner is busy right now. Try again in a few seconds."
+                : runnerReason || `Fast runner rejected the job (${runnerRes.status})`;
               await supabase.from("tv_login_events").update({ status: "error", result: "fast_runner_unavailable", message: responseMessage, finished_at: new Date().toISOString() }).eq("id", inserted.id);
             } else {
               dispatchDiag = "fast_runner_running";
@@ -5565,7 +5568,9 @@ Deno.serve(async (originalReq) => {
           dispatchDiag = "exception";
           const em = e instanceof Error ? e.message : String(e);
           console.log(`[tv_submit] direct runner exception: ${em}`);
-          responseMessage = `Fast runner error: ${em}`;
+          responseMessage = /aborted|timeout/i.test(em)
+            ? "Fast TV runner did not accept the job quickly enough. Try again in a few seconds."
+            : `Fast runner error: ${em}`;
           await supabase.from("tv_login_events").update({ status: "error", message: responseMessage, finished_at: new Date().toISOString() }).eq("id", inserted.id);
         }
       }
@@ -5666,9 +5671,13 @@ Deno.serve(async (originalReq) => {
       const pendingStatuses = new Set(["queued", "running", "in_progress"]);
       const runnerStartedAtMs = Date.parse(String((ev.metadata as any)?.runnerStartedAt || ""));
       const createdAtMs = Date.parse(String(ev.created_at || ""));
-      const timeoutAnchorMs = Number.isFinite(runnerStartedAtMs) ? runnerStartedAtMs : createdAtMs;
-      if (pendingStatuses.has(String(ev.status || "")) && Number.isFinite(timeoutAnchorMs) && Date.now() - timeoutAnchorMs > 10 * 1000) {
-        const timeoutMessage = "Fast TV runner did not return within 10 seconds. Please try the TV code again.";
+      const hasRunnerStart = Number.isFinite(runnerStartedAtMs);
+      const timeoutAnchorMs = hasRunnerStart ? runnerStartedAtMs : createdAtMs;
+      const timeoutMs = hasRunnerStart ? TV_RUNNER_RESULT_TIMEOUT_MS : TV_RUNNER_START_TIMEOUT_MS;
+      if (pendingStatuses.has(String(ev.status || "")) && Number.isFinite(timeoutAnchorMs) && Date.now() - timeoutAnchorMs > timeoutMs) {
+        const timeoutMessage = hasRunnerStart
+          ? "Netflix did not return a final TV login result in time. Please generate a fresh TV code and try again."
+          : "Fast TV runner did not start in time. Please try again after a few seconds.";
         const { data: timedOut } = await supabase
           .from("tv_login_events")
           .update({ status: "error", result: "runner_timeout", message: timeoutMessage, finished_at: new Date().toISOString() })

@@ -13,7 +13,7 @@ fi
 if [[ ! -f "$ENV_FILE" ]]; then
   cat >"$ENV_FILE" <<'EOF'
 PORT=8788
-TV_LOGIN_MAX_MS=9000
+TV_LOGIN_MAX_MS=15000
 TV_REPORT_URL=https://jsqchutnfdeljajkxmly.supabase.co/functions/v1/manage-app
 EOF
   chmod 600 "$ENV_FILE"

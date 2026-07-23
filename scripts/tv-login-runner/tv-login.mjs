@@ -16,7 +16,7 @@ const HMAC_KEY = process.env.TV_REPORT_HMAC_KEY;
 const RUN_URL = process.env.GITHUB_RUN_URL || "";
 const EVENT_PATH = process.env.EVENT_PATH;
 const DIRECT_EVENT_ID = process.env.EVENT_ID;
-const MAX_MS = Math.max(3000, Math.min(9000, Number(process.env.TV_LOGIN_MAX_MS || 9000)));
+const MAX_MS = Math.max(3000, Math.min(15000, Number(process.env.TV_LOGIN_MAX_MS || 15000)));
 const SCRIPT_STARTED_AT = Date.now();
 
 if (!TV_REPORT_URL || !HMAC_KEY || (!DIRECT_EVENT_ID && !EVENT_PATH)) {
