@@ -431,7 +431,7 @@ export function DirectLinkView({ apiCall, notify }: { apiCall: ApiCall; notify: 
                 </button>
                 {activeLink && (
                   <p className="mt-2 text-[11px] text-amber-700 text-center font-semibold">
-                    Aapka current link abhi active hai — expire hone ke baad hi naya link generate kar sakte ho.
+                    Your current link is still active — you can generate a new one once it expires.
                   </p>
                 )}
                 <p className="mt-3 text-[11px] text-slate-400 text-center flex items-center justify-center gap-1">
