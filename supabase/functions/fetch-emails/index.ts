@@ -58,6 +58,33 @@ const PER_ACCOUNT_TIMEOUT_MS = 6500;
 const FAST_REFRESH_TIMEOUT_MS = 1800;
 const FAST_REFRESH_SCAN_COUNT = 4;
 const STALE_DAYS = 60;
+
+// ------- Durable job coordination (survives Deno isolate recycles) --------
+// Every knob below is a constant so ops can grep + tune in one place.
+const SYNC_JOB_NAME = "email-sync";
+const BACKFILL_JOB_NAME = "legacy-label-backfill";
+const SYNC_LOCK_LEASE_SECONDS = 120;        // cron runs every 3min; 2min lease
+const BACKFILL_LOCK_LEASE_SECONDS = 60;
+const BACKFILL_BATCH_SIZE = 500;            // bounded per-run — no full scan
+const STALE_CLEANUP_MIN_INTERVAL_MS = 6 * 60 * 60_000; // 6h floor per isolate
+const DEDUP_ID_LIMIT = 2000;                // keyset window, not offset
+
+// Try to grab the DB-backed lease. Returns false if another isolate holds it,
+// so overlapping cron ticks exit ~immediately (single SELECT to acquire fn).
+async function acquireLock(supabase: any, job: string, leaseSeconds: number): Promise<boolean> {
+  try {
+    const { data, error } = await supabase.rpc("acquire_sync_lock", {
+      _job: job, _lease_seconds: leaseSeconds,
+    });
+    if (error) { console.error(`[lock:${job}] rpc error`, error); return false; }
+    return data === true;
+  } catch (e) { console.error(`[lock:${job}] exception`, e); return false; }
+}
+async function releaseLock(supabase: any, job: string, ok: boolean): Promise<void> {
+  try { await supabase.rpc("release_sync_lock", { _job: job, _ok: ok }); }
+  catch (e) { console.error(`[lock:${job}] release failed`, e); }
+}
+
 const USER_SYNC_WINDOW_MS = 5_000;
 const userSyncHits = new Map<string, number>();
 let cronRepairLastAttempt = 0;
