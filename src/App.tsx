@@ -13000,12 +13000,12 @@ function EmailViewer() {
 
 
       {/* ============ DESKTOP HEADER ============ */}
-      <header className="hidden sm:block bg-slate-950 border-b border-slate-800 sticky top-0 z-20 shadow-sm">
+      <header className="hidden sm:block bg-white border-b border-slate-200 sticky top-0 z-20 shadow-sm">
         <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between gap-2">
           <div className="flex items-center gap-3 min-w-0">
             <div className="flex-shrink-0 flex items-center gap-1.5">
               <NetflixNLogo className="w-8 h-8" />
-              <div className="h-8 w-px bg-slate-700 ml-1" />
+              <div className="h-8 w-px bg-slate-200 ml-1" />
               <button
                 type="button"
                 onClick={() => setShowProfile(true)}
@@ -13017,8 +13017,8 @@ function EmailViewer() {
               </button>
             </div>
             <div className="min-w-0">
-              <h2 className="font-bold text-lg tracking-tight leading-tight text-red-500">Netflix Mail</h2>
-              <span className="text-xs text-slate-400 truncate block max-w-[180px]">{user.name}</span>
+              <h2 className="font-bold text-lg tracking-tight leading-tight text-red-600">Netflix Mail</h2>
+              <span className="text-xs text-slate-500 truncate block max-w-[180px]">{user.name}</span>
             </div>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
