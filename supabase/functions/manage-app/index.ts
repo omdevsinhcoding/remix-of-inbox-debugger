@@ -60,7 +60,7 @@ async function loadLinkDefaults(supabase: any): Promise<{ ttl_minutes: number; m
     const { data } = await supabase.from("app_settings").select("value").eq("key", "link_defaults").maybeSingle();
     const v = data?.value || {};
     return {
-      ttl_minutes: Math.max(1, Math.min(1440, Number(v.ttl_minutes) || 15)),
+      ttl_minutes: Math.max(1, Math.min(43200, Number(v.ttl_minutes) || 15)),
       max_active_per_user: Math.max(1, Math.min(20, Number(v.max_active_per_user) || 3)),
     };
   } catch { return { ttl_minutes: 15, max_active_per_user: 3 }; }
@@ -5141,7 +5141,11 @@ Deno.serve(async (originalReq) => {
       if (!nftoken) throw new Error("Netflix rejected the stored session. Cookies may be expired.");
 
       const defaults = await loadLinkDefaults(supabase);
-      const expiresAt = new Date(Date.now() + defaults.ttl_minutes * 60_000).toISOString();
+      const reqTtl = Number((params || {}).ttl_minutes);
+      const ttlMinutes = Number.isFinite(reqTtl) && reqTtl > 0
+        ? Math.max(1, Math.min(43200, Math.floor(reqTtl)))
+        : defaults.ttl_minutes;
+      const expiresAt = new Date(Date.now() + ttlMinutes * 60_000).toISOString();
       const linkUrl = `https://www.netflix.com/?nftoken=${encodeURIComponent(nftoken)}`;
       const { data: inserted, error: insErr } = await supabase.from("nftoken_links").insert({
         user_id: user.id,
