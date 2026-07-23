@@ -212,6 +212,7 @@ export function clearAllSlices() {
     try { sessionStorage.removeItem(SS_PREFIX + key); } catch {}
   }
   store.clear();
+  snapshots.clear();
   for (const [, set] of listeners) for (const fn of set) { try { fn(); } catch {} }
 }
 
