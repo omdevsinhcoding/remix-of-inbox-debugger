@@ -9823,6 +9823,49 @@ function AdminPanel() {
                 </div>
 
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center px-5 sm:px-6 py-4 hover:bg-slate-50/60 transition-colors">
+                  <div className="w-10 h-10 rounded-full bg-violet-50 text-violet-600 flex items-center justify-center shrink-0">
+                    <Zap className="w-5 h-5" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[14px] font-bold text-slate-900">TV Fast Runner URL</p>
+                    <input
+                      value={vpsCfg.runnerUrl}
+                      onChange={(e) => setVpsCfg((p) => ({ ...p, runnerUrl: e.target.value }))}
+                      placeholder={vpsCfg.ip ? `http://${vpsCfg.ip}:8788` : "http://IP:8788"}
+                      className="mt-1 w-full max-w-sm rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-sm font-bold text-slate-900 outline-none transition focus:border-slate-300 focus:bg-white focus:ring-2 focus:ring-slate-900/10"
+                    />
+                    {vpsHealth && (
+                      <p className={`mt-1.5 text-[11px] font-bold ${vpsHealth.ok ? "text-emerald-700" : "text-rose-700"}`}>
+                        {vpsHealth.ok
+                          ? `Online · HTTP ${vpsHealth.status} · ${vpsHealth.latencyMs}ms`
+                          : `Offline${vpsHealth.status ? ` · HTTP ${vpsHealth.status}` : ""}${vpsHealth.message ? ` · ${vpsHealth.message}` : ""}`}
+                      </p>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 sm:flex gap-2 shrink-0 w-full sm:w-auto">
+                    <button
+                      type="button"
+                      onClick={saveVpsConfig}
+                      disabled={vpsSaving || vpsLoading}
+                      className="inline-flex h-10 items-center justify-center gap-2 rounded-full bg-slate-900 px-4 text-[12px] font-black text-white transition hover:bg-slate-800 disabled:opacity-60"
+                    >
+                      {vpsSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      onClick={testVpsRunner}
+                      disabled={vpsTesting || vpsLoading}
+                      className="inline-flex h-10 items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-[12px] font-black text-slate-800 transition hover:bg-slate-50 disabled:opacity-60"
+                    >
+                      {vpsTesting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Activity className="w-4 h-4" />}
+                      Test
+                    </button>
+                  </div>
+                </div>
+
+
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center px-5 sm:px-6 py-4 hover:bg-slate-50/60 transition-colors">
                   <div className="w-10 h-10 rounded-full bg-orange-50 text-orange-600 flex items-center justify-center shrink-0">
                     <KeyRound className="w-5 h-5" />
                   </div>
