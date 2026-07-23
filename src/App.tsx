@@ -12767,11 +12767,26 @@ function EmailViewer() {
       </header>
 
 
-      {workflowView === "link" && userFeatures.link ? (
-        <main className="max-w-6xl mx-auto"><DirectLinkView apiCall={apiCall} notify={notify} /></main>
-      ) : workflowView === "tv" ? (
-        <main className="max-w-6xl mx-auto"><TvSignInPage /></main>
-      ) : (
+      <AnimatePresence mode="wait" initial={false}>
+        {workflowView === "link" && userFeatures.link ? (
+          <motion.main key="wf-link" className="max-w-6xl mx-auto"
+            initial={{ opacity: 0, y: 12, filter: "blur(6px)" }}
+            animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+            exit={{ opacity: 0, y: -12, filter: "blur(6px)" }}
+            transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}>
+            <DirectLinkView apiCall={apiCall} notify={notify} />
+          </motion.main>
+        ) : workflowView === "tv" ? (
+          <motion.main key="wf-tv" className="max-w-6xl mx-auto"
+            initial={{ opacity: 0, y: 12, filter: "blur(6px)" }}
+            animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+            exit={{ opacity: 0, y: -12, filter: "blur(6px)" }}
+            transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}>
+            <TvSignInPage />
+          </motion.main>
+        ) : (
+      <motion.div key="wf-gmail" initial={{ opacity: 0, y: 12, filter: "blur(6px)" }} animate={{ opacity: 1, y: 0, filter: "blur(0px)" }} exit={{ opacity: 0, y: -12, filter: "blur(6px)" }} transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}>
+      <>{(() => null)()}</>
       <main className="max-w-6xl mx-auto px-2 sm:px-4 h-[calc(100vh-3.5rem)] sm:h-[calc(100vh-4rem)] overflow-hidden">
         <div className="grid grid-cols-1 md:grid-cols-12 gap-4 sm:gap-8 h-full py-2 sm:py-4">
           <div className={`${selectedEmail ? "hidden md:block" : "block"} md:col-span-5 xl:col-span-4 flex flex-col overflow-hidden h-full`}>
