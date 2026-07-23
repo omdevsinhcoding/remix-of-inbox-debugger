@@ -164,6 +164,7 @@ export type Database = {
           feature_tv: boolean
           id: string
           is_free: boolean
+          last_workflow_view: string | null
           must_change_password: boolean
           name: string
           password: string | null
@@ -186,6 +187,7 @@ export type Database = {
           feature_tv?: boolean
           id?: string
           is_free?: boolean
+          last_workflow_view?: string | null
           must_change_password?: boolean
           name: string
           password?: string | null
@@ -208,6 +210,7 @@ export type Database = {
           feature_tv?: boolean
           id?: string
           is_free?: boolean
+          last_workflow_view?: string | null
           must_change_password?: boolean
           name?: string
           password?: string | null

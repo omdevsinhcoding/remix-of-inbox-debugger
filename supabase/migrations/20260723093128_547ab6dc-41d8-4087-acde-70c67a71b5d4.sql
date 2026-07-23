@@ -1,0 +1,1 @@
+ALTER TABLE public.app_users ADD COLUMN IF NOT EXISTS last_workflow_view text CHECK (last_workflow_view IN ('gmail','tv','link'));
