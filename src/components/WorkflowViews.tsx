@@ -453,9 +453,6 @@ export function DirectLinkView({ apiCall, notify }: { apiCall: ApiCall; notify: 
                           Open ↗
                         </a>
                       </div>
-                      <button onClick={() => revoke(activeLink.id)} className="mt-2 w-full h-10 rounded-xl text-[12px] font-bold text-rose-600 hover:bg-rose-50 flex items-center justify-center gap-1.5">
-                        <Trash2 className="w-3.5 h-3.5" /> Revoke this link
-                      </button>
                     </motion.div>
                   ) : (
                     <motion.div key="none" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.28 }}
