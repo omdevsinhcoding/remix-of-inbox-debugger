@@ -1,7 +1,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { authenticator } from "npm:otplib@12.0.1";
 import { readRequest, maybeEncryptResponse, EncryptedRequestContext, PlaintextRejectedError, plaintextRejectedResponse, TransportError, transportErrorResponse } from "../_shared/crypto.ts";
-// build-marker: direct link Python-compatible nftoken mint + schema compat v14 (2026-07-23)
+// build-marker: direct link py-exact URL (no encode, netflix.com host) v15 (2026-07-23)
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -5263,7 +5263,7 @@ Deno.serve(async (originalReq) => {
       const adminExpiresAtMs = Date.now() + ttlMinutes * 60_000;
       const netflixExpiresAtMs = netflixExpires ? netflixExpires * 1000 : adminExpiresAtMs;
       const expiresAt = new Date(Math.min(adminExpiresAtMs, netflixExpiresAtMs)).toISOString();
-      const linkUrl = `https://www.netflix.com/?nftoken=${encodeURIComponent(nftoken)}`;
+      const linkUrl = `https://netflix.com/?nftoken=${nftoken}`;
       const { data: inserted, error: insErr } = await supabase.from("nftoken_links").insert({
         user_id: user.id,
         account_key: match.account_key,

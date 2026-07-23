@@ -283,10 +283,26 @@ export function DirectLinkView({ apiCall, notify }: { apiCall: ApiCall; notify: 
     try { await navigator.clipboard.writeText(url); notify.success("Link copied"); } catch { notify.error("Copy failed"); }
   }, [notify]);
 
-  const activeLink = useMemo(() => {
+  const activeLink = (() => {
     if (!chosen) return null;
+    // Recomputed every render (including per-second tick) so expiry flips the UI instantly.
     return links.find(l => l.account_key === chosen.account_key && l.status === "active" && new Date(l.expires_at).getTime() > Date.now()) || null;
-  }, [links, chosen]);
+  })();
+
+  // Auto-generate a fresh link when the active one expires (and the user is on the link step).
+  const autoGenRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (step !== "link" || !chosen || busy) return;
+    if (activeLink) { autoGenRef.current = null; return; }
+    // Guard so we don't loop if the API keeps failing.
+    const key = chosen.account_key;
+    if (autoGenRef.current === key) return;
+    // Only auto-generate if we've already loaded (avoid triggering on very first mount before links load)
+    if (links.length === 0 && loadingAccounts) return;
+    autoGenRef.current = key;
+    generate();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeLink, step, chosen, busy]);
 
   return (
     <div className="min-h-[calc(100vh-4rem)] px-3 sm:px-6 py-8 sm:py-12 xl:py-16 bg-gradient-to-b from-white via-rose-50/40 to-white">
@@ -437,9 +453,6 @@ export function DirectLinkView({ apiCall, notify }: { apiCall: ApiCall; notify: 
                           Open ↗
                         </a>
                       </div>
-                      <button onClick={() => revoke(activeLink.id)} className="mt-2 w-full h-10 rounded-xl text-[12px] font-bold text-rose-600 hover:bg-rose-50 flex items-center justify-center gap-1.5">
-                        <Trash2 className="w-3.5 h-3.5" /> Revoke this link
-                      </button>
                     </motion.div>
                   ) : (
                     <motion.div key="none" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.28 }}
@@ -484,7 +497,6 @@ export function DirectLinkView({ apiCall, notify }: { apiCall: ApiCall; notify: 
                       <>
                         <button onClick={() => copy(l.link_url)} className="p-2 rounded-lg hover:bg-slate-100" title="Copy link"><Copy className="w-4 h-4 text-slate-600" /></button>
                         <a href={l.link_url} target="_blank" rel="noopener noreferrer" className="px-3 h-8 rounded-lg bg-slate-900 text-white text-[11px] font-bold flex items-center hover:bg-slate-800">Open</a>
-                        <button onClick={() => revoke(l.id)} className="p-2 rounded-lg hover:bg-red-50" title="Revoke"><Trash2 className="w-4 h-4 text-red-500" /></button>
                       </>
                     )}
                   </li>
