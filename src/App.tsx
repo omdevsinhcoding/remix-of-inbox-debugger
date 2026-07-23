@@ -6140,8 +6140,6 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
 
   // `selected` is the imap_user (email address) of the account being edited.
   const [selected, setSelected] = React.useState<string | null>(null);
-  const [savedRows, setSavedRows] = React.useState<SavedCookieRow[]>([]);
-  const [loading, setLoading] = React.useState(true);
   const [busy, setBusy] = React.useState(false);
   const [pasteInfo, setPasteInfo] = React.useState<CookieDraftInfo>({ length: 0, kind: "" });
   const [editLoadingFor, setEditLoadingFor] = React.useState<string | null>(null);
@@ -6179,6 +6177,16 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
     return pendingPasteValue.current || "";
   }, []);
 
+  // SWR: cookies-list paints instantly from cache, silent background refresh.
+  const cookiesFetcher = React.useCallback(async () => {
+    const res: any = await apiCall("manage-app", { action: "admin_cookies_list" });
+    return (Array.isArray(res?.items) ? res.items : []) as SavedCookieRow[];
+  }, []);
+  const { data: savedRowsData, hasData: cookiesHasData, refreshing: cookiesRefreshing, refresh: refreshCookies } =
+    useAdminSlice<SavedCookieRow[]>(AdminSliceKeys.cookies, cookiesFetcher);
+  const savedRows = savedRowsData || [];
+  const loading = !cookiesHasData && cookiesRefreshing;
+
   const savedByUser = React.useMemo(() => {
     const map: Record<string, SavedCookieRow> = {};
     for (const r of savedRows) map[String(r.imap_user || "").toLowerCase()] = r;
@@ -6186,17 +6194,10 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
   }, [savedRows]);
 
   const refresh = React.useCallback(async () => {
-    try {
-      const res: any = await apiCall("manage-app", { action: "admin_cookies_list" });
-      setSavedRows(Array.isArray(res?.items) ? res.items : []);
-    } catch (e: any) {
-      notify.error("Could not load saved cookies", { description: e?.message || String(e) });
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+    try { await refreshCookies(true); }
+    catch (e: any) { notify.error("Could not load saved cookies", { description: e?.message || String(e) }); }
+  }, [refreshCookies]);
 
-  React.useEffect(() => { refresh(); }, [refresh]);
 
   const selectedAcc = React.useMemo(() => {
     if (!selected) return null;
