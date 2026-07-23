@@ -3,6 +3,7 @@ import { ImapFlow } from "npm:imapflow@1.2.18";
 import { simpleParser } from "npm:mailparser@3.9.6";
 import { readRequest, maybeEncryptResponse, EncryptedRequestContext, PlaintextRejectedError, plaintextRejectedResponse, TransportError, transportErrorResponse } from "../_shared/crypto.ts";
 import { redactEmailsHtml, redactEmailsText } from "../_shared/redact.ts";
+import { getSetting, invalidateSetting } from "../_shared/settingsCache.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -271,8 +272,7 @@ function applyEmailFilters(emails: any[], filterSignInCodes: boolean, filterPass
 
 async function getEmailVisibility(supabase: any): Promise<{ enabled: boolean; days: number } | null> {
   try {
-    const { data } = await supabase.from("app_settings").select("value").eq("key", "email_visibility").maybeSingle();
-    const v = data?.value;
+    const v: any = await getSetting(supabase, "email_visibility");
     if (v && v.enabled === true && Number(v.days) > 0) return { enabled: true, days: Number(v.days) };
   } catch {}
   return null;
@@ -288,18 +288,12 @@ function escapeHtml(input: string) {
   return input.replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch] || ch));
 }
 
-// Strict Netflix sender check — only emails FROM a netflix.com address (or subdomain)
-// count as Netflix mail. Prevents third-party mails (e.g. Reddit threads that mention
-// "netflix" in the subject) from ever entering the cache.
 function isNetflixFrom(fromRaw: string | null | undefined): boolean {
   if (!fromRaw) return false;
   const s = String(fromRaw).toLowerCase();
   return /@([a-z0-9-]+\.)*netflix\.com\b/.test(s);
 }
 
-// Optional Netflix marketing/promo blocklist. OFF by default — all official
-// Netflix mail (including "new movie/series" announcements) is shown. Admin can
-// enable blocking via the admin panel (app_settings key "netflix_promo").
 const NETFLIX_PROMO_SUBJECTS = [
   "unlimited series", "ready to watch", "finish signing up", "welcome to netflix",
   "new on netflix", "recommended for you", "top 10", "trending now",
@@ -310,19 +304,15 @@ function isNetflixPromo(subject: string | null | undefined): boolean {
   const s = (subject || "").toLowerCase();
   return NETFLIX_PROMO_SUBJECTS.some((kw) => s.includes(kw));
 }
-// Cached per-invocation flag so we don't hit app_settings for every email row.
-let _blockPromoCache: { value: boolean; at: number } | null = null;
 async function shouldBlockPromo(supabase: any): Promise<boolean> {
-  if (_blockPromoCache && Date.now() - _blockPromoCache.at < 60_000) return _blockPromoCache.value;
   try {
-    const { data } = await supabase.from("app_settings").select("value").eq("key", "netflix_promo").maybeSingle();
-    const block = data?.value?.block === true;
-    _blockPromoCache = { value: block, at: Date.now() };
-    return block;
+    const v: any = await getSetting(supabase, "netflix_promo");
+    return v?.block === true;
   } catch {
     return false;
   }
 }
+
 
 function decodeQuotedPrintable(input: string) {
   return input
@@ -410,7 +400,16 @@ async function readCache(supabase: any, accountFilter: string[] | null, filterSi
   const safeLimit = clampLimit(limit, 500, session?.role === "admin" ? 500 : 200);
   // Non-admin with zero assigned accounts -> nothing visible.
   if (accountFilter && accountFilter.length === 0 && session && session.role !== "admin") return [];
-  let query = supabase.from("cached_emails").select("*").eq("destroyed", false).order("date", { ascending: false }).limit(safeLimit);
+  // Narrow SELECT: `html` (largest column — up to ~100KB per Netflix mail) is
+  // excluded from list responses. Clients fetch html lazily via `email-html`
+  // when opening a single mail. This alone cuts DB egress + shared-buffer IO
+  // on the /cache path by ~95% at 200 rows per call.
+  let query = supabase
+    .from("cached_emails")
+    .select("id, subject, from_address, to_address, date, preview, otp, account_label, cached_at")
+    .eq("destroyed", false)
+    .order("date", { ascending: false })
+    .limit(safeLimit);
   if (accountFilter && accountFilter.length > 0) query = query.in("account_label", accountFilter);
   if (session && session.role !== "admin") {
     const vis = await getEmailVisibility(supabase);
@@ -426,23 +425,21 @@ async function readCache(supabase: any, accountFilter: string[] | null, filterSi
     id: e.id,
     subject: e.subject,
     from: e.from_address,
-    // Keep raw to_address for the recipient scoping filter just below; we mask
-    // it after filtering, before it goes out to the client.
     to: e.to_address,
     date: e.date,
     otp: e.otp,
     preview: redactEmailsText(e.preview),
-    html: redactEmailsHtml(e.html),
+    // html intentionally omitted — lazy-loaded via email-html endpoint.
     account_label: e.account_label,
     cached_at: e.cached_at,
   }));
   let scopedEmails = emails;
   if (session && session.role !== "admin") {
     try {
-      const { data: accountsData } = await supabase.from("app_settings").select("value").eq("key", "email_accounts").maybeSingle();
+      const accountsValue = await getSetting<any[]>(supabase, "email_accounts");
       const filtersByLabel = new Map<string, string[]>();
-      if (Array.isArray(accountsData?.value)) {
-        for (const acc of accountsData.value) {
+      if (Array.isArray(accountsValue)) {
+        for (const acc of accountsValue) {
           const label = String(acc?.label || acc?.user || "").trim();
           if (!label) continue;
           filtersByLabel.set(label, normalizeRecipientFilters(acc.recipientFilters || acc.recipientFilter || acc.allowedRecipients));
@@ -451,11 +448,8 @@ async function readCache(supabase: any, accountFilter: string[] | null, filterSi
       scopedEmails = emails.filter((e: any) => recipientMatches(e.to, filtersByLabel.get(String(e.account_label || "").trim())));
     } catch {}
   }
-  // Apply promo block for everyone when admin turned it on. Default = OFF (all Netflix mail shows).
   const blockPromo = await shouldBlockPromo(supabase);
   const filtered = applyEmailFilters(scopedEmails, filterSignInCodes, filterPasswordResets, filterAccountUpdates, blockPromo);
-  // Final mask: strip the recipient address before shipping to the client.
-  // Done after recipient filtering so the filter still sees the real value.
   return filtered.map((e: any) => ({ ...e, to: redactEmailsText(e.to) }));
 }
 
@@ -711,15 +705,29 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
     return { success: false, error: "Inbox not configured. Add IMAP email in Admin Panel.", stats: {}, totalFetched: 0, inserted: 0 };
   }
 
-  if (!quickRefresh) {
+  // Legacy label backfill — one-shot per warm isolate (was: every sync tick).
+  if (!quickRefresh && !(globalThis as any).__legacyBackfillDone) {
+    (globalThis as any).__legacyBackfillDone = true;
     try {
       await supabase.from("cached_emails").update({ account_label: "Primary" }).is("account_label", null);
     } catch (e) {
       console.error("[sync] Legacy label backfill skipped:", e);
+      (globalThis as any).__legacyBackfillDone = false;
     }
   }
 
-  const { data: cachedRows } = await supabase.from("cached_emails").select("id");
+  // Dedup UID list: only need recent IDs so the IMAP-side pre-filter can skip
+  // already-cached UIDs. Was an unbounded full-table scan every sync — now
+  // bounded to the last STALE_DAYS window (matches what we keep anyway) and
+  // capped at 5000 rows. Upsert `ignoreDuplicates:true` catches anything else.
+  const dedupCutoff = new Date();
+  dedupCutoff.setDate(dedupCutoff.getDate() - STALE_DAYS);
+  const { data: cachedRows } = await supabase
+    .from("cached_emails")
+    .select("id")
+    .gte("date", dedupCutoff.toISOString())
+    .order("date", { ascending: false })
+    .limit(5000);
   const cachedIds = new Set((cachedRows || []).map((r: any) => String(r.id)));
 
   const settled = await Promise.allSettled(accounts.map(async (acc) => {
@@ -784,7 +792,14 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
     }
   }
 
+  // Stale cleanup: don't fire on EVERY cron tick (~1440/day = 1440 delete
+  // scans + WAL). Debounce to once per hour per warm isolate. `email-cleanup`
+  // pg_cron job is the authoritative retention path.
   const cleanupWork = (async () => {
+    const nowMs = Date.now();
+    const last = (globalThis as any).__lastStaleCleanupAt || 0;
+    if (nowMs - last < 60 * 60_000) return;
+    (globalThis as any).__lastStaleCleanupAt = nowMs;
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - STALE_DAYS);
     await supabase.from("cached_emails").delete().lt("date", cutoff.toISOString()).eq("destroyed", false);
@@ -890,11 +905,11 @@ Deno.serve(async (originalReq) => {
     let filterPasswordResets = false;
     let filterAccountUpdates = false;
     try {
-      const { data: filterData } = await supabase.from("app_settings").select("value").eq("key", "email_filters").single();
-      if (filterData?.value) {
-        if (filterData.value.showSignInCodes === false) filterSignInCodes = true;
-        if (filterData.value.showPasswordResets === false) filterPasswordResets = true;
-        if (filterData.value.showAccountUpdates === false) filterAccountUpdates = true;
+      const filterValue: any = await getSetting(supabase, "email_filters");
+      if (filterValue) {
+        if (filterValue.showSignInCodes === false) filterSignInCodes = true;
+        if (filterValue.showPasswordResets === false) filterPasswordResets = true;
+        if (filterValue.showAccountUpdates === false) filterAccountUpdates = true;
       }
     } catch {}
 
@@ -965,7 +980,10 @@ Deno.serve(async (originalReq) => {
       if (session.role !== "admin" && accountFilter && accountFilter.length === 0) {
         return json({ total: 0, error: null });
       }
-      let query = supabase.from("cached_emails").select("id", { count: "exact", head: true }).eq("destroyed", false);
+      // count:'planned' uses pg_class.reltuples — O(1), no table scan, no
+      // shared-buffer thrash. Slightly stale (updated by autovacuum) but
+      // exact accuracy is not required for the header badge.
+      let query = supabase.from("cached_emails").select("id", { count: "planned", head: true }).eq("destroyed", false);
       if (accountFilter && accountFilter.length > 0) query = query.in("account_label", accountFilter);
       if (session.role !== "admin") {
         const vis = await getEmailVisibility(supabase);

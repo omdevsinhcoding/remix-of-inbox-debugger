@@ -1,7 +1,31 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { authenticator } from "npm:otplib@12.0.1";
 import { readRequest, maybeEncryptResponse, EncryptedRequestContext, PlaintextRejectedError, plaintextRejectedResponse, TransportError, transportErrorResponse } from "../_shared/crypto.ts";
-// build-marker: direct link exact python expiry + manual generate v16 (2026-07-23)
+import { getSetting, invalidateSetting, invalidateAllSettings } from "../_shared/settingsCache.ts";
+// build-marker: disk-io-tier1 v19 (2026-07-23) — app_settings cache + last_seen throttle + estimated counts
+
+// Wrap `app_settings` writes so the shared TTL cache is invalidated the moment
+// an admin changes a value. Prevents 30-second staleness on toggles.
+async function upsertSetting(supabase: any, key: string, value: any) {
+  const res = await supabase.from("app_settings").upsert({ key, value }, { onConflict: "key" });
+  invalidateSetting(key);
+  return res;
+}
+// last_seen_at throttle: don't rewrite on every request — WAL/IO amplifier.
+const SESSION_TOUCH_MS = 60_000;
+const __sessionTouchMemo = new Map<string, number>();
+function shouldTouchSession(id: string): boolean {
+  const last = __sessionTouchMemo.get(id) || 0;
+  const now = Date.now();
+  if (now - last < SESSION_TOUCH_MS) return false;
+  __sessionTouchMemo.set(id, now);
+  // Cap memo size to avoid unbounded growth in long-lived isolates.
+  if (__sessionTouchMemo.size > 2000) {
+    const cutoff = now - SESSION_TOUCH_MS;
+    for (const [k, v] of __sessionTouchMemo) if (v < cutoff) __sessionTouchMemo.delete(k);
+  }
+  return true;
+}
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -33,16 +57,16 @@ function isGlobalLocationRequired(value: any) {
 }
 async function loadGlobalLocationRequired(supabase: any): Promise<boolean> {
   try {
-    const { data } = await supabase.from("app_settings").select("value").eq("key", "location_policy").maybeSingle();
-    return isGlobalLocationRequired(data?.value);
+    const value = await getSetting(supabase, "location_policy");
+    return isGlobalLocationRequired(value);
   } catch {
     return true;
   }
 }
 async function loadTvFeatureEnabled(supabase: any): Promise<boolean> {
   try {
-    const { data } = await supabase.from("app_settings").select("value").eq("key", "tv_feature").maybeSingle();
-    return data?.value?.enabled !== false;
+    const value: any = await getSetting(supabase, "tv_feature");
+    return value?.enabled !== false;
   } catch {
     return true;
   }
@@ -318,16 +342,16 @@ async function normalizeAssignedAccounts(supabase: any, raw: any): Promise<strin
 }
 
 async function loadAvailableAccountLabels(supabase: any): Promise<string[]> {
-  const { data } = await supabase.from("app_settings").select("value").eq("key", "email_accounts").maybeSingle();
-  return ["Primary", ...((Array.isArray(data?.value) ? data.value : []).map((acc: any) => String(acc?.label || acc?.user || "").trim()).filter(Boolean))];
+  const value = await getSetting<any[]>(supabase, "email_accounts");
+  return ["Primary", ...((Array.isArray(value) ? value : []).map((acc: any) => String(acc?.label || acc?.user || "").trim()).filter(Boolean))];
 }
 
 async function loadRecipientFiltersByLabel(supabase: any): Promise<Map<string, string[]>> {
   const out = new Map<string, string[]>();
   try {
-    const { data } = await supabase.from("app_settings").select("value").eq("key", "email_accounts").maybeSingle();
-    if (Array.isArray(data?.value)) {
-      for (const acc of data.value) {
+    const value = await getSetting<any[]>(supabase, "email_accounts");
+    if (Array.isArray(value)) {
+      for (const acc of value) {
         const label = String(acc?.label || acc?.user || "").trim();
         if (!label) continue;
         out.set(label, normalizeRecipientFilters(acc.recipientFilters || acc.recipientFilter || acc.allowedRecipients));
@@ -487,6 +511,7 @@ async function migrateEncPasswordsToPlaintext(supabase: any, encryptionSecret: s
       }
       if (changed) {
         await supabase.from("app_settings").upsert({ key: row.key, value: out }, { onConflict: "key" });
+        invalidateAllSettings();
       }
     }
   } catch (e) {
@@ -501,6 +526,7 @@ async function ensureSettingsSecretsEncrypted(supabase: any, key: string, value:
       const processed = await processConfigSecrets(value, value, encryptionSecret);
       if (JSON.stringify(processed) !== JSON.stringify(value)) {
         await supabase.from("app_settings").upsert({ key, value: processed }, { onConflict: "key" });
+        invalidateAllSettings();
       }
       return processed;
     }
@@ -508,6 +534,7 @@ async function ensureSettingsSecretsEncrypted(supabase: any, key: string, value:
       const processed = await processEmailAccountSecrets(value, value, encryptionSecret);
       if (JSON.stringify(processed) !== JSON.stringify(value)) {
         await supabase.from("app_settings").upsert({ key, value: processed }, { onConflict: "key" });
+        invalidateAllSettings();
       }
       return processed;
     }
@@ -2198,10 +2225,14 @@ Deno.serve(async (originalReq) => {
       } catch {}
     }
 
-    // Fire-and-forget touch
-    supabase.from("app_sessions").update({ last_seen_at: new Date().toISOString() }).eq("id", row.id).then(() => {});
+    // Fire-and-forget touch, throttled to once per SESSION_TOUCH_MS per session
+    // to eliminate write amplification on last_seen_at (was a top WAL source).
+    if (shouldTouchSession(row.id)) {
+      supabase.from("app_sessions").update({ last_seen_at: new Date().toISOString() }).eq("id", row.id).then(() => {});
+    }
     return session;
   }
+
 
 
 
@@ -2325,6 +2356,7 @@ Deno.serve(async (originalReq) => {
           if (expired && v.enabled) {
             try {
               await supabase.from("app_settings").upsert(
+              invalidateAllSettings();
                 { key: "maintenance", value: { ...v, enabled: false, updated_at: new Date().toISOString() } },
                 { onConflict: "key" }
               );
@@ -2822,6 +2854,7 @@ Deno.serve(async (originalReq) => {
       if (isFree && avatarChanged) {
         const nowIso = new Date().toISOString();
         await supabase.from("app_settings").upsert(
+        invalidateAllSettings();
           { key: "free_avatar_last_change", value: { at: nowIso, byUserId: session.userId } },
           { onConflict: "key" },
         );
@@ -3064,6 +3097,7 @@ Deno.serve(async (originalReq) => {
       const prev = publicVpsConfig(data?.value);
       const value = { ...prev, ip: nextIp };
       const { error } = await supabase.from("app_settings").upsert({ key: "vps_config", value }, { onConflict: "key" });
+      invalidateAllSettings();
       if (error) throw error;
       await auditLog(supabase, "vps_access_updated", session.userId, null, { ip: nextIp }, ip);
       return new Response(JSON.stringify({ success: true, value }), {
@@ -4253,7 +4287,7 @@ Deno.serve(async (originalReq) => {
           .eq("event", "clicked");
         for (const e of evs || []) clickCounts.set(e.notification_id, (clickCounts.get(e.notification_id) || 0) + 1);
       }
-      const { count: totalUsers } = await supabase.from("app_users").select("id", { count: "exact", head: true }).neq("role", "admin");
+      const { count: totalUsers } = await supabase.from("app_users").select("id", { count: "planned", head: true }).neq("role", "admin");
       const payload = (notes || []).map((n: any) => ({
         ...n,
         readCount: readCounts.get(n.id) || 0,
@@ -4480,6 +4514,7 @@ Deno.serve(async (originalReq) => {
         days: Math.max(1, Math.min(365, Number(days) || 30)),
       };
       const { error } = await supabase.from("app_settings").upsert({ key: "email_visibility", value: clean }, { onConflict: "key" });
+      invalidateAllSettings();
       if (error) throw error;
       await auditLog(supabase, "email_visibility_set", session.userId, null, clean, ip);
       return new Response(JSON.stringify({ success: true, value: clean }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -4507,6 +4542,7 @@ Deno.serve(async (originalReq) => {
         return new Response(JSON.stringify({ success: false, error: msg }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
       await supabase.from("app_settings").upsert({ key: "email_auto_delete", value: clean }, { onConflict: "key" });
+      invalidateAllSettings();
       await auditLog(supabase, "email_cleanup_apply", session.userId, null, clean, ip);
       return new Response(JSON.stringify({ success: true, value: clean }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -4537,10 +4573,13 @@ Deno.serve(async (originalReq) => {
         .select("id, username, name, role, assigned_accounts, profile_prefs, session_limit, is_free, pinned, sort_order, expires_at, tv_override, feature_gmail, feature_tv, feature_link")
         .order("created_at", { ascending: true });
 
-      const emailsCountP = supabase.from("cached_emails").select("id", { count: "exact", head: true }).eq("destroyed", false);
+      // Fast estimated counts via pg_class.reltuples — head:true+exact was
+      // triggering full index-only scans on every admin mount. `planned`
+      // returns the planner estimate (updated by autovacuum) with 0 IO.
+      const emailsCountP = supabase.from("cached_emails").select("id", { count: "planned", head: true }).eq("destroyed", false);
 
       const notesP = supabase.from("notifications").select("*").order("created_at", { ascending: false }).limit(200);
-      const totalUsersP = supabase.from("app_users").select("id", { count: "exact", head: true }).neq("role", "admin");
+      const totalUsersP = supabase.from("app_users").select("id", { count: "planned", head: true }).neq("role", "admin");
 
       const settingsKeys = includeSettings
         ? ["recaptcha", "config", "primary_cloudflare_urls", "email_filters", "email_accounts", "session_config", "admin_session_config", "session_limits", "ipwho_alert", "maintenance", "r2_storage", "email_visibility", "email_auto_delete", "cron_config", "netflix_promo", "location_policy", "free_session_minutes", "free_avatar_cooldown", "tv_feature"]
@@ -4666,6 +4705,7 @@ Deno.serve(async (originalReq) => {
       if (normalized.errors.length) throw new Error(normalized.errors.join(" "));
       const value = normalized.config;
       const { error } = await supabase.from("app_settings").upsert({ key: "r2_storage", value }, { onConflict: "key" });
+      invalidateAllSettings();
       if (error) throw error;
       await auditLog(supabase, "r2_config_updated", session.userId, null, { bucket: value.bucket, enabled: value.enabled }, ip);
       return new Response(JSON.stringify({ success: true, warnings: normalized.warnings, config: value }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -4802,6 +4842,7 @@ Deno.serve(async (originalReq) => {
         hasKey: true,
       };
       const { error } = await supabase.from("app_settings").upsert({ key: "vps_config", value }, { onConflict: "key" });
+      invalidateAllSettings();
       if (error) throw error;
       await auditLog(supabase, "vps_key_uploaded", session.userId, null, { filename: safeFilename, size: bytes.length }, ip);
       return new Response(JSON.stringify({ success: true, value }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });

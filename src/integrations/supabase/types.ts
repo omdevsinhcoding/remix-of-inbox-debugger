@@ -1166,6 +1166,7 @@ export type Database = {
     Functions: {
       get_cron_status: { Args: never; Returns: Json }
       get_email_cleanup_status: { Args: never; Returns: Json }
+      prune_audit_logs: { Args: never; Returns: undefined }
       purge_expired_crypto_sessions: { Args: never; Returns: undefined }
       purge_expired_free_profiles: { Args: never; Returns: number }
       purge_expired_nonces: { Args: never; Returns: undefined }
