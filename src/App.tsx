@@ -2537,10 +2537,12 @@ function TvSignInPage() {
   const applyAccounts = useCallback((list: TvAccount[]) => {
     const filtered = list.filter((a) => a?.cookies_available);
     setAccounts(filtered);
-    // Auto-select + skip account picker when the user only has 1 IMAP linked.
+    // Auto-select + skip account picker when exactly one usable cookie-bound account exists.
     if (filtered.length === 1) {
-      setChosen((prev) => prev || filtered[0]);
+      setChosen(filtered[0]);
       setStep((prev) => (prev === "select" ? "code" : prev));
+    } else if (filtered.length === 0) {
+      setChosen(null);
     }
   }, []);
 
@@ -2840,8 +2842,8 @@ function TvSignInPage() {
                       : "bg-slate-100 text-slate-400 cursor-not-allowed"}`}>
                   {status === "verifying" ? (<span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Verifying code…</span>)
                     : status === "checking" ? (<span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Checking your account…</span>)
-                    : status === "queued" ? (<span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Preparing secure runner…</span>)
-                    : status === "running" || status === "in_progress" ? (<span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Signing in to Netflix on your TV…</span>)
+                    : status === "queued" ? (<span>Preparing secure runner…</span>)
+                    : status === "running" || status === "in_progress" ? (<span>Signing in to Netflix on your TV…</span>)
                     : status === "success" ? (<span className="inline-flex items-center gap-2 text-emerald-700">✓ TV signed in</span>)
                     : status === "invalid_code" ? (<span>Invalid code</span>)
                     : status === "cookies_expired" ? (<span>Cookies expired</span>)
@@ -2852,12 +2854,12 @@ function TvSignInPage() {
 
                 {status === "queued" ? (
                   <div className="mt-4 rounded-2xl bg-sky-50 border border-sky-200 px-4 py-3 text-center">
-                    <div className="inline-flex items-center gap-1.5 text-xs font-bold text-sky-700"><Loader2 className="w-3 h-3 animate-spin" /> Preparing secure runner</div>
+                    <div className="inline-flex items-center gap-1.5 text-xs font-bold text-sky-700"><span className="w-2 h-2 rounded-full bg-sky-500" /> Preparing secure runner</div>
                     <div className="text-[11px] text-sky-600 mt-1">Your job is queued. Spinning up a private headless browser… <span className="opacity-70">({elapsedSec}s)</span></div>
                   </div>
                 ) : status === "running" || status === "in_progress" ? (
                   <div className="mt-4 rounded-2xl bg-emerald-50 border border-emerald-200 px-4 py-3 text-center">
-                    <div className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700"><Loader2 className="w-3 h-3 animate-spin" /> Signing in on your TV</div>
+                    <div className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700"><span className="w-2 h-2 rounded-full bg-emerald-500" /> Signing in on your TV</div>
                     <div className="text-[11px] text-emerald-600 mt-1">Keep your TV on the code screen. Elapsed {elapsedSec}s · timing out in {remainingSec}s</div>
                   </div>
                 ) : status === "success" ? (
@@ -2903,17 +2905,19 @@ function TvSignInPage() {
 
                 {terminal && (
                   <>
-                    <div className="mt-4 flex items-center gap-2">
+                    <div className={`mt-4 grid gap-2 ${accounts.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
                       <button onClick={resetForRetry}
-                        className="flex-1 h-11 rounded-xl text-xs font-bold bg-slate-900 text-white hover:bg-slate-800 active:scale-[0.98] transition">
+                        className="h-11 rounded-xl text-xs font-bold bg-slate-900 text-white hover:bg-slate-800 active:scale-[0.98] transition">
                         Try again
                       </button>
-                      <button onClick={() => { setStep("select"); setChosen(null); resetForRetry(); }}
-                        className="flex-1 h-11 rounded-xl text-xs font-bold bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 active:scale-[0.98] transition">
-                        Change account
-                      </button>
+                      {accounts.length > 1 && (
+                        <button onClick={() => { setStep("select"); setChosen(null); resetForRetry(); }}
+                          className="h-11 rounded-xl text-xs font-bold bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 active:scale-[0.98] transition">
+                          Change account
+                        </button>
+                      )}
                     </div>
-                    <ReportErrorButton eventId={resultInfo.eventId || null} uiStatus={status} uiMessage={resultInfo.message || null} />
+                    <ReportErrorButton eventId={resultInfo.eventId || null} uiStatus={status} uiMessage={resultInfo.message || null} variant="light" />
                   </>
                 )}
               </div>
