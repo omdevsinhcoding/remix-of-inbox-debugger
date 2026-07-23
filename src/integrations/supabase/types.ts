@@ -1088,6 +1088,45 @@ export type Database = {
         }
         Relationships: []
       }
+      sync_state: {
+        Row: {
+          error_count: number
+          job_name: string
+          last_cursor_date: string | null
+          last_cursor_id: string | null
+          last_run_at: string | null
+          last_success_at: string | null
+          locked_until: string | null
+          meta: Json
+          status: string | null
+          updated_at: string
+        }
+        Insert: {
+          error_count?: number
+          job_name: string
+          last_cursor_date?: string | null
+          last_cursor_id?: string | null
+          last_run_at?: string | null
+          last_success_at?: string | null
+          locked_until?: string | null
+          meta?: Json
+          status?: string | null
+          updated_at?: string
+        }
+        Update: {
+          error_count?: number
+          job_name?: string
+          last_cursor_date?: string | null
+          last_cursor_id?: string | null
+          last_run_at?: string | null
+          last_success_at?: string | null
+          locked_until?: string | null
+          meta?: Json
+          status?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       tv_login_events: {
         Row: {
           account_label: string | null
@@ -1164,12 +1203,20 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      acquire_sync_lock: {
+        Args: { _job: string; _lease_seconds: number }
+        Returns: boolean
+      }
       get_cron_status: { Args: never; Returns: Json }
       get_email_cleanup_status: { Args: never; Returns: Json }
       prune_audit_logs: { Args: never; Returns: undefined }
       purge_expired_crypto_sessions: { Args: never; Returns: undefined }
       purge_expired_free_profiles: { Args: never; Returns: number }
       purge_expired_nonces: { Args: never; Returns: undefined }
+      release_sync_lock: {
+        Args: { _job: string; _ok: boolean }
+        Returns: undefined
+      }
       schedule_email_cleanup: {
         Args: { days: number; hour: number }
         Returns: undefined
