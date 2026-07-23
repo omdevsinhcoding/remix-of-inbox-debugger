@@ -34,9 +34,9 @@ export function useWorkflowView(user: any, features: UserFeatures) {
       const stored = sessionStorage.getItem(VIEW_KEY) as WorkflowView | null;
       if (stored && features[stored]) return stored;
     } catch {}
-    // Only show chooser when the user has ALL THREE workflows enabled.
-    // With 2 or fewer, we auto-open the default and rely on the header switcher.
-    if (countEnabled(features) < 3) return pickDefault();
+    // Show the welcome/chooser whenever the user has 2+ workflows enabled.
+    // With just 1 workflow, we auto-open it (no need to ask).
+    if (countEnabled(features) < 2) return pickDefault();
     return null;
   });
   useEffect(() => {
