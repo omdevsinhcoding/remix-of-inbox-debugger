@@ -3204,6 +3204,10 @@ Deno.serve(async (originalReq) => {
         processedValue = normalizeEmailFilters(processedValue);
       }
 
+      if (key === "link_defaults") {
+        processedValue = normalizeLinkDefaults(processedValue);
+      }
+
       const { error } = await supabase
         .from("app_settings")
         .upsert({ key, value: processedValue }, { onConflict: "key" });
