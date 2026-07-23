@@ -40,7 +40,7 @@ jobs:
         working-directory: scripts/tv-login-runner
         run: |
           npm ci || npm install
-          npx playwright install chromium
+          npx playwright install --with-deps chromium
 
       - name: Run TV auto-login
         if: github.event.action == 'tv-login'
