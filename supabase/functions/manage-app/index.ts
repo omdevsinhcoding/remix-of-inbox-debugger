@@ -3463,6 +3463,7 @@ Deno.serve(async (originalReq) => {
           locationRequired: isProfileLocationRequired(targetUser, await loadGlobalLocationRequired(supabase)),
           tvOverride: targetUser.tv_override === "on" || targetUser.tv_override === "off" ? targetUser.tv_override : null,
           tvFeatureEnabled: await loadTvFeatureEnabled(supabase),
+          features: pickFeatures(targetUser),
           impersonated: true,
           adminId: session.userId,
         },
