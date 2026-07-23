@@ -1986,7 +1986,13 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
       if (!res?.success) throw new Error(res?.error || "Failed to load accounts");
       const list: TvAccount[] = Array.isArray(res.accounts) ? res.accounts : [];
       // Only surface accounts that are actually usable. Never reveal readiness state to the user.
-      setAccounts(list.filter((a) => a?.cookies_available));
+      const usable = list.filter((a) => a?.cookies_available);
+      setAccounts(usable);
+      // If exactly one usable account, skip the picker entirely — go straight to the code step.
+      if (usable.length === 1) {
+        setChosen((prev) => prev || usable[0]);
+        setStep((prev) => (prev === "select" ? "code" : prev));
+      }
     } catch (err) {
       setAccountsError(err instanceof Error ? err.message : "Failed to load accounts");
     } finally {
