@@ -4918,6 +4918,34 @@ Deno.serve(async (originalReq) => {
       return new Response(JSON.stringify({ success: true, filename: vps.keyFilename, dataBase64: btoa(binary) }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    if (action === "admin_delete_vps_key") {
+      const session = await requireAdmin(req);
+      const { data: vpsRow } = await supabase.from("app_settings").select("value").eq("key", "vps_config").maybeSingle();
+      const vps = publicVpsConfig(vpsRow?.value);
+      if (!vps.keyObjectKey) {
+        return new Response(JSON.stringify({ success: true, value: vps, message: "No key was stored." }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      // Best-effort delete from R2 (never fail the request if R2 is unreachable).
+      try {
+        const { data: r2Row } = await supabase.from("app_settings").select("value").eq("key", "r2_storage").maybeSingle();
+        const r2Value: any = r2Row?.value || {};
+        if (r2Value.enabled) {
+          const normalized = normalizeR2Config(r2Value);
+          const cfg = normalized.config;
+          if (cfg.accountId && cfg.accessKeyId && cfg.secretAccessKey && cfg.bucket) {
+            const { r2Delete } = await import("../_shared/r2Sign.ts");
+            await r2Delete({ accountId: cfg.accountId, accessKeyId: cfg.accessKeyId, secretAccessKey: cfg.secretAccessKey, bucket: cfg.bucket }, vps.keyObjectKey).catch(() => {});
+          }
+        }
+      } catch { /* swallow — metadata wipe below is what actually matters */ }
+      const value = { ...vps, keyFilename: "vps-private-key.pem", keyObjectKey: "", keyUploadedAt: "", keySize: 0, hasKey: false };
+      const { error } = await supabase.from("app_settings").upsert({ key: "vps_config", value }, { onConflict: "key" });
+      invalidateAllSettings();
+      if (error) throw error;
+      await auditLog(supabase, "vps_key_deleted", session.userId, null, { previous: vps.keyFilename }, ip);
+      return new Response(JSON.stringify({ success: true, value: publicVpsConfig(value) }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     const parseStoredCookieCount = (raw: unknown): number => {
       const text = String(raw || "").trim();
       if (!text) return 0;
