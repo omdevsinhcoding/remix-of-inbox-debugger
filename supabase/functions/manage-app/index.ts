@@ -1,7 +1,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { authenticator } from "npm:otplib@12.0.1";
 import { readRequest, maybeEncryptResponse, EncryptedRequestContext, PlaintextRejectedError, plaintextRejectedResponse, TransportError, transportErrorResponse } from "../_shared/crypto.ts";
-// build-marker: direct link py-exact URL (no encode, netflix.com host) v15 (2026-07-23)
+// build-marker: direct link exact python expiry + manual generate v16 (2026-07-23)
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -54,19 +54,6 @@ function pickFeatures(u: any): UserFeatures {
     tv:    u?.feature_tv    !== false,
     link:  u?.feature_link  === true,
   };
-}
-function normalizeLinkDefaults(value: any): { ttl_minutes: number; max_active_per_user: number } {
-  const v = value && typeof value === "object" && !Array.isArray(value) ? value : {};
-  return {
-    ttl_minutes: Math.max(1, Math.min(43200, Math.floor(Number(v.ttl_minutes) || 60))),
-    max_active_per_user: Math.max(1, Math.min(20, Math.floor(Number(v.max_active_per_user) || 3))),
-  };
-}
-async function loadLinkDefaults(supabase: any): Promise<{ ttl_minutes: number; max_active_per_user: number }> {
-  try {
-    const { data } = await supabase.from("app_settings").select("value").eq("key", "link_defaults").maybeSingle();
-    return normalizeLinkDefaults(data?.value);
-  } catch { return normalizeLinkDefaults(null); }
 }
 function publicVpsConfig(value: any) {
   const v = value && typeof value === "object" && !Array.isArray(value) ? value : {};
