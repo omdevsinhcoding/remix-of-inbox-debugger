@@ -2691,7 +2691,8 @@ function TvSignInPage() {
               ? "Pick the Netflix account you want to sign in on your TV. We'll handle the rest in under 10 seconds."
               : "Type the code shown on your Netflix TV screen. We'll auto-sign in and confirm here."}
           </p>
-          {/* Stepper */}
+          {/* Stepper — hidden for single-account users */}
+          {accounts.length > 1 && (
           <div className="mt-5 inline-flex items-center gap-3 text-[11px] xl:text-xs font-bold uppercase tracking-widest">
             <span className={`inline-flex items-center gap-1.5 ${step === "select" ? "text-rose-600" : "text-emerald-600"}`}>
               <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] ${step === "select" ? "bg-rose-600 text-white" : "bg-emerald-500 text-white"}`}>1</span>
@@ -2703,6 +2704,7 @@ function TvSignInPage() {
               Code
             </span>
           </div>
+          )}
         </div>
 
         {/* Card */}
