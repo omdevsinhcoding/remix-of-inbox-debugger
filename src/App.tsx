@@ -6,7 +6,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "r
 import NetflixHouseholdVerificationGuide from "./pages/NetflixHouseholdVerificationGuide";
 import { notify } from "./components/toast/notify";
 import { ToastProvider } from "./components/toast/toast-provider";
-import { WorkflowChooser, ViewSwitcher, DirectLinkView, useWorkflowView, resolveFeatures, countEnabled, WorkflowSwitcher, prefetchWorkflowAccounts, readAccountsCache, writeAccountsCache } from "./components/WorkflowViews";
+import { WorkflowChooser, ViewSwitcher, DirectLinkView, useWorkflowView, resolveFeatures, countEnabled, WorkflowSwitcher, prefetchWorkflowAccounts, readAccountsCache, writeAccountsCache, requestWorkflowView } from "./components/WorkflowViews";
 
 import { supabase } from "./integrations/supabase/client";
 import { AVATAR_CATEGORIES, resolveAvatar, buildAvatarId, prettyName, getAvatarCategoryUrls } from "./lib/avatars";
@@ -7948,9 +7948,9 @@ function AdminPanel() {
     }
   };
 
-  const loginAsUser = async (targetUser: UserData) => {
+  const loginAsUser = async (targetUser: UserData, startWorkflow?: "gmail" | "tv" | "link") => {
     try {
-      notify.loading(`Opening ${targetUser.name}'s inbox…`, { id: "impersonate" });
+      notify.loading(`Opening ${targetUser.name}${startWorkflow === "link" ? "'s Direct Link page" : "'s inbox"}…`, { id: "impersonate" });
       const data = await apiCall("manage-app", { action: "impersonate", target_user_id: targetUser.id });
       notify.dismiss("impersonate");
 
@@ -7961,6 +7961,7 @@ function AdminPanel() {
       const impersonatedUser = { ...(data.user || {}), impersonated: true, adminId: data.user?.adminId || null };
       sessionSet("user" as any, JSON.stringify(impersonatedUser));
       if (data.sessionToken) sessionSet("session_token" as any, data.sessionToken);
+      if (startWorkflow) requestWorkflowView(startWorkflow);
       sessionRemove("admin_auth" as any);
       checkAuth();
       navigate("/admin/viewer", { replace: true });
