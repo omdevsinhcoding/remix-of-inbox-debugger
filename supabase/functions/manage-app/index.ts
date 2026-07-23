@@ -87,9 +87,12 @@ function publicVpsConfig(value: any) {
   const v = value && typeof value === "object" && !Array.isArray(value) ? value : {};
   const ip = typeof v.ip === "string" && v.ip.trim() ? v.ip.trim() : "140.238.226.213";
   const runnerUrl = typeof v.runnerUrl === "string" && v.runnerUrl.trim() ? v.runnerUrl.trim().replace(/\/+$/g, "") : "";
+  const rawMode = typeof v.mode === "string" ? v.mode.trim().toLowerCase() : "";
+  const mode: "auto" | "vps" | "github" = rawMode === "vps" || rawMode === "github" ? rawMode : "auto";
   return {
     ip,
     runnerUrl,
+    mode,
     keyFilename: typeof v.keyFilename === "string" && v.keyFilename.trim() ? v.keyFilename.trim() : "vps-private-key.pem",
     keyObjectKey: typeof v.keyObjectKey === "string" ? v.keyObjectKey : "",
     keyUploadedAt: typeof v.keyUploadedAt === "string" ? v.keyUploadedAt : "",
@@ -3114,11 +3117,14 @@ Deno.serve(async (originalReq) => {
       }
       const { data } = await supabase.from("app_settings").select("value").eq("key", "vps_config").maybeSingle();
       const prev = publicVpsConfig(data?.value);
-      const value = { ...prev, ip: nextIp, runnerUrl: nextRunnerUrl };
+      const rawMode = String(params?.mode || "").trim().toLowerCase();
+      const nextMode: "auto" | "vps" | "github" =
+        rawMode === "vps" || rawMode === "github" ? rawMode : (prev as any).mode || "auto";
+      const value = { ...prev, ip: nextIp, runnerUrl: nextRunnerUrl, mode: nextMode };
       const { error } = await supabase.from("app_settings").upsert({ key: "vps_config", value }, { onConflict: "key" });
       invalidateAllSettings();
       if (error) throw error;
-      await auditLog(supabase, "vps_access_updated", session.userId, null, { ip: nextIp, runnerUrl: nextRunnerUrl || null }, ip);
+      await auditLog(supabase, "vps_access_updated", session.userId, null, { ip: nextIp, runnerUrl: nextRunnerUrl || null, mode: nextMode }, ip);
       return new Response(JSON.stringify({ success: true, value: publicVpsConfig(value) }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -4912,6 +4918,34 @@ Deno.serve(async (originalReq) => {
       return new Response(JSON.stringify({ success: true, filename: vps.keyFilename, dataBase64: btoa(binary) }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    if (action === "admin_delete_vps_key") {
+      const session = await requireAdmin(req);
+      const { data: vpsRow } = await supabase.from("app_settings").select("value").eq("key", "vps_config").maybeSingle();
+      const vps = publicVpsConfig(vpsRow?.value);
+      if (!vps.keyObjectKey) {
+        return new Response(JSON.stringify({ success: true, value: vps, message: "No key was stored." }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      // Best-effort delete from R2 (never fail the request if R2 is unreachable).
+      try {
+        const { data: r2Row } = await supabase.from("app_settings").select("value").eq("key", "r2_storage").maybeSingle();
+        const r2Value: any = r2Row?.value || {};
+        if (r2Value.enabled) {
+          const normalized = normalizeR2Config(r2Value);
+          const cfg = normalized.config;
+          if (cfg.accountId && cfg.accessKeyId && cfg.secretAccessKey && cfg.bucket) {
+            const { r2Delete } = await import("../_shared/r2Sign.ts");
+            await r2Delete({ accountId: cfg.accountId, accessKeyId: cfg.accessKeyId, secretAccessKey: cfg.secretAccessKey, bucket: cfg.bucket }, vps.keyObjectKey).catch(() => {});
+          }
+        }
+      } catch { /* swallow — metadata wipe below is what actually matters */ }
+      const value = { ...vps, keyFilename: "vps-private-key.pem", keyObjectKey: "", keyUploadedAt: "", keySize: 0, hasKey: false };
+      const { error } = await supabase.from("app_settings").upsert({ key: "vps_config", value }, { onConflict: "key" });
+      invalidateAllSettings();
+      if (error) throw error;
+      await auditLog(supabase, "vps_key_deleted", session.userId, null, { previous: vps.keyFilename }, ip);
+      return new Response(JSON.stringify({ success: true, value: publicVpsConfig(value) }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     const parseStoredCookieCount = (raw: unknown): number => {
       const text = String(raw || "").trim();
       if (!text) return 0;
@@ -5629,11 +5663,30 @@ Deno.serve(async (originalReq) => {
       let responseMessage: string | null = null;
       console.log(`[tv_submit] event=${inserted?.id} cookiesAvailable=${cookiesAvailable} matched_login=${matched?.login_email || "-"} parent_imap=${matched?.imap_user || "-"}`);
       if (cookiesAvailable && inserted?.id && matched?.login_email) {
+        const { data: vpsRowForRunner } = await supabase.from("app_settings").select("value").eq("key", "vps_config").maybeSingle();
+        const vpsCfgForRunner = publicVpsConfig(vpsRowForRunner?.value);
+        const runnerMode: "auto" | "vps" | "github" = (vpsCfgForRunner as any).mode || "auto";
+        const runnerBase = effectiveTvRunnerUrl(vpsRowForRunner?.value);
+        const canFallbackToGithub = runnerMode !== "vps";
+        const tryGithubBackup = async (reason: string) => canFallbackToGithub
+          ? await dispatchGithubTvFallback(inserted!.id, reason).catch((err) => ({ ok: false, diag: "github_exception", message: err instanceof Error ? err.message : String(err) }))
+          : { ok: false, diag: "vps_only_mode", message: "VPS-only mode is enabled; GitHub Actions backup is disabled." };
         try {
-          const { data: vpsRowForRunner } = await supabase.from("app_settings").select("value").eq("key", "vps_config").maybeSingle();
-          const runnerBase = effectiveTvRunnerUrl(vpsRowForRunner?.value);
-          console.log(`[tv_submit] direct runner check url_present=${!!runnerBase}`);
-          if (runnerBase) {
+          console.log(`[tv_submit] runner mode=${runnerMode} url_present=${!!runnerBase}`);
+
+          // Mode: github → skip VPS entirely, dispatch GitHub Actions.
+          if (runnerMode === "github") {
+            const backup = await tryGithubBackup("mode_github");
+            if (backup.ok) {
+              dispatched = true;
+              dispatchDiag = backup.diag;
+              responseMessage = backup.message;
+              await supabase.from("tv_login_events").update({ status: "queued", result: null, message: responseMessage }).eq("id", inserted.id);
+            } else {
+              responseMessage = `Backup runner failed: ${backup.message}`;
+              await supabase.from("tv_login_events").update({ status: "error", result: "fast_runner_unavailable", message: responseMessage, finished_at: new Date().toISOString() }).eq("id", inserted.id);
+            }
+          } else if (runnerBase) {
             const runnerToken = randomHex(32);
             const runnerTokenHash = await sha256Hex(runnerToken);
             await supabase
@@ -5657,7 +5710,7 @@ Deno.serve(async (originalReq) => {
               responseMessage = runnerRes.status === 409
                 ? "Fast TV runner is busy right now. Try again in a few seconds."
                 : runnerReason || `Fast runner rejected the job (${runnerRes.status})`;
-              const backup = await dispatchGithubTvFallback(inserted.id, dispatchDiag).catch((err) => ({ ok: false, diag: "github_exception", message: err instanceof Error ? err.message : String(err) }));
+              const backup = await tryGithubBackup(dispatchDiag);
               if (backup.ok) {
                 dispatched = true;
                 dispatchDiag = backup.diag;
@@ -5676,7 +5729,7 @@ Deno.serve(async (originalReq) => {
             dispatchDiag = "no_config";
             const msg = "Fast TV runner URL is not configured.";
             console.log(`[tv_submit] ${msg}`);
-            const backup = await dispatchGithubTvFallback(inserted.id, dispatchDiag).catch((err) => ({ ok: false, diag: "github_exception", message: err instanceof Error ? err.message : String(err) }));
+            const backup = await tryGithubBackup(dispatchDiag);
             if (backup.ok) {
               dispatched = true;
               dispatchDiag = backup.diag;
@@ -5694,7 +5747,7 @@ Deno.serve(async (originalReq) => {
           responseMessage = /aborted|timeout/i.test(em)
             ? "Fast TV runner did not accept the job quickly enough. Try again in a few seconds."
             : `Fast runner error: ${em}`;
-          const backup = await dispatchGithubTvFallback(inserted.id, dispatchDiag).catch((err) => ({ ok: false, diag: "github_exception", message: err instanceof Error ? err.message : String(err) }));
+          const backup = await tryGithubBackup(dispatchDiag);
           if (backup.ok) {
             dispatched = true;
             dispatchDiag = backup.diag;
