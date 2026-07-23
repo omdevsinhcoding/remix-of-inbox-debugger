@@ -291,11 +291,19 @@ export function DirectLinkView({ apiCall, notify }: { apiCall: ApiCall; notify: 
   const loadLinks = useCallback(async () => {
     try {
       const res: any = await apiCall("manage-app", { action: "link_list" });
-      setLinks(Array.isArray(res?.links) ? res.links : []);
+      const list = Array.isArray(res?.links) ? res.links : [];
+      setLinks(list);
+      writeLinksCache(list);
     } catch {}
   }, []);
 
-  useEffect(() => { loadAccounts(); loadLinks(); }, [loadAccounts, loadLinks]);
+  useEffect(() => {
+    // Instant paint from prefetched cache, then refresh silently in the background.
+    const cachedLinks = readLinksCache();
+    if (cachedLinks) setLinks(cachedLinks);
+    loadAccounts();
+    loadLinks();
+  }, [loadAccounts, loadLinks]);
 
   const generate = useCallback(async () => {
     if (!chosen || busy) return;
@@ -550,7 +558,9 @@ export function TvOnlyView({ onEnter }: { onEnter: () => void }) {
 
 const TV_ACCOUNTS_CACHE_KEY = "nf.tv.accounts.v1";
 const LINK_ACCOUNTS_CACHE_KEY = "nf.link.accounts.v1";
+const LINK_LIST_CACHE_KEY = "nf.link.list.v1";
 const ACCOUNTS_TTL_MS = 5 * 60 * 1000; // 5 min
+const LINK_LIST_TTL_MS = 60 * 1000;    // 60s — links are short-lived, but instant paint matters
 
 type CachedAccounts<T> = { at: number; data: T };
 
@@ -569,6 +579,21 @@ export function writeAccountsCache<T = any>(key: "tv" | "link", data: T) {
   } catch {}
 }
 
+export function readLinksCache<T = any>(): T | null {
+  try {
+    const raw = sessionStorage.getItem(LINK_LIST_CACHE_KEY);
+    if (!raw) return null;
+    const parsed: CachedAccounts<T> = JSON.parse(raw);
+    if (Date.now() - parsed.at > LINK_LIST_TTL_MS) return null;
+    return parsed.data;
+  } catch { return null; }
+}
+export function writeLinksCache<T = any>(data: T) {
+  try {
+    sessionStorage.setItem(LINK_LIST_CACHE_KEY, JSON.stringify({ at: Date.now(), data }));
+  } catch {}
+}
+
 // Fire-and-forget prefetch — call as soon as we know features. Cached result populates
 // the TV / Link pages instantly on switch.
 export function prefetchWorkflowAccounts(apiCall: ApiCall, features: UserFeatures) {
@@ -577,10 +602,20 @@ export function prefetchWorkflowAccounts(apiCall: ApiCall, features: UserFeature
       .then((res: any) => { if (res?.success) writeAccountsCache("tv", res); })
       .catch(() => {});
   }
-  if (features.link && !readAccountsCache("link")) {
-    apiCall("manage-app", { action: "link_list_accounts" })
-      .then((res: any) => { writeAccountsCache("link", res); })
-      .catch(() => {});
+  if (features.link) {
+    if (!readAccountsCache("link")) {
+      apiCall("manage-app", { action: "link_list_accounts" })
+        .then((res: any) => { writeAccountsCache("link", res); })
+        .catch(() => {});
+    }
+    if (!readLinksCache()) {
+      apiCall("manage-app", { action: "link_list" })
+        .then((res: any) => {
+          const list = Array.isArray(res?.links) ? res.links : [];
+          writeLinksCache(list);
+        })
+        .catch(() => {});
+    }
   }
 }
 
