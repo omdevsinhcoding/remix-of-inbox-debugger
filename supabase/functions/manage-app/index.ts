@@ -1,7 +1,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { authenticator } from "npm:otplib@12.0.1";
 import { readRequest, maybeEncryptResponse, EncryptedRequestContext, PlaintextRejectedError, plaintextRejectedResponse, TransportError, transportErrorResponse } from "../_shared/crypto.ts";
-// build-marker: direct link Python-compatible nftoken mint + schema compat v14 (2026-07-23)
+// build-marker: direct link py-exact URL (no encode, netflix.com host) v15 (2026-07-23)
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
