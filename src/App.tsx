@@ -12929,8 +12929,9 @@ function EmailViewer() {
             )}
           </div>
         </div>
-      </main>
+      </motion.main>
       )}
+      </AnimatePresence>
 
 
       {/* ============ CHANGE PASSWORD MODAL ============ */}
