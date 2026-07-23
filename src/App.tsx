@@ -3357,6 +3357,15 @@ interface UserData {
   tvFeatureEnabled?: boolean;
 }
 
+function adminUserFeatures(u: any): { gmail: boolean; tv: boolean; link: boolean } {
+  const f = u?.features && typeof u.features === "object" ? u.features : {};
+  return {
+    gmail: f.gmail !== undefined ? f.gmail !== false : u?.feature_gmail !== false,
+    tv: f.tv !== undefined ? f.tv !== false : u?.feature_tv !== false,
+    link: f.link !== undefined ? f.link === true : u?.feature_link === true,
+  };
+}
+
 type TvOverrideValue = "inherit" | "on" | "off";
 type TvFeatureEvent =
   | { type: "tv-global"; enabled: boolean; at: number }
@@ -6735,6 +6744,7 @@ function AdminPanel() {
   const [editExpiresAt, setEditExpiresAt] = useState<string>(""); // "YYYY-MM-DDTHH:mm" for free users only
   const [editAutoDelete, setEditAutoDelete] = useState<boolean>(true);
   const [editTvOverride, setEditTvOverride] = useState<"inherit" | "on" | "off">("inherit");
+  const [editDirectLinkEnabled, setEditDirectLinkEnabled] = useState<boolean>(false);
   const [newIsFree, setNewIsFree] = useState(false);
   const [newFreeExpiresAt, setNewFreeExpiresAt] = useState<string>(""); // "YYYY-MM-DDTHH:mm"
   const [newTvOverride, setNewTvOverride] = useState<"inherit" | "on" | "off">("inherit");
@@ -7770,7 +7780,7 @@ function AdminPanel() {
   };
 
   const toggleUserFeature = async (u: UserData, key: "gmail" | "tv" | "link") => {
-    const cur = (u as any).features || { gmail: true, tv: true, link: false };
+    const cur = adminUserFeatures(u);
     const nextVal = key === "link" ? !(cur[key] === true) : !(cur[key] !== false);
     const nextFeatures = { ...cur, [key]: nextVal };
     const flatKey = key === "gmail" ? "feature_gmail" : key === "tv" ? "feature_tv" : "feature_link";
@@ -8196,13 +8206,14 @@ function AdminPanel() {
         assigned_accounts: normalizeSelectedAccounts(editAccountsList).length > 0 ? normalizeSelectedAccounts(editAccountsList) : null,
         session_limit,
         tv_override: tvOverridePayload(editTvOverride),
+        features: { link: editDirectLinkEnabled },
         ...(expires_at !== undefined ? { expires_at } : {}),
         ...(isFreeTarget ? { auto_delete: editAutoDelete } : {}),
       });
       const nextAccounts = normalizeSelectedAccounts(editAccountsList).length > 0 ? normalizeSelectedAccounts(editAccountsList) : null;
       const nextUsername = editUsername.trim() || null;
       setEditingUserAccounts(null); setEditHint(null);
-      setUsers(prev => prev.map(u => u.id === userId ? { ...u, username: nextUsername as any, assignedAccounts: nextAccounts, session_limit, tvOverride: tvOvOut, ...(expires_at !== undefined ? { expiresAt: expires_at } as any : {}), ...(isFreeTarget ? { autoDelete: editAutoDelete } as any : {}) } : u));
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, username: nextUsername as any, assignedAccounts: nextAccounts, session_limit, tvOverride: tvOvOut, features: { ...adminUserFeatures(u), link: editDirectLinkEnabled }, feature_link: editDirectLinkEnabled, ...(expires_at !== undefined ? { expiresAt: expires_at } as any : {}), ...(isFreeTarget ? { autoDelete: editAutoDelete } as any : {}) } as any : u));
       applyTvOverrideToStoredUser(userId, tvOvOut);
       patchBootstrapCacheUser(userId, { tvOverride: tvOvOut });
       broadcastTvFeatureEvent({ type: "tv-profile", userId, tvOverride: tvOvOut, at: Date.now() });
@@ -8496,7 +8507,7 @@ function AdminPanel() {
                               );
                             })()}
                             {u.role !== "admin" && (() => {
-                              const f = (u as any).features || { gmail: true, tv: true, link: false };
+                              const f = adminUserFeatures(u);
                               const pill = (key: "gmail" | "link", label: string, Icon: any, onCls: string) => {
                                 const on = key === "link" ? f[key] === true : f[key] !== false;
                                 const offCls = "bg-white text-slate-500 border-dashed border-slate-300 hover:bg-slate-50";
@@ -8576,6 +8587,7 @@ function AdminPanel() {
                               setEditAutoDelete((u as any).autoDelete !== false);
                               const ovInit = (u as any).tvOverride;
                               setEditTvOverride(ovInit === "on" ? "on" : ovInit === "off" ? "off" : "inherit");
+                              setEditDirectLinkEnabled(adminUserFeatures(u).link === true);
                             }} title="Edit"
                             className={`flex-1 flex items-center justify-center h-9 rounded-lg transition-all active:scale-95 ${editingUserAccounts === u.id ? "bg-white text-emerald-600 ring-1 ring-emerald-300 shadow-sm" : "text-slate-500 hover:bg-white hover:text-emerald-600 hover:shadow-sm"}`}>
                             <Edit className="w-4 h-4" />
@@ -8868,6 +8880,41 @@ function AdminPanel() {
                                     ? "Always visible for this profile."
                                     : "Always hidden for this profile."}
                                 </p>
+                              </div>
+
+                              {/* Direct Link access (same switch as Direct Link admin tab) */}
+                              <div>
+                                <div className={`rounded-2xl border-2 p-3.5 transition-all ${editDirectLinkEnabled ? "border-emerald-200 bg-emerald-50" : "border-slate-200 bg-slate-50"}`}>
+                                  <div className="flex items-center justify-between gap-3">
+                                    <div className="min-w-0 flex items-start gap-3">
+                                      <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${editDirectLinkEnabled ? "bg-emerald-600 text-white" : "bg-white text-slate-500 border border-slate-200"}`}>
+                                        <LinkIcon className="w-4 h-4" />
+                                      </div>
+                                      <div className="min-w-0">
+                                        <div className="text-xs font-black text-slate-900">Direct Link access</div>
+                                        <div className="text-[11px] text-slate-500 leading-snug mt-0.5">
+                                          {editDirectLinkEnabled
+                                            ? "User will see the Direct Link workflow and can generate Netflix links."
+                                            : "Direct Link workflow stays hidden for this user."}
+                                        </div>
+                                      </div>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => setEditDirectLinkEnabled((v) => !v)}
+                                      aria-pressed={editDirectLinkEnabled}
+                                      className={`relative shrink-0 w-12 h-7 rounded-full transition-colors ${editDirectLinkEnabled ? "bg-emerald-500" : "bg-slate-300"}`}
+                                      title={editDirectLinkEnabled ? "Disable Direct Link" : "Enable Direct Link"}
+                                    >
+                                      <span className={`absolute top-0.5 left-0.5 w-6 h-6 rounded-full bg-white shadow transition-transform ${editDirectLinkEnabled ? "translate-x-5" : ""}`} />
+                                    </button>
+                                  </div>
+                                  {editDirectLinkEnabled && (
+                                    <div className="mt-3 rounded-xl bg-white/75 border border-emerald-100 px-3 py-2 text-[11px] text-emerald-800 leading-snug">
+                                      Expiry is controlled by Admin Direct Link settings: <b>{linkExpiryMinutes || 60} min</b>, max <b>{linkMaxActive || 3}</b> active link(s).
+                                    </div>
+                                  )}
+                                </div>
                               </div>
 
 
@@ -9836,7 +9883,7 @@ function AdminPanel() {
                 </div>
                 {(() => {
                   const nonAdmins = users.filter((u) => u.role !== "admin");
-                  const on = nonAdmins.filter((u) => ((u as any).features?.link === true) || (u as any).feature_link === true).length;
+                  const on = nonAdmins.filter((u) => adminUserFeatures(u).link).length;
                   return (
                     <span className="text-[11px] font-black px-2.5 py-1 rounded-full bg-slate-100 text-slate-700 border border-slate-200 shrink-0 self-start">
                       {on} / {nonAdmins.length} enabled
@@ -9849,7 +9896,7 @@ function AdminPanel() {
                   <div className="py-8 text-center text-[12px] text-slate-500">No users yet.</div>
                 )}
                 {users.filter((u) => u.role !== "admin").map((u) => {
-                  const enabled = ((u as any).features?.link === true) || (u as any).feature_link === true;
+                  const enabled = adminUserFeatures(u).link;
                   return (
                     <div key={u.id} className="py-3 flex items-center justify-between gap-3">
                       <div className="min-w-0 flex items-center gap-3">
@@ -9861,14 +9908,41 @@ function AdminPanel() {
                           <div className="text-[11px] text-slate-500 truncate">@{u.username}</div>
                         </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => toggleUserFeature(u, "link")}
-                        className={`relative inline-flex h-7 w-12 shrink-0 rounded-full transition-colors ${enabled ? "bg-emerald-500" : "bg-slate-300"}`}
-                        aria-label={enabled ? "Disable Direct Link" : "Enable Direct Link"}
-                      >
-                        <span className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-all ${enabled ? "left-[22px]" : "left-0.5"}`} />
-                      </button>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveTab("users");
+                            setEditingUserAccounts(u.id);
+                            setEditUsername(u.username || "");
+                            setEditAccountsList(normalizeSelectedAccounts((u as any).assignedAccounts || []));
+                            const cur = (u as any).session_limit;
+                            setEditSessionLimit(cur === null || cur === undefined ? "" : String(cur));
+                            const exp = (u as any).expiresAt as string | null | undefined;
+                            if (exp) {
+                              const d = new Date(exp);
+                              const pad = (n: number) => String(n).padStart(2, "0");
+                              setEditExpiresAt(`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`);
+                            } else setEditExpiresAt("");
+                            setEditAutoDelete((u as any).autoDelete !== false);
+                            const ovInit = (u as any).tvOverride;
+                            setEditTvOverride(ovInit === "on" ? "on" : ovInit === "off" ? "off" : "inherit");
+                            setEditDirectLinkEnabled(adminUserFeatures(u).link === true);
+                          }}
+                          className="h-8 px-3 rounded-full border border-slate-200 bg-white text-[11px] font-black text-slate-700 hover:bg-slate-50 inline-flex items-center gap-1.5"
+                          title="Open this user's profile settings"
+                        >
+                          <Edit className="w-3.5 h-3.5" /> Edit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => toggleUserFeature(u, "link")}
+                          className={`relative inline-flex h-7 w-12 rounded-full transition-colors ${enabled ? "bg-emerald-500" : "bg-slate-300"}`}
+                          aria-label={enabled ? "Disable Direct Link" : "Enable Direct Link"}
+                        >
+                          <span className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-all ${enabled ? "left-[22px]" : "left-0.5"}`} />
+                        </button>
+                      </div>
                     </div>
                   );
                 })}
