@@ -5567,9 +5567,9 @@ Deno.serve(async (originalReq) => {
       await auditLog(supabase, "tv_code_submitted", user.id, user.id, { code_last4: code.slice(-4), imap_user: matched?.login_email || null, parent_imap: matched?.imap_user || null, cookies_available: cookiesAvailable }, ip);
 
 
-      // Fire-and-forget to a warm VPS runner (only when cookies are ready).
-      // GitHub Actions is intentionally NOT used here: runner allocation/queueing
-      // cannot guarantee the strict <10s SLA.
+      // Fire-and-forget to a warm VPS runner first. If the VPS is offline/busy,
+      // queue the backup GitHub/self-hosted runner instead of leaving the user
+      // with an immediate runner_timeout.
       let dispatched = false;
       let dispatchDiag = "skipped";
       let responseMessage: string | null = null;
@@ -5603,7 +5603,16 @@ Deno.serve(async (originalReq) => {
               responseMessage = runnerRes.status === 409
                 ? "Fast TV runner is busy right now. Try again in a few seconds."
                 : runnerReason || `Fast runner rejected the job (${runnerRes.status})`;
-              await supabase.from("tv_login_events").update({ status: "error", result: "fast_runner_unavailable", message: responseMessage, finished_at: new Date().toISOString() }).eq("id", inserted.id);
+              const backup = await dispatchGithubTvFallback(inserted.id, dispatchDiag).catch((err) => ({ ok: false, diag: "github_exception", message: err instanceof Error ? err.message : String(err) }));
+              if (backup.ok) {
+                dispatched = true;
+                dispatchDiag = backup.diag;
+                responseMessage = backup.message;
+                await supabase.from("tv_login_events").update({ status: "queued", result: null, message: responseMessage, github_run_url: null }).eq("id", inserted.id);
+              } else {
+                responseMessage = `${responseMessage} Backup failed: ${backup.message}`;
+                await supabase.from("tv_login_events").update({ status: "error", result: "fast_runner_unavailable", message: responseMessage, finished_at: new Date().toISOString() }).eq("id", inserted.id);
+              }
             } else {
               dispatchDiag = "fast_runner_running";
               responseMessage = runnerJson?.message || "Fast TV runner started.";
@@ -5611,10 +5620,18 @@ Deno.serve(async (originalReq) => {
             }
           } else {
             dispatchDiag = "no_config";
-            const msg = "Fast TV runner URL is not configured. Add TV_FAST_RUNNER_URL after starting the warm VPS runner.";
+            const msg = "Fast TV runner URL is not configured.";
             console.log(`[tv_submit] ${msg}`);
-            responseMessage = msg;
-            await supabase.from("tv_login_events").update({ status: "error", message: msg, finished_at: new Date().toISOString() }).eq("id", inserted.id);
+            const backup = await dispatchGithubTvFallback(inserted.id, dispatchDiag).catch((err) => ({ ok: false, diag: "github_exception", message: err instanceof Error ? err.message : String(err) }));
+            if (backup.ok) {
+              dispatched = true;
+              dispatchDiag = backup.diag;
+              responseMessage = backup.message;
+              await supabase.from("tv_login_events").update({ status: "queued", result: null, message: responseMessage }).eq("id", inserted.id);
+            } else {
+              responseMessage = `${msg} Backup failed: ${backup.message}`;
+              await supabase.from("tv_login_events").update({ status: "error", result: "fast_runner_unavailable", message: responseMessage, finished_at: new Date().toISOString() }).eq("id", inserted.id);
+            }
           }
         } catch (e) {
           dispatchDiag = "exception";
@@ -5623,7 +5640,16 @@ Deno.serve(async (originalReq) => {
           responseMessage = /aborted|timeout/i.test(em)
             ? "Fast TV runner did not accept the job quickly enough. Try again in a few seconds."
             : `Fast runner error: ${em}`;
-          await supabase.from("tv_login_events").update({ status: "error", message: responseMessage, finished_at: new Date().toISOString() }).eq("id", inserted.id);
+          const backup = await dispatchGithubTvFallback(inserted.id, dispatchDiag).catch((err) => ({ ok: false, diag: "github_exception", message: err instanceof Error ? err.message : String(err) }));
+          if (backup.ok) {
+            dispatched = true;
+            dispatchDiag = backup.diag;
+            responseMessage = backup.message;
+            await supabase.from("tv_login_events").update({ status: "queued", result: null, message: responseMessage }).eq("id", inserted.id);
+          } else {
+            responseMessage = `${responseMessage} Backup failed: ${backup.message}`;
+            await supabase.from("tv_login_events").update({ status: "error", result: "fast_runner_unavailable", message: responseMessage, finished_at: new Date().toISOString() }).eq("id", inserted.id);
+          }
         }
       }
 
