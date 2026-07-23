@@ -6945,6 +6945,20 @@ function AdminPanel() {
       notify.error("Download failed", { description: e?.message || String(e) });
     }
   };
+  const deleteVpsKey = async () => {
+    if (vpsDeletingKey) return;
+    if (!confirm("Delete the stored SSH private key? You'll need to upload a new one before the current VPS can be re-used.")) return;
+    setVpsDeletingKey(true);
+    try {
+      const res: any = await apiCall("manage-app", { action: "admin_delete_vps_key" });
+      if (res?.value) setVpsCfg((p) => ({ ...p, ...res.value }));
+      notify.success("Private key deleted");
+    } catch (e: any) {
+      notify.error("Delete failed", { description: e?.message || String(e) });
+    } finally {
+      setVpsDeletingKey(false);
+    }
+  };
 
 
 
