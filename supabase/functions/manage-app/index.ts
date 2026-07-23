@@ -5110,7 +5110,7 @@ Deno.serve(async (originalReq) => {
       return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    if (action === "link_list_accounts" || action === "link_generate" || action === "link_list" || action === "link_revoke" || action === "link_extend") {
+    if (action === "link_list_accounts" || action === "link_generate" || action === "link_list") {
       const session = await requireSession(req);
       const { data: user } = await supabase
         .from("app_users")
@@ -5123,7 +5123,7 @@ Deno.serve(async (originalReq) => {
       }
 
       // --- Shared: resolve candidate accounts w/ cookies ---
-      const { data: settingsRows } = await supabase.from("app_settings").select("key,value").in("key", ["config", "email_accounts", "link_defaults"]);
+      const { data: settingsRows } = await supabase.from("app_settings").select("key,value").in("key", ["config", "email_accounts"]);
       const settings = new Map((settingsRows || []).map((r: any) => [String(r.key), r.value]));
       const cfg = settings.get("config") || {};
       const primaryUser = String(cfg?.IMAP_USER || "").trim().toLowerCase();
@@ -5144,10 +5144,8 @@ Deno.serve(async (originalReq) => {
       const eligible = candidates.filter((c) => cookieMap.has(c.login_email));
 
       if (action === "link_list_accounts") {
-        const defaults = normalizeLinkDefaults(settings.get("link_defaults"));
         return new Response(JSON.stringify({
           success: true,
-          defaults,
           accounts: eligible.map((c) => ({
             account_key: c.account_key,
             login_email: c.login_email,
@@ -5160,7 +5158,6 @@ Deno.serve(async (originalReq) => {
       }
 
       if (action === "link_list") {
-        const defaults = normalizeLinkDefaults(settings.get("link_defaults"));
         const { data: rows } = await supabase
           .from("nftoken_links")
           .select("id, account_key, login_email, link_url, expires_at, created_at, revoked_at, status")
@@ -5169,30 +5166,11 @@ Deno.serve(async (originalReq) => {
           .limit(20);
         return new Response(JSON.stringify({
           success: true,
-          defaults,
           links: (rows || []).map((r: any) => ({
             ...r,
             login_email_masked: maskTvEmail(r.login_email || ""),
           })),
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
-
-      if (action === "link_revoke") {
-        const linkId = String((params || {}).id || "").trim();
-        if (!linkId) throw new Error("Link id required");
-        const { error } = await supabase.from("nftoken_links").update({ revoked_at: new Date().toISOString(), status: "revoked" }).eq("id", linkId).eq("user_id", user.id);
-        if (error) throw error;
-        return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
-
-      if (action === "link_extend") {
-        const linkId = String((params || {}).id || "").trim();
-        if (!linkId) throw new Error("Link id required");
-        const defaults = await loadLinkDefaults(supabase);
-        const newExp = new Date(Date.now() + defaults.ttl_minutes * 60_000).toISOString();
-        const { error } = await supabase.from("nftoken_links").update({ expires_at: newExp, status: "active", revoked_at: null }).eq("id", linkId).eq("user_id", user.id);
-        if (error) throw error;
-        return new Response(JSON.stringify({ success: true, expires_at: newExp }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
       // link_generate
@@ -5231,21 +5209,7 @@ Deno.serve(async (originalReq) => {
       }
       if (!nftoken) throw new Error("Netflix rejected the stored session. Cookies may be expired.");
 
-      const defaults = await loadLinkDefaults(supabase);
-      const ttlMinutes = defaults.ttl_minutes;
-      const { count: activeCount } = await supabase
-        .from("nftoken_links")
-        .select("id", { count: "exact", head: true })
-        .eq("user_id", user.id)
-        .eq("status", "active")
-        .is("revoked_at", null)
-        .gt("expires_at", new Date().toISOString());
-      if ((activeCount || 0) >= defaults.max_active_per_user) {
-        throw new Error(`You already have ${activeCount} active Direct Link${activeCount === 1 ? "" : "s"}. Wait for expiry or revoke an old link.`);
-      }
-      const adminExpiresAtMs = Date.now() + ttlMinutes * 60_000;
-      const netflixExpiresAtMs = netflixExpires ? netflixExpires * 1000 : adminExpiresAtMs;
-      const expiresAt = new Date(Math.min(adminExpiresAtMs, netflixExpiresAtMs)).toISOString();
+      const expiresAt = netflixExpires ? new Date(netflixExpires * 1000).toISOString() : new Date(Date.now() + 60 * 60_000).toISOString();
       const linkUrl = `https://netflix.com/?nftoken=${nftoken}`;
       const { data: inserted, error: insErr } = await supabase.from("nftoken_links").insert({
         user_id: user.id,
@@ -5256,7 +5220,7 @@ Deno.serve(async (originalReq) => {
         expires_at: expiresAt,
         status: "active",
         source_ip: ip,
-        meta: { ttl_minutes: ttlMinutes, netflix_expires: netflixExpires, generator: "ios_argo_python_compat_v14" },
+        meta: { netflix_expires: netflixExpires, generator: "uploaded_python_exact" },
       }).select("id, created_at, expires_at").maybeSingle();
       if (insErr) throw insErr;
 
