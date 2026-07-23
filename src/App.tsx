@@ -12006,7 +12006,17 @@ function EmailViewer() {
     // Respect existing tvVisible layering (global switch + per-user override)
     return { ...f, tv: f.tv && tvVisible };
   }, [user, tvVisible]);
-  const { view: workflowView, setChoice: setWorkflowView } = useWorkflowView(user, userFeatures);
+  const { view: workflowView, setChoice: setWorkflowViewRaw } = useWorkflowView(user, userFeatures);
+  const setWorkflowView = useCallback((v: "gmail" | "tv" | "link") => {
+    setWorkflowViewRaw(v);
+    // Persist to the server so the choice follows the user across browsers/devices.
+    // Fire-and-forget — a network hiccup should never block the UI transition.
+    try {
+      apiCall("manage-app", { action: "set_workflow_view", view: v })
+        .then(() => { try { (user as any).lastWorkflowView = v; } catch {} })
+        .catch(() => {});
+    } catch {}
+  }, [setWorkflowViewRaw, user]);
   const [tvModalTrigger, setTvModalTrigger] = useState(0);
   // Prefetch TV / Link accounts as soon as features resolve — avoids the 5s wait later.
   useEffect(() => { try { prefetchWorkflowAccounts(apiCall, userFeatures); } catch {} }, [userFeatures.tv, userFeatures.link]);
@@ -12716,7 +12726,7 @@ function EmailViewer() {
       <h1 className="sr-only">Email Inbox — Netflix Mail</h1>
       <AnimatePresence>
         {workflowView === null && countEnabled(userFeatures) >= 2 && (
-          <WorkflowChooser features={userFeatures} user={user} onPick={setWorkflowView} onLogout={fastClearCookiesRedirect} />
+          <WorkflowChooser features={userFeatures} user={user} lastView={(user as any)?.lastWorkflowView || null} onPick={setWorkflowView} onLogout={fastClearCookiesRedirect} />
         )}
       </AnimatePresence>
       {showChangePassword && (

@@ -3740,7 +3740,7 @@ Deno.serve(async (originalReq) => {
       const session = await requireSession(req);
       const { data: user, error } = await supabase
         .from("app_users")
-        .select("id, username, name, role, must_change_password, assigned_accounts, profile_prefs, is_free, expires_at, auto_delete, tv_override, feature_gmail, feature_tv, feature_link")
+        .select("id, username, name, role, must_change_password, assigned_accounts, profile_prefs, is_free, expires_at, auto_delete, tv_override, feature_gmail, feature_tv, feature_link, last_workflow_view")
         .eq("id", session.userId)
         .single();
       if (error || !user) throw new Error("Account not found");
@@ -3762,11 +3762,41 @@ Deno.serve(async (originalReq) => {
           tvOverride: user.tv_override === "on" || user.tv_override === "off" ? user.tv_override : null,
           tvFeatureEnabled: await loadTvFeatureEnabled(supabase),
           features: pickFeatures(user),
+          lastWorkflowView: ((): string | null => {
+            const v = (user as any).last_workflow_view;
+            return v === "gmail" || v === "tv" || v === "link" ? v : null;
+          })(),
           impersonated: session.impersonated === true,
           adminId: session.impersonated === true ? (session.adminId || null) : null,
         },
 
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    if (action === "set_workflow_view") {
+      const session = await requireSession(req);
+      const raw = String((params || {}).view || "").toLowerCase();
+      if (raw !== "gmail" && raw !== "tv" && raw !== "link") {
+        throw new Error("Invalid workflow view");
+      }
+      // Verify the user actually has that feature enabled before persisting.
+      const { data: u } = await supabase
+        .from("app_users")
+        .select("feature_gmail, feature_tv, feature_link")
+        .eq("id", session.userId)
+        .maybeSingle();
+      const allowed = raw === "gmail" ? (u?.feature_gmail !== false)
+        : raw === "tv" ? (u?.feature_tv !== false)
+        : (u?.feature_link === true);
+      if (!allowed) throw new Error("Workflow not available for this account");
+      const { error } = await supabase
+        .from("app_users")
+        .update({ last_workflow_view: raw })
+        .eq("id", session.userId);
+      if (error) throw error;
+      return new Response(JSON.stringify({ success: true, lastWorkflowView: raw }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     if (action === "logout") {

@@ -24,16 +24,21 @@ export function countEnabled(f: UserFeatures) {
   return (f.gmail ? 1 : 0) + (f.tv ? 1 : 0) + (f.link ? 1 : 0);
 }
 
-const VIEW_KEY = "nf.view.v1";
-const VIEW_FEATURES_KEY = "nf.view.features.v1";
-const VIEW_REQUEST_KEY = "nf.view.request.v1";
-
+// No browser storage — the last chosen workflow lives on the server
+// (`app_users.last_workflow_view`) so it follows the user across browsers
+// and devices. A same-tab module variable carries a one-shot admin
+// impersonation override across an SPA navigation without touching storage.
+let __pendingWorkflowView: WorkflowView | null = null;
 export function requestWorkflowView(view: WorkflowView) {
-  try { sessionStorage.setItem(VIEW_REQUEST_KEY, view); } catch {}
+  __pendingWorkflowView = view;
+}
+export function consumePendingWorkflowView(): WorkflowView | null {
+  const v = __pendingWorkflowView;
+  __pendingWorkflowView = null;
+  return v;
 }
 
 export function useWorkflowView(user: any, features: UserFeatures) {
-  const featureSignature = `${features.gmail ? "1" : "0"}${features.tv ? "1" : "0"}${features.link ? "1" : "0"}`;
   const pickDefault = (): WorkflowView | null => {
     if (features.gmail) return "gmail";
     if (features.tv) return "tv";
@@ -41,34 +46,17 @@ export function useWorkflowView(user: any, features: UserFeatures) {
     return null;
   };
   const [view, setView] = useState<WorkflowView | null>(() => {
-    try {
-      const requested = sessionStorage.getItem(VIEW_REQUEST_KEY) as WorkflowView | null;
-      if (requested && features[requested]) {
-        sessionStorage.removeItem(VIEW_REQUEST_KEY);
-        return requested;
-      }
-      const storedSig = sessionStorage.getItem(VIEW_FEATURES_KEY);
-      const stored = sessionStorage.getItem(VIEW_KEY) as WorkflowView | null;
-      if (storedSig === featureSignature && stored && features[stored]) return stored;
-    } catch {}
-    // Show the welcome/chooser whenever the user has 2+ workflows enabled.
-    // With just 1 workflow, we auto-open it (no need to ask).
+    const requested = consumePendingWorkflowView();
+    if (requested && features[requested]) return requested;
+    // With only 1 workflow enabled we auto-open it — no need to ask.
     if (countEnabled(features) < 2) return pickDefault();
+    // 2+ workflows → always show the chooser. The chooser itself pre-
+    // selects the DB-remembered last choice and auto-opens it after 10s.
     return null;
   });
   useEffect(() => {
-    if (view) { try { sessionStorage.setItem(VIEW_KEY, view); sessionStorage.setItem(VIEW_FEATURES_KEY, featureSignature); } catch {} }
-  }, [view, featureSignature]);
-  useEffect(() => {
     if (view && !features[view]) setView(null);
-    try {
-      const storedSig = sessionStorage.getItem(VIEW_FEATURES_KEY);
-      if (storedSig && storedSig !== featureSignature && countEnabled(features) >= 2) {
-        sessionStorage.removeItem(VIEW_KEY);
-        setView(null);
-      }
-    } catch {}
-  }, [features, view, featureSignature]);
+  }, [features, view]);
   const setChoice = useCallback((v: WorkflowView) => setView(v), []);
   const clearChoice = useCallback(() => setView(null), []);
   return { view, setChoice, clearChoice };
@@ -76,16 +64,53 @@ export function useWorkflowView(user: any, features: UserFeatures) {
 
 // ---------------- Chooser (premium white welcome) ----------------
 
-export function WorkflowChooser({ features, user, onPick, onLogout }: {
+export function WorkflowChooser({ features, user, lastView, onPick, onLogout, autoPickMs = 10000 }: {
   features: UserFeatures;
   user?: { name?: string | null; username?: string | null } | null;
+  lastView?: WorkflowView | null;
   onPick: (v: WorkflowView) => void;
   onLogout?: () => void;
+  autoPickMs?: number;
 }) {
   const items: { key: WorkflowView; title: string; sub: string; Icon: any; accent: string; tint: string }[] = [];
   if (features.gmail) items.push({ key: "gmail", title: "Gmail Inbox",   sub: "Read Netflix sign-in codes straight from your inbox",  Icon: Mail,    accent: "from-rose-500 to-red-600",       tint: "bg-rose-50 text-rose-600" });
   if (features.tv)    items.push({ key: "tv",    title: "TV Auto-Login", sub: "Enter the 8-digit code shown on your Netflix TV",      Icon: Tv,      accent: "from-indigo-500 to-violet-600",  tint: "bg-indigo-50 text-indigo-600" });
   if (features.link)  items.push({ key: "link",  title: "Direct Link",   sub: "Generate a secure one-tap Netflix sign-in link",       Icon: LinkIcon, accent: "from-emerald-500 to-teal-600",  tint: "bg-emerald-50 text-emerald-600" });
+
+  // The "last used" workflow is remembered server-side (app_users.last_workflow_view)
+  // so it follows the user across browsers and devices. We highlight it and, if
+  // the user does nothing for `autoPickMs`, we auto-open it.
+  const remembered: WorkflowView | null =
+    lastView && features[lastView] ? lastView : null;
+
+  const totalSec = Math.max(1, Math.ceil(autoPickMs / 1000));
+  const [secondsLeft, setSecondsLeft] = useState<number>(remembered ? totalSec : 0);
+  const [cancelled, setCancelled] = useState<boolean>(!remembered);
+
+  useEffect(() => {
+    if (!remembered || cancelled) return;
+    setSecondsLeft(totalSec);
+    const tickId = window.setInterval(() => {
+      setSecondsLeft((s) => (s > 0 ? s - 1 : 0));
+    }, 1000);
+    const fireId = window.setTimeout(() => {
+      window.clearInterval(tickId);
+      onPick(remembered);
+    }, autoPickMs);
+    const cancel = () => setCancelled(true);
+    window.addEventListener("pointerdown", cancel, { once: true });
+    window.addEventListener("keydown", cancel, { once: true });
+    window.addEventListener("wheel", cancel, { once: true, passive: true });
+    return () => {
+      window.clearInterval(tickId);
+      window.clearTimeout(fireId);
+      window.removeEventListener("pointerdown", cancel);
+      window.removeEventListener("keydown", cancel);
+      window.removeEventListener("wheel", cancel);
+    };
+  }, [remembered, cancelled, autoPickMs, totalSec, onPick]);
+
+  const progress = remembered && !cancelled ? Math.max(0, Math.min(1, secondsLeft / totalSec)) : 0;
 
   return (
     <motion.div
@@ -117,33 +142,59 @@ export function WorkflowChooser({ features, user, onPick, onLogout }: {
             </div>
             <h2 className="mt-4 text-3xl sm:text-5xl font-black tracking-tight text-slate-900">How would you like to sign in?</h2>
             <p className="mt-3 text-sm sm:text-base text-slate-500 max-w-xl mx-auto">Three dedicated experiences for the same account. Pick one to get started — you can switch anytime from the header.</p>
+            {remembered && !cancelled && (
+              <div className="mt-5 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900 text-white text-[11px] font-bold shadow-sm">
+                <Clock className="w-3.5 h-3.5" />
+                Opening your last choice in {secondsLeft}s — press any key to cancel
+              </div>
+            )}
           </div>
 
           <div className="grid gap-4 sm:gap-5 sm:grid-cols-3">
-            {items.map(({ key, title, sub, Icon, accent, tint }, i) => (
-              <motion.button key={key}
-                initial={{ opacity: 0, y: 16 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.05 + i * 0.06, type: "spring", stiffness: 240, damping: 22 }}
-                whileHover={{ y: -4 }} whileTap={{ scale: 0.98 }}
-                onClick={() => onPick(key)}
-                className="group relative overflow-hidden rounded-2xl bg-white border border-slate-200 hover:border-slate-300 hover:shadow-[0_20px_50px_-20px_rgba(2,6,23,0.18)] transition-all p-6 text-left focus:outline-none focus:ring-2 focus:ring-slate-900/20"
-              >
-                <div className={`w-12 h-12 rounded-2xl ${tint} flex items-center justify-center mb-6`}>
-                  <Icon className="w-5.5 h-5.5" />
-                </div>
-                <div className="font-black text-lg text-slate-900 tracking-tight">{title}</div>
-                <div className="text-[12.5px] text-slate-500 mt-1 leading-relaxed">{sub}</div>
-                <div className="mt-6 inline-flex items-center gap-1.5 text-[11px] font-black uppercase tracking-widest text-slate-900">
-                  Continue <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
-                </div>
-                <div aria-hidden className={`pointer-events-none absolute inset-x-0 -bottom-0.5 h-1 bg-gradient-to-r ${accent} opacity-0 group-hover:opacity-100 transition-opacity`} />
-              </motion.button>
-            ))}
+            {items.map(({ key, title, sub, Icon, accent, tint }, i) => {
+              const isLast = remembered === key;
+              return (
+                <motion.button key={key}
+                  initial={{ opacity: 0, y: 16 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.05 + i * 0.06, type: "spring", stiffness: 240, damping: 22 }}
+                  whileHover={{ y: -4 }} whileTap={{ scale: 0.98 }}
+                  onClick={() => onPick(key)}
+                  className={`group relative overflow-hidden rounded-2xl bg-white transition-all p-6 text-left focus:outline-none focus:ring-2 focus:ring-slate-900/20 ${
+                    isLast
+                      ? "border-2 border-slate-900 shadow-[0_24px_60px_-20px_rgba(2,6,23,0.28)]"
+                      : "border border-slate-200 hover:border-slate-300 hover:shadow-[0_20px_50px_-20px_rgba(2,6,23,0.18)]"
+                  }`}
+                >
+                  {isLast && (
+                    <div className="absolute top-3 right-3 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-900 text-white text-[9px] font-black uppercase tracking-wider">
+                      <Check className="w-3 h-3" /> Last used
+                    </div>
+                  )}
+                  <div className={`w-12 h-12 rounded-2xl ${tint} flex items-center justify-center mb-6`}>
+                    <Icon className="w-5.5 h-5.5" />
+                  </div>
+                  <div className="font-black text-lg text-slate-900 tracking-tight">{title}</div>
+                  <div className="text-[12.5px] text-slate-500 mt-1 leading-relaxed">{sub}</div>
+                  <div className="mt-6 inline-flex items-center gap-1.5 text-[11px] font-black uppercase tracking-widest text-slate-900">
+                    Continue <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+                  </div>
+                  <div aria-hidden className={`pointer-events-none absolute inset-x-0 -bottom-0.5 h-1 bg-gradient-to-r ${accent} ${isLast ? "opacity-100" : "opacity-0 group-hover:opacity-100"} transition-opacity`} />
+                  {isLast && progress > 0 && (
+                    <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-1 bg-slate-900/10 overflow-hidden">
+                      <div
+                        className={`h-full bg-gradient-to-r ${accent} transition-[width] duration-1000 ease-linear`}
+                        style={{ width: `${progress * 100}%` }}
+                      />
+                    </div>
+                  )}
+                </motion.button>
+              );
+            })}
           </div>
 
           <p className="mt-10 text-center text-[11px] text-slate-400">
-            Your workflow choice is remembered on this device.
+            Your workflow choice is remembered on your account — across every browser and device.
           </p>
         </div>
       </div>
