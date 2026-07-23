@@ -5479,21 +5479,39 @@ function AllEmailsPanel() {
   // "picker" = show account cards, "list" = show emails for chosen account (or all).
   const [view, setView] = useState<"picker" | "list">("picker");
   const limit = 100;
+  const pageCacheRef = useRef(new Map<string, { at: number; emails: any[]; total: number; hasMore: boolean }>());
+  const PAGE_CACHE_TTL_MS = 20_000;
 
 
   const load = useCallback(async (nextOffset = 0, labelOverride?: string) => {
+    const effectiveLabel = labelOverride !== undefined ? labelOverride : accountLabel;
+    const cacheKey = JSON.stringify([effectiveLabel || "", nextOffset, search || ""]);
+    const cached = pageCacheRef.current.get(cacheKey);
+    if (cached && Date.now() - cached.at < PAGE_CACHE_TTL_MS) {
+      setEmails(cached.emails);
+      setTotal(cached.total);
+      setHasMore(cached.hasMore);
+      setOffset(nextOffset);
+      setSelected(new Set());
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
-      const effectiveLabel = labelOverride !== undefined ? labelOverride : accountLabel;
       const res: any = await apiCall("manage-app", {
         action: "admin_list_emails",
         limit, offset: nextOffset,
         search: search || undefined,
         accountLabel: effectiveLabel || undefined,
       });
-      setEmails(res?.emails || []);
-      setTotal(res?.total || 0);
-      setHasMore(res?.hasMore === true);
+      const nextEmails = res?.emails || [];
+      const nextTotal = res?.total || 0;
+      const nextHasMore = res?.hasMore === true;
+      pageCacheRef.current.set(cacheKey, { at: Date.now(), emails: nextEmails, total: nextTotal, hasMore: nextHasMore });
+      if (pageCacheRef.current.size > 30) pageCacheRef.current.delete(pageCacheRef.current.keys().next().value);
+      setEmails(nextEmails);
+      setTotal(nextTotal);
+      setHasMore(nextHasMore);
       setOffset(nextOffset);
       setSelected(new Set());
     } catch (e: any) {
@@ -5560,6 +5578,7 @@ function AllEmailsPanel() {
       const res: any = await apiCall("manage-app", { action: "admin_delete_emails", ids });
       notify.success(`Suppressed ${res?.deleted ?? ids.length} email${(res?.deleted ?? ids.length) === 1 ? "" : "s"}`);
       if (viewing && ids.includes(viewing.id)) setViewing(null);
+      pageCacheRef.current.clear();
       await load(offset);
     } catch (e: any) { notify.error(e?.message || "Delete failed"); }
   };
@@ -5694,12 +5713,13 @@ function AllEmailsPanel() {
       </div>
 
 
-      {loading ? (
+      {loading && emails.length === 0 ? (
         <div className="py-12 text-center text-slate-500 text-sm">Loading…</div>
       ) : emails.length === 0 ? (
         <div className="py-12 text-center text-slate-500 text-sm">No emails found.</div>
       ) : (
         <>
+          {loading && <div className="mb-2 text-[11px] font-bold text-amber-600">Refreshing cached results…</div>}
           <div className="overflow-auto border rounded-lg max-h-[65vh]">
             <table className="w-full text-xs sm:text-sm min-w-[800px]">
               <thead className="bg-slate-50 text-left text-slate-600 uppercase text-[10px] tracking-wider sticky top-0 z-10">
@@ -7792,22 +7812,18 @@ function AdminPanel() {
   };
 
 
-  const reloadAdminNotifs = React.useCallback(async () => {
-    try {
-      // Force a refetch through the SWR store so any prefetched cache is refreshed.
-      invalidateAdminSlice(AdminSliceKeys.notifications);
-      const nl: any = await apiCall("manage-app", { action: "admin_list_notifications" });
-      const list = Array.isArray(nl?.notifications) ? nl.notifications : [];
-      setAdminNotifs(list);
-      setAdminSlice(AdminSliceKeys.notifications, list);
-    } catch (err) { console.warn(err); }
-  }, []);
   // Hydrate notifications from SWR cache on mount (instant paint after prefetch).
   const notifFetcher = React.useCallback(async () => {
     const nl: any = await apiCall("manage-app", { action: "admin_list_notifications" });
     return Array.isArray(nl?.notifications) ? nl.notifications : [];
   }, []);
-  const { data: cachedNotifs } = useAdminSlice<any[]>(AdminSliceKeys.notifications, notifFetcher, { enabled: activeTab === "notifications" && adminNotifs.length === 0 });
+  const { data: cachedNotifs, refresh: refreshAdminNotifs } = useAdminSlice<any[]>(AdminSliceKeys.notifications, notifFetcher, { enabled: activeTab === "notifications" && adminNotifs.length === 0 });
+  const reloadAdminNotifs = React.useCallback(async () => {
+    try {
+      const list = await refreshAdminNotifs(true);
+      setAdminNotifs(Array.isArray(list) ? list : []);
+    } catch (err) { console.warn(err); }
+  }, [refreshAdminNotifs]);
   React.useEffect(() => {
     if (Array.isArray(cachedNotifs) && cachedNotifs.length) setAdminNotifs(cachedNotifs);
   }, [cachedNotifs]);
