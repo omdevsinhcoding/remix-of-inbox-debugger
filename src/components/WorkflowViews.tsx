@@ -456,7 +456,7 @@ export function DirectLinkView({ apiCall, notify }: { apiCall: ApiCall; notify: 
                   <li key={l.id} className="py-3 flex items-center gap-3">
                     <div className={`w-2 h-2 rounded-full ${expired ? "bg-slate-300" : "bg-rose-500"}`} />
                     <div className="flex-1 min-w-0">
-                      <div className="text-xs text-slate-600 truncate font-semibold">{l.login_email_masked || l.login_email}</div>
+                      <div className="text-xs text-slate-600 truncate font-semibold">Direct link</div>
                       <div className="text-[11px] text-slate-400">Exp: <b>{fmtIST(l.expires_at)}</b> · {expired ? <span className="text-slate-400">expired</span> : <span className="text-rose-600">{remaining(l.expires_at)}</span>}</div>
                     </div>
                     {!expired && (
