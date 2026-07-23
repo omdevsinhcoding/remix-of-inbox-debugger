@@ -87,9 +87,12 @@ function publicVpsConfig(value: any) {
   const v = value && typeof value === "object" && !Array.isArray(value) ? value : {};
   const ip = typeof v.ip === "string" && v.ip.trim() ? v.ip.trim() : "140.238.226.213";
   const runnerUrl = typeof v.runnerUrl === "string" && v.runnerUrl.trim() ? v.runnerUrl.trim().replace(/\/+$/g, "") : "";
+  const rawMode = typeof v.mode === "string" ? v.mode.trim().toLowerCase() : "";
+  const mode: "auto" | "vps" | "github" = rawMode === "vps" || rawMode === "github" ? rawMode : "auto";
   return {
     ip,
     runnerUrl,
+    mode,
     keyFilename: typeof v.keyFilename === "string" && v.keyFilename.trim() ? v.keyFilename.trim() : "vps-private-key.pem",
     keyObjectKey: typeof v.keyObjectKey === "string" ? v.keyObjectKey : "",
     keyUploadedAt: typeof v.keyUploadedAt === "string" ? v.keyUploadedAt : "",
