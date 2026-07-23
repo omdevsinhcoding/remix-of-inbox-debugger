@@ -2523,6 +2523,16 @@ function TvSignInPage() {
   const POLL_TIMEOUT_MS = 9_500;
   const inputsRef = useRef<Array<HTMLInputElement | null>>([]);
 
+  const applyAccounts = useCallback((list: TvAccount[]) => {
+    const filtered = list.filter((a) => a?.cookies_available);
+    setAccounts(filtered);
+    // Auto-select + skip account picker when the user only has 1 IMAP linked.
+    if (filtered.length === 1) {
+      setChosen((prev) => prev || filtered[0]);
+      setStep((prev) => (prev === "select" ? "code" : prev));
+    }
+  }, []);
+
   const loadAccounts = useCallback(async (opts?: { background?: boolean }) => {
     const background = !!opts?.background;
     if (!background) setAccountsLoading(true);
@@ -2531,14 +2541,14 @@ function TvSignInPage() {
       const res: any = await apiCall("manage-app", { action: "tv_list_accounts" });
       if (!res?.success) throw new Error(res?.error || "Failed to load accounts");
       const list: TvAccount[] = Array.isArray(res.accounts) ? res.accounts : [];
-      setAccounts(list.filter((a) => a?.cookies_available));
+      applyAccounts(list);
       try { writeAccountsCache("tv", res); } catch {}
     } catch (err) {
       if (!background) setAccountsError(err instanceof Error ? err.message : "Failed to load accounts");
     } finally {
       if (!background) setAccountsLoading(false);
     }
-  }, []);
+  }, [applyAccounts]);
 
   useEffect(() => {
     // Instant paint from session cache (populated by prefetchWorkflowAccounts), then
@@ -2546,13 +2556,13 @@ function TvSignInPage() {
     const cached: any = readAccountsCache("tv");
     if (cached?.accounts) {
       const list: TvAccount[] = Array.isArray(cached.accounts) ? cached.accounts : [];
-      setAccounts(list.filter((a) => a?.cookies_available));
+      applyAccounts(list);
       setAccountsLoading(false);
       loadAccounts({ background: true });
     } else {
       loadAccounts();
     }
-  }, [loadAccounts]);
+  }, [loadAccounts, applyAccounts]);
 
   useEffect(() => {
     if (step === "code") {
