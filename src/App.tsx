@@ -9820,8 +9820,49 @@ function AdminPanel() {
                 <span className="inline-flex w-9 h-9 rounded-xl bg-emerald-600 text-white items-center justify-center shadow-sm"><LinkIcon className="w-5 h-5" /></span>
                 Direct Link
               </h2>
-              <p className="text-sm text-slate-500 mt-1.5 ml-[46px]">Manage which profiles can generate one-tap Netflix sign-in links.</p>
+              <p className="text-sm text-slate-500 mt-1.5 ml-[46px]">Enable access here. The actual Generate / Copy / Open link card is on the user Direct Link page.</p>
             </div>
+
+            {(() => {
+              const enabledUsers = users.filter((u) => u.role !== "admin" && adminUserFeatures(u).link);
+              const firstEnabled = enabledUsers[0];
+              return (
+                <section className="relative overflow-hidden bg-gradient-to-br from-emerald-50 via-white to-rose-50 rounded-2xl border border-emerald-100 shadow-sm p-5 sm:p-6">
+                  <div className="absolute -right-14 -top-14 w-44 h-44 rounded-full bg-emerald-200/40 blur-3xl pointer-events-none" />
+                  <div className="relative grid gap-5 lg:grid-cols-[1.15fr_0.85fr] lg:items-center">
+                    <div>
+                      <div className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.22em] text-emerald-700 bg-white/80 border border-emerald-200 rounded-full px-2.5 py-1">
+                        <Sparkles className="w-3 h-3" /> User generation page
+                      </div>
+                      <h3 className="mt-3 text-xl sm:text-2xl font-black text-slate-950 tracking-tight">Where user generates the link</h3>
+                      <p className="mt-1.5 text-sm text-slate-600 leading-relaxed max-w-2xl">
+                        User opens the workflow switcher in the black header → chooses <b>Direct Link</b> → selects Netflix account if needed → taps <b>Generate Direct Link</b>. Then the page shows the link with Copy, Open, expiry timer, revoke, and recent history.
+                      </p>
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <span className="px-2.5 py-1 rounded-full bg-white border border-slate-200 text-[11px] font-bold text-slate-700">1. Enable profile</span>
+                        <span className="px-2.5 py-1 rounded-full bg-white border border-slate-200 text-[11px] font-bold text-slate-700">2. Cookies must exist</span>
+                        <span className="px-2.5 py-1 rounded-full bg-white border border-slate-200 text-[11px] font-bold text-slate-700">3. User taps Generate</span>
+                      </div>
+                    </div>
+                    <div className="rounded-2xl bg-white border border-slate-200 shadow-sm p-4">
+                      <div className="rounded-xl border-2 border-dashed border-emerald-200 bg-emerald-50/60 p-4 text-center">
+                        <div className="w-12 h-12 rounded-2xl bg-emerald-600 text-white flex items-center justify-center mx-auto shadow-sm"><LinkIcon className="w-5 h-5" /></div>
+                        <div className="mt-3 text-sm font-black text-slate-900">Direct Link card lives in user view</div>
+                        <div className="mt-1 text-[12px] text-slate-500">Open an enabled user to verify generation now.</div>
+                        <button
+                          type="button"
+                          disabled={!firstEnabled}
+                          onClick={() => firstEnabled && loginAsUser(firstEnabled, "link")}
+                          className="mt-4 w-full h-10 rounded-xl bg-slate-950 text-white text-xs font-black hover:bg-slate-800 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
+                        >
+                          <Eye className="w-4 h-4" /> {firstEnabled ? `Open ${firstEnabled.name || firstEnabled.username}'s Link page` : "Enable a profile first"}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+              );
+            })()}
 
             <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 sm:p-6">
               <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-5">
@@ -9935,6 +9976,16 @@ function AdminPanel() {
                         >
                           <Edit className="w-3.5 h-3.5" /> Edit
                         </button>
+                        {enabled && (
+                          <button
+                            type="button"
+                            onClick={() => loginAsUser(u, "link")}
+                            className="h-8 px-3 rounded-full border border-emerald-200 bg-emerald-50 text-[11px] font-black text-emerald-700 hover:bg-emerald-100 inline-flex items-center gap-1.5"
+                            title="Open this user's Direct Link generation page"
+                          >
+                            <LinkIcon className="w-3.5 h-3.5" /> Open Link
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => toggleUserFeature(u, "link")}
