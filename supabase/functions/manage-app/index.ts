@@ -3997,7 +3997,7 @@ Deno.serve(async (originalReq) => {
     if (action === "admin_clear_inbox") {
       const session = await requireAdmin(req);
       const { mode, accountLabel, days, confirm } = params as any;
-      let q = supabase.from("cached_emails").update({ destroyed: true, html: null, preview: null, otp: null, cached_at: new Date().toISOString() }, { count: "exact" });
+      let q = supabase.from("cached_emails").update({ destroyed: true, html: null, preview: null, otp: null, cached_at: new Date().toISOString() });
       let details: any = { mode };
       if (mode === "all") {
         if (confirm !== "DELETE ALL") throw new Error("Confirmation phrase required");
@@ -4016,11 +4016,11 @@ Deno.serve(async (originalReq) => {
         throw new Error("Invalid mode");
       }
       q = q.eq("destroyed", false);
-      const { error, count } = await q.select("id");
+      const { error } = await q;
       if (error) throw error;
-      details.deleted = count || 0;
+      details.completed = true;
       await auditLog(supabase, "admin_clear_inbox", session.userId, null, details, ip);
-      return new Response(JSON.stringify({ success: true, deleted: count || 0 }), {
+      return new Response(JSON.stringify({ success: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -4479,14 +4479,14 @@ Deno.serve(async (originalReq) => {
       const { ids } = (params || {}) as any;
       if (!Array.isArray(ids) || ids.length === 0) throw new Error("ids required");
       const clean = ids.filter((x: any) => typeof x === "string").slice(0, 500);
-      const { error, count } = await supabase
+      const { error } = await supabase
         .from("cached_emails")
-        .update({ destroyed: true, html: null, preview: null, otp: null, cached_at: new Date().toISOString() }, { count: "exact" })
+        .update({ destroyed: true, html: null, preview: null, otp: null, cached_at: new Date().toISOString() })
         .in("id", clean)
         .eq("destroyed", false);
       if (error) throw error;
-      await auditLog(supabase, "admin_delete_emails", session.userId, null, { ids: clean, deleted: count || 0 }, ip);
-      return new Response(JSON.stringify({ success: true, deleted: count || 0 }), {
+      await auditLog(supabase, "admin_delete_emails", session.userId, null, { ids: clean, requested: clean.length }, ip);
+      return new Response(JSON.stringify({ success: true, deleted: clean.length }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
