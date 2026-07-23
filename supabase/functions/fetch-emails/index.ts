@@ -865,18 +865,25 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
       success: true,
       emails: allEmails,
       stats: syncStats,
-    totalFetched: allEmails.length,
+      totalFetched: allEmails.length,
       inserted,
       duplicatesSkipped: Object.values(syncStats).reduce((s: number, v: any) => s + (v.skipped || 0), 0),
-  };
-  if (accountErrors.length > 0) response.warnings = accountErrors.map(e => e.error);
-  const recipientWarnings = Object.entries(syncStats)
-    .filter(([, v]: any) => Number(v.recipientSkipped || 0) > 0)
-    .map(([label, v]: any) => `${label}: ${v.recipientSkipped} Netflix email skipped by recipient filter`);
-  if (recipientWarnings.length > 0) response.warnings = [...(response.warnings || []), ...recipientWarnings];
-  if (Array.isArray(response.warnings) && response.warnings.length > 0) response.warning = response.warnings.join(" • ");
-  console.log(`[sync] Complete: ${allEmails.length} fetched/upserted across ${accounts.length} account(s)`);
-  return response;
+    };
+    if (accountErrors.length > 0) response.warnings = accountErrors.map(e => e.error);
+    const recipientWarnings = Object.entries(syncStats)
+      .filter(([, v]: any) => Number(v.recipientSkipped || 0) > 0)
+      .map(([label, v]: any) => `${label}: ${v.recipientSkipped} Netflix email skipped by recipient filter`);
+    if (recipientWarnings.length > 0) response.warnings = [...(response.warnings || []), ...recipientWarnings];
+    if (Array.isArray(response.warnings) && response.warnings.length > 0) response.warning = response.warnings.join(" • ");
+    console.log(`[sync] Complete: ${allEmails.length} fetched/upserted across ${accounts.length} account(s)`);
+    return response;
+  } catch (e) {
+    syncOk = false;
+    console.error("[sync] fatal", e);
+    return { success: false, error: e instanceof Error ? e.message : String(e), stats: {}, totalFetched: 0, inserted: 0 };
+  } finally {
+    if (cronLike) await releaseLock(supabase, SYNC_JOB_NAME, syncOk);
+  }
 }
 
 async function repairCronScheduleIfNeeded(supabase: any, cronSecret: string) {
