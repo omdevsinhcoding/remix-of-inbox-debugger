@@ -205,11 +205,31 @@ export function DirectLinkView({ apiCall, notify }: { apiCall: ApiCall; notify: 
 
   useEffect(() => { loadAccounts(); loadLinks(); }, [loadAccounts, loadLinks]);
 
+  // Expiry picker (client-driven ttl_minutes; server clamps to admin max)
+  const TTL_PRESETS: { label: string; ttl: number }[] = [
+    { label: "15 min",  ttl: 15 },
+    { label: "1 hour",  ttl: 60 },
+    { label: "6 hours", ttl: 360 },
+    { label: "24 hours", ttl: 1440 },
+    { label: "7 days",   ttl: 10080 },
+  ];
+  const [ttl, setTtl] = useState<number>(60);
+  const [customMode, setCustomMode] = useState(false);
+  const [customExpiry, setCustomExpiry] = useState<string>(""); // datetime-local value
+
+  const effectiveTtl = useMemo(() => {
+    if (customMode && customExpiry) {
+      const ms = new Date(customExpiry).getTime() - Date.now();
+      if (Number.isFinite(ms) && ms > 0) return Math.max(1, Math.min(43200, Math.round(ms / 60000)));
+    }
+    return ttl;
+  }, [customMode, customExpiry, ttl]);
+
   const generate = useCallback(async () => {
     if (!selectedKey || busy) return;
     setBusy(true);
     try {
-      const res: any = await apiCall("manage-app", { action: "link_generate", account_key: selectedKey });
+      const res: any = await apiCall("manage-app", { action: "link_generate", account_key: selectedKey, ttl_minutes: effectiveTtl });
       if (res?.link?.link_url) {
         notify.success("Direct Link ready");
         try { await navigator.clipboard.writeText(res.link.link_url); } catch {}
@@ -220,7 +240,7 @@ export function DirectLinkView({ apiCall, notify }: { apiCall: ApiCall; notify: 
     } finally {
       setBusy(false);
     }
-  }, [selectedKey, busy, loadLinks]);
+  }, [selectedKey, busy, loadLinks, effectiveTtl]);
 
   const revoke = useCallback(async (id: string) => {
     try {
