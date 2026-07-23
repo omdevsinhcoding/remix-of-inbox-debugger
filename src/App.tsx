@@ -7024,6 +7024,43 @@ function AdminPanel() {
     try { sessionStorage.setItem(ADMIN_ACTIVE_TAB_KEY, activeTab); } catch {}
   }, [activeTab]);
 
+  // Parallel warm-up: fire every tab's fetcher on mount so switching tabs is
+  // instant. Each entry is deduped by adminData store, so it's safe to also
+  // register the same fetcher inside the tab component.
+  useEffect(() => {
+    prefetchAdminSlices([
+      {
+        key: AdminSliceKeys.loginEvents + ":__all__",
+        fetcher: async () => {
+          const r: any = await apiCall("manage-app", { action: "list_login_events", limit: 300 });
+          return (r?.events || []) as any[];
+        },
+      },
+      {
+        key: AdminSliceKeys.cookies,
+        fetcher: async () => {
+          const r: any = await apiCall("manage-app", { action: "admin_cookies_list" });
+          return (Array.isArray(r?.items) ? r.items : []) as any[];
+        },
+      },
+      {
+        key: AdminSliceKeys.emailAccounts,
+        fetcher: async () => {
+          const [accData, cfgData]: any = await Promise.all([
+            apiCall("manage-app", { action: "get_settings", key: "email_accounts" }),
+            apiCall("manage-app", { action: "get_settings", key: "config" }),
+          ]);
+          const labels = Array.isArray(accData?.value)
+            ? accData.value.map((a: any) => ({ label: String(a.label || a.user || "").trim(), user: String(a.user || "").trim() })).filter((a: any) => a.label)
+            : [];
+          const primary = typeof cfgData?.value?.IMAP_USER === "string" ? cfgData.value.IMAP_USER.trim() : "";
+          return { labels, primary };
+        },
+      },
+    ]);
+  }, []);
+
+
   const availableAccounts = useMemo<string[]>(() => {
     const labels = ["Primary"];
     emailAccounts.forEach(acc => {
