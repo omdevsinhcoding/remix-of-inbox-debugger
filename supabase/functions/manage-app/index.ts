@@ -3773,6 +3773,32 @@ Deno.serve(async (originalReq) => {
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    if (action === "set_workflow_view") {
+      const session = await requireSession(req);
+      const raw = String((params || {}).view || "").toLowerCase();
+      if (raw !== "gmail" && raw !== "tv" && raw !== "link") {
+        throw new Error("Invalid workflow view");
+      }
+      // Verify the user actually has that feature enabled before persisting.
+      const { data: u } = await supabase
+        .from("app_users")
+        .select("feature_gmail, feature_tv, feature_link")
+        .eq("id", session.userId)
+        .maybeSingle();
+      const allowed = raw === "gmail" ? (u?.feature_gmail !== false)
+        : raw === "tv" ? (u?.feature_tv !== false)
+        : (u?.feature_link === true);
+      if (!allowed) throw new Error("Workflow not available for this account");
+      const { error } = await supabase
+        .from("app_users")
+        .update({ last_workflow_view: raw })
+        .eq("id", session.userId);
+      if (error) throw error;
+      return new Response(JSON.stringify({ success: true, lastWorkflowView: raw }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     if (action === "logout") {
       const token = req.headers.get("x-session-token");
       if (token) {
