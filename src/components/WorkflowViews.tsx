@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Mail, Tv, Link as LinkIcon, Copy, RefreshCw, Loader2, ShieldCheck, Clock, Trash2, X, ChevronRight, LayoutGrid, Sparkles, Check, LogOut } from "lucide-react";
+import { Mail, Tv, Link as LinkIcon, Copy, RefreshCw, Loader2, ShieldCheck, Clock, X, ChevronRight, LayoutGrid, Sparkles, Check, LogOut } from "lucide-react";
 
 type ApiCall = (fn: string, body: any) => Promise<any>;
 type Notify = { success: (m: string) => void; error: (m: string) => void };
@@ -200,7 +200,6 @@ export function DirectLinkView({ apiCall, notify }: { apiCall: ApiCall; notify: 
   const [links, setLinks] = useState<LinkRow[]>([]);
   const [chosen, setChosen] = useState<LinkAccount | null>(null);
   const [busy, setBusy] = useState(false);
-  const [defaultTtl, setDefaultTtl] = useState<number>(60);
   const [, tick] = useState(0);
 
   useEffect(() => {
@@ -222,16 +221,12 @@ export function DirectLinkView({ apiCall, notify }: { apiCall: ApiCall; notify: 
       const cached: any = readAccountsCache("link");
       if (cached) {
         const cachedAccounts = Array.isArray(cached?.accounts) ? cached.accounts : [];
-        const cachedTtl = Number(cached?.defaults?.ttl_minutes);
-        if (Number.isFinite(cachedTtl) && cachedTtl > 0) setDefaultTtl(Math.floor(cachedTtl));
         applyAccounts(cachedAccounts);
         setNotConfigured(cached?.not_configured ? (cached.message || "Not configured") : null);
         setLoadingAccounts(false);
       }
       const res: any = await apiCall("manage-app", { action: "link_list_accounts" });
       const acc = Array.isArray(res?.accounts) ? res.accounts : [];
-      const ttl = Number(res?.defaults?.ttl_minutes);
-      if (Number.isFinite(ttl) && ttl > 0) setDefaultTtl(Math.floor(ttl));
       applyAccounts(acc);
       writeAccountsCache("link", res);
       setNotConfigured(res?.not_configured ? (res.message || "Not configured") : null);
@@ -245,15 +240,11 @@ export function DirectLinkView({ apiCall, notify }: { apiCall: ApiCall; notify: 
   const loadLinks = useCallback(async () => {
     try {
       const res: any = await apiCall("manage-app", { action: "link_list" });
-      const ttl = Number(res?.defaults?.ttl_minutes);
-      if (Number.isFinite(ttl) && ttl > 0) setDefaultTtl(Math.floor(ttl));
       setLinks(Array.isArray(res?.links) ? res.links : []);
     } catch {}
   }, []);
 
   useEffect(() => { loadAccounts(); loadLinks(); }, [loadAccounts, loadLinks]);
-
-  const ttlLabel = useMemo(() => defaultTtl < 60 ? `${defaultTtl} min` : defaultTtl < 1440 ? `${Math.round(defaultTtl / 60)} hour${Math.round(defaultTtl / 60) === 1 ? "" : "s"}` : `${Math.round(defaultTtl / 1440)} day${Math.round(defaultTtl / 1440) === 1 ? "" : "s"}`, [defaultTtl]);
 
   const generate = useCallback(async () => {
     if (!chosen || busy) return;
@@ -272,13 +263,6 @@ export function DirectLinkView({ apiCall, notify }: { apiCall: ApiCall; notify: 
     }
   }, [chosen, busy, loadLinks, notify]);
 
-  const revoke = useCallback(async (id: string) => {
-    try {
-      await apiCall("manage-app", { action: "link_revoke", id });
-      await loadLinks();
-    } catch (e: any) { notify.error(e?.message || "Failed to revoke"); }
-  }, [loadLinks, notify]);
-
   const copy = useCallback(async (url: string) => {
     try { await navigator.clipboard.writeText(url); notify.success("Link copied"); } catch { notify.error("Copy failed"); }
   }, [notify]);
@@ -288,21 +272,6 @@ export function DirectLinkView({ apiCall, notify }: { apiCall: ApiCall; notify: 
     // Recomputed every render (including per-second tick) so expiry flips the UI instantly.
     return links.find(l => l.account_key === chosen.account_key && l.status === "active" && new Date(l.expires_at).getTime() > Date.now()) || null;
   })();
-
-  // Auto-generate a fresh link when the active one expires (and the user is on the link step).
-  const autoGenRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (step !== "link" || !chosen || busy) return;
-    if (activeLink) { autoGenRef.current = null; return; }
-    // Guard so we don't loop if the API keeps failing.
-    const key = chosen.account_key;
-    if (autoGenRef.current === key) return;
-    // Only auto-generate if we've already loaded (avoid triggering on very first mount before links load)
-    if (links.length === 0 && loadingAccounts) return;
-    autoGenRef.current = key;
-    generate();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeLink, step, chosen, busy]);
 
   return (
     <div className="min-h-[calc(100vh-4rem)] px-3 sm:px-6 py-8 sm:py-12 xl:py-16 bg-gradient-to-b from-white via-rose-50/40 to-white">
@@ -423,14 +392,6 @@ export function DirectLinkView({ apiCall, notify }: { apiCall: ApiCall; notify: 
                   </div>
                 )}
 
-                <div className="mt-6 rounded-2xl border border-rose-100 bg-rose-50/60 p-4 xl:p-5 flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="text-sm font-black text-slate-900">Expiry set by admin</div>
-                    <div className="text-[12px] text-slate-500 mt-0.5">Each link stays valid for <b className="text-rose-600">{ttlLabel}</b>.</div>
-                  </div>
-                  <Clock className="w-5 h-5 text-rose-600 shrink-0" />
-                </div>
-
                 {/* Your link */}
                 <AnimatePresence mode="wait">
                   {activeLink ? (
@@ -443,7 +404,7 @@ export function DirectLinkView({ apiCall, notify }: { apiCall: ApiCall; notify: 
                         {activeLink.link_url}
                       </div>
                       <div className="mt-2 text-[11px] text-slate-500">
-                        Expires <b className="text-slate-700">{fmtIST(activeLink.expires_at)}</b> · <span className="text-rose-600 font-bold">{remaining(activeLink.expires_at)}</span> left
+                        Valid until <b className="text-slate-700">{fmtIST(activeLink.expires_at)}</b> · <span className="text-rose-600 font-bold">{remaining(activeLink.expires_at)}</span> left
                       </div>
                       <div className="mt-4 grid grid-cols-2 gap-2">
                         <button onClick={() => copy(activeLink.link_url)} className="h-11 rounded-xl bg-white border-2 border-slate-200 text-slate-800 text-sm font-bold hover:bg-slate-50 flex items-center justify-center gap-1.5">
@@ -457,16 +418,16 @@ export function DirectLinkView({ apiCall, notify }: { apiCall: ApiCall; notify: 
                   ) : (
                     <motion.div key="none" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.28 }}
                       className="mt-6 rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50/50 p-6 text-center">
-                      <div className="text-sm font-bold text-slate-700">No active link yet</div>
-                      <div className="text-[12px] text-slate-500 mt-1">Tap generate to mint a fresh secure Netflix sign-in link.</div>
+                      <div className="text-sm font-bold text-slate-700">No active link</div>
+                      <div className="text-[12px] text-slate-500 mt-1">If the previous link expired, generate a new one manually.</div>
                     </motion.div>
                   )}
                 </AnimatePresence>
 
-                <button onClick={generate} disabled={busy}
+                <button onClick={generate} disabled={busy || !chosen}
                   className="mt-6 w-full h-12 xl:h-14 rounded-xl xl:rounded-2xl bg-gradient-to-r from-rose-600 to-red-600 text-white font-black text-sm xl:text-base shadow-lg shadow-rose-600/25 hover:shadow-rose-600/40 hover:brightness-110 disabled:opacity-60 active:scale-[0.98] flex items-center justify-center gap-2 transition-all">
                   {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                  {busy ? "Generating link…" : activeLink ? "Generate a new link" : "Generate Direct Link"}
+                  {busy ? "Generating link…" : activeLink ? "Generate New Link" : "Generate Direct Link"}
                 </button>
                 <p className="mt-3 text-[11px] text-slate-400 text-center flex items-center justify-center gap-1">
                   <ShieldCheck className="w-3 h-3" /> Links auto-expire · single-use recommended
