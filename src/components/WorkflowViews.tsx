@@ -291,11 +291,19 @@ export function DirectLinkView({ apiCall, notify }: { apiCall: ApiCall; notify: 
   const loadLinks = useCallback(async () => {
     try {
       const res: any = await apiCall("manage-app", { action: "link_list" });
-      setLinks(Array.isArray(res?.links) ? res.links : []);
+      const list = Array.isArray(res?.links) ? res.links : [];
+      setLinks(list);
+      writeLinksCache(list);
     } catch {}
   }, []);
 
-  useEffect(() => { loadAccounts(); loadLinks(); }, [loadAccounts, loadLinks]);
+  useEffect(() => {
+    // Instant paint from prefetched cache, then refresh silently in the background.
+    const cachedLinks = readLinksCache();
+    if (cachedLinks) setLinks(cachedLinks);
+    loadAccounts();
+    loadLinks();
+  }, [loadAccounts, loadLinks]);
 
   const generate = useCallback(async () => {
     if (!chosen || busy) return;
