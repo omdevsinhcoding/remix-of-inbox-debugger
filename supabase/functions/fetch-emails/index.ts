@@ -3,6 +3,7 @@ import { ImapFlow } from "npm:imapflow@1.2.18";
 import { simpleParser } from "npm:mailparser@3.9.6";
 import { readRequest, maybeEncryptResponse, EncryptedRequestContext, PlaintextRejectedError, plaintextRejectedResponse, TransportError, transportErrorResponse } from "../_shared/crypto.ts";
 import { redactEmailsHtml, redactEmailsText } from "../_shared/redact.ts";
+import { getSetting, invalidateSetting } from "../_shared/settingsCache.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
