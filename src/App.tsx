@@ -18,7 +18,7 @@ import { openInboxDB, readLatestEmails, writeDelta, getSyncCursor, cacheEmailHtm
 import { readAdminCache, writeAdminCache, isCacheFresh, reconcileVersion, emitSyncStatus } from "./lib/adminSettingsCache";
 import { AdminSyncStatus } from "./components/AdminSyncStatus";
 import { useAdminSlice } from "./hooks/useAdminSlice";
-import { AdminSliceKeys, prefetch as prefetchAdminSlices, invalidate as invalidateAdminSlice, setSlice as setAdminSlice, clearAllSlices as clearAllAdminSlices } from "./lib/adminData";
+import { AdminSliceKeys, invalidate as invalidateAdminSlice, setSlice as setAdminSlice, clearAllSlices as clearAllAdminSlices } from "./lib/adminData";
 
 
 // Lazy-loaded heavy auth-only libs — kept out of the public first-load chunk.
@@ -5467,6 +5467,7 @@ function LoginEventsPanel() {
 function AllEmailsPanel() {
   const [emails, setEmails] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [accountLabel, setAccountLabel] = useState("");
@@ -5492,6 +5493,7 @@ function AllEmailsPanel() {
       });
       setEmails(res?.emails || []);
       setTotal(res?.total || 0);
+      setHasMore(res?.hasMore === true);
       setOffset(nextOffset);
       setSelected(new Set());
     } catch (e: any) {
@@ -5537,6 +5539,7 @@ function AllEmailsPanel() {
     setView("picker");
     setEmails([]);
     setTotal(0);
+    setHasMore(false);
     setSelected(new Set());
     setViewing(null);
   };
@@ -5725,10 +5728,10 @@ function AllEmailsPanel() {
             </table>
           </div>
           <div className="flex items-center justify-between mt-3 text-xs text-slate-600">
-            <span>Showing {offset + 1}–{Math.min(offset + emails.length, total)} of {total}</span>
+            <span>Showing {offset + 1}–{offset + emails.length}{hasMore ? "+" : ` of ${total}`}</span>
             <div className="flex gap-2">
               <button disabled={offset === 0} onClick={() => load(Math.max(0, offset - limit))} className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg font-semibold disabled:opacity-40">Prev</button>
-              <button disabled={offset + limit >= total} onClick={() => load(offset + limit)} className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg font-semibold disabled:opacity-40">Next</button>
+              <button disabled={!hasMore} onClick={() => load(offset + limit)} className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg font-semibold disabled:opacity-40">Next</button>
             </div>
           </div>
         </>
@@ -5955,7 +5958,7 @@ function RecipientsDrawer({ notification, onClose, onChanged }: { notification: 
 // ============ Cookies Tab ============
 // Two-step admin flow: 1) pick an IMAP account, 2) upload cookies file
 // (JSON array/object or Netscape cookies.txt). Parsed client-side; persisted
-// per-account in localStorage so admin can revisit without re-uploading.
+// server-side per account so no browser localStorage is needed.
 type CookieRecord = { name: string; value: string; domain?: string; path?: string; expires?: number | null; secure?: boolean; httpOnly?: boolean; sameSite?: string };
 
 function parseNetscapeCookies(text: string): CookieRecord[] {
@@ -6814,8 +6817,9 @@ function AdminPanel() {
     return (res?.value || {}) as any;
   }, []);
   const { data: vpsData, refreshing: vpsRefreshing } = useAdminSlice<any>(
-    activeTab === "tv" ? AdminSliceKeys.vps : "__vps_idle__",
+    AdminSliceKeys.vps,
     vpsFetcher,
+    { enabled: activeTab === "tv" },
   );
   React.useEffect(() => { setVpsLoading(vpsRefreshing); }, [vpsRefreshing]);
   React.useEffect(() => {
@@ -7002,7 +7006,7 @@ function AdminPanel() {
   const [stats, setStats] = useState<{ totalUsers: number; totalEmails: number }>(() => {
     // Hydrate instantly from cache so the dashboard never flashes 0.
     try {
-      const cached = localStorage.getItem(STATS_CACHE_KEY);
+      const cached = sessionStorage.getItem(STATS_CACHE_KEY);
       if (cached) {
         const parsed = JSON.parse(cached);
         if (parsed && typeof parsed.totalUsers === "number" && typeof parsed.totalEmails === "number") return parsed;
@@ -7016,64 +7020,12 @@ function AdminPanel() {
     return { totalUsers: 0, totalEmails: 0 };
   });
   useEffect(() => {
-    try { localStorage.setItem(STATS_CACHE_KEY, JSON.stringify(stats)); } catch {}
+    try { sessionStorage.setItem(STATS_CACHE_KEY, JSON.stringify(stats)); } catch {}
   }, [stats]);
 
   useEffect(() => {
     try { sessionStorage.setItem(ADMIN_ACTIVE_TAB_KEY, activeTab); } catch {}
   }, [activeTab]);
-
-  // Parallel warm-up: fire every tab's fetcher on mount so switching tabs is
-  // instant. Each entry is deduped by adminData store, so it's safe to also
-  // register the same fetcher inside the tab component.
-  useEffect(() => {
-    prefetchAdminSlices([
-      {
-        key: AdminSliceKeys.loginEvents + ":__all__",
-        fetcher: async () => {
-          const r: any = await apiCall("manage-app", { action: "list_login_events", limit: 300 });
-          return (r?.events || []) as any[];
-        },
-      },
-      {
-        key: AdminSliceKeys.cookies,
-        fetcher: async () => {
-          const r: any = await apiCall("manage-app", { action: "admin_cookies_list" });
-          return (Array.isArray(r?.items) ? r.items : []) as any[];
-        },
-      },
-      {
-        key: AdminSliceKeys.emailAccounts,
-        fetcher: async () => {
-          const [accData, cfgData]: any = await Promise.all([
-            apiCall("manage-app", { action: "get_settings", key: "email_accounts" }),
-            apiCall("manage-app", { action: "get_settings", key: "config" }),
-          ]);
-          const labels = Array.isArray(accData?.value)
-            ? accData.value.map((a: any) => ({ label: String(a.label || a.user || "").trim(), user: String(a.user || "").trim() })).filter((a: any) => a.label)
-            : [];
-          const primary = typeof cfgData?.value?.IMAP_USER === "string" ? cfgData.value.IMAP_USER.trim() : "";
-          return { labels, primary };
-        },
-      },
-      {
-        key: AdminSliceKeys.vps,
-        fetcher: async () => {
-          const r: any = await apiCall("manage-app", { action: "admin_get_vps_config" });
-          return (r?.value || {}) as any;
-        },
-      },
-      {
-        key: AdminSliceKeys.notifications,
-        fetcher: async () => {
-          const r: any = await apiCall("manage-app", { action: "admin_list_notifications" });
-          return Array.isArray(r?.notifications) ? r.notifications : [];
-        },
-      },
-    ]);
-  }, []);
-
-
 
   const availableAccounts = useMemo<string[]>(() => {
     const labels = ["Primary"];
@@ -7125,6 +7077,12 @@ function AdminPanel() {
         setStats(prev => ({ ...prev, totalEmails: res.emailsTotal }));
       }
       if (Array.isArray(res?.notifications)) setAdminNotifs(res.notifications);
+      if (!silent) {
+        if (Array.isArray(res?.notifications)) setAdminSlice(AdminSliceKeys.notifications, res.notifications);
+        if (Array.isArray(res?.cookies)) setAdminSlice(AdminSliceKeys.cookies, res.cookies);
+        if (Array.isArray(res?.loginEvents)) setAdminSlice(`${AdminSliceKeys.loginEvents}:__all__`, res.loginEvents);
+        if (res?.vpsAccess) setAdminSlice(AdminSliceKeys.vps, res.vpsAccess);
+      }
 
       if (!silent && res?.settings) {
         const s = res.settings;
@@ -7172,6 +7130,11 @@ function AdminPanel() {
             return { ...rest, cloudflareUrls: urls, recipientFilters: Array.isArray(acc.recipientFilters) ? acc.recipientFilters : [] };
           });
           setEmailAccounts(migrated);
+          const labels = migrated
+            .map((a: any) => ({ label: String(a.label || a.user || "").trim(), user: String(a.user || "").trim() }))
+            .filter((a: any) => a.label);
+          const primary = typeof s.config?.IMAP_USER === "string" ? s.config.IMAP_USER.trim() : "";
+          setAdminSlice(AdminSliceKeys.emailAccounts, { labels, primary });
         }
         const m1 = Number(s.session_config?.timeoutMinutes);
         if (Number.isFinite(m1) && m1 >= 0) setSessionTimeoutMin(String(m1));
@@ -7844,7 +7807,7 @@ function AdminPanel() {
     const nl: any = await apiCall("manage-app", { action: "admin_list_notifications" });
     return Array.isArray(nl?.notifications) ? nl.notifications : [];
   }, []);
-  const { data: cachedNotifs } = useAdminSlice<any[]>(AdminSliceKeys.notifications, notifFetcher);
+  const { data: cachedNotifs } = useAdminSlice<any[]>(AdminSliceKeys.notifications, notifFetcher, { enabled: activeTab === "notifications" && adminNotifs.length === 0 });
   React.useEffect(() => {
     if (Array.isArray(cachedNotifs) && cachedNotifs.length) setAdminNotifs(cachedNotifs);
   }, [cachedNotifs]);

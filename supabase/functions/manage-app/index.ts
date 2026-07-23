@@ -2,7 +2,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { authenticator } from "npm:otplib@12.0.1";
 import { readRequest, maybeEncryptResponse, EncryptedRequestContext, PlaintextRejectedError, plaintextRejectedResponse, TransportError, transportErrorResponse } from "../_shared/crypto.ts";
 import { getSetting, invalidateSetting, invalidateAllSettings } from "../_shared/settingsCache.ts";
-// build-marker: disk-io-tier1 v19 (2026-07-23) — app_settings cache + last_seen throttle + estimated counts
+// build-marker: admin-io-collapse v20 (2026-07-23) — composite admin bootstrap + no read-side worker pushes/count scans
 
 // Wrap `app_settings` writes so the shared TTL cache is invalidated the moment
 // an admin changes a value. Prevents 30-second staleness on toggles.
@@ -3072,10 +3072,6 @@ Deno.serve(async (originalReq) => {
         value = safeValue;
       }
 
-      if (["primary_cloudflare_urls", "email_accounts"].includes(key)) {
-        await pushInboxConfigToWorkers(supabase, SIGNING_SECRET, ENCRYPTION_SECRET).catch((e) => console.warn("[worker-config] push skipped:", e?.message || e));
-      }
-
       return new Response(JSON.stringify({ success: true, value }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -4265,35 +4261,13 @@ Deno.serve(async (originalReq) => {
         .order("created_at", { ascending: false })
         .limit(200);
       if (error) throw error;
-      const ids = (notes || []).map((n: any) => n.id);
-      const readCounts = new Map<string, number>();
-      const seenCounts = new Map<string, number>();
-      const clickCounts = new Map<string, number>();
-      const deletedCounts = new Map<string, number>();
-      if (ids.length) {
-        const { data: reads } = await supabase
-          .from("notification_reads")
-          .select("notification_id, read_at, seen_at, deleted_at")
-          .in("notification_id", ids);
-        for (const r of reads || []) {
-          if (r.seen_at) seenCounts.set(r.notification_id, (seenCounts.get(r.notification_id) || 0) + 1);
-          if (r.read_at) readCounts.set(r.notification_id, (readCounts.get(r.notification_id) || 0) + 1);
-          if (r.deleted_at) deletedCounts.set(r.notification_id, (deletedCounts.get(r.notification_id) || 0) + 1);
-        }
-        const { data: evs } = await supabase
-          .from("notification_events")
-          .select("notification_id, event")
-          .in("notification_id", ids)
-          .eq("event", "clicked");
-        for (const e of evs || []) clickCounts.set(e.notification_id, (clickCounts.get(e.notification_id) || 0) + 1);
-      }
       const { count: totalUsers } = await supabase.from("app_users").select("id", { count: "planned", head: true }).neq("role", "admin");
       const payload = (notes || []).map((n: any) => ({
         ...n,
-        readCount: readCounts.get(n.id) || 0,
-        seenCount: seenCounts.get(n.id) || 0,
-        clickCount: clickCounts.get(n.id) || 0,
-        deletedCount: deletedCounts.get(n.id) || 0,
+        readCount: 0,
+        seenCount: 0,
+        clickCount: 0,
+        deletedCount: 0,
         totalRecipients: n.audience === "all" ? (totalUsers || 0) : 1,
       }));
       return new Response(JSON.stringify({ success: true, notifications: payload }), {
@@ -4429,7 +4403,10 @@ Deno.serve(async (originalReq) => {
     if (action === "list_login_events") {
       await requireAdmin(req);
       const { limit, user_id, risk, since, search } = params || {};
-      let q = supabase.from("login_events").select("*").order("created_at", { ascending: false });
+      let q = supabase
+        .from("login_events")
+        .select("id, created_at, username, role, event, risk_score, ip, ip_source, isp, asn, city, region, country, country_code, device_brand, device_model, device_type, os_name, os_version, browser_name, browser_version, gps_lat, gps_lon, gps_accuracy, is_vpn, is_proxy, is_tor, is_hosting, is_new_device, impossible_travel, fingerprint_hash")
+        .order("created_at", { ascending: false });
       if (user_id) q = q.eq("user_id", user_id);
       if (risk) q = q.eq("risk_score", risk);
       if (since) q = q.gte("created_at", since);
@@ -4437,7 +4414,7 @@ Deno.serve(async (originalReq) => {
         const s = search.trim();
         q = q.or(`username.ilike.%${s}%,ip.ilike.%${s}%,city.ilike.%${s}%,country.ilike.%${s}%,isp.ilike.%${s}%`);
       }
-      q = q.limit(Math.min(Number(limit) || 200, 1000));
+      q = q.limit(Math.min(Number(limit) || 150, 300));
       const { data, error } = await q;
       if (error) throw error;
       return new Response(JSON.stringify({ success: true, events: data || [] }), {
@@ -4458,21 +4435,21 @@ Deno.serve(async (originalReq) => {
       };
       const lim = Math.min(Number(limit) || 100, 500);
       const off = Math.max(Number(offset) || 0, 0);
-      // Rows page
+      // Rows page only. Fetch one extra row to answer "has next page" without
+      // a count query; exact counts were one of the biggest cached_emails IO drains.
       let dataQ = supabase
         .from("cached_emails")
         .select("id, subject, from_address, to_address, date, otp, preview, account_label, cached_at")
         .eq("destroyed", false)
         .order("date", { ascending: false });
-      dataQ = buildFilters(dataQ).range(off, off + lim - 1);
-      // Separate exact head count — reliable even when combined with or()/range().
-      let countQ = supabase.from("cached_emails").select("id", { count: "exact", head: true }).eq("destroyed", false);
-      countQ = buildFilters(countQ);
-      const [{ data, error }, { count, error: countErr }] = await Promise.all([dataQ, countQ]);
+      dataQ = buildFilters(dataQ).range(off, off + lim);
+      const { data, error } = await dataQ;
       if (error) throw error;
-      if (countErr) throw countErr;
-      auditLog(supabase, "admin_list_emails", session.userId, null, { count: data?.length || 0, total: count || 0, search: search || null, accountLabel: accountLabel || null }, ip).catch(() => {});
-      return new Response(JSON.stringify({ success: true, emails: data || [], total: count || 0 }), {
+      const rows = Array.isArray(data) ? data : [];
+      const hasMore = rows.length > lim;
+      const page = hasMore ? rows.slice(0, lim) : rows;
+      const approximateTotal = off + page.length + (hasMore ? 1 : 0);
+      return new Response(JSON.stringify({ success: true, emails: page, total: approximateTotal, hasMore }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -4582,17 +4559,25 @@ Deno.serve(async (originalReq) => {
       const totalUsersP = supabase.from("app_users").select("id", { count: "planned", head: true }).neq("role", "admin");
 
       const settingsKeys = includeSettings
-        ? ["recaptcha", "config", "primary_cloudflare_urls", "email_filters", "email_accounts", "session_config", "admin_session_config", "session_limits", "ipwho_alert", "maintenance", "r2_storage", "email_visibility", "email_auto_delete", "cron_config", "netflix_promo", "location_policy", "free_session_minutes", "free_avatar_cooldown", "tv_feature"]
-        : [];
+        ? ["recaptcha", "config", "primary_cloudflare_urls", "email_filters", "email_accounts", "session_config", "admin_session_config", "session_limits", "ipwho_alert", "maintenance", "r2_storage", "vps_config", "email_visibility", "email_auto_delete", "cron_config", "netflix_promo", "location_policy", "free_session_minutes", "free_avatar_cooldown", "tv_feature"]
+        : ["email_accounts", "location_policy"];
 
-      const settingsP = settingsKeys.length
-        ? supabase.from("app_settings").select("key,value").in("key", settingsKeys)
+      const settingsP = supabase.from("app_settings").select("key,value").in("key", settingsKeys);
+      const cookiesP = includeSettings
+        ? supabase.from("imap_cookies").select("id, imap_user, label, filename, format, count, updated_at").order("updated_at", { ascending: false })
+        : Promise.resolve({ data: [] as any[] });
+      const loginEventsP = includeSettings
+        ? supabase.from("login_events")
+            .select("id, created_at, username, role, event, risk_score, ip, ip_source, isp, asn, city, region, country, country_code, device_brand, device_model, device_type, os_name, os_version, browser_name, browser_version, gps_lat, gps_lon, gps_accuracy, is_vpn, is_proxy, is_tor, is_hosting, is_new_device, impossible_travel, fingerprint_hash")
+            .order("created_at", { ascending: false })
+            .limit(150)
         : Promise.resolve({ data: [] as any[] });
 
-      const [usersRes, emailsCountRes, notesRes, totalUsersRes, settingsRes] = await Promise.all([usersP, emailsCountP, notesP, totalUsersP, settingsP]);
-      const availableAccountLabelsForList = await loadAvailableAccountLabels(supabase);
+      const [usersRes, emailsCountRes, notesRes, totalUsersRes, settingsRes, cookiesRes, loginEventsRes] = await Promise.all([usersP, emailsCountP, notesP, totalUsersP, settingsP, cookiesP, loginEventsP]);
       const settingsMapForUsers = new Map((settingsRes.data || []).map((row: any) => [row.key, row.value]));
       const globalLocationRequired = isGlobalLocationRequired(settingsMapForUsers.get("location_policy"));
+      const emailAccountsForLabels = Array.isArray(settingsMapForUsers.get("email_accounts")) ? settingsMapForUsers.get("email_accounts") : [];
+      const availableAccountLabelsForList = ["Primary", ...emailAccountsForLabels.map((acc: any) => String(acc?.label || acc?.user || "").trim()).filter(Boolean)];
 
       // Users mapping
       const users = (usersRes.data || []).map((u: any) => ({
@@ -4609,37 +4594,20 @@ Deno.serve(async (originalReq) => {
         features: pickFeatures(u),
       }));
 
-      // Notification stats — 2 more queries but only if there are notes
-      const noteIds = (notesRes.data || []).map((n: any) => n.id);
-      const readCounts = new Map<string, number>();
-      const seenCounts = new Map<string, number>();
-      const clickCounts = new Map<string, number>();
-      const deletedCounts = new Map<string, number>();
-      if (noteIds.length) {
-        const [readsRes, evsRes] = await Promise.all([
-          supabase.from("notification_reads").select("notification_id, read_at, seen_at, deleted_at").in("notification_id", noteIds),
-          supabase.from("notification_events").select("notification_id, event").in("notification_id", noteIds).eq("event", "clicked"),
-        ]);
-        for (const r of readsRes.data || []) {
-          if (r.seen_at) seenCounts.set(r.notification_id, (seenCounts.get(r.notification_id) || 0) + 1);
-          if (r.read_at) readCounts.set(r.notification_id, (readCounts.get(r.notification_id) || 0) + 1);
-          if (r.deleted_at) deletedCounts.set(r.notification_id, (deletedCounts.get(r.notification_id) || 0) + 1);
-        }
-        for (const e of evsRes.data || []) clickCounts.set(e.notification_id, (clickCounts.get(e.notification_id) || 0) + 1);
-      }
       const totalUsers = totalUsersRes.count || 0;
       const notifications = (notesRes.data || []).map((n: any) => ({
         ...n,
-        readCount: readCounts.get(n.id) || 0,
-        seenCount: seenCounts.get(n.id) || 0,
-        clickCount: clickCounts.get(n.id) || 0,
-        deletedCount: deletedCounts.get(n.id) || 0,
+        readCount: 0,
+        seenCount: 0,
+        clickCount: 0,
+        deletedCount: 0,
         totalRecipients: n.audience === "all" ? totalUsers : 1,
       }));
 
       // Settings map + R2 normalization
       const settings: Record<string, any> = {};
       let r2: any = null;
+      let vpsAccess: any = null;
       for (const row of (settingsRes as any).data || []) {
         if (row.key === "r2_storage") {
           const normalized = normalizeR2Config(row.value || {});
@@ -4654,10 +4622,12 @@ Deno.serve(async (originalReq) => {
             enabled: normalized.config.enabled,
             secretAccessKeySet: hasSecret,
           };
+        } else if (row.key === "vps_config") {
+          vpsAccess = publicVpsConfig(row.value || {});
         } else {
           const safeValue = await ensureSettingsSecretsEncrypted(supabase, row.key, row.value, ENCRYPTION_SECRET);
-          if (row.key === "config") settings[row.key] = await maskConfigForAdmin(safeValue);
-          else if (row.key === "email_accounts") settings[row.key] = await maskEmailAccountsForAdmin(safeValue);
+          if (row.key === "config") settings[row.key] = await maskConfigForAdmin(safeValue, ENCRYPTION_SECRET);
+          else if (row.key === "email_accounts") settings[row.key] = await maskEmailAccountsForAdmin(safeValue, ENCRYPTION_SECRET);
           else settings[row.key] = safeValue;
         }
       }
@@ -4667,9 +4637,12 @@ Deno.serve(async (originalReq) => {
         users,
         emailsTotal: emailsCountRes.count || 0,
         notifications,
+        cookies: includeSettings ? ((cookiesRes.data || []).map((row: any) => ({ ...row, count: Math.max(Number(row.count) || 0, 0) }))) : undefined,
+        loginEvents: includeSettings ? (loginEventsRes.data || []) : undefined,
         settings: includeSettings ? settings : undefined,
         r2: includeSettings ? r2 : undefined,
-      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        vpsAccess: includeSettings ? vpsAccess : undefined,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "private, max-age=15, stale-while-revalidate=60" } });
     }
 
     // ---------- R2 storage: admin-only ----------
