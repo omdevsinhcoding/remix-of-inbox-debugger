@@ -5219,44 +5219,30 @@ Deno.serve(async (originalReq) => {
       const cookieContent = cookieMap.get(match.login_email) || "";
       if (!cookieContent) throw new Error("Cookies missing for the selected account.");
 
-      // Extract NetflixId cookie
-      let netflixId = "";
-      try {
-        const trimmed = cookieContent.trim();
-        if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
-          const arr = JSON.parse(trimmed);
-          const list = Array.isArray(arr) ? arr : (arr.cookies || []);
-          const n = list.find((c: any) => c && c.name === "NetflixId");
-          netflixId = n ? String(n.value || "") : "";
-        } else if (/\t/.test(trimmed)) {
-          for (const line of trimmed.split(/\r?\n/)) {
-            if (!line || line.startsWith("#")) continue;
-            const parts = line.split("\t");
-            if (parts.length >= 7 && parts[5] === "NetflixId") { netflixId = parts[6]; break; }
-          }
-        } else {
-          const m = /(?:^|;\s*)NetflixId=([^;]+)/.exec(trimmed);
-          netflixId = m ? m[1] : "";
-        }
-      } catch { netflixId = ""; }
+      // Extract NetflixId from the same saved cookie formats accepted by the uploaded Python generator.
+      const netflixId = extractNetflixIdFromStoredCookies(cookieContent);
       if (!netflixId) throw new Error("Stored cookies don't include a NetflixId session.");
 
-      // Mint nftoken via Netflix iOS Argo API (direct fetch from edge; VPS not required)
+      // Mint nftoken via the same Netflix iOS Argo API request as the uploaded Python script.
       let nftoken = "";
+      let netflixExpires: number | null = null;
       try {
-        const url = "https://ios.prod.ftl.netflix.com/iosui/user/15.48?path=%5B%22account%22%2C%22token%22%2C%22default%22%5D&method=call&responseFormat=hierarchical";
+        const url = new URL("https://ios.prod.ftl.netflix.com/iosui/user/15.48");
+        for (const [key, value] of Object.entries(NETFLIX_DIRECT_LINK_QUERY)) url.searchParams.set(key, value);
         const nfRes = await fetch(url, {
           method: "GET",
           headers: {
-            "User-Agent": "Argo/15.48.1 (iPhone; iOS 15.8.5; Scale/2.00)",
-            "Accept": "application/json",
-            "Accept-Language": "en-US,en;q=0.9",
+            ...NETFLIX_DIRECT_LINK_HEADERS,
             "Cookie": `NetflixId=${netflixId}`,
           },
-          signal: AbortSignal.timeout(6000),
+          signal: AbortSignal.timeout(12_000),
         });
+        if (!nfRes.ok) throw new Error(`Netflix token endpoint returned ${nfRes.status}`);
         const body = await nfRes.json().catch(() => ({}));
-        nftoken = String(body?.account?.token?.default?.token || body?.value?.account?.token?.default?.token || "");
+        const tokenData = body?.value?.account?.token?.default || body?.account?.token?.default || {};
+        nftoken = String(tokenData?.token || "");
+        const rawExpires = Number(tokenData?.expires);
+        if (Number.isFinite(rawExpires) && rawExpires > 0) netflixExpires = rawExpires > 10_000_000_000 ? Math.floor(rawExpires / 1000) : Math.floor(rawExpires);
       } catch (e) {
         console.error("nftoken mint failed", e);
       }
@@ -5274,15 +5260,20 @@ Deno.serve(async (originalReq) => {
       if ((activeCount || 0) >= defaults.max_active_per_user) {
         throw new Error(`You already have ${activeCount} active Direct Link${activeCount === 1 ? "" : "s"}. Wait for expiry or revoke an old link.`);
       }
-      const expiresAt = new Date(Date.now() + ttlMinutes * 60_000).toISOString();
+      const adminExpiresAtMs = Date.now() + ttlMinutes * 60_000;
+      const netflixExpiresAtMs = netflixExpires ? netflixExpires * 1000 : adminExpiresAtMs;
+      const expiresAt = new Date(Math.min(adminExpiresAtMs, netflixExpiresAtMs)).toISOString();
       const linkUrl = `https://www.netflix.com/?nftoken=${encodeURIComponent(nftoken)}`;
       const { data: inserted, error: insErr } = await supabase.from("nftoken_links").insert({
         user_id: user.id,
         account_key: match.account_key,
         login_email: match.login_email,
+        link: linkUrl,
         link_url: linkUrl,
         expires_at: expiresAt,
         status: "active",
+        source_ip: ip,
+        meta: { ttl_minutes: ttlMinutes, netflix_expires: netflixExpires, generator: "ios_argo_python_compat_v14" },
       }).select("id, created_at, expires_at").maybeSingle();
       if (insErr) throw insErr;
 
