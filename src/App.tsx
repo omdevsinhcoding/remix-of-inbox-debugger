@@ -6856,6 +6856,7 @@ function AdminPanel() {
     if (!vpsData) return;
     setVpsCfg((prev) => ({
       ip: typeof vpsData.ip === "string" && vpsData.ip ? vpsData.ip : prev.ip,
+      runnerUrl: typeof vpsData.runnerUrl === "string" ? vpsData.runnerUrl : prev.runnerUrl,
       keyFilename: typeof vpsData.keyFilename === "string" && vpsData.keyFilename ? vpsData.keyFilename : prev.keyFilename,
       keyUploadedAt: typeof vpsData.keyUploadedAt === "string" ? vpsData.keyUploadedAt : "",
       keySize: Number(vpsData.keySize) || 0,
@@ -6868,13 +6869,30 @@ function AdminPanel() {
     if (vpsSaving) return;
     setVpsSaving(true);
     try {
-      const res: any = await apiCall("manage-app", { action: "admin_save_vps_access", ip: vpsCfg.ip.trim() });
+      const res: any = await apiCall("manage-app", { action: "admin_save_vps_access", ip: vpsCfg.ip.trim(), runnerUrl: vpsCfg.runnerUrl.trim() });
       if (res?.value) setVpsCfg((p) => ({ ...p, ...res.value }));
-      notify.success("VPS IP saved");
+      notify.success("VPS settings saved");
     } catch (e: any) {
       notify.error("Failed to save VPS", { description: e?.message || String(e) });
     } finally {
       setVpsSaving(false);
+    }
+  };
+
+  const testVpsRunner = async () => {
+    if (vpsTesting) return;
+    setVpsTesting(true);
+    try {
+      const res: any = await apiCall("manage-app", { action: "admin_test_vps_runner" });
+      const h = { ok: !!res?.ok, status: Number(res?.status) || 0, latencyMs: Number(res?.latencyMs) || 0, message: res?.message || "", at: Date.now() };
+      setVpsHealth(h);
+      if (h.ok) notify.success(`Runner online · ${h.latencyMs}ms`);
+      else notify.error(`Runner offline${h.status ? ` (${h.status})` : ""}`, { description: h.message || "No response from /health" });
+    } catch (e: any) {
+      setVpsHealth({ ok: false, status: 0, latencyMs: 0, message: e?.message || String(e), at: Date.now() });
+      notify.error("Test failed", { description: e?.message || String(e) });
+    } finally {
+      setVpsTesting(false);
     }
   };
 
