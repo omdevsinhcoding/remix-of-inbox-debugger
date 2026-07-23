@@ -685,7 +685,7 @@ export function WorkflowSwitcher({ features, view, onChange, compact = false }: 
               exit={{ opacity: 0, y: 12, scale: 0.97 }}
               transition={{ type: "spring", stiffness: 260, damping: 24 }}
               onClick={(e) => e.stopPropagation()}
-              className="relative w-full max-w-2xl rounded-3xl border border-white/60 bg-white/85 backdrop-blur-2xl shadow-[0_30px_90px_-20px_rgba(15,23,42,0.35)] overflow-hidden"
+              className={`relative w-full rounded-3xl border border-white/60 bg-white/85 backdrop-blur-2xl shadow-[0_30px_90px_-20px_rgba(15,23,42,0.35)] overflow-hidden ${enabled.length >= 3 ? "max-w-3xl" : enabled.length === 2 ? "max-w-xl" : "max-w-sm"}`}
             >
               {/* soft gradient orbs */}
               <div aria-hidden className="pointer-events-none absolute -top-24 -right-24 w-72 h-72 rounded-full bg-rose-200/50 blur-3xl" />
@@ -712,7 +712,7 @@ export function WorkflowSwitcher({ features, view, onChange, compact = false }: 
 
                 <motion.div
                   layout
-                  className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
+                  className={`mt-6 grid gap-3 ${enabled.length >= 3 ? "sm:grid-cols-2 lg:grid-cols-3" : enabled.length === 2 ? "sm:grid-cols-2" : "grid-cols-1"}`}
                 >
                   {enabled.map((k, idx) => {
                     const meta = WORKFLOW_META[k];
