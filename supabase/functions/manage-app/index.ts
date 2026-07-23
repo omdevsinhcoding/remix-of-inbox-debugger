@@ -3117,11 +3117,14 @@ Deno.serve(async (originalReq) => {
       }
       const { data } = await supabase.from("app_settings").select("value").eq("key", "vps_config").maybeSingle();
       const prev = publicVpsConfig(data?.value);
-      const value = { ...prev, ip: nextIp, runnerUrl: nextRunnerUrl };
+      const rawMode = String(params?.mode || "").trim().toLowerCase();
+      const nextMode: "auto" | "vps" | "github" =
+        rawMode === "vps" || rawMode === "github" ? rawMode : (prev as any).mode || "auto";
+      const value = { ...prev, ip: nextIp, runnerUrl: nextRunnerUrl, mode: nextMode };
       const { error } = await supabase.from("app_settings").upsert({ key: "vps_config", value }, { onConflict: "key" });
       invalidateAllSettings();
       if (error) throw error;
-      await auditLog(supabase, "vps_access_updated", session.userId, null, { ip: nextIp, runnerUrl: nextRunnerUrl || null }, ip);
+      await auditLog(supabase, "vps_access_updated", session.userId, null, { ip: nextIp, runnerUrl: nextRunnerUrl || null, mode: nextMode }, ip);
       return new Response(JSON.stringify({ success: true, value: publicVpsConfig(value) }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
