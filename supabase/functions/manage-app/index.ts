@@ -85,14 +85,23 @@ function pickFeatures(u: any): UserFeatures {
 }
 function publicVpsConfig(value: any) {
   const v = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const ip = typeof v.ip === "string" && v.ip.trim() ? v.ip.trim() : "140.238.226.213";
+  const runnerUrl = typeof v.runnerUrl === "string" && v.runnerUrl.trim() ? v.runnerUrl.trim().replace(/\/+$/g, "") : "";
   return {
-    ip: typeof v.ip === "string" && v.ip.trim() ? v.ip.trim() : "140.238.226.213",
+    ip,
+    runnerUrl,
     keyFilename: typeof v.keyFilename === "string" && v.keyFilename.trim() ? v.keyFilename.trim() : "vps-private-key.pem",
     keyObjectKey: typeof v.keyObjectKey === "string" ? v.keyObjectKey : "",
     keyUploadedAt: typeof v.keyUploadedAt === "string" ? v.keyUploadedAt : "",
     keySize: Number.isFinite(Number(v.keySize)) ? Number(v.keySize) : 0,
     hasKey: typeof v.keyObjectKey === "string" && v.keyObjectKey.length > 0,
   };
+}
+function effectiveTvRunnerUrl(vpsCfgValue: any): string {
+  const cfg = publicVpsConfig(vpsCfgValue);
+  if (cfg.runnerUrl) return cfg.runnerUrl;
+  const env = (Deno.env.get("TV_FAST_RUNNER_URL") || "").trim().replace(/\/+$/g, "");
+  return env;
 }
 function isProfileLocationRequired(user: any, globalRequired = true) {
   if (!globalRequired || !user) return false;
