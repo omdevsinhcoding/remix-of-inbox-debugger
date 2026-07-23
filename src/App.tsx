@@ -6789,9 +6789,6 @@ function AdminPanel() {
   const [tvFeatureEnabled, setTvFeatureEnabled] = useState(true);
   const [tvSearch, setTvSearch] = useState("");
   const [savingTvFeature, setSavingTvFeature] = useState(false);
-  const [linkExpiryMinutes, setLinkExpiryMinutes] = useState("60");
-  const [linkMaxActive, setLinkMaxActive] = useState("3");
-  const [savingLinkDefaults, setSavingLinkDefaults] = useState(false);
   const [savingLocationPolicy, setSavingLocationPolicy] = useState(false);
 
   // VPS Vault (admin-only metadata in app_settings; private key file lives in R2)
@@ -7127,12 +7124,6 @@ function AdminPanel() {
         setIpwhoAlertEnabled(s.ipwho_alert?.enabled === true);
         setLocationPolicyRequired(s.location_policy?.required !== false);
         setTvFeatureEnabled(s.tv_feature?.enabled !== false);
-        if (s.link_defaults) {
-          const ttl = Number(s.link_defaults.ttl_minutes);
-          const max = Number(s.link_defaults.max_active_per_user);
-          if (Number.isFinite(ttl) && ttl > 0) setLinkExpiryMinutes(String(Math.floor(ttl)));
-          if (Number.isFinite(max) && max > 0) setLinkMaxActive(String(Math.floor(max)));
-        }
         const fac = Number(s.free_avatar_cooldown?.minutes);
         if (Number.isFinite(fac) && fac > 0) setFreeAvatarCooldownMinState(String(Math.floor(fac)));
 
@@ -7247,12 +7238,6 @@ function AdminPanel() {
       setIpwhoAlertEnabled(s.ipwho_alert?.enabled === true);
       setLocationPolicyRequired(s.location_policy?.required !== false);
       setTvFeatureEnabled(s.tv_feature?.enabled !== false);
-      if (s.link_defaults) {
-        const ttl = Number(s.link_defaults.ttl_minutes);
-        const max = Number(s.link_defaults.max_active_per_user);
-        if (Number.isFinite(ttl) && ttl > 0) setLinkExpiryMinutes(String(Math.floor(ttl)));
-        if (Number.isFinite(max) && max > 0) setLinkMaxActive(String(Math.floor(max)));
-      }
       const fac = Number(s.free_avatar_cooldown?.minutes);
       if (Number.isFinite(fac) && fac > 0) setFreeAvatarCooldownMinState(String(Math.floor(fac)));
       if (s.maintenance) {
@@ -7356,26 +7341,6 @@ function AdminPanel() {
       notify.error(err instanceof Error ? err.message : "Failed to save session limit");
     } finally {
       setSavingConcurrentSessionLimit(false);
-    }
-  };
-
-  const saveLinkDefaults = async () => {
-    const ttl = Math.max(1, Math.min(43200, Math.floor(Number(linkExpiryMinutes) || 60)));
-    const max = Math.max(1, Math.min(20, Math.floor(Number(linkMaxActive) || 3)));
-    setSavingLinkDefaults(true);
-    try {
-      await apiCall("manage-app", {
-        action: "set_settings",
-        key: "link_defaults",
-        value: { ttl_minutes: ttl, max_active_per_user: max },
-      });
-      setLinkExpiryMinutes(String(ttl));
-      setLinkMaxActive(String(max));
-      notify.success(`Direct Link expiry set to ${ttl < 60 ? `${ttl} min` : ttl < 1440 ? `${Math.round(ttl / 60)} hr` : `${Math.round(ttl / 1440)} day`}`);
-    } catch (err) {
-      notify.error(err instanceof Error ? err.message : "Failed to save Direct Link settings");
-    } finally {
-      setSavingLinkDefaults(false);
     }
   };
 
@@ -8924,7 +8889,7 @@ function AdminPanel() {
                                   </div>
                                   {editDirectLinkEnabled && (
                                     <div className="mt-3 rounded-xl bg-white/75 border border-emerald-100 px-3 py-2 text-[11px] text-emerald-800 leading-snug">
-                                      Expiry is controlled by Admin Direct Link settings: <b>{linkExpiryMinutes || 60} min</b>, max <b>{linkMaxActive || 3}</b> active link(s).
+                                      User can generate Direct Links from their dedicated workflow page.
                                     </div>
                                   )}
                                 </div>
@@ -9848,7 +9813,7 @@ function AdminPanel() {
                       </div>
                       <h3 className="mt-3 text-xl sm:text-2xl font-black text-slate-950 tracking-tight">Where user generates the link</h3>
                       <p className="mt-1.5 text-sm text-slate-600 leading-relaxed max-w-2xl">
-                        User opens the workflow switcher in the black header → chooses <b>Direct Link</b> → selects Netflix account if needed → taps <b>Generate Direct Link</b>. Then the page shows the link with Copy, Open, expiry timer, revoke, and recent history.
+                        User opens the workflow switcher in the header → chooses <b>Direct Link</b> → selects Netflix account if needed → taps <b>Generate Direct Link</b>. Then the page shows the link with Copy, Open, validity, and recent history.
                       </p>
                       <div className="mt-4 flex flex-wrap gap-2">
                         <span className="px-2.5 py-1 rounded-full bg-white border border-slate-200 text-[11px] font-bold text-slate-700">1. Enable profile</span>
@@ -9875,59 +9840,6 @@ function AdminPanel() {
                 </section>
               );
             })()}
-
-            <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 sm:p-6">
-              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-5">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <Clock className="w-4 h-4 text-emerald-600" />
-                    <h3 className="text-sm font-black text-slate-900 uppercase tracking-wider">Default link expiry</h3>
-                  </div>
-                  <p className="text-[13px] text-slate-600 leading-relaxed">Admin controls expiry here. Users only see Generate, Copy, Open, and expiry status.</p>
-                </div>
-                <span className="inline-flex items-center gap-1.5 text-[11px] font-black px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> Admin controlled
-                </span>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-3 items-end">
-                <div>
-                  <label className="block text-[11px] font-black text-slate-500 uppercase tracking-wider mb-1.5">Expiry minutes</label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={43200}
-                    value={linkExpiryMinutes}
-                    onChange={(e) => setLinkExpiryMinutes(e.target.value)}
-                    className="w-full h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-bold text-slate-900 outline-none focus:bg-white focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
-                    placeholder="60"
-                  />
-                  <p className="text-[10.5px] text-slate-400 mt-1">1 minute to 30 days.</p>
-                </div>
-                <div>
-                  <label className="block text-[11px] font-black text-slate-500 uppercase tracking-wider mb-1.5">Max active links/user</label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={20}
-                    value={linkMaxActive}
-                    onChange={(e) => setLinkMaxActive(e.target.value)}
-                    className="w-full h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-bold text-slate-900 outline-none focus:bg-white focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
-                    placeholder="3"
-                  />
-                  <p className="text-[10.5px] text-slate-400 mt-1">Prevents unlimited active links.</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={saveLinkDefaults}
-                  disabled={savingLinkDefaults}
-                  className="h-11 px-5 rounded-xl bg-slate-900 text-white text-xs font-black hover:bg-slate-800 disabled:opacity-60 inline-flex items-center justify-center gap-2"
-                >
-                  {savingLinkDefaults ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                  Save
-                </button>
-              </div>
-            </section>
 
             <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 sm:p-6">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
