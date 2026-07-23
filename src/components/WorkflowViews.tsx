@@ -424,11 +424,16 @@ export function DirectLinkView({ apiCall, notify }: { apiCall: ApiCall; notify: 
                   )}
                 </AnimatePresence>
 
-                <button onClick={generate} disabled={busy || !chosen}
-                  className="mt-6 w-full h-12 xl:h-14 rounded-xl xl:rounded-2xl bg-gradient-to-r from-rose-600 to-red-600 text-white font-black text-sm xl:text-base shadow-lg shadow-rose-600/25 hover:shadow-rose-600/40 hover:brightness-110 disabled:opacity-60 active:scale-[0.98] flex items-center justify-center gap-2 transition-all">
+                <button onClick={generate} disabled={busy || !chosen || !!activeLink}
+                  className="mt-6 w-full h-12 xl:h-14 rounded-xl xl:rounded-2xl bg-gradient-to-r from-rose-600 to-red-600 text-white font-black text-sm xl:text-base shadow-lg shadow-rose-600/25 hover:shadow-rose-600/40 hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:brightness-100 active:scale-[0.98] flex items-center justify-center gap-2 transition-all">
                   {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                  {busy ? "Generating link…" : activeLink ? "Generate New Link" : "Generate Direct Link"}
+                  {busy ? "Generating link…" : activeLink ? `New link in ${remaining(activeLink.expires_at)}` : "Generate Direct Link"}
                 </button>
+                {activeLink && (
+                  <p className="mt-2 text-[11px] text-amber-700 text-center font-semibold">
+                    Aapka current link abhi active hai — expire hone ke baad hi naya link generate kar sakte ho.
+                  </p>
+                )}
                 <p className="mt-3 text-[11px] text-slate-400 text-center flex items-center justify-center gap-1">
                   <ShieldCheck className="w-3 h-3" /> Links auto-expire · single-use recommended
                 </p>
