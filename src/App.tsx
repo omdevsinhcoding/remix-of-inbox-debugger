@@ -7786,10 +7786,21 @@ function AdminPanel() {
     const flatKey = key === "gmail" ? "feature_gmail" : key === "tv" ? "feature_tv" : "feature_link";
     setUsers((prev) => prev.map((x) => x.id === u.id ? ({ ...x, features: nextFeatures, [flatKey]: nextVal } as any) : x));
     try {
-      await apiCall("manage-app", { action: "update_user", id: u.id, features: { [key]: nextVal } });
+      const res: any = await apiCall("manage-app", { action: "update_user", id: u.id, features: { [key]: nextVal } });
+      const persistedFeatures = res?.user?.features || nextFeatures;
+      const persistedPatch = {
+        features: persistedFeatures,
+        feature_gmail: persistedFeatures.gmail !== false,
+        feature_tv: persistedFeatures.tv !== false,
+        feature_link: persistedFeatures.link === true,
+      };
+      setUsers((prev) => prev.map((x) => x.id === u.id ? ({ ...x, ...persistedPatch } as any) : x));
+      patchBootstrapCacheUser(u.id, persistedPatch);
+      try { await refreshBootstrap(); } catch {}
       notify.success(`${key === "gmail" ? "Gmail" : key === "tv" ? "TV" : "Direct Link"} ${nextVal ? "enabled" : "disabled"}`);
     } catch (err) {
       setUsers((prev) => prev.map((x) => x.id === u.id ? ({ ...x, features: cur, [flatKey]: (u as any)[flatKey] } as any) : x));
+      patchBootstrapCacheUser(u.id, { features: cur, [flatKey]: (u as any)[flatKey] });
       notify.error(err instanceof Error ? err.message : "Failed to update feature");
     }
   };
@@ -8216,7 +8227,8 @@ function AdminPanel() {
       setEditingUserAccounts(null); setEditHint(null);
       setUsers(prev => prev.map(u => u.id === userId ? { ...u, username: nextUsername as any, assignedAccounts: nextAccounts, session_limit, tvOverride: tvOvOut, features: { ...adminUserFeatures(u), link: editDirectLinkEnabled }, feature_link: editDirectLinkEnabled, ...(expires_at !== undefined ? { expiresAt: expires_at } as any : {}), ...(isFreeTarget ? { autoDelete: editAutoDelete } as any : {}) } as any : u));
       applyTvOverrideToStoredUser(userId, tvOvOut);
-      patchBootstrapCacheUser(userId, { tvOverride: tvOvOut });
+      patchBootstrapCacheUser(userId, { tvOverride: tvOvOut, features: { ...adminUserFeatures(target), link: editDirectLinkEnabled }, feature_link: editDirectLinkEnabled });
+      try { await refreshBootstrap(); } catch {}
       broadcastTvFeatureEvent({ type: "tv-profile", userId, tvOverride: tvOvOut, at: Date.now() });
       notify.success("User settings updated!");
     } catch (err) {

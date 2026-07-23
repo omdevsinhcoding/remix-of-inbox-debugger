@@ -52,7 +52,20 @@ function sanitizeBootstrapUsers(users: any[]): any[] {
     if (!u || typeof u !== "object") return u;
     const username = typeof u.username === "string" ? u.username : null;
     const legacyGeneratedFreeUsername = !!u.isFree && !!username && /^free_[a-z0-9]+_[a-z0-9]+$/i.test(username);
-    return legacyGeneratedFreeUsername ? { ...u, username: null } : u;
+    const rawFeatures = u.features && typeof u.features === "object" ? u.features : {};
+    const features = {
+      gmail: rawFeatures.gmail !== undefined ? rawFeatures.gmail !== false : u.feature_gmail !== false,
+      tv: rawFeatures.tv !== undefined ? rawFeatures.tv !== false : u.feature_tv !== false,
+      link: rawFeatures.link !== undefined ? rawFeatures.link === true : u.feature_link === true,
+    };
+    return {
+      ...u,
+      ...(legacyGeneratedFreeUsername ? { username: null } : {}),
+      feature_gmail: features.gmail,
+      feature_tv: features.tv,
+      feature_link: features.link,
+      features,
+    };
   });
 }
 

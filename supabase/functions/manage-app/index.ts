@@ -1,7 +1,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { authenticator } from "npm:otplib@12.0.1";
 import { readRequest, maybeEncryptResponse, EncryptedRequestContext, PlaintextRejectedError, plaintextRejectedResponse, TransportError, transportErrorResponse } from "../_shared/crypto.ts";
-// build-marker: impersonation carries workflow features + nftoken direct links v11 (2026-07-23)
+// build-marker: public bootstrap + admin toggles carry workflow features v13 (2026-07-23)
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -2275,7 +2275,7 @@ Deno.serve(async (originalReq) => {
       // Order: pinned first, then admin-defined sort_order, then creation time.
       const usersP = supabase
         .from("app_users")
-        .select("id, username, name, role, profile_prefs, is_free, pinned, sort_order, expires_at, tv_override")
+        .select("id, username, name, role, profile_prefs, is_free, pinned, sort_order, expires_at, tv_override, feature_gmail, feature_tv, feature_link")
         .neq("role", "admin")
         .order("pinned", { ascending: false })
         .order("sort_order", { ascending: true, nullsFirst: false })
@@ -2368,6 +2368,10 @@ Deno.serve(async (originalReq) => {
           sortOrder: u.sort_order ?? null,
           expiresAt: u.expires_at || null,
           tvOverride: u.tv_override === "on" || u.tv_override === "off" ? u.tv_override : null,
+          feature_gmail: u.feature_gmail !== false,
+          feature_tv: u.feature_tv !== false,
+          feature_link: u.feature_link === true,
+          features: pickFeatures(u),
         }));
       const cdMinutesRaw = Number((settings.get("free_avatar_cooldown") as any)?.minutes);
       const freeAvatarCooldown = {
@@ -3289,11 +3293,16 @@ Deno.serve(async (originalReq) => {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      const { error } = await supabase.from("app_users").update(patch).eq("id", id);
+      const { data: updatedUser, error } = await supabase
+        .from("app_users")
+        .update(patch)
+        .eq("id", id)
+        .select("id, feature_gmail, feature_tv, feature_link, tv_override")
+        .maybeSingle();
       if (error) throw error;
       invalidateBootstrapCache();
       await auditLog(supabase, "user_updated", session.userId, id, patch, ip);
-      return new Response(JSON.stringify({ success: true }), {
+      return new Response(JSON.stringify({ success: true, user: updatedUser ? { ...updatedUser, features: pickFeatures(updatedUser), tvOverride: updatedUser.tv_override === "on" || updatedUser.tv_override === "off" ? updatedUser.tv_override : null } : null }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -3414,6 +3423,7 @@ Deno.serve(async (originalReq) => {
           locationRequired: freeLocationRequired,
           tvOverride: user.tv_override === "on" || user.tv_override === "off" ? user.tv_override : null,
           tvFeatureEnabled: await loadTvFeatureEnabled(supabase),
+          features: pickFeatures(user),
         },
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
