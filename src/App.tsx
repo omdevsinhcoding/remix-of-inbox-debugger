@@ -8184,6 +8184,7 @@ function AdminPanel() {
     { id: "inbox" as const, label: "Inbox", icon: Mail },
     { id: "tv" as const, label: "TV Auto-Login", icon: Tv },
     { id: "cookies" as const, label: "Cookies", icon: Key },
+    { id: "directlink" as const, label: "Direct Link", icon: LinkIcon },
     { id: "security" as const, label: "Security", icon: ShieldCheck },
 
     { id: "emails" as const, label: "Email Accounts", icon: Server },
