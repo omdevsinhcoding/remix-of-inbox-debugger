@@ -17,6 +17,8 @@ import { clearBrowserIdentityNow, sessionGet, sessionSet, sessionRemove, nukeBro
 import { openInboxDB, readLatestEmails, writeDelta, getSyncCursor, cacheEmailHtml, getEmailHtml, purgeEmailsOutsideScope, type CachedEmail } from "./lib/inboxCache";
 import { readAdminCache, writeAdminCache, isCacheFresh, reconcileVersion, emitSyncStatus } from "./lib/adminSettingsCache";
 import { AdminSyncStatus } from "./components/AdminSyncStatus";
+import { useAdminSlice } from "./hooks/useAdminSlice";
+import { AdminSliceKeys, prefetch as prefetchAdminSlices, invalidate as invalidateAdminSlice, setSlice as setAdminSlice, clearAllSlices as clearAllAdminSlices } from "./lib/adminData";
 
 
 // Lazy-loaded heavy auth-only libs — kept out of the public first-load chunk.
