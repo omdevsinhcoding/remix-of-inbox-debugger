@@ -9811,36 +9811,19 @@ function AdminPanel() {
               </ul>
             </section>
 
-            {/* VPS Access — simplified: pick VPS or GitHub, nothing else */}
-            <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-              {/* Header */}
-              <div className="px-5 sm:px-6 py-4 border-b border-slate-100 flex items-center justify-between gap-3 flex-wrap">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-10 h-10 rounded-full bg-slate-900 text-white flex items-center justify-center shrink-0">
-                    <Server className="w-5 h-5" />
-                  </div>
-                  <div className="min-w-0">
-                    <h3 className="font-black text-slate-950 leading-tight">TV Runner</h3>
-                    <p className="text-[12px] text-slate-500 mt-0.5">Pick one: your VPS or GitHub Actions.</p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={saveVpsConfig}
-                  disabled={vpsSaving || vpsLoading}
-                  className="inline-flex h-9 items-center gap-1.5 rounded-full bg-slate-900 px-4 text-[12px] font-black text-white transition hover:bg-slate-800 disabled:opacity-60"
-                >
-                  {vpsSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                  Save
-                </button>
-              </div>
+            {/* TV Runner — clean white redesign, no testing clutter */}
+            <section className="bg-white rounded-3xl border border-slate-200 overflow-hidden">
+              {/* Hero */}
+              <div className="px-6 sm:px-8 pt-7 pb-6">
+                <p className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">TV Runner</p>
+                <h3 className="mt-1 text-2xl sm:text-[26px] font-black tracking-tight text-slate-950">Where should Netflix open?</h3>
+                <p className="mt-1.5 text-[13px] text-slate-500">One choice. Change anytime. VPS is instant, GitHub is free.</p>
 
-              {/* Mode toggle — 2 big pills */}
-              <div className="px-5 sm:px-6 py-4 bg-slate-50 border-b border-slate-100">
-                <div className="grid grid-cols-2 gap-2 p-1 rounded-full bg-white border border-slate-200">
+                {/* Segmented mode switch */}
+                <div className="mt-5 grid grid-cols-2 gap-1.5 p-1.5 rounded-2xl bg-slate-100">
                   {([
-                    { id: "vps", label: "VPS" },
-                    { id: "github", label: "GitHub Actions" },
+                    { id: "vps", label: "My VPS", hint: "Fast" },
+                    { id: "github", label: "GitHub Actions", hint: "Free" },
                   ] as const).map((opt) => {
                     const active = vpsCfg.mode === opt.id;
                     return (
@@ -9848,94 +9831,84 @@ function AdminPanel() {
                         key={opt.id}
                         type="button"
                         onClick={() => setVpsCfg((p) => ({ ...p, mode: opt.id }))}
-                        className={`h-10 rounded-full text-[13px] font-black transition ${active ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:text-slate-900"}`}
+                        className={`h-12 rounded-xl text-[13px] font-black transition flex items-center justify-center gap-2 ${active ? "bg-white text-slate-950 shadow-sm" : "text-slate-500 hover:text-slate-800"}`}
                       >
                         {opt.label}
+                        <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-md ${active ? "bg-slate-950 text-white" : "bg-slate-200 text-slate-500"}`}>{opt.hint}</span>
                       </button>
                     );
                   })}
                 </div>
               </div>
 
-              {/* VPS mode body */}
-              {vpsCfg.mode === "vps" && (
-                <div className="p-5 sm:p-6 space-y-4">
+              {/* Body */}
+              {vpsCfg.mode === "vps" ? (
+                <div className="px-6 sm:px-8 pb-7 pt-1 space-y-5">
                   <div>
-                    <label className="text-[11px] font-black uppercase tracking-wider text-slate-500">VPS IP</label>
+                    <label className="text-[11px] font-black uppercase tracking-wider text-slate-500">Server IP</label>
                     <input
                       value={vpsCfg.ip}
                       onChange={(e) => setVpsCfg((p) => ({ ...p, ip: e.target.value }))}
                       placeholder="140.238.226.213"
-                      className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 font-mono text-sm font-bold text-slate-900 outline-none focus:border-slate-300 focus:bg-white focus:ring-2 focus:ring-slate-900/10"
+                      className="mt-2 w-full h-12 rounded-xl border border-slate-200 bg-white px-4 font-mono text-[14px] font-bold text-slate-950 outline-none focus:border-slate-950 focus:ring-2 focus:ring-slate-950/10"
                     />
                   </div>
 
                   <div>
                     <label className="text-[11px] font-black uppercase tracking-wider text-slate-500">Runner URL</label>
-                    <div className="mt-1.5 flex flex-col sm:flex-row gap-2">
-                      <input
-                        value={vpsCfg.runnerUrl}
-                        onChange={(e) => setVpsCfg((p) => ({ ...p, runnerUrl: e.target.value }))}
-                        placeholder={vpsCfg.ip ? `http://${vpsCfg.ip}:8788` : "http://IP:8788"}
-                        className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 font-mono text-sm font-bold text-slate-900 outline-none focus:border-slate-300 focus:bg-white focus:ring-2 focus:ring-slate-900/10"
-                      />
-                      <button
-                        type="button"
-                        onClick={testVpsRunner}
-                        disabled={vpsTesting || vpsLoading}
-                        className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-[12px] font-black text-slate-800 hover:bg-slate-50 disabled:opacity-60"
-                      >
-                        {vpsTesting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Activity className="w-4 h-4" />}
-                        Test
-                      </button>
-                    </div>
-                    {vpsHealth && (
-                      <p className={`mt-1.5 text-[11px] font-bold ${vpsHealth.ok ? "text-emerald-700" : "text-rose-700"}`}>
-                        {vpsHealth.ok
-                          ? `Online · ${vpsHealth.latencyMs}ms`
-                          : `Offline${vpsHealth.message ? ` · ${vpsHealth.message}` : ""}`}
-                      </p>
-                    )}
+                    <input
+                      value={vpsCfg.runnerUrl}
+                      onChange={(e) => setVpsCfg((p) => ({ ...p, runnerUrl: e.target.value }))}
+                      placeholder={vpsCfg.ip ? `http://${vpsCfg.ip}:8788` : "http://IP:8788"}
+                      className="mt-2 w-full h-12 rounded-xl border border-slate-200 bg-white px-4 font-mono text-[14px] font-bold text-slate-950 outline-none focus:border-slate-950 focus:ring-2 focus:ring-slate-950/10"
+                    />
                   </div>
 
                   <div>
-                    <label className="text-[11px] font-black uppercase tracking-wider text-slate-500">SSH Key</label>
-                    <div className="mt-1.5 flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className={`w-2 h-2 rounded-full ${vpsCfg.hasKey ? "bg-emerald-500" : "bg-amber-500"}`} />
-                        <span className="text-[12px] font-bold text-slate-700 truncate">
-                          {vpsCfg.hasKey
-                            ? `${vpsCfg.keyFilename}${vpsCfg.keySize ? ` · ${(vpsCfg.keySize / 1024).toFixed(1)} KB` : ""}`
-                            : "No key uploaded"}
-                        </span>
+                    <label className="text-[11px] font-black uppercase tracking-wider text-slate-500">SSH Private Key</label>
+                    <div className="mt-2 rounded-xl border border-slate-200 bg-white p-4">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${vpsCfg.hasKey ? "bg-emerald-50 text-emerald-600" : "bg-slate-100 text-slate-400"}`}>
+                          <KeyRound className="w-5 h-5" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[13px] font-black text-slate-950 truncate">
+                            {vpsCfg.hasKey ? vpsCfg.keyFilename : "No key uploaded"}
+                          </p>
+                          <p className="text-[11px] text-slate-500 mt-0.5">
+                            {vpsCfg.hasKey
+                              ? `${vpsCfg.keySize ? (vpsCfg.keySize / 1024).toFixed(1) + " KB · " : ""}Stored in Cloudflare R2`
+                              : "Upload a .pem or .key file"}
+                          </p>
+                        </div>
                       </div>
-                      <div className="flex gap-1.5 shrink-0">
+                      <div className="mt-3 grid grid-cols-3 gap-2">
                         <button
                           type="button"
                           onClick={() => vpsFileInputRef.current?.click()}
                           disabled={vpsUploading || vpsLoading}
-                          title="Upload"
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 disabled:opacity-60"
+                          className="inline-flex h-10 items-center justify-center gap-1.5 rounded-lg bg-slate-950 px-3 text-[12px] font-black text-white hover:bg-slate-800 disabled:opacity-60"
                         >
-                          {vpsUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                          {vpsUploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                          Upload
                         </button>
                         <button
                           type="button"
                           onClick={downloadSshKey}
                           disabled={vpsLoading || !vpsCfg.hasKey}
-                          title="Download"
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 disabled:opacity-40"
+                          className="inline-flex h-10 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-[12px] font-black text-slate-800 hover:bg-slate-50 disabled:opacity-40"
                         >
-                          <Download className="w-4 h-4" />
+                          <Download className="w-3.5 h-3.5" />
+                          Download
                         </button>
                         <button
                           type="button"
                           onClick={deleteVpsKey}
                           disabled={vpsDeletingKey || vpsLoading || !vpsCfg.hasKey}
-                          title="Delete"
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-rose-200 bg-white text-rose-600 hover:bg-rose-50 disabled:opacity-40"
+                          className="inline-flex h-10 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-[12px] font-black text-rose-600 hover:bg-rose-50 disabled:opacity-40"
                         >
-                          {vpsDeletingKey ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                          {vpsDeletingKey ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                          Delete
                         </button>
                         <input
                           ref={vpsFileInputRef}
@@ -9947,38 +9920,41 @@ function AdminPanel() {
                       </div>
                     </div>
                   </div>
-                </div>
-              )}
 
-              {/* GitHub mode body */}
-              {vpsCfg.mode === "github" && (
-                <div className="p-5 sm:p-6">
-                  <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-                    <div className="min-w-0">
-                      <p className="text-[13px] font-black text-slate-900">GitHub Actions</p>
-                      <p className={`mt-0.5 text-[11px] font-bold ${githubHealth?.ok ? "text-emerald-700" : githubHealth ? "text-rose-700" : "text-slate-500"}`}>
-                        {githubHealth
-                          ? `${githubHealth.status}${githubHealth.latencyMs ? ` · ${githubHealth.latencyMs}ms` : ""}`
-                          : "No VPS needed. ~45s per run."}
-                      </p>
-                    </div>
-                    <div className="flex gap-2 shrink-0">
-                      {githubHealth?.runUrl && (
-                        <a href={githubHealth.runUrl} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 text-[12px] font-black text-slate-800 hover:bg-slate-50">
-                          <ExternalLink className="w-3.5 h-3.5" /> Run
-                        </a>
-                      )}
-                      <button
-                        type="button"
-                        onClick={testGithubRunner}
-                        disabled={githubTesting || vpsLoading}
-                        className="inline-flex h-9 items-center gap-1.5 rounded-full bg-slate-900 px-4 text-[12px] font-black text-white hover:bg-slate-800 disabled:opacity-60"
-                      >
-                        {githubTesting ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4" />}
-                        Test
-                      </button>
+                  <button
+                    type="button"
+                    onClick={saveVpsConfig}
+                    disabled={vpsSaving || vpsLoading}
+                    className="w-full h-12 inline-flex items-center justify-center gap-2 rounded-xl bg-slate-950 text-[13px] font-black text-white hover:bg-slate-800 disabled:opacity-60"
+                  >
+                    {vpsSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                    Save changes
+                  </button>
+                </div>
+              ) : (
+                <div className="px-6 sm:px-8 pb-7 pt-1 space-y-4">
+                  <div className="rounded-xl border border-slate-200 bg-white p-5">
+                    <div className="flex items-start gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-slate-950 text-white flex items-center justify-center shrink-0">
+                        <Zap className="w-5 h-5" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-[14px] font-black text-slate-950">Nothing to configure</p>
+                        <p className="mt-1 text-[12px] text-slate-500 leading-relaxed">
+                          GitHub Actions runs on their free servers. Slower (~45s per code) but no VPS to manage.
+                        </p>
+                      </div>
                     </div>
                   </div>
+                  <button
+                    type="button"
+                    onClick={saveVpsConfig}
+                    disabled={vpsSaving || vpsLoading}
+                    className="w-full h-12 inline-flex items-center justify-center gap-2 rounded-xl bg-slate-950 text-[13px] font-black text-white hover:bg-slate-800 disabled:opacity-60"
+                  >
+                    {vpsSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                    Use GitHub Actions
+                  </button>
                 </div>
               )}
             </section>
