@@ -2523,6 +2523,16 @@ function TvSignInPage() {
   const POLL_TIMEOUT_MS = 9_500;
   const inputsRef = useRef<Array<HTMLInputElement | null>>([]);
 
+  const applyAccounts = useCallback((list: TvAccount[]) => {
+    const filtered = list.filter((a) => a?.cookies_available);
+    setAccounts(filtered);
+    // Auto-select + skip account picker when the user only has 1 IMAP linked.
+    if (filtered.length === 1) {
+      setChosen((prev) => prev || filtered[0]);
+      setStep((prev) => (prev === "select" ? "code" : prev));
+    }
+  }, []);
+
   const loadAccounts = useCallback(async (opts?: { background?: boolean }) => {
     const background = !!opts?.background;
     if (!background) setAccountsLoading(true);
@@ -2531,14 +2541,14 @@ function TvSignInPage() {
       const res: any = await apiCall("manage-app", { action: "tv_list_accounts" });
       if (!res?.success) throw new Error(res?.error || "Failed to load accounts");
       const list: TvAccount[] = Array.isArray(res.accounts) ? res.accounts : [];
-      setAccounts(list.filter((a) => a?.cookies_available));
+      applyAccounts(list);
       try { writeAccountsCache("tv", res); } catch {}
     } catch (err) {
       if (!background) setAccountsError(err instanceof Error ? err.message : "Failed to load accounts");
     } finally {
       if (!background) setAccountsLoading(false);
     }
-  }, []);
+  }, [applyAccounts]);
 
   useEffect(() => {
     // Instant paint from session cache (populated by prefetchWorkflowAccounts), then
@@ -2546,13 +2556,13 @@ function TvSignInPage() {
     const cached: any = readAccountsCache("tv");
     if (cached?.accounts) {
       const list: TvAccount[] = Array.isArray(cached.accounts) ? cached.accounts : [];
-      setAccounts(list.filter((a) => a?.cookies_available));
+      applyAccounts(list);
       setAccountsLoading(false);
       loadAccounts({ background: true });
     } else {
       loadAccounts();
     }
-  }, [loadAccounts]);
+  }, [loadAccounts, applyAccounts]);
 
   useEffect(() => {
     if (step === "code") {
@@ -2681,7 +2691,8 @@ function TvSignInPage() {
               ? "Pick the Netflix account you want to sign in on your TV. We'll handle the rest in under 10 seconds."
               : "Type the code shown on your Netflix TV screen. We'll auto-sign in and confirm here."}
           </p>
-          {/* Stepper */}
+          {/* Stepper — hidden for single-account users */}
+          {accounts.length > 1 && (
           <div className="mt-5 inline-flex items-center gap-3 text-[11px] xl:text-xs font-bold uppercase tracking-widest">
             <span className={`inline-flex items-center gap-1.5 ${step === "select" ? "text-rose-600" : "text-emerald-600"}`}>
               <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] ${step === "select" ? "bg-rose-600 text-white" : "bg-emerald-500 text-white"}`}>1</span>
@@ -2693,6 +2704,7 @@ function TvSignInPage() {
               Code
             </span>
           </div>
+          )}
         </div>
 
         {/* Card */}
@@ -2776,11 +2788,13 @@ function TvSignInPage() {
                         {chosen.label && <div className="text-[11px] text-slate-500 truncate">{chosen.label}</div>}
                       </div>
                     </div>
-                    <button onClick={() => { setStep("select"); setStatus("idle"); setCode(["", "", "", "", "", "", "", ""]); }}
-                      disabled={status !== "idle"}
-                      className="text-[11px] font-bold text-rose-600 hover:text-rose-700 transition disabled:opacity-40 disabled:cursor-not-allowed">
-                      Change
-                    </button>
+                    {accounts.length > 1 && (
+                      <button onClick={() => { setStep("select"); setStatus("idle"); setCode(["", "", "", "", "", "", "", ""]); }}
+                        disabled={status !== "idle"}
+                        className="text-[11px] font-bold text-rose-600 hover:text-rose-700 transition disabled:opacity-40 disabled:cursor-not-allowed">
+                        Change
+                      </button>
+                    )}
                   </div>
                 )}
 
@@ -12623,7 +12637,7 @@ function EmailViewer() {
       </AnimatePresence>
 
       {/* ============ MOBILE HEADER (clean white) ============ */}
-      <header className="sm:hidden sticky top-0 z-20 bg-white/95 backdrop-blur border-b border-slate-200 shadow-sm">
+      <header className="sm:hidden sticky top-0 z-20 bg-slate-950/95 backdrop-blur border-b border-slate-800 shadow-sm">
         <div className="px-3 h-14 flex items-center gap-3">
           <button
             type="button"
@@ -12635,17 +12649,17 @@ function EmailViewer() {
             <ProfileAvatar
               avatarId={viewerAvatarId}
               name={user.name}
-              className="w-9 h-9 rounded-xl overflow-hidden ring-1 ring-slate-200"
+              className="w-9 h-9 rounded-xl overflow-hidden ring-1 ring-slate-700"
               fallbackColor="bg-red-600"
               eager
             />
-            <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-white" aria-hidden="true" />
+            <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-slate-950" aria-hidden="true" />
           </button>
           <div className="min-w-0 flex-1">
-            <h2 className="font-black text-[15px] leading-tight tracking-tight text-red-600 truncate">
+            <h2 className="font-black text-[15px] leading-tight tracking-tight text-red-500 truncate">
               Netflix Mail
             </h2>
-            <span className="text-[11px] text-slate-500 truncate block">{user.name}</span>
+            <span className="text-[11px] text-slate-400 truncate block">{user.name}</span>
           </div>
           <div className="flex items-center gap-1 flex-shrink-0">
             {isImpersonating && (
@@ -12697,12 +12711,12 @@ function EmailViewer() {
 
 
       {/* ============ DESKTOP HEADER ============ */}
-      <header className="hidden sm:block bg-white border-b border-slate-200 sticky top-0 z-20 shadow-sm">
+      <header className="hidden sm:block bg-slate-950 border-b border-slate-800 sticky top-0 z-20 shadow-sm">
         <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between gap-2">
           <div className="flex items-center gap-3 min-w-0">
             <div className="flex-shrink-0 flex items-center gap-1.5">
               <NetflixNLogo className="w-8 h-8" />
-              <div className="h-8 w-px bg-slate-200 ml-1" />
+              <div className="h-8 w-px bg-slate-700 ml-1" />
               <button
                 type="button"
                 onClick={() => setShowProfile(true)}
@@ -12714,8 +12728,8 @@ function EmailViewer() {
               </button>
             </div>
             <div className="min-w-0">
-              <h2 className="font-bold text-lg tracking-tight leading-tight text-red-600">Netflix Mail</h2>
-              <span className="text-xs text-slate-500 truncate block max-w-[180px]">{user.name}</span>
+              <h2 className="font-bold text-lg tracking-tight leading-tight text-red-500">Netflix Mail</h2>
+              <span className="text-xs text-slate-400 truncate block max-w-[180px]">{user.name}</span>
             </div>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
