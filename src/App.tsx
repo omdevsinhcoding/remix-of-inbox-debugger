@@ -6859,6 +6859,7 @@ function AdminPanel() {
     setVpsCfg((prev) => ({
       ip: typeof vpsData.ip === "string" && vpsData.ip ? vpsData.ip : prev.ip,
       runnerUrl: typeof vpsData.runnerUrl === "string" ? vpsData.runnerUrl : prev.runnerUrl,
+      mode: vpsData.mode === "vps" || vpsData.mode === "github" ? vpsData.mode : "auto",
       keyFilename: typeof vpsData.keyFilename === "string" && vpsData.keyFilename ? vpsData.keyFilename : prev.keyFilename,
       keyUploadedAt: typeof vpsData.keyUploadedAt === "string" ? vpsData.keyUploadedAt : "",
       keySize: Number(vpsData.keySize) || 0,
