@@ -18,7 +18,7 @@ import { openInboxDB, readLatestEmails, writeDelta, getSyncCursor, cacheEmailHtm
 import { readAdminCache, writeAdminCache, isCacheFresh, reconcileVersion, emitSyncStatus } from "./lib/adminSettingsCache";
 import { AdminSyncStatus } from "./components/AdminSyncStatus";
 import { useAdminSlice } from "./hooks/useAdminSlice";
-import { AdminSliceKeys, invalidate as invalidateAdminSlice, setSlice as setAdminSlice, clearAllSlices as clearAllAdminSlices } from "./lib/adminData";
+import { AdminSliceKeys, setSlice as setAdminSlice, clearAllSlices as clearAllAdminSlices } from "./lib/adminData";
 
 
 // Lazy-loaded heavy auth-only libs — kept out of the public first-load chunk.
@@ -5508,7 +5508,10 @@ function AllEmailsPanel() {
       const nextTotal = res?.total || 0;
       const nextHasMore = res?.hasMore === true;
       pageCacheRef.current.set(cacheKey, { at: Date.now(), emails: nextEmails, total: nextTotal, hasMore: nextHasMore });
-      if (pageCacheRef.current.size > 30) pageCacheRef.current.delete(pageCacheRef.current.keys().next().value);
+      if (pageCacheRef.current.size > 30) {
+        const oldestKey = pageCacheRef.current.keys().next().value;
+        if (typeof oldestKey === "string") pageCacheRef.current.delete(oldestKey);
+      }
       setEmails(nextEmails);
       setTotal(nextTotal);
       setHasMore(nextHasMore);
