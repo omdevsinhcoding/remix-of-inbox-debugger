@@ -1890,13 +1890,15 @@ async function persistLoginEvent(
 async function loadWorkerUrls(supabase: any): Promise<string[]> {
   const workerUrls: string[] = [];
   try {
-    const { data: primaryCfSetting } = await supabase.from("app_settings").select("value").eq("key", "primary_cloudflare_urls").single();
-    if (Array.isArray(primaryCfSetting?.value)) {
-      for (const u of primaryCfSetting.value) if (typeof u === "string" && u.length > 0 && !workerUrls.includes(u)) workerUrls.push(u);
+    const [primaryCfUrls, emailAccounts] = await Promise.all([
+      getSetting<any[]>(supabase, "primary_cloudflare_urls"),
+      getSetting<any[]>(supabase, "email_accounts"),
+    ]);
+    if (Array.isArray(primaryCfUrls)) {
+      for (const u of primaryCfUrls) if (typeof u === "string" && u.length > 0 && !workerUrls.includes(u)) workerUrls.push(u);
     }
-    const { data: emailAccountsSetting } = await supabase.from("app_settings").select("value").eq("key", "email_accounts").single();
-    if (Array.isArray(emailAccountsSetting?.value)) {
-      for (const acct of emailAccountsSetting.value) {
+    if (Array.isArray(emailAccounts)) {
+      for (const acct of emailAccounts) {
         if (Array.isArray(acct.cloudflareUrls)) {
           for (const u of acct.cloudflareUrls) if (typeof u === "string" && u.length > 0 && !workerUrls.includes(u)) workerUrls.push(u);
         }
@@ -2430,8 +2432,10 @@ Deno.serve(async (originalReq) => {
         .order("sort_order", { ascending: true, nullsFirst: false })
         .order("created_at", { ascending: true });
       if (error) throw error;
-      const availableAccountLabelsForList = await loadAvailableAccountLabels(supabase);
-      const globalLocationRequired = await loadGlobalLocationRequired(supabase);
+      const [availableAccountLabelsForList, globalLocationRequired] = await Promise.all([
+        loadAvailableAccountLabels(supabase),
+        loadGlobalLocationRequired(supabase),
+      ]);
       const mappedData = (data || []).map((u: any) => ({
         ...u,
         assignedAccounts: normalizeAccountLabels(u.assigned_accounts || [], availableAccountLabelsForList).length > 0 ? normalizeAccountLabels(u.assigned_accounts || [], availableAccountLabelsForList) : null,
@@ -4255,13 +4259,14 @@ Deno.serve(async (originalReq) => {
 
     if (action === "admin_list_notifications") {
       await requireAdmin(req);
-      const { data: notes, error } = await supabase
+      const notesP = supabase
         .from("notifications")
-        .select("*")
+        .select("id, title, body, description, image_url, category, priority, icon, platform_icon, kind, sub_kind, locked, show_frequency, mode, action_url, action_label, action2_url, action2_label, audience, target_user_id, created_at, expires_at, publish_at, group_key, pinned")
         .order("created_at", { ascending: false })
         .limit(200);
+      const totalUsersP = supabase.from("app_users").select("id", { count: "planned", head: true }).neq("role", "admin");
+      const [{ data: notes, error }, { count: totalUsers }] = await Promise.all([notesP, totalUsersP]);
       if (error) throw error;
-      const { count: totalUsers } = await supabase.from("app_users").select("id", { count: "planned", head: true }).neq("role", "admin");
       const payload = (notes || []).map((n: any) => ({
         ...n,
         readCount: 0,
@@ -4298,19 +4303,23 @@ Deno.serve(async (originalReq) => {
       const readsMap = new Map<string, any>();
       const clickedMap = new Map<string, string>();
       if (userIds.length) {
-        const { data: reads } = await supabase
-          .from("notification_reads")
-          .select("user_id, read_at, seen_at, deleted_at")
-          .eq("notification_id", notification_id)
-          .in("user_id", userIds);
-        for (const r of reads || []) readsMap.set(r.user_id, r);
-        const { data: evs } = await supabase
-          .from("notification_events")
-          .select("user_id, event, created_at")
-          .eq("notification_id", notification_id)
-          .eq("event", "clicked")
-          .in("user_id", userIds)
-          .order("created_at", { ascending: false });
+        const [readsRes, evsRes] = await Promise.all([
+          supabase
+            .from("notification_reads")
+            .select("user_id, read_at, seen_at, deleted_at")
+            .eq("notification_id", notification_id)
+            .in("user_id", userIds),
+          supabase
+            .from("notification_events")
+            .select("user_id, event, created_at")
+            .eq("notification_id", notification_id)
+            .eq("event", "clicked")
+            .in("user_id", userIds)
+            .order("created_at", { ascending: false }),
+        ]);
+        const reads = readsRes.data || [];
+        const evs = evsRes.data || [];
+        for (const r of reads) readsMap.set(r.user_id, r);
         for (const e of evs || []) {
           if (!clickedMap.has(e.user_id)) clickedMap.set(e.user_id, e.created_at);
         }
