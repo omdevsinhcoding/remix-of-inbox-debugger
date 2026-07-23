@@ -5499,24 +5499,32 @@ function AllEmailsPanel() {
     } finally { setLoading(false); }
   }, [search, accountLabel]);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const [accData, cfgData] = await Promise.all([
-          apiCall("manage-app", { action: "get_settings", key: "email_accounts" }),
-          apiCall("manage-app", { action: "get_settings", key: "config" }),
-        ]);
-        if (Array.isArray(accData?.value)) {
-          setLabels(accData.value
-            .map((a: any) => ({ label: String(a.label || a.user || "").trim(), user: String(a.user || "").trim() }))
-            .filter((a: any) => a.label));
-        }
-        const imapUser = cfgData?.value?.IMAP_USER;
-        if (typeof imapUser === "string" && imapUser.trim()) setPrimaryUser(imapUser.trim());
-      } catch {}
-    })();
-    // Do NOT auto-load emails — admin picks an account first.
+  // SWR: cache the account picker so All Emails opens instantly on every
+  // subsequent visit. Fetcher is tiny (2 KV-cached settings reads).
+  const accountsFetcher = React.useCallback(async () => {
+    const [accData, cfgData]: any = await Promise.all([
+      apiCall("manage-app", { action: "get_settings", key: "email_accounts" }),
+      apiCall("manage-app", { action: "get_settings", key: "config" }),
+    ]);
+    const labels = Array.isArray(accData?.value)
+      ? accData.value
+          .map((a: any) => ({ label: String(a.label || a.user || "").trim(), user: String(a.user || "").trim() }))
+          .filter((a: any) => a.label)
+      : [];
+    const primary = typeof cfgData?.value?.IMAP_USER === "string" ? cfgData.value.IMAP_USER.trim() : "";
+    return { labels, primary };
   }, []);
+  const { data: accountsData } = useAdminSlice<{ labels: { label: string; user: string }[]; primary: string }>(
+    AdminSliceKeys.emailAccounts,
+    accountsFetcher,
+  );
+  React.useEffect(() => {
+    if (!accountsData) return;
+    setLabels(accountsData.labels);
+    if (accountsData.primary) setPrimaryUser(accountsData.primary);
+    // Do NOT auto-load emails — admin picks an account first.
+  }, [accountsData]);
+
 
 
   const openAccount = (label: string) => {
