@@ -13,7 +13,11 @@ export function resolveFeatures(user: any): UserFeatures {
   if (f && typeof f === "object") {
     return { gmail: f.gmail !== false, tv: f.tv !== false, link: f.link === true };
   }
-  return { gmail: true, tv: true, link: false };
+  return {
+    gmail: user?.feature_gmail !== false,
+    tv: user?.feature_tv !== false,
+    link: user?.feature_link === true,
+  };
 }
 
 export function countEnabled(f: UserFeatures) {

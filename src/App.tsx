@@ -7773,12 +7773,13 @@ function AdminPanel() {
     const cur = (u as any).features || { gmail: true, tv: true, link: false };
     const nextVal = key === "link" ? !(cur[key] === true) : !(cur[key] !== false);
     const nextFeatures = { ...cur, [key]: nextVal };
-    setUsers((prev) => prev.map((x) => x.id === u.id ? ({ ...x, features: nextFeatures } as any) : x));
+    const flatKey = key === "gmail" ? "feature_gmail" : key === "tv" ? "feature_tv" : "feature_link";
+    setUsers((prev) => prev.map((x) => x.id === u.id ? ({ ...x, features: nextFeatures, [flatKey]: nextVal } as any) : x));
     try {
       await apiCall("manage-app", { action: "update_user", id: u.id, features: { [key]: nextVal } });
       notify.success(`${key === "gmail" ? "Gmail" : key === "tv" ? "TV" : "Direct Link"} ${nextVal ? "enabled" : "disabled"}`);
     } catch (err) {
-      setUsers((prev) => prev.map((x) => x.id === u.id ? ({ ...x, features: cur } as any) : x));
+      setUsers((prev) => prev.map((x) => x.id === u.id ? ({ ...x, features: cur, [flatKey]: (u as any)[flatKey] } as any) : x));
       notify.error(err instanceof Error ? err.message : "Failed to update feature");
     }
   };
