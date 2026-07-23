@@ -26,6 +26,11 @@ export function countEnabled(f: UserFeatures) {
 
 const VIEW_KEY = "nf.view.v1";
 const VIEW_FEATURES_KEY = "nf.view.features.v1";
+const VIEW_REQUEST_KEY = "nf.view.request.v1";
+
+export function requestWorkflowView(view: WorkflowView) {
+  try { sessionStorage.setItem(VIEW_REQUEST_KEY, view); } catch {}
+}
 
 export function useWorkflowView(user: any, features: UserFeatures) {
   const featureSignature = `${features.gmail ? "1" : "0"}${features.tv ? "1" : "0"}${features.link ? "1" : "0"}`;
@@ -37,6 +42,11 @@ export function useWorkflowView(user: any, features: UserFeatures) {
   };
   const [view, setView] = useState<WorkflowView | null>(() => {
     try {
+      const requested = sessionStorage.getItem(VIEW_REQUEST_KEY) as WorkflowView | null;
+      if (requested && features[requested]) {
+        sessionStorage.removeItem(VIEW_REQUEST_KEY);
+        return requested;
+      }
       const storedSig = sessionStorage.getItem(VIEW_FEATURES_KEY);
       const stored = sessionStorage.getItem(VIEW_KEY) as WorkflowView | null;
       if (storedSig === featureSignature && stored && features[stored]) return stored;
@@ -209,11 +219,21 @@ export function DirectLinkView({ apiCall, notify }: { apiCall: ApiCall; notify: 
   const loadAccounts = useCallback(async () => {
     setLoadingAccounts(true);
     try {
+      const cached: any = readAccountsCache("link");
+      if (cached) {
+        const cachedAccounts = Array.isArray(cached?.accounts) ? cached.accounts : [];
+        const cachedTtl = Number(cached?.defaults?.ttl_minutes);
+        if (Number.isFinite(cachedTtl) && cachedTtl > 0) setDefaultTtl(Math.floor(cachedTtl));
+        applyAccounts(cachedAccounts);
+        setNotConfigured(cached?.not_configured ? (cached.message || "Not configured") : null);
+        setLoadingAccounts(false);
+      }
       const res: any = await apiCall("manage-app", { action: "link_list_accounts" });
       const acc = Array.isArray(res?.accounts) ? res.accounts : [];
       const ttl = Number(res?.defaults?.ttl_minutes);
       if (Number.isFinite(ttl) && ttl > 0) setDefaultTtl(Math.floor(ttl));
       applyAccounts(acc);
+      writeAccountsCache("link", res);
       setNotConfigured(res?.not_configured ? (res.message || "Not configured") : null);
     } catch (e: any) {
       setNotConfigured(e?.message || "Failed to load accounts");
