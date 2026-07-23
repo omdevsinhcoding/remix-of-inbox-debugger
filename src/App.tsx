@@ -2786,11 +2786,13 @@ function TvSignInPage() {
                         {chosen.label && <div className="text-[11px] text-slate-500 truncate">{chosen.label}</div>}
                       </div>
                     </div>
-                    <button onClick={() => { setStep("select"); setStatus("idle"); setCode(["", "", "", "", "", "", "", ""]); }}
-                      disabled={status !== "idle"}
-                      className="text-[11px] font-bold text-rose-600 hover:text-rose-700 transition disabled:opacity-40 disabled:cursor-not-allowed">
-                      Change
-                    </button>
+                    {accounts.length > 1 && (
+                      <button onClick={() => { setStep("select"); setStatus("idle"); setCode(["", "", "", "", "", "", "", ""]); }}
+                        disabled={status !== "idle"}
+                        className="text-[11px] font-bold text-rose-600 hover:text-rose-700 transition disabled:opacity-40 disabled:cursor-not-allowed">
+                        Change
+                      </button>
+                    )}
                   </div>
                 )}
 
