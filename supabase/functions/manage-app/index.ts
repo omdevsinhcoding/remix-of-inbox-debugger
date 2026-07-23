@@ -5663,11 +5663,15 @@ Deno.serve(async (originalReq) => {
       let responseMessage: string | null = null;
       console.log(`[tv_submit] event=${inserted?.id} cookiesAvailable=${cookiesAvailable} matched_login=${matched?.login_email || "-"} parent_imap=${matched?.imap_user || "-"}`);
       if (cookiesAvailable && inserted?.id && matched?.login_email) {
+        const { data: vpsRowForRunner } = await supabase.from("app_settings").select("value").eq("key", "vps_config").maybeSingle();
+        const vpsCfgForRunner = publicVpsConfig(vpsRowForRunner?.value);
+        const runnerMode: "auto" | "vps" | "github" = (vpsCfgForRunner as any).mode || "auto";
+        const runnerBase = effectiveTvRunnerUrl(vpsRowForRunner?.value);
+        const canFallbackToGithub = runnerMode !== "vps";
+        const tryGithubBackup = async (reason: string) => canFallbackToGithub
+          ? await dispatchGithubTvFallback(inserted!.id, reason).catch((err) => ({ ok: false, diag: "github_exception", message: err instanceof Error ? err.message : String(err) }))
+          : { ok: false, diag: "vps_only_mode", message: "VPS-only mode is enabled; GitHub Actions backup is disabled." };
         try {
-          const { data: vpsRowForRunner } = await supabase.from("app_settings").select("value").eq("key", "vps_config").maybeSingle();
-          const vpsCfgForRunner = publicVpsConfig(vpsRowForRunner?.value);
-          const runnerMode: "auto" | "vps" | "github" = (vpsCfgForRunner as any).mode || "auto";
-          const runnerBase = effectiveTvRunnerUrl(vpsRowForRunner?.value);
           console.log(`[tv_submit] runner mode=${runnerMode} url_present=${!!runnerBase}`);
 
           // Mode: github → skip VPS entirely, dispatch GitHub Actions.
