@@ -5665,9 +5665,24 @@ Deno.serve(async (originalReq) => {
       if (cookiesAvailable && inserted?.id && matched?.login_email) {
         try {
           const { data: vpsRowForRunner } = await supabase.from("app_settings").select("value").eq("key", "vps_config").maybeSingle();
+          const vpsCfgForRunner = publicVpsConfig(vpsRowForRunner?.value);
+          const runnerMode: "auto" | "vps" | "github" = (vpsCfgForRunner as any).mode || "auto";
           const runnerBase = effectiveTvRunnerUrl(vpsRowForRunner?.value);
-          console.log(`[tv_submit] direct runner check url_present=${!!runnerBase}`);
-          if (runnerBase) {
+          console.log(`[tv_submit] runner mode=${runnerMode} url_present=${!!runnerBase}`);
+
+          // Mode: github → skip VPS entirely, dispatch GitHub Actions.
+          if (runnerMode === "github") {
+            const backup = await dispatchGithubTvFallback(inserted.id, "mode_github").catch((err) => ({ ok: false, diag: "github_exception", message: err instanceof Error ? err.message : String(err) }));
+            if (backup.ok) {
+              dispatched = true;
+              dispatchDiag = backup.diag;
+              responseMessage = backup.message;
+              await supabase.from("tv_login_events").update({ status: "queued", result: null, message: responseMessage }).eq("id", inserted.id);
+            } else {
+              responseMessage = `Backup runner failed: ${backup.message}`;
+              await supabase.from("tv_login_events").update({ status: "error", result: "fast_runner_unavailable", message: responseMessage, finished_at: new Date().toISOString() }).eq("id", inserted.id);
+            }
+          } else if (runnerBase) {
             const runnerToken = randomHex(32);
             const runnerTokenHash = await sha256Hex(runnerToken);
             await supabase
