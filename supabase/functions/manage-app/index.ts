@@ -3102,16 +3102,61 @@ Deno.serve(async (originalReq) => {
       const session = await requireAdmin(req);
       const nextIp = String(params?.ip || "").trim() || "140.238.226.213";
       if (!/^[A-Za-z0-9:.[\]-]{3,255}$/.test(nextIp)) throw new Error("Enter a valid VPS IP or hostname");
+      let nextRunnerUrl = String(params?.runnerUrl || "").trim().replace(/\/+$/g, "");
+      if (nextRunnerUrl) {
+        try {
+          const u = new URL(nextRunnerUrl);
+          if (!/^https?:$/.test(u.protocol)) throw new Error("bad proto");
+          nextRunnerUrl = u.toString().replace(/\/+$/g, "");
+        } catch {
+          throw new Error("Runner URL must be like http://IP:8788");
+        }
+      }
       const { data } = await supabase.from("app_settings").select("value").eq("key", "vps_config").maybeSingle();
       const prev = publicVpsConfig(data?.value);
-      const value = { ...prev, ip: nextIp };
+      const value = { ...prev, ip: nextIp, runnerUrl: nextRunnerUrl };
       const { error } = await supabase.from("app_settings").upsert({ key: "vps_config", value }, { onConflict: "key" });
       invalidateAllSettings();
       if (error) throw error;
-      await auditLog(supabase, "vps_access_updated", session.userId, null, { ip: nextIp }, ip);
-      return new Response(JSON.stringify({ success: true, value }), {
+      await auditLog(supabase, "vps_access_updated", session.userId, null, { ip: nextIp, runnerUrl: nextRunnerUrl || null }, ip);
+      return new Response(JSON.stringify({ success: true, value: publicVpsConfig(value) }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    if (action === "admin_test_vps_runner") {
+      await requireAdmin(req);
+      const { data } = await supabase.from("app_settings").select("value").eq("key", "vps_config").maybeSingle();
+      const url = effectiveTvRunnerUrl(data?.value);
+      if (!url) {
+        return new Response(JSON.stringify({ success: false, ok: false, message: "Runner URL is not configured." }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const started = Date.now();
+      try {
+        const r = await fetch(`${url}/health`, { method: "GET", signal: AbortSignal.timeout(5000) });
+        const txt = await r.text().catch(() => "");
+        let body: any = null; try { body = txt ? JSON.parse(txt) : null; } catch {}
+        const ms = Date.now() - started;
+        return new Response(JSON.stringify({
+          success: true,
+          ok: r.ok,
+          status: r.status,
+          latencyMs: ms,
+          url,
+          body: body ?? txt.slice(0, 400),
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      } catch (e: any) {
+        return new Response(JSON.stringify({
+          success: true,
+          ok: false,
+          status: 0,
+          latencyMs: Date.now() - started,
+          url,
+          message: e?.message || String(e),
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
     }
 
     if (action === "admin_reveal_session_signing_secret") {
