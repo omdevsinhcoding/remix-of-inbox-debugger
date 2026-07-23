@@ -1886,7 +1886,7 @@ function NotificationBell() {
 }
 
 // --- TV Auto-Login header button + Coming Soon popup ---
-function ReportErrorButton({ eventId, uiStatus, uiMessage }: { eventId: string | null; uiStatus: string; uiMessage: string | null }) {
+function ReportErrorButton({ eventId, uiStatus, uiMessage, variant = "dark" }: { eventId: string | null; uiStatus: string; uiMessage: string | null; variant?: "dark" | "light" }) {
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [note, setNote] = useState("");
@@ -1911,27 +1911,28 @@ function ReportErrorButton({ eventId, uiStatus, uiMessage }: { eventId: string |
       setSending(false);
     }
   };
+  const light = variant === "light";
   return (
-    <div className="mt-2">
+    <div className="mt-3 w-full">
       {showNote && !sent && (
         <textarea
           value={note}
           onChange={(e) => setNote(e.target.value.slice(0, 500))}
           placeholder="Optional: describe what happened…"
           rows={2}
-          className="w-full mb-2 rounded-lg bg-white/[0.04] border border-white/10 px-3 py-2 text-[11.5px] text-white placeholder:text-white/30 outline-none focus:border-[#e50914]/60 resize-none"
+          className={`w-full mb-2 rounded-xl border px-3 py-2 text-[12px] outline-none resize-none transition ${light ? "bg-white border-slate-200 text-slate-900 placeholder:text-slate-400 focus:border-rose-400" : "bg-white/[0.04] border-white/10 text-white placeholder:text-white/30 focus:border-[#e50914]/60"}`}
         />
       )}
       <button
         onClick={sent ? undefined : (showNote ? send : () => setShowNote(true))}
         disabled={sending || sent}
-        className={`w-full h-10 rounded-xl text-[12px] font-bold transition active:scale-[0.98] ${
+        className={`w-full min-h-11 rounded-xl px-3 text-[12px] font-black transition active:scale-[0.98] inline-flex items-center justify-center gap-2 text-center ${
           sent
-            ? "bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 cursor-default"
-            : "bg-gradient-to-r from-amber-500/20 to-red-500/20 border border-amber-400/30 text-amber-200 hover:from-amber-500/30 hover:to-red-500/30"
+            ? (light ? "bg-emerald-50 border border-emerald-200 text-emerald-700 cursor-default" : "bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 cursor-default")
+            : (light ? "bg-white border border-rose-200 text-rose-700 shadow-[0_10px_28px_-18px_rgba(225,29,72,0.8)] hover:bg-rose-50" : "bg-white/[0.06] border border-white/12 text-white hover:bg-white/[0.10]")
         }`}
       >
-        {sent ? "✓ Admin notified" : sending ? "Sending…" : showNote ? "Send report to admin" : "🆘 Report error to admin"}
+        {sent ? <><CheckCircle2 className="w-4 h-4" /> Admin notified</> : sending ? <><Loader2 className="w-4 h-4 animate-spin" /> Sending report…</> : showNote ? <><Send className="w-4 h-4" /> Send report to admin</> : <><AlertTriangle className="w-4 h-4" /> Report issue to admin</>}
       </button>
     </div>
   );
@@ -1990,8 +1991,10 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
       setAccounts(usable);
       // If exactly one usable account, skip the picker entirely — go straight to the code step.
       if (usable.length === 1) {
-        setChosen((prev) => prev || usable[0]);
+        setChosen(usable[0]);
         setStep((prev) => (prev === "select" ? "code" : prev));
+      } else if (usable.length === 0) {
+        setChosen(null);
       }
     } catch (err) {
       setAccountsError(err instanceof Error ? err.message : "Failed to load accounts");
@@ -2204,7 +2207,7 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
               </p>
 
               {/* Steps indicator */}
-              <div className="mt-3 inline-flex items-center gap-2 text-[10px] text-white/40">
+              {accounts.length > 1 && <div className="mt-3 inline-flex items-center gap-2 text-[10px] text-white/40">
                 <span className={`inline-flex items-center gap-1.5 ${step === "select" ? "text-white" : ""}`}>
                   <span className={`w-1.5 h-1.5 rounded-full ${step === "select" ? "bg-[#e50914]" : "bg-emerald-400"}`} />
                   Account
@@ -2214,7 +2217,7 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
                   <span className={`w-1.5 h-1.5 rounded-full ${step === "code" ? "bg-[#e50914]" : "bg-white/20"}`} />
                   Code
                 </span>
-              </div>
+              </div>}
             </div>
 
             {step === "select" ? (
@@ -2299,7 +2302,7 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
             ) : (
               <>
                 {/* Selected account chip */}
-                {chosen && (
+                {chosen && accounts.length > 1 && (
                   <div className="mt-4 flex items-center justify-between gap-2 rounded-xl bg-white/[0.04] border border-white/10 px-3 py-2">
                     <div className="min-w-0 flex items-center gap-2">
                       <Mail className="w-3.5 h-3.5 text-white/60 shrink-0" />
@@ -2389,7 +2392,7 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
                       {status === "queued" ? (
                         <div className="mt-4 rounded-xl bg-sky-500/10 border border-sky-500/30 px-3 py-2.5 text-center">
                           <div className="inline-flex items-center gap-1.5 text-[11px] font-bold text-sky-300">
-                            <Loader2 className="w-3 h-3 animate-spin" /> Preparing secure runner
+                            <span className="w-2 h-2 rounded-full bg-sky-400" /> Preparing secure runner
                           </div>
                           <div className="text-[10.5px] text-sky-200/80 mt-1 leading-relaxed">
                             Your job is queued. Spinning up a private headless browser… <span className="opacity-70">({elapsedSec}s)</span>
@@ -2398,7 +2401,7 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
                       ) : status === "running" || status === "in_progress" ? (
                         <div className="mt-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 px-3 py-2.5 text-center">
                           <div className="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-300">
-                            <Loader2 className="w-3 h-3 animate-spin" /> Process Login on TV in progress
+                            <span className="w-2 h-2 rounded-full bg-emerald-500" /> Process Login on TV in progress
                           </div>
                           <div className="text-[10.5px] text-emerald-200/80 mt-1 leading-relaxed">
                             Signing in{resultInfo.accountLabel ? <> with <span className="font-semibold">{resultInfo.accountLabel}</span></> : null}
