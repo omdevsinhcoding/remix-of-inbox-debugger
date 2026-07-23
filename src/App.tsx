@@ -6808,28 +6808,27 @@ function AdminPanel() {
   const vpsFileInputRef = useRef<HTMLInputElement | null>(null);
   const vpsLoadedRef = useRef(false);
 
-  useEffect(() => {
-    if (activeTab !== "tv" || vpsLoadedRef.current) return;
-    vpsLoadedRef.current = true;
-    (async () => {
-      setVpsLoading(true);
-      try {
-        const res: any = await apiCall("manage-app", { action: "admin_get_vps_config" });
-        const v = res?.value || {};
-        setVpsCfg((prev) => ({
-          ip: typeof v.ip === "string" && v.ip ? v.ip : prev.ip,
-          keyFilename: typeof v.keyFilename === "string" && v.keyFilename ? v.keyFilename : prev.keyFilename,
-          keyUploadedAt: typeof v.keyUploadedAt === "string" ? v.keyUploadedAt : "",
-          keySize: Number(v.keySize) || 0,
-          hasKey: v.hasKey === true,
-        }));
-      } catch (e: any) {
-        console.warn("[vps] load failed:", e?.message || e);
-      } finally {
-        setVpsLoading(false);
-      }
-    })();
-  }, [activeTab]);
+  // VPS config: SWR-cached so opening TV tab paints instantly on repeat visits.
+  const vpsFetcher = React.useCallback(async () => {
+    const res: any = await apiCall("manage-app", { action: "admin_get_vps_config" });
+    return (res?.value || {}) as any;
+  }, []);
+  const { data: vpsData, refreshing: vpsRefreshing } = useAdminSlice<any>(
+    activeTab === "tv" ? AdminSliceKeys.vps : "__vps_idle__",
+    vpsFetcher,
+  );
+  React.useEffect(() => { setVpsLoading(vpsRefreshing); }, [vpsRefreshing]);
+  React.useEffect(() => {
+    if (!vpsData) return;
+    setVpsCfg((prev) => ({
+      ip: typeof vpsData.ip === "string" && vpsData.ip ? vpsData.ip : prev.ip,
+      keyFilename: typeof vpsData.keyFilename === "string" && vpsData.keyFilename ? vpsData.keyFilename : prev.keyFilename,
+      keyUploadedAt: typeof vpsData.keyUploadedAt === "string" ? vpsData.keyUploadedAt : "",
+      keySize: Number(vpsData.keySize) || 0,
+      hasKey: vpsData.hasKey === true,
+    }));
+  }, [vpsData]);
+
 
   const saveVpsConfig = async () => {
     if (vpsSaving) return;
@@ -7057,8 +7056,23 @@ function AdminPanel() {
           return { labels, primary };
         },
       },
+      {
+        key: AdminSliceKeys.vps,
+        fetcher: async () => {
+          const r: any = await apiCall("manage-app", { action: "admin_get_vps_config" });
+          return (r?.value || {}) as any;
+        },
+      },
+      {
+        key: AdminSliceKeys.notifications,
+        fetcher: async () => {
+          const r: any = await apiCall("manage-app", { action: "admin_list_notifications" });
+          return Array.isArray(r?.notifications) ? r.notifications : [];
+        },
+      },
     ]);
   }, []);
+
 
 
   const availableAccounts = useMemo<string[]>(() => {
@@ -7815,12 +7829,26 @@ function AdminPanel() {
   };
 
 
-  const reloadAdminNotifs = async () => {
+  const reloadAdminNotifs = React.useCallback(async () => {
     try {
-      const nl = await apiCall("manage-app", { action: "admin_list_notifications" });
-      if (Array.isArray(nl?.notifications)) setAdminNotifs(nl.notifications);
+      // Force a refetch through the SWR store so any prefetched cache is refreshed.
+      invalidateAdminSlice(AdminSliceKeys.notifications);
+      const nl: any = await apiCall("manage-app", { action: "admin_list_notifications" });
+      const list = Array.isArray(nl?.notifications) ? nl.notifications : [];
+      setAdminNotifs(list);
+      setAdminSlice(AdminSliceKeys.notifications, list);
     } catch (err) { console.warn(err); }
-  };
+  }, []);
+  // Hydrate notifications from SWR cache on mount (instant paint after prefetch).
+  const notifFetcher = React.useCallback(async () => {
+    const nl: any = await apiCall("manage-app", { action: "admin_list_notifications" });
+    return Array.isArray(nl?.notifications) ? nl.notifications : [];
+  }, []);
+  const { data: cachedNotifs } = useAdminSlice<any[]>(AdminSliceKeys.notifications, notifFetcher);
+  React.useEffect(() => {
+    if (Array.isArray(cachedNotifs) && cachedNotifs.length) setAdminNotifs(cachedNotifs);
+  }, [cachedNotifs]);
+
 
   const sendNotification = async () => {
     if (!notifTitle.trim() || !notifBody.trim()) { notify.error("Title and body required"); return; }

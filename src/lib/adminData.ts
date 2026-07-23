@@ -208,4 +208,6 @@ export const AdminSliceKeys = {
   emailAccounts: "emailAccounts",
   tvJobs: "tvJobs",
   directLinks: "directLinks",
+  vps: "vps",
 } as const;
+
