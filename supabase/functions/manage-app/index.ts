@@ -1,7 +1,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { authenticator } from "npm:otplib@12.0.1";
 import { readRequest, maybeEncryptResponse, EncryptedRequestContext, PlaintextRejectedError, plaintextRejectedResponse, TransportError, transportErrorResponse } from "../_shared/crypto.ts";
-// build-marker: per-user features + nftoken direct links v10 (2026-07-22)
+// build-marker: impersonation carries workflow features + nftoken direct links v11 (2026-07-23)
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -3463,6 +3463,7 @@ Deno.serve(async (originalReq) => {
           locationRequired: isProfileLocationRequired(targetUser, await loadGlobalLocationRequired(supabase)),
           tvOverride: targetUser.tv_override === "on" || targetUser.tv_override === "off" ? targetUser.tv_override : null,
           tvFeatureEnabled: await loadTvFeatureEnabled(supabase),
+          features: pickFeatures(targetUser),
           impersonated: true,
           adminId: session.userId,
         },
