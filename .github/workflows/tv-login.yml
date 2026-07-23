@@ -1,42 +1,49 @@
 name: TV Auto-Login (headless Netflix)
+run-name: TV Login ${{ github.event.client_payload.event_id || github.event.client_payload.test_id || github.event.action }}
 
 on:
   repository_dispatch:
-    types: [tv-login]
+    types: [tv-login, tv-login-test]
 
 concurrency:
-  group: tv-login-${{ github.event.client_payload.event_id }}
+  group: tv-login-${{ github.event.client_payload.event_id || github.event.client_payload.test_id || github.run_id }}
   cancel-in-progress: false
 
 jobs:
   run:
-    # Strict sub-10s execution is not possible on GitHub-hosted runners because
-    # runner allocation + browser/dependency setup regularly takes 30-60s.
-    # This job intentionally targets a pre-warmed self-hosted runner with:
-    #   - labels: self-hosted, tv-login-fast
-    #   - Node 20+
-    #   - scripts/tv-login-runner/node_modules already installed
-    #   - Playwright Chromium browser already installed/cached
-    runs-on: [self-hosted, tv-login-fast]
-    timeout-minutes: 1
+    # GitHub mode must work without a VPS/self-hosted runner.
+    # It is slower than VPS, but should execute on GitHub-hosted runners instead
+    # of sitting queued forever waiting for a missing self-hosted machine.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: read
     steps:
+      - name: GitHub runner test
+        if: github.event.action == 'tv-login-test'
+        run: echo "GitHub Actions TV runner is executable. test_id=${{ github.event.client_payload.test_id }}"
+
       - uses: actions/checkout@v4
+        if: github.event.action == 'tv-login'
         with:
-          clean: false
           persist-credentials: false
           sparse-checkout: scripts/tv-login-runner
           sparse-checkout-cone-mode: false
 
-      - name: Verify prewarmed runner
+      - uses: actions/setup-node@v4
+        if: github.event.action == 'tv-login'
+        with:
+          node-version: 20
+
+      - name: Install runner dependencies
+        if: github.event.action == 'tv-login'
         working-directory: scripts/tv-login-runner
         run: |
-          node -v
-          test -d node_modules/playwright || { echo "tv-login-fast runner is not prewarmed: run npm install in scripts/tv-login-runner"; exit 12; }
-          node -e "import('playwright').then(async ({ chromium }) => { const b = await chromium.launch({ headless: true }); await b.close(); })"
+          npm ci || npm install
+          npx playwright install --with-deps chromium
 
       - name: Run TV auto-login
+        if: github.event.action == 'tv-login'
         working-directory: scripts/tv-login-runner
         timeout-minutes: 1
         env:

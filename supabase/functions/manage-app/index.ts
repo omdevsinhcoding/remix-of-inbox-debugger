@@ -88,7 +88,7 @@ function publicVpsConfig(value: any) {
   const ip = typeof v.ip === "string" && v.ip.trim() ? v.ip.trim() : "140.238.226.213";
   const runnerUrl = typeof v.runnerUrl === "string" && v.runnerUrl.trim() ? v.runnerUrl.trim().replace(/\/+$/g, "") : "";
   const rawMode = typeof v.mode === "string" ? v.mode.trim().toLowerCase() : "";
-  const mode: "auto" | "vps" | "github" = rawMode === "vps" || rawMode === "github" ? rawMode : "auto";
+  const mode: "vps" | "github" = rawMode === "github" ? "github" : "vps";
   return {
     ip,
     runnerUrl,
@@ -3118,8 +3118,7 @@ Deno.serve(async (originalReq) => {
       const { data } = await supabase.from("app_settings").select("value").eq("key", "vps_config").maybeSingle();
       const prev = publicVpsConfig(data?.value);
       const rawMode = String(params?.mode || "").trim().toLowerCase();
-      const nextMode: "auto" | "vps" | "github" =
-        rawMode === "vps" || rawMode === "github" ? rawMode : (prev as any).mode || "auto";
+      const nextMode: "vps" | "github" = rawMode === "github" ? "github" : "vps";
       const value = { ...prev, ip: nextIp, runnerUrl: nextRunnerUrl, mode: nextMode };
       const { error } = await supabase.from("app_settings").upsert({ key: "vps_config", value }, { onConflict: "key" });
       invalidateAllSettings();
@@ -3163,6 +3162,74 @@ Deno.serve(async (originalReq) => {
           message: e?.message || String(e),
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
+    }
+
+    if (action === "admin_test_github_runner") {
+      await requireAdmin(req);
+      const repo = Deno.env.get("GITHUB_REPO") || "";
+      const pat = Deno.env.get("GITHUB_DISPATCH_PAT") || "";
+      if (!repo || !pat) {
+        return new Response(JSON.stringify({ success: true, ok: false, status: 0, message: "GitHub repo/token is not configured." }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const testId = `tv-test-${Date.now()}`;
+      const headers = {
+        "Authorization": `Bearer ${pat}`,
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "Content-Type": "application/json",
+      };
+      const started = Date.now();
+      const dispatch = await fetch(`https://api.github.com/repos/${repo}/dispatches`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ event_type: "tv-login-test", client_payload: { test_id: testId, ts: Date.now() } }),
+        signal: AbortSignal.timeout(5000),
+      });
+      if (dispatch.status !== 204) {
+        const body = await dispatch.text().catch(() => "");
+        return new Response(JSON.stringify({ success: true, ok: false, status: dispatch.status, message: body.slice(0, 300) || `GitHub dispatch failed (${dispatch.status}).` }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      let found: any = null;
+      for (let i = 0; i < 6; i++) {
+        await new Promise((resolve) => setTimeout(resolve, i === 0 ? 700 : 1200));
+        const runs = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/tv-login.yml/runs?event=repository_dispatch&per_page=10`, {
+          method: "GET",
+          headers,
+          signal: AbortSignal.timeout(5000),
+        });
+        const text = await runs.text().catch(() => "");
+        let json: any = null;
+        try { json = text ? JSON.parse(text) : null; } catch {}
+        const list = Array.isArray(json?.workflow_runs) ? json.workflow_runs : [];
+        found = list.find((r: any) => {
+          const created = Date.parse(String(r?.created_at || ""));
+          return Number.isFinite(created) && created >= started - 30_000;
+        }) || null;
+        if (found && found.status !== "queued") break;
+      }
+
+      const elapsed = Date.now() - started;
+      if (!found) {
+        return new Response(JSON.stringify({ success: true, ok: true, status: 204, githubStatus: "dispatched", latencyMs: elapsed, message: "GitHub accepted the test dispatch. If it does not appear in Actions, check repo Actions permissions.", testId }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const ghStatus = String(found.status || "unknown");
+      const conclusion = String(found.conclusion || "");
+      const ok = ghStatus === "in_progress" || ghStatus === "completed";
+      const message = ghStatus === "queued"
+        ? "GitHub accepted it, but the workflow is still queued. Check Actions runner availability."
+        : ghStatus === "completed"
+          ? `GitHub workflow executed${conclusion ? ` (${conclusion})` : ""}.`
+          : "GitHub workflow started.";
+      return new Response(JSON.stringify({ success: true, ok, status: 204, githubStatus: ghStatus, conclusion, latencyMs: elapsed, runUrl: found.html_url || "", message, testId }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     if (action === "admin_reveal_session_signing_secret") {
@@ -5222,10 +5289,10 @@ Deno.serve(async (originalReq) => {
       }
     };
 
-    const dispatchGithubTvFallback = async (eventId: string, reason: string) => {
+    const dispatchGithubTvRunner = async (eventId: string, reason: string) => {
       const repo = Deno.env.get("GITHUB_REPO") || "";
       const pat = Deno.env.get("GITHUB_DISPATCH_PAT") || "";
-      if (!repo || !pat || !eventId) return { ok: false, diag: "github_not_configured", message: "Backup TV runner is not configured." };
+      if (!repo || !pat || !eventId) return { ok: false, diag: "github_not_configured", message: "GitHub Actions runner is not configured." };
       const ghRes = await fetch(`https://api.github.com/repos/${repo}/dispatches`, {
         method: "POST",
         headers: {
@@ -5238,10 +5305,10 @@ Deno.serve(async (originalReq) => {
         signal: AbortSignal.timeout(4000),
       });
       if (ghRes.status === 204) {
-        return { ok: true, diag: "github_backup_queued", message: "Fast runner is unavailable, so a backup runner has started." };
+        return { ok: true, diag: "github_queued", message: "GitHub Actions runner queued." };
       }
       const body = await ghRes.text().catch(() => "");
-      return { ok: false, diag: `github_${ghRes.status}`, message: body.slice(0, 180) || `Backup runner dispatch failed (${ghRes.status}).` };
+      return { ok: false, diag: `github_${ghRes.status}`, message: body.slice(0, 180) || `GitHub Actions dispatch failed (${ghRes.status}).` };
     };
 
 
@@ -5655,9 +5722,7 @@ Deno.serve(async (originalReq) => {
       await auditLog(supabase, "tv_code_submitted", user.id, user.id, { code_last4: code.slice(-4), imap_user: matched?.login_email || null, parent_imap: matched?.imap_user || null, cookies_available: cookiesAvailable }, ip);
 
 
-      // Fire-and-forget to a warm VPS runner first. If the VPS is offline/busy,
-      // queue the backup GitHub/self-hosted runner instead of leaving the user
-      // with an immediate runner_timeout.
+      // Exactly one runner is used: VPS mode OR GitHub Actions mode.
       let dispatched = false;
       let dispatchDiag = "skipped";
       let responseMessage: string | null = null;
@@ -5665,25 +5730,24 @@ Deno.serve(async (originalReq) => {
       if (cookiesAvailable && inserted?.id && matched?.login_email) {
         const { data: vpsRowForRunner } = await supabase.from("app_settings").select("value").eq("key", "vps_config").maybeSingle();
         const vpsCfgForRunner = publicVpsConfig(vpsRowForRunner?.value);
-        const runnerMode: "auto" | "vps" | "github" = (vpsCfgForRunner as any).mode || "auto";
+        const runnerMode: "vps" | "github" = (vpsCfgForRunner as any).mode === "github" ? "github" : "vps";
         const runnerBase = effectiveTvRunnerUrl(vpsRowForRunner?.value);
-        const canFallbackToGithub = runnerMode !== "vps";
-        const tryGithubBackup = async (reason: string) => canFallbackToGithub
-          ? await dispatchGithubTvFallback(inserted!.id, reason).catch((err) => ({ ok: false, diag: "github_exception", message: err instanceof Error ? err.message : String(err) }))
-          : { ok: false, diag: "vps_only_mode", message: "VPS-only mode is enabled; GitHub Actions backup is disabled." };
+        const tryGithubOnly = async (reason: string) => runnerMode === "github"
+          ? await dispatchGithubTvRunner(inserted!.id, reason).catch((err) => ({ ok: false, diag: "github_exception", message: err instanceof Error ? err.message : String(err) }))
+          : { ok: false, diag: "vps_only_mode", message: "VPS mode is selected, so GitHub Actions will not run." };
         try {
           console.log(`[tv_submit] runner mode=${runnerMode} url_present=${!!runnerBase}`);
 
           // Mode: github → skip VPS entirely, dispatch GitHub Actions.
           if (runnerMode === "github") {
-            const backup = await tryGithubBackup("mode_github");
+            const backup = await tryGithubOnly("mode_github");
             if (backup.ok) {
               dispatched = true;
               dispatchDiag = backup.diag;
               responseMessage = backup.message;
               await supabase.from("tv_login_events").update({ status: "queued", result: null, message: responseMessage }).eq("id", inserted.id);
             } else {
-              responseMessage = `Backup runner failed: ${backup.message}`;
+              responseMessage = `GitHub Actions failed: ${backup.message}`;
               await supabase.from("tv_login_events").update({ status: "error", result: "fast_runner_unavailable", message: responseMessage, finished_at: new Date().toISOString() }).eq("id", inserted.id);
             }
           } else if (runnerBase) {
@@ -5710,16 +5774,7 @@ Deno.serve(async (originalReq) => {
               responseMessage = runnerRes.status === 409
                 ? "Fast TV runner is busy right now. Try again in a few seconds."
                 : runnerReason || `Fast runner rejected the job (${runnerRes.status})`;
-              const backup = await tryGithubBackup(dispatchDiag);
-              if (backup.ok) {
-                dispatched = true;
-                dispatchDiag = backup.diag;
-                responseMessage = backup.message;
-                await supabase.from("tv_login_events").update({ status: "queued", result: null, message: responseMessage, github_run_url: null }).eq("id", inserted.id);
-              } else {
-                responseMessage = `${responseMessage} Backup failed: ${backup.message}`;
-                await supabase.from("tv_login_events").update({ status: "error", result: "fast_runner_unavailable", message: responseMessage, finished_at: new Date().toISOString() }).eq("id", inserted.id);
-              }
+              await supabase.from("tv_login_events").update({ status: "error", result: "fast_runner_unavailable", message: responseMessage, finished_at: new Date().toISOString() }).eq("id", inserted.id);
             } else {
               dispatchDiag = "fast_runner_running";
               responseMessage = runnerJson?.message || "Fast TV runner started.";
@@ -5729,16 +5784,8 @@ Deno.serve(async (originalReq) => {
             dispatchDiag = "no_config";
             const msg = "Fast TV runner URL is not configured.";
             console.log(`[tv_submit] ${msg}`);
-            const backup = await tryGithubBackup(dispatchDiag);
-            if (backup.ok) {
-              dispatched = true;
-              dispatchDiag = backup.diag;
-              responseMessage = backup.message;
-              await supabase.from("tv_login_events").update({ status: "queued", result: null, message: responseMessage }).eq("id", inserted.id);
-            } else {
-              responseMessage = `${msg} Backup failed: ${backup.message}`;
-              await supabase.from("tv_login_events").update({ status: "error", result: "fast_runner_unavailable", message: responseMessage, finished_at: new Date().toISOString() }).eq("id", inserted.id);
-            }
+            responseMessage = msg;
+            await supabase.from("tv_login_events").update({ status: "error", result: "fast_runner_unavailable", message: responseMessage, finished_at: new Date().toISOString() }).eq("id", inserted.id);
           }
         } catch (e) {
           dispatchDiag = "exception";
@@ -5747,16 +5794,7 @@ Deno.serve(async (originalReq) => {
           responseMessage = /aborted|timeout/i.test(em)
             ? "Fast TV runner did not accept the job quickly enough. Try again in a few seconds."
             : `Fast runner error: ${em}`;
-          const backup = await tryGithubBackup(dispatchDiag);
-          if (backup.ok) {
-            dispatched = true;
-            dispatchDiag = backup.diag;
-            responseMessage = backup.message;
-            await supabase.from("tv_login_events").update({ status: "queued", result: null, message: responseMessage }).eq("id", inserted.id);
-          } else {
-            responseMessage = `${responseMessage} Backup failed: ${backup.message}`;
-            await supabase.from("tv_login_events").update({ status: "error", result: "fast_runner_unavailable", message: responseMessage, finished_at: new Date().toISOString() }).eq("id", inserted.id);
-          }
+          await supabase.from("tv_login_events").update({ status: "error", result: "fast_runner_unavailable", message: responseMessage, finished_at: new Date().toISOString() }).eq("id", inserted.id);
         }
       }
 
@@ -5784,7 +5822,7 @@ Deno.serve(async (originalReq) => {
         cookies_available: cookiesAvailable,
         account_label: matched?.label || null,
         imap_user_masked: matched?.login_email ? maskTvEmail(matched.login_email) : null,
-        status: cookiesAvailable ? (dispatched ? "running" : "error") : "no_cookies",
+        status: cookiesAvailable ? (dispatchDiag.startsWith("github") ? "queued" : dispatched ? "running" : "error") : "no_cookies",
         message: responseMessage,
         dispatch_diag: dispatchDiag,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });

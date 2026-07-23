@@ -6830,13 +6830,14 @@ function AdminPanel() {
   const [savingLocationPolicy, setSavingLocationPolicy] = useState(false);
 
   // VPS Vault (admin-only metadata in app_settings; private key file lives in R2)
-  const [vpsCfg, setVpsCfg] = useState<{ ip: string; runnerUrl: string; mode: "auto" | "vps" | "github"; keyFilename: string; keyUploadedAt: string; keySize: number; hasKey: boolean }>({
-    ip: "140.238.226.213", runnerUrl: "", mode: "auto", keyFilename: "vps-private-key.pem", keyUploadedAt: "", keySize: 0, hasKey: false,
+  const [vpsCfg, setVpsCfg] = useState<{ ip: string; runnerUrl: string; mode: "vps" | "github"; keyFilename: string; keyUploadedAt: string; keySize: number; hasKey: boolean }>({
+    ip: "140.238.226.213", runnerUrl: "", mode: "vps", keyFilename: "vps-private-key.pem", keyUploadedAt: "", keySize: 0, hasKey: false,
   });
   const [vpsDeletingKey, setVpsDeletingKey] = useState(false);
-  const [vpsHelpOpen, setVpsHelpOpen] = useState(false);
   const [vpsTesting, setVpsTesting] = useState(false);
   const [vpsHealth, setVpsHealth] = useState<{ ok: boolean; status: number; latencyMs: number; message?: string; at: number } | null>(null);
+  const [githubTesting, setGithubTesting] = useState(false);
+  const [githubHealth, setGithubHealth] = useState<{ ok: boolean; status: string; latencyMs: number; message?: string; runUrl?: string; at: number } | null>(null);
   const [vpsLoading, setVpsLoading] = useState(false);
   const [vpsSaving, setVpsSaving] = useState(false);
   const [vpsUploading, setVpsUploading] = useState(false);
@@ -6859,7 +6860,7 @@ function AdminPanel() {
     setVpsCfg((prev) => ({
       ip: typeof vpsData.ip === "string" && vpsData.ip ? vpsData.ip : prev.ip,
       runnerUrl: typeof vpsData.runnerUrl === "string" ? vpsData.runnerUrl : prev.runnerUrl,
-      mode: vpsData.mode === "vps" || vpsData.mode === "github" ? vpsData.mode : "auto",
+      mode: vpsData.mode === "github" ? "github" : "vps",
       keyFilename: typeof vpsData.keyFilename === "string" && vpsData.keyFilename ? vpsData.keyFilename : prev.keyFilename,
       keyUploadedAt: typeof vpsData.keyUploadedAt === "string" ? vpsData.keyUploadedAt : "",
       keySize: Number(vpsData.keySize) || 0,
@@ -6896,6 +6897,31 @@ function AdminPanel() {
       notify.error("Test failed", { description: e?.message || String(e) });
     } finally {
       setVpsTesting(false);
+    }
+  };
+
+  const testGithubRunner = async () => {
+    if (githubTesting) return;
+    setGithubTesting(true);
+    try {
+      const res: any = await apiCall("manage-app", { action: "admin_test_github_runner" });
+      const h = {
+        ok: !!res?.ok,
+        status: String(res?.githubStatus || res?.status || "unknown"),
+        latencyMs: Number(res?.latencyMs) || 0,
+        message: res?.message || "",
+        runUrl: res?.runUrl || "",
+        at: Date.now(),
+      };
+      setGithubHealth(h);
+      if (h.ok) notify.success("GitHub runner test sent", { description: h.message || "Check GitHub Actions." });
+      else notify.error("GitHub runner problem", { description: h.message || "Check repo token and Actions runners." });
+    } catch (e: any) {
+      const msg = e?.message || String(e);
+      setGithubHealth({ ok: false, status: "error", latencyMs: 0, message: msg, at: Date.now() });
+      notify.error("GitHub test failed", { description: msg });
+    } finally {
+      setGithubTesting(false);
     }
   };
 
@@ -9803,12 +9829,12 @@ function AdminPanel() {
                 </span>
               </div>
 
-              {/* Runner mode selector — plain-English switch between VPS / GitHub Actions / Auto */}
-              <div className="px-5 sm:px-6 py-4 bg-gradient-to-br from-slate-50 to-white border-b border-slate-100">
-                <div className="flex items-center justify-between gap-3 mb-2">
+              {/* Runner mode selector — only one can run: VPS OR GitHub */}
+              <div className="px-5 sm:px-6 py-4 bg-slate-50 border-b border-slate-100">
+                <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
                   <div className="min-w-0">
-                    <p className="text-[13px] font-black text-slate-900">Runner mode</p>
-                    <p className="text-[11px] text-slate-500 mt-0.5">Which server actually opens Netflix and enters the TV code.</p>
+                    <p className="text-[14px] font-black text-slate-900">Choose one runner</p>
+                    <p className="text-[11px] text-slate-500 mt-0.5">Only the selected option runs. No automatic backup, no both mode.</p>
                   </div>
                   <button
                     type="button"
@@ -9817,14 +9843,13 @@ function AdminPanel() {
                     className="inline-flex h-8 items-center gap-1.5 rounded-full bg-slate-900 px-3 text-[11px] font-black text-white transition hover:bg-slate-800 disabled:opacity-60"
                   >
                     {vpsSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-                    Save mode
+                    Save choice
                   </button>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {([
-                    { id: "auto", title: "Auto (recommended)", desc: "Try VPS first, use GitHub Actions if VPS is down." },
-                    { id: "vps", title: "VPS only", desc: "Only use your VPS. Fails if VPS is offline." },
-                    { id: "github", title: "GitHub Actions only", desc: "Skip VPS. Free but slower (~45s)." },
+                    { id: "vps", title: "1. VPS", desc: "Fast path. Uses your IP + runner URL below." },
+                    { id: "github", title: "2. GitHub Actions", desc: "No VPS. Slower, but runs from GitHub Actions." },
                   ] as const).map((opt) => {
                     const active = vpsCfg.mode === opt.id;
                     return (
@@ -9832,43 +9857,52 @@ function AdminPanel() {
                         key={opt.id}
                         type="button"
                         onClick={() => setVpsCfg((p) => ({ ...p, mode: opt.id }))}
-                        className={`text-left rounded-xl border px-3 py-2.5 transition ${active ? "border-slate-900 bg-slate-900 text-white shadow-sm" : "border-slate-200 bg-white text-slate-800 hover:border-slate-300 hover:bg-slate-50"}`}
+                        className={`text-left rounded-xl border px-4 py-3 transition ${active ? "border-slate-900 bg-slate-900 text-white shadow-sm" : "border-slate-200 bg-white text-slate-800 hover:border-slate-300 hover:bg-slate-50"}`}
                       >
-                        <div className="text-[12px] font-black leading-tight">{opt.title}</div>
-                        <div className={`text-[10.5px] mt-1 leading-snug ${active ? "text-white/80" : "text-slate-500"}`}>{opt.desc}</div>
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="text-[13px] font-black leading-tight">{opt.title}</div>
+                          {active && <CheckCircle2 className="w-4 h-4 shrink-0" />}
+                        </div>
+                        <div className={`text-[11px] mt-1 leading-snug ${active ? "text-white/80" : "text-slate-500"}`}>{opt.desc}</div>
                       </button>
                     );
                   })}
                 </div>
-              </div>
-
-              {/* How to swap VPS — collapsible plain-English guide */}
-              <div className="px-5 sm:px-6 py-3 border-b border-slate-100 bg-white">
-                <button
-                  type="button"
-                  onClick={() => setVpsHelpOpen((v) => !v)}
-                  className="w-full flex items-center justify-between gap-3 text-left"
-                >
-                  <span className="text-[12px] font-black text-slate-900 inline-flex items-center gap-2">
-                    <Activity className="w-3.5 h-3.5 text-slate-500" />
-                    How to swap to a new VPS
-                  </span>
-                  <span className="text-[11px] font-bold text-slate-500">{vpsHelpOpen ? "Hide" : "Show"}</span>
-                </button>
-                {vpsHelpOpen && (
-                  <ol className="mt-3 space-y-2 text-[12px] text-slate-700 leading-relaxed">
-                    <li><span className="font-black text-slate-900">1.</span> Set up the new VPS and run the TV Fast Runner on port <code className="font-mono text-[11px] bg-slate-100 px-1 rounded">8788</code>.</li>
-                    <li><span className="font-black text-slate-900">2.</span> Change <b>VPS IP</b> and <b>TV Fast Runner URL</b> below, then click <b>Save</b>.</li>
-                    <li><span className="font-black text-slate-900">3.</span> Click <b>Delete</b> on the old private key, then <b>Upload</b> the new one. (Uploading a new key without deleting also replaces the old one automatically.)</li>
-                    <li><span className="font-black text-slate-900">4.</span> Click <b>Test</b> — you should see a green <b>Online</b> pill. Done.</li>
-                    <li className="text-slate-500">No VPS at all? Set <b>Runner mode</b> above to <b>GitHub Actions only</b>. It still works, just slower.</li>
-                  </ol>
+                {vpsCfg.mode === "github" && (
+                  <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-[12px] font-black text-slate-900">GitHub Actions test</p>
+                      <p className={`mt-0.5 text-[11px] font-bold ${githubHealth?.ok ? "text-emerald-700" : githubHealth ? "text-rose-700" : "text-slate-500"}`}>
+                        {githubHealth ? `${githubHealth.status}${githubHealth.latencyMs ? ` · ${githubHealth.latencyMs}ms` : ""}${githubHealth.message ? ` · ${githubHealth.message}` : ""}` : "Click Test GitHub. If it says queued, check GitHub Actions runners."}
+                      </p>
+                    </div>
+                    <div className="flex gap-2 shrink-0">
+                      {githubHealth?.runUrl && (
+                        <a href={githubHealth.runUrl} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-[12px] font-black text-slate-800 transition hover:bg-slate-50">
+                          <ExternalLink className="w-4 h-4" /> Open run
+                        </a>
+                      )}
+                      <button
+                        type="button"
+                        onClick={testGithubRunner}
+                        disabled={githubTesting || vpsLoading}
+                        className="inline-flex h-10 items-center justify-center gap-2 rounded-full bg-slate-900 px-4 text-[12px] font-black text-white transition hover:bg-slate-800 disabled:opacity-60"
+                      >
+                        {githubTesting ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4" />}
+                        Test GitHub
+                      </button>
+                    </div>
+                  </div>
                 )}
               </div>
 
+              {vpsCfg.mode === "vps" && <div className="px-5 sm:px-6 py-3 border-b border-slate-100 bg-white text-[12px] text-slate-600">
+                <span className="font-black text-slate-900">New VPS:</span> change IP + URL, upload new key, then click Test VPS. Uploading a new key replaces the old one.
+              </div>}
+
               <div className="divide-y divide-slate-100">
 
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center px-5 sm:px-6 py-4 hover:bg-slate-50/60 transition-colors">
+                {vpsCfg.mode === "vps" && <div className="flex flex-col gap-3 sm:flex-row sm:items-center px-5 sm:px-6 py-4 hover:bg-slate-50/60 transition-colors">
                   <div className="w-10 h-10 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
                     <Globe className="w-5 h-5" />
                   </div>
@@ -9901,9 +9935,9 @@ function AdminPanel() {
                       Copy IP
                     </button>
                   </div>
-                </div>
+                </div>}
 
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center px-5 sm:px-6 py-4 hover:bg-slate-50/60 transition-colors">
+                {vpsCfg.mode === "vps" && <div className="flex flex-col gap-3 sm:flex-row sm:items-center px-5 sm:px-6 py-4 hover:bg-slate-50/60 transition-colors">
                   <div className="w-10 h-10 rounded-full bg-violet-50 text-violet-600 flex items-center justify-center shrink-0">
                     <Zap className="w-5 h-5" />
                   </div>
@@ -9940,13 +9974,13 @@ function AdminPanel() {
                       className="inline-flex h-10 items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-[12px] font-black text-slate-800 transition hover:bg-slate-50 disabled:opacity-60"
                     >
                       {vpsTesting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Activity className="w-4 h-4" />}
-                      Test
+                      Test VPS
                     </button>
                   </div>
-                </div>
+                </div>}
 
 
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center px-5 sm:px-6 py-4 hover:bg-slate-50/60 transition-colors">
+                {vpsCfg.mode === "vps" && <div className="flex flex-col gap-3 sm:flex-row sm:items-center px-5 sm:px-6 py-4 hover:bg-slate-50/60 transition-colors">
                   <div className="w-10 h-10 rounded-full bg-orange-50 text-orange-600 flex items-center justify-center shrink-0">
                     <KeyRound className="w-5 h-5" />
                   </div>
@@ -9994,7 +10028,7 @@ function AdminPanel() {
                       onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadVpsKeyFile(f); }}
                     />
                   </div>
-                </div>
+                </div>}
               </div>
             </section>
           </div>
