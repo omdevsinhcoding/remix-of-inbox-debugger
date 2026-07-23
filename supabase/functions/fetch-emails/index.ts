@@ -905,11 +905,11 @@ Deno.serve(async (originalReq) => {
     let filterPasswordResets = false;
     let filterAccountUpdates = false;
     try {
-      const { data: filterData } = await supabase.from("app_settings").select("value").eq("key", "email_filters").single();
-      if (filterData?.value) {
-        if (filterData.value.showSignInCodes === false) filterSignInCodes = true;
-        if (filterData.value.showPasswordResets === false) filterPasswordResets = true;
-        if (filterData.value.showAccountUpdates === false) filterAccountUpdates = true;
+      const filterValue: any = await getSetting(supabase, "email_filters");
+      if (filterValue) {
+        if (filterValue.showSignInCodes === false) filterSignInCodes = true;
+        if (filterValue.showPasswordResets === false) filterPasswordResets = true;
+        if (filterValue.showAccountUpdates === false) filterAccountUpdates = true;
       }
     } catch {}
 
@@ -980,7 +980,10 @@ Deno.serve(async (originalReq) => {
       if (session.role !== "admin" && accountFilter && accountFilter.length === 0) {
         return json({ total: 0, error: null });
       }
-      let query = supabase.from("cached_emails").select("id", { count: "exact", head: true }).eq("destroyed", false);
+      // count:'planned' uses pg_class.reltuples — O(1), no table scan, no
+      // shared-buffer thrash. Slightly stale (updated by autovacuum) but
+      // exact accuracy is not required for the header badge.
+      let query = supabase.from("cached_emails").select("id", { count: "planned", head: true }).eq("destroyed", false);
       if (accountFilter && accountFilter.length > 0) query = query.in("account_label", accountFilter);
       if (session.role !== "admin") {
         const vis = await getEmailVisibility(supabase);
