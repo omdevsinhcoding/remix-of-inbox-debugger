@@ -150,7 +150,7 @@ export function WorkflowChooser({ features, user, lastView, onPick, onLogout, au
             )}
           </div>
 
-          <div className="grid gap-4 sm:gap-5 sm:grid-cols-3">
+          <div className={`grid gap-4 sm:gap-5 mx-auto ${items.length === 1 ? "max-w-sm" : items.length === 2 ? "sm:grid-cols-2 max-w-2xl" : "sm:grid-cols-3"}`}>
             {items.map(({ key, title, sub, Icon, accent, tint }, i) => {
               const isLast = remembered === key;
               return (
