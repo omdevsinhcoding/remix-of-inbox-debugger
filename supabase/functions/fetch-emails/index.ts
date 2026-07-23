@@ -271,8 +271,7 @@ function applyEmailFilters(emails: any[], filterSignInCodes: boolean, filterPass
 
 async function getEmailVisibility(supabase: any): Promise<{ enabled: boolean; days: number } | null> {
   try {
-    const { data } = await supabase.from("app_settings").select("value").eq("key", "email_visibility").maybeSingle();
-    const v = data?.value;
+    const v: any = await getSetting(supabase, "email_visibility");
     if (v && v.enabled === true && Number(v.days) > 0) return { enabled: true, days: Number(v.days) };
   } catch {}
   return null;
@@ -288,18 +287,12 @@ function escapeHtml(input: string) {
   return input.replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch] || ch));
 }
 
-// Strict Netflix sender check — only emails FROM a netflix.com address (or subdomain)
-// count as Netflix mail. Prevents third-party mails (e.g. Reddit threads that mention
-// "netflix" in the subject) from ever entering the cache.
 function isNetflixFrom(fromRaw: string | null | undefined): boolean {
   if (!fromRaw) return false;
   const s = String(fromRaw).toLowerCase();
   return /@([a-z0-9-]+\.)*netflix\.com\b/.test(s);
 }
 
-// Optional Netflix marketing/promo blocklist. OFF by default — all official
-// Netflix mail (including "new movie/series" announcements) is shown. Admin can
-// enable blocking via the admin panel (app_settings key "netflix_promo").
 const NETFLIX_PROMO_SUBJECTS = [
   "unlimited series", "ready to watch", "finish signing up", "welcome to netflix",
   "new on netflix", "recommended for you", "top 10", "trending now",
@@ -310,19 +303,15 @@ function isNetflixPromo(subject: string | null | undefined): boolean {
   const s = (subject || "").toLowerCase();
   return NETFLIX_PROMO_SUBJECTS.some((kw) => s.includes(kw));
 }
-// Cached per-invocation flag so we don't hit app_settings for every email row.
-let _blockPromoCache: { value: boolean; at: number } | null = null;
 async function shouldBlockPromo(supabase: any): Promise<boolean> {
-  if (_blockPromoCache && Date.now() - _blockPromoCache.at < 60_000) return _blockPromoCache.value;
   try {
-    const { data } = await supabase.from("app_settings").select("value").eq("key", "netflix_promo").maybeSingle();
-    const block = data?.value?.block === true;
-    _blockPromoCache = { value: block, at: Date.now() };
-    return block;
+    const v: any = await getSetting(supabase, "netflix_promo");
+    return v?.block === true;
   } catch {
     return false;
   }
 }
+
 
 function decodeQuotedPrintable(input: string) {
   return input
