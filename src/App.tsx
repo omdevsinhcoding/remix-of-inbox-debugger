@@ -7056,8 +7056,23 @@ function AdminPanel() {
           return { labels, primary };
         },
       },
+      {
+        key: AdminSliceKeys.vps,
+        fetcher: async () => {
+          const r: any = await apiCall("manage-app", { action: "admin_get_vps_config" });
+          return (r?.value || {}) as any;
+        },
+      },
+      {
+        key: AdminSliceKeys.notifications,
+        fetcher: async () => {
+          const r: any = await apiCall("manage-app", { action: "admin_list_notifications" });
+          return Array.isArray(r?.notifications) ? r.notifications : [];
+        },
+      },
     ]);
   }, []);
+
 
 
   const availableAccounts = useMemo<string[]>(() => {
