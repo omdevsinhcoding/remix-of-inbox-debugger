@@ -21,8 +21,10 @@ export function countEnabled(f: UserFeatures) {
 }
 
 const VIEW_KEY = "nf.view.v1";
+const VIEW_FEATURES_KEY = "nf.view.features.v1";
 
 export function useWorkflowView(user: any, features: UserFeatures) {
+  const featureSignature = `${features.gmail ? "1" : "0"}${features.tv ? "1" : "0"}${features.link ? "1" : "0"}`;
   const pickDefault = (): WorkflowView | null => {
     if (features.gmail) return "gmail";
     if (features.tv) return "tv";
@@ -31,8 +33,9 @@ export function useWorkflowView(user: any, features: UserFeatures) {
   };
   const [view, setView] = useState<WorkflowView | null>(() => {
     try {
+      const storedSig = sessionStorage.getItem(VIEW_FEATURES_KEY);
       const stored = sessionStorage.getItem(VIEW_KEY) as WorkflowView | null;
-      if (stored && features[stored]) return stored;
+      if (storedSig === featureSignature && stored && features[stored]) return stored;
     } catch {}
     // Show the welcome/chooser whenever the user has 2+ workflows enabled.
     // With just 1 workflow, we auto-open it (no need to ask).
@@ -40,11 +43,18 @@ export function useWorkflowView(user: any, features: UserFeatures) {
     return null;
   });
   useEffect(() => {
-    if (view) { try { sessionStorage.setItem(VIEW_KEY, view); } catch {} }
-  }, [view]);
+    if (view) { try { sessionStorage.setItem(VIEW_KEY, view); sessionStorage.setItem(VIEW_FEATURES_KEY, featureSignature); } catch {} }
+  }, [view, featureSignature]);
   useEffect(() => {
     if (view && !features[view]) setView(null);
-  }, [features, view]);
+    try {
+      const storedSig = sessionStorage.getItem(VIEW_FEATURES_KEY);
+      if (storedSig && storedSig !== featureSignature && countEnabled(features) >= 2) {
+        sessionStorage.removeItem(VIEW_KEY);
+        setView(null);
+      }
+    } catch {}
+  }, [features, view, featureSignature]);
   const setChoice = useCallback((v: WorkflowView) => setView(v), []);
   const clearChoice = useCallback(() => setView(null), []);
   return { view, setChoice, clearChoice };
