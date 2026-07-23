@@ -5291,22 +5291,20 @@ function AdminAuthPage() {
 
 // ==================== ADMIN PANEL ====================
 function LoginEventsPanel() {
-  const [events, setEvents] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState<string | null>(null);
+  // SWR: paints instantly from cache, refreshes silently in background.
+  // Search re-fetches with a new key so previous searches stay cached.
+  const sliceKey = React.useMemo(() => `loginEvents:${search || "__all__"}`, [search]);
+  const fetcher = React.useCallback(async () => {
+    const res: any = await apiCall("manage-app", { action: "list_login_events", limit: 300, search: search || undefined });
+    return (res?.events || []) as any[];
+  }, [search]);
+  const { data, refreshing, hasData, refresh } = useAdminSlice<any[]>(sliceKey, fetcher);
+  const events = data || [];
+  const loading = !hasData && refreshing; // only block-render on true cold start
+  const load = () => refresh(true);
 
-  const load = async () => {
-    setLoading(true);
-    try {
-      const res: any = await apiCall("manage-app", { action: "list_login_events", limit: 300, search: search || undefined });
-
-      setEvents(res?.events || []);
-    } catch (e: any) {
-      notify.error(e?.message || "Failed to load login events");
-    } finally { setLoading(false); }
-  };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
 
   const exportCsv = () => {
     if (!events.length) return;
