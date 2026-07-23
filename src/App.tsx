@@ -2834,6 +2834,7 @@ function TvSignInPage() {
                   ))}
                 </div>
 
+                {!terminal && (
                 <button onClick={submit}
                   disabled={!isComplete || status !== "idle"}
                   className={`mt-8 w-full h-12 xl:h-14 2xl:h-16 rounded-xl xl:rounded-2xl font-black text-sm xl:text-base 2xl:text-lg tracking-wide transition-all active:scale-[0.98]
@@ -2845,12 +2846,9 @@ function TvSignInPage() {
                     : status === "queued" ? (<span>Preparing secure runner…</span>)
                     : status === "running" || status === "in_progress" ? (<span>Signing in to Netflix on your TV…</span>)
                     : status === "success" ? (<span className="inline-flex items-center gap-2 text-emerald-700">✓ TV signed in</span>)
-                    : status === "invalid_code" ? (<span>Invalid code</span>)
-                    : status === "cookies_expired" ? (<span>Cookies expired</span>)
-                    : status === "no_cookies" ? (<span>No cookies available</span>)
-                    : status === "error" || status === "timeout" ? (<span>Try again</span>)
                     : ("Sign in on TV")}
                 </button>
+                )}
 
                 {status === "queued" ? (
                   <div className="mt-4 rounded-2xl bg-sky-50 border border-sky-200 px-4 py-3 text-center">
