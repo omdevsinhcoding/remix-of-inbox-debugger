@@ -1,7 +1,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { authenticator } from "npm:otplib@12.0.1";
 import { readRequest, maybeEncryptResponse, EncryptedRequestContext, PlaintextRejectedError, plaintextRejectedResponse, TransportError, transportErrorResponse } from "../_shared/crypto.ts";
-// build-marker: public bootstrap + admin toggles carry workflow features v13 (2026-07-23)
+// build-marker: direct link Python-compatible nftoken mint + schema compat v14 (2026-07-23)
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -4883,6 +4883,103 @@ Deno.serve(async (originalReq) => {
 
       try { return countJson(); } catch (_) {}
       return lines.length || (text ? 1 : 0);
+    };
+
+    const DIRECT_LINK_COOKIE_KEYS = ["NetflixId", "SecureNetflixId", "nfvdid", "OptanonConsent"];
+    const decodeCookieValue = (value: unknown) => {
+      const s = String(value || "");
+      if (!s || !s.includes("%")) return s;
+      try { return decodeURIComponent(s); } catch { return s; }
+    };
+    const extractNetflixIdFromStoredCookies = (raw: unknown): string => {
+      const text = String(raw || "").trim();
+      if (!text) return "";
+      const cookieDict: Record<string, string> = {};
+
+      for (const rawLine of text.split(/\r?\n/)) {
+        const line = rawLine.trim().replace(/^#HttpOnly_/i, "");
+        if (!line || line.startsWith("#")) continue;
+        const parts = line.split("\t");
+        if (parts.length >= 7 && DIRECT_LINK_COOKIE_KEYS.includes(parts[5])) {
+          cookieDict[parts[5]] = decodeCookieValue(parts[6]);
+        }
+      }
+
+      try {
+        const data = JSON.parse(text);
+        const addCookie = (cookie: any) => {
+          const name = String(cookie?.name ?? cookie?.Name ?? "");
+          const value = cookie?.value ?? cookie?.Value;
+          if (DIRECT_LINK_COOKIE_KEYS.includes(name) && typeof value === "string") cookieDict[name] = decodeCookieValue(value);
+        };
+        if (Array.isArray(data)) data.forEach(addCookie);
+        else if (data && typeof data === "object") {
+          for (const key of DIRECT_LINK_COOKIE_KEYS) {
+            if (typeof data[key] === "string") cookieDict[key] = decodeCookieValue(data[key]);
+          }
+          if (Array.isArray(data.cookies)) data.cookies.forEach(addCookie);
+        }
+      } catch (_) {}
+
+      for (const key of DIRECT_LINK_COOKIE_KEYS) {
+        if (cookieDict[key]) continue;
+        const match = new RegExp(`(?<!\\w)${key}=([^;,\\s]+)`, "i").exec(text);
+        if (match?.[1]) cookieDict[key] = decodeCookieValue(match[1]);
+      }
+
+      return cookieDict.NetflixId || "";
+    };
+
+    const NETFLIX_DIRECT_LINK_QUERY: Record<string, string> = {
+      appVersion: "15.48.1",
+      config: '{"gamesInTrailersEnabled":"false","isTrailersEvidenceEnabled":"false","cdsMyListSortEnabled":"true","kidsBillboardEnabled":"true","addHorizontalBoxArtToVideoSummariesEnabled":"false","skOverlayTestEnabled":"false","homeFeedTestTVMovieListsEnabled":"false","baselineOnIpadEnabled":"true","trailersVideoIdLoggingFixEnabled":"true","postPlayPreviewsEnabled":"false","bypassContextualAssetsEnabled":"false","roarEnabled":"true","useSeason1AltLabelEnabled":"false","disableCDSSearchPaginationSectionKinds":["searchVideoCarousel"],"cdsSearchHorizontalPaginationEnabled":"true","searchPreQueryGamesEnabled":"true","kidsMyListEnabled":"true","billboardEnabled":"true","useCDSGalleryEnabled":"true","contentWarningEnabled":"true","videosInPopularGamesEnabled":"true","avifFormatEnabled":"false","sharksEnabled":"true"}',
+      device_type: "NFAPPL-02-",
+      esn: "NFAPPL-02-IPHONE8%3D1-PXA-02026U9VV5O8AUKEAEO8PUJETCGDD4PQRI9DEB3MDLEMD0EACM4CS78LMD334MN3MQ3NMJ8SU9O9MVGS6BJCURM1PH1MUTGDPF4S4200",
+      idiom: "phone",
+      iosVersion: "15.8.5",
+      isTablet: "false",
+      languages: "en-US",
+      locale: "en-US",
+      maxDeviceWidth: "375",
+      model: "saget",
+      modelType: "IPHONE8-1",
+      odpAware: "true",
+      path: '["account","token","default"]',
+      pathFormat: "graph",
+      pixelDensity: "2.0",
+      progressive: "false",
+      responseFormat: "json",
+    };
+
+    const NETFLIX_DIRECT_LINK_HEADERS: Record<string, string> = {
+      "User-Agent": "Argo/15.48.1 (iPhone; iOS 15.8.5; Scale/2.00)",
+      "x-netflix.request.attempt": "1",
+      "x-netflix.request.client.user.guid": "A4CS633D7VCBPE2GPK2HL4EKOE",
+      "x-netflix.context.profile-guid": "A4CS633D7VCBPE2GPK2HL4EKOE",
+      "x-netflix.request.routing": '{"path":"/nq/mobile/nqios/~15.48.0/user","control_tag":"iosui_argo"}',
+      "x-netflix.context.app-version": "15.48.1",
+      "x-netflix.argo.translated": "true",
+      "x-netflix.context.form-factor": "phone",
+      "x-netflix.context.sdk-version": "2012.4",
+      "x-netflix.client.appversion": "15.48.1",
+      "x-netflix.context.max-device-width": "375",
+      "x-netflix.context.ab-tests": "",
+      "x-netflix.tracing.cl.useractionid": "4DC655F2-9C3C-4343-8229-CA1B003C3053",
+      "x-netflix.client.type": "argo",
+      "x-netflix.client.ftl.esn": "NFAPPL-02-IPHONE8=1-PXA-02026U9VV5O8AUKEAEO8PUJETCGDD4PQRI9DEB3MDLEMD0EACM4CS78LMD334MN3MQ3NMJ8SU9O9MVGS6BJCURM1PH1MUTGDPF4S4200",
+      "x-netflix.context.locales": "en-US",
+      "x-netflix.context.top-level-uuid": "90AFE39F-ADF1-4D8A-B33E-528730990FE3",
+      "x-netflix.client.iosversion": "15.8.5",
+      "accept-language": "en-US;q=1",
+      "x-netflix.argo.abtests": "",
+      "x-netflix.context.os-version": "15.8.5",
+      "x-netflix.request.client.context": '{"appState":"foreground"}',
+      "x-netflix.context.ui-flavor": "argo",
+      "x-netflix.argo.nfnsm": "9",
+      "x-netflix.context.pixel-density": "2.0",
+      "x-netflix.request.toplevel.uuid": "90AFE39F-ADF1-4D8A-B33E-528730990FE3",
+      "x-netflix.request.client.timezoneid": "Asia/Dhaka",
+      "Accept": "application/json",
     };
 
     const maskTvEmail = (em: string) => {
