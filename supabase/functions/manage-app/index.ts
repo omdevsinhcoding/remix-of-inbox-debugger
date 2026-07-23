@@ -4962,7 +4962,6 @@ Deno.serve(async (originalReq) => {
       "x-netflix.context.pixel-density": "2.0",
       "x-netflix.request.toplevel.uuid": "90AFE39F-ADF1-4D8A-B33E-528730990FE3",
       "x-netflix.request.client.timezoneid": "Asia/Dhaka",
-      "Accept": "application/json",
     };
 
     const maskTvEmail = (em: string) => {
