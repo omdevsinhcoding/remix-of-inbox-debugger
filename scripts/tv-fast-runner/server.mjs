@@ -117,11 +117,13 @@ function parseCookies(raw) {
 async function runTvJob(eventId, runnerToken) {
   const started = now();
   const mark = {};
+  let stage = "starting";
   const elapsed = () => now() - started;
   const remaining = () => Math.max(1, MAX_MS - elapsed());
   lastJob = { eventId, startedAt: new Date().toISOString(), status: "running" };
 
   try {
+    stage = "fetch_job";
     const job = await postManageApp(
       { action: "tv_login_fetch_job", event_id: eventId, runner_token: runnerToken, run_url: "fast-runner" },
       Math.min(4500, remaining()),
@@ -136,6 +138,7 @@ async function runTvJob(eventId, runnerToken) {
     const browser = await ensureBrowser();
     mark.browser = elapsed();
     const context = await browser.newContext({ userAgent: USER_AGENT, viewport: { width: 1280, height: 800 }, locale: "en-US", javaScriptEnabled: true });
+    stage = "inject_cookies";
     await context.addCookies(cookies);
     const page = await context.newPage();
     await page.route("**/*", (route) => {
@@ -147,11 +150,13 @@ async function runTvJob(eventId, runnerToken) {
       return route.continue();
     });
 
-    await page.goto("https://www.netflix.com/tv8", { waitUntil: "domcontentloaded", timeout: Math.min(3200, remaining()) });
+    stage = "open_netflix_tv8";
+    await page.goto("https://www.netflix.com/tv8", { waitUntil: "domcontentloaded", timeout: Math.min(4200, remaining()) });
     mark.nav = elapsed();
 
+    stage = "wait_code_input";
     const digitInputs = page.locator('input.pin-number-input, input[aria-label^="PIN entry input"], input[type="tel"]');
-    const hasCodeInput = await digitInputs.first().waitFor({ timeout: Math.min(1800, remaining()) }).then(() => true).catch(() => false);
+    const hasCodeInput = await digitInputs.first().waitFor({ timeout: Math.min(2400, remaining()) }).then(() => true).catch(() => false);
     if (!hasCodeInput) {
       const bodyText = (await page.locator("body").innerText().catch(() => "")).toLowerCase();
       const url = page.url();
@@ -167,6 +172,7 @@ async function runTvJob(eventId, runnerToken) {
       return;
     }
     const count = await digitInputs.count();
+    stage = "fill_code";
     if (count >= 8) {
       for (let i = 0; i < 8; i++) await digitInputs.nth(i).fill(code[i], { timeout: Math.min(500, remaining()) });
     } else {
@@ -174,6 +180,7 @@ async function runTvJob(eventId, runnerToken) {
     }
     mark.fill = elapsed();
 
+    stage = "submit_code";
     await page.waitForFunction(() => {
       const buttons = Array.from(document.querySelectorAll("button"));
       const btn = buttons.find((b) => /enter code|continue/i.test(b.textContent || "") || b.classList.contains("tvsignup-continue-button"));
@@ -182,8 +189,9 @@ async function runTvJob(eventId, runnerToken) {
     await page.locator('button.tvsignup-continue-button, button:has-text("Enter code"), button:has-text("Continue")').first().click({ timeout: Math.min(1000, remaining()) });
     mark.submit = elapsed();
 
+    stage = "wait_netflix_result";
     let bodyText = "";
-    const deadline = now() + Math.min(2800, remaining());
+    const deadline = now() + Math.min(4200, remaining());
     while (now() < deadline) {
       await page.waitForTimeout(180);
       bodyText = (await page.locator("body").innerText().catch(() => "")).toLowerCase();
@@ -209,7 +217,9 @@ async function runTvJob(eventId, runnerToken) {
     const message = e instanceof Error ? e.message : String(e);
     const timing = `timing total=${elapsed()}ms`;
     const result = /aborted due to timeout|timeout/i.test(message) ? "runner_timeout" : "runner_error";
-    const userMessage = result === "runner_timeout" ? "Fast runner timed out before Netflix returned a final state" : message;
+    const userMessage = result === "runner_timeout"
+      ? `Fast runner timed out during ${stage.replace(/_/g, " ")}`
+      : `${message} (stage: ${stage})`;
     await report(eventId, runnerToken, { status: "error", result, message: `${userMessage} | ${timing}` }).catch((err) => console.error("report failed", err));
     lastJob = { ...lastJob, status: "error", result, finishedAt: new Date().toISOString(), error: userMessage, timing };
   } finally {
