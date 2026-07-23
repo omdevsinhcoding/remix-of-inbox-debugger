@@ -8446,20 +8446,21 @@ function AdminPanel() {
                             })()}
                             {u.role !== "admin" && (() => {
                               const f = (u as any).features || { gmail: true, tv: true, link: false };
-                              const pill = (key: "gmail" | "link", label: string, Icon: any, onCls: string, offCls: string) => {
+                              const pill = (key: "gmail" | "link", label: string, Icon: any, onCls: string) => {
                                 const on = key === "link" ? f[key] === true : f[key] !== false;
+                                const offCls = "bg-white text-slate-500 border-dashed border-slate-300 hover:bg-slate-50";
                                 return (
                                   <button key={key} type="button"
                                     onClick={(e) => { e.stopPropagation(); toggleUserFeature(u, key); }}
                                     title={`${label} workflow — tap to ${on ? "disable" : "enable"}`}
-                                    className={`inline-flex items-center gap-1 text-[9px] font-black px-1.5 py-0.5 rounded border transition-all active:scale-95 ${on ? onCls : `${offCls} line-through`}`}>
-                                    <Icon className="w-2.5 h-2.5" /> {label}
+                                    className={`inline-flex items-center gap-1 text-[9px] font-black px-1.5 py-0.5 rounded border transition-all active:scale-95 ${on ? onCls : offCls}`}>
+                                    <Icon className="w-2.5 h-2.5" /> {label} {on ? "ON" : "OFF"}
                                   </button>
                                 );
                               };
                               return <>
-                                {pill("gmail", "GMAIL", Mail, "bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100", "bg-slate-100 text-slate-400 border-slate-200 hover:bg-slate-200")}
-                                {pill("link", "LINK", LinkIcon, "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100", "bg-slate-100 text-slate-400 border-slate-200 hover:bg-slate-200")}
+                                {pill("gmail", "GMAIL", Mail, "bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100")}
+                                {pill("link", "LINK", LinkIcon, "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100")}
                               </>;
                             })()}
                             {u.assignedAccounts && u.assignedAccounts.length > 0 && u.assignedAccounts.map((a: string) => (
@@ -12767,12 +12768,26 @@ function EmailViewer() {
       </header>
 
 
-      {workflowView === "link" && userFeatures.link ? (
-        <main className="max-w-6xl mx-auto"><DirectLinkView apiCall={apiCall} notify={notify} /></main>
-      ) : workflowView === "tv" ? (
-        <main className="max-w-6xl mx-auto"><TvSignInPage /></main>
-      ) : (
-      <main className="max-w-6xl mx-auto px-2 sm:px-4 h-[calc(100vh-3.5rem)] sm:h-[calc(100vh-4rem)] overflow-hidden">
+      <AnimatePresence mode="wait" initial={false}>
+        {workflowView === "link" && userFeatures.link ? (
+          <motion.main key="wf-link" className="max-w-6xl mx-auto"
+            initial={{ opacity: 0, y: 12, filter: "blur(6px)" }}
+            animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+            exit={{ opacity: 0, y: -12, filter: "blur(6px)" }}
+            transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}>
+            <DirectLinkView apiCall={apiCall} notify={notify} />
+          </motion.main>
+        ) : workflowView === "tv" ? (
+          <motion.main key="wf-tv" className="max-w-6xl mx-auto"
+            initial={{ opacity: 0, y: 12, filter: "blur(6px)" }}
+            animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+            exit={{ opacity: 0, y: -12, filter: "blur(6px)" }}
+            transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}>
+            <TvSignInPage />
+          </motion.main>
+        ) : (
+      <motion.main key="wf-gmail" className="max-w-6xl mx-auto px-2 sm:px-4 h-[calc(100vh-3.5rem)] sm:h-[calc(100vh-4rem)] overflow-hidden"
+        initial={{ opacity: 0, y: 12, filter: "blur(6px)" }} animate={{ opacity: 1, y: 0, filter: "blur(0px)" }} exit={{ opacity: 0, y: -12, filter: "blur(6px)" }} transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}>
         <div className="grid grid-cols-1 md:grid-cols-12 gap-4 sm:gap-8 h-full py-2 sm:py-4">
           <div className={`${selectedEmail ? "hidden md:block" : "block"} md:col-span-5 xl:col-span-4 flex flex-col overflow-hidden h-full`}>
             <section className="flex-1 overflow-y-auto min-h-0 flex flex-col">
@@ -12915,8 +12930,9 @@ function EmailViewer() {
             )}
           </div>
         </div>
-      </main>
+      </motion.main>
       )}
+      </AnimatePresence>
 
 
       {/* ============ CHANGE PASSWORD MODAL ============ */}
