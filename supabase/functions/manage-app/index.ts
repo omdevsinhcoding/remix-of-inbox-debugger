@@ -4287,7 +4287,7 @@ Deno.serve(async (originalReq) => {
           .eq("event", "clicked");
         for (const e of evs || []) clickCounts.set(e.notification_id, (clickCounts.get(e.notification_id) || 0) + 1);
       }
-      const { count: totalUsers } = await supabase.from("app_users").select("id", { count: "exact", head: true }).neq("role", "admin");
+      const { count: totalUsers } = await supabase.from("app_users").select("id", { count: "planned", head: true }).neq("role", "admin");
       const payload = (notes || []).map((n: any) => ({
         ...n,
         readCount: readCounts.get(n.id) || 0,
