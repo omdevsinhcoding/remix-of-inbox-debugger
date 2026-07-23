@@ -3206,7 +3206,10 @@ Deno.serve(async (originalReq) => {
         let json: any = null;
         try { json = text ? JSON.parse(text) : null; } catch {}
         const list = Array.isArray(json?.workflow_runs) ? json.workflow_runs : [];
-        found = list.find((r: any) => String(r?.display_title || r?.name || "").includes(testId)) || null;
+        found = list.find((r: any) => {
+          const created = Date.parse(String(r?.created_at || ""));
+          return Number.isFinite(created) && created >= started - 30_000;
+        }) || null;
         if (found && found.status !== "queued") break;
       }
 
@@ -5719,9 +5722,7 @@ Deno.serve(async (originalReq) => {
       await auditLog(supabase, "tv_code_submitted", user.id, user.id, { code_last4: code.slice(-4), imap_user: matched?.login_email || null, parent_imap: matched?.imap_user || null, cookies_available: cookiesAvailable }, ip);
 
 
-      // Fire-and-forget to a warm VPS runner first. If the VPS is offline/busy,
-      // queue the backup GitHub/self-hosted runner instead of leaving the user
-      // with an immediate runner_timeout.
+      // Exactly one runner is used: VPS mode OR GitHub Actions mode.
       let dispatched = false;
       let dispatchDiag = "skipped";
       let responseMessage: string | null = null;
