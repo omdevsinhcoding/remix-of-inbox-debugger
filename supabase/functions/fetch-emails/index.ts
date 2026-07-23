@@ -400,7 +400,16 @@ async function readCache(supabase: any, accountFilter: string[] | null, filterSi
   const safeLimit = clampLimit(limit, 500, session?.role === "admin" ? 500 : 200);
   // Non-admin with zero assigned accounts -> nothing visible.
   if (accountFilter && accountFilter.length === 0 && session && session.role !== "admin") return [];
-  let query = supabase.from("cached_emails").select("*").eq("destroyed", false).order("date", { ascending: false }).limit(safeLimit);
+  // Narrow SELECT: `html` (largest column — up to ~100KB per Netflix mail) is
+  // excluded from list responses. Clients fetch html lazily via `email-html`
+  // when opening a single mail. This alone cuts DB egress + shared-buffer IO
+  // on the /cache path by ~95% at 200 rows per call.
+  let query = supabase
+    .from("cached_emails")
+    .select("id, subject, from_address, to_address, date, preview, otp, account_label, cached_at")
+    .eq("destroyed", false)
+    .order("date", { ascending: false })
+    .limit(safeLimit);
   if (accountFilter && accountFilter.length > 0) query = query.in("account_label", accountFilter);
   if (session && session.role !== "admin") {
     const vis = await getEmailVisibility(supabase);
@@ -416,23 +425,21 @@ async function readCache(supabase: any, accountFilter: string[] | null, filterSi
     id: e.id,
     subject: e.subject,
     from: e.from_address,
-    // Keep raw to_address for the recipient scoping filter just below; we mask
-    // it after filtering, before it goes out to the client.
     to: e.to_address,
     date: e.date,
     otp: e.otp,
     preview: redactEmailsText(e.preview),
-    html: redactEmailsHtml(e.html),
+    // html intentionally omitted — lazy-loaded via email-html endpoint.
     account_label: e.account_label,
     cached_at: e.cached_at,
   }));
   let scopedEmails = emails;
   if (session && session.role !== "admin") {
     try {
-      const { data: accountsData } = await supabase.from("app_settings").select("value").eq("key", "email_accounts").maybeSingle();
+      const accountsValue = await getSetting<any[]>(supabase, "email_accounts");
       const filtersByLabel = new Map<string, string[]>();
-      if (Array.isArray(accountsData?.value)) {
-        for (const acc of accountsData.value) {
+      if (Array.isArray(accountsValue)) {
+        for (const acc of accountsValue) {
           const label = String(acc?.label || acc?.user || "").trim();
           if (!label) continue;
           filtersByLabel.set(label, normalizeRecipientFilters(acc.recipientFilters || acc.recipientFilter || acc.allowedRecipients));
@@ -441,11 +448,8 @@ async function readCache(supabase: any, accountFilter: string[] | null, filterSi
       scopedEmails = emails.filter((e: any) => recipientMatches(e.to, filtersByLabel.get(String(e.account_label || "").trim())));
     } catch {}
   }
-  // Apply promo block for everyone when admin turned it on. Default = OFF (all Netflix mail shows).
   const blockPromo = await shouldBlockPromo(supabase);
   const filtered = applyEmailFilters(scopedEmails, filterSignInCodes, filterPasswordResets, filterAccountUpdates, blockPromo);
-  // Final mask: strip the recipient address before shipping to the client.
-  // Done after recipient filtering so the filter still sees the real value.
   return filtered.map((e: any) => ({ ...e, to: redactEmailsText(e.to) }));
 }
 
