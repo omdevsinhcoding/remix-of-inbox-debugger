@@ -705,15 +705,29 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
     return { success: false, error: "Inbox not configured. Add IMAP email in Admin Panel.", stats: {}, totalFetched: 0, inserted: 0 };
   }
 
-  if (!quickRefresh) {
+  // Legacy label backfill — one-shot per warm isolate (was: every sync tick).
+  if (!quickRefresh && !(globalThis as any).__legacyBackfillDone) {
+    (globalThis as any).__legacyBackfillDone = true;
     try {
       await supabase.from("cached_emails").update({ account_label: "Primary" }).is("account_label", null);
     } catch (e) {
       console.error("[sync] Legacy label backfill skipped:", e);
+      (globalThis as any).__legacyBackfillDone = false;
     }
   }
 
-  const { data: cachedRows } = await supabase.from("cached_emails").select("id");
+  // Dedup UID list: only need recent IDs so the IMAP-side pre-filter can skip
+  // already-cached UIDs. Was an unbounded full-table scan every sync — now
+  // bounded to the last STALE_DAYS window (matches what we keep anyway) and
+  // capped at 5000 rows. Upsert `ignoreDuplicates:true` catches anything else.
+  const dedupCutoff = new Date();
+  dedupCutoff.setDate(dedupCutoff.getDate() - STALE_DAYS);
+  const { data: cachedRows } = await supabase
+    .from("cached_emails")
+    .select("id")
+    .gte("date", dedupCutoff.toISOString())
+    .order("date", { ascending: false })
+    .limit(5000);
   const cachedIds = new Set((cachedRows || []).map((r: any) => String(r.id)));
 
   const settled = await Promise.allSettled(accounts.map(async (acc) => {
@@ -778,7 +792,14 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
     }
   }
 
+  // Stale cleanup: don't fire on EVERY cron tick (~1440/day = 1440 delete
+  // scans + WAL). Debounce to once per hour per warm isolate. `email-cleanup`
+  // pg_cron job is the authoritative retention path.
   const cleanupWork = (async () => {
+    const nowMs = Date.now();
+    const last = (globalThis as any).__lastStaleCleanupAt || 0;
+    if (nowMs - last < 60 * 60_000) return;
+    (globalThis as any).__lastStaleCleanupAt = nowMs;
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - STALE_DAYS);
     await supabase.from("cached_emails").delete().lt("date", cutoff.toISOString()).eq("destroyed", false);
