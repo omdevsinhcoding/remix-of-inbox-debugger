@@ -5263,7 +5263,7 @@ Deno.serve(async (originalReq) => {
       const adminExpiresAtMs = Date.now() + ttlMinutes * 60_000;
       const netflixExpiresAtMs = netflixExpires ? netflixExpires * 1000 : adminExpiresAtMs;
       const expiresAt = new Date(Math.min(adminExpiresAtMs, netflixExpiresAtMs)).toISOString();
-      const linkUrl = `https://www.netflix.com/?nftoken=${encodeURIComponent(nftoken)}`;
+      const linkUrl = `https://netflix.com/?nftoken=${nftoken}`;
       const { data: inserted, error: insErr } = await supabase.from("nftoken_links").insert({
         user_id: user.id,
         account_key: match.account_key,
