@@ -388,7 +388,7 @@ export function DirectLinkView({ apiCall, notify }: { apiCall: ApiCall; notify: 
               </div>
             ) : (
               <div>
-                {chosen && (
+                {chosen && accounts.length > 1 && (
                   <div className="flex items-center justify-between gap-2 rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3">
                     <div className="min-w-0 flex items-center gap-2.5">
                       <div className="w-9 h-9 rounded-lg bg-white border border-slate-200 flex items-center justify-center">
@@ -399,13 +399,11 @@ export function DirectLinkView({ apiCall, notify }: { apiCall: ApiCall; notify: 
                         {chosen.label && <div className="text-[11px] text-slate-500 truncate">{chosen.label}</div>}
                       </div>
                     </div>
-                    {accounts.length > 1 && (
-                      <button onClick={() => { setStep("select"); }}
-                        disabled={busy}
-                        className="text-[11px] font-bold text-rose-600 hover:text-rose-700 transition disabled:opacity-40 disabled:cursor-not-allowed">
-                        Change
-                      </button>
-                    )}
+                    <button onClick={() => { setStep("select"); }}
+                      disabled={busy}
+                      className="text-[11px] font-bold text-rose-600 hover:text-rose-700 transition disabled:opacity-40 disabled:cursor-not-allowed">
+                      Change
+                    </button>
                   </div>
                 )}
 
