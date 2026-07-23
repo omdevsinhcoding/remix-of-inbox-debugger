@@ -283,10 +283,11 @@ export function DirectLinkView({ apiCall, notify }: { apiCall: ApiCall; notify: 
     try { await navigator.clipboard.writeText(url); notify.success("Link copied"); } catch { notify.error("Copy failed"); }
   }, [notify]);
 
-  const activeLink = useMemo(() => {
+  const activeLink = (() => {
     if (!chosen) return null;
+    // Recomputed every render (including per-second tick) so expiry flips the UI instantly.
     return links.find(l => l.account_key === chosen.account_key && l.status === "active" && new Date(l.expires_at).getTime() > Date.now()) || null;
-  }, [links, chosen]);
+  })();
 
   // Auto-generate a fresh link when the active one expires (and the user is on the link step).
   const autoGenRef = useRef<string | null>(null);
