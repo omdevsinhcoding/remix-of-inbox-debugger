@@ -9803,7 +9803,71 @@ function AdminPanel() {
                 </span>
               </div>
 
+              {/* Runner mode selector — plain-English switch between VPS / GitHub Actions / Auto */}
+              <div className="px-5 sm:px-6 py-4 bg-gradient-to-br from-slate-50 to-white border-b border-slate-100">
+                <div className="flex items-center justify-between gap-3 mb-2">
+                  <div className="min-w-0">
+                    <p className="text-[13px] font-black text-slate-900">Runner mode</p>
+                    <p className="text-[11px] text-slate-500 mt-0.5">Which server actually opens Netflix and enters the TV code.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={saveVpsConfig}
+                    disabled={vpsSaving || vpsLoading}
+                    className="inline-flex h-8 items-center gap-1.5 rounded-full bg-slate-900 px-3 text-[11px] font-black text-white transition hover:bg-slate-800 disabled:opacity-60"
+                  >
+                    {vpsSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                    Save mode
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {([
+                    { id: "auto", title: "Auto (recommended)", desc: "Try VPS first, use GitHub Actions if VPS is down." },
+                    { id: "vps", title: "VPS only", desc: "Only use your VPS. Fails if VPS is offline." },
+                    { id: "github", title: "GitHub Actions only", desc: "Skip VPS. Free but slower (~45s)." },
+                  ] as const).map((opt) => {
+                    const active = vpsCfg.mode === opt.id;
+                    return (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => setVpsCfg((p) => ({ ...p, mode: opt.id }))}
+                        className={`text-left rounded-xl border px-3 py-2.5 transition ${active ? "border-slate-900 bg-slate-900 text-white shadow-sm" : "border-slate-200 bg-white text-slate-800 hover:border-slate-300 hover:bg-slate-50"}`}
+                      >
+                        <div className="text-[12px] font-black leading-tight">{opt.title}</div>
+                        <div className={`text-[10.5px] mt-1 leading-snug ${active ? "text-white/80" : "text-slate-500"}`}>{opt.desc}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* How to swap VPS — collapsible plain-English guide */}
+              <div className="px-5 sm:px-6 py-3 border-b border-slate-100 bg-white">
+                <button
+                  type="button"
+                  onClick={() => setVpsHelpOpen((v) => !v)}
+                  className="w-full flex items-center justify-between gap-3 text-left"
+                >
+                  <span className="text-[12px] font-black text-slate-900 inline-flex items-center gap-2">
+                    <Activity className="w-3.5 h-3.5 text-slate-500" />
+                    How to swap to a new VPS
+                  </span>
+                  <span className="text-[11px] font-bold text-slate-500">{vpsHelpOpen ? "Hide" : "Show"}</span>
+                </button>
+                {vpsHelpOpen && (
+                  <ol className="mt-3 space-y-2 text-[12px] text-slate-700 leading-relaxed">
+                    <li><span className="font-black text-slate-900">1.</span> Set up the new VPS and run the TV Fast Runner on port <code className="font-mono text-[11px] bg-slate-100 px-1 rounded">8788</code>.</li>
+                    <li><span className="font-black text-slate-900">2.</span> Change <b>VPS IP</b> and <b>TV Fast Runner URL</b> below, then click <b>Save</b>.</li>
+                    <li><span className="font-black text-slate-900">3.</span> Click <b>Delete</b> on the old private key, then <b>Upload</b> the new one. (Uploading a new key without deleting also replaces the old one automatically.)</li>
+                    <li><span className="font-black text-slate-900">4.</span> Click <b>Test</b> — you should see a green <b>Online</b> pill. Done.</li>
+                    <li className="text-slate-500">No VPS at all? Set <b>Runner mode</b> above to <b>GitHub Actions only</b>. It still works, just slower.</li>
+                  </ol>
+                )}
+              </div>
+
               <div className="divide-y divide-slate-100">
+
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center px-5 sm:px-6 py-4 hover:bg-slate-50/60 transition-colors">
                   <div className="w-10 h-10 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
                     <Globe className="w-5 h-5" />
