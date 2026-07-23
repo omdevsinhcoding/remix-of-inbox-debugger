@@ -12516,7 +12516,7 @@ function EmailViewer() {
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
       <h1 className="sr-only">Email Inbox — Netflix Mail</h1>
       <AnimatePresence>
-        {workflowView === null && countEnabled(userFeatures) >= 3 && (
+        {workflowView === null && countEnabled(userFeatures) >= 2 && (
           <WorkflowChooser features={userFeatures} user={user} onPick={setWorkflowView} onLogout={fastClearCookiesRedirect} />
         )}
       </AnimatePresence>
