@@ -5176,6 +5176,23 @@ Deno.serve(async (originalReq) => {
       const accountKey = String((params || {}).account_key || "").trim();
       const match = eligible.find((c) => c.account_key === accountKey) || eligible[0];
       if (!match) throw new Error("No configured Netflix account is available for a Direct Link.");
+
+      // Enforce: user must wait until current active link expires before generating another.
+      const { data: activeRows } = await supabase
+        .from("nftoken_links")
+        .select("id, expires_at")
+        .eq("user_id", user.id)
+        .eq("status", "active")
+        .is("revoked_at", null)
+        .gt("expires_at", new Date().toISOString())
+        .order("expires_at", { ascending: false })
+        .limit(1);
+      if (activeRows && activeRows.length > 0) {
+        const exp = new Date(activeRows[0].expires_at).getTime();
+        const secs = Math.max(0, Math.ceil((exp - Date.now()) / 1000));
+        throw new Error(`Aapka current link abhi active hai. ${secs}s baad naya link generate kar sakte ho.`);
+      }
+
       const cookieContent = cookieMap.get(match.login_email) || "";
       if (!cookieContent) throw new Error("Cookies missing for the selected account.");
 
