@@ -12926,7 +12926,7 @@ function EmailViewer() {
       </AnimatePresence>
 
       {/* ============ MOBILE HEADER (clean white) ============ */}
-      <header className="sm:hidden sticky top-0 z-20 bg-slate-950/95 backdrop-blur border-b border-slate-800 shadow-sm">
+      <header className="sm:hidden sticky top-0 z-20 bg-white/95 backdrop-blur border-b border-slate-200 shadow-sm">
         <div className="px-3 h-14 flex items-center gap-3">
           <button
             type="button"
@@ -12938,17 +12938,17 @@ function EmailViewer() {
             <ProfileAvatar
               avatarId={viewerAvatarId}
               name={user.name}
-              className="w-9 h-9 rounded-xl overflow-hidden ring-1 ring-slate-700"
+              className="w-9 h-9 rounded-xl overflow-hidden ring-1 ring-slate-200"
               fallbackColor="bg-red-600"
               eager
             />
-            <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-slate-950" aria-hidden="true" />
+            <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-white" aria-hidden="true" />
           </button>
           <div className="min-w-0 flex-1">
-            <h2 className="font-black text-[15px] leading-tight tracking-tight text-red-500 truncate">
+            <h2 className="font-black text-[15px] leading-tight tracking-tight text-red-600 truncate">
               Netflix Mail
             </h2>
-            <span className="text-[11px] text-slate-400 truncate block">{user.name}</span>
+            <span className="text-[11px] text-slate-500 truncate block">{user.name}</span>
           </div>
           <div className="flex items-center gap-1 flex-shrink-0">
             {isImpersonating && (
