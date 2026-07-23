@@ -54,7 +54,7 @@ export function useWorkflowView(user: any, features: UserFeatures) {
 
 export function WorkflowChooser({ features, user, onPick, onLogout }: {
   features: UserFeatures;
-  user?: { name?: string; username?: string } | null;
+  user?: { name?: string | null; username?: string | null } | null;
   onPick: (v: WorkflowView) => void;
   onLogout?: () => void;
 }) {
