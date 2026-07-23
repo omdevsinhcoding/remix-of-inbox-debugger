@@ -1,5 +1,5 @@
 import { useEffect, useSyncExternalStore, useCallback } from "react";
-import { ensureSlice, readSlice, subscribe, invalidate, setSlice, SliceState } from "@/lib/adminData";
+import { ensureSlice, readSlice, subscribe, invalidate, setSlice, SliceState } from "../lib/adminData";
 
 export type UseAdminSliceResult<T> = SliceState<T> & {
   refresh: (force?: boolean) => Promise<T>;
