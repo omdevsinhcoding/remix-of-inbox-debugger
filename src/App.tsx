@@ -9729,6 +9729,59 @@ function AdminPanel() {
 
         {activeTab === "cookies" && <CookiesTab emailAccounts={emailAccounts} serverConfig={serverConfig} />}
 
+        {activeTab === "directlink" && (
+          <div className="max-w-4xl mx-auto space-y-5">
+            <div className="px-1">
+              <h2 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-950 flex items-center gap-2.5">
+                <span className="inline-flex w-9 h-9 rounded-xl bg-emerald-600 text-white items-center justify-center shadow-sm"><LinkIcon className="w-5 h-5" /></span>
+                Direct Link
+              </h2>
+              <p className="text-sm text-slate-500 mt-1.5 ml-[46px]">Manage which profiles can generate one-tap Netflix sign-in links.</p>
+            </div>
+
+            <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 sm:p-6">
+              <div className="flex items-center gap-2 mb-3">
+                <Sparkles className="w-4 h-4 text-emerald-600" />
+                <h3 className="text-sm font-black text-slate-900 uppercase tracking-wider">How expiry works</h3>
+              </div>
+              <p className="text-[13px] text-slate-600 leading-relaxed">
+                Users choose their own link expiry from the Direct Link page — presets of <b>15 min</b>, <b>1 hour</b>, <b>6 hours</b>, <b>24 hours</b>, <b>7 days</b>, plus a custom date/time picker (up to 30 days).
+              </p>
+            </section>
+
+            <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 sm:p-6">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <h3 className="text-sm font-black text-slate-900 uppercase tracking-wider">Enabled profiles</h3>
+                  <p className="text-[12px] text-slate-500 mt-0.5">Toggle Direct Link access per user in the <b>Users</b> tab (the green <b>LINK</b> pill).</p>
+                </div>
+                <button onClick={() => setActiveTab("users")}
+                  className="h-9 px-3.5 rounded-full bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 active:scale-95 transition-transform">
+                  Open Users
+                </button>
+              </div>
+              <div className="divide-y divide-slate-100 mt-4">
+                {users.filter((u) => u.role !== "admin" && (u as any).feature_link === true).map((u) => (
+                  <div key={u.id} className="py-2.5 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-sm font-bold text-slate-900 truncate">{u.name || u.username}</div>
+                      <div className="text-[11px] text-slate-500 truncate">@{u.username}</div>
+                    </div>
+                    <span className="text-[10px] font-black tracking-wider px-2 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">LINK · ON</span>
+                  </div>
+                ))}
+                {users.filter((u) => u.role !== "admin" && (u as any).feature_link === true).length === 0 && (
+                  <div className="py-8 text-center text-[12px] text-slate-500">
+                    No profiles have Direct Link enabled yet. Turn on the <b>LINK</b> pill for a user in the Users tab.
+                  </div>
+                )}
+              </div>
+            </section>
+          </div>
+        )}
+
+
+
 
         {activeTab === "notifications" && (
           <div className="grid grid-cols-1 xl:grid-cols-[1.15fr_1fr] gap-4 sm:gap-6">
