@@ -6830,9 +6830,11 @@ function AdminPanel() {
   const [savingLocationPolicy, setSavingLocationPolicy] = useState(false);
 
   // VPS Vault (admin-only metadata in app_settings; private key file lives in R2)
-  const [vpsCfg, setVpsCfg] = useState<{ ip: string; runnerUrl: string; keyFilename: string; keyUploadedAt: string; keySize: number; hasKey: boolean }>({
-    ip: "140.238.226.213", runnerUrl: "", keyFilename: "vps-private-key.pem", keyUploadedAt: "", keySize: 0, hasKey: false,
+  const [vpsCfg, setVpsCfg] = useState<{ ip: string; runnerUrl: string; mode: "auto" | "vps" | "github"; keyFilename: string; keyUploadedAt: string; keySize: number; hasKey: boolean }>({
+    ip: "140.238.226.213", runnerUrl: "", mode: "auto", keyFilename: "vps-private-key.pem", keyUploadedAt: "", keySize: 0, hasKey: false,
   });
+  const [vpsDeletingKey, setVpsDeletingKey] = useState(false);
+  const [vpsHelpOpen, setVpsHelpOpen] = useState(false);
   const [vpsTesting, setVpsTesting] = useState(false);
   const [vpsHealth, setVpsHealth] = useState<{ ok: boolean; status: number; latencyMs: number; message?: string; at: number } | null>(null);
   const [vpsLoading, setVpsLoading] = useState(false);
