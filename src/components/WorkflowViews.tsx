@@ -182,11 +182,13 @@ function remaining(iso: string) {
 }
 
 export function DirectLinkView({ apiCall, notify }: { apiCall: ApiCall; notify: Notify }) {
-  const [accounts, setAccounts] = useState<{ account_key: string; login_email_masked: string; label: string }[]>([]);
+  type LinkAccount = { account_key: string; login_email_masked: string; label: string };
+  const [step, setStep] = useState<"select" | "link">("select");
+  const [accounts, setAccounts] = useState<LinkAccount[]>([]);
   const [notConfigured, setNotConfigured] = useState<string | null>(null);
   const [loadingAccounts, setLoadingAccounts] = useState(true);
   const [links, setLinks] = useState<LinkRow[]>([]);
-  const [selectedKey, setSelectedKey] = useState<string>("");
+  const [chosen, setChosen] = useState<LinkAccount | null>(null);
   const [busy, setBusy] = useState(false);
   const [defaultTtl, setDefaultTtl] = useState<number>(60);
   const [, tick] = useState(0);
@@ -196,6 +198,14 @@ export function DirectLinkView({ apiCall, notify }: { apiCall: ApiCall; notify: 
     return () => clearInterval(t);
   }, []);
 
+  const applyAccounts = useCallback((list: LinkAccount[]) => {
+    setAccounts(list);
+    if (list.length === 1) {
+      setChosen(prev => prev || list[0]);
+      setStep(prev => (prev === "select" ? "link" : prev));
+    }
+  }, []);
+
   const loadAccounts = useCallback(async () => {
     setLoadingAccounts(true);
     try {
@@ -203,15 +213,14 @@ export function DirectLinkView({ apiCall, notify }: { apiCall: ApiCall; notify: 
       const acc = Array.isArray(res?.accounts) ? res.accounts : [];
       const ttl = Number(res?.defaults?.ttl_minutes);
       if (Number.isFinite(ttl) && ttl > 0) setDefaultTtl(Math.floor(ttl));
-      setAccounts(acc);
-      setSelectedKey(prev => prev && acc.find((a: any) => a.account_key === prev) ? prev : (acc[0]?.account_key || ""));
+      applyAccounts(acc);
       setNotConfigured(res?.not_configured ? (res.message || "Not configured") : null);
     } catch (e: any) {
       setNotConfigured(e?.message || "Failed to load accounts");
     } finally {
       setLoadingAccounts(false);
     }
-  }, []);
+  }, [applyAccounts]);
 
   const loadLinks = useCallback(async () => {
     try {
@@ -227,10 +236,10 @@ export function DirectLinkView({ apiCall, notify }: { apiCall: ApiCall; notify: 
   const ttlLabel = useMemo(() => defaultTtl < 60 ? `${defaultTtl} min` : defaultTtl < 1440 ? `${Math.round(defaultTtl / 60)} hour${Math.round(defaultTtl / 60) === 1 ? "" : "s"}` : `${Math.round(defaultTtl / 1440)} day${Math.round(defaultTtl / 1440) === 1 ? "" : "s"}`, [defaultTtl]);
 
   const generate = useCallback(async () => {
-    if (!selectedKey || busy) return;
+    if (!chosen || busy) return;
     setBusy(true);
     try {
-      const res: any = await apiCall("manage-app", { action: "link_generate", account_key: selectedKey });
+      const res: any = await apiCall("manage-app", { action: "link_generate", account_key: chosen.account_key });
       if (res?.link?.link_url) {
         notify.success("Direct Link ready");
         try { await navigator.clipboard.writeText(res.link.link_url); } catch {}
@@ -241,147 +250,217 @@ export function DirectLinkView({ apiCall, notify }: { apiCall: ApiCall; notify: 
     } finally {
       setBusy(false);
     }
-  }, [selectedKey, busy, loadLinks]);
+  }, [chosen, busy, loadLinks, notify]);
 
   const revoke = useCallback(async (id: string) => {
     try {
       await apiCall("manage-app", { action: "link_revoke", id });
       await loadLinks();
     } catch (e: any) { notify.error(e?.message || "Failed to revoke"); }
-  }, [loadLinks]);
+  }, [loadLinks, notify]);
 
   const copy = useCallback(async (url: string) => {
     try { await navigator.clipboard.writeText(url); notify.success("Link copied"); } catch { notify.error("Copy failed"); }
-  }, []);
+  }, [notify]);
 
-  const latest = links[0];
+  const activeLink = useMemo(() => {
+    if (!chosen) return null;
+    return links.find(l => l.account_key === chosen.account_key && l.status === "active" && new Date(l.expires_at).getTime() > Date.now()) || null;
+  }, [links, chosen]);
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] px-3 sm:px-6 py-8 sm:py-12 xl:py-16 bg-gradient-to-b from-white via-emerald-50/40 to-white">
+    <div className="min-h-[calc(100vh-4rem)] px-3 sm:px-6 py-8 sm:py-12 xl:py-16 bg-gradient-to-b from-white via-rose-50/40 to-white">
       <div className="max-w-2xl xl:max-w-4xl 2xl:max-w-5xl mx-auto">
         {/* Hero */}
         <div className="text-center mb-8 xl:mb-10">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-100 text-[10px] xl:text-xs font-bold uppercase tracking-[0.22em] text-emerald-700">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-rose-50 border border-rose-100 text-[10px] xl:text-xs font-bold uppercase tracking-[0.22em] text-rose-600">
             <LinkIcon className="w-3 h-3" /> Netflix · Direct Link
           </div>
           <h1 className="mt-3 text-3xl sm:text-4xl xl:text-5xl 2xl:text-6xl font-black text-slate-900 tracking-tight">
-            One-tap Netflix login
+            {step === "select" ? "Choose your account" : "Your one-tap sign-in link"}
           </h1>
           <p className="mt-2 text-sm xl:text-base 2xl:text-lg text-slate-500 max-w-xl mx-auto">
-            Pick your Netflix account and we'll mint a secure sign-in link with an expiry — copy or open on any device.
+            {step === "select"
+              ? "Pick the Netflix account you want a secure one-tap sign-in link for."
+              : "Generate a fresh secure link, copy it, or open it on any device."}
           </p>
+          {accounts.length > 1 && (
+          <div className="mt-5 inline-flex items-center gap-3 text-[11px] xl:text-xs font-bold uppercase tracking-widest">
+            <span className={`inline-flex items-center gap-1.5 ${step === "select" ? "text-rose-600" : "text-emerald-600"}`}>
+              <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] ${step === "select" ? "bg-rose-600 text-white" : "bg-emerald-500 text-white"}`}>1</span>
+              Account
+            </span>
+            <span className="w-10 h-px bg-slate-200" />
+            <span className={`inline-flex items-center gap-1.5 ${step === "link" ? "text-rose-600" : "text-slate-400"}`}>
+              <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] ${step === "link" ? "bg-rose-600 text-white" : "bg-slate-200 text-slate-500"}`}>2</span>
+              Link
+            </span>
+          </div>
+          )}
         </div>
 
         {/* Card */}
         <div className="relative rounded-3xl bg-white border border-slate-200 shadow-[0_25px_60px_-25px_rgba(2,6,23,0.15)] overflow-hidden">
-          <div aria-hidden className="pointer-events-none absolute -top-24 -right-16 w-64 h-64 xl:w-96 xl:h-96 rounded-full bg-emerald-500/[0.06] blur-3xl" />
-          <div aria-hidden className="pointer-events-none absolute -bottom-32 -left-16 w-72 h-72 xl:w-[26rem] xl:h-[26rem] rounded-full bg-emerald-500/[0.04] blur-3xl" />
+          <div aria-hidden className="pointer-events-none absolute -top-24 -right-16 w-64 h-64 xl:w-96 xl:h-96 rounded-full bg-rose-500/[0.06] blur-3xl" />
+          <div aria-hidden className="pointer-events-none absolute -bottom-32 -left-16 w-72 h-72 xl:w-[26rem] xl:h-[26rem] rounded-full bg-rose-500/[0.04] blur-3xl" />
 
-          <div className="relative p-6 sm:p-10 xl:p-14 space-y-6">
-            <div className="flex items-center justify-between gap-3">
-              <h3 className="font-bold text-slate-900 flex items-center gap-2 text-sm xl:text-base">
-                <ShieldCheck className="w-4 h-4 text-emerald-600" /> Choose Netflix account
-              </h3>
-              <button onClick={loadAccounts} className="p-1.5 rounded-full hover:bg-slate-100" title="Refresh">
-                <RefreshCw className={`w-3.5 h-3.5 text-slate-500 ${loadingAccounts ? "animate-spin" : ""}`} />
-              </button>
-            </div>
+          <div className="relative p-6 sm:p-10 xl:p-14">
+            {step === "select" ? (
+              <div>
+                {loadingAccounts ? (
+                  <div className="py-12 flex flex-col items-center justify-center gap-2 text-slate-500">
+                    <Loader2 className="w-6 h-6 animate-spin text-rose-500" />
+                    <div className="text-xs">Loading your accounts…</div>
+                  </div>
+                ) : notConfigured ? (
+                  <div className="rounded-2xl bg-amber-50 border border-amber-200 px-4 py-6 text-center">
+                    <div className="text-sm font-bold text-amber-800">Direct Link not enabled yet</div>
+                    <div className="text-[12px] text-amber-700/90 mt-1 leading-relaxed">{notConfigured}</div>
+                  </div>
+                ) : accounts.length === 0 ? (
+                  <div className="rounded-2xl bg-amber-50 border border-amber-200 px-4 py-6 text-center">
+                    <div className="text-sm font-bold text-amber-800">No accounts available</div>
+                    <div className="text-[12px] text-amber-700/90 mt-1 leading-relaxed">Admin hasn't linked a Netflix account with cookies yet.</div>
+                  </div>
+                ) : (
+                  <div className="grid gap-2.5 max-h-[360px] xl:max-h-[520px] overflow-y-auto pr-1">
+                    {accounts.map((acc) => {
+                      const selected = chosen?.account_key === acc.account_key;
+                      return (
+                        <button key={acc.account_key}
+                          onClick={() => setChosen(acc)}
+                          className={`group w-full flex items-center gap-3 rounded-2xl border-2 px-4 py-3.5 xl:py-4 text-left transition-all active:scale-[0.99] ${
+                            selected
+                              ? "bg-rose-50 border-rose-500 shadow-[0_10px_30px_-12px_rgba(229,9,20,0.35)]"
+                              : "bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50"
+                          }`}>
+                          <div className={`shrink-0 w-11 h-11 xl:w-12 xl:h-12 rounded-xl flex items-center justify-center ${selected ? "bg-rose-100 text-rose-600" : "bg-slate-100 text-slate-500"}`}>
+                            <Mail className="w-5 h-5" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm xl:text-base font-bold text-slate-900 truncate tracking-tight">{acc.login_email_masked}</div>
+                            {acc.label && (
+                              <div className="mt-1 text-[11px] inline-block px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 font-semibold">{acc.label}</div>
+                            )}
+                          </div>
+                          <div className={`shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center ${selected ? "border-rose-500 bg-rose-500" : "border-slate-300"}`}>
+                            {selected && <span className="w-2 h-2 rounded-full bg-white" />}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
 
-            {loadingAccounts ? (
-              <div className="py-8 flex flex-col items-center justify-center gap-2 text-slate-500">
-                <Loader2 className="w-6 h-6 animate-spin text-emerald-500" />
-                <div className="text-xs">Loading your accounts…</div>
-              </div>
-            ) : notConfigured ? (
-              <div className="rounded-2xl bg-amber-50 border border-amber-200 px-4 py-6 text-center">
-                <div className="text-sm font-bold text-amber-800">Direct Link not enabled yet</div>
-                <div className="text-[12px] text-amber-700/90 mt-1 leading-relaxed">{notConfigured}</div>
-              </div>
-            ) : accounts.length === 0 ? (
-              <div className="rounded-2xl bg-amber-50 border border-amber-200 px-4 py-6 text-center">
-                <div className="text-sm font-bold text-amber-800">No accounts available</div>
-                <div className="text-[12px] text-amber-700/90 mt-1 leading-relaxed">Admin hasn't linked a Netflix account with cookies yet.</div>
+                <button onClick={() => { if (chosen) setStep("link"); }}
+                  disabled={!chosen}
+                  className={`mt-6 w-full h-12 xl:h-14 rounded-xl xl:rounded-2xl font-black text-sm xl:text-base tracking-wide transition-all active:scale-[0.98] ${
+                    chosen
+                      ? "bg-gradient-to-r from-rose-600 to-red-600 text-white shadow-lg shadow-rose-600/25 hover:shadow-rose-600/40 hover:brightness-110"
+                      : "bg-slate-100 text-slate-400 cursor-not-allowed"
+                  }`}>
+                  Continue →
+                </button>
+                <div className="mt-3 flex items-center justify-center gap-1.5 text-[11px] text-slate-400">
+                  <ShieldCheck className="w-3 h-3" />
+                  <span>Account selection is required to continue</span>
+                </div>
               </div>
             ) : (
-              <>
-                <div className="grid gap-2">
-                  {accounts.map(a => (
-                    <label key={a.account_key}
-                      className={`flex items-center gap-3 p-3.5 xl:p-4 rounded-2xl border-2 cursor-pointer transition-all ${selectedKey === a.account_key ? "border-emerald-500 bg-emerald-50/70 shadow-sm" : "border-slate-200 hover:border-slate-300 bg-white"}`}>
-                      <input type="radio" name="lnk-acc" checked={selectedKey === a.account_key} onChange={() => setSelectedKey(a.account_key)} className="accent-emerald-600" />
-                      <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center flex-shrink-0">
-                        <Mail className="w-4 h-4" />
+              <div>
+                {chosen && (
+                  <div className="flex items-center justify-between gap-2 rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3">
+                    <div className="min-w-0 flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-lg bg-white border border-slate-200 flex items-center justify-center">
+                        <Mail className="w-4 h-4 text-slate-500" />
                       </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="text-sm font-bold text-slate-900 truncate">{a.login_email_masked}</div>
-                        <div className="text-[11px] text-slate-500 truncate">{a.label}</div>
+                      <div className="min-w-0">
+                        <div className="text-sm font-bold text-slate-900 truncate">{chosen.login_email_masked}</div>
+                        {chosen.label && <div className="text-[11px] text-slate-500 truncate">{chosen.label}</div>}
                       </div>
-                      {selectedKey === a.account_key && <Check className="w-4 h-4 text-emerald-600" />}
-                    </label>
-                  ))}
-                </div>
+                    </div>
+                    {accounts.length > 1 && (
+                      <button onClick={() => { setStep("select"); }}
+                        disabled={busy}
+                        className="text-[11px] font-bold text-rose-600 hover:text-rose-700 transition disabled:opacity-40 disabled:cursor-not-allowed">
+                        Change
+                      </button>
+                    )}
+                  </div>
+                )}
 
-                <div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4 xl:p-5 flex items-center justify-between gap-3">
+                <div className="mt-6 rounded-2xl border border-rose-100 bg-rose-50/60 p-4 xl:p-5 flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <div className="text-sm font-black text-slate-900">Expiry set by admin</div>
-                    <div className="text-[12px] text-slate-500 mt-0.5">This link will stay valid for <b className="text-emerald-700">{ttlLabel}</b>.</div>
+                    <div className="text-[12px] text-slate-500 mt-0.5">Each link stays valid for <b className="text-rose-600">{ttlLabel}</b>.</div>
                   </div>
-                  <Clock className="w-5 h-5 text-emerald-600 shrink-0" />
+                  <Clock className="w-5 h-5 text-rose-600 shrink-0" />
                 </div>
 
-                <button onClick={generate} disabled={!selectedKey || busy}
-                  className="w-full h-12 xl:h-14 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-black text-sm xl:text-base shadow-lg shadow-emerald-900/20 disabled:opacity-60 active:scale-[0.99] flex items-center justify-center gap-2">
+                {/* Your link */}
+                <AnimatePresence mode="wait">
+                  {activeLink ? (
+                    <motion.div key="have" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.28 }}
+                      className="mt-6 rounded-2xl border-2 border-rose-200 bg-gradient-to-br from-rose-50 to-white p-5 xl:p-6">
+                      <div className="flex items-center gap-2 text-[11px] uppercase tracking-widest font-black text-rose-600">
+                        <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" /> Your link is ready
+                      </div>
+                      <div className="mt-3 rounded-xl bg-white border border-slate-200 px-3 py-2.5 text-[12px] font-mono text-slate-700 break-all">
+                        {activeLink.link_url}
+                      </div>
+                      <div className="mt-2 text-[11px] text-slate-500">
+                        Expires <b className="text-slate-700">{fmtIST(activeLink.expires_at)}</b> · <span className="text-rose-600 font-bold">{remaining(activeLink.expires_at)}</span> left
+                      </div>
+                      <div className="mt-4 grid grid-cols-2 gap-2">
+                        <button onClick={() => copy(activeLink.link_url)} className="h-11 rounded-xl bg-white border-2 border-slate-200 text-slate-800 text-sm font-bold hover:bg-slate-50 flex items-center justify-center gap-1.5">
+                          <Copy className="w-4 h-4" /> Copy
+                        </button>
+                        <a href={activeLink.link_url} target="_blank" rel="noopener noreferrer" className="h-11 rounded-xl bg-slate-900 text-white text-sm font-bold hover:bg-slate-800 flex items-center justify-center gap-1.5">
+                          Open ↗
+                        </a>
+                      </div>
+                      <button onClick={() => revoke(activeLink.id)} className="mt-2 w-full h-10 rounded-xl text-[12px] font-bold text-rose-600 hover:bg-rose-50 flex items-center justify-center gap-1.5">
+                        <Trash2 className="w-3.5 h-3.5" /> Revoke this link
+                      </button>
+                    </motion.div>
+                  ) : (
+                    <motion.div key="none" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.28 }}
+                      className="mt-6 rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50/50 p-6 text-center">
+                      <div className="text-sm font-bold text-slate-700">No active link yet</div>
+                      <div className="text-[12px] text-slate-500 mt-1">Tap generate to mint a fresh secure Netflix sign-in link.</div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                <button onClick={generate} disabled={busy}
+                  className="mt-6 w-full h-12 xl:h-14 rounded-xl xl:rounded-2xl bg-gradient-to-r from-rose-600 to-red-600 text-white font-black text-sm xl:text-base shadow-lg shadow-rose-600/25 hover:shadow-rose-600/40 hover:brightness-110 disabled:opacity-60 active:scale-[0.98] flex items-center justify-center gap-2 transition-all">
                   {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                  {busy ? "Generating link…" : "Generate Direct Link"}
+                  {busy ? "Generating link…" : activeLink ? "Generate a new link" : "Generate Direct Link"}
                 </button>
-                <p className="text-[11px] text-slate-400 text-center flex items-center justify-center gap-1">
+                <p className="mt-3 text-[11px] text-slate-400 text-center flex items-center justify-center gap-1">
                   <ShieldCheck className="w-3 h-3" /> Links auto-expire · single-use recommended
                 </p>
-              </>
-            )}
-
-            {/* Latest link — inline highlight */}
-            {latest && (
-              <div className="rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-4 xl:p-5">
-                <div className="flex items-start gap-3">
-                  <div className={`w-2 h-2 rounded-full mt-2 ${new Date(latest.expires_at).getTime() <= Date.now() || latest.status !== "active" ? "bg-slate-300" : "bg-emerald-500 animate-pulse"}`} />
-                  <div className="min-w-0 flex-1">
-                    <div className="text-[11px] uppercase tracking-widest font-black text-emerald-700">Latest link</div>
-                    <div className="text-sm font-bold text-slate-800 truncate mt-0.5">{latest.login_email_masked || latest.login_email}</div>
-                    <div className="text-[11px] text-slate-500 mt-1">
-                      Expires <b>{fmtIST(latest.expires_at)}</b> · {new Date(latest.expires_at).getTime() <= Date.now() ? <span className="text-slate-400">expired</span> : <span className="text-emerald-600">{remaining(latest.expires_at)}</span>}
-                    </div>
-                    <div className="mt-3 flex gap-2">
-                      <button onClick={() => copy(latest.link_url)} className="flex-1 h-9 rounded-lg bg-white border border-slate-200 text-slate-700 text-xs font-bold hover:bg-slate-50 flex items-center justify-center gap-1.5">
-                        <Copy className="w-3.5 h-3.5" /> Copy
-                      </button>
-                      <a href={latest.link_url} target="_blank" rel="noopener noreferrer" className="flex-1 h-9 rounded-lg bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 flex items-center justify-center gap-1.5">
-                        Open
-                      </a>
-                    </div>
-                  </div>
-                </div>
               </div>
             )}
           </div>
         </div>
 
         {/* History */}
-        {links.length > 1 && (
+        {links.length > 0 && (
           <div className="mt-6 rounded-3xl bg-white border border-slate-200 shadow-sm p-5 xl:p-6">
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-bold text-slate-900 flex items-center gap-2 text-sm"><Clock className="w-4 h-4 text-slate-500" /> Recent links</h3>
               <button onClick={loadLinks} className="p-1.5 rounded-full hover:bg-slate-100" title="Refresh"><RefreshCw className="w-3.5 h-3.5 text-slate-500" /></button>
             </div>
             <ul className="divide-y divide-slate-100">
-              {links.slice(1).map(l => {
+              {links.map(l => {
                 const expired = new Date(l.expires_at).getTime() <= Date.now() || l.status !== "active";
                 return (
                   <li key={l.id} className="py-3 flex items-center gap-3">
-                    <div className={`w-2 h-2 rounded-full ${expired ? "bg-slate-300" : "bg-emerald-500"}`} />
+                    <div className={`w-2 h-2 rounded-full ${expired ? "bg-slate-300" : "bg-rose-500"}`} />
                     <div className="flex-1 min-w-0">
                       <div className="text-xs text-slate-600 truncate font-semibold">{l.login_email_masked || l.login_email}</div>
-                      <div className="text-[11px] text-slate-400">Exp: <b>{fmtIST(l.expires_at)}</b> · {expired ? <span className="text-slate-400">expired</span> : <span className="text-emerald-600">{remaining(l.expires_at)}</span>}</div>
+                      <div className="text-[11px] text-slate-400">Exp: <b>{fmtIST(l.expires_at)}</b> · {expired ? <span className="text-slate-400">expired</span> : <span className="text-rose-600">{remaining(l.expires_at)}</span>}</div>
                     </div>
                     {!expired && (
                       <>
