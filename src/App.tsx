@@ -17,6 +17,8 @@ import { clearBrowserIdentityNow, sessionGet, sessionSet, sessionRemove, nukeBro
 import { openInboxDB, readLatestEmails, writeDelta, getSyncCursor, cacheEmailHtml, getEmailHtml, purgeEmailsOutsideScope, type CachedEmail } from "./lib/inboxCache";
 import { readAdminCache, writeAdminCache, isCacheFresh, reconcileVersion, emitSyncStatus } from "./lib/adminSettingsCache";
 import { AdminSyncStatus } from "./components/AdminSyncStatus";
+import { useAdminSlice } from "./hooks/useAdminSlice";
+import { AdminSliceKeys, prefetch as prefetchAdminSlices, invalidate as invalidateAdminSlice, setSlice as setAdminSlice, clearAllSlices as clearAllAdminSlices } from "./lib/adminData";
 
 
 // Lazy-loaded heavy auth-only libs — kept out of the public first-load chunk.
@@ -5291,22 +5293,20 @@ function AdminAuthPage() {
 
 // ==================== ADMIN PANEL ====================
 function LoginEventsPanel() {
-  const [events, setEvents] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState<string | null>(null);
+  // SWR: paints instantly from cache, refreshes silently in background.
+  // Search re-fetches with a new key so previous searches stay cached.
+  const sliceKey = React.useMemo(() => `loginEvents:${search || "__all__"}`, [search]);
+  const fetcher = React.useCallback(async () => {
+    const res: any = await apiCall("manage-app", { action: "list_login_events", limit: 300, search: search || undefined });
+    return (res?.events || []) as any[];
+  }, [search]);
+  const { data, refreshing, hasData, refresh } = useAdminSlice<any[]>(sliceKey, fetcher);
+  const events = data || [];
+  const loading = !hasData && refreshing; // only block-render on true cold start
+  const load = () => refresh(true);
 
-  const load = async () => {
-    setLoading(true);
-    try {
-      const res: any = await apiCall("manage-app", { action: "list_login_events", limit: 300, search: search || undefined });
-
-      setEvents(res?.events || []);
-    } catch (e: any) {
-      notify.error(e?.message || "Failed to load login events");
-    } finally { setLoading(false); }
-  };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
 
   const exportCsv = () => {
     if (!events.length) return;
@@ -5499,24 +5499,32 @@ function AllEmailsPanel() {
     } finally { setLoading(false); }
   }, [search, accountLabel]);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const [accData, cfgData] = await Promise.all([
-          apiCall("manage-app", { action: "get_settings", key: "email_accounts" }),
-          apiCall("manage-app", { action: "get_settings", key: "config" }),
-        ]);
-        if (Array.isArray(accData?.value)) {
-          setLabels(accData.value
-            .map((a: any) => ({ label: String(a.label || a.user || "").trim(), user: String(a.user || "").trim() }))
-            .filter((a: any) => a.label));
-        }
-        const imapUser = cfgData?.value?.IMAP_USER;
-        if (typeof imapUser === "string" && imapUser.trim()) setPrimaryUser(imapUser.trim());
-      } catch {}
-    })();
-    // Do NOT auto-load emails — admin picks an account first.
+  // SWR: cache the account picker so All Emails opens instantly on every
+  // subsequent visit. Fetcher is tiny (2 KV-cached settings reads).
+  const accountsFetcher = React.useCallback(async () => {
+    const [accData, cfgData]: any = await Promise.all([
+      apiCall("manage-app", { action: "get_settings", key: "email_accounts" }),
+      apiCall("manage-app", { action: "get_settings", key: "config" }),
+    ]);
+    const labels = Array.isArray(accData?.value)
+      ? accData.value
+          .map((a: any) => ({ label: String(a.label || a.user || "").trim(), user: String(a.user || "").trim() }))
+          .filter((a: any) => a.label)
+      : [];
+    const primary = typeof cfgData?.value?.IMAP_USER === "string" ? cfgData.value.IMAP_USER.trim() : "";
+    return { labels, primary };
   }, []);
+  const { data: accountsData } = useAdminSlice<{ labels: { label: string; user: string }[]; primary: string }>(
+    AdminSliceKeys.emailAccounts,
+    accountsFetcher,
+  );
+  React.useEffect(() => {
+    if (!accountsData) return;
+    setLabels(accountsData.labels);
+    if (accountsData.primary) setPrimaryUser(accountsData.primary);
+    // Do NOT auto-load emails — admin picks an account first.
+  }, [accountsData]);
+
 
 
   const openAccount = (label: string) => {
@@ -6140,8 +6148,6 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
 
   // `selected` is the imap_user (email address) of the account being edited.
   const [selected, setSelected] = React.useState<string | null>(null);
-  const [savedRows, setSavedRows] = React.useState<SavedCookieRow[]>([]);
-  const [loading, setLoading] = React.useState(true);
   const [busy, setBusy] = React.useState(false);
   const [pasteInfo, setPasteInfo] = React.useState<CookieDraftInfo>({ length: 0, kind: "" });
   const [editLoadingFor, setEditLoadingFor] = React.useState<string | null>(null);
@@ -6179,6 +6185,16 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
     return pendingPasteValue.current || "";
   }, []);
 
+  // SWR: cookies-list paints instantly from cache, silent background refresh.
+  const cookiesFetcher = React.useCallback(async () => {
+    const res: any = await apiCall("manage-app", { action: "admin_cookies_list" });
+    return (Array.isArray(res?.items) ? res.items : []) as SavedCookieRow[];
+  }, []);
+  const { data: savedRowsData, hasData: cookiesHasData, refreshing: cookiesRefreshing, refresh: refreshCookies } =
+    useAdminSlice<SavedCookieRow[]>(AdminSliceKeys.cookies, cookiesFetcher);
+  const savedRows = savedRowsData || [];
+  const loading = !cookiesHasData && cookiesRefreshing;
+
   const savedByUser = React.useMemo(() => {
     const map: Record<string, SavedCookieRow> = {};
     for (const r of savedRows) map[String(r.imap_user || "").toLowerCase()] = r;
@@ -6186,17 +6202,10 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
   }, [savedRows]);
 
   const refresh = React.useCallback(async () => {
-    try {
-      const res: any = await apiCall("manage-app", { action: "admin_cookies_list" });
-      setSavedRows(Array.isArray(res?.items) ? res.items : []);
-    } catch (e: any) {
-      notify.error("Could not load saved cookies", { description: e?.message || String(e) });
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+    try { await refreshCookies(true); }
+    catch (e: any) { notify.error("Could not load saved cookies", { description: e?.message || String(e) }); }
+  }, [refreshCookies]);
 
-  React.useEffect(() => { refresh(); }, [refresh]);
 
   const selectedAcc = React.useMemo(() => {
     if (!selected) return null;
@@ -7014,6 +7023,43 @@ function AdminPanel() {
   useEffect(() => {
     try { sessionStorage.setItem(ADMIN_ACTIVE_TAB_KEY, activeTab); } catch {}
   }, [activeTab]);
+
+  // Parallel warm-up: fire every tab's fetcher on mount so switching tabs is
+  // instant. Each entry is deduped by adminData store, so it's safe to also
+  // register the same fetcher inside the tab component.
+  useEffect(() => {
+    prefetchAdminSlices([
+      {
+        key: AdminSliceKeys.loginEvents + ":__all__",
+        fetcher: async () => {
+          const r: any = await apiCall("manage-app", { action: "list_login_events", limit: 300 });
+          return (r?.events || []) as any[];
+        },
+      },
+      {
+        key: AdminSliceKeys.cookies,
+        fetcher: async () => {
+          const r: any = await apiCall("manage-app", { action: "admin_cookies_list" });
+          return (Array.isArray(r?.items) ? r.items : []) as any[];
+        },
+      },
+      {
+        key: AdminSliceKeys.emailAccounts,
+        fetcher: async () => {
+          const [accData, cfgData]: any = await Promise.all([
+            apiCall("manage-app", { action: "get_settings", key: "email_accounts" }),
+            apiCall("manage-app", { action: "get_settings", key: "config" }),
+          ]);
+          const labels = Array.isArray(accData?.value)
+            ? accData.value.map((a: any) => ({ label: String(a.label || a.user || "").trim(), user: String(a.user || "").trim() })).filter((a: any) => a.label)
+            : [];
+          const primary = typeof cfgData?.value?.IMAP_USER === "string" ? cfgData.value.IMAP_USER.trim() : "";
+          return { labels, primary };
+        },
+      },
+    ]);
+  }, []);
+
 
   const availableAccounts = useMemo<string[]>(() => {
     const labels = ["Primary"];
