@@ -8888,7 +8888,7 @@ function AdminPanel() {
                                   <div className="flex items-center justify-between gap-3">
                                     <div className="min-w-0 flex items-start gap-3">
                                       <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${editDirectLinkEnabled ? "bg-emerald-600 text-white" : "bg-white text-slate-500 border border-slate-200"}`}>
-                                        <LinkIcon className="w-4.5 h-4.5" />
+                                        <LinkIcon className="w-4 h-4" />
                                       </div>
                                       <div className="min-w-0">
                                         <div className="text-xs font-black text-slate-900">Direct Link access</div>
