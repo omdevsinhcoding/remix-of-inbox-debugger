@@ -55,15 +55,18 @@ function pickFeatures(u: any): UserFeatures {
     link:  u?.feature_link  === true,
   };
 }
+function normalizeLinkDefaults(value: any): { ttl_minutes: number; max_active_per_user: number } {
+  const v = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  return {
+    ttl_minutes: Math.max(1, Math.min(43200, Math.floor(Number(v.ttl_minutes) || 60))),
+    max_active_per_user: Math.max(1, Math.min(20, Math.floor(Number(v.max_active_per_user) || 3))),
+  };
+}
 async function loadLinkDefaults(supabase: any): Promise<{ ttl_minutes: number; max_active_per_user: number }> {
   try {
     const { data } = await supabase.from("app_settings").select("value").eq("key", "link_defaults").maybeSingle();
-    const v = data?.value || {};
-    return {
-      ttl_minutes: Math.max(1, Math.min(43200, Number(v.ttl_minutes) || 15)),
-      max_active_per_user: Math.max(1, Math.min(20, Number(v.max_active_per_user) || 3)),
-    };
-  } catch { return { ttl_minutes: 15, max_active_per_user: 3 }; }
+    return normalizeLinkDefaults(data?.value);
+  } catch { return normalizeLinkDefaults(null); }
 }
 function publicVpsConfig(value: any) {
   const v = value && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -4501,7 +4504,7 @@ Deno.serve(async (originalReq) => {
       // Kick everything off in PARALLEL server-side. Edge → Postgres latency is
       // ~1-5ms each, so 12 parallel queries return in ~50-150ms total.
       const usersP = supabase.from("app_users")
-        .select("id, username, name, role, assigned_accounts, profile_prefs, session_limit, is_free, pinned, sort_order, expires_at, tv_override")
+        .select("id, username, name, role, assigned_accounts, profile_prefs, session_limit, is_free, pinned, sort_order, expires_at, tv_override, feature_gmail, feature_tv, feature_link")
         .order("created_at", { ascending: true });
 
       const emailsCountP = supabase.from("cached_emails").select("id", { count: "exact", head: true }).eq("destroyed", false);
@@ -4510,7 +4513,7 @@ Deno.serve(async (originalReq) => {
       const totalUsersP = supabase.from("app_users").select("id", { count: "exact", head: true }).neq("role", "admin");
 
       const settingsKeys = includeSettings
-        ? ["recaptcha", "config", "primary_cloudflare_urls", "email_filters", "email_accounts", "session_config", "admin_session_config", "session_limits", "ipwho_alert", "maintenance", "r2_storage", "email_visibility", "email_auto_delete", "cron_config", "netflix_promo", "location_policy", "free_session_minutes", "free_avatar_cooldown", "tv_feature"]
+        ? ["recaptcha", "config", "primary_cloudflare_urls", "email_filters", "email_accounts", "session_config", "admin_session_config", "session_limits", "ipwho_alert", "maintenance", "r2_storage", "email_visibility", "email_auto_delete", "cron_config", "netflix_promo", "location_policy", "free_session_minutes", "free_avatar_cooldown", "tv_feature", "link_defaults"]
         : [];
 
       const settingsP = settingsKeys.length
@@ -4534,6 +4537,7 @@ Deno.serve(async (originalReq) => {
         sortOrder: u.sort_order ?? null,
         expiresAt: u.expires_at || null,
         tvOverride: u.tv_override === "on" || u.tv_override === "off" ? u.tv_override : null,
+        features: pickFeatures(u),
       }));
 
       // Notification stats — 2 more queries but only if there are notes
@@ -5043,8 +5047,10 @@ Deno.serve(async (originalReq) => {
       const eligible = candidates.filter((c) => cookieMap.has(c.login_email));
 
       if (action === "link_list_accounts") {
+        const defaults = normalizeLinkDefaults(settings.get("link_defaults"));
         return new Response(JSON.stringify({
           success: true,
+          defaults,
           accounts: eligible.map((c) => ({
             account_key: c.account_key,
             login_email: c.login_email,
@@ -5057,6 +5063,7 @@ Deno.serve(async (originalReq) => {
       }
 
       if (action === "link_list") {
+        const defaults = normalizeLinkDefaults(settings.get("link_defaults"));
         const { data: rows } = await supabase
           .from("nftoken_links")
           .select("id, account_key, login_email, link_url, expires_at, created_at, revoked_at, status")
@@ -5065,6 +5072,7 @@ Deno.serve(async (originalReq) => {
           .limit(20);
         return new Response(JSON.stringify({
           success: true,
+          defaults,
           links: (rows || []).map((r: any) => ({
             ...r,
             login_email_masked: maskTvEmail(r.login_email || ""),
@@ -5141,10 +5149,17 @@ Deno.serve(async (originalReq) => {
       if (!nftoken) throw new Error("Netflix rejected the stored session. Cookies may be expired.");
 
       const defaults = await loadLinkDefaults(supabase);
-      const reqTtl = Number((params || {}).ttl_minutes);
-      const ttlMinutes = Number.isFinite(reqTtl) && reqTtl > 0
-        ? Math.max(1, Math.min(43200, Math.floor(reqTtl)))
-        : defaults.ttl_minutes;
+      const ttlMinutes = defaults.ttl_minutes;
+      const { count: activeCount } = await supabase
+        .from("nftoken_links")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", user.id)
+        .eq("status", "active")
+        .is("revoked_at", null)
+        .gt("expires_at", new Date().toISOString());
+      if ((activeCount || 0) >= defaults.max_active_per_user) {
+        throw new Error(`You already have ${activeCount} active Direct Link${activeCount === 1 ? "" : "s"}. Wait for expiry or revoke an old link.`);
+      }
       const expiresAt = new Date(Date.now() + ttlMinutes * 60_000).toISOString();
       const linkUrl = `https://www.netflix.com/?nftoken=${encodeURIComponent(nftoken)}`;
       const { data: inserted, error: insErr } = await supabase.from("nftoken_links").insert({
