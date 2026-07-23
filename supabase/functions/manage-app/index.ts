@@ -1,7 +1,31 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { authenticator } from "npm:otplib@12.0.1";
 import { readRequest, maybeEncryptResponse, EncryptedRequestContext, PlaintextRejectedError, plaintextRejectedResponse, TransportError, transportErrorResponse } from "../_shared/crypto.ts";
-// build-marker: direct link exact python expiry + manual generate v16 (2026-07-23)
+import { getSetting, invalidateSetting, invalidateAllSettings } from "../_shared/settingsCache.ts";
+// build-marker: disk-io-tier1 v19 (2026-07-23) — app_settings cache + last_seen throttle + estimated counts
+
+// Wrap `app_settings` writes so the shared TTL cache is invalidated the moment
+// an admin changes a value. Prevents 30-second staleness on toggles.
+async function upsertSetting(supabase: any, key: string, value: any) {
+  const res = await supabase.from("app_settings").upsert({ key, value }, { onConflict: "key" });
+  invalidateSetting(key);
+  return res;
+}
+// last_seen_at throttle: don't rewrite on every request — WAL/IO amplifier.
+const SESSION_TOUCH_MS = 60_000;
+const __sessionTouchMemo = new Map<string, number>();
+function shouldTouchSession(id: string): boolean {
+  const last = __sessionTouchMemo.get(id) || 0;
+  const now = Date.now();
+  if (now - last < SESSION_TOUCH_MS) return false;
+  __sessionTouchMemo.set(id, now);
+  // Cap memo size to avoid unbounded growth in long-lived isolates.
+  if (__sessionTouchMemo.size > 2000) {
+    const cutoff = now - SESSION_TOUCH_MS;
+    for (const [k, v] of __sessionTouchMemo) if (v < cutoff) __sessionTouchMemo.delete(k);
+  }
+  return true;
+}
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -33,16 +57,16 @@ function isGlobalLocationRequired(value: any) {
 }
 async function loadGlobalLocationRequired(supabase: any): Promise<boolean> {
   try {
-    const { data } = await supabase.from("app_settings").select("value").eq("key", "location_policy").maybeSingle();
-    return isGlobalLocationRequired(data?.value);
+    const value = await getSetting(supabase, "location_policy");
+    return isGlobalLocationRequired(value);
   } catch {
     return true;
   }
 }
 async function loadTvFeatureEnabled(supabase: any): Promise<boolean> {
   try {
-    const { data } = await supabase.from("app_settings").select("value").eq("key", "tv_feature").maybeSingle();
-    return data?.value?.enabled !== false;
+    const value: any = await getSetting(supabase, "tv_feature");
+    return value?.enabled !== false;
   } catch {
     return true;
   }
@@ -318,16 +342,16 @@ async function normalizeAssignedAccounts(supabase: any, raw: any): Promise<strin
 }
 
 async function loadAvailableAccountLabels(supabase: any): Promise<string[]> {
-  const { data } = await supabase.from("app_settings").select("value").eq("key", "email_accounts").maybeSingle();
-  return ["Primary", ...((Array.isArray(data?.value) ? data.value : []).map((acc: any) => String(acc?.label || acc?.user || "").trim()).filter(Boolean))];
+  const value = await getSetting<any[]>(supabase, "email_accounts");
+  return ["Primary", ...((Array.isArray(value) ? value : []).map((acc: any) => String(acc?.label || acc?.user || "").trim()).filter(Boolean))];
 }
 
 async function loadRecipientFiltersByLabel(supabase: any): Promise<Map<string, string[]>> {
   const out = new Map<string, string[]>();
   try {
-    const { data } = await supabase.from("app_settings").select("value").eq("key", "email_accounts").maybeSingle();
-    if (Array.isArray(data?.value)) {
-      for (const acc of data.value) {
+    const value = await getSetting<any[]>(supabase, "email_accounts");
+    if (Array.isArray(value)) {
+      for (const acc of value) {
         const label = String(acc?.label || acc?.user || "").trim();
         if (!label) continue;
         out.set(label, normalizeRecipientFilters(acc.recipientFilters || acc.recipientFilter || acc.allowedRecipients));
@@ -2198,10 +2222,14 @@ Deno.serve(async (originalReq) => {
       } catch {}
     }
 
-    // Fire-and-forget touch
-    supabase.from("app_sessions").update({ last_seen_at: new Date().toISOString() }).eq("id", row.id).then(() => {});
+    // Fire-and-forget touch, throttled to once per SESSION_TOUCH_MS per session
+    // to eliminate write amplification on last_seen_at (was a top WAL source).
+    if (shouldTouchSession(row.id)) {
+      supabase.from("app_sessions").update({ last_seen_at: new Date().toISOString() }).eq("id", row.id).then(() => {});
+    }
     return session;
   }
+
 
 
 
