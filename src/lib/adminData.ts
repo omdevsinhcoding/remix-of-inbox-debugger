@@ -73,7 +73,27 @@ function ensure(key: string): Entry {
   return e;
 }
 
+// Cached snapshots per key. useSyncExternalStore requires that getSnapshot()
+// returns a referentially-stable value between emits, otherwise React bails
+// out with "getSnapshot should be cached" → infinite re-render → error #185.
+const snapshots = new Map<string, SliceState<any>>();
+
+function buildSnapshot<T>(key: string): SliceState<T> {
+  const e = ensure(key);
+  const snap: SliceState<T> = {
+    data: e.data as T | null,
+    cachedAt: e.cachedAt,
+    error: e.error,
+    refreshing: e.refreshing,
+    hasData: e.data !== null,
+  };
+  snapshots.set(key, snap);
+  return snap;
+}
+
 function emit(key: string) {
+  // Rebuild the cached snapshot so subscribers see a new reference next read.
+  buildSnapshot(key);
   const set = listeners.get(key);
   if (!set) return;
   for (const fn of set) { try { fn(); } catch {} }
@@ -88,14 +108,9 @@ export type SliceState<T> = {
 };
 
 export function readSlice<T = any>(key: string): SliceState<T> {
-  const e = ensure(key);
-  return {
-    data: e.data as T | null,
-    cachedAt: e.cachedAt,
-    error: e.error,
-    refreshing: e.refreshing,
-    hasData: e.data !== null,
-  };
+  const cached = snapshots.get(key);
+  if (cached) return cached as SliceState<T>;
+  return buildSnapshot<T>(key);
 }
 
 export function subscribe(key: string, fn: () => void): () => void {
@@ -197,6 +212,7 @@ export function clearAllSlices() {
     try { sessionStorage.removeItem(SS_PREFIX + key); } catch {}
   }
   store.clear();
+  snapshots.clear();
   for (const [, set] of listeners) for (const fn of set) { try { fn(); } catch {} }
 }
 
