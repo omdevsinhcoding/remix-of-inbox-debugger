@@ -23,18 +23,20 @@ export function countEnabled(f: UserFeatures) {
 const VIEW_KEY = "nf.view.v1";
 
 export function useWorkflowView(user: any, features: UserFeatures) {
+  const pickDefault = (): WorkflowView | null => {
+    if (features.gmail) return "gmail";
+    if (features.tv) return "tv";
+    if (features.link) return "link";
+    return null;
+  };
   const [view, setView] = useState<WorkflowView | null>(() => {
     try {
       const stored = sessionStorage.getItem(VIEW_KEY) as WorkflowView | null;
       if (stored && features[stored]) return stored;
     } catch {}
-    const n = countEnabled(features);
-    if (n <= 1) {
-      if (features.gmail) return "gmail";
-      if (features.tv) return "tv";
-      if (features.link) return "link";
-      return null;
-    }
+    // Only show chooser when the user has ALL THREE workflows enabled.
+    // With 2 or fewer, we auto-open the default and rely on the header switcher.
+    if (countEnabled(features) < 3) return pickDefault();
     return null;
   });
   useEffect(() => {
@@ -48,38 +50,77 @@ export function useWorkflowView(user: any, features: UserFeatures) {
   return { view, setChoice, clearChoice };
 }
 
-// ---------------- Chooser ----------------
+// ---------------- Chooser (premium white welcome) ----------------
 
-export function WorkflowChooser({ features, onPick }: { features: UserFeatures; onPick: (v: WorkflowView) => void }) {
-  const items: { key: WorkflowView; title: string; sub: string; Icon: any; grad: string }[] = [];
-  if (features.gmail) items.push({ key: "gmail", title: "Gmail Inbox", sub: "Read Netflix sign-in codes from your inbox", Icon: Mail, grad: "from-rose-500 to-red-600" });
-  if (features.link) items.push({ key: "link", title: "Direct Link", sub: "Generate a one-tap Netflix login link", Icon: LinkIcon, grad: "from-emerald-500 to-teal-600" });
-  if (features.tv)   items.push({ key: "tv",   title: "TV Auto-Login", sub: "Enter the 8-digit code shown on your TV", Icon: Tv,   grad: "from-indigo-500 to-violet-600" });
+export function WorkflowChooser({ features, user, onPick, onLogout }: {
+  features: UserFeatures;
+  user?: { name?: string; username?: string } | null;
+  onPick: (v: WorkflowView) => void;
+  onLogout?: () => void;
+}) {
+  const items: { key: WorkflowView; title: string; sub: string; Icon: any; accent: string; tint: string }[] = [];
+  if (features.gmail) items.push({ key: "gmail", title: "Gmail Inbox",   sub: "Read Netflix sign-in codes straight from your inbox",  Icon: Mail,    accent: "from-rose-500 to-red-600",       tint: "bg-rose-50 text-rose-600" });
+  if (features.tv)    items.push({ key: "tv",    title: "TV Auto-Login", sub: "Enter the 8-digit code shown on your Netflix TV",      Icon: Tv,      accent: "from-indigo-500 to-violet-600",  tint: "bg-indigo-50 text-indigo-600" });
+  if (features.link)  items.push({ key: "link",  title: "Direct Link",   sub: "Generate a secure one-tap Netflix sign-in link",       Icon: LinkIcon, accent: "from-emerald-500 to-teal-600",  tint: "bg-emerald-50 text-emerald-600" });
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-      className="fixed inset-0 z-[80] bg-gradient-to-br from-black via-slate-950 to-black flex items-center justify-center p-4">
-      <div className="w-full max-w-3xl">
-        <div className="text-center mb-8">
-          <h2 className="text-white text-3xl sm:text-4xl font-black tracking-tight">How would you like to sign in?</h2>
-          <p className="text-slate-400 text-sm mt-2">Pick a workflow — you can switch anytime from the header.</p>
+    <motion.div
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      transition={{ duration: 0.25 }}
+      className="fixed inset-0 z-[80] bg-gradient-to-br from-slate-50 via-white to-slate-100 flex flex-col"
+    >
+      <header className="flex items-center justify-between px-4 sm:px-8 h-16 border-b border-slate-200/70 bg-white/70 backdrop-blur">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-red-600 to-rose-500 flex items-center justify-center text-white font-black shadow-sm">N</div>
+          <div className="min-w-0">
+            <div className="text-sm font-black text-slate-900 leading-tight truncate">Netflix Mail</div>
+            <div className="text-[11px] text-slate-500 truncate">{user?.name || user?.username || "Signed in"}</div>
+          </div>
         </div>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {items.map(({ key, title, sub, Icon, grad }) => (
-            <motion.button key={key} whileHover={{ y: -3 }} whileTap={{ scale: 0.98 }}
-              onClick={() => onPick(key)}
-              className={`group relative overflow-hidden rounded-2xl p-5 text-left bg-gradient-to-br ${grad} shadow-xl shadow-black/40 focus:outline-none focus:ring-2 focus:ring-white/60`}>
-              <div className="flex items-start justify-between">
-                <Icon className="w-8 h-8 text-white/95" />
-                <ChevronRight className="w-5 h-5 text-white/80 group-hover:translate-x-0.5 transition-transform" />
-              </div>
-              <div className="mt-6">
-                <div className="text-white font-black text-xl tracking-tight">{title}</div>
-                <div className="text-white/85 text-xs mt-1 leading-relaxed">{sub}</div>
-              </div>
-              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/5 transition-colors pointer-events-none" />
-            </motion.button>
-          ))}
+        {onLogout && (
+          <button onClick={onLogout}
+            className="flex items-center gap-1.5 h-9 px-3.5 rounded-full bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 active:scale-95 transition-transform shadow-sm">
+            <LogOut className="w-3.5 h-3.5" /> Sign out
+          </button>
+        )}
+      </header>
+
+      <div className="flex-1 flex items-center justify-center px-4 py-10 sm:py-14">
+        <div className="w-full max-w-5xl">
+          <div className="text-center mb-10 sm:mb-14">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white border border-slate-200 shadow-sm text-[10px] font-bold uppercase tracking-[0.24em] text-slate-500">
+              <Sparkles className="w-3 h-3 text-amber-500" /> Welcome back
+            </div>
+            <h2 className="mt-4 text-3xl sm:text-5xl font-black tracking-tight text-slate-900">How would you like to sign in?</h2>
+            <p className="mt-3 text-sm sm:text-base text-slate-500 max-w-xl mx-auto">Three dedicated experiences for the same account. Pick one to get started — you can switch anytime from the header.</p>
+          </div>
+
+          <div className="grid gap-4 sm:gap-5 sm:grid-cols-3">
+            {items.map(({ key, title, sub, Icon, accent, tint }, i) => (
+              <motion.button key={key}
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.05 + i * 0.06, type: "spring", stiffness: 240, damping: 22 }}
+                whileHover={{ y: -4 }} whileTap={{ scale: 0.98 }}
+                onClick={() => onPick(key)}
+                className="group relative overflow-hidden rounded-2xl bg-white border border-slate-200 hover:border-slate-300 hover:shadow-[0_20px_50px_-20px_rgba(2,6,23,0.18)] transition-all p-6 text-left focus:outline-none focus:ring-2 focus:ring-slate-900/20"
+              >
+                <div className={`w-12 h-12 rounded-2xl ${tint} flex items-center justify-center mb-6`}>
+                  <Icon className="w-5.5 h-5.5" />
+                </div>
+                <div className="font-black text-lg text-slate-900 tracking-tight">{title}</div>
+                <div className="text-[12.5px] text-slate-500 mt-1 leading-relaxed">{sub}</div>
+                <div className="mt-6 inline-flex items-center gap-1.5 text-[11px] font-black uppercase tracking-widest text-slate-900">
+                  Continue <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+                </div>
+                <div aria-hidden className={`pointer-events-none absolute inset-x-0 -bottom-0.5 h-1 bg-gradient-to-r ${accent} opacity-0 group-hover:opacity-100 transition-opacity`} />
+              </motion.button>
+            ))}
+          </div>
+
+          <p className="mt-10 text-center text-[11px] text-slate-400">
+            Your workflow choice is remembered on this device.
+          </p>
         </div>
       </div>
     </motion.div>
