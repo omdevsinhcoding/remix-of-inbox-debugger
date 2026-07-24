@@ -1,1 +1,0 @@
-ALTER TABLE public.cached_emails ADD COLUMN IF NOT EXISTS message_id text;

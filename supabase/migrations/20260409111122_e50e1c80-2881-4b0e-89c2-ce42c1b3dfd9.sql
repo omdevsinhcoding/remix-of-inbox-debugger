@@ -1,1 +1,0 @@
-ALTER PUBLICATION supabase_realtime DROP TABLE public.cached_emails;

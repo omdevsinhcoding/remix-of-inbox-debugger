@@ -1,5 +1,0 @@
-{
-  "name": "Secure OTP Viewer",
-  "description": "A specialized email viewer for tracking OTPs from a fixed Gmail account using IMAP.",
-  "requestFramePermissions": ["geolocation"]
-}
