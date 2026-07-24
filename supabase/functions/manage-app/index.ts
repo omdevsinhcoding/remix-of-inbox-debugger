@@ -2819,10 +2819,25 @@ Deno.serve(async (originalReq) => {
         profile_prefs: { avatarId: null, locationRequired: finalRole !== "admin" },
         tv_override: normalizedTvOverride,
       };
+
+      // Paid users can have plan dates. Admin/free rows have them nulled by trigger.
+      if (!isFree && finalRole !== "admin") {
+        if (plan_starts_at) {
+          const t = Date.parse(String(plan_starts_at));
+          if (!Number.isFinite(t)) throw new Error("Invalid plan start date");
+          insertPayload.plan_starts_at = new Date(t).toISOString();
+        }
+        if (plan_ends_at) {
+          const t = Date.parse(String(plan_ends_at));
+          if (!Number.isFinite(t)) throw new Error("Invalid plan end date");
+          insertPayload.plan_ends_at = new Date(t).toISOString();
+        }
+      }
+
       const { data, error } = await supabase
         .from("app_users")
         .insert(insertPayload)
-        .select("id, username, name, role, assigned_accounts, profile_prefs, is_free, pinned, sort_order, expires_at, tv_override")
+        .select("id, username, name, role, assigned_accounts, profile_prefs, is_free, pinned, sort_order, expires_at, tv_override, plan_starts_at, plan_ends_at")
         .single();
       if (error) throw error;
       invalidateBootstrapCache();
