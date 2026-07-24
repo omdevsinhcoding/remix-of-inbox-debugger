@@ -5245,16 +5245,16 @@ Deno.serve(async (originalReq) => {
         const tg = await getTelegramConfig(supabase);
         if (!tg) return;
         const titleMap: Record<string, string> = {
-          attempt: "TV Login — Attempt started",
-          success: "TV Login — Success",
-          invalid_code: "TV Login — Invalid code",
-          cookies_expired: "TV Login — Cookies expired",
-          no_cookies: "TV Login — No cookies configured",
-          not_configured: "TV Login — Not configured",
-          runner_timeout: "TV Login — Runner timeout",
-          netflix_timeout: "TV Login — Netflix timeout",
-          error: "TV Login — Error",
-          user_error_report: "TV Login — User report",
+          attempt: "🚀 TV Login — Attempt started",
+          success: "✅ TV Login — Signed in successfully",
+          invalid_code: "❌ TV Login — Invalid code",
+          cookies_expired: "🍪 TV Login — Cookies expired",
+          no_cookies: "⚠️ TV Login — No cookies configured",
+          not_configured: "⚙️ TV Login — Not configured",
+          runner_timeout: "⏳ TV Login — Runner slow",
+          netflix_timeout: "⏳ TV Login — Netflix slow",
+          error: "🔥 TV Login — Error",
+          user_error_report: "📣 TV Login — User report",
         };
         const get = (key: string) => {
           const v = fields[key];
@@ -5276,13 +5276,13 @@ Deno.serve(async (originalReq) => {
           : [];
         const parts = [
           `<b>${escapeTgHtml(titleMap[kind] || `TV Login — ${kind}`)}</b>`,
-          section("Result", [row("status"), row("result"), row("dispatch"), row("code_last4", "Code last 4")]),
-          section("User", [row("user"), row("display_name", "Display name"), row("user_id", "User ID"), row("ip", "IP")]),
-          section("Account", [row("account_label", "Label"), row("imap_user", "Account"), row("login_email", "Login"), row("cookies_available", "Cookies")]),
-          mainMessage ? section("Message", [`<code>${escapeTgHtml(redactTgValue(mainMessage))}</code>`]) : "",
-          timingRows.length ? section("Timing", timingRows) : "",
-          section("Runtime", [row("run_url", "Runner"), row("started_at", "Started"), row("finished_at", "Finished"), row("submitted_at", "Submitted")]),
-          get("user_note") ? section("User note", [`<code>${escapeTgHtml(get("user_note"))}</code>`]) : "",
+          section("📊 Result", [row("status"), row("result"), row("dispatch"), row("code_last4", "Code last 4")]),
+          section("👤 User", [row("user"), row("display_name", "Display name"), row("user_id", "User ID"), row("ip", "IP")]),
+          section("🎬 Account", [row("account_label", "Label"), row("imap_user", "Account"), row("login_email", "Login"), row("cookies_available", "Cookies")]),
+          mainMessage ? section("💬 Message", [`<code>${escapeTgHtml(redactTgValue(mainMessage))}</code>`]) : "",
+          timingRows.length ? section("⏱ Timing", timingRows) : "",
+          section("🖥 Runtime", [row("run_url", "Runner"), row("started_at", "Started"), row("finished_at", "Finished"), row("submitted_at", "Submitted")]),
+          get("user_note") ? section("📝 User note", [`<code>${escapeTgHtml(get("user_note"))}</code>`]) : "",
         ].filter(Boolean);
         const text = parts.join("\n\n");
         postTelegramBg(tg, { text: text.slice(0, 3900) });
