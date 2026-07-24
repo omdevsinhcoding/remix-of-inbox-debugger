@@ -8412,6 +8412,9 @@ function AdminPanel() {
         }
       }
       const tvOvOut: "on" | "off" | null = editTvOverride === "on" ? "on" : editTvOverride === "off" ? "off" : null;
+      const isPaidNonAdmin = !isFreeTarget && target?.role !== "admin";
+      const plan_starts_at = isPaidNonAdmin ? (editPlanStartsAt ? new Date(editPlanStartsAt).toISOString() : null) : undefined;
+      const plan_ends_at = isPaidNonAdmin ? (editPlanEndsAt ? new Date(editPlanEndsAt).toISOString() : null) : undefined;
       await apiCall("manage-app", {
         action: "update_user",
         id: userId,
@@ -8422,11 +8425,13 @@ function AdminPanel() {
         features: { link: editDirectLinkEnabled },
         ...(expires_at !== undefined ? { expires_at } : {}),
         ...(isFreeTarget ? { auto_delete: editAutoDelete } : {}),
+        ...(plan_starts_at !== undefined ? { plan_starts_at } : {}),
+        ...(plan_ends_at !== undefined ? { plan_ends_at } : {}),
       });
       const nextAccounts = normalizeSelectedAccounts(editAccountsList).length > 0 ? normalizeSelectedAccounts(editAccountsList) : null;
       const nextUsername = editUsername.trim() || null;
       setEditingUserAccounts(null); setEditHint(null);
-      setUsers(prev => prev.map(u => u.id === userId ? { ...u, username: nextUsername as any, assignedAccounts: nextAccounts, session_limit, tvOverride: tvOvOut, features: { ...adminUserFeatures(u), link: editDirectLinkEnabled }, feature_link: editDirectLinkEnabled, ...(expires_at !== undefined ? { expiresAt: expires_at } as any : {}), ...(isFreeTarget ? { autoDelete: editAutoDelete } as any : {}) } as any : u));
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, username: nextUsername as any, assignedAccounts: nextAccounts, session_limit, tvOverride: tvOvOut, features: { ...adminUserFeatures(u), link: editDirectLinkEnabled }, feature_link: editDirectLinkEnabled, ...(expires_at !== undefined ? { expiresAt: expires_at } as any : {}), ...(isFreeTarget ? { autoDelete: editAutoDelete } as any : {}), ...(plan_starts_at !== undefined ? { planStartsAt: plan_starts_at } as any : {}), ...(plan_ends_at !== undefined ? { planEndsAt: plan_ends_at } as any : {}) } as any : u));
       applyTvOverrideToStoredUser(userId, tvOvOut);
       patchBootstrapCacheUser(userId, { tvOverride: tvOvOut, features: { ...adminUserFeatures(target), link: editDirectLinkEnabled }, feature_link: editDirectLinkEnabled });
       try { await refreshBootstrap(); } catch {}
