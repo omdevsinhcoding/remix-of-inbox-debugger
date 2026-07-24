@@ -13365,11 +13365,6 @@ function EmailViewer() {
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
       <h1 className="sr-only">Email Inbox — Netflix Mail</h1>
-      <AnimatePresence>
-        {workflowView === null && countEnabled(userFeatures) >= 2 && (
-          <WorkflowChooser features={userFeatures} user={user} lastView={(user as any)?.lastWorkflowView || null} onPick={setWorkflowView} onLogout={fastClearCookiesRedirect} />
-        )}
-      </AnimatePresence>
       {showChangePassword && (
         <ChangePasswordModal user={user} onDone={() => setShowChangePassword(false)} forced={forcedPasswordChange && showChangePassword} />
       )}
@@ -13633,7 +13628,15 @@ function EmailViewer() {
 
 
       <AnimatePresence mode="wait" initial={false}>
-        {workflowView === "link" && userFeatures.link ? (
+        {workflowView === null && countEnabled(userFeatures) >= 2 ? (
+          <motion.main key="wf-chooser"
+            initial={{ opacity: 0, y: 12, filter: "blur(6px)" }}
+            animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+            exit={{ opacity: 0, y: -12, filter: "blur(6px)" }}
+            transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}>
+            <WorkflowChooser features={userFeatures} user={user} lastView={(user as any)?.lastWorkflowView || null} onPick={setWorkflowView} onLogout={fastClearCookiesRedirect} />
+          </motion.main>
+        ) : workflowView === "link" && userFeatures.link ? (
           <motion.main key="wf-link" className="max-w-6xl mx-auto"
             initial={{ opacity: 0, y: 12, filter: "blur(6px)" }}
             animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
@@ -13649,7 +13652,7 @@ function EmailViewer() {
             transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}>
             <TvSignInPage />
           </motion.main>
-        ) : (
+        ) : workflowView === "gmail" || countEnabled(userFeatures) < 2 ? (
       <motion.main key="wf-gmail" className="max-w-6xl mx-auto px-2 sm:px-4 h-[calc(100vh-3.5rem)] sm:h-[calc(100vh-4rem)] overflow-hidden"
         initial={{ opacity: 0, y: 12, filter: "blur(6px)" }} animate={{ opacity: 1, y: 0, filter: "blur(0px)" }} exit={{ opacity: 0, y: -12, filter: "blur(6px)" }} transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}>
         <div className="grid grid-cols-1 md:grid-cols-12 gap-4 sm:gap-8 h-full py-2 sm:py-4">
@@ -13795,7 +13798,7 @@ function EmailViewer() {
           </div>
         </div>
       </motion.main>
-      )}
+      ) : null}
       </AnimatePresence>
 
 
