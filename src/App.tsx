@@ -113,6 +113,52 @@ const resolvePlatformOption = (value: string | null | undefined) => {
   return PLATFORM_OPTIONS.find((platform) => platform.id === id) || PLATFORM_OPTIONS.find((platform) => platform.id === "")!;
 };
 
+function DurationQuickAdd({ baseDateStr, onApply }: { baseDateStr: string; onApply: (localStr: string) => void }) {
+  const [amount, setAmount] = useState<string>("");
+  const [unit, setUnit] = useState<"days" | "months" | "years">("months");
+  const apply = () => {
+    const n = parseInt(amount, 10);
+    if (!Number.isFinite(n) || n <= 0) return;
+    const base = baseDateStr ? new Date(baseDateStr) : new Date();
+    if (Number.isNaN(base.getTime())) return;
+    const d = new Date(base);
+    if (unit === "days") d.setDate(d.getDate() + n);
+    else if (unit === "months") d.setMonth(d.getMonth() + n);
+    else d.setFullYear(d.getFullYear() + n);
+    const pad = (v: number) => String(v).padStart(2, "0");
+    onApply(`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`);
+    setAmount("");
+  };
+  return (
+    <div className="mt-2 flex items-stretch gap-1.5">
+      <input
+        type="number"
+        min={1}
+        inputMode="numeric"
+        value={amount}
+        onChange={(e) => setAmount(e.target.value.replace(/[^0-9]/g, ""))}
+        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); apply(); } }}
+        placeholder="e.g. 2"
+        className="w-20 px-2.5 py-1.5 rounded-lg border border-sky-200 bg-white text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-400"
+      />
+      <select
+        value={unit}
+        onChange={(e) => setUnit(e.target.value as "days" | "months" | "years")}
+        className="px-2 py-1.5 rounded-lg border border-sky-200 bg-white text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-400"
+      >
+        <option value="days">days</option>
+        <option value="months">months</option>
+        <option value="years">years</option>
+      </select>
+      <button type="button" onClick={apply}
+        className="px-3 py-1.5 rounded-lg text-xs font-black bg-sky-600 text-white hover:bg-sky-700 active:scale-95 transition-all">
+        Add
+      </button>
+    </div>
+  );
+}
+
+
 const platformMatchesSearch = (platform: PlatformOption, search: string) => {
   const query = normalizePlatformKey(search);
   if (!query) return true;
@@ -8604,29 +8650,8 @@ function AdminPanel() {
                     <div>
                       <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Plan ends at</label>
                       <DateTimePicker value={newPlanEndsAt} onChange={setNewPlanEndsAt} />
-                      <div className="flex flex-wrap gap-1.5 mt-2">
-                        {([
-                          { label: "+7d", days: 7 },
-                          { label: "+1m", months: 1 },
-                          { label: "+3m", months: 3 },
-                          { label: "+6m", months: 6 },
-                          { label: "+1y", months: 12 },
-                        ] as Array<{ label: string; days?: number; months?: number }>).map((p) => (
-                          <button key={p.label} type="button"
-                            onClick={() => {
-                              const base = newPlanStartsAt ? new Date(newPlanStartsAt) : new Date();
-                              if (Number.isNaN(base.getTime())) return;
-                              const d = new Date(base);
-                              if (p.days) d.setDate(d.getDate() + p.days);
-                              if (p.months) d.setMonth(d.getMonth() + p.months);
-                              const pad = (n: number) => String(n).padStart(2, "0");
-                              setNewPlanEndsAt(`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`);
-                            }}
-                            className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-white border border-sky-200 text-sky-700 hover:bg-sky-100 active:scale-95 transition-all">
-                            {p.label}
-                          </button>
-                        ))}
-                      </div>
+                      <DurationQuickAdd baseDateStr={newPlanStartsAt} onApply={setNewPlanEndsAt} />
+                      <p className="text-[10px] text-slate-500 mt-1">Type a number and pick days/months/years — auto-calculated from Plan Start (or now).</p>
                     </div>
                     <p className="text-[10px] text-slate-500">Leave empty = no plan gating. When set, user sees a live countdown pill and is locked out after the end date. Reminders go to admin Telegram in the last 7 days.</p>
                     {(newPlanStartsAt || newPlanEndsAt) && (
@@ -9258,30 +9283,8 @@ function AdminPanel() {
                                   <div>
                                     <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Plan ends at</label>
                                     <DateTimePicker value={editPlanEndsAt} onChange={setEditPlanEndsAt} />
-                                    <div className="flex flex-wrap gap-1.5 mt-2">
-                                      {([
-                                        { label: "+7d", days: 7 },
-                                        { label: "+1m", months: 1 },
-                                        { label: "+3m", months: 3 },
-                                        { label: "+6m", months: 6 },
-                                        { label: "+1y", months: 12 },
-                                      ] as Array<{ label: string; days?: number; months?: number }>).map((p) => (
-                                        <button key={p.label} type="button"
-                                          onClick={() => {
-                                            const base = editPlanStartsAt ? new Date(editPlanStartsAt) : new Date();
-                                            if (Number.isNaN(base.getTime())) return;
-                                            const d = new Date(base);
-                                            if (p.days) d.setDate(d.getDate() + p.days);
-                                            if (p.months) d.setMonth(d.getMonth() + p.months);
-                                            const pad = (n: number) => String(n).padStart(2, "0");
-                                            setEditPlanEndsAt(`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`);
-                                          }}
-                                          className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-white border border-sky-200 text-sky-700 hover:bg-sky-100 active:scale-95 transition-all">
-                                          {p.label}
-                                        </button>
-                                      ))}
-                                    </div>
-                                    <p className="text-[10px] text-slate-500 mt-1">Quick pick adds duration to Plan Start (or now if empty).</p>
+                                    <DurationQuickAdd baseDateStr={editPlanStartsAt} onApply={setEditPlanEndsAt} />
+                                    <p className="text-[10px] text-slate-500 mt-1">Type a number and pick days/months/years — auto-calculated from Plan Start (or now).</p>
                                   </div>
                                   <div className="flex items-center justify-between">
                                     <p className="text-[10px] text-slate-500 leading-snug">Locks access after end date. Telegram reminders last 7 days.</p>
