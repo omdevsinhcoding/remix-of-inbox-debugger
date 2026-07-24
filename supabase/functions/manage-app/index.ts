@@ -3168,10 +3168,11 @@ Deno.serve(async (originalReq) => {
 
     if (action === "admin_test_github_runner") {
       await requireAdmin(req);
-      const repo = Deno.env.get("GITHUB_REPO") || "";
-      const pat = Deno.env.get("GITHUB_DISPATCH_PAT") || "";
+      const cfg = await loadGithubConfig();
+      const repo = cfg.repo;
+      const pat = cfg.pat;
       if (!repo || !pat) {
-        return new Response(JSON.stringify({ success: true, ok: false, status: 0, message: "GitHub repo/token is not configured." }), {
+        return new Response(JSON.stringify({ success: true, ok: false, status: 0, message: "GitHub repo/token is not configured. Use the GitHub Setup card." }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
