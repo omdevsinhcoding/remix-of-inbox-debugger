@@ -11,10 +11,15 @@ concurrency:
 
 jobs:
   run:
-    # GitHub mode must work without a VPS/self-hosted runner.
-    # It is slower than VPS, but should execute on GitHub-hosted runners instead
-    # of sitting queued forever waiting for a missing self-hosted machine.
     runs-on: ubuntu-latest
+    # IMPORTANT: This image tag MUST match the `playwright` version in
+    # scripts/tv-login-runner/package.json. If you bump one, bump the other in
+    # the same commit or Playwright will throw "Executable doesn't exist".
+    # Image ships with Chromium + all system deps pre-baked, so we skip the
+    # slow `npx playwright install --with-deps` (~60-90s → 0s).
+    container:
+      image: mcr.microsoft.com/playwright:v1.48.0-jammy
+      options: --user 1001
     timeout-minutes: 5
     permissions:
       contents: read
@@ -30,17 +35,11 @@ jobs:
           sparse-checkout: scripts/tv-login-runner
           sparse-checkout-cone-mode: false
 
-      - uses: actions/setup-node@v4
-        if: github.event.action == 'tv-login'
-        with:
-          node-version: 20
-
       - name: Install runner dependencies
         if: github.event.action == 'tv-login'
         working-directory: scripts/tv-login-runner
-        run: |
-          npm ci || npm install
-          npx playwright install --with-deps chromium
+        run: npm ci || npm install
+        # NO `npx playwright install` — Chromium already lives in the image.
 
       - name: Run TV auto-login
         if: github.event.action == 'tv-login'
