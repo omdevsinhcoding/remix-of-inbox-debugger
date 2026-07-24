@@ -16,7 +16,7 @@ const HMAC_KEY = process.env.TV_REPORT_HMAC_KEY;
 const RUN_URL = process.env.GITHUB_RUN_URL || "";
 const EVENT_PATH = process.env.EVENT_PATH;
 const DIRECT_EVENT_ID = process.env.EVENT_ID;
-const MAX_MS = Math.max(3000, Math.min(15000, Number(process.env.TV_LOGIN_MAX_MS || 15000)));
+const MAX_MS = Math.max(3000, Math.min(60000, Number(process.env.TV_LOGIN_MAX_MS || 45000)));
 const SCRIPT_STARTED_AT = Date.now();
 
 if (!TV_REPORT_URL || !HMAC_KEY || (!DIRECT_EVENT_ID && !EVENT_PATH)) {
@@ -197,10 +197,13 @@ try {
   const page = await context.newPage();
 
   // Block anything not needed to render + submit the tv8 form.
+  // Block only heavy media + analytics. Do NOT block stylesheets — the /tv8
+  // page is a React SPA and the PIN input positions/hydrates via CSS+JS.
+  // Blocking stylesheets caused past `no_code_input` failures.
   await page.route("**/*", (route) => {
     const req = route.request();
     const type = req.resourceType();
-    if (type === "image" || type === "media" || type === "font" || type === "stylesheet") {
+    if (type === "image" || type === "media" || type === "font") {
       return route.abort();
     }
     const url = req.url();
@@ -210,23 +213,27 @@ try {
     return route.continue();
   });
 
-  // domcontentloaded is enough — /tv8 form is server-rendered.
-  await page.goto("https://www.netflix.com/tv8", { waitUntil: "domcontentloaded", timeout: Math.min(3500, remaining()) });
-  console.log(`[perf] tv8 loaded in ${Date.now() - t0}ms`);
+  await page.goto("https://www.netflix.com/tv8", { waitUntil: "domcontentloaded", timeout: Math.min(8000, remaining()) });
+  console.log(`[perf] tv8 loaded in ${Date.now() - t0}ms url=${page.url()}`);
 
-  // Wait for a code input to appear.
+  // Netflix SPA hydrates the PIN inputs after JS runs. Give it real time
+  // on GitHub runners (slower CPU than VPS).
   const hasCodeInput = await page.waitForSelector(
-    'input[maxlength="1"], input[data-uia*="digit"], input[type="tel"], input[inputmode="numeric"], input[name*="code" i]',
-    { timeout: Math.min(2000, remaining()) },
+    'input.pin-number-input, input[aria-label^="PIN entry input"], input[maxlength="1"], input[data-uia*="digit"], input[type="tel"], input[inputmode="numeric"], input[name*="code" i]',
+    { timeout: Math.min(12000, remaining()) },
   ).then(() => true).catch(() => false);
 
   if (!hasCodeInput) {
     const bodyText = (await page.locator("body").innerText().catch(() => "")).toLowerCase();
     const url = page.url();
+    // Ship a short DOM snippet so we can see WHY inputs never appeared.
+    const domSnippet = (await page.content().catch(() => "")).slice(0, 800).replace(/\s+/g, " ");
+    console.log(`[debug] no_code_input url=${url} bodyStart="${bodyText.slice(0, 200)}"`);
+    console.log(`[debug] dom="${domSnippet}"`);
     if (/sign ?in|log ?in|password|email|expired|unsupported|not available|something went wrong/i.test(bodyText) || /login|unsupportedbrowser/i.test(url)) {
-      status = "cookies_expired"; result = "cookies_expired"; message = "Cookies appear to be expired";
+      status = "cookies_expired"; result = "cookies_expired"; message = `Cookies expired at ${url}`;
     } else {
-      status = "error"; result = "no_code_input"; message = "Netflix code input did not appear";
+      status = "error"; result = "no_code_input"; message = `Netflix code input did not appear at ${url} | body="${bodyText.slice(0, 120)}"`;
     }
     throw new Error(message);
   }
