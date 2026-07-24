@@ -3232,6 +3232,83 @@ Deno.serve(async (originalReq) => {
       }
     }
 
+    if (action === "admin_github_status") {
+      await requireAdmin(req);
+      const cfg = await loadGithubConfig();
+      return new Response(JSON.stringify({
+        success: true,
+        configured: !!(cfg.pat && cfg.repo && cfg.hmacKey),
+        repo: cfg.repo || "",
+        hasPat: !!cfg.pat,
+        hasHmac: !!cfg.hmacKey,
+        updatedAt: cfg.updatedAt,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    if (action === "admin_github_setup") {
+      const admin = await requireAdmin(req);
+      const p = (params || {}) as any;
+      const patInput = String(p?.pat || "").trim();
+      const repoInput = String(p?.repo || "").trim();
+      const existing = await loadGithubConfig();
+      const pat = patInput || existing.pat;
+      if (!pat) throw new Error("A GitHub Personal Access Token is required.");
+
+      // 1) Validate PAT and get login
+      const me = await ghApi(pat, "/user");
+      if (me.status !== 200 || !me.json?.login) {
+        throw new Error(`GitHub token invalid (${me.status}). Create a fine-grained PAT with Actions: read+write, Secrets: read+write, Metadata: read.`);
+      }
+      const login = String(me.json.login);
+
+      // 2) Resolve repo: user-provided, existing config, or auto-detect
+      const candidates: string[] = [];
+      if (repoInput) candidates.push(repoInput.includes("/") ? repoInput : `${login}/${repoInput}`);
+      if (existing.repo) candidates.push(existing.repo);
+      candidates.push(`${login}/remix-of-inbox-debugger`, `${login}/inbox-debugger`);
+
+      let chosenRepo = "";
+      let checkedWorkflow = false;
+      for (const cand of candidates) {
+        const wf = await ghApi(pat, `/repos/${cand}/contents/.github/workflows/tv-login.yml`);
+        if (wf.status === 200) { chosenRepo = cand; checkedWorkflow = true; break; }
+      }
+      // Fallback: scan user's repos for the workflow file (first page only)
+      if (!chosenRepo) {
+        const list = await ghApi(pat, `/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator`);
+        const repos: any[] = Array.isArray(list.json) ? list.json : [];
+        for (const r of repos) {
+          const full = String(r?.full_name || "");
+          if (!full) continue;
+          const wf = await ghApi(pat, `/repos/${full}/contents/.github/workflows/tv-login.yml`);
+          if (wf.status === 200) { chosenRepo = full; checkedWorkflow = true; break; }
+        }
+      }
+      if (!chosenRepo) {
+        throw new Error("Could not find a repo with .github/workflows/tv-login.yml. Pass the repo as owner/name.");
+      }
+
+      // 3) Generate a fresh HMAC key
+      const hmacBytes = new Uint8Array(32);
+      crypto.getRandomValues(hmacBytes);
+      const hmacKey = Array.from(hmacBytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+
+      // 4) Push it as a GitHub Actions secret
+      await pushGithubActionsSecret(pat, chosenRepo, "TV_REPORT_HMAC_KEY", hmacKey);
+
+      // 5) Save all three in DB
+      await saveGithubConfig({ pat, repo: chosenRepo, hmac_key: hmacKey, updated_by: (admin as any)?.id || null });
+
+      return new Response(JSON.stringify({
+        success: true,
+        ok: true,
+        repo: chosenRepo,
+        login,
+        workflowVerified: checkedWorkflow,
+        message: `Synced with ${chosenRepo}. HMAC key rotated and pushed to GitHub Actions secrets.`,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     if (action === "admin_test_github_runner") {
       await requireAdmin(req);
       const cfg = await loadGithubConfig();
