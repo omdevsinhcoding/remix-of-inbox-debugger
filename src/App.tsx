@@ -2504,16 +2504,28 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
 // ============================================================================
 function TvSignInPage() {
   type TvAccount = { account_key?: string; imap_user: string; imap_user_masked: string; label: string; cookies_available: boolean };
-  const [step, setStep] = useState<"select" | "code">("select");
+  // Persist across workflow switches so the user doesn't lose their entered
+  // code / picked account when they navigate away and come back mid-flight.
+  const DRAFT_KEY = "tv_signin_draft_v1";
+  const readDraft = () => {
+    try { return JSON.parse(sessionStorage.getItem(DRAFT_KEY) || "{}"); } catch { return {}; }
+  };
+  const initialDraft = readDraft();
+  const [step, setStep] = useState<"select" | "code">(initialDraft.step === "code" ? "code" : "select");
   const [accounts, setAccounts] = useState<TvAccount[]>([]);
   const [accountsLoading, setAccountsLoading] = useState(false);
   const [accountsError, setAccountsError] = useState<string | null>(null);
-  const [chosen, setChosen] = useState<TvAccount | null>(null);
-  const [code, setCode] = useState<string[]>(["", "", "", "", "", "", "", ""]);
+  const [chosen, setChosen] = useState<TvAccount | null>(initialDraft.chosen || null);
+  const [code, setCode] = useState<string[]>(() => {
+    const saved = Array.isArray(initialDraft.code) ? initialDraft.code : null;
+    if (saved && saved.length === 8) return saved.map((d: any) => (typeof d === "string" ? d.slice(0, 1) : ""));
+    return ["", "", "", "", "", "", "", ""];
+  });
   const [status, setStatus] = useState<TvLoginStatus>("idle");
   const [resultInfo, setResultInfo] = useState<{ accountLabel?: string | null; imapMasked?: string | null; eventId?: string | null; message?: string | null; runUrl?: string | null }>({});
   const [pollElapsed, setPollElapsed] = useState(0);
   const inputsRef = useRef<Array<HTMLInputElement | null>>([]);
+
 
   const applyAccounts = useCallback((list: TvAccount[]) => {
     const filtered = list.filter((a) => a?.cookies_available);
@@ -2630,8 +2642,19 @@ function TvSignInPage() {
     setStatus("idle");
     setResultInfo({});
     setPollElapsed(0);
+    try { sessionStorage.removeItem(DRAFT_KEY); } catch {}
     setTimeout(() => inputsRef.current[0]?.focus(), 40);
   }, []);
+
+  // Persist draft (step + chosen + code) so a workflow switch doesn't wipe it.
+  useEffect(() => {
+    try {
+      if (status === "success") { sessionStorage.removeItem(DRAFT_KEY); return; }
+      sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ step, chosen, code }));
+    } catch {}
+  }, [step, chosen, code, status]);
+
+
 
   useEffect(() => {
     const eventId = resultInfo.eventId;
