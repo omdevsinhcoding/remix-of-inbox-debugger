@@ -2152,7 +2152,7 @@ function TvQueueNoticeModal({ open, onClose }: { open: boolean; onClose: () => v
 
               <div className="flex items-center justify-center gap-1.5 text-[10.5px] text-slate-400 pt-1">
                 <ShieldCheck className="w-3 h-3" />
-                <span>Encrypted runner · Auto times-out safely</span>
+                <span>Secure sign-in · Auto times-out safely</span>
               </div>
             </div>
           </motion.div>
