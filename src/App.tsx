@@ -2124,7 +2124,25 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
     }
   }, [open, step]);
 
-  const setDigit = (i: number, v: string) => {
+  // Resume in-flight sign-in from DB after a workflow switch / reload — state
+  // must not live only in React memory or switching to Gmail loses it.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res: any = await apiCall("manage-app", { action: "tv_login_active" });
+        if (cancelled) return;
+        const ev = res?.event;
+        if (!ev) return;
+        const s = String(ev.status || "");
+        if (!["queued", "running", "in_progress"].includes(s)) return;
+        setResultInfo({ accountLabel: ev.account_label, imapMasked: ev.imap_user || null, eventId: ev.id, message: ev.message || null, runUrl: ev.github_run_url || null });
+        setStatus(s as any);
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
     const d = v.replace(/\D/g, "").slice(-1);
     setCode((prev) => {
       const next = [...prev];

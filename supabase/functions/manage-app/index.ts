@@ -5738,7 +5738,8 @@ Deno.serve(async (originalReq) => {
         const vpsCfgForRunner = publicVpsConfig(vpsRowForRunner?.value);
         const runnerMode: "vps" | "github" = (vpsCfgForRunner as any).mode === "github" ? "github" : "vps";
         const runnerBase = effectiveTvRunnerUrl(vpsRowForRunner?.value);
-        const userLabel = String(user?.name || user?.username || "user");
+        const baseLabel = String(user?.name || user?.username || "user");
+        const userLabel = matched?.label ? `${baseLabel} · ${matched.label}` : baseLabel;
         const tryGithubOnly = async (reason: string) => runnerMode === "github"
           ? await dispatchGithubTvRunner(inserted!.id, reason, userLabel).catch((err) => ({ ok: false, diag: "github_exception", message: err instanceof Error ? err.message : String(err) }))
           : { ok: false, diag: "vps_only_mode", message: "VPS mode is selected, so GitHub Actions will not run." };
