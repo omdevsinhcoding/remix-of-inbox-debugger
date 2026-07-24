@@ -4352,7 +4352,12 @@ function ProfileSelectPage() {
         storeWorkerUrls(data.workerUrls);
       }
 
-      sessionSet("user" as any, JSON.stringify(data.user));
+      let loginUser = data.user;
+      try {
+        const fresh: any = await apiCall("manage-app", { action: "me" });
+        if (fresh?.success && fresh.user) loginUser = { ...loginUser, ...fresh.user };
+      } catch {}
+      sessionSet("user" as any, JSON.stringify(loginUser));
       if (data.sessionToken) sessionSet("session_token" as any, data.sessionToken);
       try {
         const { storeSessionPair } = await import("./lib/sessionRefresh");
@@ -4412,7 +4417,12 @@ function ProfileSelectPage() {
       if (data.workerUrls && Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
         storeWorkerUrls(data.workerUrls);
       }
-      sessionSet("user" as any, JSON.stringify(data.user));
+      let freeLoginUser = data.user;
+      try {
+        const fresh: any = await apiCall("manage-app", { action: "me" });
+        if (fresh?.success && fresh.user) freeLoginUser = { ...freeLoginUser, ...fresh.user };
+      } catch {}
+      sessionSet("user" as any, JSON.stringify(freeLoginUser));
       if (data.sessionToken) sessionSet("session_token" as any, data.sessionToken);
       try {
         const { storeSessionPair } = await import("./lib/sessionRefresh");
