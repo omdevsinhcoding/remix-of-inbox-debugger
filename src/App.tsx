@@ -3287,8 +3287,9 @@ function normalizeEmailHtmlForDisplay(rawHtml = "", preview = "") {
 
 function emailHtmlForDisplay(email: Email | null) {
   if (!email) return "";
-  return String(email.html || "");
+  return normalizeEmailHtmlForDisplay(String(email.html || ""), String((email as any).preview || (email as any).snippet || ""));
 }
+
 interface UserData {
   id: string; username: string | null; name: string; role: "admin" | "user"; totpSecret?: string; mustChangePassword?: boolean; assignedAccounts?: string[] | null; profileAvatar?: string | null; profilePrefs?: UserProfilePrefs;
   isFree?: boolean; pinned?: boolean; sortOrder?: number | null; session_limit?: number | null; expiresAt?: string | null; locationRequired?: boolean;
