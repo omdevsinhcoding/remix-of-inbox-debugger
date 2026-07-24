@@ -231,6 +231,12 @@ type LinkRow = {
   link_url: string; expires_at: string; created_at: string; revoked_at: string | null; status: string;
 };
 
+function normalizeLinks(value: any): LinkRow[] {
+  if (Array.isArray(value)) return value;
+  if (Array.isArray(value?.links)) return value.links;
+  return [];
+}
+
 function fmtIST(iso: string) {
   try { return new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" }).format(new Date(iso)); }
   catch { return iso; }
@@ -291,7 +297,7 @@ export function DirectLinkView({ apiCall, notify }: { apiCall: ApiCall; notify: 
   const loadLinks = useCallback(async () => {
     try {
       const res: any = await apiCall("manage-app", { action: "link_list" });
-      const list = Array.isArray(res?.links) ? res.links : [];
+      const list = normalizeLinks(res);
       setLinks(list);
       writeLinksCache(list);
     } catch {}
@@ -300,7 +306,7 @@ export function DirectLinkView({ apiCall, notify }: { apiCall: ApiCall; notify: 
   useEffect(() => {
     // Instant paint from prefetched cache, then refresh silently in the background.
     const cachedLinks = readLinksCache();
-    if (cachedLinks) setLinks(cachedLinks);
+    if (cachedLinks) setLinks(normalizeLinks(cachedLinks));
     loadAccounts();
     loadLinks();
   }, [loadAccounts, loadLinks]);
