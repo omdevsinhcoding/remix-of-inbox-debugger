@@ -8587,6 +8587,26 @@ function AdminPanel() {
                   </div>
                 )}
 
+                {!newIsFree && (
+                  <div className="rounded-2xl border border-sky-200 bg-sky-50/50 p-3 space-y-3">
+                    <div className="text-[11px] font-bold uppercase tracking-wide text-sky-800">Plan window (optional)</div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Plan starts at</label>
+                      <DateTimePicker value={newPlanStartsAt} onChange={setNewPlanStartsAt} />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Plan ends at</label>
+                      <DateTimePicker value={newPlanEndsAt} onChange={setNewPlanEndsAt} />
+                    </div>
+                    <p className="text-[10px] text-slate-500">Leave empty = no plan gating. When set, user sees a live countdown pill and is locked out after the end date. Reminders go to admin Telegram in the last 7 days.</p>
+                    {(newPlanStartsAt || newPlanEndsAt) && (
+                      <button type="button" onClick={() => { setNewPlanStartsAt(""); setNewPlanEndsAt(""); }}
+                        className="text-[11px] text-sky-700 hover:underline">Clear plan dates</button>
+                    )}
+                  </div>
+                )}
+
+
                 <div>
                   <label className="block text-xs font-bold text-slate-400 uppercase mb-2">TV Auto-Login</label>
                   <div className="flex gap-2">
