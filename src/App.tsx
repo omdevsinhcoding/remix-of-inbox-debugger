@@ -1814,7 +1814,7 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
         exit={{ opacity: 0 }}
         transition={{ duration: 0.18 }}
       >
-        <div className="absolute inset-0 bg-black/65 backdrop-blur-sm" onClick={onClose} />
+        <div className="absolute inset-0 bg-slate-950/40 backdrop-blur-sm" onClick={onClose} />
         {Panel}
       </motion.div>
     </AnimatePresence>,
