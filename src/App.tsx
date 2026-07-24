@@ -4160,7 +4160,7 @@ function ProfileSelectPage() {
         const { storeSessionPair } = await import("./lib/sessionRefresh");
         storeSessionPair(data);
       } catch {}
-      try { sessionRemove("session_started_at" as any); } catch {}
+      try { markSessionStart(); } catch {}
       checkAuth();
       perf.end("navigate_viewer");
       navigate("/viewer");
