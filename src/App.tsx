@@ -2530,7 +2530,6 @@ function TvSignInPage() {
   }, [applyAccounts]);
 
   useEffect(() => {
-    window.dispatchEvent(new CustomEvent("notif:open"));
     // Instant paint from session cache (populated by prefetchWorkflowAccounts), then
     // silently refresh in background so switching to TV feels immediate.
     const cached: any = readAccountsCache("tv");
@@ -2542,7 +2541,7 @@ function TvSignInPage() {
     } else {
       loadAccounts();
     }
-    return () => { window.dispatchEvent(new CustomEvent("notif:close")); };
+    return undefined;
   }, [loadAccounts, applyAccounts]);
 
   useEffect(() => {
@@ -2646,7 +2645,7 @@ function TvSignInPage() {
   }, [resultInfo.eventId, status]);
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] px-3 sm:px-6 py-8 sm:py-12 xl:py-16 bg-gradient-to-b from-white via-rose-50/40 to-white">
+    <div className="min-h-[calc(100vh-4rem)] px-3 sm:px-6 pt-8 sm:pt-12 xl:pt-16 pb-32 sm:pb-36 bg-gradient-to-b from-white via-rose-50/40 to-white">
       <div className="max-w-2xl xl:max-w-4xl 2xl:max-w-5xl mx-auto">
         {/* Hero */}
         <div className="text-center mb-8 xl:mb-10">
@@ -2862,19 +2861,7 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
     return () => clearInterval(id);
   }, [role, minutes]);
 
-  const [hidden, setHidden] = useState(false);
-  useEffect(() => {
-    const onOpen = () => setHidden(true);
-    const onClose = () => setHidden(false);
-    window.addEventListener("notif:open", onOpen);
-    window.addEventListener("notif:close", onClose);
-    return () => {
-      window.removeEventListener("notif:open", onOpen);
-      window.removeEventListener("notif:close", onClose);
-    };
-  }, []);
   const [showInfo, setShowInfo] = useState(false);
-  if (hidden) return null;
   if (remainingMs <= 0) return null;
 
   const totalSec = Math.ceil(remainingMs / 1000);
@@ -2951,32 +2938,20 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
 
 // --- Free profile expiry pill (auto-deletion notice) ---
 // Matches SessionCountdown style; sits directly above the session pill (bottom-right).
-function FreeExpiryPill() {
-  const { user } = useAuth();
+function FreeExpiryPill({ userOverride }: { userOverride?: any } = {}) {
+  const { user: authUser } = useAuth();
+  const user = userOverride || authUser;
   const [now, setNow] = useState<number>(() => Date.now());
   const [showInfo, setShowInfo] = useState(false);
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, []);
-  const [hidden, setHidden] = useState(false);
-  useEffect(() => {
-    const onOpen = () => setHidden(true);
-    const onClose = () => setHidden(false);
-    window.addEventListener("notif:open", onOpen);
-    window.addEventListener("notif:close", onClose);
-    return () => {
-      window.removeEventListener("notif:open", onOpen);
-      window.removeEventListener("notif:close", onClose);
-    };
-  }, []);
-
   const isFree = !!(user as any)?.isFree;
   const expIso = (user as any)?.expiresAt as string | null | undefined;
   const autoDelete = (user as any)?.autoDelete !== false;
 
 
-  if (hidden) return null;
   if (!isFree || !expIso || !autoDelete) return null;
   const expMs = Date.parse(expIso);
   if (!Number.isFinite(expMs)) return null;
@@ -13553,12 +13528,37 @@ export default function App() {
 }
 
 function GlobalSessionOverlay() {
-  const { user } = useAuth();
-  const role: "admin" | "user" = user?.role === "admin" ? "admin" : "user";
-  const hasSessionToken = !!sessionGet("session_token" as any);
-  const isLoggedIn = !!user && hasSessionToken;
-  const isImpersonating = (user as any)?.impersonated === true;
-  const isPendingAdmin = (user as any)?.pending === true;
+  const { user: authUser } = useAuth();
+  const readSessionState = useCallback(() => {
+    const token = sessionGet("session_token" as any);
+    let storedUser: any = null;
+    try {
+      const raw = sessionGet("user" as any);
+      storedUser = raw ? JSON.parse(raw) : null;
+    } catch {}
+    return { token, storedUser };
+  }, []);
+  const [sessionState, setSessionState] = useState(readSessionState);
+
+  useEffect(() => {
+    const sync = () => setSessionState(readSessionState());
+    sync();
+    const id = window.setInterval(sync, 500);
+    window.addEventListener("storage", sync);
+    window.addEventListener("focus", sync);
+    return () => {
+      window.clearInterval(id);
+      window.removeEventListener("storage", sync);
+      window.removeEventListener("focus", sync);
+    };
+  }, [readSessionState]);
+
+  const effectiveUser = authUser || sessionState.storedUser;
+  const role: "admin" | "user" = effectiveUser?.role === "admin" ? "admin" : "user";
+  const hasSessionToken = !!sessionState.token;
+  const isLoggedIn = !!effectiveUser && hasSessionToken;
+  const isImpersonating = (effectiveUser as any)?.impersonated === true;
+  const isPendingAdmin = (effectiveUser as any)?.pending === true;
 
   useSessionTimeoutGuard(role, isLoggedIn && !isImpersonating && !isPendingAdmin);
 
@@ -13568,7 +13568,7 @@ function GlobalSessionOverlay() {
   return createPortal(
     <>
       <SessionCountdown role={role} />
-      {role === "user" && <FreeExpiryPill />}
+      {role === "user" && <FreeExpiryPill userOverride={effectiveUser} />}
     </>,
     document.body
   );

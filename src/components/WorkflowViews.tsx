@@ -134,7 +134,7 @@ export function WorkflowChooser({ features, user, lastView, onPick, onLogout, au
         )}
       </header>
 
-      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain touch-pan-y [-webkit-overflow-scrolling:touch] px-3 sm:px-6 py-4 sm:py-8 xl:py-12 2xl:py-16">
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain touch-pan-y [-webkit-overflow-scrolling:touch] px-3 sm:px-6 pt-4 sm:pt-8 xl:pt-12 2xl:pt-16 pb-32 sm:pb-36">
         <div className="w-full max-w-md sm:max-w-3xl lg:max-w-5xl xl:max-w-6xl 2xl:max-w-[110rem] mx-auto min-h-full flex flex-col justify-start lg:justify-center">
           <div className="text-center mb-4 sm:mb-8 xl:mb-12 2xl:mb-16 shrink-0">
             <div className="hidden sm:inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white border border-slate-200 shadow-sm text-[10px] xl:text-xs 2xl:text-sm font-bold uppercase tracking-[0.24em] text-slate-500">
@@ -231,6 +231,12 @@ type LinkRow = {
   link_url: string; expires_at: string; created_at: string; revoked_at: string | null; status: string;
 };
 
+function normalizeLinks(value: any): LinkRow[] {
+  if (Array.isArray(value)) return value;
+  if (Array.isArray(value?.links)) return value.links;
+  return [];
+}
+
 function fmtIST(iso: string) {
   try { return new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" }).format(new Date(iso)); }
   catch { return iso; }
@@ -291,7 +297,7 @@ export function DirectLinkView({ apiCall, notify }: { apiCall: ApiCall; notify: 
   const loadLinks = useCallback(async () => {
     try {
       const res: any = await apiCall("manage-app", { action: "link_list" });
-      const list = Array.isArray(res?.links) ? res.links : [];
+      const list = normalizeLinks(res);
       setLinks(list);
       writeLinksCache(list);
     } catch {}
@@ -300,7 +306,7 @@ export function DirectLinkView({ apiCall, notify }: { apiCall: ApiCall; notify: 
   useEffect(() => {
     // Instant paint from prefetched cache, then refresh silently in the background.
     const cachedLinks = readLinksCache();
-    if (cachedLinks) setLinks(cachedLinks);
+    if (cachedLinks) setLinks(normalizeLinks(cachedLinks));
     loadAccounts();
     loadLinks();
   }, [loadAccounts, loadLinks]);
@@ -333,7 +339,7 @@ export function DirectLinkView({ apiCall, notify }: { apiCall: ApiCall; notify: 
   })();
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] px-3 sm:px-6 py-8 sm:py-12 xl:py-16 bg-gradient-to-b from-white via-rose-50/40 to-white">
+    <div className="min-h-[calc(100vh-4rem)] px-3 sm:px-6 pt-8 sm:pt-12 xl:pt-16 pb-32 sm:pb-36 bg-gradient-to-b from-white via-rose-50/40 to-white">
       <div className="max-w-2xl xl:max-w-4xl 2xl:max-w-5xl mx-auto">
         {/* Hero */}
         <div className="text-center mb-8 xl:mb-10">
