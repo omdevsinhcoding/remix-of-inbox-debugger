@@ -80,5 +80,5 @@ jobs:
           TV_REPORT_URL: ${{ secrets.TV_REPORT_URL }}
           TV_REPORT_HMAC_KEY: ${{ secrets.TV_REPORT_HMAC_KEY }}
           GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          TV_LOGIN_MAX_MS: 20000
+          TV_LOGIN_MAX_MS: 30000
         run: node tv-login.mjs
