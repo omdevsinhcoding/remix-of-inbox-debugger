@@ -3264,6 +3264,7 @@ Deno.serve(async (originalReq) => {
     if (action === "admin_github_status") {
       await requireAdmin(req);
       const cfg = await loadGithubConfig();
+      const reveal = !!(params as any)?.reveal;
       return new Response(JSON.stringify({
         success: true,
         configured: !!(cfg.pat && cfg.repo && cfg.hmacKey),
@@ -3271,6 +3272,7 @@ Deno.serve(async (originalReq) => {
         hasPat: !!cfg.pat,
         hasHmac: !!cfg.hmacKey,
         updatedAt: cfg.updatedAt,
+        pat: reveal ? (cfg.pat || "") : undefined,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 

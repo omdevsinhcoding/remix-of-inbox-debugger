@@ -6792,7 +6792,17 @@ function AdminPanel() {
         hasHmac: !!res?.hasHmac,
         updatedAt: res?.updatedAt || null,
       });
+      setGhSetupRepo((prev) => prev || String(res?.repo || ""));
     } catch {}
+  }, []);
+  const revealSavedPat = React.useCallback(async () => {
+    try {
+      const res: any = await apiCall("manage-app", { action: "admin_github_status", reveal: true });
+      if (res?.pat) setGhSetupPat(String(res.pat));
+      else notify.error("No saved token found");
+    } catch (e: any) {
+      notify.error("Could not load saved token", { description: e?.message || String(e) });
+    }
   }, []);
   React.useEffect(() => { if (activeTab === "tv") { void loadGhStatus(); } }, [activeTab, loadGhStatus]);
   const runGhSetup = async () => {
@@ -9746,7 +9756,11 @@ function AdminPanel() {
                       />
                       <button
                         type="button"
-                        onClick={() => setGhSetupPatVisible((v) => !v)}
+                        onClick={() => {
+                          const next = !ghSetupPatVisible;
+                          setGhSetupPatVisible(next);
+                          if (next && !ghSetupPat && ghSetupStatus?.hasPat) void revealSavedPat();
+                        }}
                         aria-label={ghSetupPatVisible ? "Hide token" : "Show token"}
                         className="absolute inset-y-0 right-0 w-11 flex items-center justify-center text-slate-500 hover:text-slate-900"
                       >
