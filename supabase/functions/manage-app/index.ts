@@ -3583,7 +3583,7 @@ Deno.serve(async (originalReq) => {
 
     if (action === "update_user") {
       const session = await requireAdmin(req);
-      const { id, assigned_accounts, session_limit, pinned, is_free, name, username, expires_at, location_required, auto_delete } = params;
+      const { id, assigned_accounts, session_limit, pinned, is_free, name, username, expires_at, location_required, auto_delete, plan_starts_at, plan_ends_at } = params;
       const tvOverrideProvided = params.tv_override !== undefined || params.tvOverride !== undefined;
       const tvOverrideValue = params.tv_override !== undefined ? params.tv_override : params.tvOverride;
       if (!id) throw new Error("User ID required");
