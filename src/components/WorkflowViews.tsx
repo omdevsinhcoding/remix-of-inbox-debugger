@@ -663,7 +663,7 @@ export function WorkflowSwitcher({ features, view, onChange, compact = false }: 
   useEffect(() => {
     if (!open || typeof window === "undefined") return;
     window.dispatchEvent(new CustomEvent("notif:open"));
-    return () => window.dispatchEvent(new CustomEvent("notif:close"));
+    return () => { window.dispatchEvent(new CustomEvent("notif:close")); };
   }, [open]);
 
   const popup = typeof document !== "undefined" ? createPortal(
