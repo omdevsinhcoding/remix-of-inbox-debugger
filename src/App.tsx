@@ -252,6 +252,41 @@ const TemplateIcon: React.FC<{ id: string; className?: string }> = ({ id, classN
 const SESSION_CONFIG_KEY_FOR = (role: "admin" | "user") =>
   role === "admin" ? "admin_session_config" : "session_config";
 
+const DEFAULT_SESSION_TIMEOUT_MINUTES: Record<"admin" | "user", number> = {
+  admin: 60,
+  user: 5,
+};
+
+function readSessionNumber(key: "session_started_at" | "session_expires_at"): number {
+  const value = Number(sessionGet(key as any) || "0");
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+function ensureSessionStarted(): number {
+  const existing = readSessionNumber("session_started_at");
+  if (existing) return existing;
+  markSessionStart();
+  return readSessionNumber("session_started_at") || Date.now();
+}
+
+function getSessionDeadline(role: "admin" | "user", minutes?: number): number {
+  const started = readSessionNumber("session_started_at");
+  const accessExpiresAt = readSessionNumber("session_expires_at");
+  const configuredMinutes = Number.isFinite(Number(minutes)) && Number(minutes) > 0
+    ? Number(minutes)
+    : DEFAULT_SESSION_TIMEOUT_MINUTES[role];
+  const configuredDeadline = started && configuredMinutes > 0 ? started + configuredMinutes * 60_000 : 0;
+  if (accessExpiresAt && configuredDeadline) return Math.min(accessExpiresAt, configuredDeadline);
+  return accessExpiresAt || configuredDeadline || 0;
+}
+
+function getSessionTotalMinutes(role: "admin" | "user", minutes?: number): number {
+  const started = readSessionNumber("session_started_at");
+  const deadline = getSessionDeadline(role, minutes);
+  if (started && deadline > started) return Math.max(1, Math.ceil((deadline - started) / 60_000));
+  return Number.isFinite(Number(minutes)) && Number(minutes) > 0 ? Number(minutes) : DEFAULT_SESSION_TIMEOUT_MINUTES[role];
+}
+
 // --- Worker URL Types & Helpers ---
 type WorkerUrlMap = {
   primary: string[];
@@ -1072,7 +1107,6 @@ function useSessionTimeoutGuard(role: "admin" | "user", enabled = true) {
   useEffect(() => {
     if (!enabled) return;
     let timer: any;
-    let poll: any;
     let cancelled = false;
     const doLogout = () => {
       notify.info("🔒 Session timed out", {
@@ -1085,6 +1119,17 @@ function useSessionTimeoutGuard(role: "admin" | "user", enabled = true) {
       // `Clear-Site-Data: "*"` header + JS fallback.
       fastClearCookiesRedirect();
     };
+    const armForDeadline = (deadline: number) => {
+      if (timer) clearTimeout(timer);
+      if (!deadline) return;
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) { doLogout(); return; }
+      timer = setTimeout(doLogout, remaining);
+    };
+
+    ensureSessionStarted();
+    armForDeadline(getSessionDeadline(role));
+
     (async () => {
       let minutes = 0;
       try {
@@ -1092,30 +1137,11 @@ function useSessionTimeoutGuard(role: "admin" | "user", enabled = true) {
         minutes = Number(res?.value?.timeoutMinutes) || 0;
       } catch {}
       if (cancelled || !minutes || minutes <= 0) return;
-
-      const armFrom = (started: number) => {
-        const remaining = started + minutes * 60_000 - Date.now();
-        if (remaining <= 0) { doLogout(); return; }
-        if (timer) clearTimeout(timer);
-        timer = setTimeout(doLogout, remaining);
-      };
-
-      const started = Number(sessionGet("session_started_at" as any) || "0");
-      if (started) {
-        armFrom(started);
-      } else {
-        // Global session: start immediately on login regardless of workflow
-        // choice (Gmail / TV / Direct Link). Previously only Gmail inbox load
-        // would kick off the countdown, so TV and Direct Link users had no
-        // active session timer. Admins already started immediately here too.
-        markSessionStart();
-        armFrom(Date.now());
-      }
+      armForDeadline(getSessionDeadline(role, minutes));
     })();
     return () => {
       cancelled = true;
       if (timer) clearTimeout(timer);
-      if (poll) clearInterval(poll);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [role, enabled]);
@@ -2795,8 +2821,8 @@ function TvSignInPage() {
 
 
 function SessionCountdown({ role }: { role: "admin" | "user" }) {
-  const [minutes, setMinutes] = useState<number>(0);
-  const [remainingMs, setRemainingMs] = useState<number>(0);
+  const [minutes, setMinutes] = useState<number>(() => DEFAULT_SESSION_TIMEOUT_MINUTES[role]);
+  const [remainingMs, setRemainingMs] = useState<number>(() => Math.max(0, getSessionDeadline(role) - Date.now()));
   const warnedRef = useRef(false);
 
   useEffect(() => {
@@ -2805,19 +2831,18 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
       try {
         const res = await apiCall("manage-app", { action: "get_settings", key: SESSION_CONFIG_KEY_FOR(role) });
         const m = Number(res?.value?.timeoutMinutes) || 0;
-        if (!cancelled) setMinutes(m);
+        if (!cancelled && m > 0) setMinutes(m);
       } catch {}
     })();
     return () => { cancelled = true; };
   }, [role]);
 
   useEffect(() => {
-    if (!minutes || minutes <= 0) return;
     warnedRef.current = false;
     const tick = () => {
-      const started = Number(sessionGet("session_started_at" as any) || "0");
-      if (!started) { setRemainingMs(0); return; }
-      const rem = started + minutes * 60_000 - Date.now();
+      ensureSessionStarted();
+      const deadline = getSessionDeadline(role, minutes);
+      const rem = deadline ? deadline - Date.now() : 0;
       setRemainingMs(Math.max(0, rem));
       if (rem > 0 && rem <= 60_000 && !warnedRef.current) {
         warnedRef.current = true;
@@ -2832,7 +2857,7 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
-  }, [minutes]);
+  }, [role, minutes]);
 
   const [hidden, setHidden] = useState(false);
   useEffect(() => {
@@ -2847,7 +2872,7 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
   }, []);
   const [showInfo, setShowInfo] = useState(false);
   if (hidden) return null;
-  if (!minutes || minutes <= 0 || remainingMs <= 0) return null;
+  if (remainingMs <= 0) return null;
 
   const totalSec = Math.ceil(remainingMs / 1000);
   const mm = Math.floor(totalSec / 60);
@@ -2861,8 +2886,9 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
     ? "bg-amber-500 text-white"
     : "bg-slate-900/90 text-white";
 
-  const started = Number(sessionGet("session_started_at" as any) || "0");
-  const endsAt = started ? new Date(started + minutes * 60_000).toLocaleString() : "—";
+  const deadline = getSessionDeadline(role, minutes);
+  const endsAt = deadline ? new Date(deadline).toLocaleString() : "—";
+  const totalMinutes = getSessionTotalMinutes(role, minutes);
 
   // Keep the session pill bottom-right on both mobile and desktop.
   return (
@@ -2903,7 +2929,7 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
             <div className="mt-3 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
               <div className="text-[10px] uppercase tracking-wide text-slate-500 font-bold">Signs out at</div>
               <div className="text-xs font-semibold text-slate-900">{endsAt}</div>
-              <div className="text-[10px] text-slate-500 mt-1">Remaining: <span className="font-bold text-slate-800">{pad(mm)}:{pad(ss)}</span> · Total: {minutes}m</div>
+              <div className="text-[10px] text-slate-500 mt-1">Remaining: <span className="font-bold text-slate-800">{pad(mm)}:{pad(ss)}</span> · Total: {totalMinutes}m</div>
             </div>
             <button
               onClick={() => setShowInfo(false)}
