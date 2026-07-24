@@ -6779,6 +6779,7 @@ function AdminPanel() {
   const [ghSetupStatus, setGhSetupStatus] = useState<{ configured: boolean; repo: string; hasPat: boolean; hasHmac: boolean; updatedAt: string | null } | null>(null);
   const [ghSetupSyncing, setGhSetupSyncing] = useState(false);
   const [ghSetupPat, setGhSetupPat] = useState("");
+  const [ghSetupPatVisible, setGhSetupPatVisible] = useState(false);
   const [ghSetupRepo, setGhSetupRepo] = useState("");
   const [ghSetupOpen, setGhSetupOpen] = useState(false);
   const loadGhStatus = React.useCallback(async () => {
