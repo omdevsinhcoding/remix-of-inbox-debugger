@@ -3257,7 +3257,7 @@ Deno.serve(async (originalReq) => {
       // 1) Validate PAT and get login
       const me = await ghApi(pat, "/user");
       if (me.status !== 200 || !me.json?.login) {
-        throw new Error(`GitHub token invalid (${me.status}). Create a fine-grained PAT with Actions: read+write, Secrets: read+write, Metadata: read.`);
+        throw new Error(`GitHub token invalid (${me.status}). Create a fine-grained PAT with Actions: read+write, Secrets: read+write, Contents: read+write, Metadata: read.`);
       }
       const login = String(me.json.login);
 
@@ -3335,7 +3335,11 @@ Deno.serve(async (originalReq) => {
       });
       if (dispatch.status !== 204) {
         const body = await dispatch.text().catch(() => "");
-        return new Response(JSON.stringify({ success: true, ok: false, status: dispatch.status, message: body.slice(0, 300) || `GitHub dispatch failed (${dispatch.status}).` }), {
+        let msg = body.slice(0, 300) || `GitHub dispatch failed (${dispatch.status}).`;
+        if (dispatch.status === 403 && /not accessible by personal access token/i.test(body)) {
+          msg = "PAT me 'Contents: Read and write' permission missing hai. GitHub → Settings → Personal access tokens → apna token edit karo → Repository permissions me 'Contents' ko Read and write karo → Save. Phir dobara Test dabao.";
+        }
+        return new Response(JSON.stringify({ success: true, ok: false, status: dispatch.status, message: msg }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
