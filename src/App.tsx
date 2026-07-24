@@ -2900,7 +2900,7 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
         type="button"
         onClick={() => setShowInfo((v) => !v)}
         title="Tap for details"
-        className={`fixed z-[90] right-3 sm:right-4 bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:bottom-4 h-7 sm:h-8 px-3 sm:px-3.5 rounded-full text-[11px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1.5 select-none active:scale-95 transition`}
+        className={`fixed z-[10001] right-3 sm:right-4 bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:bottom-4 h-7 sm:h-8 px-3 sm:px-3.5 rounded-full text-[11px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1.5 select-none active:scale-95 transition`}
       >
         <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" />
         {role === "admin" ? "Admin" : "Session"}: {pad(mm)}:{pad(ss)}
@@ -2908,7 +2908,7 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
 
       {showInfo && createPortal(
         <div
-          className="fixed inset-0 z-[95] animate-in fade-in duration-150"
+          className="fixed inset-0 z-[10002] animate-in fade-in duration-150"
           onClick={() => setShowInfo(false)}
           role="dialog"
           aria-modal="true"
@@ -3008,7 +3008,7 @@ function FreeExpiryPill() {
         type="button"
         onClick={() => setShowInfo((v) => !v)}
         title="Tap for details"
-        className={`fixed z-[90] right-3 sm:right-4 bottom-[calc(env(safe-area-inset-bottom)+0.75rem+2.25rem)] sm:bottom-[calc(1rem+2.5rem)] h-7 sm:h-8 px-3 sm:px-3.5 rounded-full text-[11px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1.5 select-none active:scale-95 transition`}
+        className={`fixed z-[10001] right-3 sm:right-4 bottom-[calc(env(safe-area-inset-bottom)+0.75rem+2.25rem)] sm:bottom-[calc(1rem+2.5rem)] h-7 sm:h-8 px-3 sm:px-3.5 rounded-full text-[11px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1.5 select-none active:scale-95 transition`}
       >
         <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" />
         Deletes in: {label}
@@ -3016,7 +3016,7 @@ function FreeExpiryPill() {
 
       {showInfo && (
         <div
-          className="fixed inset-0 z-[95] animate-in fade-in duration-150"
+          className="fixed inset-0 z-[10002] animate-in fade-in duration-150"
           onClick={() => setShowInfo(false)}
           role="dialog"
           aria-modal="true"
@@ -13526,6 +13526,7 @@ export default function App() {
       <AuthProvider>
         <ToastProvider />
         <AdminSyncStatus />
+        <GlobalSessionOverlay />
         <ErrorBoundary>
           <MaintenanceGate>
             <Routes>
@@ -13551,18 +13552,37 @@ export default function App() {
   );
 }
 
+function GlobalSessionOverlay() {
+  const { user } = useAuth();
+  const role: "admin" | "user" = user?.role === "admin" ? "admin" : "user";
+  const hasSessionToken = !!sessionGet("session_token" as any);
+  const isLoggedIn = !!user && hasSessionToken;
+  const isImpersonating = (user as any)?.impersonated === true;
+  const isPendingAdmin = (user as any)?.pending === true;
+
+  useSessionTimeoutGuard(role, isLoggedIn && !isImpersonating && !isPendingAdmin);
+
+  if (!isLoggedIn || isImpersonating || isPendingAdmin) return null;
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
+    <>
+      <SessionCountdown role={role} />
+      {role === "user" && <FreeExpiryPill />}
+    </>,
+    document.body
+  );
+}
+
 
 const ProtectedRoute = ({ children, role }: { children: React.ReactNode; role: "admin" | "user" }) => {
   const { user, loading } = useAuth();
-  const roleAllowed = !!user && (role !== "admin" || user.role === "admin");
-  const isAdminViewingUser = role === "user" && (user as any)?.impersonated === true;
-  useSessionTimeoutGuard(role, roleAllowed && !isAdminViewingUser);
   if (loading) return <div className="min-h-screen bg-slate-950 flex items-center justify-center"><div className="w-8 h-8 border-2 border-red-500 border-t-transparent rounded-full animate-spin" /></div>;
   if (!user) return <Navigate to={role === "admin" ? "/admin" : "/"} />;
   if (role === "user" && (user as any)?.impersonated === true && window.location.pathname === "/viewer") return <Navigate to="/admin/viewer" replace />;
   if (role === "user" && user.role === "admin") return <Navigate to="/admin/dashboard" replace />;
   if (role === "admin" && user.role !== "admin") return <Navigate to={(user as any)?.impersonated === true ? "/admin/viewer" : "/"} replace />;
-  return <>{!isAdminViewingUser && <SessionCountdown role={role} />}{!isAdminViewingUser && role === "user" && <FreeExpiryPill />}{children}</>;
+  return <>{children}</>;
 };
 
 const AdminUserViewRoute = ({ children }: { children: React.ReactNode }) => {
