@@ -1074,7 +1074,7 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         return;
       }
       const msg = err instanceof Error ? err.message : String(err || "");
-      if (cachedBeforeHydrate?.id && /Secure connection|handshake|Failed to fetch|NetworkError|busy|timeout|temporar/i.test(msg)) {
+      if (cachedBeforeHydrate?.id && /Secure connection|handshake|Failed to fetch|NetworkError|busy|timeout|temporar|Unknown session/i.test(msg)) {
         setUser(cachedBeforeHydrate);
         return;
       }
@@ -14234,7 +14234,12 @@ function GlobalSessionOverlay() {
   // overlay is mounted, so merging here keeps the plan countdown live without
   // waiting for a route remount.
   const effectiveUser = authUser || sessionState.storedUser
-    ? { ...(authUser || {}), ...(sessionState.storedUser || {}) }
+    ? (() => {
+      const merged = { ...(authUser || {}), ...(sessionState.storedUser || {}) } as any;
+      if (!merged.planEndsAt && merged.plan_ends_at) merged.planEndsAt = merged.plan_ends_at;
+      if (!merged.planStartsAt && merged.plan_starts_at) merged.planStartsAt = merged.plan_starts_at;
+      return merged;
+    })()
     : null;
   const role: "admin" | "user" = effectiveUser?.role === "admin" ? "admin" : "user";
   const hasSessionToken = !!sessionState.token;
