@@ -3287,8 +3287,9 @@ function normalizeEmailHtmlForDisplay(rawHtml = "", preview = "") {
 
 function emailHtmlForDisplay(email: Email | null) {
   if (!email) return "";
-  return String(email.html || "");
+  return normalizeEmailHtmlForDisplay(String(email.html || ""), String((email as any).preview || (email as any).snippet || ""));
 }
+
 interface UserData {
   id: string; username: string | null; name: string; role: "admin" | "user"; totpSecret?: string; mustChangePassword?: boolean; assignedAccounts?: string[] | null; profileAvatar?: string | null; profilePrefs?: UserProfilePrefs;
   isFree?: boolean; pinned?: boolean; sortOrder?: number | null; session_limit?: number | null; expiresAt?: string | null; locationRequired?: boolean;
@@ -5714,7 +5715,7 @@ function AllEmailsPanel() {
             </div>
             <div className="p-4 overflow-auto flex-1">
               {viewing.html ? (
-                <iframe title="email" srcDoc={`<!DOCTYPE html><html><head><base target="_blank"></head><body>${emailHtmlForDisplay(viewing as Email)}<script>(function(){function force(a){try{a.setAttribute('target','_blank');a.setAttribute('rel','noopener noreferrer');}catch(e){}}function scan(){document.querySelectorAll('a,button').forEach(force);}document.addEventListener('click',function(e){var a=e.target.closest('a,button');if(!a)return;var h=a.getAttribute('href')||a.dataset.href;if(h){e.preventDefault();window.open(h,'_blank','noopener,noreferrer');}},true);scan();try{new MutationObserver(scan).observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['href','target']});}catch(e){}})();<\/script></body></html>`} className="w-full min-h-[400px] border rounded" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-scripts" />
+                <iframe title="email" srcDoc={`<!DOCTYPE html><html><head><base target="_blank"></head><body>${emailHtmlForDisplay(viewing as Email)}<script>(function(){function force(a){try{a.setAttribute('target','_blank');a.setAttribute('rel','noopener noreferrer');}catch(e){}}function scan(){document.querySelectorAll('a,button').forEach(force);}document.addEventListener('click',function(e){var a=e.target.closest('a,button');if(!a)return;var h=a.getAttribute('href')||a.dataset.href;if(h){e.preventDefault();window.open(h,'_blank','noopener,noreferrer');}},true);scan();try{new MutationObserver(scan).observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['href','target']});}catch(e){}})();<\/script></body></html>`} className="w-full min-h-[400px] border rounded" sandbox="allow-popups allow-popups-to-escape-sandbox allow-scripts" />
               ) : (
                 <pre className="text-xs whitespace-pre-wrap text-slate-700">{viewing.preview || "(no content)"}</pre>
               )}
@@ -13199,7 +13200,7 @@ function EmailViewer() {
                     ) : (
                       <iframe
                         srcDoc={`<!DOCTYPE html><html><head><base target="_blank"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0;padding:8px;overflow-x:hidden;word-break:break-word}img{max-width:100%!important;height:auto!important}a{color:#e11d48}*{box-sizing:border-box}</style></head><body>${emailHtmlForDisplay(selectedEmail)}<script>(function(){function force(a){try{a.setAttribute('target','_blank');a.setAttribute('rel','noopener noreferrer');}catch(e){}}function scan(){document.querySelectorAll('a,button').forEach(force);}document.addEventListener('click',function(e){var a=e.target.closest('a,button');if(!a)return;var href=a.getAttribute('href')||a.dataset.href;if(href){e.preventDefault();window.open(href,'_blank','noopener,noreferrer');}},true);document.addEventListener('contextmenu',function(e){e.preventDefault();});scan();try{new MutationObserver(scan).observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['href','target']});}catch(e){}})();<\/script></body></html>`}
-                        sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-scripts"
+                        sandbox="allow-popups allow-popups-to-escape-sandbox allow-scripts"
                         className="w-full border-0"
                         style={{ minHeight: "400px" }}
                         title="Email content"
