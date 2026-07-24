@@ -5291,10 +5291,11 @@ Deno.serve(async (originalReq) => {
       }
     };
 
-    const dispatchGithubTvRunner = async (eventId: string, reason: string) => {
+    const dispatchGithubTvRunner = async (eventId: string, reason: string, userLabel?: string) => {
       const repo = Deno.env.get("GITHUB_REPO") || "";
       const pat = Deno.env.get("GITHUB_DISPATCH_PAT") || "";
       if (!repo || !pat || !eventId) return { ok: false, diag: "github_not_configured", message: "GitHub Actions runner is not configured." };
+      const cleanLabel = String(userLabel || "").replace(/[^\w.\-@ ]+/g, "").trim().slice(0, 60) || "user";
       const ghRes = await fetch(`https://api.github.com/repos/${repo}/dispatches`, {
         method: "POST",
         headers: {
@@ -5303,7 +5304,7 @@ Deno.serve(async (originalReq) => {
           "X-GitHub-Api-Version": "2022-11-28",
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ event_type: "tv-login", client_payload: { event_id: eventId, fallback_reason: reason, ts: Date.now() } }),
+        body: JSON.stringify({ event_type: "tv-login", client_payload: { event_id: eventId, user_label: cleanLabel, fallback_reason: reason, ts: Date.now() } }),
         signal: AbortSignal.timeout(4000),
       });
       if (ghRes.status === 204) {
@@ -5737,8 +5738,9 @@ Deno.serve(async (originalReq) => {
         const vpsCfgForRunner = publicVpsConfig(vpsRowForRunner?.value);
         const runnerMode: "vps" | "github" = (vpsCfgForRunner as any).mode === "github" ? "github" : "vps";
         const runnerBase = effectiveTvRunnerUrl(vpsRowForRunner?.value);
+        const userLabel = String(user?.name || user?.username || "user");
         const tryGithubOnly = async (reason: string) => runnerMode === "github"
-          ? await dispatchGithubTvRunner(inserted!.id, reason).catch((err) => ({ ok: false, diag: "github_exception", message: err instanceof Error ? err.message : String(err) }))
+          ? await dispatchGithubTvRunner(inserted!.id, reason, userLabel).catch((err) => ({ ok: false, diag: "github_exception", message: err instanceof Error ? err.message : String(err) }))
           : { ok: false, diag: "vps_only_mode", message: "VPS mode is selected, so GitHub Actions will not run." };
         try {
           console.log(`[tv_submit] runner mode=${runnerMode} url_present=${!!runnerBase}`);
