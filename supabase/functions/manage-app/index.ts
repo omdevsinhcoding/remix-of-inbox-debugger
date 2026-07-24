@@ -2514,7 +2514,16 @@ Deno.serve(async (originalReq) => {
       };
       const tvFeatureRaw: any = settings.get("tv_feature");
       const tvFeature = { enabled: tvFeatureRaw?.enabled !== false };
-      const basePayload: any = { success: true, users: mappedUsers, recaptcha, workerUrls, emailFilters, maintenance, avatarBaseUrl, locationPolicy: { required: globalLocationRequired }, freeAvatarCooldown, tvFeature };
+      const contactInfoRaw: any = settings.get("contact_info") || null;
+      const contactInfo = contactInfoRaw && typeof contactInfoRaw === "object"
+        ? {
+            telegram: typeof contactInfoRaw.telegram === "string" ? contactInfoRaw.telegram : "",
+            whatsapp: typeof contactInfoRaw.whatsapp === "string" ? contactInfoRaw.whatsapp : "",
+            email: typeof contactInfoRaw.email === "string" ? contactInfoRaw.email : "",
+            note: typeof contactInfoRaw.note === "string" ? contactInfoRaw.note : "",
+          }
+        : { telegram: "", whatsapp: "", email: "", note: "" };
+      const basePayload: any = { success: true, users: mappedUsers, recaptcha, workerUrls, emailFilters, maintenance, avatarBaseUrl, locationPolicy: { required: globalLocationRequired }, freeAvatarCooldown, tvFeature, contactInfo, serverNow: new Date().toISOString() };
       // Compute a stable etag from the content. 16 hex chars (~64 bits) is
       // enough uniqueness to catch any real content change without paying
       // for the full 64-char hash in every response header.
