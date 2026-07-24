@@ -13886,6 +13886,7 @@ export default function App() {
         <ToastProvider />
         <AdminSyncStatus />
         <GlobalSessionOverlay />
+        <PlanFinishedModal />
         <ErrorBoundary>
           <MaintenanceGate>
             <Routes>
