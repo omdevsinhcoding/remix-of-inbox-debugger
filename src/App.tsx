@@ -3206,7 +3206,7 @@ function PlanEndsPill({ userOverride }: { userOverride?: any } = {}) {
         type="button"
         onClick={() => setShowInfo((v) => !v)}
         title="Plan ends"
-        className={`fixed z-[10001] left-3 sm:left-4 bottom-[calc(env(safe-area-inset-bottom)+0.75rem+2.25rem)] sm:bottom-[calc(1rem+2.5rem)] h-7 sm:h-8 px-3 sm:px-3.5 rounded-full text-[11px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1.5 select-none active:scale-95 transition`}
+        className={`fixed z-[10001] right-3 sm:right-4 bottom-[calc(env(safe-area-inset-bottom)+0.75rem+2.25rem)] sm:bottom-[calc(1rem+2.5rem)] h-7 sm:h-8 px-3 sm:px-3.5 rounded-full text-[11px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1.5 select-none active:scale-95 transition`}
       >
         <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" />
         Plan ends: {label}
@@ -6860,6 +6860,44 @@ function AdminPanel() {
   const [savingConcurrentSessionLimit, setSavingConcurrentSessionLimit] = useState(false);
   const [freeAvatarCooldownMin, setFreeAvatarCooldownMinState] = useState<string>("5");
   const [savingFreeAvatarCooldown, setSavingFreeAvatarCooldown] = useState(false);
+  const [contactInfoTelegram, setContactInfoTelegram] = useState<string>("");
+  const [contactInfoWhatsapp, setContactInfoWhatsapp] = useState<string>("");
+  const [contactInfoEmail, setContactInfoEmail] = useState<string>("");
+  const [contactInfoNote, setContactInfoNote] = useState<string>("");
+  const [savingContactInfo, setSavingContactInfo] = useState(false);
+  const loadContactInfoRef = useRef(false);
+  useEffect(() => {
+    if (loadContactInfoRef.current) return;
+    loadContactInfoRef.current = true;
+    (async () => {
+      try {
+        const res: any = await apiCall("manage-app", { action: "get_settings", key: "contact_info" });
+        const v = res?.value || res?.settings?.contact_info || null;
+        if (v && typeof v === "object") {
+          setContactInfoTelegram(v.telegram || "");
+          setContactInfoWhatsapp(v.whatsapp || "");
+          setContactInfoEmail(v.email || "");
+          setContactInfoNote(v.note || "");
+        }
+      } catch {}
+    })();
+  }, []);
+  const saveContactInfo = async () => {
+    setSavingContactInfo(true);
+    try {
+      await apiCall("manage-app", { action: "save_contact_info", value: {
+        telegram: contactInfoTelegram.trim(),
+        whatsapp: contactInfoWhatsapp.trim(),
+        email: contactInfoEmail.trim(),
+        note: contactInfoNote.trim(),
+      }});
+      notify.success("Contact info saved");
+    } catch (err) {
+      notify.error(err instanceof Error ? err.message : "Failed to save contact info");
+    } finally {
+      setSavingContactInfo(false);
+    }
+  };
 
   const [savingAdminSessionTimeout, setSavingAdminSessionTimeout] = useState(false);
   const [captchaEnabled, setCaptchaEnabled] = useState<boolean>(false);
@@ -11164,6 +11202,44 @@ function AdminPanel() {
 
         {activeTab === "settings" && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm lg:col-span-2">
+              <h2 className="font-black text-base sm:text-lg mb-1 flex items-center gap-2">
+                <div className="bg-amber-50 p-1.5 rounded-lg"><AlertCircle className="w-4 h-4 text-amber-600" /></div>
+                Plan Contact Info
+              </h2>
+              <p className="text-[11px] text-slate-500 mb-4">Shown to paid users when their plan has ended (Plan Finished screen).</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Telegram</label>
+                  <input type="text" placeholder="@yourhandle or https://t.me/..." value={contactInfoTelegram}
+                    onChange={(e) => setContactInfoTelegram(e.target.value)}
+                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">WhatsApp</label>
+                  <input type="text" placeholder="+91 98765 43210" value={contactInfoWhatsapp}
+                    onChange={(e) => setContactInfoWhatsapp(e.target.value)}
+                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Email</label>
+                  <input type="email" placeholder="admin@example.com" value={contactInfoEmail}
+                    onChange={(e) => setContactInfoEmail(e.target.value)}
+                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Note (optional)</label>
+                  <input type="text" placeholder="Renewal instructions..." value={contactInfoNote}
+                    onChange={(e) => setContactInfoNote(e.target.value)}
+                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                </div>
+              </div>
+              <button onClick={saveContactInfo} disabled={savingContactInfo}
+                className="mt-4 h-10 px-5 rounded-xl bg-slate-900 text-white text-sm font-bold hover:bg-slate-800 active:scale-[0.98] transition disabled:opacity-50">
+                {savingContactInfo ? "Saving…" : "Save Contact Info"}
+              </button>
+            </section>
+
             <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
               <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
                 <div className="bg-blue-50 p-1.5 rounded-lg"><Server className="w-4 h-4 text-blue-600" /></div>
