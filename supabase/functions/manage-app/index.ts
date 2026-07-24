@@ -5245,16 +5245,16 @@ Deno.serve(async (originalReq) => {
         const tg = await getTelegramConfig(supabase);
         if (!tg) return;
         const titleMap: Record<string, string> = {
-          attempt: "TV Login — Attempt started",
-          success: "TV Login — Success",
-          invalid_code: "TV Login — Invalid code",
-          cookies_expired: "TV Login — Cookies expired",
-          no_cookies: "TV Login — No cookies configured",
-          not_configured: "TV Login — Not configured",
-          runner_timeout: "TV Login — Runner timeout",
-          netflix_timeout: "TV Login — Netflix timeout",
-          error: "TV Login — Error",
-          user_error_report: "TV Login — User report",
+          attempt: "🚀 TV Login — Attempt started",
+          success: "✅ TV Login — Signed in successfully",
+          invalid_code: "❌ TV Login — Invalid code",
+          cookies_expired: "🍪 TV Login — Cookies expired",
+          no_cookies: "⚠️ TV Login — No cookies configured",
+          not_configured: "⚙️ TV Login — Not configured",
+          runner_timeout: "⏳ TV Login — Runner slow",
+          netflix_timeout: "⏳ TV Login — Netflix slow",
+          error: "🔥 TV Login — Error",
+          user_error_report: "📣 TV Login — User report",
         };
         const get = (key: string) => {
           const v = fields[key];
