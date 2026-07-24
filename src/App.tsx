@@ -1354,7 +1354,7 @@ function AutoPopupNotification() {
           exit={{ opacity: 0 }}
           transition={{ duration: 0.18 }}
         >
-          <div className="absolute inset-0 bg-black/70 backdrop-blur-md" onClick={() => dismiss(false)} />
+          <div className="absolute inset-0 bg-slate-950/40 backdrop-blur-md" onClick={() => dismiss(false)} />
           <motion.div
             role="dialog"
             aria-modal="true"
@@ -1362,13 +1362,9 @@ function AutoPopupNotification() {
             animate={{ scale: 1, y: 0, opacity: 1 }}
             exit={{ scale: 0.96, y: 8, opacity: 0 }}
             transition={{ duration: 0.22, ease: [0.32, 0.72, 0, 1] }}
-            className="relative w-full max-w-[560px] rounded-3xl overflow-hidden"
+            className="relative w-full max-w-[560px] rounded-3xl overflow-hidden bg-white border border-slate-200"
             style={{
-              background: "rgba(14,14,17,0.92)",
-              backdropFilter: "blur(28px) saturate(160%)",
-              WebkitBackdropFilter: "blur(28px) saturate(160%)",
-              border: "1px solid rgba(255,255,255,0.08)",
-              boxShadow: "0 40px 100px -20px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.06)",
+              boxShadow: "0 40px 100px -20px rgba(15,23,42,0.35), 0 2px 8px -2px rgba(15,23,42,0.08)",
             }}
           >
             {/* priority accent bar */}
@@ -1377,15 +1373,15 @@ function AutoPopupNotification() {
             {/* close */}
             <button
               onClick={() => dismiss(false)}
-              className="absolute top-3 right-3 z-10 p-1.5 rounded-full text-zinc-400 hover:text-white hover:bg-white/10 transition-colors"
+              className="absolute top-3 right-3 z-10 p-1.5 rounded-full text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors"
               aria-label="Close"
             >
               <X className="w-4 h-4" />
             </button>
 
-            {/* hero image */}
+            {/* hero image — prominent on user side */}
             {current.image_url ? (
-              <div className="relative aspect-[16/9] w-full overflow-hidden bg-zinc-900">
+              <div className="relative aspect-[16/9] w-full overflow-hidden bg-slate-100">
                 <img
                   src={current.image_url}
                   alt=""
@@ -1394,7 +1390,6 @@ function AutoPopupNotification() {
                   className="absolute inset-0 w-full h-full object-cover"
                   onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
                 />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
               </div>
             ) : (
               <div className="pt-10" />
@@ -1406,30 +1401,30 @@ function AutoPopupNotification() {
                 <NotifIconTile
                   platformId={current.platform_icon}
                   size={52}
-                  tone="dark"
+                  tone="light"
                   fallback={<CatIcon className={`w-6 h-6 ${cat.color}`} />}
                 />
                 <div className="flex flex-col">
-                  <span className="text-[10.5px] uppercase tracking-[0.16em] text-zinc-400 font-medium">
+                  <span className="text-[10.5px] uppercase tracking-[0.16em] text-slate-500 font-semibold">
                     {cat.label}
                   </span>
-                  <span className="text-[11px] text-zinc-500 font-light mt-0.5">
+                  <span className="text-[11px] text-slate-400 font-normal mt-0.5">
                     {formatRelative(current.created_at)}
                   </span>
                 </div>
               </div>
 
               <h2
-                className="text-white text-[25px] sm:text-[28px] leading-tight mb-2"
-                style={{ fontFamily: "'Instrument Serif', 'Cormorant Garamond', ui-serif, Georgia, serif", letterSpacing: "-0.015em" }}
+                className="text-slate-900 text-[25px] sm:text-[28px] leading-tight mb-2 font-bold"
+                style={{ letterSpacing: "-0.015em" }}
               >
                 {current.title}
               </h2>
-              <p className="text-zinc-300 text-[15px] sm:text-[15.5px] leading-relaxed font-light whitespace-pre-wrap">
+              <p className="text-slate-700 text-[15px] sm:text-[15.5px] leading-relaxed whitespace-pre-wrap">
                 {current.body}
               </p>
               {current.description && (
-                <p className="mt-3 text-zinc-400 text-[14px] leading-relaxed font-light whitespace-pre-wrap line-clamp-6">
+                <p className="mt-3 text-slate-500 text-[14px] leading-relaxed whitespace-pre-wrap line-clamp-6">
                   {current.description}
                 </p>
               )}
@@ -1437,7 +1432,7 @@ function AutoPopupNotification() {
               <div className="mt-5 flex flex-col-reverse sm:flex-row gap-2.5">
                 <button
                   onClick={() => dismiss(false)}
-                  className="flex-1 py-3 rounded-xl text-[14px] font-medium text-zinc-300 bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 transition-colors"
+                  className="flex-1 py-3 rounded-xl text-[14px] font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors"
                 >
                   Later
                 </button>
@@ -1447,21 +1442,21 @@ function AutoPopupNotification() {
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={() => { logNotificationEvent(current.id, "clicked", { url: current.action_url }).catch(() => {}); markNotificationRead(current.id).catch(() => {}); dismiss(true); }}
-                    className="flex-1 py-3 rounded-xl text-[14px] font-semibold text-white bg-white hover:bg-zinc-100 !text-black flex items-center justify-center gap-1.5 transition-colors"
+                    className="flex-1 py-3 rounded-xl text-[14px] font-bold text-white bg-slate-900 hover:bg-slate-800 flex items-center justify-center gap-1.5 transition-colors"
                   >
                     {current.action_label} <ExternalLink className="w-3.5 h-3.5" />
                   </a>
                 ) : (
                   <button
                     onClick={openInBell}
-                    className="flex-1 py-3 rounded-xl text-[14px] font-semibold text-black bg-white hover:bg-zinc-100 transition-colors"
+                    className="flex-1 py-3 rounded-xl text-[14px] font-bold text-white bg-slate-900 hover:bg-slate-800 transition-colors"
                   >
                     Read more
                   </button>
                 )}
               </div>
 
-              <p className="mt-3 text-center text-[10.5px] text-zinc-500 tracking-wide">
+              <p className="mt-3 text-center text-[10.5px] text-slate-400 tracking-wide">
                 Dismiss — you can reopen this from the <Bell className="inline w-3 h-3 -mt-0.5" /> bell any time.
               </p>
             </div>
