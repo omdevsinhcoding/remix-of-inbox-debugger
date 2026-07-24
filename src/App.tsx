@@ -6772,6 +6772,43 @@ function AdminPanel() {
   const [vpsHealth, setVpsHealth] = useState<{ ok: boolean; status: number; latencyMs: number; message?: string; at: number } | null>(null);
   const [githubTesting, setGithubTesting] = useState(false);
   const [githubHealth, setGithubHealth] = useState<{ ok: boolean; status: string; latencyMs: number; message?: string; runUrl?: string; at: number } | null>(null);
+  const [ghSetupStatus, setGhSetupStatus] = useState<{ configured: boolean; repo: string; hasPat: boolean; hasHmac: boolean; updatedAt: string | null } | null>(null);
+  const [ghSetupSyncing, setGhSetupSyncing] = useState(false);
+  const [ghSetupPat, setGhSetupPat] = useState("");
+  const [ghSetupRepo, setGhSetupRepo] = useState("");
+  const [ghSetupOpen, setGhSetupOpen] = useState(false);
+  const loadGhStatus = React.useCallback(async () => {
+    try {
+      const res: any = await apiCall("manage-app", { action: "admin_github_status" });
+      setGhSetupStatus({
+        configured: !!res?.configured,
+        repo: String(res?.repo || ""),
+        hasPat: !!res?.hasPat,
+        hasHmac: !!res?.hasHmac,
+        updatedAt: res?.updatedAt || null,
+      });
+    } catch {}
+  }, []);
+  React.useEffect(() => { if (activeTab === "tv") { void loadGhStatus(); } }, [activeTab, loadGhStatus]);
+  const runGhSetup = async () => {
+    if (ghSetupSyncing) return;
+    if (!ghSetupPat.trim() && !ghSetupStatus?.hasPat) {
+      notify.error("Paste a GitHub token first");
+      return;
+    }
+    setGhSetupSyncing(true);
+    try {
+      const res: any = await apiCall("manage-app", { action: "admin_github_setup", pat: ghSetupPat.trim(), repo: ghSetupRepo.trim() });
+      notify.success("GitHub setup synced", { description: res?.message || `Linked to ${res?.repo || "repo"}` });
+      setGhSetupPat("");
+      setGhSetupOpen(false);
+      await loadGhStatus();
+    } catch (e: any) {
+      notify.error("GitHub setup failed", { description: e?.message || String(e) });
+    } finally {
+      setGhSetupSyncing(false);
+    }
+  };
   const [vpsLoading, setVpsLoading] = useState(false);
   const [vpsSaving, setVpsSaving] = useState(false);
   const [vpsUploading, setVpsUploading] = useState(false);
