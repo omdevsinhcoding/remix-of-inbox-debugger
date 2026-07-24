@@ -659,6 +659,13 @@ export function WorkflowSwitcher({ features, view, onChange, compact = false }: 
   };
 
   const iconSize = compact ? "w-4 h-4" : "w-4 h-4 sm:w-5 sm:h-5";
+
+  useEffect(() => {
+    if (!open || typeof window === "undefined") return;
+    window.dispatchEvent(new CustomEvent("notif:open"));
+    return () => window.dispatchEvent(new CustomEvent("notif:close"));
+  }, [open]);
+
   const popup = typeof document !== "undefined" ? createPortal(
     <AnimatePresence>
       {open && (
