@@ -2861,19 +2861,7 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
     return () => clearInterval(id);
   }, [role, minutes]);
 
-  const [hidden, setHidden] = useState(false);
-  useEffect(() => {
-    const onOpen = () => setHidden(true);
-    const onClose = () => setHidden(false);
-    window.addEventListener("notif:open", onOpen);
-    window.addEventListener("notif:close", onClose);
-    return () => {
-      window.removeEventListener("notif:open", onOpen);
-      window.removeEventListener("notif:close", onClose);
-    };
-  }, []);
   const [showInfo, setShowInfo] = useState(false);
-  if (hidden) return null;
   if (remainingMs <= 0) return null;
 
   const totalSec = Math.ceil(remainingMs / 1000);
@@ -2959,24 +2947,11 @@ function FreeExpiryPill({ userOverride }: { userOverride?: any } = {}) {
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, []);
-  const [hidden, setHidden] = useState(false);
-  useEffect(() => {
-    const onOpen = () => setHidden(true);
-    const onClose = () => setHidden(false);
-    window.addEventListener("notif:open", onOpen);
-    window.addEventListener("notif:close", onClose);
-    return () => {
-      window.removeEventListener("notif:open", onOpen);
-      window.removeEventListener("notif:close", onClose);
-    };
-  }, []);
-
   const isFree = !!(user as any)?.isFree;
   const expIso = (user as any)?.expiresAt as string | null | undefined;
   const autoDelete = (user as any)?.autoDelete !== false;
 
 
-  if (hidden) return null;
   if (!isFree || !expIso || !autoDelete) return null;
   const expMs = Date.parse(expIso);
   if (!Number.isFinite(expMs)) return null;
