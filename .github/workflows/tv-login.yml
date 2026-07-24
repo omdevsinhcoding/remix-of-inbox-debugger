@@ -1,5 +1,5 @@
 name: TV Auto-Login (headless Netflix)
-run-name: TV Login ${{ github.event.client_payload.event_id || github.event.client_payload.test_id || github.event.action }}
+run-name: TV Login · ${{ github.event.client_payload.user_label || github.event.client_payload.event_id || github.event.client_payload.test_id || github.event.action }}
 
 on:
   repository_dispatch:
@@ -12,15 +12,13 @@ concurrency:
 jobs:
   run:
     runs-on: ubuntu-latest
-    # IMPORTANT: This image tag MUST match the `playwright` version in
-    # scripts/tv-login-runner/package.json. If you bump one, bump the other in
-    # the same commit or Playwright will throw "Executable doesn't exist".
-    # Image ships with Chromium + all system deps pre-baked, so we skip the
-    # slow `npx playwright install --with-deps` (~60-90s → 0s).
+    # IMPORTANT: image tag MUST match the `playwright` version in
+    # scripts/tv-login-runner/package.json. Image ships with Chromium + all
+    # system deps pre-baked, so we skip `npx playwright install`.
     container:
       image: mcr.microsoft.com/playwright:v1.48.0-jammy
       options: --user 1001
-    timeout-minutes: 5
+    timeout-minutes: 3
     permissions:
       contents: read
     steps:
@@ -35,11 +33,26 @@ jobs:
           sparse-checkout: scripts/tv-login-runner
           sparse-checkout-cone-mode: false
 
+      - name: Cache runner node_modules
+        if: github.event.action == 'tv-login'
+        uses: actions/cache@v4
+        with:
+          path: scripts/tv-login-runner/node_modules
+          key: tv-runner-nm-${{ hashFiles('scripts/tv-login-runner/package-lock.json') }}
+
       - name: Install runner dependencies
         if: github.event.action == 'tv-login'
         working-directory: scripts/tv-login-runner
-        run: npm ci || npm install
-        # NO `npx playwright install` — Chromium already lives in the image.
+        env:
+          # Browsers are pre-baked in the container; skip Playwright's postinstall.
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+        run: |
+          if [ -d node_modules/playwright ]; then
+            echo "node_modules cache hit; skipping install"
+          else
+            npm ci --prefer-offline --no-audit --no-fund --ignore-scripts \
+              || npm install --prefer-offline --no-audit --no-fund --ignore-scripts
+          fi
 
       - name: Run TV auto-login
         if: github.event.action == 'tv-login'
@@ -51,5 +64,5 @@ jobs:
           TV_REPORT_URL: ${{ secrets.TV_REPORT_URL }}
           TV_REPORT_HMAC_KEY: ${{ secrets.TV_REPORT_HMAC_KEY }}
           GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          TV_LOGIN_MAX_MS: 45000
+          TV_LOGIN_MAX_MS: 25000
         run: node tv-login.mjs
