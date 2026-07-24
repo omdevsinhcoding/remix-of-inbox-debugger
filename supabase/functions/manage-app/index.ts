@@ -5888,7 +5888,7 @@ Deno.serve(async (originalReq) => {
       const ts = Number(p?.ts || 0);
       const sig = String(p?.sig || "").toLowerCase();
       const runnerToken = String(p?.runner_token || "").trim();
-      const key = Deno.env.get("TV_REPORT_HMAC_KEY") || "";
+      const key = (await loadGithubConfig()).hmacKey;
       if (!eventId) throw new Error("event_id required");
 
       let authed = false;
