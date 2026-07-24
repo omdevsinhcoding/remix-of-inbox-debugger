@@ -14205,7 +14205,13 @@ function GlobalSessionOverlay() {
     };
   }, [readSessionState]);
 
-  const effectiveUser = authUser || sessionState.storedUser;
+  // Prefer the latest server-hydrated sessionStorage user fields over the
+  // React auth snapshot. Token refresh / /me can update planEndsAt while the
+  // overlay is mounted, so merging here keeps the plan countdown live without
+  // waiting for a route remount.
+  const effectiveUser = authUser || sessionState.storedUser
+    ? { ...(authUser || {}), ...(sessionState.storedUser || {}) }
+    : null;
   const role: "admin" | "user" = effectiveUser?.role === "admin" ? "admin" : "user";
   const hasSessionToken = !!sessionState.token;
   const isLoggedIn = !!effectiveUser && hasSessionToken;
@@ -14214,12 +14220,12 @@ function GlobalSessionOverlay() {
 
   useSessionTimeoutGuard(role, isLoggedIn && !isImpersonating && !isPendingAdmin);
 
-  if (!isLoggedIn || isImpersonating || isPendingAdmin) return null;
+  if (!isLoggedIn || isPendingAdmin) return null;
   if (typeof document === "undefined") return null;
 
   return createPortal(
     <>
-      <SessionCountdown role={role} />
+      {!isImpersonating && <SessionCountdown role={role} />}
       {role === "user" && <FreeExpiryPill userOverride={effectiveUser} />}
       {role === "user" && <PlanEndsPill userOverride={effectiveUser} />}
     </>,
