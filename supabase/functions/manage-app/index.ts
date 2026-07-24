@@ -2097,6 +2097,35 @@ Deno.serve(async (originalReq) => {
     }
   }
 
+  function githubPermissionMessage(status: number, body: string, mode: "setup" | "test" | "run" = "run") {
+    const text = String(body || "");
+    if (status === 403 && /not accessible by personal access token/i.test(text)) {
+      return "GitHub PAT permission missing hai. Token edit karo → Repository access me correct repo select karo → Repository permissions me Actions: Read and write, Secrets: Read and write, Metadata: Read-only rakho. Contents permission ab required nahi hai.";
+    }
+    if (status === 404) {
+      return "GitHub repo/workflow access nahi mil raha. Repo field owner/name format me daalo, token me wahi repo selected hona chahiye, aur .github/workflows/tv-login.yml repo me present hona chahiye.";
+    }
+    if (status === 422 && /workflow_dispatch/i.test(text)) {
+      return "GitHub workflow_dispatch enabled nahi mila. Latest code GitHub me sync hone do, phir Admin → TV → Rotate/Sync dabao.";
+    }
+    const prefix = mode === "test" ? "GitHub runner test failed" : mode === "setup" ? "GitHub setup failed" : "GitHub Actions dispatch failed";
+    return text.slice(0, 300) || `${prefix} (${status}).`;
+  }
+
+  async function dispatchGithubWorkflow(pat: string, repo: string, payload: Record<string, string>) {
+    return await fetch(`https://api.github.com/repos/${repo}/actions/workflows/tv-login.yml/dispatches`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${pat}`,
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ ref: "main", inputs: payload }),
+      signal: AbortSignal.timeout(5000),
+    });
+  }
+
 
   // F5: split signing key (session tokens) from encryption key (IMAP passwords).
   // ENCRYPTION_SECRET must remain SUPABASE_SERVICE_ROLE_KEY so existing AES-GCM
@@ -3257,7 +3286,7 @@ Deno.serve(async (originalReq) => {
       // 1) Validate PAT and get login
       const me = await ghApi(pat, "/user");
       if (me.status !== 200 || !me.json?.login) {
-        throw new Error(`GitHub token invalid (${me.status}). Create a fine-grained PAT with Actions: read+write, Secrets: read+write, Contents: read+write, Metadata: read.`);
+        throw new Error(`GitHub token invalid (${me.status}). Create a fine-grained PAT with Actions: read+write, Secrets: read+write, Metadata: read.`);
       }
       const login = String(me.json.login);
 
@@ -3327,18 +3356,10 @@ Deno.serve(async (originalReq) => {
         "Content-Type": "application/json",
       };
       const started = Date.now();
-      const dispatch = await fetch(`https://api.github.com/repos/${repo}/dispatches`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ event_type: "tv-login-test", client_payload: { test_id: testId, ts: Date.now() } }),
-        signal: AbortSignal.timeout(5000),
-      });
+      const dispatch = await dispatchGithubWorkflow(pat, repo, { test_id: testId });
       if (dispatch.status !== 204) {
         const body = await dispatch.text().catch(() => "");
-        let msg = body.slice(0, 300) || `GitHub dispatch failed (${dispatch.status}).`;
-        if (dispatch.status === 403 && /not accessible by personal access token/i.test(body)) {
-          msg = "PAT me 'Contents: Read and write' permission missing hai. GitHub → Settings → Personal access tokens → apna token edit karo → Repository permissions me 'Contents' ko Read and write karo → Save. Phir dobara Test dabao.";
-        }
+        const msg = githubPermissionMessage(dispatch.status, body, "test");
         return new Response(JSON.stringify({ success: true, ok: false, status: dispatch.status, message: msg }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
@@ -3347,7 +3368,7 @@ Deno.serve(async (originalReq) => {
       let found: any = null;
       for (let i = 0; i < 6; i++) {
         await new Promise((resolve) => setTimeout(resolve, i === 0 ? 700 : 1200));
-        const runs = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/tv-login.yml/runs?event=repository_dispatch&per_page=10`, {
+        const runs = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/tv-login.yml/runs?event=workflow_dispatch&per_page=10`, {
           method: "GET",
           headers,
           signal: AbortSignal.timeout(5000),
@@ -5445,22 +5466,12 @@ Deno.serve(async (originalReq) => {
       const pat = cfg.pat;
       if (!repo || !pat || !eventId) return { ok: false, diag: "github_not_configured", message: "GitHub Actions runner is not configured." };
       const cleanLabel = String(userLabel || "").replace(/[^\w.\-@ ]+/g, "").trim().slice(0, 60) || "user";
-      const ghRes = await fetch(`https://api.github.com/repos/${repo}/dispatches`, {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${pat}`,
-          "Accept": "application/vnd.github+json",
-          "X-GitHub-Api-Version": "2022-11-28",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ event_type: "tv-login", client_payload: { event_id: eventId, user_label: cleanLabel, fallback_reason: reason, ts: Date.now() } }),
-        signal: AbortSignal.timeout(4000),
-      });
+      const ghRes = await dispatchGithubWorkflow(pat, repo, { event_id: eventId, user_label: cleanLabel, fallback_reason: String(reason || "") });
       if (ghRes.status === 204) {
         return { ok: true, diag: "github_queued", message: "GitHub Actions runner queued." };
       }
       const body = await ghRes.text().catch(() => "");
-      return { ok: false, diag: `github_${ghRes.status}`, message: body.slice(0, 180) || `GitHub Actions dispatch failed (${ghRes.status}).` };
+      return { ok: false, diag: `github_${ghRes.status}`, message: githubPermissionMessage(ghRes.status, body, "run") };
     };
 
 
