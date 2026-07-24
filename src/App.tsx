@@ -9223,6 +9223,28 @@ function AdminPanel() {
                                   </div>
                                 </div>
                               )}
+
+                              {/* Plan window (paid users only) */}
+                              {!u.isFree && u.role !== "admin" && (
+                                <div className="rounded-xl border border-sky-200 bg-sky-50/60 p-3 space-y-3">
+                                  <div className="text-[11px] font-black uppercase tracking-wider text-sky-800">Plan Window</div>
+                                  <div>
+                                    <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Plan starts at</label>
+                                    <DateTimePicker value={editPlanStartsAt} onChange={setEditPlanStartsAt} />
+                                  </div>
+                                  <div>
+                                    <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Plan ends at</label>
+                                    <DateTimePicker value={editPlanEndsAt} onChange={setEditPlanEndsAt} />
+                                  </div>
+                                  <div className="flex items-center justify-between">
+                                    <p className="text-[10px] text-slate-500 leading-snug">Locks access after end date. Telegram reminders last 7 days.</p>
+                                    {(editPlanStartsAt || editPlanEndsAt) && (
+                                      <button type="button" onClick={() => { setEditPlanStartsAt(""); setEditPlanEndsAt(""); }}
+                                        className="text-[11px] text-sky-700 font-bold hover:underline whitespace-nowrap ml-2">Clear</button>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           </div>
                           {/* Footer */}
