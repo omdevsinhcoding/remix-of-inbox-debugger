@@ -2721,7 +2721,7 @@ function TvSignInPage() {
           <div aria-hidden className="pointer-events-none absolute -top-24 -right-16 w-64 h-64 xl:w-96 xl:h-96 rounded-full bg-rose-500/[0.06] blur-3xl" />
           <div aria-hidden className="pointer-events-none absolute -bottom-32 -left-16 w-72 h-72 xl:w-[26rem] xl:h-[26rem] rounded-full bg-rose-500/[0.04] blur-3xl" />
 
-          <div className="relative p-6 sm:p-10 xl:p-14">
+          <div className="relative p-3 sm:p-10 xl:p-14">
             {step === "select" ? (
               <div>
                 {accountsLoading ? (
@@ -2805,10 +2805,10 @@ function TvSignInPage() {
                   </div>
                 )}
 
-                <div className="mt-8 flex items-center justify-center gap-1.5 sm:gap-2">
+                <div className="mt-8 -mx-2 sm:mx-0 flex items-center justify-center gap-1 sm:gap-2">
                   {code.map((d, i) => (
                     <React.Fragment key={i}>
-                      {i === 4 && <span aria-hidden className="shrink-0 w-2 sm:w-3 h-0.5 rounded-full bg-slate-300 mx-0.5" />}
+                      {i === 4 && <span aria-hidden className="shrink-0 w-1.5 sm:w-3 h-0.5 rounded-full bg-slate-300 mx-0 sm:mx-0.5" />}
                       <input
                         ref={(el) => { inputsRef.current[i] = el; }}
                         value={d}
@@ -2821,7 +2821,7 @@ function TvSignInPage() {
                         maxLength={1}
                         disabled={status !== "idle"}
                         aria-label={`Digit ${i + 1}`}
-                        className={`aspect-square w-full min-w-0 flex-1 text-center text-2xl sm:text-3xl xl:text-5xl 2xl:text-6xl font-black rounded-xl xl:rounded-2xl bg-white border-2 text-slate-900 caret-rose-500 outline-none transition-all
+                        className={`aspect-square w-full min-w-0 flex-1 text-center text-3xl sm:text-3xl xl:text-5xl 2xl:text-6xl font-black rounded-xl xl:rounded-2xl bg-white border-2 text-slate-900 caret-rose-500 outline-none transition-all
                           ${d ? "border-rose-500 bg-rose-50 shadow-[0_8px_24px_-8px_rgba(229,9,20,0.4)]" : "border-slate-200"}
                           focus:border-rose-500 focus:bg-rose-50 focus:shadow-[0_8px_24px_-8px_rgba(229,9,20,0.5)] focus:scale-[1.04]
                           disabled:opacity-60 disabled:bg-slate-50`}
