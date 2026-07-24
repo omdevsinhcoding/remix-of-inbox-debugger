@@ -1,0 +1,10 @@
+name = "netflix"
+main = "cloudflare-worker/worker.js"
+compatibility_date = "2026-04-07"
+workers_dev = true
+
+# Root-level fallback Worker config. Preferred Cloudflare setup still uses
+# Root directory `/cloudflare-worker`; root `npm/bun run build` now routes to
+# `cloudflare-worker/deploy.mjs` in Cloudflare builds and Vite elsewhere.
+[[kv_namespaces]]
+binding = "EMAIL_CACHE"
