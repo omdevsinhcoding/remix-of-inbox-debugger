@@ -4100,10 +4100,9 @@ function ProfileSelectPage() {
         const { storeSessionPair } = await import("./lib/sessionRefresh");
         storeSessionPair(data);
       } catch {}
-      // Session timer intentionally NOT started here — EmailViewer starts it
-      // after the first cached-email load finishes so users always see their
-      // inbox before the countdown begins.
-      try { sessionRemove("session_started_at" as any); } catch {}
+      // Global session: start the countdown instantly on login so the pill
+      // appears immediately regardless of workflow (Gmail / TV / Direct Link).
+      try { markSessionStart(); } catch {}
       checkAuth();
 
       perf.end("navigate_viewer");
@@ -4161,7 +4160,7 @@ function ProfileSelectPage() {
         const { storeSessionPair } = await import("./lib/sessionRefresh");
         storeSessionPair(data);
       } catch {}
-      try { sessionRemove("session_started_at" as any); } catch {}
+      try { markSessionStart(); } catch {}
       checkAuth();
       perf.end("navigate_viewer");
       navigate("/viewer");
