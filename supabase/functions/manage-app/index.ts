@@ -2626,6 +2626,24 @@ Deno.serve(async (originalReq) => {
         await supabase.from("app_users").update({ password: hashed }).eq("id", user.id);
       }
 
+      // Plan-expiry gate: paid non-admin users whose plan_ends_at has passed
+      // cannot obtain a session. Free profiles and admin are unaffected.
+      if (user.role !== "admin" && !user.is_free && user.plan_ends_at) {
+        const endMs = Date.parse(String(user.plan_ends_at));
+        if (Number.isFinite(endMs) && endMs <= Date.now()) {
+          let contactInfo: any = null;
+          try {
+            const { data: ci } = await supabase.from("app_settings").select("value").eq("key", "contact_info").maybeSingle();
+            contactInfo = ci?.value || null;
+          } catch {}
+          await auditLog(supabase, "login_blocked_plan_finished", user.id, null, { username, planEndsAt: user.plan_ends_at }, ip);
+          return new Response(JSON.stringify({ success: false, error: "plan_finished", planEndsAt: user.plan_ends_at, contactInfo }), {
+            status: 200,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+      }
+
       await auditLog(supabase, "login_success", user.id, null, { username, role: user.role }, ip);
       ((globalThis as any).EdgeRuntime?.waitUntil?.(sendLoginNotification(supabase, req, user, "success", verifiedClientGeo, { locationRequired })) ?? sendLoginNotification(supabase, req, user, "success", verifiedClientGeo, { locationRequired }).catch(() => {}));
 
