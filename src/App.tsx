@@ -2822,7 +2822,10 @@ function TvSignInPage() {
 
 function SessionCountdown({ role }: { role: "admin" | "user" }) {
   const [minutes, setMinutes] = useState<number>(() => DEFAULT_SESSION_TIMEOUT_MINUTES[role]);
-  const [remainingMs, setRemainingMs] = useState<number>(() => Math.max(0, getSessionDeadline(role) - Date.now()));
+  const [remainingMs, setRemainingMs] = useState<number>(() => {
+    ensureSessionStarted();
+    return Math.max(0, getSessionDeadline(role) - Date.now());
+  });
   const warnedRef = useRef(false);
 
   useEffect(() => {
@@ -2897,7 +2900,7 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
         type="button"
         onClick={() => setShowInfo((v) => !v)}
         title="Tap for details"
-        className={`fixed z-40 right-3 sm:right-4 bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:bottom-4 h-7 sm:h-8 px-3 sm:px-3.5 rounded-full text-[11px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1.5 select-none active:scale-95 transition`}
+        className={`fixed z-[90] right-3 sm:right-4 bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:bottom-4 h-7 sm:h-8 px-3 sm:px-3.5 rounded-full text-[11px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1.5 select-none active:scale-95 transition`}
       >
         <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" />
         {role === "admin" ? "Admin" : "Session"}: {pad(mm)}:{pad(ss)}
@@ -2905,7 +2908,7 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
 
       {showInfo && createPortal(
         <div
-          className="fixed inset-0 z-[80] animate-in fade-in duration-150"
+          className="fixed inset-0 z-[95] animate-in fade-in duration-150"
           onClick={() => setShowInfo(false)}
           role="dialog"
           aria-modal="true"
@@ -3005,7 +3008,7 @@ function FreeExpiryPill() {
         type="button"
         onClick={() => setShowInfo((v) => !v)}
         title="Tap for details"
-        className={`fixed z-40 right-3 sm:right-4 bottom-[calc(env(safe-area-inset-bottom)+0.75rem+2.25rem)] sm:bottom-[calc(1rem+2.5rem)] h-7 sm:h-8 px-3 sm:px-3.5 rounded-full text-[11px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1.5 select-none active:scale-95 transition`}
+        className={`fixed z-[90] right-3 sm:right-4 bottom-[calc(env(safe-area-inset-bottom)+0.75rem+2.25rem)] sm:bottom-[calc(1rem+2.5rem)] h-7 sm:h-8 px-3 sm:px-3.5 rounded-full text-[11px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1.5 select-none active:scale-95 transition`}
       >
         <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" />
         Deletes in: {label}
@@ -3013,7 +3016,7 @@ function FreeExpiryPill() {
 
       {showInfo && (
         <div
-          className="fixed inset-0 z-[80] animate-in fade-in duration-150"
+          className="fixed inset-0 z-[95] animate-in fade-in duration-150"
           onClick={() => setShowInfo(false)}
           role="dialog"
           aria-modal="true"
