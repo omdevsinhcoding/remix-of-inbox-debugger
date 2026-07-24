@@ -134,23 +134,23 @@ export function WorkflowChooser({ features, user, lastView, onPick, onLogout, au
         )}
       </header>
 
-      <div className="flex-1 flex items-center justify-center px-4 py-10 sm:py-14">
-        <div className="w-full max-w-5xl">
-          <div className="text-center mb-10 sm:mb-14">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white border border-slate-200 shadow-sm text-[10px] font-bold uppercase tracking-[0.24em] text-slate-500">
-              <Sparkles className="w-3 h-3 text-amber-500" /> Welcome back
+      <div className="flex-1 flex items-center justify-center px-3 sm:px-6 py-6 sm:py-10 xl:py-14 2xl:py-20 overflow-y-auto">
+        <div className="w-full max-w-md sm:max-w-3xl lg:max-w-5xl xl:max-w-6xl 2xl:max-w-[110rem]">
+          <div className="text-center mb-6 sm:mb-10 xl:mb-14 2xl:mb-20">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white border border-slate-200 shadow-sm text-[10px] xl:text-xs 2xl:text-sm font-bold uppercase tracking-[0.24em] text-slate-500">
+              <Sparkles className="w-3 h-3 xl:w-4 xl:h-4 text-amber-500" /> Welcome back
             </div>
-            <h2 className="mt-4 text-3xl sm:text-5xl font-black tracking-tight text-slate-900">How would you like to sign in?</h2>
-            <p className="mt-3 text-sm sm:text-base text-slate-500 max-w-xl mx-auto">Three dedicated experiences for the same account. Pick one to get started — you can switch anytime from the header.</p>
+            <h2 className="mt-3 sm:mt-4 text-[26px] leading-tight sm:text-4xl lg:text-5xl xl:text-6xl 2xl:text-8xl font-black tracking-tight text-slate-900">How would you like to sign in?</h2>
+            <p className="mt-2 sm:mt-3 text-[13px] sm:text-base xl:text-lg 2xl:text-2xl text-slate-500 max-w-xl xl:max-w-2xl 2xl:max-w-4xl mx-auto">Three dedicated experiences for the same account. Pick one to get started — you can switch anytime from the header.</p>
             {remembered && !cancelled && (
-              <div className="mt-5 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900 text-white text-[11px] font-bold shadow-sm">
-                <Clock className="w-3.5 h-3.5" />
+              <div className="mt-4 sm:mt-5 inline-flex items-center gap-2 px-3 py-1.5 xl:px-4 xl:py-2 rounded-full bg-slate-900 text-white text-[11px] xl:text-sm 2xl:text-base font-bold shadow-sm">
+                <Clock className="w-3.5 h-3.5 xl:w-4 xl:h-4" />
                 Opening your last choice in {secondsLeft}s — press any key to cancel
               </div>
             )}
           </div>
 
-          <div className={`grid gap-4 sm:gap-5 mx-auto ${items.length === 1 ? "max-w-sm" : items.length === 2 ? "sm:grid-cols-2 max-w-2xl" : "sm:grid-cols-3"}`}>
+          <div className={`grid gap-3 sm:gap-5 xl:gap-7 2xl:gap-10 mx-auto ${items.length === 1 ? "max-w-xs sm:max-w-sm" : items.length === 2 ? "grid-cols-1 sm:grid-cols-2 max-w-2xl xl:max-w-4xl 2xl:max-w-6xl" : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3"}`}>
             {items.map(({ key, title, sub, Icon, accent, tint }, i) => {
               const isLast = remembered === key;
               return (
@@ -160,24 +160,24 @@ export function WorkflowChooser({ features, user, lastView, onPick, onLogout, au
                   transition={{ delay: 0.05 + i * 0.06, type: "spring", stiffness: 240, damping: 22 }}
                   whileHover={{ y: -4 }} whileTap={{ scale: 0.98 }}
                   onClick={() => onPick(key)}
-                  className={`group relative overflow-hidden rounded-2xl bg-white transition-all p-6 text-left focus:outline-none focus:ring-2 focus:ring-slate-900/20 ${
+                  className={`group relative overflow-hidden rounded-2xl xl:rounded-3xl bg-white transition-all p-5 sm:p-6 xl:p-8 2xl:p-12 text-left focus:outline-none focus:ring-2 focus:ring-slate-900/20 ${
                     isLast
                       ? "border-2 border-slate-900 shadow-[0_24px_60px_-20px_rgba(2,6,23,0.28)]"
                       : "border border-slate-200 hover:border-slate-300 hover:shadow-[0_20px_50px_-20px_rgba(2,6,23,0.18)]"
                   }`}
                 >
                   {isLast && (
-                    <div className="absolute top-3 right-3 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-900 text-white text-[9px] font-black uppercase tracking-wider">
+                    <div className="absolute top-3 right-3 xl:top-4 xl:right-4 inline-flex items-center gap-1 px-2 py-0.5 xl:px-2.5 xl:py-1 rounded-full bg-slate-900 text-white text-[9px] xl:text-[11px] font-black uppercase tracking-wider">
                       <Check className="w-3 h-3" /> Last used
                     </div>
                   )}
-                  <div className={`w-12 h-12 rounded-2xl ${tint} flex items-center justify-center mb-6`}>
-                    <Icon className="w-5.5 h-5.5" />
+                  <div className={`w-12 h-12 xl:w-16 xl:h-16 2xl:w-20 2xl:h-20 rounded-2xl xl:rounded-3xl ${tint} flex items-center justify-center mb-5 xl:mb-7`}>
+                    <Icon className="w-5 h-5 xl:w-7 xl:h-7 2xl:w-9 2xl:h-9" />
                   </div>
-                  <div className="font-black text-lg text-slate-900 tracking-tight">{title}</div>
-                  <div className="text-[12.5px] text-slate-500 mt-1 leading-relaxed">{sub}</div>
-                  <div className="mt-6 inline-flex items-center gap-1.5 text-[11px] font-black uppercase tracking-widest text-slate-900">
-                    Continue <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+                  <div className="font-black text-lg xl:text-2xl 2xl:text-4xl text-slate-900 tracking-tight">{title}</div>
+                  <div className="text-[12.5px] xl:text-sm 2xl:text-lg text-slate-500 mt-1 xl:mt-2 leading-relaxed">{sub}</div>
+                  <div className="mt-5 xl:mt-7 inline-flex items-center gap-1.5 text-[11px] xl:text-xs 2xl:text-sm font-black uppercase tracking-widest text-slate-900">
+                    Continue <ChevronRight className="w-3.5 h-3.5 xl:w-4 xl:h-4 group-hover:translate-x-0.5 transition-transform" />
                   </div>
                   <div aria-hidden className={`pointer-events-none absolute inset-x-0 -bottom-0.5 h-1 bg-gradient-to-r ${accent} ${isLast ? "opacity-100" : "opacity-0 group-hover:opacity-100"} transition-opacity`} />
                   {isLast && progress > 0 && (
@@ -193,7 +193,7 @@ export function WorkflowChooser({ features, user, lastView, onPick, onLogout, au
             })}
           </div>
 
-          <p className="mt-10 text-center text-[11px] text-slate-400">
+          <p className="mt-6 sm:mt-10 xl:mt-14 text-center text-[11px] xl:text-sm 2xl:text-base text-slate-400">
             Your workflow choice is remembered on your account — across every browser and device.
           </p>
         </div>
