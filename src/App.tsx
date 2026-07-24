@@ -1924,27 +1924,27 @@ function userFriendlyTvError(message?: string | null) {
 type TvLoginStatus = "idle" | "verifying" | "checking" | "queued" | "running" | "in_progress" | "success" | "invalid_code" | "cookies_expired" | "no_cookies" | "error";
 
 const tvActiveCopy = [
-  "Starting secure browser",
-  "Opening Netflix TV",
-  "Entering your code",
-  "Checking sign-in result",
+  "Signing you in",
+  "Almost there",
+  "Just a moment",
+  "Finishing up",
 ];
 
 function getTvProgress(status: TvLoginStatus, elapsedMs: number) {
-  if (status === "verifying") return { title: "Verifying code", detail: "Checking the 8-digit code now.", progress: 14 };
-  if (status === "checking") return { title: "Checking account", detail: "Confirming saved cookies before sign-in.", progress: 28 };
+  if (status === "verifying") return { title: "Signing you in", detail: "Please keep your TV on.", progress: 14 };
+  if (status === "checking") return { title: "Signing you in", detail: "Please keep your TV on.", progress: 28 };
   const activeIndex = Math.floor(elapsedMs / 2200) % tvActiveCopy.length;
   if (status === "queued") {
     return {
       title: tvActiveCopy[activeIndex],
-      detail: "Runner started. Keep this screen open.",
+      detail: "Please keep your TV on.",
       progress: Math.min(72, 34 + Math.floor(elapsedMs / 700)),
     };
   }
   if (status === "running" || status === "in_progress") {
     return {
       title: tvActiveCopy[(activeIndex + 1) % tvActiveCopy.length],
-      detail: "Processing now. Keep your TV on the code screen.",
+      detail: "Please keep your TV on.",
       progress: Math.min(94, 58 + Math.floor(elapsedMs / 650)),
     };
   }
