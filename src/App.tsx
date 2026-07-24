@@ -6860,6 +6860,44 @@ function AdminPanel() {
   const [savingConcurrentSessionLimit, setSavingConcurrentSessionLimit] = useState(false);
   const [freeAvatarCooldownMin, setFreeAvatarCooldownMinState] = useState<string>("5");
   const [savingFreeAvatarCooldown, setSavingFreeAvatarCooldown] = useState(false);
+  const [contactInfoTelegram, setContactInfoTelegram] = useState<string>("");
+  const [contactInfoWhatsapp, setContactInfoWhatsapp] = useState<string>("");
+  const [contactInfoEmail, setContactInfoEmail] = useState<string>("");
+  const [contactInfoNote, setContactInfoNote] = useState<string>("");
+  const [savingContactInfo, setSavingContactInfo] = useState(false);
+  const loadContactInfoRef = useRef(false);
+  useEffect(() => {
+    if (loadContactInfoRef.current) return;
+    loadContactInfoRef.current = true;
+    (async () => {
+      try {
+        const res: any = await apiCall("manage-app", { action: "get_settings", key: "contact_info" });
+        const v = res?.value || res?.settings?.contact_info || null;
+        if (v && typeof v === "object") {
+          setContactInfoTelegram(v.telegram || "");
+          setContactInfoWhatsapp(v.whatsapp || "");
+          setContactInfoEmail(v.email || "");
+          setContactInfoNote(v.note || "");
+        }
+      } catch {}
+    })();
+  }, []);
+  const saveContactInfo = async () => {
+    setSavingContactInfo(true);
+    try {
+      await apiCall("manage-app", { action: "save_contact_info", value: {
+        telegram: contactInfoTelegram.trim(),
+        whatsapp: contactInfoWhatsapp.trim(),
+        email: contactInfoEmail.trim(),
+        note: contactInfoNote.trim(),
+      }});
+      notify.success("Contact info saved");
+    } catch (err) {
+      notify.error(err instanceof Error ? err.message : "Failed to save contact info");
+    } finally {
+      setSavingContactInfo(false);
+    }
+  };
 
   const [savingAdminSessionTimeout, setSavingAdminSessionTimeout] = useState(false);
   const [captchaEnabled, setCaptchaEnabled] = useState<boolean>(false);
