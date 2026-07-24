@@ -1952,7 +1952,7 @@ function getTvProgress(status: TvLoginStatus, elapsedMs: number) {
 }
 
 function getTvTerminalCopy(status: TvLoginStatus, message?: string | null) {
-  if (status === "success") return { title: "TV signed in", detail: "Securing this browser session now.", tone: "success" as const };
+  if (status === "success") return { title: "TV signed in", detail: "All set — enjoy!", tone: "success" as const };
   if (status === "invalid_code") return { title: "Code rejected — try again", detail: "Open Netflix on your TV and generate a fresh code.", tone: "danger" as const };
   if (status === "cookies_expired") return { title: "Cookies expired", detail: "Ask admin to refresh this account in Cookies Vault.", tone: "warning" as const };
   if (status === "no_cookies") return { title: "Session not ready", detail: "Saved cookies are not available for this account yet.", tone: "warning" as const };
