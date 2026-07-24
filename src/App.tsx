@@ -13878,6 +13878,82 @@ function CatchAllRoute() {
 
 
 
+// Global "Plan Finished" modal. Shown when any edge call returns
+// { success: false, error: "plan_finished" }. Displays admin contact info
+// and forces the user out of any active session.
+function PlanFinishedModal() {
+  const [state, setState] = useState<{ open: boolean; contactInfo: any; planEndsAt: string | null }>({ open: false, contactInfo: null, planEndsAt: null });
+  useEffect(() => {
+    const handler = (e: any) => {
+      const detail = e?.detail || {};
+      setState({ open: true, contactInfo: detail.contactInfo || null, planEndsAt: detail.planEndsAt || null });
+      // Kill any active session so protected routes bounce out.
+      try {
+        sessionSet("session_token" as any, "");
+        sessionSet("user" as any, "");
+      } catch {}
+    };
+    window.addEventListener("app:plan-finished", handler as any);
+    return () => window.removeEventListener("app:plan-finished", handler as any);
+  }, []);
+  if (!state.open || typeof document === "undefined") return null;
+  const c = state.contactInfo || {};
+  const endedOn = state.planEndsAt ? new Date(state.planEndsAt).toLocaleString() : null;
+  return createPortal(
+    <div className="fixed inset-0 z-[10050] bg-slate-950/70 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <div className="relative w-full sm:w-auto sm:min-w-[24rem] sm:max-w-md max-h-[92dvh] overflow-y-auto rounded-t-3xl sm:rounded-3xl bg-white shadow-2xl border border-slate-200 p-6 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] sm:pb-6">
+        <div aria-hidden className="sm:hidden flex justify-center -mt-1 mb-3">
+          <div className="w-10 h-1 rounded-full bg-slate-300" />
+        </div>
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-12 h-12 rounded-2xl bg-red-100 text-red-600 flex items-center justify-center flex-shrink-0">
+            <AlertCircle className="w-6 h-6" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="text-lg font-black text-slate-900 leading-tight">Plan Finished</div>
+            <div className="text-xs text-slate-500 mt-0.5">Contact admin to renew</div>
+          </div>
+        </div>
+        <p className="text-sm text-slate-700 leading-relaxed">Your plan has ended. Sign-in features are paused until it's renewed.</p>
+        {endedOn && (
+          <div className="mt-3 rounded-xl bg-slate-50 border border-slate-200 px-3 py-2 text-xs text-slate-600">Ended on <span className="font-semibold text-slate-900">{endedOn}</span></div>
+        )}
+        <div className="mt-4 space-y-2">
+          {c.telegram && (
+            <a href={c.telegram.startsWith("http") ? c.telegram : `https://t.me/${String(c.telegram).replace(/^@/, "")}`} target="_blank" rel="noreferrer" className="flex items-center justify-between rounded-xl bg-sky-50 border border-sky-200 px-4 py-3 text-sm font-semibold text-sky-900 hover:bg-sky-100 transition">
+              <span>Telegram</span><span className="text-xs opacity-70 truncate ml-3">{c.telegram}</span>
+            </a>
+          )}
+          {c.whatsapp && (
+            <a href={`https://wa.me/${String(c.whatsapp).replace(/[^\d]/g, "")}`} target="_blank" rel="noreferrer" className="flex items-center justify-between rounded-xl bg-emerald-50 border border-emerald-200 px-4 py-3 text-sm font-semibold text-emerald-900 hover:bg-emerald-100 transition">
+              <span>WhatsApp</span><span className="text-xs opacity-70 truncate ml-3">{c.whatsapp}</span>
+            </a>
+          )}
+          {c.email && (
+            <a href={`mailto:${c.email}`} className="flex items-center justify-between rounded-xl bg-slate-50 border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-900 hover:bg-slate-100 transition">
+              <span>Email</span><span className="text-xs opacity-70 truncate ml-3">{c.email}</span>
+            </a>
+          )}
+          {c.note && (
+            <div className="rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 text-xs text-amber-900 whitespace-pre-wrap">{c.note}</div>
+          )}
+          {!c.telegram && !c.whatsapp && !c.email && !c.note && (
+            <div className="rounded-xl bg-slate-50 border border-slate-200 px-4 py-3 text-xs text-slate-600">Please contact the admin to renew your plan.</div>
+          )}
+        </div>
+        <button
+          onClick={() => { setState({ open: false, contactInfo: null, planEndsAt: null }); try { window.location.replace("/"); } catch {} }}
+          className="mt-5 w-full h-11 rounded-xl bg-slate-900 text-white text-sm font-bold hover:bg-slate-800 active:scale-[0.98] transition"
+        >
+          Back to sign-in
+        </button>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+
 // ==================== MAIN APP ====================
 export default function App() {
   return (
