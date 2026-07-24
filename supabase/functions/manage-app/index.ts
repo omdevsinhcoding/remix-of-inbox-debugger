@@ -2523,16 +2523,17 @@ Deno.serve(async (originalReq) => {
             note: typeof contactInfoRaw.note === "string" ? contactInfoRaw.note : "",
           }
         : { telegram: "", whatsapp: "", email: "", note: "" };
-      const basePayload: any = { success: true, users: mappedUsers, recaptcha, workerUrls, emailFilters, maintenance, avatarBaseUrl, locationPolicy: { required: globalLocationRequired }, freeAvatarCooldown, tvFeature, contactInfo, serverNow: new Date().toISOString() };
+      const basePayload: any = { success: true, users: mappedUsers, recaptcha, workerUrls, emailFilters, maintenance, avatarBaseUrl, locationPolicy: { required: globalLocationRequired }, freeAvatarCooldown, tvFeature, contactInfo };
       // Compute a stable etag from the content. 16 hex chars (~64 bits) is
       // enough uniqueness to catch any real content change without paying
       // for the full 64-char hash in every response header.
       const etagBuf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(basePayload)));
       const etag = Array.from(new Uint8Array(etagBuf)).slice(0, 8).map((b) => b.toString(16).padStart(2, "0")).join("");
-      const payload = { ...basePayload, etag };
+      // serverNow is added outside the etag so caching still works.
+      const payload = { ...basePayload, etag, serverNow: new Date().toISOString() };
       __bootstrapCache = { at: now, payload };
       if (ifNoneMatch && ifNoneMatch === etag) {
-        return new Response(JSON.stringify({ success: true, unchanged: true, etag }), {
+        return new Response(JSON.stringify({ success: true, unchanged: true, etag, serverNow: payload.serverNow }), {
           status: 200,
           headers: { ...corsHeaders, "Content-Type": "application/json", ETag: `"${etag}"`, "Cache-Control": "public, max-age=30, stale-while-revalidate=60", "Access-Control-Expose-Headers": "ETag" },
         });
