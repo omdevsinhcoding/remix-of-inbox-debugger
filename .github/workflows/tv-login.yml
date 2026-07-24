@@ -11,16 +11,14 @@ concurrency:
 
 jobs:
   run:
+    # Native ubuntu-latest boots ~1-2s (vs ~28s for the Playwright container).
+    # Chromium + node_modules are cached; warm runs finish in ~20-25s total.
     runs-on: ubuntu-latest
-    # IMPORTANT: image tag MUST match the `playwright` version in
-    # scripts/tv-login-runner/package.json. Image ships with Chromium + all
-    # system deps pre-baked, so we skip `npx playwright install`.
-    container:
-      image: mcr.microsoft.com/playwright:v1.48.0-jammy
-      options: --user 1001
     timeout-minutes: 3
     permissions:
       contents: read
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.pw-browsers
     steps:
       - name: GitHub runner test
         if: github.event.action == 'tv-login-test'
@@ -33,26 +31,44 @@ jobs:
           sparse-checkout: scripts/tv-login-runner
           sparse-checkout-cone-mode: false
 
+      # Node is preinstalled on ubuntu-latest (~1s to configure).
+      - uses: actions/setup-node@v4
+        if: github.event.action == 'tv-login'
+        with:
+          node-version: "20"
+
       - name: Cache runner node_modules
         if: github.event.action == 'tv-login'
         uses: actions/cache@v4
         with:
           path: scripts/tv-login-runner/node_modules
-          key: tv-runner-nm-${{ hashFiles('scripts/tv-login-runner/package-lock.json') }}
+          key: tv-runner-nm-v2-${{ hashFiles('scripts/tv-login-runner/package-lock.json') }}
+
+      - name: Cache Playwright Chromium
+        if: github.event.action == 'tv-login'
+        id: cache-browsers
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.pw-browsers
+          key: pw-browsers-v1-1.48.0-chromium-headless-shell
 
       - name: Install runner dependencies
         if: github.event.action == 'tv-login'
         working-directory: scripts/tv-login-runner
         env:
-          # Browsers are pre-baked in the container; skip Playwright's postinstall.
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
         run: |
           if [ -d node_modules/playwright ]; then
-            echo "node_modules cache hit; skipping install"
+            echo "node_modules cache hit"
           else
             npm ci --prefer-offline --no-audit --no-fund --ignore-scripts \
               || npm install --prefer-offline --no-audit --no-fund --ignore-scripts
           fi
+
+      - name: Install Chromium (cache miss only)
+        if: github.event.action == 'tv-login' && steps.cache-browsers.outputs.cache-hit != 'true'
+        working-directory: scripts/tv-login-runner
+        run: npx playwright install chromium --only-shell
 
       - name: Run TV auto-login
         if: github.event.action == 'tv-login'
@@ -64,5 +80,5 @@ jobs:
           TV_REPORT_URL: ${{ secrets.TV_REPORT_URL }}
           TV_REPORT_HMAC_KEY: ${{ secrets.TV_REPORT_HMAC_KEY }}
           GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          TV_LOGIN_MAX_MS: 25000
+          TV_LOGIN_MAX_MS: 20000
         run: node tv-login.mjs
