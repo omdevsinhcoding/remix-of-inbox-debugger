@@ -9756,7 +9756,11 @@ function AdminPanel() {
                       />
                       <button
                         type="button"
-                        onClick={() => setGhSetupPatVisible((v) => !v)}
+                        onClick={() => {
+                          const next = !ghSetupPatVisible;
+                          setGhSetupPatVisible(next);
+                          if (next && !ghSetupPat && ghSetupStatus?.hasPat) void revealSavedPat();
+                        }}
                         aria-label={ghSetupPatVisible ? "Hide token" : "Show token"}
                         className="absolute inset-y-0 right-0 w-11 flex items-center justify-center text-slate-500 hover:text-slate-900"
                       >
