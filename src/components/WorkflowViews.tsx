@@ -117,25 +117,9 @@ export function WorkflowChooser({ features, user, lastView, onPick, onLogout, au
     <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
       transition={{ duration: 0.25 }}
-      className="fixed inset-0 z-[80] bg-gradient-to-br from-slate-50 via-white to-slate-100 flex flex-col overflow-hidden"
+      className="relative bg-gradient-to-br from-slate-50 via-white to-slate-100 min-h-[calc(100vh-3.5rem)] sm:min-h-[calc(100vh-4rem)]"
     >
-      <header className="shrink-0 flex items-center justify-between px-4 sm:px-8 h-16 border-b border-slate-200/70 bg-white/70 backdrop-blur">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-red-600 to-rose-500 flex items-center justify-center text-white font-black shadow-sm">N</div>
-          <div className="min-w-0">
-            <div className="text-sm font-black text-slate-900 leading-tight truncate">Netflix Mail</div>
-            <div className="text-[11px] text-slate-500 truncate">{user?.name || user?.username || "Signed in"}</div>
-          </div>
-        </div>
-        {onLogout && (
-          <button onClick={onLogout}
-            className="flex items-center gap-1.5 h-9 px-3.5 rounded-full bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 active:scale-95 transition-transform shadow-sm">
-            <LogOut className="w-3.5 h-3.5" /> Sign out
-          </button>
-        )}
-      </header>
-
-      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain touch-pan-y [-webkit-overflow-scrolling:touch] px-3 sm:px-6 pt-4 sm:pt-8 xl:pt-12 2xl:pt-16 pb-32 sm:pb-36">
+      <div className="px-3 sm:px-6 pt-4 sm:pt-8 xl:pt-12 2xl:pt-16 pb-32 sm:pb-36">
         <div className="w-full max-w-md sm:max-w-3xl lg:max-w-5xl xl:max-w-6xl 2xl:max-w-[110rem] mx-auto min-h-full flex flex-col justify-start lg:justify-center">
           <div className="text-center mb-4 sm:mb-8 xl:mb-12 2xl:mb-16 shrink-0">
             <div className="hidden sm:inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white border border-slate-200 shadow-sm text-[10px] xl:text-xs 2xl:text-sm font-bold uppercase tracking-[0.24em] text-slate-500">

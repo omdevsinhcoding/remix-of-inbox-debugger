@@ -2875,7 +2875,7 @@ function TvSignInPage() {
                   </div>
                 )}
 
-                <div className="mt-10 sm:mt-8 -mx-1 sm:mx-0 flex items-stretch justify-center gap-1 sm:gap-2">
+                <div className="mt-10 sm:mt-8 flex items-stretch justify-center gap-1.5 sm:gap-2">
                   {code.map((d, i) => (
                     <React.Fragment key={i}>
                       {i === 4 && <span aria-hidden className="self-center shrink-0 w-1.5 sm:w-3 h-0.5 rounded-full bg-slate-300 mx-0 sm:mx-0.5" />}
@@ -2891,7 +2891,7 @@ function TvSignInPage() {
                         maxLength={1}
                         disabled={status !== "idle"}
                         aria-label={`Digit ${i + 1}`}
-                        className={`h-16 sm:h-auto sm:aspect-square w-full min-w-0 flex-1 text-center text-4xl sm:text-3xl xl:text-5xl 2xl:text-6xl font-black rounded-2xl bg-white border-2 text-slate-900 caret-rose-500 outline-none transition-all
+                        className={`aspect-square w-full min-w-0 flex-1 text-center text-2xl sm:text-3xl xl:text-5xl 2xl:text-6xl font-black rounded-xl sm:rounded-2xl bg-white border-2 text-slate-900 caret-rose-500 outline-none transition-all
                           ${d ? "border-rose-500 bg-rose-50 shadow-[0_8px_24px_-8px_rgba(229,9,20,0.4)]" : "border-slate-200"}
                           focus:border-rose-500 focus:bg-rose-50 focus:shadow-[0_8px_24px_-8px_rgba(229,9,20,0.5)] focus:scale-[1.04]
                           disabled:opacity-60 disabled:bg-slate-50`}
@@ -2899,6 +2899,7 @@ function TvSignInPage() {
                     </React.Fragment>
                   ))}
                 </div>
+
 
                 <TvProcessButton
                   status={status}
