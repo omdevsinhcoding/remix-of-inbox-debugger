@@ -35,7 +35,7 @@ jobs:
       - uses: actions/setup-node@v4
         if: github.event.action == 'tv-login'
         with:
-          node-version: "20"
+          node-version: "22"
 
       - name: Cache runner node_modules
         if: github.event.action == 'tv-login'
