@@ -2417,7 +2417,7 @@ Deno.serve(async (originalReq) => {
       const settingsP = supabase
         .from("app_settings")
         .select("key,value")
-        .in("key", ["recaptcha", "primary_cloudflare_urls", "email_filters", "maintenance", "r2_storage", "location_policy", "free_avatar_cooldown", "free_avatar_last_change", "tv_feature"]);
+        .in("key", ["recaptcha", "primary_cloudflare_urls", "email_filters", "maintenance", "r2_storage", "location_policy", "free_avatar_cooldown", "free_avatar_last_change", "tv_feature", "contact_info"]);
 
       const [{ data: users, error: usersErr }, { data: settingRows }] = await Promise.all([usersP, settingsP]);
       if (usersErr) throw usersErr;
@@ -2514,16 +2514,26 @@ Deno.serve(async (originalReq) => {
       };
       const tvFeatureRaw: any = settings.get("tv_feature");
       const tvFeature = { enabled: tvFeatureRaw?.enabled !== false };
-      const basePayload: any = { success: true, users: mappedUsers, recaptcha, workerUrls, emailFilters, maintenance, avatarBaseUrl, locationPolicy: { required: globalLocationRequired }, freeAvatarCooldown, tvFeature };
+      const contactInfoRaw: any = settings.get("contact_info") || null;
+      const contactInfo = contactInfoRaw && typeof contactInfoRaw === "object"
+        ? {
+            telegram: typeof contactInfoRaw.telegram === "string" ? contactInfoRaw.telegram : "",
+            whatsapp: typeof contactInfoRaw.whatsapp === "string" ? contactInfoRaw.whatsapp : "",
+            email: typeof contactInfoRaw.email === "string" ? contactInfoRaw.email : "",
+            note: typeof contactInfoRaw.note === "string" ? contactInfoRaw.note : "",
+          }
+        : { telegram: "", whatsapp: "", email: "", note: "" };
+      const basePayload: any = { success: true, users: mappedUsers, recaptcha, workerUrls, emailFilters, maintenance, avatarBaseUrl, locationPolicy: { required: globalLocationRequired }, freeAvatarCooldown, tvFeature, contactInfo };
       // Compute a stable etag from the content. 16 hex chars (~64 bits) is
       // enough uniqueness to catch any real content change without paying
       // for the full 64-char hash in every response header.
       const etagBuf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(basePayload)));
       const etag = Array.from(new Uint8Array(etagBuf)).slice(0, 8).map((b) => b.toString(16).padStart(2, "0")).join("");
-      const payload = { ...basePayload, etag };
+      // serverNow is added outside the etag so caching still works.
+      const payload = { ...basePayload, etag, serverNow: new Date().toISOString() };
       __bootstrapCache = { at: now, payload };
       if (ifNoneMatch && ifNoneMatch === etag) {
-        return new Response(JSON.stringify({ success: true, unchanged: true, etag }), {
+        return new Response(JSON.stringify({ success: true, unchanged: true, etag, serverNow: payload.serverNow }), {
           status: 200,
           headers: { ...corsHeaders, "Content-Type": "application/json", ETag: `"${etag}"`, "Cache-Control": "public, max-age=30, stale-while-revalidate=60", "Access-Control-Expose-Headers": "ETag" },
         });
@@ -2540,7 +2550,7 @@ Deno.serve(async (originalReq) => {
       await requireAdmin(req);
       const { data, error } = await supabase
         .from("app_users")
-        .select("id, username, name, role, assigned_accounts, profile_prefs, session_limit, is_free, pinned, sort_order, expires_at, auto_delete, tv_override, feature_gmail, feature_tv, feature_link")
+        .select("id, username, name, role, assigned_accounts, profile_prefs, session_limit, is_free, pinned, sort_order, expires_at, auto_delete, tv_override, feature_gmail, feature_tv, feature_link, plan_starts_at, plan_ends_at")
         .order("pinned", { ascending: false })
         .order("sort_order", { ascending: true, nullsFirst: false })
         .order("created_at", { ascending: true });
@@ -2562,6 +2572,8 @@ Deno.serve(async (originalReq) => {
         autoDelete: u.auto_delete !== false,
         tvOverride: u.tv_override === "on" || u.tv_override === "off" ? u.tv_override : null,
         features: pickFeatures(u),
+        planStartsAt: u.plan_starts_at || null,
+        planEndsAt: u.plan_ends_at || null,
       }));
       return new Response(JSON.stringify({ success: true, users: mappedData }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -2622,6 +2634,24 @@ Deno.serve(async (originalReq) => {
       if (!user.password.startsWith("pbkdf2:")) {
         const hashed = await hashPassword(password);
         await supabase.from("app_users").update({ password: hashed }).eq("id", user.id);
+      }
+
+      // Plan-expiry gate: paid non-admin users whose plan_ends_at has passed
+      // cannot obtain a session. Free profiles and admin are unaffected.
+      if (user.role !== "admin" && !user.is_free && user.plan_ends_at) {
+        const endMs = Date.parse(String(user.plan_ends_at));
+        if (Number.isFinite(endMs) && endMs <= Date.now()) {
+          let contactInfo: any = null;
+          try {
+            const { data: ci } = await supabase.from("app_settings").select("value").eq("key", "contact_info").maybeSingle();
+            contactInfo = ci?.value || null;
+          } catch {}
+          await auditLog(supabase, "login_blocked_plan_finished", user.id, null, { username, planEndsAt: user.plan_ends_at }, ip);
+          return new Response(JSON.stringify({ success: false, error: "plan_finished", planEndsAt: user.plan_ends_at, contactInfo }), {
+            status: 200,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
       }
 
       await auditLog(supabase, "login_success", user.id, null, { username, role: user.role }, ip);
@@ -2736,6 +2766,8 @@ Deno.serve(async (originalReq) => {
           tvOverride: user.tv_override === "on" || user.tv_override === "off" ? user.tv_override : null,
           tvFeatureEnabled: await loadTvFeatureEnabled(supabase),
           features: pickFeatures(user),
+          planStartsAt: (user as any).plan_starts_at || null,
+          planEndsAt: (user as any).plan_ends_at || null,
         },
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -2745,7 +2777,7 @@ Deno.serve(async (originalReq) => {
     }
 
     if (action === "create") {
-      const { username, password, name, role, assigned_accounts, is_free, expires_at, tv_override } = params;
+      const { username, password, name, role, assigned_accounts, is_free, expires_at, tv_override, plan_starts_at, plan_ends_at } = params;
       const isFree = !!is_free;
       if (!name) throw new Error("Name required");
       if (!isFree && (!username || !password)) throw new Error("Username and password required");
@@ -2797,10 +2829,25 @@ Deno.serve(async (originalReq) => {
         profile_prefs: { avatarId: null, locationRequired: finalRole !== "admin" },
         tv_override: normalizedTvOverride,
       };
+
+      // Paid users can have plan dates. Admin/free rows have them nulled by trigger.
+      if (!isFree && finalRole !== "admin") {
+        if (plan_starts_at) {
+          const t = Date.parse(String(plan_starts_at));
+          if (!Number.isFinite(t)) throw new Error("Invalid plan start date");
+          insertPayload.plan_starts_at = new Date(t).toISOString();
+        }
+        if (plan_ends_at) {
+          const t = Date.parse(String(plan_ends_at));
+          if (!Number.isFinite(t)) throw new Error("Invalid plan end date");
+          insertPayload.plan_ends_at = new Date(t).toISOString();
+        }
+      }
+
       const { data, error } = await supabase
         .from("app_users")
         .insert(insertPayload)
-        .select("id, username, name, role, assigned_accounts, profile_prefs, is_free, pinned, sort_order, expires_at, tv_override")
+        .select("id, username, name, role, assigned_accounts, profile_prefs, is_free, pinned, sort_order, expires_at, tv_override, plan_starts_at, plan_ends_at")
         .single();
       if (error) throw error;
       invalidateBootstrapCache();
@@ -3449,6 +3496,26 @@ Deno.serve(async (originalReq) => {
       });
     }
 
+    if (action === "save_contact_info") {
+      const session = await requireAdmin(req);
+      const raw = params || {};
+      const trim = (v: any, max = 240) => typeof v === "string" ? v.trim().slice(0, max) : "";
+      const value = {
+        telegram: trim(raw.telegram),
+        whatsapp: trim(raw.whatsapp),
+        email: trim(raw.email),
+        note: trim(raw.note, 500),
+      };
+      const { error } = await supabase
+        .from("app_settings")
+        .upsert({ key: "contact_info", value }, { onConflict: "key" });
+      if (error) throw error;
+      invalidateBootstrapCache();
+      await auditLog(supabase, "settings_changed", session.userId, null, { key: "contact_info" }, ip);
+      return new Response(JSON.stringify({ success: true, value }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+
 
     if (action === "set_settings") {
       const session = await requireAdmin(req);
@@ -3546,7 +3613,7 @@ Deno.serve(async (originalReq) => {
 
     if (action === "update_user") {
       const session = await requireAdmin(req);
-      const { id, assigned_accounts, session_limit, pinned, is_free, name, username, expires_at, location_required, auto_delete } = params;
+      const { id, assigned_accounts, session_limit, pinned, is_free, name, username, expires_at, location_required, auto_delete, plan_starts_at, plan_ends_at } = params;
       const tvOverrideProvided = params.tv_override !== undefined || params.tvOverride !== undefined;
       const tvOverrideValue = params.tv_override !== undefined ? params.tv_override : params.tvOverride;
       if (!id) throw new Error("User ID required");
@@ -3605,6 +3672,27 @@ Deno.serve(async (originalReq) => {
         if (typeof f.tv === "boolean")    patch.feature_tv    = f.tv;
         if (typeof f.link === "boolean")  patch.feature_link  = f.link;
       }
+      // Plan dates: allowed only for paid non-admin users; trigger enforces this too.
+      if (plan_starts_at !== undefined) {
+        if (plan_starts_at === null || plan_starts_at === "") {
+          patch.plan_starts_at = null;
+        } else {
+          const t = Date.parse(String(plan_starts_at));
+          if (!Number.isFinite(t)) throw new Error("Invalid plan start date");
+          patch.plan_starts_at = new Date(t).toISOString();
+        }
+      }
+      if (plan_ends_at !== undefined) {
+        if (plan_ends_at === null || plan_ends_at === "") {
+          patch.plan_ends_at = null;
+        } else {
+          const t = Date.parse(String(plan_ends_at));
+          if (!Number.isFinite(t)) throw new Error("Invalid plan end date");
+          patch.plan_ends_at = new Date(t).toISOString();
+        }
+        // Reset reminder throttles so admin extending a plan will re-arm reminders.
+        patch.plan_last_reminder_at = null;
+      }
       if (Object.keys(patch).length === 0) {
         return new Response(JSON.stringify({ success: true, noop: true }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -3614,12 +3702,12 @@ Deno.serve(async (originalReq) => {
         .from("app_users")
         .update(patch)
         .eq("id", id)
-        .select("id, feature_gmail, feature_tv, feature_link, tv_override")
+        .select("id, feature_gmail, feature_tv, feature_link, tv_override, plan_starts_at, plan_ends_at")
         .maybeSingle();
       if (error) throw error;
       invalidateBootstrapCache();
       await auditLog(supabase, "user_updated", session.userId, id, patch, ip);
-      return new Response(JSON.stringify({ success: true, user: updatedUser ? { ...updatedUser, features: pickFeatures(updatedUser), tvOverride: updatedUser.tv_override === "on" || updatedUser.tv_override === "off" ? updatedUser.tv_override : null } : null }), {
+      return new Response(JSON.stringify({ success: true, user: updatedUser ? { ...updatedUser, features: pickFeatures(updatedUser), tvOverride: updatedUser.tv_override === "on" || updatedUser.tv_override === "off" ? updatedUser.tv_override : null, planStartsAt: updatedUser.plan_starts_at || null, planEndsAt: updatedUser.plan_ends_at || null } : null }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -4074,12 +4162,30 @@ Deno.serve(async (originalReq) => {
       const session = await requireSession(req);
       const { data: user, error } = await supabase
         .from("app_users")
-        .select("id, username, name, role, must_change_password, assigned_accounts, profile_prefs, is_free, expires_at, auto_delete, tv_override, feature_gmail, feature_tv, feature_link, last_workflow_view")
+        .select("id, username, name, role, must_change_password, assigned_accounts, profile_prefs, is_free, expires_at, auto_delete, tv_override, feature_gmail, feature_tv, feature_link, last_workflow_view, plan_starts_at, plan_ends_at")
         .eq("id", session.userId)
         .single();
       if (error || !user) throw new Error("Account not found");
+
+      // Enforce plan expiry mid-session: if the plan ended after login, revoke.
+      if (user.role !== "admin" && !user.is_free && user.plan_ends_at) {
+        const endMs = Date.parse(String(user.plan_ends_at));
+        if (Number.isFinite(endMs) && endMs <= Date.now()) {
+          let contactInfo: any = null;
+          try {
+            const { data: ci } = await supabase.from("app_settings").select("value").eq("key", "contact_info").maybeSingle();
+            contactInfo = ci?.value || null;
+          } catch {}
+          return new Response(JSON.stringify({ success: false, error: "plan_finished", planEndsAt: user.plan_ends_at, contactInfo }), {
+            status: 200,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+      }
+
       return new Response(JSON.stringify({
         success: true,
+        serverNow: new Date().toISOString(),
         user: {
           id: user.id,
           username: user.username,
@@ -4096,6 +4202,8 @@ Deno.serve(async (originalReq) => {
           tvOverride: user.tv_override === "on" || user.tv_override === "off" ? user.tv_override : null,
           tvFeatureEnabled: await loadTvFeatureEnabled(supabase),
           features: pickFeatures(user),
+          planStartsAt: (user as any).plan_starts_at || null,
+          planEndsAt: (user as any).plan_ends_at || null,
           lastWorkflowView: ((): string | null => {
             const v = (user as any).last_workflow_view;
             return v === "gmail" || v === "tv" || v === "link" ? v : null;

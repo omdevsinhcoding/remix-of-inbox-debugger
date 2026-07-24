@@ -169,6 +169,10 @@ export type Database = {
           name: string
           password: string | null
           pinned: boolean
+          plan_ends_at: string | null
+          plan_last_reminder_at: string | null
+          plan_start_notified_at: string | null
+          plan_starts_at: string | null
           profile_prefs: Json
           role: string
           session_limit: number | null
@@ -192,6 +196,10 @@ export type Database = {
           name: string
           password?: string | null
           pinned?: boolean
+          plan_ends_at?: string | null
+          plan_last_reminder_at?: string | null
+          plan_start_notified_at?: string | null
+          plan_starts_at?: string | null
           profile_prefs?: Json
           role?: string
           session_limit?: number | null
@@ -215,6 +223,10 @@ export type Database = {
           name?: string
           password?: string | null
           pinned?: boolean
+          plan_ends_at?: string | null
+          plan_last_reminder_at?: string | null
+          plan_start_notified_at?: string | null
+          plan_starts_at?: string | null
           profile_prefs?: Json
           role?: string
           session_limit?: number | null

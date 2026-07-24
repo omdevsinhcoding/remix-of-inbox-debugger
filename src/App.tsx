@@ -892,6 +892,14 @@ async function apiCall(functionName: string, body: any) {
   if (data?.refreshToken || data?.expiresAt) {
     storeSessionPair(data);
   }
+  // Plan-expiry surface: any endpoint (login, me, ...) that returns
+  // { success: false, error: "plan_finished", ... } is broadcast globally
+  // so a friendly "Plan Finished" screen can render — regardless of caller.
+  if (data && data.success === false && data.error === "plan_finished") {
+    try {
+      window.dispatchEvent(new CustomEvent("app:plan-finished", { detail: { contactInfo: data.contactInfo || null, planEndsAt: data.planEndsAt || null } }));
+    } catch {}
+  }
   return data;
 }
 
@@ -3108,8 +3116,110 @@ function FreeExpiryPill({ userOverride }: { userOverride?: any } = {}) {
 }
 
 
+// --- Paid user plan-end countdown pill (mirror of FreeExpiryPill styling) ---
+function PlanEndsPill({ userOverride }: { userOverride?: any } = {}) {
+  const { user: authUser } = useAuth();
+  const user = userOverride || authUser;
+  const [now, setNow] = useState<number>(() => Date.now());
+  const [showInfo, setShowInfo] = useState(false);
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
 
-// --- Types ---
+  const isFree = !!(user as any)?.isFree;
+  const role = (user as any)?.role;
+  const endIso = (user as any)?.planEndsAt as string | null | undefined;
+  // Show only for paid non-admin users with a set plan end date.
+  if (isFree || role === "admin" || !endIso) return null;
+  const endMs = Date.parse(endIso);
+  if (!Number.isFinite(endMs)) return null;
+  const rem = endMs - now;
+  if (rem <= 0) return null;
+
+  const totalSec = Math.floor(rem / 1000);
+  const days = Math.floor(totalSec / 86400);
+  const hrs = Math.floor((totalSec % 86400) / 3600);
+  const mins = Math.floor((totalSec % 3600) / 60);
+  const secs = totalSec % 60;
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  const label = days >= 1 ? `${days}d ${pad(hrs)}:${pad(mins)}:${pad(secs)}` : `${pad(hrs)}:${pad(mins)}:${pad(secs)}`;
+
+  const urgent = rem <= 10 * 60_000;
+  const warn = !urgent && rem <= 60 * 60_000;
+  const cls = urgent
+    ? "bg-red-500 text-white animate-pulse ring-2 ring-red-300"
+    : warn
+    ? "bg-amber-500 text-white"
+    : "bg-sky-600/90 text-white";
+  const full = new Date(endMs).toLocaleString();
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setShowInfo((v) => !v)}
+        title="Plan ends"
+        className={`fixed z-[10001] left-3 sm:left-4 bottom-[calc(env(safe-area-inset-bottom)+0.75rem+2.25rem)] sm:bottom-[calc(1rem+2.5rem)] h-7 sm:h-8 px-3 sm:px-3.5 rounded-full text-[11px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1.5 select-none active:scale-95 transition`}
+      >
+        <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" />
+        Plan ends: {label}
+      </button>
+
+      {showInfo && createPortal(
+        <div
+          className="fixed inset-0 z-[10002] bg-slate-900/50 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"
+          onClick={() => setShowInfo(false)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="relative w-full sm:w-auto sm:min-w-[22rem] sm:max-w-md max-h-[92dvh] overflow-y-auto rounded-t-3xl sm:rounded-3xl bg-white shadow-2xl border border-slate-200 p-5 sm:p-6 pb-[calc(env(safe-area-inset-bottom)+1.25rem)] sm:pb-6"
+          >
+            <div aria-hidden className="sm:hidden flex justify-center -mt-1 mb-3">
+              <div className="w-10 h-1 rounded-full bg-slate-300" />
+            </div>
+            <div className="flex items-center gap-3 mb-4">
+              <div className={`w-11 h-11 rounded-2xl flex items-center justify-center flex-shrink-0 ${urgent ? "bg-red-100 text-red-600" : warn ? "bg-amber-100 text-amber-600" : "bg-sky-100 text-sky-600"}`}>
+                <Clock className="w-5 h-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-base font-extrabold text-slate-900 leading-tight">Your plan</div>
+                <div className="text-[11px] text-slate-500 mt-0.5">Time remaining</div>
+              </div>
+              <button
+                onClick={() => setShowInfo(false)}
+                aria-label="Close"
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-600 flex-shrink-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <p className="text-sm text-slate-700 leading-relaxed">
+              After your plan ends, sign-in features will be paused. Contact the admin to renew.
+            </p>
+            <div className="mt-4 rounded-xl bg-slate-50 border border-slate-200 px-4 py-3">
+              <div className="text-[10px] uppercase tracking-[0.14em] text-slate-500 font-bold">Ends on</div>
+              <div className="text-sm font-semibold text-slate-900 mt-1 break-words">{full}</div>
+              <div className="text-[11px] text-slate-500 mt-2">Remaining: <span className="font-bold text-slate-800">{label}</span></div>
+            </div>
+            <button
+              onClick={() => setShowInfo(false)}
+              className="mt-5 w-full h-11 rounded-xl bg-slate-900 text-white text-sm font-bold hover:bg-slate-800 active:scale-[0.98] transition"
+            >
+              Got it
+            </button>
+          </div>
+        </div>,
+        document.body,
+      )}
+    </>
+  );
+}
+
+
+
 interface Email {
   id: string; subject: string; from: string; to?: string; date: string; otp: string | null; preview: string; html: string; account_label?: string | null; cached_at?: string | null; destroyed?: boolean;
 }
@@ -6731,10 +6841,14 @@ function AdminPanel() {
   const [editSessionLimit, setEditSessionLimit] = useState<string>("");
   const [editExpiresAt, setEditExpiresAt] = useState<string>(""); // "YYYY-MM-DDTHH:mm" for free users only
   const [editAutoDelete, setEditAutoDelete] = useState<boolean>(true);
+  const [editPlanStartsAt, setEditPlanStartsAt] = useState<string>("");
+  const [editPlanEndsAt, setEditPlanEndsAt] = useState<string>("");
   const [editTvOverride, setEditTvOverride] = useState<"inherit" | "on" | "off">("inherit");
   const [editDirectLinkEnabled, setEditDirectLinkEnabled] = useState<boolean>(false);
   const [newIsFree, setNewIsFree] = useState(false);
   const [newFreeExpiresAt, setNewFreeExpiresAt] = useState<string>(""); // "YYYY-MM-DDTHH:mm"
+  const [newPlanStartsAt, setNewPlanStartsAt] = useState<string>("");
+  const [newPlanEndsAt, setNewPlanEndsAt] = useState<string>("");
   const [newTvOverride, setNewTvOverride] = useState<"inherit" | "on" | "off">("inherit");
   const [dragUserId, setDragUserId] = useState<string | null>(null);
   const [reordering, setReordering] = useState(false);
@@ -8116,9 +8230,11 @@ function AdminPanel() {
             assigned_accounts: normalizeSelectedAccounts(newUserAccounts).length > 0 ? normalizeSelectedAccounts(newUserAccounts) : null,
             is_free: false,
             tv_override: tvOv,
+            plan_starts_at: newPlanStartsAt ? new Date(newPlanStartsAt).toISOString() : null,
+            plan_ends_at: newPlanEndsAt ? new Date(newPlanEndsAt).toISOString() : null,
           };
       const res: any = await apiCall("manage-app", body);
-      setNewUsername(""); setNewPassword(""); setNewName(""); setNewUserAccounts([]); setNewIsFree(false); setNewFreeExpiresAt(""); setNewTvOverride("inherit");
+      setNewUsername(""); setNewPassword(""); setNewName(""); setNewUserAccounts([]); setNewIsFree(false); setNewFreeExpiresAt(""); setNewPlanStartsAt(""); setNewPlanEndsAt(""); setNewTvOverride("inherit");
       if (!res?.user) throw new Error("Server did not return the created user");
       setUsers(prev => [...prev, res.user]);
       setStats(prev => ({ ...prev, totalUsers: prev.totalUsers + 1 }));
@@ -8296,6 +8412,9 @@ function AdminPanel() {
         }
       }
       const tvOvOut: "on" | "off" | null = editTvOverride === "on" ? "on" : editTvOverride === "off" ? "off" : null;
+      const isPaidNonAdmin = !isFreeTarget && target?.role !== "admin";
+      const plan_starts_at = isPaidNonAdmin ? (editPlanStartsAt ? new Date(editPlanStartsAt).toISOString() : null) : undefined;
+      const plan_ends_at = isPaidNonAdmin ? (editPlanEndsAt ? new Date(editPlanEndsAt).toISOString() : null) : undefined;
       await apiCall("manage-app", {
         action: "update_user",
         id: userId,
@@ -8306,11 +8425,13 @@ function AdminPanel() {
         features: { link: editDirectLinkEnabled },
         ...(expires_at !== undefined ? { expires_at } : {}),
         ...(isFreeTarget ? { auto_delete: editAutoDelete } : {}),
+        ...(plan_starts_at !== undefined ? { plan_starts_at } : {}),
+        ...(plan_ends_at !== undefined ? { plan_ends_at } : {}),
       });
       const nextAccounts = normalizeSelectedAccounts(editAccountsList).length > 0 ? normalizeSelectedAccounts(editAccountsList) : null;
       const nextUsername = editUsername.trim() || null;
       setEditingUserAccounts(null); setEditHint(null);
-      setUsers(prev => prev.map(u => u.id === userId ? { ...u, username: nextUsername as any, assignedAccounts: nextAccounts, session_limit, tvOverride: tvOvOut, features: { ...adminUserFeatures(u), link: editDirectLinkEnabled }, feature_link: editDirectLinkEnabled, ...(expires_at !== undefined ? { expiresAt: expires_at } as any : {}), ...(isFreeTarget ? { autoDelete: editAutoDelete } as any : {}) } as any : u));
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, username: nextUsername as any, assignedAccounts: nextAccounts, session_limit, tvOverride: tvOvOut, features: { ...adminUserFeatures(u), link: editDirectLinkEnabled }, feature_link: editDirectLinkEnabled, ...(expires_at !== undefined ? { expiresAt: expires_at } as any : {}), ...(isFreeTarget ? { autoDelete: editAutoDelete } as any : {}), ...(plan_starts_at !== undefined ? { planStartsAt: plan_starts_at } as any : {}), ...(plan_ends_at !== undefined ? { planEndsAt: plan_ends_at } as any : {}) } as any : u));
       applyTvOverrideToStoredUser(userId, tvOvOut);
       patchBootstrapCacheUser(userId, { tvOverride: tvOvOut, features: { ...adminUserFeatures(target), link: editDirectLinkEnabled }, feature_link: editDirectLinkEnabled });
       try { await refreshBootstrap(); } catch {}
@@ -8472,6 +8593,26 @@ function AdminPanel() {
                     )}
                   </div>
                 )}
+
+                {!newIsFree && (
+                  <div className="rounded-2xl border border-sky-200 bg-sky-50/50 p-3 space-y-3">
+                    <div className="text-[11px] font-bold uppercase tracking-wide text-sky-800">Plan window (optional)</div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Plan starts at</label>
+                      <DateTimePicker value={newPlanStartsAt} onChange={setNewPlanStartsAt} />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Plan ends at</label>
+                      <DateTimePicker value={newPlanEndsAt} onChange={setNewPlanEndsAt} />
+                    </div>
+                    <p className="text-[10px] text-slate-500">Leave empty = no plan gating. When set, user sees a live countdown pill and is locked out after the end date. Reminders go to admin Telegram in the last 7 days.</p>
+                    {(newPlanStartsAt || newPlanEndsAt) && (
+                      <button type="button" onClick={() => { setNewPlanStartsAt(""); setNewPlanEndsAt(""); }}
+                        className="text-[11px] text-sky-700 hover:underline">Clear plan dates</button>
+                    )}
+                  </div>
+                )}
+
 
                 <div>
                   <label className="block text-xs font-bold text-slate-400 uppercase mb-2">TV Auto-Login</label>
@@ -8689,6 +8830,14 @@ function AdminPanel() {
                                 setEditExpiresAt("");
                               }
                               setEditAutoDelete((u as any).autoDelete !== false);
+                              const toLocalInput = (iso: string | null | undefined): string => {
+                                if (!iso) return "";
+                                const d = new Date(iso);
+                                const pad = (n: number) => String(n).padStart(2, "0");
+                                return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+                              };
+                              setEditPlanStartsAt(toLocalInput((u as any).planStartsAt));
+                              setEditPlanEndsAt(toLocalInput((u as any).planEndsAt));
                               const ovInit = (u as any).tvOverride;
                               setEditTvOverride(ovInit === "on" ? "on" : ovInit === "off" ? "off" : "inherit");
                               setEditDirectLinkEnabled(adminUserFeatures(u).link === true);
@@ -9071,6 +9220,28 @@ function AdminPanel() {
                                     >
                                       <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${editAutoDelete ? "translate-x-5" : ""}`} />
                                     </button>
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Plan window (paid users only) */}
+                              {!u.isFree && (u as any).role !== "admin" && (
+                                <div className="rounded-xl border border-sky-200 bg-sky-50/60 p-3 space-y-3">
+                                  <div className="text-[11px] font-black uppercase tracking-wider text-sky-800">Plan Window</div>
+                                  <div>
+                                    <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Plan starts at</label>
+                                    <DateTimePicker value={editPlanStartsAt} onChange={setEditPlanStartsAt} />
+                                  </div>
+                                  <div>
+                                    <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Plan ends at</label>
+                                    <DateTimePicker value={editPlanEndsAt} onChange={setEditPlanEndsAt} />
+                                  </div>
+                                  <div className="flex items-center justify-between">
+                                    <p className="text-[10px] text-slate-500 leading-snug">Locks access after end date. Telegram reminders last 7 days.</p>
+                                    {(editPlanStartsAt || editPlanEndsAt) && (
+                                      <button type="button" onClick={() => { setEditPlanStartsAt(""); setEditPlanEndsAt(""); }}
+                                        className="text-[11px] text-sky-700 font-bold hover:underline whitespace-nowrap ml-2">Clear</button>
+                                    )}
                                   </div>
                                 </div>
                               )}
@@ -13768,6 +13939,82 @@ function CatchAllRoute() {
 
 
 
+// Global "Plan Finished" modal. Shown when any edge call returns
+// { success: false, error: "plan_finished" }. Displays admin contact info
+// and forces the user out of any active session.
+function PlanFinishedModal() {
+  const [state, setState] = useState<{ open: boolean; contactInfo: any; planEndsAt: string | null }>({ open: false, contactInfo: null, planEndsAt: null });
+  useEffect(() => {
+    const handler = (e: any) => {
+      const detail = e?.detail || {};
+      setState({ open: true, contactInfo: detail.contactInfo || null, planEndsAt: detail.planEndsAt || null });
+      // Kill any active session so protected routes bounce out.
+      try {
+        sessionSet("session_token" as any, "");
+        sessionSet("user" as any, "");
+      } catch {}
+    };
+    window.addEventListener("app:plan-finished", handler as any);
+    return () => window.removeEventListener("app:plan-finished", handler as any);
+  }, []);
+  if (!state.open || typeof document === "undefined") return null;
+  const c = state.contactInfo || {};
+  const endedOn = state.planEndsAt ? new Date(state.planEndsAt).toLocaleString() : null;
+  return createPortal(
+    <div className="fixed inset-0 z-[10050] bg-slate-950/70 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <div className="relative w-full sm:w-auto sm:min-w-[24rem] sm:max-w-md max-h-[92dvh] overflow-y-auto rounded-t-3xl sm:rounded-3xl bg-white shadow-2xl border border-slate-200 p-6 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] sm:pb-6">
+        <div aria-hidden className="sm:hidden flex justify-center -mt-1 mb-3">
+          <div className="w-10 h-1 rounded-full bg-slate-300" />
+        </div>
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-12 h-12 rounded-2xl bg-red-100 text-red-600 flex items-center justify-center flex-shrink-0">
+            <AlertCircle className="w-6 h-6" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="text-lg font-black text-slate-900 leading-tight">Plan Finished</div>
+            <div className="text-xs text-slate-500 mt-0.5">Contact admin to renew</div>
+          </div>
+        </div>
+        <p className="text-sm text-slate-700 leading-relaxed">Your plan has ended. Sign-in features are paused until it's renewed.</p>
+        {endedOn && (
+          <div className="mt-3 rounded-xl bg-slate-50 border border-slate-200 px-3 py-2 text-xs text-slate-600">Ended on <span className="font-semibold text-slate-900">{endedOn}</span></div>
+        )}
+        <div className="mt-4 space-y-2">
+          {c.telegram && (
+            <a href={c.telegram.startsWith("http") ? c.telegram : `https://t.me/${String(c.telegram).replace(/^@/, "")}`} target="_blank" rel="noreferrer" className="flex items-center justify-between rounded-xl bg-sky-50 border border-sky-200 px-4 py-3 text-sm font-semibold text-sky-900 hover:bg-sky-100 transition">
+              <span>Telegram</span><span className="text-xs opacity-70 truncate ml-3">{c.telegram}</span>
+            </a>
+          )}
+          {c.whatsapp && (
+            <a href={`https://wa.me/${String(c.whatsapp).replace(/[^\d]/g, "")}`} target="_blank" rel="noreferrer" className="flex items-center justify-between rounded-xl bg-emerald-50 border border-emerald-200 px-4 py-3 text-sm font-semibold text-emerald-900 hover:bg-emerald-100 transition">
+              <span>WhatsApp</span><span className="text-xs opacity-70 truncate ml-3">{c.whatsapp}</span>
+            </a>
+          )}
+          {c.email && (
+            <a href={`mailto:${c.email}`} className="flex items-center justify-between rounded-xl bg-slate-50 border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-900 hover:bg-slate-100 transition">
+              <span>Email</span><span className="text-xs opacity-70 truncate ml-3">{c.email}</span>
+            </a>
+          )}
+          {c.note && (
+            <div className="rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 text-xs text-amber-900 whitespace-pre-wrap">{c.note}</div>
+          )}
+          {!c.telegram && !c.whatsapp && !c.email && !c.note && (
+            <div className="rounded-xl bg-slate-50 border border-slate-200 px-4 py-3 text-xs text-slate-600">Please contact the admin to renew your plan.</div>
+          )}
+        </div>
+        <button
+          onClick={() => { setState({ open: false, contactInfo: null, planEndsAt: null }); try { window.location.replace("/"); } catch {} }}
+          className="mt-5 w-full h-11 rounded-xl bg-slate-900 text-white text-sm font-bold hover:bg-slate-800 active:scale-[0.98] transition"
+        >
+          Back to sign-in
+        </button>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+
 // ==================== MAIN APP ====================
 export default function App() {
   return (
@@ -13776,6 +14023,7 @@ export default function App() {
         <ToastProvider />
         <AdminSyncStatus />
         <GlobalSessionOverlay />
+        <PlanFinishedModal />
         <ErrorBoundary>
           <MaintenanceGate>
             <Routes>
@@ -13843,6 +14091,7 @@ function GlobalSessionOverlay() {
     <>
       <SessionCountdown role={role} />
       {role === "user" && <FreeExpiryPill userOverride={effectiveUser} />}
+      {role === "user" && <PlanEndsPill userOverride={effectiveUser} />}
     </>,
     document.body
   );
