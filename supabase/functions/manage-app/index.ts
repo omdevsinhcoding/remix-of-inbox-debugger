@@ -3642,6 +3642,27 @@ Deno.serve(async (originalReq) => {
         if (typeof f.tv === "boolean")    patch.feature_tv    = f.tv;
         if (typeof f.link === "boolean")  patch.feature_link  = f.link;
       }
+      // Plan dates: allowed only for paid non-admin users; trigger enforces this too.
+      if (plan_starts_at !== undefined) {
+        if (plan_starts_at === null || plan_starts_at === "") {
+          patch.plan_starts_at = null;
+        } else {
+          const t = Date.parse(String(plan_starts_at));
+          if (!Number.isFinite(t)) throw new Error("Invalid plan start date");
+          patch.plan_starts_at = new Date(t).toISOString();
+        }
+      }
+      if (plan_ends_at !== undefined) {
+        if (plan_ends_at === null || plan_ends_at === "") {
+          patch.plan_ends_at = null;
+        } else {
+          const t = Date.parse(String(plan_ends_at));
+          if (!Number.isFinite(t)) throw new Error("Invalid plan end date");
+          patch.plan_ends_at = new Date(t).toISOString();
+        }
+        // Reset reminder throttles so admin extending a plan will re-arm reminders.
+        patch.plan_last_reminder_at = null;
+      }
       if (Object.keys(patch).length === 0) {
         return new Response(JSON.stringify({ success: true, noop: true }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -3651,12 +3672,12 @@ Deno.serve(async (originalReq) => {
         .from("app_users")
         .update(patch)
         .eq("id", id)
-        .select("id, feature_gmail, feature_tv, feature_link, tv_override")
+        .select("id, feature_gmail, feature_tv, feature_link, tv_override, plan_starts_at, plan_ends_at")
         .maybeSingle();
       if (error) throw error;
       invalidateBootstrapCache();
       await auditLog(supabase, "user_updated", session.userId, id, patch, ip);
-      return new Response(JSON.stringify({ success: true, user: updatedUser ? { ...updatedUser, features: pickFeatures(updatedUser), tvOverride: updatedUser.tv_override === "on" || updatedUser.tv_override === "off" ? updatedUser.tv_override : null } : null }), {
+      return new Response(JSON.stringify({ success: true, user: updatedUser ? { ...updatedUser, features: pickFeatures(updatedUser), tvOverride: updatedUser.tv_override === "on" || updatedUser.tv_override === "off" ? updatedUser.tv_override : null, planStartsAt: updatedUser.plan_starts_at || null, planEndsAt: updatedUser.plan_ends_at || null } : null }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
