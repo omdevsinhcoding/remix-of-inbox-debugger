@@ -10003,118 +10003,125 @@ function AdminPanel() {
 
         {activeTab === "directlink" && (
           <div className="max-w-4xl mx-auto space-y-5">
-            <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 border-b border-slate-200 pb-4">
-              <div>
-                <div className="text-[10px] font-semibold uppercase tracking-[0.24em] text-slate-400">Admin</div>
-                <h2 className="mt-1 text-2xl sm:text-3xl font-semibold tracking-tight text-slate-900">Direct Link</h2>
-                <p className="text-sm text-slate-500 mt-1 max-w-xl">Toggle Direct Link access per user. Generation, copy and history live on the user's Direct Link page.</p>
-              </div>
-              {(() => {
-                const enabledUsers = users.filter((u) => u.role !== "admin" && adminUserFeatures(u).link);
-                const firstEnabled = enabledUsers[0];
-                return (
-                  <button
-                    type="button"
-                    disabled={!firstEnabled}
-                    onClick={() => firstEnabled && loginAsUser(firstEnabled, "link")}
-                    className="h-10 px-4 rounded-lg border border-slate-300 bg-white text-slate-900 text-xs font-semibold hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2 shrink-0"
-                  >
-                    <Eye className="w-4 h-4" /> {firstEnabled ? `Preview as ${firstEnabled.name || firstEnabled.username}` : "No enabled user"}
-                  </button>
-                );
-              })()}
+            {/* Header — mirrors TV Auto-Login */}
+            <div className="px-1">
+              <h2 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-950 flex items-center gap-2.5">
+                <span className="inline-flex w-9 h-9 rounded-xl bg-slate-900 text-white items-center justify-center shadow-sm"><LinkIcon className="w-5 h-5" /></span>
+                Direct Link Access
+              </h2>
+              <p className="text-sm text-slate-500 mt-1.5 ml-[46px]">Decide who can generate <b className="text-slate-800">Netflix Direct Links</b> from their workflow.</p>
             </div>
 
-
-
+            {/* Summary — one card, one sentence */}
             <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 sm:p-6">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
-                <div>
-                  <h3 className="text-sm font-black text-slate-900 uppercase tracking-wider">Profile access</h3>
-                  <p className="text-[12px] text-slate-500 mt-0.5">Toggle Direct Link for each user right here. Green = enabled.</p>
-                </div>
-                {(() => {
-                  const nonAdmins = users.filter((u) => u.role !== "admin");
-                  const on = nonAdmins.filter((u) => adminUserFeatures(u).link).length;
-                  return (
-                    <span className="text-[11px] font-black px-2.5 py-1 rounded-full bg-slate-100 text-slate-700 border border-slate-200 shrink-0 self-start">
-                      {on} / {nonAdmins.length} enabled
+              {(() => {
+                const nonAdmins = users.filter((u) => u.role !== "admin");
+                const on = nonAdmins.filter((u) => adminUserFeatures(u).link).length;
+                const total = nonAdmins.length;
+                return (
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0">
+                      <p className="text-base sm:text-lg font-bold text-slate-950 leading-snug">{on} of {total} profiles enabled</p>
+                      <p className="text-[13px] text-slate-500 mt-1 leading-relaxed">
+                        {on === 0
+                          ? "No one has Direct Link access yet — toggle any profile below to enable."
+                          : on === total
+                          ? "Every profile below can generate Netflix Direct Links from their workflow page."
+                          : "Green means enabled — toggle any profile below to change access."}
+                      </p>
+                    </div>
+                    <span className="shrink-0 inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2.5 py-1">
+                      <LinkIcon className="w-3 h-3" />
+                      Direct Link
                     </span>
-                  );
-                })()}
+                  </div>
+                );
+              })()}
+            </section>
+
+            {/* People */}
+            <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="px-5 sm:px-6 py-4 border-b border-slate-100 flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-2 min-w-0">
+                  <h3 className="font-bold text-slate-950">People</h3>
+                  <span className="text-[11px] font-bold text-slate-500 bg-slate-100 rounded-full px-2 py-0.5">{filteredDirectUsers.length}</span>
+                </div>
+                <div className="relative w-full sm:w-72">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <input
+                    value={directSearch}
+                    onChange={(e) => setDirectSearch(e.target.value)}
+                    placeholder="Search name or @username"
+                    className="w-full h-10 pl-9 pr-3 rounded-xl border border-slate-200 bg-slate-50 text-sm outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-300 focus:bg-white transition"
+                  />
+                </div>
               </div>
-              <div className="divide-y divide-slate-100">
-                {users.filter((u) => u.role !== "admin").length === 0 && (
-                  <div className="py-8 text-center text-[12px] text-slate-500">No users yet.</div>
-                )}
-                {users.filter((u) => u.role !== "admin").map((u) => {
-                  const enabled = adminUserFeatures(u).link;
-                  const avatarUri = getAvatarUri((u as any).profileAvatar);
+
+              <ul className="divide-y divide-slate-100">
+                {filteredDirectUsers.map((u) => {
+                  const enabled = adminUserFeatures(u).link === true;
                   return (
-                    <div key={u.id} className="py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                      <div className="min-w-0 flex items-center gap-3 flex-1">
-                        <div className={`w-10 h-10 rounded-full overflow-hidden flex items-center justify-center text-[12px] font-black shrink-0 ${enabled ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
-                          {avatarUri ? (
-                            <img src={avatarUri} alt="" className="w-full h-full object-cover" />
-                          ) : (
-                            (u.name || u.username || "?").slice(0, 2).toUpperCase()
+                    <li key={u.id} className="flex items-center gap-3 sm:gap-4 px-5 sm:px-6 py-3.5 hover:bg-slate-50/60 transition-colors">
+                      <ProfileAvatar avatarId={getStableProfileAvatar(u)} name={u.name} className="w-10 h-10 !rounded-full ring-1 ring-slate-200 shadow-sm shrink-0" fallbackColor={u.isFree ? "bg-emerald-500" : "bg-blue-500"} />
+
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                          <p className="text-[14px] font-bold text-slate-900 truncate">{u.name}</p>
+                          <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${enabled ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${enabled ? "bg-emerald-500" : "bg-slate-400"}`} />
+                            {enabled ? "Enabled" : "Disabled"}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-0.5 min-w-0">
+                          <span className="font-mono truncate">{u.username ? `@${u.username}` : "free profile"}</span>
+                          {enabled && (
+                            <button
+                              type="button"
+                              onClick={() => loginAsUser(u, "link")}
+                              className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 shrink-0"
+                              title="Open this user's Direct Link page"
+                            >
+                              ↗ Open
+                            </button>
                           )}
                         </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="text-sm font-bold text-slate-900 truncate">{u.name || u.username}</div>
-                          <div className="text-[11px] text-slate-500 truncate">@{u.username}</div>
-                        </div>
                       </div>
-                      <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end sm:flex-nowrap">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setActiveTab("users");
-                            setEditingUserAccounts(u.id);
-                            setEditUsername(u.username || "");
-                            setEditAccountsList(normalizeSelectedAccounts((u as any).assignedAccounts || []));
-                            const cur = (u as any).session_limit;
-                            setEditSessionLimit(cur === null || cur === undefined ? "" : String(cur));
-                            const exp = (u as any).expiresAt as string | null | undefined;
-                            if (exp) {
-                              const d = new Date(exp);
-                              const pad = (n: number) => String(n).padStart(2, "0");
-                              setEditExpiresAt(`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`);
-                            } else setEditExpiresAt("");
-                            setEditAutoDelete((u as any).autoDelete !== false);
-                            const ovInit = (u as any).tvOverride;
-                            setEditTvOverride(ovInit === "on" ? "on" : ovInit === "off" ? "off" : "inherit");
-                            setEditDirectLinkEnabled(adminUserFeatures(u).link === true);
-                          }}
-                          className="h-8 px-3 rounded-full border border-slate-200 bg-white text-[11px] font-black text-slate-700 hover:bg-slate-50 inline-flex items-center gap-1.5"
-                          title="Open this user's profile settings"
-                        >
-                          <Edit className="w-3.5 h-3.5" /> Edit
-                        </button>
-                        {enabled && (
-                          <button
-                            type="button"
-                            onClick={() => loginAsUser(u, "link")}
-                            className="h-8 px-3 rounded-full border border-emerald-200 bg-emerald-50 text-[11px] font-black text-emerald-700 hover:bg-emerald-100 inline-flex items-center gap-1.5"
-                            title="Open this user's Direct Link generation page"
-                          >
-                            <LinkIcon className="w-3.5 h-3.5" /> Open Link
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => toggleUserFeature(u, "link")}
-                          className={`relative inline-flex h-7 w-12 rounded-full transition-colors shrink-0 ${enabled ? "bg-emerald-500" : "bg-slate-300"}`}
-                          aria-label={enabled ? "Disable Direct Link" : "Enable Direct Link"}
-                        >
-                          <span className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-all ${enabled ? "left-[22px]" : "left-0.5"}`} />
-                        </button>
+
+                      {/* Two-state segmented switch: Enable / Disable */}
+                      <div className="shrink-0 inline-flex p-0.5 rounded-full bg-slate-100 border border-slate-200">
+                        {([
+                          { value: true,  label: "Enable",  Icon: Eye,    solid: "bg-emerald-500 text-white shadow-sm", soft: "bg-emerald-100 text-emerald-700" },
+                          { value: false, label: "Disable", Icon: EyeOff, solid: "bg-slate-900 text-white shadow-sm",   soft: "bg-slate-200 text-slate-700" },
+                        ]).map((opt) => {
+                          const isActive = enabled === opt.value;
+                          const Icon = opt.Icon;
+                          const cls = isActive ? opt.solid : "text-slate-500 hover:text-slate-800";
+                          return (
+                            <button
+                              key={String(opt.value)}
+                              type="button"
+                              onClick={() => { if (enabled !== opt.value) toggleUserFeature(u, "link"); }}
+                              className={`inline-flex items-center gap-1.5 px-3 sm:px-3.5 h-8 rounded-full text-[12px] font-bold transition-all active:scale-[0.97] ${cls}`}
+                              aria-pressed={isActive}
+                            >
+                              <Icon className="w-3.5 h-3.5" />
+                              <span>{opt.label}</span>
+                            </button>
+                          );
+                        })}
                       </div>
-                    </div>
+                    </li>
                   );
                 })}
 
-              </div>
+                {filteredDirectUsers.length === 0 && (
+                  <li className="px-6 py-16 text-center">
+                    <div className="inline-flex p-3 rounded-full bg-slate-100 mb-3"><Search className="w-5 h-5 text-slate-400" /></div>
+                    <p className="text-sm font-bold text-slate-700">No people match your search</p>
+                    <p className="text-xs text-slate-500 mt-1">Try a different name or username.</p>
+                  </li>
+                )}
+              </ul>
             </section>
           </div>
         )}
