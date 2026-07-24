@@ -217,9 +217,9 @@ async function runTvJob(eventId, runnerToken) {
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     const timing = `timing total=${elapsed()}ms`;
-    const result = /aborted due to timeout|timeout/i.test(message) ? "runner_timeout" : "runner_error";
-    const userMessage = result === "runner_timeout"
-      ? `Fast runner timed out during ${stage.replace(/_/g, " ")}`
+    const result = /aborted due to timeout|timeout/i.test(message) ? "netflix_no_response" : "runner_error";
+    const userMessage = result === "netflix_no_response"
+      ? `Netflix did not respond cleanly during ${stage.replace(/_/g, " ")}`
       : `${message} (stage: ${stage})`;
     await report(eventId, runnerToken, { status: "error", result, message: `${userMessage} | ${timing}` }).catch((err) => console.error("report failed", err));
     lastJob = { ...lastJob, status: "error", result, finishedAt: new Date().toISOString(), error: userMessage, timing };
