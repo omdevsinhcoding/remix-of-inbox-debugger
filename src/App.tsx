@@ -3469,6 +3469,8 @@ function emailHtmlForDisplay(email: Email | null) {
 interface UserData {
   id: string; username: string | null; name: string; role: "admin" | "user"; totpSecret?: string; mustChangePassword?: boolean; assignedAccounts?: string[] | null; profileAvatar?: string | null; profilePrefs?: UserProfilePrefs;
   isFree?: boolean; pinned?: boolean; sortOrder?: number | null; session_limit?: number | null; expiresAt?: string | null; locationRequired?: boolean;
+  planStartsAt?: string | null;
+  planEndsAt?: string | null;
   tvOverride?: "on" | "off" | null;
   tvFeatureEnabled?: boolean;
 }
@@ -4329,6 +4331,9 @@ function ProfileSelectPage() {
         clientGeo,
         captchaToken,
       });
+      if (!data?.success || !data?.user) {
+        throw new Error(data?.error === "plan_finished" ? "Plan finished" : (data?.error || "Login failed"));
+      }
       perf.mark("manage_app_login_ok");
 
       if (data.workerUrls && Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
