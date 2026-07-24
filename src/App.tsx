@@ -8650,29 +8650,8 @@ function AdminPanel() {
                     <div>
                       <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Plan ends at</label>
                       <DateTimePicker value={newPlanEndsAt} onChange={setNewPlanEndsAt} />
-                      <div className="flex flex-wrap gap-1.5 mt-2">
-                        {([
-                          { label: "+7d", days: 7 },
-                          { label: "+1m", months: 1 },
-                          { label: "+3m", months: 3 },
-                          { label: "+6m", months: 6 },
-                          { label: "+1y", months: 12 },
-                        ] as Array<{ label: string; days?: number; months?: number }>).map((p) => (
-                          <button key={p.label} type="button"
-                            onClick={() => {
-                              const base = newPlanStartsAt ? new Date(newPlanStartsAt) : new Date();
-                              if (Number.isNaN(base.getTime())) return;
-                              const d = new Date(base);
-                              if (p.days) d.setDate(d.getDate() + p.days);
-                              if (p.months) d.setMonth(d.getMonth() + p.months);
-                              const pad = (n: number) => String(n).padStart(2, "0");
-                              setNewPlanEndsAt(`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`);
-                            }}
-                            className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-white border border-sky-200 text-sky-700 hover:bg-sky-100 active:scale-95 transition-all">
-                            {p.label}
-                          </button>
-                        ))}
-                      </div>
+                      <DurationQuickAdd baseDateStr={newPlanStartsAt} onApply={setNewPlanEndsAt} />
+                      <p className="text-[10px] text-slate-500 mt-1">Type a number and pick days/months/years — auto-calculated from Plan Start (or now).</p>
                     </div>
                     <p className="text-[10px] text-slate-500">Leave empty = no plan gating. When set, user sees a live countdown pill and is locked out after the end date. Reminders go to admin Telegram in the last 7 days.</p>
                     {(newPlanStartsAt || newPlanEndsAt) && (
