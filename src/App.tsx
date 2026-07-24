@@ -1,6 +1,6 @@
 import React, { useState, useEffect, createContext, useContext, useCallback, useRef, useMemo, Suspense, lazy } from "react";
 import { createPortal } from "react-dom";
-import { Mail, RefreshCw, ShieldCheck, Shield, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, Globe, Edit, Info, UserCircle, Search, ChevronRight, Bell, Send, MessageSquare, Image as ImageIcon, ExternalLink, AlertTriangle, Sparkles, Megaphone, Wrench, CreditCard, Tag, ChevronDown, ChevronUp, HardDrive, Upload, Zap, BookOpen, GraduationCap, Film, PlayCircle, Pin, MapPin, MapPinOff, Tv, Loader2, Download, ClipboardPaste, Link as LinkIcon, Activity } from "lucide-react";
+import { Mail, RefreshCw, ShieldCheck, Shield, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, Globe, Edit, Info, UserCircle, Search, ChevronRight, Bell, Send, MessageSquare, Image as ImageIcon, ExternalLink, AlertTriangle, Sparkles, Megaphone, Wrench, CreditCard, Tag, ChevronDown, ChevronUp, HardDrive, Upload, Zap, BookOpen, GraduationCap, Film, PlayCircle, Pin, MapPin, MapPinOff, Tv, Loader2, Download, ClipboardPaste, Link as LinkIcon, Activity, HelpCircle } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router";
 import NetflixHouseholdVerificationGuide from "./pages/NetflixHouseholdVerificationGuide";
@@ -9742,9 +9742,56 @@ function AdminPanel() {
                       placeholder={ghSetupStatus?.hasPat ? "•••••••••••••• (saved — paste to replace)" : "github_pat_11A..."}
                       className="mt-1 w-full h-11 px-3 rounded-lg border border-slate-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-slate-950/10"
                     />
-                    <p className="text-[11px] text-slate-500 mt-1.5 leading-relaxed">
-                      Fine-grained PAT with <b>Actions: read+write</b>, <b>Secrets: read+write</b>, <b>Metadata: read</b> on the repo.
-                    </p>
+                    <details className="mt-2 rounded-lg border border-slate-200 bg-slate-50 open:bg-white overflow-hidden group">
+                      <summary className="cursor-pointer select-none list-none px-3 py-2.5 flex items-center justify-between gap-2 text-[11px] font-bold uppercase tracking-wider text-slate-700 hover:bg-slate-100">
+                        <span className="inline-flex items-center gap-1.5"><HelpCircle className="w-3.5 h-3.5" /> PAT kaise banaye? (step-by-step)</span>
+                        <ChevronDown className="w-3.5 h-3.5 transition-transform group-open:rotate-180" />
+                      </summary>
+                      <div className="px-4 py-3 border-t border-slate-200 space-y-3 text-[12px] leading-relaxed text-slate-700">
+                        <div>
+                          <p className="font-bold text-slate-900">1. GitHub me login karo</p>
+                          <p className="text-slate-600">Us account me jismein tumhara repo hai (jahan Actions chalane hain).</p>
+                        </div>
+                        <div>
+                          <p className="font-bold text-slate-900">2. Fine-grained token page kholo</p>
+                          <a
+                            href="https://github.com/settings/personal-access-tokens/new"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 mt-1 h-8 px-3 rounded-md bg-slate-950 text-white text-[11px] font-bold hover:bg-slate-800"
+                          >
+                            <ExternalLink className="w-3 h-3" /> Open GitHub token page
+                          </a>
+                          <p className="text-[11px] text-slate-500 mt-1.5">Manual: Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new</p>
+                        </div>
+                        <div>
+                          <p className="font-bold text-slate-900">3. Form bharo</p>
+                          <ul className="mt-1 space-y-1 text-slate-600 list-disc pl-4">
+                            <li><b>Token name:</b> <code className="px-1 py-0.5 rounded bg-slate-100 text-slate-800">lovable-tv-runner</code></li>
+                            <li><b>Expiration:</b> 1 year (ya custom)</li>
+                            <li><b>Resource owner:</b> apna username / org</li>
+                            <li><b>Repository access:</b> <i>Only select repositories</i> → apna repo choose karo</li>
+                          </ul>
+                        </div>
+                        <div>
+                          <p className="font-bold text-slate-900">4. Permissions (Repository permissions)</p>
+                          <div className="mt-1 rounded-md border border-slate-200 overflow-hidden text-[11px]">
+                            <div className="grid grid-cols-2 bg-slate-100 font-bold text-slate-700 px-2 py-1.5"><span>Permission</span><span>Access</span></div>
+                            <div className="grid grid-cols-2 px-2 py-1.5 border-t border-slate-100"><span>Actions</span><span className="font-mono">Read and write</span></div>
+                            <div className="grid grid-cols-2 px-2 py-1.5 border-t border-slate-100"><span>Secrets</span><span className="font-mono">Read and write</span></div>
+                            <div className="grid grid-cols-2 px-2 py-1.5 border-t border-slate-100"><span>Metadata</span><span className="font-mono">Read-only (auto)</span></div>
+                          </div>
+                          <p className="text-[11px] text-slate-500 mt-1.5">Baaki sab <b>No access</b> chhod do.</p>
+                        </div>
+                        <div>
+                          <p className="font-bold text-slate-900">5. Generate token → copy karo</p>
+                          <p className="text-slate-600">Token <code className="px-1 py-0.5 rounded bg-slate-100 text-slate-800">github_pat_11...</code> se start hoga. Sirf ek baar dikhega — turant copy karke upar wale field me paste karo.</p>
+                        </div>
+                        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+                          <b>Org repo hai?</b> Agar "Resource owner" me org nahi dikh raha, org owner ko Settings → Third-party Access → Personal access tokens me fine-grained tokens allow karne padenge. Ya <a className="underline font-bold" href="https://github.com/settings/tokens/new?scopes=repo,workflow&description=lovable-tv-runner" target="_blank" rel="noopener noreferrer">classic PAT (repo + workflow scope)</a> use karo — wo bhi kaam karega.
+                        </div>
+                      </div>
+                    </details>
                   </div>
                   <div>
                     <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Repo (optional)</label>
