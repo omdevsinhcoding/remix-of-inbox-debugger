@@ -2721,7 +2721,7 @@ function TvSignInPage() {
           <div aria-hidden className="pointer-events-none absolute -top-24 -right-16 w-64 h-64 xl:w-96 xl:h-96 rounded-full bg-rose-500/[0.06] blur-3xl" />
           <div aria-hidden className="pointer-events-none absolute -bottom-32 -left-16 w-72 h-72 xl:w-[26rem] xl:h-[26rem] rounded-full bg-rose-500/[0.04] blur-3xl" />
 
-          <div className="relative p-6 sm:p-10 xl:p-14">
+          <div className="relative p-3 sm:p-10 xl:p-14">
             {step === "select" ? (
               <div>
                 {accountsLoading ? (
