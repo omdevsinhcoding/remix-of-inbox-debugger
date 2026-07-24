@@ -354,6 +354,33 @@ export type Database = {
         }
         Relationships: []
       }
+      github_config: {
+        Row: {
+          hmac_key: string | null
+          id: number
+          pat: string | null
+          repo: string | null
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          hmac_key?: string | null
+          id?: number
+          pat?: string | null
+          repo?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          hmac_key?: string | null
+          id?: number
+          pat?: string | null
+          repo?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       handshake_rate: {
         Row: {
           count: number
