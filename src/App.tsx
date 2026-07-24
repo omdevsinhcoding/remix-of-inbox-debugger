@@ -2008,43 +2008,22 @@ function TvProcessButton({
   const title = terminalCopy?.title || (active ? process.title : idleText);
   const detail = terminalCopy?.detail || (active ? process.detail : "");
 
-  // Show the "process is queued — keep your TV on" notice the first time this
-  // sign-in enters an active runner state. It auto-hides on terminal.
-  const [noticeOpen, setNoticeOpen] = useState(false);
-  const noticeShownRef = useRef(false);
-  useEffect(() => {
-    if (active && !noticeShownRef.current) {
-      noticeShownRef.current = true;
-      setNoticeOpen(true);
-    }
-    if (terminal) {
-      noticeShownRef.current = false;
-      setNoticeOpen(false);
-    }
-    if (status === "idle") {
-      noticeShownRef.current = false;
-    }
-  }, [active, terminal, status]);
-
   return (
-    <>
-      <button type="button" onClick={click} disabled={disabled} className={`${base} ${active ? activeClass : terminal ? terminalClass : idleClass}`}>
-        <span className="relative z-10 flex min-h-[inherit] flex-col items-center justify-center gap-0.5 px-4 py-2.5 text-center leading-tight">
-          <span className="inline-flex items-center justify-center gap-2">
-            {active && <Loader2 className="w-4 h-4 animate-spin" />}
-            {terminalCopy?.tone === "success" && <CheckCircle2 className="w-4 h-4" />}
-            <span>{title}</span>
-          </span>
-          {detail && <span className={`text-[10.5px] sm:text-[11px] font-semibold ${dark ? "opacity-70" : "opacity-75"}`}>{detail}</span>}
+    <button type="button" onClick={click} disabled={disabled} className={`${base} ${active ? activeClass : terminal ? terminalClass : idleClass}`}>
+      <span className="relative z-10 flex min-h-[inherit] flex-col items-center justify-center gap-0.5 px-4 py-2.5 text-center leading-tight">
+        <span className="inline-flex items-center justify-center gap-2">
+          {active && <Loader2 className="w-4 h-4 animate-spin" />}
+          {terminalCopy?.tone === "success" && <CheckCircle2 className="w-4 h-4" />}
+          <span>{title}</span>
         </span>
-        {active && (
-          <span className={`absolute inset-x-0 bottom-0 h-1 ${dark ? "bg-white/10" : "bg-white/15"}`}>
-            <span className="block h-full bg-current opacity-70 transition-all duration-500 ease-out" style={{ width: `${process.progress}%` }} />
-          </span>
-        )}
-      </button>
-      <TvQueueNoticeModal open={noticeOpen && active} onClose={() => setNoticeOpen(false)} />
-    </>
+        {detail && <span className={`text-[10.5px] sm:text-[11px] font-semibold ${dark ? "opacity-70" : "opacity-75"}`}>{detail}</span>}
+      </span>
+      {active && (
+        <span className={`absolute inset-x-0 bottom-0 h-1 ${dark ? "bg-white/10" : "bg-white/15"}`}>
+          <span className="block h-full bg-current opacity-70 transition-all duration-500 ease-out" style={{ width: `${process.progress}%` }} />
+        </span>
+      )}
+    </button>
   );
 }
 
