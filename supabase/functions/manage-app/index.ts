@@ -5858,6 +5858,23 @@ Deno.serve(async (originalReq) => {
       return new Response(JSON.stringify({ success: true, event: outEv }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    // Returns the caller's most recent non-terminal TV login event (if any).
+    // Lets the UI resume in-flight sign-ins after workflow switches / reloads
+    // instead of losing state that only lived in React memory.
+    if (action === "tv_login_active") {
+      const session = await requireSession(req);
+      const cutoffIso = new Date(Date.now() - 10 * 60_000).toISOString();
+      const { data: ev } = await supabase
+        .from("tv_login_events")
+        .select("id, status, result, message, account_label, imap_user, github_run_url, created_at, finished_at, cookies_available")
+        .eq("user_id", session.userId)
+        .in("status", ["queued", "running", "in_progress", "verifying", "checking"])
+        .gte("created_at", cutoffIso)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      return new Response(JSON.stringify({ success: true, event: ev || null }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
     // ── TV auto-login: runner fetches job (HMAC-signed, plaintext) ──
     if (action === "tv_login_fetch_job" || action === "tv_login_report") {
       const p = (params || {}) as any;
