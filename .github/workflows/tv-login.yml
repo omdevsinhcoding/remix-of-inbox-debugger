@@ -4,6 +4,24 @@ run-name: TV Login · ${{ github.event.client_payload.user_label || github.event
 on:
   repository_dispatch:
     types: [tv-login, tv-login-test]
+  workflow_dispatch:
+    inputs:
+      event_id:
+        description: TV login event id
+        required: false
+        type: string
+      user_label:
+        description: User/profile label for the run name
+        required: false
+        type: string
+      fallback_reason:
+        description: Dispatch reason
+        required: false
+        type: string
+      test_id:
+        description: Test dispatch id
+        required: false
+        type: string
 
 jobs:
   run:
@@ -17,11 +35,11 @@ jobs:
       PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.pw-browsers
     steps:
       - name: GitHub runner test
-        if: github.event.action == 'tv-login-test'
-        run: echo "GitHub Actions TV runner is executable. test_id=${{ github.event.client_payload.test_id }}"
+        if: github.event.action == 'tv-login-test' || (github.event_name == 'workflow_dispatch' && inputs.test_id != '')
+        run: echo "GitHub Actions TV runner is executable. test_id=${{ github.event.client_payload.test_id || inputs.test_id }}"
 
       - uses: actions/checkout@v4
-        if: github.event.action == 'tv-login'
+        if: github.event.action == 'tv-login' || (github.event_name == 'workflow_dispatch' && inputs.event_id != '')
         with:
           persist-credentials: false
           sparse-checkout: scripts/tv-login-runner
@@ -29,19 +47,19 @@ jobs:
 
       # Node is preinstalled on ubuntu-latest (~1s to configure).
       - uses: actions/setup-node@v4
-        if: github.event.action == 'tv-login'
+        if: github.event.action == 'tv-login' || (github.event_name == 'workflow_dispatch' && inputs.event_id != '')
         with:
           node-version: "22"
 
       - name: Cache runner node_modules
-        if: github.event.action == 'tv-login'
+        if: github.event.action == 'tv-login' || (github.event_name == 'workflow_dispatch' && inputs.event_id != '')
         uses: actions/cache@v4
         with:
           path: scripts/tv-login-runner/node_modules
           key: tv-runner-nm-v2-${{ hashFiles('scripts/tv-login-runner/package-lock.json') }}
 
       - name: Cache Playwright Chromium
-        if: github.event.action == 'tv-login'
+        if: github.event.action == 'tv-login' || (github.event_name == 'workflow_dispatch' && inputs.event_id != '')
         id: cache-browsers
         uses: actions/cache@v4
         with:
@@ -49,7 +67,7 @@ jobs:
           key: pw-browsers-v1-1.48.0-chromium-headless-shell
 
       - name: Install runner dependencies
-        if: github.event.action == 'tv-login'
+        if: github.event.action == 'tv-login' || (github.event_name == 'workflow_dispatch' && inputs.event_id != '')
         working-directory: scripts/tv-login-runner
         env:
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
@@ -62,16 +80,16 @@ jobs:
           fi
 
       - name: Install Chromium (cache miss only)
-        if: github.event.action == 'tv-login' && steps.cache-browsers.outputs.cache-hit != 'true'
+        if: (github.event.action == 'tv-login' || (github.event_name == 'workflow_dispatch' && inputs.event_id != '')) && steps.cache-browsers.outputs.cache-hit != 'true'
         working-directory: scripts/tv-login-runner
         run: npx playwright install chromium --with-deps
 
       - name: Run TV auto-login
-        if: github.event.action == 'tv-login'
+        if: github.event.action == 'tv-login' || (github.event_name == 'workflow_dispatch' && inputs.event_id != '')
         working-directory: scripts/tv-login-runner
         timeout-minutes: 1
         env:
-          EVENT_ID: ${{ github.event.client_payload.event_id }}
+          EVENT_ID: ${{ github.event.client_payload.event_id || inputs.event_id }}
           EVENT_PATH: ${{ github.event_path }}
           TV_REPORT_URL: ${{ secrets.TV_REPORT_URL }}
           TV_REPORT_HMAC_KEY: ${{ secrets.TV_REPORT_HMAC_KEY }}
