@@ -1886,57 +1886,6 @@ function NotificationBell() {
 }
 
 // --- TV Auto-Login header button + Coming Soon popup ---
-function ReportErrorButton({ eventId, uiStatus, uiMessage, variant = "dark" }: { eventId: string | null; uiStatus: string; uiMessage: string | null; variant?: "dark" | "light" }) {
-  const [sending, setSending] = useState(false);
-  const [sent, setSent] = useState(false);
-  const [note, setNote] = useState("");
-  const [showNote, setShowNote] = useState(false);
-  const send = async () => {
-    if (sending || sent) return;
-    setSending(true);
-    try {
-      const res: any = await apiCall("manage-app", {
-        action: "tv_report_error",
-        event_id: eventId,
-        note,
-        ui_status: uiStatus,
-        ui_message: uiMessage,
-      });
-      if (!res?.success) throw new Error(res?.error || "Failed to report");
-      setSent(true);
-      notify.success("Error report sent to admin", { description: "The admin has been notified in real-time." });
-    } catch (err) {
-      notify.error("Couldn't send report", { description: err instanceof Error ? err.message : "Please try again." });
-    } finally {
-      setSending(false);
-    }
-  };
-  const light = variant === "light";
-  return (
-    <div className="mt-3 w-full">
-      {showNote && !sent && (
-        <textarea
-          value={note}
-          onChange={(e) => setNote(e.target.value.slice(0, 500))}
-          placeholder="Optional: describe what happened…"
-          rows={2}
-          className={`w-full mb-2 rounded-xl border px-3 py-2 text-[12px] outline-none resize-none transition ${light ? "bg-white border-slate-200 text-slate-900 placeholder:text-slate-400 focus:border-rose-400" : "bg-white/[0.04] border-white/10 text-white placeholder:text-white/30 focus:border-[#e50914]/60"}`}
-        />
-      )}
-      <button
-        onClick={sent ? undefined : (showNote ? send : () => setShowNote(true))}
-        disabled={sending || sent}
-        className={`w-full min-h-11 rounded-xl px-3 text-[12px] font-black transition active:scale-[0.98] inline-flex items-center justify-center gap-2 text-center ${
-          sent
-            ? (light ? "bg-emerald-50 border border-emerald-200 text-emerald-700 cursor-default" : "bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 cursor-default")
-            : (light ? "bg-white border border-rose-200 text-rose-700 shadow-[0_10px_28px_-18px_rgba(225,29,72,0.8)] hover:bg-rose-50" : "bg-white/[0.06] border border-white/12 text-white hover:bg-white/[0.10]")
-        }`}
-      >
-        {sent ? <><CheckCircle2 className="w-4 h-4" /> Admin notified</> : sending ? <><Loader2 className="w-4 h-4 animate-spin" /> Sending report…</> : showNote ? <><Send className="w-4 h-4" /> Send report to admin</> : <><AlertTriangle className="w-4 h-4" /> Report issue to admin</>}
-      </button>
-    </div>
-  );
-}
 
 function userFriendlyTvError(message?: string | null) {
   const raw = String(message || "").trim();
@@ -2128,13 +2077,19 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
     const tick = async () => {
       const elapsed = Date.now() - startedAt;
       setPollElapsed(elapsed);
-      // Hard client-side timeout — stop spinning, show a clear message.
+      // Soft wait — GitHub queue can take a while. Keep polling and update the message.
       if (elapsed >= POLL_TIMEOUT_MS) {
         if (!cancelled) {
-          setStatus("timeout");
-          setResultInfo((prev) => ({ ...prev, message: prev.message || "GitHub runner is taking too long. Generate a fresh TV code and try again." }));
+          setResultInfo((prev) => ({ ...prev, message: "Still working — the GitHub queue is taking longer than usual. Please keep this window open, it may take a moment." }));
         }
-        return;
+        // Give up only after 2× the soft budget.
+        if (elapsed >= POLL_TIMEOUT_MS * 2) {
+          if (!cancelled) {
+            setStatus("error");
+            setResultInfo((prev) => ({ ...prev, message: "Still no response from the runner. Please try again with a fresh code." }));
+          }
+          return;
+        }
       }
       try {
         const res: any = await apiCall("manage-app", { action: "tv_login_status", event_id: eventId });
@@ -2151,7 +2106,8 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
             return;
           }
           if (r === "runner_timeout" || r === "netflix_timeout") {
-            setStatus("timeout");
+            setStatus("error");
+            setResultInfo((prev) => ({ ...prev, message: "Netflix took too long to respond. Please generate a fresh TV code and try again." }));
             return;
           }
           if (s === "invalid_code" || s === "cookies_expired" || s === "error") {
@@ -2366,7 +2322,7 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
                 </div>
 
                 {/* Submit */}
-                {!["invalid_code","cookies_expired","no_cookies","error","timeout"].includes(status) && (
+                {!["invalid_code","cookies_expired","no_cookies","error"].includes(status) && (
                 <button
                   onClick={submit}
                   disabled={!isComplete || status !== "idle"}
@@ -2396,7 +2352,7 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
                 {(() => {
                   const elapsedSec = Math.floor(pollElapsed / 1000);
                   const remainingSec = Math.max(0, Math.ceil((POLL_TIMEOUT_MS - pollElapsed) / 1000));
-                  const terminal = ["invalid_code", "cookies_expired", "no_cookies", "error", "timeout"].includes(status);
+                  const terminal = ["invalid_code", "cookies_expired", "no_cookies", "error"].includes(status);
                   return (
                     <>
                       {status === "queued" ? (
@@ -2417,7 +2373,7 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
                             Signing in{resultInfo.accountLabel ? <> with <span className="font-semibold">{resultInfo.accountLabel}</span></> : null}
                             {resultInfo.imapMasked ? <> · {resultInfo.imapMasked}</> : null}. Keep your TV on the code screen.
                           </div>
-                          <div className="text-[10px] text-emerald-200/60 mt-1">Elapsed {elapsedSec}s · timing out in {remainingSec}s</div>
+                          <div className="text-[10px] text-emerald-200/60 mt-1">GitHub queue can take a moment — please keep this window open.</div>
                         </div>
                       ) : status === "success" ? (
                         <div className="mt-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 px-3 py-3 text-center">
@@ -2441,13 +2397,6 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
                           <div className="text-[11px] font-bold text-amber-300">Session not ready</div>
                           <div className="text-[10.5px] text-amber-200/80 mt-0.5 leading-relaxed">
                             Your code was received{resultInfo.accountLabel ? <> for <span className="font-semibold">{resultInfo.accountLabel}</span></> : null}, but no saved cookies are available yet. Please ask the admin to upload cookies for your account, then try again.
-                          </div>
-                        </div>
-                      ) : status === "timeout" ? (
-                        <div className="mt-4 rounded-xl bg-amber-500/10 border border-amber-500/30 px-3 py-2.5 text-center">
-                          <div className="text-[11px] font-bold text-amber-300">Runner timed out</div>
-                          <div className="text-[10.5px] text-amber-200/80 mt-0.5 leading-relaxed">
-                            {userFriendlyTvError(resultInfo.message || "We didn't hear back from the fast TV runner in time. Please try again — if it keeps failing, ask the admin to check the VPS runner.")}
                           </div>
                         </div>
                       ) : status === "error" ? (
@@ -2484,11 +2433,6 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
                               Close
                             </button>
                           </div>
-                          <ReportErrorButton
-                            eventId={resultInfo.eventId || null}
-                            uiStatus={status}
-                            uiMessage={resultInfo.message || null}
-                          />
                         </>
                       )}
 
@@ -2657,10 +2601,15 @@ function TvSignInPage() {
       setPollElapsed(elapsed);
       if (elapsed >= POLL_TIMEOUT_MS) {
         if (!cancelled) {
-          setStatus("timeout");
-          setResultInfo((p) => ({ ...p, message: p.message || "Netflix did not return a final TV login result in time. Generate a fresh TV code and try again." }));
+          setResultInfo((p) => ({ ...p, message: "Still working — the GitHub queue is taking longer than usual. Please keep this window open, it may take a moment." }));
         }
-        return;
+        if (elapsed >= POLL_TIMEOUT_MS * 2) {
+          if (!cancelled) {
+            setStatus("error");
+            setResultInfo((p) => ({ ...p, message: "Still no response from the runner. Please try again with a fresh code." }));
+          }
+          return;
+        }
       }
       try {
         const res: any = await apiCall("manage-app", { action: "tv_login_status", event_id: eventId });
@@ -2676,7 +2625,7 @@ function TvSignInPage() {
             setTimeout(() => { try { nukeBrowserIdentity().catch(() => {}); } catch {} }, 1600);
             return;
           }
-          if (r === "runner_timeout" || r === "netflix_timeout") { setStatus("timeout"); return; }
+          if (r === "runner_timeout" || r === "netflix_timeout") { setStatus("error"); setResultInfo((p) => ({ ...p, message: "Netflix took too long to respond. Please generate a fresh TV code and try again." })); return; }
           if (s === "invalid_code" || s === "cookies_expired" || s === "error") { setStatus(s as any); return; }
           if (s === "running" || s === "queued") setStatus(s as any);
         }
@@ -2696,7 +2645,7 @@ function TvSignInPage() {
 
   const elapsedSec = Math.floor(pollElapsed / 1000);
   const remainingSec = Math.max(0, Math.ceil((POLL_TIMEOUT_MS - pollElapsed) / 1000));
-  const terminal = ["invalid_code", "cookies_expired", "no_cookies", "error", "timeout"].includes(status);
+  const terminal = ["invalid_code", "cookies_expired", "no_cookies", "error"].includes(status);
 
   return (
     <div className="min-h-[calc(100vh-4rem)] px-3 sm:px-6 py-8 sm:py-12 xl:py-16 bg-gradient-to-b from-white via-rose-50/40 to-white">
@@ -2868,7 +2817,7 @@ function TvSignInPage() {
                 ) : status === "running" || status === "in_progress" ? (
                   <div className="mt-4 rounded-2xl bg-emerald-50 border border-emerald-200 px-4 py-3 text-center">
                     <div className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700"><span className="w-2 h-2 rounded-full bg-emerald-500" /> Signing in on your TV</div>
-                    <div className="text-[11px] text-emerald-600 mt-1">Keep your TV on the code screen. Elapsed {elapsedSec}s · timing out in {remainingSec}s</div>
+                    <div className="text-[11px] text-emerald-600 mt-1">Keep your TV on the code screen. GitHub queue can take a moment — please wait.</div>
                   </div>
                 ) : status === "success" ? (
                   <div className="mt-4 rounded-2xl bg-emerald-50 border border-emerald-200 px-4 py-4 text-center">
@@ -2889,11 +2838,6 @@ function TvSignInPage() {
                   <div className="mt-4 rounded-2xl bg-amber-50 border border-amber-200 px-4 py-3 text-center">
                     <div className="text-xs font-bold text-amber-800">Session not ready</div>
                     <div className="text-[11px] text-amber-700 mt-0.5">Code received, but no saved cookies are available yet. Ask the admin to upload cookies, then try again.</div>
-                  </div>
-                ) : status === "timeout" ? (
-                  <div className="mt-4 rounded-2xl bg-amber-50 border border-amber-200 px-4 py-3 text-center">
-                    <div className="text-xs font-bold text-amber-800">Runner timed out</div>
-                    <div className="text-[11px] text-amber-700 mt-0.5">{userFriendlyTvError(resultInfo.message || "We didn't hear back in time. Please try again.")}</div>
                   </div>
                 ) : status === "error" ? (
                   <div className="mt-4 rounded-2xl bg-red-50 border border-red-200 px-4 py-3 text-center">
@@ -2925,7 +2869,7 @@ function TvSignInPage() {
                         </button>
                       )}
                     </div>
-                    <ReportErrorButton eventId={resultInfo.eventId || null} uiStatus={status} uiMessage={resultInfo.message || null} variant="light" />
+                    
                   </>
                 )}
               </div>
