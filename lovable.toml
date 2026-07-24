@@ -1,0 +1,8 @@
+[project]
+name = "lovable-app"
+framework = "vite"
+
+[run]
+build:dev = "bun run build"
+build = "bun run build"
+dev = "bunx --yes vite"
