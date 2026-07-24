@@ -1938,6 +1938,22 @@ function ReportErrorButton({ eventId, uiStatus, uiMessage, variant = "dark" }: {
   );
 }
 
+function userFriendlyTvError(message?: string | null) {
+  const raw = String(message || "").trim();
+  if (!raw) return "Please try again.";
+  const lower = raw.toLowerCase();
+  if (/locator|selector|timeout|waiting for|tvsignup|playwright|button:has-text|call log/.test(lower)) {
+    return "Netflix took too long to respond. Generate a fresh TV code and try again.";
+  }
+  if (/invalid|wasn.?t right|incorrect|not recognized|try again/.test(lower)) {
+    return "Netflix rejected the code. Generate a fresh code on your TV and try again.";
+  }
+  if (/cookies?|login|password|email|expired/.test(lower)) {
+    return "Saved Netflix cookies are expired. Ask the admin to refresh cookies.";
+  }
+  return raw.length > 180 ? `${raw.slice(0, 177)}…` : raw;
+}
+
 function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
 
   const [open, setOpen] = useState(false);
@@ -2431,13 +2447,13 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
                         <div className="mt-4 rounded-xl bg-amber-500/10 border border-amber-500/30 px-3 py-2.5 text-center">
                           <div className="text-[11px] font-bold text-amber-300">Runner timed out</div>
                           <div className="text-[10.5px] text-amber-200/80 mt-0.5 leading-relaxed">
-                            {resultInfo.message || "We didn't hear back from the fast TV runner in time. Please try again — if it keeps failing, ask the admin to check the VPS runner."}
+                            {userFriendlyTvError(resultInfo.message || "We didn't hear back from the fast TV runner in time. Please try again — if it keeps failing, ask the admin to check the VPS runner.")}
                           </div>
                         </div>
                       ) : status === "error" ? (
                         <div className="mt-4 rounded-xl bg-red-500/10 border border-red-500/30 px-3 py-2.5 text-center">
                           <div className="text-[11px] font-bold text-red-300">Something went wrong</div>
-                          <div className="text-[10.5px] text-red-200/80 mt-0.5 leading-relaxed">{resultInfo.message || "Please try again."}</div>
+                          <div className="text-[10.5px] text-red-200/80 mt-0.5 leading-relaxed">{userFriendlyTvError(resultInfo.message)}</div>
                         </div>
                       ) : status === "checking" || status === "verifying" ? (
                         <div className="mt-4 rounded-xl bg-white/[0.04] border border-white/10 px-3 py-2.5 text-center">
@@ -2877,12 +2893,12 @@ function TvSignInPage() {
                 ) : status === "timeout" ? (
                   <div className="mt-4 rounded-2xl bg-amber-50 border border-amber-200 px-4 py-3 text-center">
                     <div className="text-xs font-bold text-amber-800">Runner timed out</div>
-                    <div className="text-[11px] text-amber-700 mt-0.5">{resultInfo.message || "We didn't hear back in time. Please try again."}</div>
+                    <div className="text-[11px] text-amber-700 mt-0.5">{userFriendlyTvError(resultInfo.message || "We didn't hear back in time. Please try again.")}</div>
                   </div>
                 ) : status === "error" ? (
                   <div className="mt-4 rounded-2xl bg-red-50 border border-red-200 px-4 py-3 text-center">
                     <div className="text-xs font-bold text-red-700">Something went wrong</div>
-                    <div className="text-[11px] text-red-600 mt-0.5">{resultInfo.message || "Please try again."}</div>
+                    <div className="text-[11px] text-red-600 mt-0.5">{userFriendlyTvError(resultInfo.message)}</div>
                   </div>
                 ) : status === "checking" || status === "verifying" ? (
                   <div className="mt-4 rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 text-center">
