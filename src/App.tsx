@@ -8322,6 +8322,12 @@ function AdminPanel() {
     if (!q) return tvUsers;
     return tvUsers.filter((u) => `${u.name} ${u.username || ""}`.toLowerCase().includes(q));
   }, [tvSearch, tvUsers]);
+  const [directSearch, setDirectSearch] = useState("");
+  const filteredDirectUsers = useMemo(() => {
+    const q = directSearch.trim().toLowerCase();
+    if (!q) return tvUsers;
+    return tvUsers.filter((u) => `${u.name} ${u.username || ""}`.toLowerCase().includes(q));
+  }, [directSearch, tvUsers]);
 
 
   return (
