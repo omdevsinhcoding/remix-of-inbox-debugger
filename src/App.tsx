@@ -2095,7 +2095,7 @@ function TvQueueNoticeModal({ open, onClose }: { open: boolean; onClose: () => v
                   </div>
                   <div>
                     <div className="text-[10px] uppercase tracking-[0.24em] font-bold opacity-80">Please wait</div>
-                    <div className="text-xl sm:text-2xl font-black tracking-tight leading-tight">Your sign-in is queued</div>
+                    <div className="text-xl sm:text-2xl font-black tracking-tight leading-tight">Signing you in</div>
                   </div>
                 </div>
                 <button
@@ -2107,7 +2107,7 @@ function TvQueueNoticeModal({ open, onClose }: { open: boolean; onClose: () => v
                 </button>
               </div>
               <p className="relative mt-4 text-[13px] sm:text-sm leading-relaxed text-white/90">
-                A secure runner is picking up your request. This usually finishes in about <span className="font-bold text-white">20–30 seconds</span>.
+                This usually finishes in about <span className="font-bold text-white">20–30 seconds</span>. Please keep your TV on.
               </p>
             </div>
 
