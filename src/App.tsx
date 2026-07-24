@@ -892,6 +892,14 @@ async function apiCall(functionName: string, body: any) {
   if (data?.refreshToken || data?.expiresAt) {
     storeSessionPair(data);
   }
+  // Plan-expiry surface: any endpoint (login, me, ...) that returns
+  // { success: false, error: "plan_finished", ... } is broadcast globally
+  // so a friendly "Plan Finished" screen can render — regardless of caller.
+  if (data && data.success === false && data.error === "plan_finished") {
+    try {
+      window.dispatchEvent(new CustomEvent("app:plan-finished", { detail: { contactInfo: data.contactInfo || null, planEndsAt: data.planEndsAt || null } }));
+    } catch {}
+  }
   return data;
 }
 
