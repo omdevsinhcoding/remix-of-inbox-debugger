@@ -9235,6 +9235,30 @@ function AdminPanel() {
                                   <div>
                                     <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Plan ends at</label>
                                     <DateTimePicker value={editPlanEndsAt} onChange={setEditPlanEndsAt} />
+                                    <div className="flex flex-wrap gap-1.5 mt-2">
+                                      {([
+                                        { label: "+7d", days: 7 },
+                                        { label: "+1m", months: 1 },
+                                        { label: "+3m", months: 3 },
+                                        { label: "+6m", months: 6 },
+                                        { label: "+1y", months: 12 },
+                                      ] as Array<{ label: string; days?: number; months?: number }>).map((p) => (
+                                        <button key={p.label} type="button"
+                                          onClick={() => {
+                                            const base = editPlanStartsAt ? new Date(editPlanStartsAt) : new Date();
+                                            if (Number.isNaN(base.getTime())) return;
+                                            const d = new Date(base);
+                                            if (p.days) d.setDate(d.getDate() + p.days);
+                                            if (p.months) d.setMonth(d.getMonth() + p.months);
+                                            const pad = (n: number) => String(n).padStart(2, "0");
+                                            setEditPlanEndsAt(`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`);
+                                          }}
+                                          className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-white border border-sky-200 text-sky-700 hover:bg-sky-100 active:scale-95 transition-all">
+                                          {p.label}
+                                        </button>
+                                      ))}
+                                    </div>
+                                    <p className="text-[10px] text-slate-500 mt-1">Quick pick adds duration to Plan Start (or now if empty).</p>
                                   </div>
                                   <div className="flex items-center justify-between">
                                     <p className="text-[10px] text-slate-500 leading-snug">Locks access after end date. Telegram reminders last 7 days.</p>
