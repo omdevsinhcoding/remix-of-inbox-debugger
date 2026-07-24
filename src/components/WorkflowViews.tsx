@@ -675,7 +675,7 @@ export function WorkflowSwitcher({ features, view, onChange, compact = false }: 
             key="ws-backdrop"
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             transition={{ duration: 0.18 }}
-            className="fixed inset-0 z-[95] bg-slate-900/40 backdrop-blur-md flex items-center justify-center p-4"
+            className="fixed inset-0 z-[95] bg-slate-900/40 backdrop-blur-md flex items-end sm:items-center justify-center p-0 sm:p-4"
             onClick={() => setOpen(false)}
           >
             <motion.div
@@ -685,34 +685,39 @@ export function WorkflowSwitcher({ features, view, onChange, compact = false }: 
               exit={{ opacity: 0, y: 12, scale: 0.97 }}
               transition={{ type: "spring", stiffness: 260, damping: 24 }}
               onClick={(e) => e.stopPropagation()}
-              className={`relative w-full rounded-3xl border border-white/60 bg-white/85 backdrop-blur-2xl shadow-[0_30px_90px_-20px_rgba(15,23,42,0.35)] overflow-hidden ${enabled.length >= 3 ? "max-w-3xl" : enabled.length === 2 ? "max-w-xl" : "max-w-sm"}`}
+              className={`relative w-full rounded-t-3xl sm:rounded-3xl border border-white/60 bg-white/90 sm:bg-white/85 backdrop-blur-2xl shadow-[0_30px_90px_-20px_rgba(15,23,42,0.35)] overflow-hidden max-h-[92dvh] overflow-y-auto ${enabled.length >= 3 ? "sm:max-w-3xl xl:max-w-5xl 2xl:max-w-7xl" : enabled.length === 2 ? "sm:max-w-xl xl:max-w-3xl 2xl:max-w-5xl" : "sm:max-w-sm xl:max-w-md"}`}
             >
               {/* soft gradient orbs */}
               <div aria-hidden className="pointer-events-none absolute -top-24 -right-24 w-72 h-72 rounded-full bg-rose-200/50 blur-3xl" />
               <div aria-hidden className="pointer-events-none absolute -bottom-32 -left-24 w-80 h-80 rounded-full bg-indigo-200/50 blur-3xl" />
               <div aria-hidden className="pointer-events-none absolute top-1/2 left-1/3 w-64 h-64 rounded-full bg-emerald-200/40 blur-3xl" />
 
-              <div className="relative flex items-center justify-between px-5 sm:px-7 pt-5 sm:pt-6">
+              {/* mobile grab handle */}
+              <div aria-hidden className="sm:hidden flex justify-center pt-2">
+                <div className="w-10 h-1 rounded-full bg-slate-300" />
+              </div>
+
+              <div className="relative flex items-center justify-between px-4 sm:px-7 xl:px-9 pt-4 sm:pt-6">
                 <div className="flex items-center gap-2 text-slate-500">
-                  <LayoutGrid className="w-4 h-4" />
-                  <span className="text-[11px] uppercase tracking-[0.24em] font-bold">Switch workflow</span>
+                  <LayoutGrid className="w-4 h-4 xl:w-5 xl:h-5" />
+                  <span className="text-[10px] sm:text-[11px] xl:text-sm uppercase tracking-[0.24em] font-bold">Switch workflow</span>
                 </div>
                 <button
                   onClick={() => setOpen(false)}
                   aria-label="Close"
-                  className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-600 transition-colors"
+                  className="w-8 h-8 xl:w-10 xl:h-10 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-600 transition-colors"
                 >
-                  <X className="w-4 h-4" />
+                  <X className="w-4 h-4 xl:w-5 xl:h-5" />
                 </button>
               </div>
 
-              <div className="relative px-5 sm:px-7 pt-3 pb-6 sm:pb-8">
-                <h3 className="text-slate-900 text-2xl sm:text-3xl font-black tracking-tight">Choose a workflow</h3>
-                <p className="text-slate-500 text-xs sm:text-sm mt-1">Same account, dedicated experiences. Switch anytime.</p>
+              <div className="relative px-4 sm:px-7 xl:px-9 pt-3 pb-6 sm:pb-8 xl:pb-10">
+                <h3 className="text-slate-900 text-xl sm:text-3xl xl:text-4xl 2xl:text-6xl font-black tracking-tight">Choose a workflow</h3>
+                <p className="text-slate-500 text-xs sm:text-sm xl:text-base 2xl:text-xl mt-1">Same account, dedicated experiences. Switch anytime.</p>
 
                 <motion.div
                   layout
-                  className={`mt-6 grid gap-3 ${enabled.length >= 3 ? "sm:grid-cols-2 lg:grid-cols-3" : enabled.length === 2 ? "sm:grid-cols-2" : "grid-cols-1"}`}
+                  className={`mt-5 sm:mt-6 xl:mt-8 grid gap-3 xl:gap-5 ${enabled.length >= 3 ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3" : enabled.length === 2 ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1"}`}
                 >
                   {enabled.map((k, idx) => {
                     const meta = WORKFLOW_META[k];
@@ -727,7 +732,7 @@ export function WorkflowSwitcher({ features, view, onChange, compact = false }: 
                         transition={{ delay: 0.05 + idx * 0.06, type: "spring", stiffness: 260, damping: 22 }}
                         whileHover={{ y: -4 }}
                         whileTap={{ scale: 0.97 }}
-                        className={`group relative overflow-hidden rounded-2xl text-left p-4 sm:p-5 bg-white/70 backdrop-blur-xl border border-white/80 shadow-[0_10px_30px_-12px_rgba(15,23,42,0.2)] hover:shadow-[0_18px_40px_-12px_rgba(15,23,42,0.3)] focus:outline-none transition-shadow ${selected ? `ring-2 ring-offset-2 ring-offset-white ${meta.ring}` : ""}`}
+                        className={`group relative overflow-hidden rounded-2xl xl:rounded-3xl text-left p-4 sm:p-5 xl:p-7 2xl:p-9 bg-white/70 backdrop-blur-xl border border-white/80 shadow-[0_10px_30px_-12px_rgba(15,23,42,0.2)] hover:shadow-[0_18px_40px_-12px_rgba(15,23,42,0.3)] focus:outline-none transition-shadow ${selected ? `ring-2 ring-offset-2 ring-offset-white ${meta.ring}` : ""}`}
                       >
                         {/* colored halo */}
                         <div aria-hidden className={`pointer-events-none absolute -top-16 -right-14 w-40 h-40 rounded-full blur-3xl ${meta.halo}`} />
@@ -735,8 +740,8 @@ export function WorkflowSwitcher({ features, view, onChange, compact = false }: 
                         <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white to-transparent" />
 
                         <div className="relative flex items-start justify-between">
-                          <div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${meta.accent} flex items-center justify-center shadow-lg ring-1 ring-white/50`}>
-                            <Icon className="w-5 h-5 text-white" />
+                          <div className={`w-11 h-11 xl:w-14 xl:h-14 2xl:w-20 2xl:h-20 rounded-xl xl:rounded-2xl bg-gradient-to-br ${meta.accent} flex items-center justify-center shadow-lg ring-1 ring-white/50`}>
+                            <Icon className="w-5 h-5 xl:w-6 xl:h-6 2xl:w-9 2xl:h-9 text-white" />
                           </div>
                           <AnimatePresence>
                             {selected ? (
@@ -744,23 +749,23 @@ export function WorkflowSwitcher({ features, view, onChange, compact = false }: 
                                 key="check"
                                 initial={{ scale: 0, rotate: -20 }} animate={{ scale: 1, rotate: 0 }} exit={{ scale: 0 }}
                                 transition={{ type: "spring", stiffness: 400, damping: 18 }}
-                                className={`w-7 h-7 rounded-full bg-gradient-to-br ${meta.accent} text-white flex items-center justify-center shadow-lg`}
+                                className={`w-7 h-7 xl:w-9 xl:h-9 rounded-full bg-gradient-to-br ${meta.accent} text-white flex items-center justify-center shadow-lg`}
                               >
-                                <Check className="w-4 h-4" />
+                                <Check className="w-4 h-4 xl:w-5 xl:h-5" />
                               </motion.div>
                             ) : (
-                              <ChevronRight className="w-5 h-5 text-slate-400 group-hover:text-slate-700 group-hover:translate-x-0.5 transition-all" />
+                              <ChevronRight className="w-5 h-5 xl:w-6 xl:h-6 text-slate-400 group-hover:text-slate-700 group-hover:translate-x-0.5 transition-all" />
                             )}
                           </AnimatePresence>
                         </div>
-                        <div className="relative mt-6">
-                          <div className="text-slate-900 font-black text-lg sm:text-xl tracking-tight">{meta.title}</div>
-                          <div className="text-slate-500 text-[11.5px] sm:text-xs mt-1 leading-relaxed">{meta.sub}</div>
+                        <div className="relative mt-5 xl:mt-7">
+                          <div className="text-slate-900 font-black text-lg sm:text-xl xl:text-2xl 2xl:text-4xl tracking-tight">{meta.title}</div>
+                          <div className="text-slate-500 text-[11.5px] sm:text-xs xl:text-sm 2xl:text-lg mt-1 xl:mt-2 leading-relaxed">{meta.sub}</div>
                         </div>
-                        <div className={`relative mt-4 inline-flex items-center gap-1 text-[10px] font-bold tracking-widest uppercase ${selected ? "text-slate-900" : "text-slate-400"}`}>
+                        <div className={`relative mt-4 xl:mt-6 inline-flex items-center gap-1 text-[10px] xl:text-xs 2xl:text-sm font-bold tracking-widest uppercase ${selected ? "text-slate-900" : "text-slate-400"}`}>
                           {selected ? (
                             <>
-                              <span className={`w-1.5 h-1.5 rounded-full bg-gradient-to-br ${meta.accent}`} />
+                              <span className={`w-1.5 h-1.5 xl:w-2 xl:h-2 rounded-full bg-gradient-to-br ${meta.accent}`} />
                               Active
                             </>
                           ) : "Tap to switch"}
