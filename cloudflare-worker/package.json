@@ -1,0 +1,23 @@
+{
+  "name": "email-cache-proxy",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "worker.js",
+  "scripts": {
+    "_deploy": "node deploy.mjs",
+    "build": "node deploy.mjs",
+    "build:worker": "node deploy.mjs",
+    "build:prod": "node deploy.mjs",
+    "vite:build": "node deploy.mjs",
+    "deploy": "node deploy.mjs",
+    "start": "node deploy.mjs",
+    "prepare": "echo '[prepare] worker ready'",
+    "postinstall": "echo '[postinstall] deps ready — build step will run wrangler deploy'",
+    "dev": "wrangler dev"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "wrangler": "^4.45.0"
+  }
+}

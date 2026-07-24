@@ -1,0 +1,341 @@
+@import "tailwindcss";
+
+/* Admin panel — force readable text on the light theme.
+   Section wrapper class `admin-panel` scopes these rules so the dark
+   user-facing pages are not affected. */
+.admin-panel input,
+.admin-panel textarea,
+.admin-panel select {
+  color: rgb(15 23 42); /* slate-900 */
+}
+.admin-panel input::placeholder,
+.admin-panel textarea::placeholder {
+  color: rgb(148 163 184); /* slate-400 */
+}
+.admin-panel h1,
+.admin-panel h2,
+.admin-panel h3,
+.admin-panel label {
+  color: rgb(15 23 42);
+}
+.admin-panel label {
+  color: rgb(100 116 139); /* slate-500 for labels stays subtle */
+}
+
+/* Opt-out: dark surfaces inside admin panel keep white text. */
+.admin-panel input.dark-input,
+.admin-panel textarea.dark-input,
+.admin-panel select.dark-input {
+  color: #ffffff !important;
+  caret-color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+.admin-panel input.dark-input::placeholder,
+.admin-panel textarea.dark-input::placeholder {
+  color: rgb(148 163 184) !important; /* slate-400 */
+  -webkit-text-fill-color: rgb(148 163 184) !important;
+  opacity: 1 !important;
+}
+
+
+
+
+/* Profile grid entrance + skeleton — matches maintenance-mode reveal cadence */
+@keyframes profileTileIn {
+  0% {
+    opacity: 0;
+    transform: translateY(22px) scale(0.86);
+    filter: blur(10px) brightness(1.4);
+    clip-path: inset(0 100% 0 0);
+  }
+  55% {
+    filter: blur(0) brightness(1.15);
+    clip-path: inset(0 0 0 0);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0) brightness(1);
+    clip-path: inset(0 0 0 0);
+  }
+}
+@keyframes profileNameIn {
+  0%   { opacity: 0; transform: translateY(6px); letter-spacing: 0.12em; }
+  100% { opacity: 1; transform: translateY(0);  letter-spacing: normal; }
+}
+@keyframes profileGlowPulse {
+  0%   { box-shadow: 0 0 0 0 rgba(229,9,20,0.55); }
+  100% { box-shadow: 0 0 0 14px rgba(229,9,20,0); }
+}
+.profile-item-in {
+  opacity: 0;
+  animation: profileTileIn 720ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+.profile-item-in > div:first-child {
+  animation: profileGlowPulse 900ms ease-out;
+  animation-delay: inherit;
+  border-radius: 0.375rem;
+}
+.profile-item-in > span {
+  opacity: 0;
+  animation: profileNameIn 420ms ease-out forwards;
+  animation-delay: calc(var(--tile-delay, 0ms) + 260ms);
+}
+@keyframes profileGridFade {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.profile-grid-enter {
+  animation: profileGridFade 380ms ease-out both;
+}
+@keyframes profileSkeleton {
+  0%   { background-position: -180% 0; }
+  100% { background-position: 180% 0; }
+}
+.profile-skeleton {
+  background-image: linear-gradient(
+    90deg,
+    rgba(255,255,255,0.02) 0%,
+    rgba(229,9,20,0.10) 45%,
+    rgba(255,255,255,0.04) 55%,
+    rgba(255,255,255,0.02) 100%
+  );
+  background-size: 220% 100%;
+  animation: profileSkeleton 1.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .profile-item-in, .profile-item-in > span, .profile-item-in > div:first-child,
+  .profile-grid-enter, .profile-skeleton {
+    animation: none !important;
+    opacity: 1 !important;
+    clip-path: none !important;
+    filter: none !important;
+  }
+}
+
+/* ============================================================
+   Global Toast System — premium compact adaptive cards.
+   Dark page -> light card. Light page -> dark card.
+   Content-sized on desktop; edge-safe compact sheet on mobile.
+   ============================================================ */
+.gt-toast-viewport {
+  position: fixed;
+  z-index: 2147483647;
+  right: max(22px, env(safe-area-inset-right));
+  bottom: max(56px, calc(env(safe-area-inset-bottom) + 56px));
+  width: max-content;
+  max-width: min(600px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: flex-end;
+  gap: 10px;
+  pointer-events: none;
+}
+
+
+.gt-toast {
+  --gt-bg: hsl(0 0% 100% / 0.98);
+  --gt-fg: hsl(224 28% 8%);
+  --gt-muted: hsl(222 11% 38%);
+  --gt-border: hsl(220 16% 84% / 0.92);
+  --gt-chip-bg: hsl(220 17% 94%);
+  --gt-chip-fg: hsl(220 11% 28%);
+  --gt-close-hover: hsl(220 16% 90%);
+  --gt-accent: hsl(220 10% 46%);
+  --gt-ring: hsl(0 0% 100% / 0.58);
+  --gt-shadow: 0 18px 44px -22px hsl(222 45% 4% / 0.62), 0 3px 12px -7px hsl(222 45% 4% / 0.28);
+
+  position: relative;
+  display: inline-grid;
+  grid-template-columns: 32px minmax(0, auto) 26px;
+  align-items: center;
+  column-gap: 10px;
+  width: fit-content;
+  min-width: 300px;
+  max-width: 100%;
+  min-height: 52px;
+  padding: 10px 11px;
+  border-radius: 15px;
+  color: var(--gt-fg);
+  background: var(--gt-bg);
+  border: 1px solid var(--gt-border);
+  box-shadow: var(--gt-shadow), inset 0 1px 0 var(--gt-ring);
+  backdrop-filter: blur(14px) saturate(1.18);
+  -webkit-backdrop-filter: blur(14px) saturate(1.18);
+  pointer-events: auto;
+  overflow: visible;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+  animation: gtToastIn 240ms cubic-bezier(.2, .9, .2, 1) both;
+}
+
+.gt-toast[data-card="dark"] {
+  --gt-bg: hsl(224 32% 9% / 0.98);
+  --gt-fg: hsl(0 0% 100%);
+  --gt-muted: hsl(220 12% 76%);
+  --gt-border: hsl(220 16% 22% / 0.96);
+  --gt-chip-bg: hsl(220 16% 17%);
+  --gt-chip-fg: hsl(220 10% 86%);
+  --gt-close-hover: hsl(220 16% 24%);
+  --gt-ring: hsl(0 0% 100% / 0.06);
+  --gt-shadow: 0 20px 48px -22px hsl(224 60% 2% / 0.9), 0 3px 14px -8px hsl(224 60% 2% / 0.56);
+}
+
+.gt-toast-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--gt-chip-fg);
+  background: var(--gt-chip-bg);
+  box-shadow: inset 0 0 0 1px hsl(0 0% 100% / 0.06);
+  flex-shrink: 0;
+}
+.gt-toast-icon svg { width: 17px; height: 17px; stroke-width: 2.6; }
+.gt-toast[data-variant="loading"] .gt-toast-icon svg { animation: gtSpin 850ms linear infinite; }
+
+.gt-toast-copy {
+  min-width: 0;
+  width: max-content;
+  max-width: min(470px, calc(100vw - 132px));
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+}
+.gt-toast-title,
+.gt-toast-desc {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  white-space: normal;
+  letter-spacing: 0;
+}
+.gt-toast-title {
+  color: var(--gt-fg);
+  font-size: 14px;
+  font-weight: 740;
+  line-height: 1.22;
+}
+.gt-toast-desc {
+  color: var(--gt-muted);
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.32;
+}
+
+.gt-toast-close {
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--gt-muted);
+  background: transparent;
+  cursor: pointer;
+  opacity: 0.66;
+  flex-shrink: 0;
+  transition: background 150ms ease, color 150ms ease, opacity 150ms ease;
+}
+.gt-toast-close svg { width: 14px; height: 14px; stroke-width: 2.55; }
+.gt-toast-close:hover { opacity: 1; color: var(--gt-fg); background: var(--gt-close-hover); }
+
+.gt-toast[data-has-action="true"] { grid-template-columns: 32px minmax(0, auto) auto 26px; }
+.gt-toast-action {
+  border: 0;
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 12.5px;
+  letter-spacing: 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  color: var(--gt-fg);
+  background: var(--gt-chip-bg);
+  box-shadow: inset 0 0 0 1px hsl(0 0% 100% / 0.06);
+  transition: background 150ms ease, transform 100ms ease;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.gt-toast-action:hover { background: var(--gt-close-hover); }
+.gt-toast-action:active { transform: scale(0.97); }
+.gt-toast[data-variant="error"] .gt-toast-action { background: var(--gt-accent); color: #fff; box-shadow: none; }
+.gt-toast[data-variant="error"] .gt-toast-action:hover { background: var(--gt-accent); filter: brightness(1.08); }
+
+.gt-toast[data-variant="success"] { --gt-accent: hsl(158 72% 42%); }
+.gt-toast[data-variant="success"] .gt-toast-icon { color: hsl(158 72% 36%); background: hsl(158 72% 44% / 0.14); }
+.gt-toast[data-card="dark"][data-variant="success"] .gt-toast-icon { color: hsl(158 72% 63%); background: hsl(158 72% 44% / 0.18); }
+
+.gt-toast[data-variant="error"] { --gt-accent: hsl(0 78% 58%); }
+.gt-toast[data-variant="error"] .gt-toast-icon { color: hsl(0 74% 54%); background: hsl(0 84% 60% / 0.14); }
+.gt-toast[data-card="dark"][data-variant="error"] .gt-toast-icon { color: hsl(0 86% 72%); background: hsl(0 84% 60% / 0.18); }
+
+.gt-toast[data-variant="warning"] { --gt-accent: hsl(38 92% 50%); }
+.gt-toast[data-variant="warning"] .gt-toast-icon { color: hsl(36 90% 41%); background: hsl(40 96% 52% / 0.16); }
+.gt-toast[data-card="dark"][data-variant="warning"] .gt-toast-icon { color: hsl(40 96% 68%); background: hsl(40 96% 52% / 0.20); }
+
+.gt-toast[data-variant="info"] { --gt-accent: hsl(204 86% 54%); }
+.gt-toast[data-variant="info"] .gt-toast-icon { color: hsl(204 82% 46%); background: hsl(204 92% 56% / 0.14); }
+.gt-toast[data-card="dark"][data-variant="info"] .gt-toast-icon { color: hsl(204 92% 72%); background: hsl(204 92% 56% / 0.18); }
+
+.gt-toast[data-variant="loading"] { --gt-accent: hsl(220 12% 54%); }
+
+@media (max-width: 767px) {
+  .gt-toast-viewport {
+    top: auto;
+    right: max(12px, env(safe-area-inset-right));
+    left: max(12px, env(safe-area-inset-left));
+    bottom: calc(env(safe-area-inset-bottom) + 64px);
+    width: auto;
+    max-width: none;
+    flex-direction: column-reverse;
+    align-items: center;
+    gap: 8px;
+  }
+  .gt-toast {
+    grid-template-columns: 30px minmax(0, 1fr) 24px;
+    column-gap: 10px;
+    min-height: 54px;
+    width: min(520px, calc(100vw - 24px));
+    max-width: 100%;
+    padding: 10px 11px;
+    border-radius: 15px;
+    animation: gtToastInMobile 240ms cubic-bezier(.2, .9, .2, 1) both;
+  }
+  .gt-toast-icon { width: 30px; height: 30px; border-radius: 10px; }
+  .gt-toast-icon svg { width: 16px; height: 16px; }
+  .gt-toast-copy { width: auto; max-width: none; gap: 2px; }
+  .gt-toast-title { font-size: 13.5px; font-weight: 740; line-height: 1.22; }
+  .gt-toast-desc  { font-size: 12.5px; line-height: 1.32; }
+  .gt-toast-close { width: 24px; height: 24px; }
+  .gt-toast-close svg { width: 13px; height: 13px; }
+  .gt-toast[data-has-action="true"] { grid-template-columns: 30px minmax(0, 1fr) auto 24px; }
+  .gt-toast-action { font-size: 12px; padding: 7px 11px; border-radius: 8px; }
+}
+
+@keyframes gtToastInMobile {
+  from { opacity: 0; transform: translateY(10px) scale(0.97); filter: blur(2px); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes gtToastIn {
+  from { opacity: 0; transform: translateY(10px) scale(0.97); filter: blur(2px); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes gtSpin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .gt-toast,
+  .gt-toast[data-variant="loading"] .gt-toast-icon svg { animation: none; }
+}
+
+
+
+
+
