@@ -2867,6 +2867,8 @@ Deno.serve(async (originalReq) => {
           sortOrder: data.sort_order ?? null,
           expiresAt: data.expires_at || null,
           tvOverride: data.tv_override === "on" || data.tv_override === "off" ? data.tv_override : null,
+          planStartsAt: (data as any).plan_starts_at || null,
+          planEndsAt: (data as any).plan_ends_at || null,
         },
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -4967,7 +4969,7 @@ Deno.serve(async (originalReq) => {
       // Kick everything off in PARALLEL server-side. Edge → Postgres latency is
       // ~1-5ms each, so 12 parallel queries return in ~50-150ms total.
       const usersP = supabase.from("app_users")
-        .select("id, username, name, role, assigned_accounts, profile_prefs, session_limit, is_free, pinned, sort_order, expires_at, tv_override, feature_gmail, feature_tv, feature_link")
+        .select("id, username, name, role, assigned_accounts, profile_prefs, session_limit, is_free, pinned, sort_order, expires_at, tv_override, feature_gmail, feature_tv, feature_link, plan_starts_at, plan_ends_at")
         .order("created_at", { ascending: true });
 
       // Fast estimated counts via pg_class.reltuples — head:true+exact was
@@ -5012,6 +5014,8 @@ Deno.serve(async (originalReq) => {
         expiresAt: u.expires_at || null,
         tvOverride: u.tv_override === "on" || u.tv_override === "off" ? u.tv_override : null,
         features: pickFeatures(u),
+        planStartsAt: u.plan_starts_at || null,
+        planEndsAt: u.plan_ends_at || null,
       }));
 
       const totalUsers = totalUsersRes.count || 0;

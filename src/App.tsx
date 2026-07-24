@@ -1074,7 +1074,7 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         return;
       }
       const msg = err instanceof Error ? err.message : String(err || "");
-      if (cachedBeforeHydrate?.id && /Secure connection|handshake|Failed to fetch|NetworkError|busy|timeout|temporar/i.test(msg)) {
+      if (cachedBeforeHydrate?.id && /Secure connection|handshake|Failed to fetch|NetworkError|busy|timeout|temporar|Unknown session/i.test(msg)) {
         setUser(cachedBeforeHydrate);
         return;
       }
@@ -3168,6 +3168,7 @@ function PlanEndsPill({ userOverride }: { userOverride?: any } = {}) {
   const user = userOverride || authUser;
   const [now, setNow] = useState<number>(() => Date.now());
   const [showInfo, setShowInfo] = useState(false);
+  const expiredNoticeRef = useRef(false);
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
@@ -3175,13 +3176,23 @@ function PlanEndsPill({ userOverride }: { userOverride?: any } = {}) {
 
   const isFree = !!(user as any)?.isFree;
   const role = (user as any)?.role;
-  const endIso = (user as any)?.planEndsAt as string | null | undefined;
+  const endIso = ((user as any)?.planEndsAt || (user as any)?.plan_ends_at) as string | null | undefined;
   // Show only for paid non-admin users with a set plan end date.
   if (isFree || role === "admin" || !endIso) return null;
   const endMs = Date.parse(endIso);
   if (!Number.isFinite(endMs)) return null;
   const rem = endMs - now;
-  if (rem <= 0) return null;
+  if (rem <= 0) {
+    if (!expiredNoticeRef.current) {
+      expiredNoticeRef.current = true;
+      apiCall("manage-app", { action: "me" }).catch(() => {
+        try {
+          window.dispatchEvent(new CustomEvent("app:plan-finished", { detail: { planEndsAt: endIso } }));
+        } catch {}
+      });
+    }
+    return null;
+  }
 
   const totalSec = Math.floor(rem / 1000);
   const days = Math.floor(totalSec / 86400);
@@ -3469,6 +3480,8 @@ function emailHtmlForDisplay(email: Email | null) {
 interface UserData {
   id: string; username: string | null; name: string; role: "admin" | "user"; totpSecret?: string; mustChangePassword?: boolean; assignedAccounts?: string[] | null; profileAvatar?: string | null; profilePrefs?: UserProfilePrefs;
   isFree?: boolean; pinned?: boolean; sortOrder?: number | null; session_limit?: number | null; expiresAt?: string | null; locationRequired?: boolean;
+  planStartsAt?: string | null;
+  planEndsAt?: string | null;
   tvOverride?: "on" | "off" | null;
   tvFeatureEnabled?: boolean;
 }
@@ -4329,6 +4342,9 @@ function ProfileSelectPage() {
         clientGeo,
         captchaToken,
       });
+      if (!data?.success || !data?.user) {
+        throw new Error(data?.error === "plan_finished" ? "Plan finished" : (data?.error || "Login failed"));
+      }
       perf.mark("manage_app_login_ok");
 
       if (data.workerUrls && Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
@@ -8297,6 +8313,10 @@ function AdminPanel() {
       }
       // Free profile: passwordless one-tap entry. Username is optional/manual only
       // (never generated); password is never sent for free profiles.
+      if (!newIsFree && newPlanStartsAt && !newPlanEndsAt) {
+        notify.error("Plan end date required", { description: "Add an end date or use the duration box so the Plan pill can count down." });
+        return;
+      }
       const tvOv: "on" | "off" | null = newTvOverride === "on" || newTvOverride === "off" ? newTvOverride : null;
       const body: any = newIsFree
         ? {
@@ -8501,6 +8521,10 @@ function AdminPanel() {
       }
       const tvOvOut: "on" | "off" | null = editTvOverride === "on" ? "on" : editTvOverride === "off" ? "off" : null;
       const isPaidNonAdmin = !isFreeTarget && target?.role !== "admin";
+      if (isPaidNonAdmin && editPlanStartsAt && !editPlanEndsAt) {
+        notify.error("Plan end date required", { description: "Add an end date or use the duration box so the Plan pill can count down." });
+        return;
+      }
       const plan_starts_at = isPaidNonAdmin ? (editPlanStartsAt ? new Date(editPlanStartsAt).toISOString() : null) : undefined;
       const plan_ends_at = isPaidNonAdmin ? (editPlanEndsAt ? new Date(editPlanEndsAt).toISOString() : null) : undefined;
       await apiCall("manage-app", {
@@ -14205,7 +14229,18 @@ function GlobalSessionOverlay() {
     };
   }, [readSessionState]);
 
-  const effectiveUser = authUser || sessionState.storedUser;
+  // Prefer the latest server-hydrated sessionStorage user fields over the
+  // React auth snapshot. Token refresh / /me can update planEndsAt while the
+  // overlay is mounted, so merging here keeps the plan countdown live without
+  // waiting for a route remount.
+  const effectiveUser = authUser || sessionState.storedUser
+    ? (() => {
+      const merged = { ...(authUser || {}), ...(sessionState.storedUser || {}) } as any;
+      if (!merged.planEndsAt && merged.plan_ends_at) merged.planEndsAt = merged.plan_ends_at;
+      if (!merged.planStartsAt && merged.plan_starts_at) merged.planStartsAt = merged.plan_starts_at;
+      return merged;
+    })()
+    : null;
   const role: "admin" | "user" = effectiveUser?.role === "admin" ? "admin" : "user";
   const hasSessionToken = !!sessionState.token;
   const isLoggedIn = !!effectiveUser && hasSessionToken;
@@ -14214,12 +14249,12 @@ function GlobalSessionOverlay() {
 
   useSessionTimeoutGuard(role, isLoggedIn && !isImpersonating && !isPendingAdmin);
 
-  if (!isLoggedIn || isImpersonating || isPendingAdmin) return null;
+  if (!isLoggedIn || isPendingAdmin) return null;
   if (typeof document === "undefined") return null;
 
   return createPortal(
     <>
-      <SessionCountdown role={role} />
+      {!isImpersonating && <SessionCountdown role={role} />}
       {role === "user" && <FreeExpiryPill userOverride={effectiveUser} />}
       {role === "user" && <PlanEndsPill userOverride={effectiveUser} />}
     </>,
