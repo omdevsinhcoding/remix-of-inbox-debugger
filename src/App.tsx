@@ -2143,6 +2143,7 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
     return () => { cancelled = true; };
   }, []);
 
+  const setDigit = (i: number, v: string) => {
     const d = v.replace(/\D/g, "").slice(-1);
     setCode((prev) => {
       const next = [...prev];
