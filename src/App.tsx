@@ -6845,6 +6845,8 @@ function AdminPanel() {
   const [editDirectLinkEnabled, setEditDirectLinkEnabled] = useState<boolean>(false);
   const [newIsFree, setNewIsFree] = useState(false);
   const [newFreeExpiresAt, setNewFreeExpiresAt] = useState<string>(""); // "YYYY-MM-DDTHH:mm"
+  const [newPlanStartsAt, setNewPlanStartsAt] = useState<string>("");
+  const [newPlanEndsAt, setNewPlanEndsAt] = useState<string>("");
   const [newTvOverride, setNewTvOverride] = useState<"inherit" | "on" | "off">("inherit");
   const [dragUserId, setDragUserId] = useState<string | null>(null);
   const [reordering, setReordering] = useState(false);
