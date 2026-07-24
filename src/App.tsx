@@ -2999,43 +2999,53 @@ function FreeExpiryPill({ userOverride }: { userOverride?: any } = {}) {
         Deletes in: {label}
       </button>
 
-      {showInfo && (
+      {showInfo && createPortal(
         <div
-          className="fixed inset-0 z-[10002] animate-in fade-in duration-150"
+          className="fixed inset-0 z-[10002] bg-slate-900/50 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-150"
           onClick={() => setShowInfo(false)}
           role="dialog"
           aria-modal="true"
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="absolute right-3 sm:right-4 bottom-[calc(env(safe-area-inset-bottom)+0.75rem+4.5rem)] sm:bottom-[calc(1rem+5rem)] w-[min(20rem,calc(100vw-1.5rem))] max-h-[calc(100svh-8rem)] overflow-y-auto rounded-2xl bg-white shadow-2xl border border-slate-200 p-5 animate-in zoom-in-95 slide-in-from-bottom-2 duration-150 origin-bottom-right"
+            className="relative w-full sm:w-auto sm:min-w-[22rem] sm:max-w-md max-h-[92dvh] overflow-y-auto rounded-t-3xl sm:rounded-3xl bg-white shadow-2xl border border-slate-200 p-5 sm:p-6 pb-[calc(env(safe-area-inset-bottom)+1.25rem)] sm:pb-6 animate-in slide-in-from-bottom-4 sm:zoom-in-95 sm:slide-in-from-bottom-0 duration-200"
           >
-
-            <div className="flex items-center gap-2 mb-3">
-              <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${urgent ? "bg-red-100 text-red-600" : warn ? "bg-amber-100 text-amber-600" : "bg-emerald-100 text-emerald-600"}`}>
+            <div aria-hidden className="sm:hidden flex justify-center -mt-1 mb-3">
+              <div className="w-10 h-1 rounded-full bg-slate-300" />
+            </div>
+            <div className="flex items-center gap-3 mb-4">
+              <div className={`w-11 h-11 rounded-2xl flex items-center justify-center flex-shrink-0 ${urgent ? "bg-red-100 text-red-600" : warn ? "bg-amber-100 text-amber-600" : "bg-emerald-100 text-emerald-600"}`}>
                 <Clock className="w-5 h-5" />
               </div>
-              <div className="min-w-0">
-                <div className="text-sm font-extrabold text-slate-900 leading-tight">Free profile auto-delete</div>
-                <div className="text-[10px] text-slate-500">Countdown to deletion</div>
+              <div className="min-w-0 flex-1">
+                <div className="text-base font-extrabold text-slate-900 leading-tight">Free profile auto-delete</div>
+                <div className="text-[11px] text-slate-500 mt-0.5">Countdown to deletion</div>
               </div>
+              <button
+                onClick={() => setShowInfo(false)}
+                aria-label="Close"
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-600 transition-colors flex-shrink-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
-            <p className="text-xs text-slate-700 leading-relaxed">
+            <p className="text-sm text-slate-700 leading-relaxed">
               This is a free profile. It will be <span className="font-bold">automatically deleted</span> when the timer hits zero.
             </p>
-            <div className="mt-3 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
-              <div className="text-[10px] uppercase tracking-wide text-slate-500 font-bold">Deletes on</div>
-              <div className="text-xs font-semibold text-slate-900">{full}</div>
-              <div className="text-[10px] text-slate-500 mt-1">Remaining: <span className="font-bold text-slate-800">{label}</span></div>
+            <div className="mt-4 rounded-xl bg-slate-50 border border-slate-200 px-4 py-3">
+              <div className="text-[10px] uppercase tracking-[0.14em] text-slate-500 font-bold">Deletes on</div>
+              <div className="text-sm font-semibold text-slate-900 mt-1 break-words">{full}</div>
+              <div className="text-[11px] text-slate-500 mt-2">Remaining: <span className="font-bold text-slate-800">{label}</span></div>
             </div>
             <button
               onClick={() => setShowInfo(false)}
-              className="mt-4 w-full h-9 rounded-lg bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 active:scale-[0.98] transition"
+              className="mt-5 w-full h-11 rounded-xl bg-slate-900 text-white text-sm font-bold hover:bg-slate-800 active:scale-[0.98] transition"
             >
               Got it
             </button>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </>
   );
