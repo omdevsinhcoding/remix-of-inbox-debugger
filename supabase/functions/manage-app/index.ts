@@ -3515,6 +3515,9 @@ Deno.serve(async (originalReq) => {
       return new Response(JSON.stringify({ success: true, value }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+
 
 
     if (action === "set_settings") {
