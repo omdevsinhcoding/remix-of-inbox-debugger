@@ -6772,6 +6772,43 @@ function AdminPanel() {
   const [vpsHealth, setVpsHealth] = useState<{ ok: boolean; status: number; latencyMs: number; message?: string; at: number } | null>(null);
   const [githubTesting, setGithubTesting] = useState(false);
   const [githubHealth, setGithubHealth] = useState<{ ok: boolean; status: string; latencyMs: number; message?: string; runUrl?: string; at: number } | null>(null);
+  const [ghSetupStatus, setGhSetupStatus] = useState<{ configured: boolean; repo: string; hasPat: boolean; hasHmac: boolean; updatedAt: string | null } | null>(null);
+  const [ghSetupSyncing, setGhSetupSyncing] = useState(false);
+  const [ghSetupPat, setGhSetupPat] = useState("");
+  const [ghSetupRepo, setGhSetupRepo] = useState("");
+  const [ghSetupOpen, setGhSetupOpen] = useState(false);
+  const loadGhStatus = React.useCallback(async () => {
+    try {
+      const res: any = await apiCall("manage-app", { action: "admin_github_status" });
+      setGhSetupStatus({
+        configured: !!res?.configured,
+        repo: String(res?.repo || ""),
+        hasPat: !!res?.hasPat,
+        hasHmac: !!res?.hasHmac,
+        updatedAt: res?.updatedAt || null,
+      });
+    } catch {}
+  }, []);
+  React.useEffect(() => { if (activeTab === "tv") { void loadGhStatus(); } }, [activeTab, loadGhStatus]);
+  const runGhSetup = async () => {
+    if (ghSetupSyncing) return;
+    if (!ghSetupPat.trim() && !ghSetupStatus?.hasPat) {
+      notify.error("Paste a GitHub token first");
+      return;
+    }
+    setGhSetupSyncing(true);
+    try {
+      const res: any = await apiCall("manage-app", { action: "admin_github_setup", pat: ghSetupPat.trim(), repo: ghSetupRepo.trim() });
+      notify.success("GitHub setup synced", { description: res?.message || `Linked to ${res?.repo || "repo"}` });
+      setGhSetupPat("");
+      setGhSetupOpen(false);
+      await loadGhStatus();
+    } catch (e: any) {
+      notify.error("GitHub setup failed", { description: e?.message || String(e) });
+    } finally {
+      setGhSetupSyncing(false);
+    }
+  };
   const [vpsLoading, setVpsLoading] = useState(false);
   const [vpsSaving, setVpsSaving] = useState(false);
   const [vpsUploading, setVpsUploading] = useState(false);
@@ -9647,7 +9684,85 @@ function AdminPanel() {
               </div>
             </section>
 
+            {/* GitHub Actions Runner Setup — one-click sync */}
+            <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 sm:p-6">
+              <div className="flex items-start justify-between gap-4 flex-wrap">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex w-8 h-8 rounded-lg bg-slate-950 text-white items-center justify-center"><Zap className="w-4 h-4" /></span>
+                    <p className="text-base sm:text-lg font-bold text-slate-950 leading-snug">GitHub Actions runner</p>
+                    {ghSetupStatus?.configured ? (
+                      <span className="text-[10px] font-black uppercase tracking-wider text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">Ready</span>
+                    ) : (
+                      <span className="text-[10px] font-black uppercase tracking-wider text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">Not set up</span>
+                    )}
+                  </div>
+                  <p className="text-[13px] text-slate-500 mt-1 leading-relaxed">
+                    {ghSetupStatus?.configured
+                      ? <>Linked to <b className="text-slate-800">{ghSetupStatus.repo || "your repo"}</b>. HMAC key is auto-managed — no manual GitHub secrets to sync.</>
+                      : <>Paste a GitHub token once. We auto-detect the repo, generate an HMAC key, and push it to GitHub Actions secrets.</>}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setGhSetupOpen((v) => !v)}
+                    className="h-10 px-4 rounded-lg border border-slate-300 bg-white text-slate-900 text-xs font-bold hover:bg-slate-50 inline-flex items-center gap-1.5"
+                  >
+                    <Settings className="w-3.5 h-3.5" /> {ghSetupStatus?.configured ? "Rotate" : "Set up"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={testGithubRunner}
+                    disabled={githubTesting || !ghSetupStatus?.configured}
+                    className="h-10 px-4 rounded-lg bg-slate-950 text-white text-xs font-bold hover:bg-slate-800 disabled:opacity-50 inline-flex items-center gap-1.5"
+                  >
+                    {githubTesting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />} Test
+                  </button>
+                </div>
+              </div>
+              {ghSetupOpen && (
+                <div className="mt-4 pt-4 border-t border-slate-100 space-y-3">
+                  <div>
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">GitHub Personal Access Token</label>
+                    <input
+                      type="password"
+                      value={ghSetupPat}
+                      onChange={(e) => setGhSetupPat(e.target.value)}
+                      placeholder={ghSetupStatus?.hasPat ? "•••••••••••••• (saved — paste to replace)" : "github_pat_11A..."}
+                      className="mt-1 w-full h-11 px-3 rounded-lg border border-slate-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-slate-950/10"
+                    />
+                    <p className="text-[11px] text-slate-500 mt-1.5 leading-relaxed">
+                      Fine-grained PAT with <b>Actions: read+write</b>, <b>Secrets: read+write</b>, <b>Metadata: read</b> on the repo.
+                    </p>
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Repo (optional)</label>
+                    <input
+                      value={ghSetupRepo}
+                      onChange={(e) => setGhSetupRepo(e.target.value)}
+                      placeholder="auto-detected (owner/name)"
+                      className="mt-1 w-full h-11 px-3 rounded-lg border border-slate-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-slate-950/10"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={runGhSetup}
+                    disabled={ghSetupSyncing}
+                    className="w-full h-11 rounded-lg bg-slate-950 text-white text-sm font-bold hover:bg-slate-800 disabled:opacity-60 inline-flex items-center justify-center gap-2"
+                  >
+                    {ghSetupSyncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                    {ghSetupStatus?.configured ? "Rotate HMAC key & sync" : "Sync GitHub setup"}
+                  </button>
+                  {ghSetupStatus?.updatedAt && (
+                    <p className="text-[11px] text-slate-400 text-center">Last synced {new Date(ghSetupStatus.updatedAt).toLocaleString()}</p>
+                  )}
+                </div>
+              )}
+            </section>
+
             {/* People */}
+
             <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
               <div className="px-5 sm:px-6 py-4 border-b border-slate-100 flex items-center justify-between gap-3 flex-wrap">
                 <div className="flex items-center gap-2 min-w-0">

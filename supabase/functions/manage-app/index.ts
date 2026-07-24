@@ -1,5 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { authenticator } from "npm:otplib@12.0.1";
+import sodium from "https://esm.sh/libsodium-wrappers@0.7.13";
 import { readRequest, maybeEncryptResponse, EncryptedRequestContext, PlaintextRejectedError, plaintextRejectedResponse, TransportError, transportErrorResponse } from "../_shared/crypto.ts";
 import { getSetting, invalidateSetting, invalidateAllSettings } from "../_shared/settingsCache.ts";
 // build-marker: tv-runner-observability v21 (2026-07-23) — wider result window + clearer runner errors
@@ -2032,6 +2033,71 @@ Deno.serve(async (originalReq) => {
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
   );
 
+  // ---- GitHub Actions setup: DB-first config with env fallback -------------
+  async function loadGithubConfig(): Promise<{ pat: string; repo: string; hmacKey: string; updatedAt: string | null }> {
+    try {
+      const { data } = await supabase.from("github_config").select("pat, repo, hmac_key, updated_at").eq("id", 1).maybeSingle();
+      return {
+        pat: (data?.pat && String(data.pat)) || Deno.env.get("GITHUB_DISPATCH_PAT") || "",
+        repo: (data?.repo && String(data.repo)) || Deno.env.get("GITHUB_REPO") || "",
+        hmacKey: (data?.hmac_key && String(data.hmac_key)) || Deno.env.get("TV_REPORT_HMAC_KEY") || "",
+        updatedAt: data?.updated_at ? String(data.updated_at) : null,
+      };
+    } catch {
+      return {
+        pat: Deno.env.get("GITHUB_DISPATCH_PAT") || "",
+        repo: Deno.env.get("GITHUB_REPO") || "",
+        hmacKey: Deno.env.get("TV_REPORT_HMAC_KEY") || "",
+        updatedAt: null,
+      };
+    }
+  }
+  async function saveGithubConfig(patch: { pat?: string; repo?: string; hmac_key?: string; updated_by?: string | null }) {
+    const row: any = { id: 1, updated_at: new Date().toISOString() };
+    if (typeof patch.pat === "string") row.pat = patch.pat;
+    if (typeof patch.repo === "string") row.repo = patch.repo;
+    if (typeof patch.hmac_key === "string") row.hmac_key = patch.hmac_key;
+    if (patch.updated_by) row.updated_by = patch.updated_by;
+    const { error } = await supabase.from("github_config").upsert(row, { onConflict: "id" });
+    if (error) throw new Error(`Failed to save github_config: ${error.message}`);
+  }
+  async function ghApi(pat: string, path: string, init: RequestInit = {}): Promise<{ status: number; json: any; text: string }> {
+    const res = await fetch(`https://api.github.com${path}`, {
+      ...init,
+      headers: {
+        "Authorization": `Bearer ${pat}`,
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "Content-Type": "application/json",
+        ...(init.headers || {}),
+      },
+      signal: AbortSignal.timeout(10000),
+    });
+    const text = await res.text().catch(() => "");
+    let json: any = null;
+    try { json = text ? JSON.parse(text) : null; } catch {}
+    return { status: res.status, json, text };
+  }
+  async function pushGithubActionsSecret(pat: string, repo: string, name: string, value: string) {
+    const pk = await ghApi(pat, `/repos/${repo}/actions/secrets/public-key`);
+    if (pk.status !== 200 || !pk.json?.key || !pk.json?.key_id) {
+      throw new Error(`Could not read GitHub public key (${pk.status}). Ensure PAT has "Secrets: write" and repo access.`);
+    }
+    await sodium.ready;
+    const keyBytes = sodium.from_base64(String(pk.json.key), sodium.base64_variants.ORIGINAL);
+    const messageBytes = sodium.from_string(value);
+    const encrypted = sodium.crypto_box_seal(messageBytes, keyBytes);
+    const encryptedB64 = sodium.to_base64(encrypted, sodium.base64_variants.ORIGINAL);
+    const put = await ghApi(pat, `/repos/${repo}/actions/secrets/${encodeURIComponent(name)}`, {
+      method: "PUT",
+      body: JSON.stringify({ encrypted_value: encryptedB64, key_id: String(pk.json.key_id) }),
+    });
+    if (put.status !== 201 && put.status !== 204) {
+      throw new Error(`GitHub secret PUT failed (${put.status}): ${(put.text || "").slice(0, 200)}`);
+    }
+  }
+
+
   // F5: split signing key (session tokens) from encryption key (IMAP passwords).
   // ENCRYPTION_SECRET must remain SUPABASE_SERVICE_ROLE_KEY so existing AES-GCM
   // ciphertexts in app_settings.email_accounts can still be decrypted.
@@ -3166,12 +3232,90 @@ Deno.serve(async (originalReq) => {
       }
     }
 
+    if (action === "admin_github_status") {
+      await requireAdmin(req);
+      const cfg = await loadGithubConfig();
+      return new Response(JSON.stringify({
+        success: true,
+        configured: !!(cfg.pat && cfg.repo && cfg.hmacKey),
+        repo: cfg.repo || "",
+        hasPat: !!cfg.pat,
+        hasHmac: !!cfg.hmacKey,
+        updatedAt: cfg.updatedAt,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    if (action === "admin_github_setup") {
+      const admin = await requireAdmin(req);
+      const p = (params || {}) as any;
+      const patInput = String(p?.pat || "").trim();
+      const repoInput = String(p?.repo || "").trim();
+      const existing = await loadGithubConfig();
+      const pat = patInput || existing.pat;
+      if (!pat) throw new Error("A GitHub Personal Access Token is required.");
+
+      // 1) Validate PAT and get login
+      const me = await ghApi(pat, "/user");
+      if (me.status !== 200 || !me.json?.login) {
+        throw new Error(`GitHub token invalid (${me.status}). Create a fine-grained PAT with Actions: read+write, Secrets: read+write, Metadata: read.`);
+      }
+      const login = String(me.json.login);
+
+      // 2) Resolve repo: user-provided, existing config, or auto-detect
+      const candidates: string[] = [];
+      if (repoInput) candidates.push(repoInput.includes("/") ? repoInput : `${login}/${repoInput}`);
+      if (existing.repo) candidates.push(existing.repo);
+      candidates.push(`${login}/remix-of-inbox-debugger`, `${login}/inbox-debugger`);
+
+      let chosenRepo = "";
+      let checkedWorkflow = false;
+      for (const cand of candidates) {
+        const wf = await ghApi(pat, `/repos/${cand}/contents/.github/workflows/tv-login.yml`);
+        if (wf.status === 200) { chosenRepo = cand; checkedWorkflow = true; break; }
+      }
+      // Fallback: scan user's repos for the workflow file (first page only)
+      if (!chosenRepo) {
+        const list = await ghApi(pat, `/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator`);
+        const repos: any[] = Array.isArray(list.json) ? list.json : [];
+        for (const r of repos) {
+          const full = String(r?.full_name || "");
+          if (!full) continue;
+          const wf = await ghApi(pat, `/repos/${full}/contents/.github/workflows/tv-login.yml`);
+          if (wf.status === 200) { chosenRepo = full; checkedWorkflow = true; break; }
+        }
+      }
+      if (!chosenRepo) {
+        throw new Error("Could not find a repo with .github/workflows/tv-login.yml. Pass the repo as owner/name.");
+      }
+
+      // 3) Generate a fresh HMAC key
+      const hmacBytes = new Uint8Array(32);
+      crypto.getRandomValues(hmacBytes);
+      const hmacKey = Array.from(hmacBytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+
+      // 4) Push it as a GitHub Actions secret
+      await pushGithubActionsSecret(pat, chosenRepo, "TV_REPORT_HMAC_KEY", hmacKey);
+
+      // 5) Save all three in DB
+      await saveGithubConfig({ pat, repo: chosenRepo, hmac_key: hmacKey, updated_by: (admin as any)?.id || null });
+
+      return new Response(JSON.stringify({
+        success: true,
+        ok: true,
+        repo: chosenRepo,
+        login,
+        workflowVerified: checkedWorkflow,
+        message: `Synced with ${chosenRepo}. HMAC key rotated and pushed to GitHub Actions secrets.`,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     if (action === "admin_test_github_runner") {
       await requireAdmin(req);
-      const repo = Deno.env.get("GITHUB_REPO") || "";
-      const pat = Deno.env.get("GITHUB_DISPATCH_PAT") || "";
+      const cfg = await loadGithubConfig();
+      const repo = cfg.repo;
+      const pat = cfg.pat;
       if (!repo || !pat) {
-        return new Response(JSON.stringify({ success: true, ok: false, status: 0, message: "GitHub repo/token is not configured." }), {
+        return new Response(JSON.stringify({ success: true, ok: false, status: 0, message: "GitHub repo/token is not configured. Use the GitHub Setup card." }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
@@ -5292,8 +5436,9 @@ Deno.serve(async (originalReq) => {
     };
 
     const dispatchGithubTvRunner = async (eventId: string, reason: string, userLabel?: string) => {
-      const repo = Deno.env.get("GITHUB_REPO") || "";
-      const pat = Deno.env.get("GITHUB_DISPATCH_PAT") || "";
+      const cfg = await loadGithubConfig();
+      const repo = cfg.repo;
+      const pat = cfg.pat;
       if (!repo || !pat || !eventId) return { ok: false, diag: "github_not_configured", message: "GitHub Actions runner is not configured." };
       const cleanLabel = String(userLabel || "").replace(/[^\w.\-@ ]+/g, "").trim().slice(0, 60) || "user";
       const ghRes = await fetch(`https://api.github.com/repos/${repo}/dispatches`, {
@@ -5886,7 +6031,7 @@ Deno.serve(async (originalReq) => {
       const ts = Number(p?.ts || 0);
       const sig = String(p?.sig || "").toLowerCase();
       const runnerToken = String(p?.runner_token || "").trim();
-      const key = Deno.env.get("TV_REPORT_HMAC_KEY") || "";
+      const key = (await loadGithubConfig()).hmacKey;
       if (!eventId) throw new Error("event_id required");
 
       let authed = false;
