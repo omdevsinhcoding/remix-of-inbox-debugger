@@ -9873,7 +9873,7 @@ function AdminPanel() {
                           </p>
                         </div>
                       </div>
-                      <div className="mt-3 grid grid-cols-3 gap-2">
+                      <div className="mt-3 grid grid-cols-2 gap-2">
                         <button
                           type="button"
                           onClick={() => vpsFileInputRef.current?.click()}
@@ -9881,7 +9881,7 @@ function AdminPanel() {
                           className="inline-flex h-10 items-center justify-center gap-1.5 rounded-lg bg-slate-950 px-3 text-[12px] font-black text-white hover:bg-slate-800 disabled:opacity-60"
                         >
                           {vpsUploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
-                          Upload
+                          {vpsCfg.hasKey ? "Replace" : "Upload"}
                         </button>
                         <button
                           type="button"
@@ -9892,15 +9892,6 @@ function AdminPanel() {
                           <Download className="w-3.5 h-3.5" />
                           Download
                         </button>
-                        <button
-                          type="button"
-                          onClick={deleteVpsKey}
-                          disabled={vpsDeletingKey || vpsLoading || !vpsCfg.hasKey}
-                          className="inline-flex h-10 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-[12px] font-black text-rose-600 hover:bg-rose-50 disabled:opacity-40"
-                        >
-                          {vpsDeletingKey ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-                          Delete
-                        </button>
                         <input
                           ref={vpsFileInputRef}
                           type="file"
@@ -9909,6 +9900,7 @@ function AdminPanel() {
                           onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadVpsKeyFile(f); }}
                         />
                       </div>
+
                     </div>
                   </div>
 
