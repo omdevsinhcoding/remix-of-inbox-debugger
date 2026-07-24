@@ -1354,7 +1354,7 @@ function AutoPopupNotification() {
           exit={{ opacity: 0 }}
           transition={{ duration: 0.18 }}
         >
-          <div className="absolute inset-0 bg-black/70 backdrop-blur-md" onClick={() => dismiss(false)} />
+          <div className="absolute inset-0 bg-slate-950/40 backdrop-blur-md" onClick={() => dismiss(false)} />
           <motion.div
             role="dialog"
             aria-modal="true"
@@ -1362,13 +1362,9 @@ function AutoPopupNotification() {
             animate={{ scale: 1, y: 0, opacity: 1 }}
             exit={{ scale: 0.96, y: 8, opacity: 0 }}
             transition={{ duration: 0.22, ease: [0.32, 0.72, 0, 1] }}
-            className="relative w-full max-w-[560px] rounded-3xl overflow-hidden"
+            className="relative w-full max-w-[560px] rounded-3xl overflow-hidden bg-white border border-slate-200"
             style={{
-              background: "rgba(14,14,17,0.92)",
-              backdropFilter: "blur(28px) saturate(160%)",
-              WebkitBackdropFilter: "blur(28px) saturate(160%)",
-              border: "1px solid rgba(255,255,255,0.08)",
-              boxShadow: "0 40px 100px -20px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.06)",
+              boxShadow: "0 40px 100px -20px rgba(15,23,42,0.35), 0 2px 8px -2px rgba(15,23,42,0.08)",
             }}
           >
             {/* priority accent bar */}
@@ -1377,15 +1373,15 @@ function AutoPopupNotification() {
             {/* close */}
             <button
               onClick={() => dismiss(false)}
-              className="absolute top-3 right-3 z-10 p-1.5 rounded-full text-zinc-400 hover:text-white hover:bg-white/10 transition-colors"
+              className="absolute top-3 right-3 z-10 p-1.5 rounded-full text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors"
               aria-label="Close"
             >
               <X className="w-4 h-4" />
             </button>
 
-            {/* hero image */}
+            {/* hero image — prominent on user side */}
             {current.image_url ? (
-              <div className="relative aspect-[16/9] w-full overflow-hidden bg-zinc-900">
+              <div className="relative aspect-[16/9] w-full overflow-hidden bg-slate-100">
                 <img
                   src={current.image_url}
                   alt=""
@@ -1394,7 +1390,6 @@ function AutoPopupNotification() {
                   className="absolute inset-0 w-full h-full object-cover"
                   onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
                 />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
               </div>
             ) : (
               <div className="pt-10" />
@@ -1406,30 +1401,30 @@ function AutoPopupNotification() {
                 <NotifIconTile
                   platformId={current.platform_icon}
                   size={52}
-                  tone="dark"
+                  tone="light"
                   fallback={<CatIcon className={`w-6 h-6 ${cat.color}`} />}
                 />
                 <div className="flex flex-col">
-                  <span className="text-[10.5px] uppercase tracking-[0.16em] text-zinc-400 font-medium">
+                  <span className="text-[10.5px] uppercase tracking-[0.16em] text-slate-500 font-semibold">
                     {cat.label}
                   </span>
-                  <span className="text-[11px] text-zinc-500 font-light mt-0.5">
+                  <span className="text-[11px] text-slate-400 font-normal mt-0.5">
                     {formatRelative(current.created_at)}
                   </span>
                 </div>
               </div>
 
               <h2
-                className="text-white text-[25px] sm:text-[28px] leading-tight mb-2"
-                style={{ fontFamily: "'Instrument Serif', 'Cormorant Garamond', ui-serif, Georgia, serif", letterSpacing: "-0.015em" }}
+                className="text-slate-900 text-[25px] sm:text-[28px] leading-tight mb-2 font-bold"
+                style={{ letterSpacing: "-0.015em" }}
               >
                 {current.title}
               </h2>
-              <p className="text-zinc-300 text-[15px] sm:text-[15.5px] leading-relaxed font-light whitespace-pre-wrap">
+              <p className="text-slate-700 text-[15px] sm:text-[15.5px] leading-relaxed whitespace-pre-wrap">
                 {current.body}
               </p>
               {current.description && (
-                <p className="mt-3 text-zinc-400 text-[14px] leading-relaxed font-light whitespace-pre-wrap line-clamp-6">
+                <p className="mt-3 text-slate-500 text-[14px] leading-relaxed whitespace-pre-wrap line-clamp-6">
                   {current.description}
                 </p>
               )}
@@ -1437,7 +1432,7 @@ function AutoPopupNotification() {
               <div className="mt-5 flex flex-col-reverse sm:flex-row gap-2.5">
                 <button
                   onClick={() => dismiss(false)}
-                  className="flex-1 py-3 rounded-xl text-[14px] font-medium text-zinc-300 bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 transition-colors"
+                  className="flex-1 py-3 rounded-xl text-[14px] font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors"
                 >
                   Later
                 </button>
@@ -1447,21 +1442,21 @@ function AutoPopupNotification() {
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={() => { logNotificationEvent(current.id, "clicked", { url: current.action_url }).catch(() => {}); markNotificationRead(current.id).catch(() => {}); dismiss(true); }}
-                    className="flex-1 py-3 rounded-xl text-[14px] font-semibold text-white bg-white hover:bg-zinc-100 !text-black flex items-center justify-center gap-1.5 transition-colors"
+                    className="flex-1 py-3 rounded-xl text-[14px] font-bold text-white bg-slate-900 hover:bg-slate-800 flex items-center justify-center gap-1.5 transition-colors"
                   >
                     {current.action_label} <ExternalLink className="w-3.5 h-3.5" />
                   </a>
                 ) : (
                   <button
                     onClick={openInBell}
-                    className="flex-1 py-3 rounded-xl text-[14px] font-semibold text-black bg-white hover:bg-zinc-100 transition-colors"
+                    className="flex-1 py-3 rounded-xl text-[14px] font-bold text-white bg-slate-900 hover:bg-slate-800 transition-colors"
                   >
                     Read more
                   </button>
                 )}
               </div>
 
-              <p className="mt-3 text-center text-[10.5px] text-zinc-500 tracking-wide">
+              <p className="mt-3 text-center text-[10.5px] text-slate-400 tracking-wide">
                 Dismiss — you can reopen this from the <Bell className="inline w-3 h-3 -mt-0.5" /> bell any time.
               </p>
             </div>
@@ -1558,34 +1553,31 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
   const groups = useMemo(() => groupByDate(filtered), [filtered]);
 
   const Header = (
-    <div className="px-5 pt-5 pb-3 border-b border-white/[0.06]">
+    <div className="px-5 pt-5 pb-3 border-b border-slate-200 bg-white">
       <div className="flex items-center justify-between">
         <div className="flex items-baseline gap-2.5">
-          <h3
-            className="text-white text-[22px] leading-none"
-            style={{ fontFamily: "'Instrument Serif', 'Cormorant Garamond', ui-serif, Georgia, serif", letterSpacing: "-0.015em" }}
-          >
+          <h3 className="text-slate-900 text-[22px] leading-none font-bold" style={{ letterSpacing: "-0.015em" }}>
             {detail ? "Notification" : "Notifications"}
           </h3>
           {!detail && items.filter((n) => !n.read).length > 0 && (
-            <span className="text-[10.5px] font-medium text-rose-300/90 tracking-wider uppercase">
+            <span className="text-[10.5px] font-semibold text-rose-600 tracking-wider uppercase">
               {items.filter((n) => !n.read).length} new
             </span>
           )}
         </div>
         <div className="flex items-center gap-1">
           {detail ? (
-            <button onClick={() => setSelected(null)} className="p-2 rounded-lg text-zinc-400 hover:text-white hover:bg-white/[0.06] transition-colors" aria-label="Back">
+            <button onClick={() => setSelected(null)} className="p-2 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors" aria-label="Back">
               <ArrowLeft className="w-4 h-4" />
             </button>
           ) : (
             items.some((n) => !n.read) && (
-              <button onClick={handleMarkAllRead} title="Mark all read" className="p-2 rounded-lg text-zinc-400 hover:text-white hover:bg-white/[0.06] transition-colors">
+              <button onClick={handleMarkAllRead} title="Mark all read" className="p-2 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors">
                 <CheckCircle2 className="w-4 h-4" />
               </button>
             )
           )}
-          <button onClick={onClose} className="p-2 rounded-lg text-zinc-400 hover:text-white hover:bg-white/[0.06] transition-colors" aria-label="Close">
+          <button onClick={onClose} className="p-2 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors" aria-label="Close">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -1598,8 +1590,8 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
               <button
                 key={t}
                 onClick={() => setTab(t)}
-                className={`px-3 py-1.5 rounded-full text-[11.5px] font-medium tracking-wide capitalize transition-colors whitespace-nowrap ${
-                  tab === t ? "bg-white text-black" : "text-zinc-400 hover:text-white bg-white/[0.04] hover:bg-white/[0.08]"
+                className={`px-3 py-1.5 rounded-full text-[11.5px] font-semibold tracking-wide capitalize transition-colors whitespace-nowrap ${
+                  tab === t ? "bg-slate-900 text-white" : "text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200"
                 }`}
               >
                 {t}
@@ -1607,13 +1599,13 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
             ))}
           </div>
           <div className="mt-3 relative">
-            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none" />
+            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search notifications"
               aria-label="Search notifications"
-              className="w-full pl-9 pr-3 py-2 rounded-xl text-[12.5px] bg-white/[0.04] border border-white/[0.06] text-white placeholder:text-zinc-500 focus:outline-none focus:border-white/20"
+              className="w-full pl-9 pr-3 py-2 rounded-xl text-[12.5px] bg-slate-50 border border-slate-200 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-slate-900 focus:bg-white transition-colors"
             />
           </div>
         </>
@@ -1622,26 +1614,26 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
   );
 
   const List = (
-    <div className="overflow-y-auto overscroll-contain flex-1">
+    <div className="overflow-y-auto overscroll-contain flex-1 bg-slate-50">
       {loading && items.length === 0 && (
-        <div className="py-16 text-center text-zinc-500 text-sm font-light tracking-wide">
-          <div className="w-5 h-5 mx-auto mb-3 border border-zinc-600 border-t-rose-500 rounded-full animate-spin" />
+        <div className="py-16 text-center text-slate-500 text-sm font-medium tracking-wide">
+          <div className="w-5 h-5 mx-auto mb-3 border-2 border-slate-200 border-t-slate-900 rounded-full animate-spin" />
           Loading
         </div>
       )}
       {!loading && filtered.length === 0 && (
         <div className="py-20 px-6 text-center">
-          <div className="w-14 h-14 mx-auto mb-4 rounded-full bg-white/[0.04] border border-white/10 flex items-center justify-center">
-            <Bell className="w-6 h-6 text-zinc-500 stroke-[1.25]" />
+          <div className="w-14 h-14 mx-auto mb-4 rounded-full bg-white border border-slate-200 flex items-center justify-center shadow-sm">
+            <Bell className="w-6 h-6 text-slate-400 stroke-[1.5]" />
           </div>
-          <p className="text-zinc-200 text-[14px] font-light tracking-wide">You're all caught up</p>
-          <p className="text-zinc-500 text-[12px] mt-1 font-light">Nothing new here right now.</p>
+          <p className="text-slate-900 text-[14px] font-semibold tracking-wide">You're all caught up</p>
+          <p className="text-slate-500 text-[12px] mt-1">Nothing new here right now.</p>
         </div>
       )}
       {groups.map(({ label, rows }) => (
         <div key={label}>
-          <div className="px-5 pt-4 pb-1 text-[10px] uppercase tracking-[0.14em] text-zinc-500 font-medium">{label}</div>
-          <ul>
+          <div className="px-5 pt-4 pb-2 text-[10px] uppercase tracking-[0.14em] text-slate-500 font-bold">{label}</div>
+          <ul className="px-3 space-y-2">
             {rows.map((n) => {
               const cat = categoryMeta(n.category);
               const CatIcon = cat.icon;
@@ -1650,46 +1642,44 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
                 <li key={n.id} className="group relative">
                   <button
                     onClick={() => handleOpenDetail(n)}
-                    className={`w-full text-left px-5 py-3.5 flex gap-3 transition-colors ${!n.read ? "bg-white/[0.02] hover:bg-white/[0.05]" : "hover:bg-white/[0.03]"}`}
+                    className={`w-full text-left rounded-2xl overflow-hidden transition-all border ${!n.read ? "bg-white border-slate-200 shadow-sm hover:shadow-md hover:border-slate-300" : "bg-white/60 border-slate-200/70 hover:bg-white hover:border-slate-200"}`}
                   >
-                    <div className="flex flex-col items-center flex-shrink-0">
-                      <span className={`w-1 h-full rounded-full ${accent} opacity-70`} style={{ minHeight: 30 }} />
-                    </div>
-                    {n.platform_icon ? (
+                    {/* Hero image if present — prominent on user side */}
+                    {n.image_url && (
+                      <div className="relative aspect-[16/7] w-full overflow-hidden bg-slate-100">
+                        <img src={n.image_url} referrerPolicy="no-referrer" loading="lazy" alt=""
+                          className="absolute inset-0 w-full h-full object-cover"
+                          onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
+                        <div className={`absolute left-0 top-0 bottom-0 w-[3px] ${accent}`} />
+                      </div>
+                    )}
+                    <div className="flex gap-3 px-4 py-3.5">
+                      {!n.image_url && <span className={`w-1 rounded-full ${accent} opacity-70 self-stretch min-h-[36px] flex-shrink-0`} />}
                       <NotifIconTile
                         platformId={n.platform_icon}
-                        size={46}
-                        tone="dark"
+                        size={44}
+                        tone="light"
                         fallback={<CatIcon className={`w-4 h-4 ${cat.color}`} />}
                       />
-                    ) : n.image_url ? (
-                      <img src={n.image_url} referrerPolicy="no-referrer" loading="lazy" alt=""
-                        className="w-11 h-11 rounded-xl object-cover flex-shrink-0 bg-zinc-800 ring-1 ring-white/10 shadow-lg" />
-                    ) : (
-                      <NotifIconTile
-                        size={46}
-                        tone="dark"
-                        fallback={<CatIcon className={`w-4 h-4 ${cat.color}`} />}
-                      />
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-baseline justify-between gap-3">
-                        <p className={`text-[13px] leading-snug truncate ${!n.read ? "text-white font-medium" : "text-zinc-400 font-normal"}`}>
-                          {n.title}
-                        </p>
-                        <span className="text-[10.5px] text-zinc-500 font-light tabular-nums flex-shrink-0 transition-opacity group-hover:opacity-0" title={new Date(n.created_at).toLocaleString()}>
-                          {formatRelative(n.created_at)}
-                        </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-baseline justify-between gap-3">
+                          <p className={`text-[13.5px] leading-snug truncate ${!n.read ? "text-slate-900 font-bold" : "text-slate-600 font-medium"}`}>
+                            {n.title}
+                          </p>
+                          <span className="text-[10.5px] text-slate-400 font-medium tabular-nums flex-shrink-0 transition-opacity group-hover:opacity-0" title={new Date(n.created_at).toLocaleString()}>
+                            {formatRelative(n.created_at)}
+                          </span>
+                        </div>
+                        <p className="text-slate-500 text-[12px] mt-1 leading-relaxed line-clamp-2">{n.body}</p>
                       </div>
-                      <p className="text-zinc-500 text-[12px] mt-1 leading-relaxed line-clamp-2 font-light">{n.body}</p>
+                      {!n.read && (
+                        <span className="w-2 h-2 rounded-full bg-rose-500 shadow-[0_0_6px_rgba(244,63,94,0.5)] mt-1.5 flex-shrink-0 transition-opacity group-hover:opacity-0" />
+                      )}
                     </div>
-                    {!n.read && (
-                      <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.7)] mt-1.5 flex-shrink-0 transition-opacity group-hover:opacity-0" />
-                    )}
                   </button>
                   {!n.locked && (
-                    <div className="absolute right-3 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1 pointer-events-none group-hover:pointer-events-auto">
-                      <button onClick={(e) => { e.stopPropagation(); handleDelete(n.id); }} className="p-1.5 rounded-md bg-black/70 backdrop-blur border border-white/10 text-zinc-300 hover:text-rose-300 hover:bg-black/80 shadow-lg" title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
+                    <div className="absolute right-3 top-3 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1 pointer-events-none group-hover:pointer-events-auto">
+                      <button onClick={(e) => { e.stopPropagation(); handleDelete(n.id); }} className="p-1.5 rounded-md bg-white border border-slate-200 text-slate-500 hover:text-rose-600 hover:border-rose-200 shadow-sm" title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
                     </div>
                   )}
                 </li>
@@ -1698,6 +1688,7 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
           </ul>
         </div>
       ))}
+      <div className="h-4" />
     </div>
   );
 
@@ -1706,11 +1697,10 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
     const CatIcon = cat.icon;
     const accent = PRIORITY_ACCENT[detail.priority || "normal"] || PRIORITY_ACCENT.normal;
     return (
-      <div className="overflow-y-auto overscroll-contain flex-1">
+      <div className="overflow-y-auto overscroll-contain flex-1 bg-white">
         {detail.image_url && (
-          <div className="relative aspect-[16/9] w-full overflow-hidden bg-zinc-900">
+          <div className="relative aspect-[16/9] w-full overflow-hidden bg-slate-100">
             <img src={detail.image_url} alt="" referrerPolicy="no-referrer" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
           </div>
         )}
         <div className="px-6 py-5">
@@ -1718,49 +1708,49 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
             <NotifIconTile
               platformId={detail.platform_icon}
               size={54}
-              tone="dark"
+              tone="light"
               fallback={<CatIcon className={`w-6 h-6 ${cat.color}`} />}
             />
             <div className="min-w-0 flex-1 pt-0.5">
               <div className="flex items-center gap-2 mb-1">
                 <span className={`w-1.5 h-1.5 rounded-full ${accent}`} />
-                <span className="text-[10.5px] uppercase tracking-[0.16em] text-zinc-400 font-medium">
+                <span className="text-[10.5px] uppercase tracking-[0.16em] text-slate-500 font-semibold">
                   {cat.label}
                 </span>
-                <span className="text-[10.5px] text-zinc-500 ml-auto">{new Date(detail.created_at).toLocaleString()}</span>
+                <span className="text-[10.5px] text-slate-400 ml-auto">{new Date(detail.created_at).toLocaleString()}</span>
               </div>
-              <h2 className="text-white text-[24px] leading-tight" style={{ fontFamily: "'Instrument Serif', ui-serif, Georgia, serif", letterSpacing: "-0.015em" }}>
+              <h2 className="text-slate-900 text-[24px] leading-tight font-bold" style={{ letterSpacing: "-0.015em" }}>
                 {detail.title}
               </h2>
             </div>
           </div>
-          <p className="text-zinc-200 text-[14px] leading-relaxed font-light whitespace-pre-wrap">{detail.body}</p>
+          <p className="text-slate-700 text-[14px] leading-relaxed whitespace-pre-wrap">{detail.body}</p>
           {detail.description && (
-            <p className="mt-4 text-zinc-400 text-[13px] leading-relaxed font-light whitespace-pre-wrap">{detail.description}</p>
+            <p className="mt-4 text-slate-500 text-[13px] leading-relaxed whitespace-pre-wrap">{detail.description}</p>
           )}
           <div className="mt-6 flex flex-wrap gap-2">
             {detail.action_url && detail.action_label && !/snooze|archive|24h/i.test(detail.action_label) && (
               <a href={detail.action_url} target="_blank" rel="noopener noreferrer"
                 onClick={() => logNotificationEvent(detail.id, "clicked", { url: detail.action_url }).catch(() => {})}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-semibold bg-white text-black hover:bg-zinc-100 transition-colors">
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-bold bg-slate-900 text-white hover:bg-slate-800 transition-colors">
                 {detail.action_label} <ExternalLink className="w-3.5 h-3.5" />
               </a>
             )}
             {detail.action2_url && detail.action2_label && !/snooze|archive|24h/i.test(detail.action2_label) && (
               <a href={detail.action2_url} target="_blank" rel="noopener noreferrer"
                 onClick={() => logNotificationEvent(detail.id, "clicked", { url: detail.action2_url, secondary: true }).catch(() => {})}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-medium bg-white/[0.06] text-white hover:bg-white/[0.12] border border-white/10 transition-colors">
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-semibold bg-slate-100 text-slate-900 hover:bg-slate-200 transition-colors">
                 {detail.action2_label}
               </a>
             )}
           </div>
-          <div className="mt-6 pt-4 border-t border-white/[0.05] flex gap-2">
+          <div className="mt-6 pt-4 border-t border-slate-200 flex gap-2">
             {detail.locked ? (
-              <div className="flex-1 py-2 rounded-lg text-[12px] text-zinc-500 bg-white/[0.02] border border-white/5 inline-flex items-center justify-center gap-1.5">
+              <div className="flex-1 py-2 rounded-lg text-[12px] text-slate-500 bg-slate-50 border border-slate-200 inline-flex items-center justify-center gap-1.5">
                 <Lock className="w-3.5 h-3.5" /> Locked by admin
               </div>
             ) : (
-              <button onClick={() => handleDelete(detail.id)} className="flex-1 py-2 rounded-lg text-[12px] text-rose-300 bg-rose-500/[0.06] hover:bg-rose-500/[0.12] border border-rose-500/20 transition-colors inline-flex items-center justify-center gap-1.5">
+              <button onClick={() => handleDelete(detail.id)} className="flex-1 py-2 rounded-lg text-[12px] font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition-colors inline-flex items-center justify-center gap-1.5">
                 <Trash2 className="w-3.5 h-3.5" /> Delete
               </button>
             )}
@@ -1773,12 +1763,11 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
   if (!open || typeof document === "undefined") return null;
 
   const surfaceStyle: React.CSSProperties = {
-    background: "rgba(10,10,12,0.88)",
-    backdropFilter: "blur(32px) saturate(160%)",
-    WebkitBackdropFilter: "blur(32px) saturate(160%)",
-    border: "1px solid rgba(255,255,255,0.06)",
-    boxShadow: "0 30px 80px -20px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.05)",
+    background: "#ffffff",
+    border: "1px solid rgb(226 232 240)",
+    boxShadow: "0 30px 80px -20px rgba(15,23,42,0.35), 0 2px 8px -2px rgba(15,23,42,0.06)",
   };
+
 
   const Panel = isMobile ? (
     <motion.div
@@ -1825,7 +1814,7 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
         exit={{ opacity: 0 }}
         transition={{ duration: 0.18 }}
       >
-        <div className="absolute inset-0 bg-black/65 backdrop-blur-sm" onClick={onClose} />
+        <div className="absolute inset-0 bg-slate-950/40 backdrop-blur-sm" onClick={onClose} />
         {Panel}
       </motion.div>
     </AnimatePresence>,
@@ -10400,35 +10389,31 @@ function AdminPanel() {
 
             {/* --- Live preview + Past notifications --- */}
             <div className="space-y-4 sm:space-y-6">
-              {/* Live preview keeps the dark card look because that's how users see it in the app */}
+              {/* Live preview — matches the white user-facing card */}
               <section className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-sm">
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-[10.5px] uppercase tracking-[0.16em] text-slate-500 font-bold">Live Preview</span>
                   <span className="text-[10px] text-slate-400">how users will see it</span>
                 </div>
-                <div className="rounded-2xl overflow-hidden mx-auto max-w-[400px]" style={{
-                  background: "rgba(14,14,17,0.96)",
-                  border: "1px solid rgba(255,255,255,0.06)",
-                  boxShadow: "0 20px 50px -18px rgba(0,0,0,0.35)",
-                }}>
-                  <div className={`h-[3px] ${notifPriority === "critical" ? "bg-rose-500" : notifPriority === "high" ? "bg-amber-500" : notifPriority === "normal" ? "bg-sky-500" : "bg-zinc-500"}`} />
+                <div className="rounded-2xl overflow-hidden mx-auto max-w-[400px] bg-white border border-slate-200 shadow-sm">
+                  <div className={`h-[3px] ${notifPriority === "critical" ? "bg-rose-500" : notifPriority === "high" ? "bg-amber-500" : notifPriority === "normal" ? "bg-sky-500" : "bg-slate-400"}`} />
                   {notifImageUrl && (
-                    <div className="aspect-[16/9] w-full bg-zinc-900 overflow-hidden">
+                    <div className="aspect-[16/9] w-full bg-slate-100 overflow-hidden">
                       <img src={notifImageUrl} referrerPolicy="no-referrer" className="w-full h-full object-cover" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
                     </div>
                   )}
                   <div className="p-5">
                     <div className="flex items-center gap-2 mb-2">
                       {notifPlatformIcon ? <PlatformChipVisual id={notifPlatformIcon} size={22} /> : null}
-                      <span className="text-[10px] uppercase tracking-[0.14em] text-zinc-400 font-medium capitalize">{notifCategory}</span>
+                      <span className="text-[10px] uppercase tracking-[0.14em] text-slate-500 font-semibold capitalize">{notifCategory}</span>
                     </div>
-                    <h3 className="text-white text-[19px] leading-tight mb-2" style={{ fontFamily: "'Instrument Serif', ui-serif, Georgia, serif", letterSpacing: "-0.015em" }}>
+                    <h3 className="text-slate-900 text-[19px] leading-tight mb-2 font-bold" style={{ letterSpacing: "-0.015em" }}>
                       {notifTitle || "Your title here"}
                     </h3>
-                    <p className="text-zinc-300 text-[13px] leading-relaxed font-light">{notifBody || "Short body text preview…"}</p>
-                    {notifDescription && <p className="mt-2 text-zinc-500 text-[12px] leading-relaxed font-light line-clamp-3">{notifDescription}</p>}
+                    <p className="text-slate-700 text-[13px] leading-relaxed">{notifBody || "Short body text preview…"}</p>
+                    {notifDescription && <p className="mt-2 text-slate-500 text-[12px] leading-relaxed line-clamp-3">{notifDescription}</p>}
                     {(notifActionLabel || notifActionUrl) && (
-                      <div className="mt-4 py-2 px-4 rounded-xl bg-white text-black text-center text-[13px] font-semibold">
+                      <div className="mt-4 py-2.5 px-4 rounded-xl bg-slate-900 text-white text-center text-[13px] font-bold">
                         {notifActionLabel || "CTA"}
                       </div>
                     )}
@@ -10447,7 +10432,7 @@ function AdminPanel() {
                     <RefreshCw className="w-3 h-3" /> Refresh
                   </button>
                 </div>
-                <div className="space-y-2.5 max-h-[60vh] overflow-y-auto pr-1">
+                <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
                   {adminNotifs.length === 0 && (
                     <div className="text-center py-10">
                       <div className="w-12 h-12 mx-auto rounded-full bg-slate-100 flex items-center justify-center mb-2">
@@ -10457,56 +10442,71 @@ function AdminPanel() {
                     </div>
                   )}
                   {adminNotifs.map((n) => (
-                    <div key={n.id} className="border border-slate-200 rounded-xl p-3.5 sm:p-4 hover:border-slate-300 hover:shadow-sm transition-all bg-white">
-                      <div className="flex items-start gap-3">
-                        {/* Prominent platform icon rail */}
-                        <div className="shrink-0">
-                          {n.platform_icon
-                            ? <PlatformChipVisual id={n.platform_icon} size={44} />
-                            : <div className="w-11 h-11 rounded-xl bg-slate-100 flex items-center justify-center"><Bell className="w-4 h-4 text-slate-400" /></div>}
+                    <div key={n.id} className="border border-slate-200 rounded-xl overflow-hidden hover:border-slate-300 hover:shadow-sm transition-all bg-white">
+                      {/* Hero image preview if uploaded — same as what users see */}
+                      {n.image_url && (
+                        <div className="relative aspect-[16/7] w-full overflow-hidden bg-slate-100 border-b border-slate-200">
+                          <img src={n.image_url} referrerPolicy="no-referrer" alt="" loading="lazy"
+                            className="absolute inset-0 w-full h-full object-cover"
+                            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
                         </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-1.5 mb-1 flex-wrap">
-                            <span className={`inline-flex items-center gap-1 text-[10px] font-semibold capitalize ${n.priority === "critical" ? "text-rose-600" : n.priority === "high" ? "text-amber-600" : n.priority === "normal" ? "text-sky-600" : "text-slate-500"}`}>
-                              <span className={`w-1.5 h-1.5 rounded-full ${n.priority === "critical" ? "bg-rose-500" : n.priority === "high" ? "bg-amber-500" : n.priority === "normal" ? "bg-sky-500" : "bg-slate-400"}`} />
-                              {n.priority || "low"}
-                            </span>
-                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 capitalize font-medium">{n.category || "announcement"}</span>
-                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${n.locked ? "bg-amber-50 text-amber-700 border border-amber-100" : "bg-emerald-50 text-emerald-700 border border-emerald-100"}`}>
-                              {n.locked ? "Locked" : "User delete OK"}
-                            </span>
-                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-medium">
-                              {n.audience === "all" ? `All · ${n.totalRecipients || 0}` : "Specific"}
-                            </span>
+                      )}
+                      <div className="p-3.5 sm:p-4">
+                        <div className="flex items-start gap-3">
+                          <div className="shrink-0">
+                            {n.platform_icon
+                              ? <PlatformChipVisual id={n.platform_icon} size={44} />
+                              : <div className="w-11 h-11 rounded-xl bg-slate-100 flex items-center justify-center"><Bell className="w-4 h-4 text-slate-400" /></div>}
                           </div>
-                          <p className="font-bold text-[14.5px] text-slate-900 truncate">{n.title}</p>
-                          <p className="text-[12.5px] text-slate-600 line-clamp-2 mt-0.5">{n.body}</p>
-                          <div className="flex items-center gap-3 mt-2 flex-wrap text-[11px]">
-                            <span className="inline-flex items-center gap-1 text-slate-600"><span className="font-bold">{n.seenCount || 0}</span> <span className="text-slate-400">seen</span></span>
-                            <span className="inline-flex items-center gap-1 text-emerald-700"><span className="font-bold">{n.readCount || 0}</span> <span className="text-slate-400">read</span></span>
-                            <span className="inline-flex items-center gap-1 text-sky-700"><span className="font-bold">{n.clickCount || 0}</span> <span className="text-slate-400">clicked</span></span>
-                            <span className="inline-flex items-center gap-1 text-rose-600"><span className="font-bold">{n.deletedCount || 0}</span> <span className="text-slate-400">deleted</span></span>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5 mb-1 flex-wrap">
+                              <span className={`inline-flex items-center gap-1 text-[10px] font-semibold capitalize ${n.priority === "critical" ? "text-rose-600" : n.priority === "high" ? "text-amber-600" : n.priority === "normal" ? "text-sky-600" : "text-slate-500"}`}>
+                                <span className={`w-1.5 h-1.5 rounded-full ${n.priority === "critical" ? "bg-rose-500" : n.priority === "high" ? "bg-amber-500" : n.priority === "normal" ? "bg-sky-500" : "bg-slate-400"}`} />
+                                {n.priority || "low"}
+                              </span>
+                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 capitalize font-medium">{n.category || "announcement"}</span>
+                              <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${n.locked ? "bg-amber-50 text-amber-700 border border-amber-100" : "bg-emerald-50 text-emerald-700 border border-emerald-100"}`}>
+                                {n.locked ? "Locked" : "User delete OK"}
+                              </span>
+                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-medium">
+                                {n.audience === "all" ? `All · ${n.totalRecipients || 0}` : "Specific"}
+                              </span>
+                              {n.image_url && (
+                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100 font-medium inline-flex items-center gap-1">
+                                  <ImageIcon className="w-2.5 h-2.5" /> Image
+                                </span>
+                              )}
+                            </div>
+                            <p className="font-bold text-[14.5px] text-slate-900 truncate">{n.title}</p>
+                            <p className="text-[12.5px] text-slate-600 line-clamp-2 mt-0.5">{n.body}</p>
+                            <div className="flex items-center gap-3 mt-2 flex-wrap text-[11px]">
+                              <span className="inline-flex items-center gap-1 text-slate-600"><span className="font-bold">{n.seenCount || 0}</span> <span className="text-slate-400">seen</span></span>
+                              <span className="inline-flex items-center gap-1 text-emerald-700"><span className="font-bold">{n.readCount || 0}</span> <span className="text-slate-400">read</span></span>
+                              <span className="inline-flex items-center gap-1 text-sky-700"><span className="font-bold">{n.clickCount || 0}</span> <span className="text-slate-400">clicked</span></span>
+                              <span className="inline-flex items-center gap-1 text-rose-600"><span className="font-bold">{n.deletedCount || 0}</span> <span className="text-slate-400">deleted</span></span>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                      <div className="flex items-center gap-1.5 mt-3 pt-3 border-t border-slate-100">
-                        <button onClick={() => setRecipientsFor(n)} className="flex-1 min-h-[36px] px-3 py-1.5 rounded-lg text-[12px] font-bold text-white bg-slate-900 hover:bg-slate-800 flex items-center justify-center gap-1.5">
-                          <Users className="w-3.5 h-3.5" /> Recipients
-                        </button>
-                        <button onClick={() => setEditingNotif({ ...n })} className="flex-1 min-h-[36px] px-3 py-1.5 rounded-lg text-[12px] font-semibold text-slate-700 hover:bg-slate-100 border border-slate-200 flex items-center justify-center gap-1.5">
-                          <Edit className="w-3.5 h-3.5" /> Edit
-                        </button>
-                        <button onClick={() => duplicateToComposer(n)} className="min-h-[36px] px-3 py-1.5 rounded-lg text-[12px] font-semibold text-slate-700 hover:bg-slate-100 border border-slate-200 flex items-center justify-center gap-1.5" title="Duplicate">
-                          <Copy className="w-3.5 h-3.5" />
-                        </button>
-                        <button onClick={() => deleteNotification(n.id)} className="min-h-[36px] px-3 py-1.5 rounded-lg text-[12px] font-semibold text-rose-600 hover:bg-rose-50 border border-rose-200 flex items-center justify-center gap-1.5" title="Delete for everyone">
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        <div className="flex items-center gap-1.5 mt-3 pt-3 border-t border-slate-100">
+                          <button onClick={() => setRecipientsFor(n)} className="flex-1 min-h-[36px] px-3 py-1.5 rounded-lg text-[12px] font-bold text-white bg-slate-900 hover:bg-slate-800 flex items-center justify-center gap-1.5">
+                            <Users className="w-3.5 h-3.5" /> Recipients
+                          </button>
+                          <button onClick={() => setEditingNotif({ ...n })} className="flex-1 min-h-[36px] px-3 py-1.5 rounded-lg text-[12px] font-semibold text-slate-700 hover:bg-slate-100 border border-slate-200 flex items-center justify-center gap-1.5">
+                            <Edit className="w-3.5 h-3.5" /> Edit
+                          </button>
+                          <button onClick={() => duplicateToComposer(n)} className="min-h-[36px] px-3 py-1.5 rounded-lg text-[12px] font-semibold text-slate-700 hover:bg-slate-100 border border-slate-200 flex items-center justify-center gap-1.5" title="Duplicate">
+                            <Copy className="w-3.5 h-3.5" />
+                          </button>
+                          <button onClick={() => deleteNotification(n.id)} className="min-h-[36px] px-3 py-1.5 rounded-lg text-[12px] font-semibold text-rose-600 hover:bg-rose-50 border border-rose-200 flex items-center justify-center gap-1.5" title="Delete for everyone">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ))}
                 </div>
               </section>
+
             </div>
           </div>
         )}
