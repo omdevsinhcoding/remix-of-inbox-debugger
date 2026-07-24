@@ -1916,7 +1916,7 @@ function userFriendlyTvError(message?: string | null) {
     return "Netflix rejected the code. Generate a fresh code on your TV and try again.";
   }
   if (/cookies?|login|password|email|expired/.test(lower)) {
-    return "Saved Netflix cookies are expired. Ask the admin to refresh cookies.";
+    return "This account isn't ready right now. Please contact the admin.";
   }
   return raw.length > 180 ? `${raw.slice(0, 177)}…` : raw;
 }
