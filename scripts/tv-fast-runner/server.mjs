@@ -8,6 +8,7 @@ import { chromium } from "playwright";
 const PORT = Number(process.env.PORT || 8788);
 const TV_REPORT_URL = process.env.TV_REPORT_URL;
 const MAX_MS = Math.max(3000, Math.min(22000, Number(process.env.TV_LOGIN_MAX_MS || 20000)));
+const MAX_CONCURRENT = Math.max(1, Math.min(8, Number(process.env.TV_RUNNER_CONCURRENCY || 4)));
 const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36";
 
 if (!TV_REPORT_URL) {
@@ -16,7 +17,7 @@ if (!TV_REPORT_URL) {
 }
 
 let browserPromise = null;
-let busy = false;
+let activeJobs = 0;
 let lastJob = null;
 
 const now = () => Date.now();
@@ -223,7 +224,7 @@ async function runTvJob(eventId, runnerToken) {
     await report(eventId, runnerToken, { status: "error", result, message: `${userMessage} | ${timing}` }).catch((err) => console.error("report failed", err));
     lastJob = { ...lastJob, status: "error", result, finishedAt: new Date().toISOString(), error: userMessage, timing };
   } finally {
-    busy = false;
+    activeJobs = Math.max(0, activeJobs - 1);
   }
 }
 
@@ -231,17 +232,17 @@ const server = http.createServer(async (req, res) => {
   try {
     if (req.method === "GET" && req.url === "/health") {
       await ensureBrowser();
-      return json(res, 200, { success: true, ok: true, busy, max_ms: MAX_MS, last_job: lastJob });
+      return json(res, 200, { success: true, ok: true, active_jobs: activeJobs, capacity: MAX_CONCURRENT, max_ms: MAX_MS, last_job: lastJob });
     }
     if (req.method !== "POST" || req.url !== "/run") return json(res, 404, { success: false, error: "not_found" });
-    if (busy) return json(res, 409, { success: false, error: "runner_busy", message: "Fast runner is busy. Try again in a few seconds." });
+    if (activeJobs >= MAX_CONCURRENT) return json(res, 429, { success: false, error: "runner_at_capacity", message: "Fast runner is at capacity. Try again in a few seconds." });
 
     const body = await readJson(req);
     const eventId = String(body.event_id || "").trim();
     const runnerToken = String(body.runner_token || "").trim();
     if (!eventId || runnerToken.length < 32) return json(res, 400, { success: false, error: "bad_request" });
 
-    busy = true;
+    activeJobs += 1;
     runTvJob(eventId, runnerToken).catch((e) => { busy = false; console.error("job failed", e); });
     return json(res, 202, { success: true, status: "running", message: "Warm TV runner accepted the job." });
   } catch (e) {
@@ -251,7 +252,7 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, "0.0.0.0", async () => {
   await ensureBrowser();
-  console.log(`tv-fast-runner listening on :${PORT} max=${MAX_MS}ms`);
+  console.log(`tv-fast-runner listening on :${PORT} max=${MAX_MS}ms concurrency=${MAX_CONCURRENT}`);
 });
 
 process.on("SIGINT", async () => { try { (await browserPromise)?.close?.(); } catch {} process.exit(0); });

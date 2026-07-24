@@ -5751,7 +5751,7 @@ Deno.serve(async (originalReq) => {
             if (backup.ok) {
               dispatched = true;
               dispatchDiag = backup.diag;
-              responseMessage = backup.message;
+              responseMessage = "GitHub runner started. Keep your TV on the code screen while it finishes.";
               await supabase.from("tv_login_events").update({
                 status: "queued",
                 result: null,
@@ -5784,12 +5784,12 @@ Deno.serve(async (originalReq) => {
               dispatchDiag = `fast_runner_${runnerRes.status}`;
               const runnerReason = runnerJson?.message || runnerJson?.error || txt.slice(0, 160);
               responseMessage = runnerRes.status === 409
-                ? "Fast TV runner is busy right now. Try again in a few seconds."
+                ? "Another TV sign-in is already running on this VPS. Try again in a few seconds."
                 : runnerReason || `Fast runner rejected the job (${runnerRes.status})`;
               await supabase.from("tv_login_events").update({ status: "error", result: "fast_runner_unavailable", message: responseMessage, finished_at: new Date().toISOString() }).eq("id", inserted.id);
             } else {
               dispatchDiag = "fast_runner_running";
-              responseMessage = runnerJson?.message || "Fast TV runner started.";
+              responseMessage = "Fast TV runner started. Keep your TV on the code screen.";
               await supabase.from("tv_login_events").update({ status: "running", message: responseMessage }).eq("id", inserted.id);
             }
           } else {
@@ -5902,31 +5902,7 @@ Deno.serve(async (originalReq) => {
       if (evErr) throw new Error(evErr.message);
       if (!ev) throw new Error("Event not found");
       if (String(ev.user_id) !== String(session.userId)) throw new Error("Forbidden");
-      let outEv = ev;
-      const pendingStatuses = new Set(["queued", "running", "in_progress"]);
-      const runnerStartedAtMs = Date.parse(String((ev.metadata as any)?.runnerStartedAt || ""));
-      const createdAtMs = Date.parse(String(ev.created_at || ""));
-      const mode = String((ev.metadata as any)?.runnerMode || "");
-      const isGithub = mode === "github" || String(ev.github_run_url || "").includes("github.com/");
-      const hasRunnerStart = Number.isFinite(runnerStartedAtMs);
-      const timeoutAnchorMs = hasRunnerStart ? runnerStartedAtMs : createdAtMs;
-      const timeoutMs = hasRunnerStart
-        ? (isGithub ? TV_GITHUB_RESULT_TIMEOUT_MS : TV_RUNNER_RESULT_TIMEOUT_MS)
-        : (isGithub ? TV_GITHUB_START_TIMEOUT_MS : TV_RUNNER_START_TIMEOUT_MS);
-      if (pendingStatuses.has(String(ev.status || "")) && Number.isFinite(timeoutAnchorMs) && Date.now() - timeoutAnchorMs > timeoutMs) {
-        const timeoutMessage = hasRunnerStart
-          ? "Netflix did not return a final TV login result in time. Please generate a fresh TV code and try again."
-          : isGithub
-            ? "GitHub runner is still queued. Please wait a little longer or try again if it stays stuck."
-            : "Fast TV runner did not start in time. Please try again after a few seconds.";
-        const { data: timedOut } = await supabase
-          .from("tv_login_events")
-          .update({ status: "error", result: "runner_timeout", message: timeoutMessage, finished_at: new Date().toISOString() })
-          .eq("id", eventId)
-          .select("id, status, result, message, account_label, screenshot_url, github_run_url, created_at, finished_at, user_id, metadata")
-          .maybeSingle();
-        outEv = timedOut || { ...ev, status: "error", result: "runner_timeout", message: timeoutMessage, finished_at: new Date().toISOString() };
-      }
+      const outEv = ev;
       return new Response(JSON.stringify({ success: true, event: outEv }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
