@@ -2129,7 +2129,7 @@ function TvQueueNoticeModal({ open, onClose }: { open: boolean; onClose: () => v
                 </div>
                 <div className="min-w-0">
                   <div className="text-sky-900 font-black text-sm">You can leave this screen</div>
-                  <div className="text-sky-800/80 text-xs mt-0.5 leading-relaxed">We'll keep processing in the background. Come back anytime to see the result.</div>
+                  <div className="text-sky-800/80 text-xs mt-0.5 leading-relaxed">Sign-in continues in the background. Come back anytime to see the result.</div>
                 </div>
               </div>
 
@@ -2139,7 +2139,7 @@ function TvQueueNoticeModal({ open, onClose }: { open: boolean; onClose: () => v
                 </div>
                 <div className="min-w-0">
                   <div className="text-amber-900 font-black text-sm">Don't turn off or close Netflix on TV</div>
-                  <div className="text-amber-800/80 text-xs mt-0.5 leading-relaxed">If the TV app closes, the code becomes invalid and the queued run can't complete.</div>
+                  <div className="text-amber-800/80 text-xs mt-0.5 leading-relaxed">If the TV app closes, the code becomes invalid and sign-in can't complete.</div>
                 </div>
               </div>
 
