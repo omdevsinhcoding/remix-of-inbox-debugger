@@ -1892,7 +1892,7 @@ function userFriendlyTvError(message?: string | null) {
   if (!raw) return "Please try again.";
   const lower = raw.toLowerCase();
   if (/locator|selector|timeout|waiting for|tvsignup|playwright|button:has-text|call log/.test(lower)) {
-    return "Netflix took too long to respond. Generate a fresh TV code and try again.";
+    return "Netflix did not respond cleanly. Generate a fresh TV code and try again.";
   }
   if (/invalid|wasn.?t right|incorrect|not recognized|try again/.test(lower)) {
     return "Netflix rejected the code. Generate a fresh code on your TV and try again.";
@@ -1901,6 +1901,112 @@ function userFriendlyTvError(message?: string | null) {
     return "Saved Netflix cookies are expired. Ask the admin to refresh cookies.";
   }
   return raw.length > 180 ? `${raw.slice(0, 177)}…` : raw;
+}
+
+type TvLoginStatus = "idle" | "verifying" | "checking" | "queued" | "running" | "in_progress" | "success" | "invalid_code" | "cookies_expired" | "no_cookies" | "error";
+
+const tvActiveCopy = [
+  "Starting secure browser",
+  "Opening Netflix TV",
+  "Entering your code",
+  "Checking sign-in result",
+];
+
+function getTvProgress(status: TvLoginStatus, elapsedMs: number) {
+  if (status === "verifying") return { title: "Verifying code", detail: "Checking the 8-digit code now.", progress: 14 };
+  if (status === "checking") return { title: "Checking account", detail: "Confirming saved cookies before sign-in.", progress: 28 };
+  const activeIndex = Math.floor(elapsedMs / 2200) % tvActiveCopy.length;
+  if (status === "queued") {
+    return {
+      title: tvActiveCopy[activeIndex],
+      detail: "Runner started. Keep this screen open.",
+      progress: Math.min(72, 34 + Math.floor(elapsedMs / 700)),
+    };
+  }
+  if (status === "running" || status === "in_progress") {
+    return {
+      title: tvActiveCopy[(activeIndex + 1) % tvActiveCopy.length],
+      detail: "Processing now. Keep your TV on the code screen.",
+      progress: Math.min(94, 58 + Math.floor(elapsedMs / 650)),
+    };
+  }
+  return { title: "Sign in on TV", detail: "", progress: 0 };
+}
+
+function getTvTerminalCopy(status: TvLoginStatus, message?: string | null) {
+  if (status === "success") return { title: "TV signed in", detail: "Securing this browser session now.", tone: "success" as const };
+  if (status === "invalid_code") return { title: "Code rejected — try again", detail: "Open Netflix on your TV and generate a fresh code.", tone: "danger" as const };
+  if (status === "cookies_expired") return { title: "Cookies expired", detail: "Ask admin to refresh this account in Cookies Vault.", tone: "warning" as const };
+  if (status === "no_cookies") return { title: "Session not ready", detail: "Saved cookies are not available for this account yet.", tone: "warning" as const };
+  if (status === "error") return { title: "Could not sign in — try again", detail: userFriendlyTvError(message), tone: "danger" as const };
+  return null;
+}
+
+function TvProcessButton({
+  status,
+  elapsedMs,
+  isComplete,
+  message,
+  onSubmit,
+  onRetry,
+  idleText,
+  theme = "dark",
+}: {
+  status: TvLoginStatus;
+  elapsedMs: number;
+  isComplete: boolean;
+  message?: string | null;
+  onSubmit: () => void;
+  onRetry: () => void;
+  idleText: string;
+  theme?: "dark" | "light";
+}) {
+  const active = ["verifying", "checking", "queued", "running", "in_progress"].includes(status);
+  const terminal = ["success", "invalid_code", "cookies_expired", "no_cookies", "error"].includes(status);
+  const process = getTvProgress(status, elapsedMs);
+  const terminalCopy = getTvTerminalCopy(status, message);
+  const canSubmit = status === "idle" && isComplete;
+  const dark = theme === "dark";
+  const disabled = active || (status === "idle" && !isComplete) || status === "success" || status === "no_cookies" || status === "cookies_expired";
+  const click = terminal && status !== "success" && status !== "no_cookies" && status !== "cookies_expired" ? onRetry : onSubmit;
+  const base = dark
+    ? "mt-6 w-full min-h-12 rounded-xl font-bold text-sm tracking-wide transition-all active:scale-[0.98] overflow-hidden relative"
+    : "mt-8 w-full min-h-14 2xl:min-h-16 rounded-xl xl:rounded-2xl font-black text-sm xl:text-base tracking-wide transition-all active:scale-[0.98] overflow-hidden relative";
+  const idleClass = canSubmit
+    ? dark
+      ? "bg-gradient-to-r from-[#e50914] to-[#b0060f] text-white shadow-lg shadow-[#e50914]/30 hover:shadow-[#e50914]/50 hover:brightness-110"
+      : "bg-gradient-to-r from-rose-600 to-red-600 text-white shadow-lg shadow-rose-600/25 hover:shadow-rose-600/40 hover:brightness-110"
+    : dark
+      ? "bg-white/[0.06] text-white/40 cursor-not-allowed"
+      : "bg-slate-100 text-slate-400 cursor-not-allowed";
+  const activeClass = dark
+    ? "bg-white/[0.08] border border-white/10 text-white shadow-[0_16px_40px_-22px_rgba(229,9,20,0.65)] cursor-wait"
+    : "bg-slate-900 text-white shadow-[0_20px_42px_-24px_rgba(15,23,42,0.75)] cursor-wait";
+  const terminalClass = terminalCopy?.tone === "success"
+    ? dark ? "bg-emerald-500/15 border border-emerald-400/30 text-emerald-200" : "bg-emerald-50 border border-emerald-200 text-emerald-800"
+    : terminalCopy?.tone === "warning"
+      ? dark ? "bg-amber-500/15 border border-amber-400/30 text-amber-200" : "bg-amber-50 border border-amber-200 text-amber-800"
+      : dark ? "bg-red-500/15 border border-red-400/30 text-red-200 hover:bg-red-500/20" : "bg-red-50 border border-red-200 text-red-700 hover:bg-red-100";
+  const title = terminalCopy?.title || (active ? process.title : idleText);
+  const detail = terminalCopy?.detail || (active ? process.detail : "");
+
+  return (
+    <button type="button" onClick={click} disabled={disabled} className={`${base} ${active ? activeClass : terminal ? terminalClass : idleClass}`}>
+      <span className="relative z-10 flex min-h-[inherit] flex-col items-center justify-center gap-0.5 px-4 py-2.5 text-center leading-tight">
+        <span className="inline-flex items-center justify-center gap-2">
+          {active && <Loader2 className="w-4 h-4 animate-spin" />}
+          {terminalCopy?.tone === "success" && <CheckCircle2 className="w-4 h-4" />}
+          <span>{title}</span>
+        </span>
+        {detail && <span className={`text-[10.5px] sm:text-[11px] font-semibold ${dark ? "opacity-70" : "opacity-75"}`}>{detail}</span>}
+      </span>
+      {active && (
+        <span className={`absolute inset-x-0 bottom-0 h-1 ${dark ? "bg-white/10" : "bg-white/15"}`}>
+          <span className="block h-full bg-current opacity-70 transition-all duration-500 ease-out" style={{ width: `${process.progress}%` }} />
+        </span>
+      )}
+    </button>
+  );
 }
 
 function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
@@ -1917,10 +2023,9 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
   const [chosen, setChosen] = useState<TvAccount | null>(null);
 
   const [code, setCode] = useState<string[]>(["", "", "", "", "", "", "", ""]);
-  const [status, setStatus] = useState<"idle" | "verifying" | "checking" | "queued" | "running" | "in_progress" | "success" | "invalid_code" | "cookies_expired" | "no_cookies" | "error" | "timeout">("idle");
+  const [status, setStatus] = useState<TvLoginStatus>("idle");
   const [resultInfo, setResultInfo] = useState<{ accountLabel?: string | null; imapMasked?: string | null; eventId?: string | null; message?: string | null; runUrl?: string | null }>({});
   const [pollElapsed, setPollElapsed] = useState(0);
-  const POLL_TIMEOUT_MS = 130_000; // GitHub Actions can cold-start/queue before fetching the job
   const inputsRef = useRef<Array<HTMLInputElement | null>>([]);
 
   const placePanel = useCallback(() => {
@@ -1970,6 +2075,7 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
 
   useEffect(() => {
     if (!open) return;
+    window.dispatchEvent(new CustomEvent("notif:open"));
     placePanel();
     setStep("select");
     setChosen(null);
@@ -1983,6 +2089,7 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
     window.addEventListener("resize", onReposition);
     window.addEventListener("scroll", onReposition, true);
     return () => {
+      window.dispatchEvent(new CustomEvent("notif:close"));
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("resize", onReposition);
       window.removeEventListener("scroll", onReposition, true);
@@ -2063,7 +2170,8 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
     setTimeout(() => inputsRef.current[0]?.focus(), 40);
   }, []);
 
-  // Poll the event until it reaches a terminal state or the client-side timeout fires.
+  // Poll until a real terminal result arrives. Slow queue/runner states stay active
+  // so the UI does not show fake timeout failures while the job is still running.
   useEffect(() => {
     const eventId = resultInfo.eventId;
     if (!eventId) return;
@@ -2077,20 +2185,6 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
     const tick = async () => {
       const elapsed = Date.now() - startedAt;
       setPollElapsed(elapsed);
-      // Soft wait — GitHub queue can take a while. Keep polling and update the message.
-      if (elapsed >= POLL_TIMEOUT_MS) {
-        if (!cancelled) {
-          setResultInfo((prev) => ({ ...prev, message: "Still working — the GitHub queue is taking longer than usual. Please keep this window open, it may take a moment." }));
-        }
-        // Give up only after 2× the soft budget.
-        if (elapsed >= POLL_TIMEOUT_MS * 2) {
-          if (!cancelled) {
-            setStatus("error");
-            setResultInfo((prev) => ({ ...prev, message: "Still no response from the runner. Please try again with a fresh code." }));
-          }
-          return;
-        }
-      }
       try {
         const res: any = await apiCall("manage-app", { action: "tv_login_status", event_id: eventId });
         if (cancelled) return;
@@ -2107,7 +2201,7 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
           }
           if (r === "runner_timeout" || r === "netflix_timeout") {
             setStatus("error");
-            setResultInfo((prev) => ({ ...prev, message: "Netflix took too long to respond. Please generate a fresh TV code and try again." }));
+            setResultInfo((prev) => ({ ...prev, message: "Netflix did not respond cleanly. Generate a fresh TV code and try again." }));
             return;
           }
           if (s === "invalid_code" || s === "cookies_expired" || s === "error") {
@@ -2321,124 +2415,25 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
                   ))}
                 </div>
 
-                {/* Submit */}
-                {!["invalid_code","cookies_expired","no_cookies","error"].includes(status) && (
-                <button
-                  onClick={submit}
-                  disabled={!isComplete || status !== "idle"}
-                  className={`mt-6 w-full h-11 rounded-xl font-bold text-sm tracking-wide transition-all active:scale-[0.98]
-                    ${isComplete && status === "idle"
-                      ? "bg-gradient-to-r from-[#e50914] to-[#b0060f] text-white shadow-lg shadow-[#e50914]/30 hover:shadow-[#e50914]/50 hover:brightness-110"
-                      : "bg-white/[0.06] text-white/40 cursor-not-allowed"}`}
-                >
-                  {status === "verifying" ? (
-                    <span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Verifying code…</span>
-                  ) : status === "checking" ? (
-                    <span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Checking your account…</span>
-                  ) : status === "queued" ? (
-                    <span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Preparing secure runner…</span>
-                  ) : status === "running" || status === "in_progress" ? (
-                    <span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Signing in to Netflix on your TV…</span>
-                  ) : status === "success" ? (
-                    <span className="inline-flex items-center gap-2 text-emerald-300">✓ TV signed in</span>
-                  ) : (
-                    "Continue"
-                  )}
-                </button>
+                {/* Submit / live process / final result */}
+                <TvProcessButton
+                  status={status}
+                  elapsedMs={pollElapsed}
+                  isComplete={isComplete}
+                  message={resultInfo.message}
+                  onSubmit={submit}
+                  onRetry={resetForRetry}
+                  idleText="Start TV sign-in"
+                  theme="dark"
+                />
+
+
+                {status === "idle" && (
+                  <div className="mt-4 flex items-center justify-center gap-1.5 text-[10.5px] text-white/40">
+                    <ShieldCheck className="w-3 h-3" />
+                    <span>Encrypted • One-time code • Never shared</span>
+                  </div>
                 )}
-
-
-                {/* Status / help */}
-                {(() => {
-                  const elapsedSec = Math.floor(pollElapsed / 1000);
-                  const remainingSec = Math.max(0, Math.ceil((POLL_TIMEOUT_MS - pollElapsed) / 1000));
-                  const terminal = ["invalid_code", "cookies_expired", "no_cookies", "error"].includes(status);
-                  return (
-                    <>
-                      {status === "queued" ? (
-                        <div className="mt-4 rounded-xl bg-sky-500/10 border border-sky-500/30 px-3 py-2.5 text-center">
-                          <div className="inline-flex items-center gap-1.5 text-[11px] font-bold text-sky-300">
-                            <span className="w-2 h-2 rounded-full bg-sky-400" /> Preparing secure runner
-                          </div>
-                          <div className="text-[10.5px] text-sky-200/80 mt-1 leading-relaxed">
-                            Your job is queued. Spinning up a private headless browser… <span className="opacity-70">({elapsedSec}s)</span>
-                          </div>
-                        </div>
-                      ) : status === "running" || status === "in_progress" ? (
-                        <div className="mt-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 px-3 py-2.5 text-center">
-                          <div className="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-300">
-                            <span className="w-2 h-2 rounded-full bg-emerald-500" /> Process Login on TV in progress
-                          </div>
-                          <div className="text-[10.5px] text-emerald-200/80 mt-1 leading-relaxed">
-                            Signing in{resultInfo.accountLabel ? <> with <span className="font-semibold">{resultInfo.accountLabel}</span></> : null}
-                            {resultInfo.imapMasked ? <> · {resultInfo.imapMasked}</> : null}. Keep your TV on the code screen.
-                          </div>
-                          <div className="text-[10px] text-emerald-200/60 mt-1">GitHub queue can take a moment — please keep this window open.</div>
-                        </div>
-                      ) : status === "success" ? (
-                        <div className="mt-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 px-3 py-3 text-center">
-                          <div className="text-[12px] font-black text-emerald-300">Login successful</div>
-                          <div className="text-[10.5px] text-emerald-200/80 mt-1 leading-relaxed">
-                            Your TV is signed in. Wiping this browser session for security…
-                          </div>
-                        </div>
-                      ) : status === "invalid_code" ? (
-                        <div className="mt-4 rounded-xl bg-red-500/10 border border-red-500/30 px-3 py-2.5 text-center">
-                          <div className="text-[11px] font-bold text-red-300">Code was rejected</div>
-                          <div className="text-[10.5px] text-red-200/80 mt-0.5 leading-relaxed">Netflix didn't accept that 8-digit code. Please re-open the TV and try a fresh code.</div>
-                        </div>
-                      ) : status === "cookies_expired" ? (
-                        <div className="mt-4 rounded-xl bg-amber-500/10 border border-amber-500/30 px-3 py-2.5 text-center">
-                          <div className="text-[11px] font-bold text-amber-300">Cookies expired</div>
-                          <div className="text-[10.5px] text-amber-200/80 mt-0.5 leading-relaxed">This account's saved cookies are no longer valid. Ask the admin to refresh them in Cookies Vault.</div>
-                        </div>
-                      ) : status === "no_cookies" ? (
-                        <div className="mt-4 rounded-xl bg-amber-500/10 border border-amber-500/30 px-3 py-2.5 text-center">
-                          <div className="text-[11px] font-bold text-amber-300">Session not ready</div>
-                          <div className="text-[10.5px] text-amber-200/80 mt-0.5 leading-relaxed">
-                            Your code was received{resultInfo.accountLabel ? <> for <span className="font-semibold">{resultInfo.accountLabel}</span></> : null}, but no saved cookies are available yet. Please ask the admin to upload cookies for your account, then try again.
-                          </div>
-                        </div>
-                      ) : status === "error" ? (
-                        <div className="mt-4 rounded-xl bg-red-500/10 border border-red-500/30 px-3 py-2.5 text-center">
-                          <div className="text-[11px] font-bold text-red-300">Something went wrong</div>
-                          <div className="text-[10.5px] text-red-200/80 mt-0.5 leading-relaxed">{userFriendlyTvError(resultInfo.message)}</div>
-                        </div>
-                      ) : status === "checking" || status === "verifying" ? (
-                        <div className="mt-4 rounded-xl bg-white/[0.04] border border-white/10 px-3 py-2.5 text-center">
-                          <div className="text-[10.5px] text-white/70 leading-relaxed">
-                            {status === "verifying" ? "Verifying the 8-digit code…" : "Confirming your IMAP account and saved cookies…"}
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="mt-4 flex items-center justify-center gap-1.5 text-[10.5px] text-white/40">
-                          <ShieldCheck className="w-3 h-3" />
-                          <span>Encrypted • One-time code • Never shared</span>
-                        </div>
-                      )}
-
-                      {terminal && (
-                        <>
-                          <div className="mt-3 flex items-center gap-2">
-                            <button
-                              onClick={resetForRetry}
-                              className="flex-1 h-10 rounded-xl text-[12px] font-bold bg-white/10 text-white hover:bg-white/15 active:scale-[0.98] transition"
-                            >
-                              Try again
-                            </button>
-                            <button
-                              onClick={() => setOpen(false)}
-                              className="flex-1 h-10 rounded-xl text-[12px] font-bold bg-white/[0.04] border border-white/10 text-white/70 hover:bg-white/[0.08] active:scale-[0.98] transition"
-                            >
-                              Close
-                            </button>
-                          </div>
-                        </>
-                      )}
-
-                    </>
-                  );
-                })()}
 
 
               </>
@@ -2482,10 +2477,9 @@ function TvSignInPage() {
   const [accountsError, setAccountsError] = useState<string | null>(null);
   const [chosen, setChosen] = useState<TvAccount | null>(null);
   const [code, setCode] = useState<string[]>(["", "", "", "", "", "", "", ""]);
-  const [status, setStatus] = useState<"idle" | "verifying" | "checking" | "queued" | "running" | "in_progress" | "success" | "invalid_code" | "cookies_expired" | "no_cookies" | "error" | "timeout">("idle");
+  const [status, setStatus] = useState<TvLoginStatus>("idle");
   const [resultInfo, setResultInfo] = useState<{ accountLabel?: string | null; imapMasked?: string | null; eventId?: string | null; message?: string | null; runUrl?: string | null }>({});
   const [pollElapsed, setPollElapsed] = useState(0);
-  const POLL_TIMEOUT_MS = 60_000;
   const inputsRef = useRef<Array<HTMLInputElement | null>>([]);
 
   const applyAccounts = useCallback((list: TvAccount[]) => {
@@ -2518,6 +2512,7 @@ function TvSignInPage() {
   }, [applyAccounts]);
 
   useEffect(() => {
+    window.dispatchEvent(new CustomEvent("notif:open"));
     // Instant paint from session cache (populated by prefetchWorkflowAccounts), then
     // silently refresh in background so switching to TV feels immediate.
     const cached: any = readAccountsCache("tv");
@@ -2529,6 +2524,7 @@ function TvSignInPage() {
     } else {
       loadAccounts();
     }
+    return () => { window.dispatchEvent(new CustomEvent("notif:close")); };
   }, [loadAccounts, applyAccounts]);
 
   useEffect(() => {
@@ -2599,18 +2595,6 @@ function TvSignInPage() {
     const tick = async () => {
       const elapsed = Date.now() - startedAt;
       setPollElapsed(elapsed);
-      if (elapsed >= POLL_TIMEOUT_MS) {
-        if (!cancelled) {
-          setResultInfo((p) => ({ ...p, message: "Still working — the GitHub queue is taking longer than usual. Please keep this window open, it may take a moment." }));
-        }
-        if (elapsed >= POLL_TIMEOUT_MS * 2) {
-          if (!cancelled) {
-            setStatus("error");
-            setResultInfo((p) => ({ ...p, message: "Still no response from the runner. Please try again with a fresh code." }));
-          }
-          return;
-        }
-      }
       try {
         const res: any = await apiCall("manage-app", { action: "tv_login_status", event_id: eventId });
         if (cancelled) return;
@@ -2625,7 +2609,7 @@ function TvSignInPage() {
             setTimeout(() => { try { nukeBrowserIdentity().catch(() => {}); } catch {} }, 1600);
             return;
           }
-          if (r === "runner_timeout" || r === "netflix_timeout") { setStatus("error"); setResultInfo((p) => ({ ...p, message: "Netflix took too long to respond. Please generate a fresh TV code and try again." })); return; }
+          if (r === "runner_timeout" || r === "netflix_timeout") { setStatus("error"); setResultInfo((p) => ({ ...p, message: "Netflix did not respond cleanly. Generate a fresh TV code and try again." })); return; }
           if (s === "invalid_code" || s === "cookies_expired" || s === "error") { setStatus(s as any); return; }
           if (s === "running" || s === "queued") setStatus(s as any);
         }
@@ -2642,10 +2626,6 @@ function TvSignInPage() {
     timer = window.setTimeout(tick, 500);
     return () => { cancelled = true; if (timer) clearTimeout(timer); };
   }, [resultInfo.eventId, status]);
-
-  const elapsedSec = Math.floor(pollElapsed / 1000);
-  const remainingSec = Math.max(0, Math.ceil((POLL_TIMEOUT_MS - pollElapsed) / 1000));
-  const terminal = ["invalid_code", "cookies_expired", "no_cookies", "error"].includes(status);
 
   return (
     <div className="min-h-[calc(100vh-4rem)] px-3 sm:px-6 py-8 sm:py-12 xl:py-16 bg-gradient-to-b from-white via-rose-50/40 to-white">
@@ -2793,84 +2773,22 @@ function TvSignInPage() {
                   ))}
                 </div>
 
-                {!terminal && (
-                <button onClick={submit}
-                  disabled={!isComplete || status !== "idle"}
-                  className={`mt-8 w-full h-12 xl:h-14 2xl:h-16 rounded-xl xl:rounded-2xl font-black text-sm xl:text-base 2xl:text-lg tracking-wide transition-all active:scale-[0.98]
-                    ${isComplete && status === "idle"
-                      ? "bg-gradient-to-r from-rose-600 to-red-600 text-white shadow-lg shadow-rose-600/25 hover:shadow-rose-600/40 hover:brightness-110"
-                      : "bg-slate-100 text-slate-400 cursor-not-allowed"}`}>
-                  {status === "verifying" ? (<span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Verifying code…</span>)
-                    : status === "checking" ? (<span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Checking your account…</span>)
-                    : status === "queued" ? (<span>Preparing secure runner…</span>)
-                    : status === "running" || status === "in_progress" ? (<span>Signing in to Netflix on your TV…</span>)
-                    : status === "success" ? (<span className="inline-flex items-center gap-2 text-emerald-700">✓ TV signed in</span>)
-                    : ("Sign in on TV")}
-                </button>
-                )}
+                <TvProcessButton
+                  status={status}
+                  elapsedMs={pollElapsed}
+                  isComplete={isComplete}
+                  message={resultInfo.message}
+                  onSubmit={submit}
+                  onRetry={resetForRetry}
+                  idleText="Sign in on TV"
+                  theme="light"
+                />
 
-                {status === "queued" ? (
-                  <div className="mt-4 rounded-2xl bg-sky-50 border border-sky-200 px-4 py-3 text-center">
-                    <div className="inline-flex items-center gap-1.5 text-xs font-bold text-sky-700"><span className="w-2 h-2 rounded-full bg-sky-500" /> Preparing secure runner</div>
-                    <div className="text-[11px] text-sky-600 mt-1">Your job is queued. Spinning up a private headless browser… <span className="opacity-70">({elapsedSec}s)</span></div>
-                  </div>
-                ) : status === "running" || status === "in_progress" ? (
-                  <div className="mt-4 rounded-2xl bg-emerald-50 border border-emerald-200 px-4 py-3 text-center">
-                    <div className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700"><span className="w-2 h-2 rounded-full bg-emerald-500" /> Signing in on your TV</div>
-                    <div className="text-[11px] text-emerald-600 mt-1">Keep your TV on the code screen. GitHub queue can take a moment — please wait.</div>
-                  </div>
-                ) : status === "success" ? (
-                  <div className="mt-4 rounded-2xl bg-emerald-50 border border-emerald-200 px-4 py-4 text-center">
-                    <div className="text-sm font-black text-emerald-700">Login successful</div>
-                    <div className="text-[11px] text-emerald-600 mt-1">Your TV is signed in. Wiping this browser session for security…</div>
-                  </div>
-                ) : status === "invalid_code" ? (
-                  <div className="mt-4 rounded-2xl bg-red-50 border border-red-200 px-4 py-3 text-center">
-                    <div className="text-xs font-bold text-red-700">Code was rejected</div>
-                    <div className="text-[11px] text-red-600 mt-0.5">Netflix didn't accept that code. Re-open the TV and try a fresh code.</div>
-                  </div>
-                ) : status === "cookies_expired" ? (
-                  <div className="mt-4 rounded-2xl bg-amber-50 border border-amber-200 px-4 py-3 text-center">
-                    <div className="text-xs font-bold text-amber-800">Cookies expired</div>
-                    <div className="text-[11px] text-amber-700 mt-0.5">Saved cookies are no longer valid. Ask the admin to refresh them.</div>
-                  </div>
-                ) : status === "no_cookies" ? (
-                  <div className="mt-4 rounded-2xl bg-amber-50 border border-amber-200 px-4 py-3 text-center">
-                    <div className="text-xs font-bold text-amber-800">Session not ready</div>
-                    <div className="text-[11px] text-amber-700 mt-0.5">Code received, but no saved cookies are available yet. Ask the admin to upload cookies, then try again.</div>
-                  </div>
-                ) : status === "error" ? (
-                  <div className="mt-4 rounded-2xl bg-red-50 border border-red-200 px-4 py-3 text-center">
-                    <div className="text-xs font-bold text-red-700">Something went wrong</div>
-                    <div className="text-[11px] text-red-600 mt-0.5">{userFriendlyTvError(resultInfo.message)}</div>
-                  </div>
-                ) : status === "checking" || status === "verifying" ? (
-                  <div className="mt-4 rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 text-center">
-                    <div className="text-[11px] text-slate-600">{status === "verifying" ? "Verifying the 8-digit code…" : "Confirming your IMAP account and saved cookies…"}</div>
-                  </div>
-                ) : (
+                {status === "idle" && (
                   <div className="mt-4 flex items-center justify-center gap-1.5 text-[11px] text-slate-400">
                     <ShieldCheck className="w-3 h-3" />
                     <span>Encrypted · One-time code · Never shared</span>
                   </div>
-                )}
-
-                {terminal && (
-                  <>
-                    <div className={`mt-4 grid gap-2 ${accounts.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
-                      <button onClick={resetForRetry}
-                        className="h-11 rounded-xl text-xs font-bold bg-slate-900 text-white hover:bg-slate-800 active:scale-[0.98] transition">
-                        Try again
-                      </button>
-                      {accounts.length > 1 && (
-                        <button onClick={() => { setStep("select"); setChosen(null); resetForRetry(); }}
-                          className="h-11 rounded-xl text-xs font-bold bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 active:scale-[0.98] transition">
-                          Change account
-                        </button>
-                      )}
-                    </div>
-                    
-                  </>
                 )}
               </div>
             )}

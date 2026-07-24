@@ -5751,7 +5751,7 @@ Deno.serve(async (originalReq) => {
             if (backup.ok) {
               dispatched = true;
               dispatchDiag = backup.diag;
-              responseMessage = backup.message;
+              responseMessage = "GitHub runner started. Keep your TV on the code screen while it finishes.";
               await supabase.from("tv_login_events").update({
                 status: "queued",
                 result: null,
@@ -5784,12 +5784,12 @@ Deno.serve(async (originalReq) => {
               dispatchDiag = `fast_runner_${runnerRes.status}`;
               const runnerReason = runnerJson?.message || runnerJson?.error || txt.slice(0, 160);
               responseMessage = runnerRes.status === 409
-                ? "Fast TV runner is busy right now. Try again in a few seconds."
+                ? "Another TV sign-in is already running on this VPS. Try again in a few seconds."
                 : runnerReason || `Fast runner rejected the job (${runnerRes.status})`;
               await supabase.from("tv_login_events").update({ status: "error", result: "fast_runner_unavailable", message: responseMessage, finished_at: new Date().toISOString() }).eq("id", inserted.id);
             } else {
               dispatchDiag = "fast_runner_running";
-              responseMessage = runnerJson?.message || "Fast TV runner started.";
+              responseMessage = "Fast TV runner started. Keep your TV on the code screen.";
               await supabase.from("tv_login_events").update({ status: "running", message: responseMessage }).eq("id", inserted.id);
             }
           } else {
@@ -5840,54 +5840,6 @@ Deno.serve(async (originalReq) => {
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // ── User-triggered error report from TV modal ──
-    if (action === "tv_report_error") {
-      const session = await requireSession(req);
-      const p = (params || {}) as any;
-      const eventId = String(p?.event_id || "").trim();
-      const userNote = String(p?.note || "").slice(0, 500);
-      const uiStatus = String(p?.ui_status || "").slice(0, 40);
-      const uiMessage = String(p?.ui_message || "").slice(0, 500);
-      const { data: user } = await supabase
-        .from("app_users")
-        .select("id, username, name")
-        .eq("id", session.userId)
-        .maybeSingle();
-      let ev: any = null;
-      if (eventId) {
-        const { data } = await supabase
-          .from("tv_login_events")
-          .select("id, status, result, message, account_label, imap_user, code, created_at, finished_at, github_run_url, metadata")
-          .eq("id", eventId)
-          .maybeSingle();
-        if (data && String(data.user_id ?? user?.id) === String(user?.id)) ev = data;
-        else ev = data; // still include for admin visibility
-      }
-      void sendTvLoginTelegram("user_error_report", {
-        event_id: eventId || "(none)",
-        user: user?.username,
-        user_id: user?.id,
-        display_name: user?.name,
-        ui_status: uiStatus,
-        ui_message: uiMessage,
-        user_note: userNote || "(no note)",
-        event_status: ev?.status,
-        event_result: ev?.result,
-        event_message: ev?.message,
-        account_label: ev?.account_label,
-        imap_user: ev?.imap_user,
-        code_last4: typeof ev?.code === "string" ? ev.code.slice(-4) : undefined,
-        created_at: ev?.created_at,
-        finished_at: ev?.finished_at,
-        run_url: ev?.github_run_url,
-        ip,
-        user_agent: (req.headers.get("user-agent") || "").slice(0, 160),
-      });
-      await auditLog(supabase, "tv_user_error_report", user?.id || null, user?.id || null, { event_id: eventId, ui_status: uiStatus }, ip);
-      return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-
-
     // ── TV auto-login: client polling ──────────────────────────────
     if (action === "tv_login_status") {
       const session = await requireSession(req);
@@ -5902,31 +5854,7 @@ Deno.serve(async (originalReq) => {
       if (evErr) throw new Error(evErr.message);
       if (!ev) throw new Error("Event not found");
       if (String(ev.user_id) !== String(session.userId)) throw new Error("Forbidden");
-      let outEv = ev;
-      const pendingStatuses = new Set(["queued", "running", "in_progress"]);
-      const runnerStartedAtMs = Date.parse(String((ev.metadata as any)?.runnerStartedAt || ""));
-      const createdAtMs = Date.parse(String(ev.created_at || ""));
-      const mode = String((ev.metadata as any)?.runnerMode || "");
-      const isGithub = mode === "github" || String(ev.github_run_url || "").includes("github.com/");
-      const hasRunnerStart = Number.isFinite(runnerStartedAtMs);
-      const timeoutAnchorMs = hasRunnerStart ? runnerStartedAtMs : createdAtMs;
-      const timeoutMs = hasRunnerStart
-        ? (isGithub ? TV_GITHUB_RESULT_TIMEOUT_MS : TV_RUNNER_RESULT_TIMEOUT_MS)
-        : (isGithub ? TV_GITHUB_START_TIMEOUT_MS : TV_RUNNER_START_TIMEOUT_MS);
-      if (pendingStatuses.has(String(ev.status || "")) && Number.isFinite(timeoutAnchorMs) && Date.now() - timeoutAnchorMs > timeoutMs) {
-        const timeoutMessage = hasRunnerStart
-          ? "Netflix did not return a final TV login result in time. Please generate a fresh TV code and try again."
-          : isGithub
-            ? "GitHub runner is still queued. Please wait a little longer or try again if it stays stuck."
-            : "Fast TV runner did not start in time. Please try again after a few seconds.";
-        const { data: timedOut } = await supabase
-          .from("tv_login_events")
-          .update({ status: "error", result: "runner_timeout", message: timeoutMessage, finished_at: new Date().toISOString() })
-          .eq("id", eventId)
-          .select("id, status, result, message, account_label, screenshot_url, github_run_url, created_at, finished_at, user_id, metadata")
-          .maybeSingle();
-        outEv = timedOut || { ...ev, status: "error", result: "runner_timeout", message: timeoutMessage, finished_at: new Date().toISOString() };
-      }
+      const outEv = ev;
       return new Response(JSON.stringify({ success: true, event: outEv }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 

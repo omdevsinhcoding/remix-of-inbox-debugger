@@ -5,10 +5,6 @@ on:
   repository_dispatch:
     types: [tv-login, tv-login-test]
 
-concurrency:
-  group: tv-login-${{ github.event.client_payload.event_id || github.event.client_payload.test_id || github.run_id }}
-  cancel-in-progress: false
-
 jobs:
   run:
     # Native ubuntu-latest boots ~1-2s (vs ~28s for the Playwright container).
