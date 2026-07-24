@@ -9952,18 +9952,23 @@ function AdminPanel() {
                 )}
                 {users.filter((u) => u.role !== "admin").map((u) => {
                   const enabled = adminUserFeatures(u).link;
+                  const avatarUri = getAvatarUri((u as any).profileAvatar);
                   return (
-                    <div key={u.id} className="py-3 flex items-center justify-between gap-3">
-                      <div className="min-w-0 flex items-center gap-3">
-                        <div className={`w-9 h-9 rounded-full flex items-center justify-center text-[12px] font-black ${enabled ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
-                          {(u.name || u.username || "?").slice(0, 2).toUpperCase()}
+                    <div key={u.id} className="py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                      <div className="min-w-0 flex items-center gap-3 flex-1">
+                        <div className={`w-10 h-10 rounded-full overflow-hidden flex items-center justify-center text-[12px] font-black shrink-0 ${enabled ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
+                          {avatarUri ? (
+                            <img src={avatarUri} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            (u.name || u.username || "?").slice(0, 2).toUpperCase()
+                          )}
                         </div>
-                        <div className="min-w-0">
+                        <div className="min-w-0 flex-1">
                           <div className="text-sm font-bold text-slate-900 truncate">{u.name || u.username}</div>
                           <div className="text-[11px] text-slate-500 truncate">@{u.username}</div>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2 shrink-0">
+                      <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end sm:flex-nowrap">
                         <button
                           type="button"
                           onClick={() => {
@@ -10002,7 +10007,7 @@ function AdminPanel() {
                         <button
                           type="button"
                           onClick={() => toggleUserFeature(u, "link")}
-                          className={`relative inline-flex h-7 w-12 rounded-full transition-colors ${enabled ? "bg-emerald-500" : "bg-slate-300"}`}
+                          className={`relative inline-flex h-7 w-12 rounded-full transition-colors shrink-0 ${enabled ? "bg-emerald-500" : "bg-slate-300"}`}
                           aria-label={enabled ? "Disable Direct Link" : "Enable Direct Link"}
                         >
                           <span className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-all ${enabled ? "left-[22px]" : "left-0.5"}`} />
@@ -10011,6 +10016,7 @@ function AdminPanel() {
                     </div>
                   );
                 })}
+
               </div>
             </section>
           </div>
