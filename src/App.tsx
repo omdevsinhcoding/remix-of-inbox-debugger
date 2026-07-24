@@ -9778,7 +9778,7 @@ function AdminPanel() {
                         <div>
                           <p className="font-bold text-slate-900">3. Form bharo</p>
                           <ul className="mt-1 space-y-1 text-slate-600 list-disc pl-4">
-                            <li><b>Token name:</b> <code className="px-1 py-0.5 rounded bg-slate-100 text-slate-800">lovable-tv-runner</code></li>
+                            <li><b>Token name:</b> koi bhi naam chalega (e.g. <code className="px-1 py-0.5 rounded bg-slate-100 text-slate-800">lovable-tv-runner</code>) — sirf tumhare reference ke liye hai</li>
                             <li><b>Expiration:</b> 1 year (ya custom)</li>
                             <li><b>Resource owner:</b> apna username / org</li>
                             <li><b>Repository access:</b> <i>Only select repositories</i> → apna repo choose karo</li>
