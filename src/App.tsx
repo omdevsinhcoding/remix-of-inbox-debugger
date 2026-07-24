@@ -13945,6 +13945,7 @@ function GlobalSessionOverlay() {
     <>
       <SessionCountdown role={role} />
       {role === "user" && <FreeExpiryPill userOverride={effectiveUser} />}
+      {role === "user" && <PlanEndsPill userOverride={effectiveUser} />}
     </>,
     document.body
   );
