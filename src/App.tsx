@@ -10389,35 +10389,31 @@ function AdminPanel() {
 
             {/* --- Live preview + Past notifications --- */}
             <div className="space-y-4 sm:space-y-6">
-              {/* Live preview keeps the dark card look because that's how users see it in the app */}
+              {/* Live preview — matches the white user-facing card */}
               <section className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-sm">
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-[10.5px] uppercase tracking-[0.16em] text-slate-500 font-bold">Live Preview</span>
                   <span className="text-[10px] text-slate-400">how users will see it</span>
                 </div>
-                <div className="rounded-2xl overflow-hidden mx-auto max-w-[400px]" style={{
-                  background: "rgba(14,14,17,0.96)",
-                  border: "1px solid rgba(255,255,255,0.06)",
-                  boxShadow: "0 20px 50px -18px rgba(0,0,0,0.35)",
-                }}>
-                  <div className={`h-[3px] ${notifPriority === "critical" ? "bg-rose-500" : notifPriority === "high" ? "bg-amber-500" : notifPriority === "normal" ? "bg-sky-500" : "bg-zinc-500"}`} />
+                <div className="rounded-2xl overflow-hidden mx-auto max-w-[400px] bg-white border border-slate-200 shadow-sm">
+                  <div className={`h-[3px] ${notifPriority === "critical" ? "bg-rose-500" : notifPriority === "high" ? "bg-amber-500" : notifPriority === "normal" ? "bg-sky-500" : "bg-slate-400"}`} />
                   {notifImageUrl && (
-                    <div className="aspect-[16/9] w-full bg-zinc-900 overflow-hidden">
+                    <div className="aspect-[16/9] w-full bg-slate-100 overflow-hidden">
                       <img src={notifImageUrl} referrerPolicy="no-referrer" className="w-full h-full object-cover" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
                     </div>
                   )}
                   <div className="p-5">
                     <div className="flex items-center gap-2 mb-2">
                       {notifPlatformIcon ? <PlatformChipVisual id={notifPlatformIcon} size={22} /> : null}
-                      <span className="text-[10px] uppercase tracking-[0.14em] text-zinc-400 font-medium capitalize">{notifCategory}</span>
+                      <span className="text-[10px] uppercase tracking-[0.14em] text-slate-500 font-semibold capitalize">{notifCategory}</span>
                     </div>
-                    <h3 className="text-white text-[19px] leading-tight mb-2" style={{ fontFamily: "'Instrument Serif', ui-serif, Georgia, serif", letterSpacing: "-0.015em" }}>
+                    <h3 className="text-slate-900 text-[19px] leading-tight mb-2 font-bold" style={{ letterSpacing: "-0.015em" }}>
                       {notifTitle || "Your title here"}
                     </h3>
-                    <p className="text-zinc-300 text-[13px] leading-relaxed font-light">{notifBody || "Short body text preview…"}</p>
-                    {notifDescription && <p className="mt-2 text-zinc-500 text-[12px] leading-relaxed font-light line-clamp-3">{notifDescription}</p>}
+                    <p className="text-slate-700 text-[13px] leading-relaxed">{notifBody || "Short body text preview…"}</p>
+                    {notifDescription && <p className="mt-2 text-slate-500 text-[12px] leading-relaxed line-clamp-3">{notifDescription}</p>}
                     {(notifActionLabel || notifActionUrl) && (
-                      <div className="mt-4 py-2 px-4 rounded-xl bg-white text-black text-center text-[13px] font-semibold">
+                      <div className="mt-4 py-2.5 px-4 rounded-xl bg-slate-900 text-white text-center text-[13px] font-bold">
                         {notifActionLabel || "CTA"}
                       </div>
                     )}
@@ -10436,7 +10432,7 @@ function AdminPanel() {
                     <RefreshCw className="w-3 h-3" /> Refresh
                   </button>
                 </div>
-                <div className="space-y-2.5 max-h-[60vh] overflow-y-auto pr-1">
+                <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
                   {adminNotifs.length === 0 && (
                     <div className="text-center py-10">
                       <div className="w-12 h-12 mx-auto rounded-full bg-slate-100 flex items-center justify-center mb-2">
@@ -10446,56 +10442,71 @@ function AdminPanel() {
                     </div>
                   )}
                   {adminNotifs.map((n) => (
-                    <div key={n.id} className="border border-slate-200 rounded-xl p-3.5 sm:p-4 hover:border-slate-300 hover:shadow-sm transition-all bg-white">
-                      <div className="flex items-start gap-3">
-                        {/* Prominent platform icon rail */}
-                        <div className="shrink-0">
-                          {n.platform_icon
-                            ? <PlatformChipVisual id={n.platform_icon} size={44} />
-                            : <div className="w-11 h-11 rounded-xl bg-slate-100 flex items-center justify-center"><Bell className="w-4 h-4 text-slate-400" /></div>}
+                    <div key={n.id} className="border border-slate-200 rounded-xl overflow-hidden hover:border-slate-300 hover:shadow-sm transition-all bg-white">
+                      {/* Hero image preview if uploaded — same as what users see */}
+                      {n.image_url && (
+                        <div className="relative aspect-[16/7] w-full overflow-hidden bg-slate-100 border-b border-slate-200">
+                          <img src={n.image_url} referrerPolicy="no-referrer" alt="" loading="lazy"
+                            className="absolute inset-0 w-full h-full object-cover"
+                            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
                         </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-1.5 mb-1 flex-wrap">
-                            <span className={`inline-flex items-center gap-1 text-[10px] font-semibold capitalize ${n.priority === "critical" ? "text-rose-600" : n.priority === "high" ? "text-amber-600" : n.priority === "normal" ? "text-sky-600" : "text-slate-500"}`}>
-                              <span className={`w-1.5 h-1.5 rounded-full ${n.priority === "critical" ? "bg-rose-500" : n.priority === "high" ? "bg-amber-500" : n.priority === "normal" ? "bg-sky-500" : "bg-slate-400"}`} />
-                              {n.priority || "low"}
-                            </span>
-                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 capitalize font-medium">{n.category || "announcement"}</span>
-                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${n.locked ? "bg-amber-50 text-amber-700 border border-amber-100" : "bg-emerald-50 text-emerald-700 border border-emerald-100"}`}>
-                              {n.locked ? "Locked" : "User delete OK"}
-                            </span>
-                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-medium">
-                              {n.audience === "all" ? `All · ${n.totalRecipients || 0}` : "Specific"}
-                            </span>
+                      )}
+                      <div className="p-3.5 sm:p-4">
+                        <div className="flex items-start gap-3">
+                          <div className="shrink-0">
+                            {n.platform_icon
+                              ? <PlatformChipVisual id={n.platform_icon} size={44} />
+                              : <div className="w-11 h-11 rounded-xl bg-slate-100 flex items-center justify-center"><Bell className="w-4 h-4 text-slate-400" /></div>}
                           </div>
-                          <p className="font-bold text-[14.5px] text-slate-900 truncate">{n.title}</p>
-                          <p className="text-[12.5px] text-slate-600 line-clamp-2 mt-0.5">{n.body}</p>
-                          <div className="flex items-center gap-3 mt-2 flex-wrap text-[11px]">
-                            <span className="inline-flex items-center gap-1 text-slate-600"><span className="font-bold">{n.seenCount || 0}</span> <span className="text-slate-400">seen</span></span>
-                            <span className="inline-flex items-center gap-1 text-emerald-700"><span className="font-bold">{n.readCount || 0}</span> <span className="text-slate-400">read</span></span>
-                            <span className="inline-flex items-center gap-1 text-sky-700"><span className="font-bold">{n.clickCount || 0}</span> <span className="text-slate-400">clicked</span></span>
-                            <span className="inline-flex items-center gap-1 text-rose-600"><span className="font-bold">{n.deletedCount || 0}</span> <span className="text-slate-400">deleted</span></span>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5 mb-1 flex-wrap">
+                              <span className={`inline-flex items-center gap-1 text-[10px] font-semibold capitalize ${n.priority === "critical" ? "text-rose-600" : n.priority === "high" ? "text-amber-600" : n.priority === "normal" ? "text-sky-600" : "text-slate-500"}`}>
+                                <span className={`w-1.5 h-1.5 rounded-full ${n.priority === "critical" ? "bg-rose-500" : n.priority === "high" ? "bg-amber-500" : n.priority === "normal" ? "bg-sky-500" : "bg-slate-400"}`} />
+                                {n.priority || "low"}
+                              </span>
+                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 capitalize font-medium">{n.category || "announcement"}</span>
+                              <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${n.locked ? "bg-amber-50 text-amber-700 border border-amber-100" : "bg-emerald-50 text-emerald-700 border border-emerald-100"}`}>
+                                {n.locked ? "Locked" : "User delete OK"}
+                              </span>
+                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-medium">
+                                {n.audience === "all" ? `All · ${n.totalRecipients || 0}` : "Specific"}
+                              </span>
+                              {n.image_url && (
+                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100 font-medium inline-flex items-center gap-1">
+                                  <ImageIcon className="w-2.5 h-2.5" /> Image
+                                </span>
+                              )}
+                            </div>
+                            <p className="font-bold text-[14.5px] text-slate-900 truncate">{n.title}</p>
+                            <p className="text-[12.5px] text-slate-600 line-clamp-2 mt-0.5">{n.body}</p>
+                            <div className="flex items-center gap-3 mt-2 flex-wrap text-[11px]">
+                              <span className="inline-flex items-center gap-1 text-slate-600"><span className="font-bold">{n.seenCount || 0}</span> <span className="text-slate-400">seen</span></span>
+                              <span className="inline-flex items-center gap-1 text-emerald-700"><span className="font-bold">{n.readCount || 0}</span> <span className="text-slate-400">read</span></span>
+                              <span className="inline-flex items-center gap-1 text-sky-700"><span className="font-bold">{n.clickCount || 0}</span> <span className="text-slate-400">clicked</span></span>
+                              <span className="inline-flex items-center gap-1 text-rose-600"><span className="font-bold">{n.deletedCount || 0}</span> <span className="text-slate-400">deleted</span></span>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                      <div className="flex items-center gap-1.5 mt-3 pt-3 border-t border-slate-100">
-                        <button onClick={() => setRecipientsFor(n)} className="flex-1 min-h-[36px] px-3 py-1.5 rounded-lg text-[12px] font-bold text-white bg-slate-900 hover:bg-slate-800 flex items-center justify-center gap-1.5">
-                          <Users className="w-3.5 h-3.5" /> Recipients
-                        </button>
-                        <button onClick={() => setEditingNotif({ ...n })} className="flex-1 min-h-[36px] px-3 py-1.5 rounded-lg text-[12px] font-semibold text-slate-700 hover:bg-slate-100 border border-slate-200 flex items-center justify-center gap-1.5">
-                          <Edit className="w-3.5 h-3.5" /> Edit
-                        </button>
-                        <button onClick={() => duplicateToComposer(n)} className="min-h-[36px] px-3 py-1.5 rounded-lg text-[12px] font-semibold text-slate-700 hover:bg-slate-100 border border-slate-200 flex items-center justify-center gap-1.5" title="Duplicate">
-                          <Copy className="w-3.5 h-3.5" />
-                        </button>
-                        <button onClick={() => deleteNotification(n.id)} className="min-h-[36px] px-3 py-1.5 rounded-lg text-[12px] font-semibold text-rose-600 hover:bg-rose-50 border border-rose-200 flex items-center justify-center gap-1.5" title="Delete for everyone">
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        <div className="flex items-center gap-1.5 mt-3 pt-3 border-t border-slate-100">
+                          <button onClick={() => setRecipientsFor(n)} className="flex-1 min-h-[36px] px-3 py-1.5 rounded-lg text-[12px] font-bold text-white bg-slate-900 hover:bg-slate-800 flex items-center justify-center gap-1.5">
+                            <Users className="w-3.5 h-3.5" /> Recipients
+                          </button>
+                          <button onClick={() => setEditingNotif({ ...n })} className="flex-1 min-h-[36px] px-3 py-1.5 rounded-lg text-[12px] font-semibold text-slate-700 hover:bg-slate-100 border border-slate-200 flex items-center justify-center gap-1.5">
+                            <Edit className="w-3.5 h-3.5" /> Edit
+                          </button>
+                          <button onClick={() => duplicateToComposer(n)} className="min-h-[36px] px-3 py-1.5 rounded-lg text-[12px] font-semibold text-slate-700 hover:bg-slate-100 border border-slate-200 flex items-center justify-center gap-1.5" title="Duplicate">
+                            <Copy className="w-3.5 h-3.5" />
+                          </button>
+                          <button onClick={() => deleteNotification(n.id)} className="min-h-[36px] px-3 py-1.5 rounded-lg text-[12px] font-semibold text-rose-600 hover:bg-rose-50 border border-rose-200 flex items-center justify-center gap-1.5" title="Delete for everyone">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ))}
                 </div>
               </section>
+
             </div>
           </div>
         )}
