@@ -10207,246 +10207,239 @@ function AdminPanel() {
 
         {activeTab === "notifications" && (
           <div className="grid grid-cols-1 xl:grid-cols-[1.15fr_1fr] gap-4 sm:gap-6">
-            {/* --- Composer --- */}
-            <section className="bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 sm:p-7 rounded-3xl border border-white/5 shadow-2xl relative overflow-hidden">
-              <div className="absolute -top-24 -right-24 w-64 h-64 bg-orange-500/10 rounded-full blur-3xl pointer-events-none" />
-              <div className="relative">
-                <div className="flex items-center gap-3 mb-1">
-                  <div className="bg-gradient-to-br from-orange-500 to-red-600 p-2 rounded-xl shadow-lg shadow-orange-500/20">
-                    <Bell className="w-4 h-4 text-white" />
+            {/* --- Composer (light theme) --- */}
+            <section className="bg-white p-5 sm:p-7 rounded-2xl border border-slate-200 shadow-sm">
+              <div className="flex items-center gap-3 mb-5 pb-4 border-b border-slate-100">
+                <div className="bg-slate-900 p-2 rounded-xl">
+                  <Bell className="w-4 h-4 text-white" />
+                </div>
+                <div>
+                  <h2 className="font-bold text-slate-900 text-base sm:text-lg leading-tight">New Notification</h2>
+                  <p className="text-[11px] text-slate-500">Compose once. Publish to the right people.</p>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                {/* Title + Link URL side by side */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500 mb-1.5 block">Title <span className="text-rose-500">*</span></label>
+                    <input value={notifTitle} onChange={(e) => setNotifTitle(e.target.value)} placeholder="e.g. Join our Telegram Group"
+                      className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/5 transition-all" />
                   </div>
                   <div>
-                    <h2 className="font-black text-white text-base sm:text-lg leading-tight">New Notification</h2>
-                    <p className="text-[11px] text-slate-400">One card, one message. Keep it sharp.</p>
+                    <label className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500 mb-1.5 block">Link URL</label>
+                    <input value={notifActionUrl} onChange={(e) => setNotifActionUrl(e.target.value)} placeholder="https://t.me/yourchannel"
+                      className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/5 transition-all" />
                   </div>
                 </div>
 
-                <div className="mt-5 space-y-4">
-                  {/* Title + Link URL side by side */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500 mb-1.5 block">Title <span className="text-orange-400">*</span></label>
-                      <input value={notifTitle} onChange={(e) => setNotifTitle(e.target.value)} placeholder="e.g. Join our Telegram Group"
-                        className="w-full px-3.5 py-2.5 bg-white/[0.04] border border-white/10 rounded-xl dark-input text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-orange-500/50 focus:bg-white/[0.06] transition-all" />
-                    </div>
-                    <div>
-                      <label className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500 mb-1.5 block">Link URL</label>
-                      <input value={notifActionUrl} onChange={(e) => setNotifActionUrl(e.target.value)} placeholder="https://t.me/yourchannel"
-                        className="w-full px-3.5 py-2.5 bg-white/[0.04] border border-white/10 rounded-xl dark-input text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-orange-500/50 focus:bg-white/[0.06] transition-all" />
+                {/* Message */}
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500 mb-1.5 block">Message <span className="text-rose-500">*</span></label>
+                  <textarea value={notifBody} onChange={(e) => setNotifBody(e.target.value)} placeholder="e.g. Join our Telegram group for daily updates, free PDFs and notifications." rows={3}
+                    className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/5 transition-all resize-none" />
+                </div>
+
+                {/* Notification Template */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">Notification Type</label>
+                    {notifTemplate && (
+                      <button type="button" onClick={() => setNotifTemplate("")} className="text-[10px] font-semibold text-slate-500 hover:text-slate-900">Clear</button>
+                    )}
+                  </div>
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-2">
+                    <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5 max-h-[132px] overflow-y-auto pr-1">
+                      {TEMPLATE_OPTIONS.map((t) => {
+                        const active = notifTemplate === t.id;
+                        return (
+                          <button key={t.id} type="button" onClick={() => setNotifTemplate(t.id)} title={t.hint}
+                            className={`flex items-center gap-2 px-2 py-2 rounded-lg border transition-all min-w-0 ${active ? "bg-white border-slate-900 shadow-sm" : "bg-white border-slate-200 hover:border-slate-300"}`}>
+                            <div className="w-6 h-6 rounded-md flex items-center justify-center text-white shrink-0" style={{ background: t.color }}>
+                              <TemplateIcon id={t.id} className="w-3 h-3" />
+                            </div>
+                            <span className={`text-[10.5px] font-semibold truncate ${active ? "text-slate-900" : "text-slate-600"}`}>{t.label}</span>
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
+                </div>
 
-                  {/* Message */}
-                  <div>
-                    <label className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500 mb-1.5 block">Message <span className="text-orange-400">*</span></label>
-                    <textarea value={notifBody} onChange={(e) => setNotifBody(e.target.value)} placeholder="e.g. Join our Telegram group for daily updates, free PDFs and notifications." rows={3}
-                      className="w-full px-3.5 py-2.5 bg-white/[0.04] border border-white/10 rounded-xl dark-input text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-orange-500/50 focus:bg-white/[0.06] transition-all resize-none" />
+                {/* Platform / Icon */}
+                <div>
+                  <div className="flex items-center justify-between mb-2 gap-2">
+                    <label className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">Platform / Icon</label>
+                    <input value={platformSearch} onChange={(e) => setPlatformSearch(e.target.value)} placeholder="Search platform…"
+                      className="w-40 px-2 py-1 bg-white border border-slate-200 rounded-md text-[11px] text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-slate-900" />
                   </div>
-
-                  {/* Notification Template (guided type) */}
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <label className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">Notification Type</label>
-                      {notifTemplate && (
-                        <button type="button" onClick={() => setNotifTemplate("")} className="text-[10px] text-slate-500 hover:text-orange-400">Clear</button>
-                      )}
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-2 max-h-[240px] overflow-y-auto">
+                    <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5">
+                      {filteredPlatformOptions.map((p) => {
+                        const active = resolvePlatformOption(notifPlatformIcon).id === p.id;
+                        return (
+                          <button key={p.id || "none"} type="button" onClick={() => setNotifPlatformIcon(p.id)}
+                            className={`group relative flex flex-col items-center justify-center gap-1.5 py-2.5 px-1.5 rounded-lg border transition-all min-h-[74px] ${active ? "bg-white border-slate-900 shadow-sm" : "bg-white border-slate-200 hover:border-slate-300"}`}>
+                            <PlatformChipVisual id={p.id} size={40} />
+                            <span className={`text-[9.5px] font-medium text-center leading-tight px-0.5 line-clamp-2 ${active ? "text-slate-900" : "text-slate-500 group-hover:text-slate-700"}`}>{p.label}</span>
+                          </button>
+                        );
+                      })}
                     </div>
-                    <div className="bg-black/30 border border-white/[0.06] rounded-xl p-2">
-                      <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5 max-h-[132px] overflow-y-auto pr-1 [scrollbar-width:thin] [scrollbar-color:rgba(255,255,255,0.15)_transparent]">
-                        {TEMPLATE_OPTIONS.map((t) => {
-                          const active = notifTemplate === t.id;
-                          return (
-                            <button key={t.id} type="button" onClick={() => setNotifTemplate(t.id)} title={t.hint}
-                              className={`flex items-center gap-2 px-2 py-2 rounded-lg border transition-all min-w-0 ${active ? "border-orange-500/60 shadow-md shadow-orange-500/10" : "border-white/[0.06] hover:border-white/20"}`}
-                              style={active ? { background: `linear-gradient(135deg, ${t.color}22, ${t.color}0d)` } : { background: "rgba(255,255,255,0.02)" }}>
-                              <div className="w-6 h-6 rounded-md flex items-center justify-center text-white shrink-0" style={{ background: t.color }}>
-                                <TemplateIcon id={t.id} className="w-3 h-3" />
-                              </div>
-                              <span className={`text-[10.5px] font-semibold truncate ${active ? "text-white" : "text-slate-300"}`}>{t.label}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
+                    {filteredPlatformOptions.length === 0 && (
+                      <p className="text-center text-[11px] text-slate-500 py-4">No platform matches "{platformSearch}"</p>
+                    )}
                   </div>
+                </div>
 
-                  {/* Platform / Icon — scrollable container with search */}
-                  <div>
-                    <div className="flex items-center justify-between mb-2 gap-2">
-                      <label className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">Platform / Icon</label>
-                      <input value={platformSearch} onChange={(e) => setPlatformSearch(e.target.value)} placeholder="Search platform…"
-                        className="w-40 px-2 py-1 bg-white/[0.04] border border-white/10 rounded-md dark-input text-[11px] text-white placeholder:text-slate-600 focus:outline-none focus:border-orange-500/50" />
-                    </div>
-                    <div className="bg-black/30 border border-white/[0.06] rounded-xl p-2 max-h-[240px] overflow-y-auto [scrollbar-width:thin] [scrollbar-color:rgba(255,255,255,0.15)_transparent]">
-                      <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5">
-                        {filteredPlatformOptions.map((p) => {
-                          const active = resolvePlatformOption(notifPlatformIcon).id === p.id;
-                          return (
-                            <button key={p.id || "none"} type="button" onClick={() => setNotifPlatformIcon(p.id)}
-                              className={`group relative flex flex-col items-center justify-center gap-1.5 py-2.5 px-1.5 rounded-lg border transition-all min-h-[74px] ${active ? "bg-orange-500/10 border-orange-500/60 shadow-md shadow-orange-500/10" : "bg-white/[0.02] border-white/[0.05] hover:bg-white/[0.05] hover:border-white/15"}`}>
-                              <PlatformChipVisual id={p.id} size={40} />
-                              <span className={`text-[9.5px] font-medium text-center leading-tight px-0.5 line-clamp-2 ${active ? "text-white" : "text-slate-400 group-hover:text-slate-200"}`}>{p.label}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                      {filteredPlatformOptions.length === 0 && (
-                        <p className="text-center text-[11px] text-slate-500 py-4">No platform matches "{platformSearch}"</p>
-                      )}
-                    </div>
-                  </div>
-
-
-
-                  {/* Toggles: User can delete + Audience */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-3">
-                      <label className="text-[9.5px] font-bold uppercase tracking-[0.14em] text-slate-500 block mb-2">User Can Delete?</label>
+                {/* Toggles */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
+                    <label className="text-[9.5px] font-bold uppercase tracking-[0.14em] text-slate-500 block mb-2">User Can Delete?</label>
+                    <div className="flex items-center gap-2">
                       <button type="button" onClick={() => setNotifLocked(!notifLocked)}
-                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${!notifLocked ? "bg-emerald-500" : "bg-slate-700"}`}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${!notifLocked ? "bg-emerald-500" : "bg-slate-300"}`}
                         aria-label="Allow user to delete this notification">
                         <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${!notifLocked ? "translate-x-6" : "translate-x-1"}`} />
                       </button>
-                      <span className="ml-2 text-[11px] text-slate-400">
-                        {notifLocked
-                          ? "🔒 Locked — user delete nahi kar sakta"
-                          : "🔓 Haan, user delete kar sakta hai"}
+                      <span className="text-[11px] text-slate-600">
+                        {notifLocked ? "Locked" : "Allowed"}
                       </span>
                     </div>
-                    <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-3">
-                      <label className="text-[9.5px] font-bold uppercase tracking-[0.14em] text-slate-500 block mb-2">Audience</label>
-                      <div className="flex gap-1 text-[11px]">
-                        <button type="button" onClick={() => setNotifAudience("all")}
-                          className={`px-2.5 py-1 rounded-md font-semibold transition-all ${notifAudience === "all" ? "bg-white text-slate-900" : "text-slate-400 hover:text-white"}`}>All users</button>
-                        <button type="button" onClick={() => setNotifAudience("user")}
-                          className={`px-2.5 py-1 rounded-md font-semibold transition-all ${notifAudience === "user" ? "bg-white text-slate-900" : "text-slate-400 hover:text-white"}`}>Specific</button>
-                      </div>
+                  </div>
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
+                    <label className="text-[9.5px] font-bold uppercase tracking-[0.14em] text-slate-500 block mb-2">Audience</label>
+                    <div className="inline-flex bg-white border border-slate-200 rounded-lg p-0.5 text-[11px]">
+                      <button type="button" onClick={() => setNotifAudience("all")}
+                        className={`px-2.5 py-1 rounded-md font-semibold transition-all ${notifAudience === "all" ? "bg-slate-900 text-white" : "text-slate-500 hover:text-slate-900"}`}>All users</button>
+                      <button type="button" onClick={() => setNotifAudience("user")}
+                        className={`px-2.5 py-1 rounded-md font-semibold transition-all ${notifAudience === "user" ? "bg-slate-900 text-white" : "text-slate-500 hover:text-slate-900"}`}>Specific</button>
                     </div>
                   </div>
-
-                  {notifAudience === "user" && (
-                    <select value={notifTargetUser} onChange={(e) => setNotifTargetUser(e.target.value)}
-                      className="w-full px-3.5 py-2.5 bg-white border border-white/10 rounded-xl text-sm text-slate-900 font-medium focus:outline-none focus:border-orange-500/60">
-                      <option value="">— select user —</option>
-                      {users.map((u) => <option key={u.id} value={u.id}>{u.name || u.username}</option>)}
-                    </select>
-                  )}
-
-
-                  {/* Advanced toggle */}
-                  <details className="group">
-                    <summary className="cursor-pointer text-[11px] font-semibold text-slate-500 hover:text-slate-300 transition-colors flex items-center gap-1.5 list-none">
-                      <ChevronDown className="w-3.5 h-3.5 group-open:rotate-180 transition-transform" />
-                      Advanced (image, CTA label, expiry)
-                    </summary>
-                    <div className="mt-3 space-y-3 pl-1">
-                      <div>
-                        <label className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500 mb-1.5 block">Hero image URL</label>
-                        <div className="flex gap-2">
-                          <input value={notifImageUrl} onChange={(e) => setNotifImageUrl(e.target.value)} placeholder="https://…/image.jpg"
-                            className="flex-1 px-3.5 py-2 bg-white/[0.04] border border-white/10 rounded-xl dark-input text-sm text-white placeholder:text-slate-600" />
-                          <label className={`px-3 py-2 rounded-xl text-xs font-semibold cursor-pointer whitespace-nowrap transition-colors ${notifImageUploading ? "bg-white/5 text-slate-500 cursor-wait" : "bg-white text-slate-900 hover:bg-slate-200"}`}>
-                            {notifImageUploading ? "Uploading…" : "Upload"}
-                            <input type="file" accept="image/*" className="hidden" disabled={notifImageUploading}
-                              onChange={async (e) => {
-                                const file = e.target.files?.[0];
-                                e.currentTarget.value = "";
-                                if (!file) return;
-                                if (file.size > 8 * 1024 * 1024) { notify.error("Image too large (max 8 MB)"); return; }
-                                setNotifImageUploading(true);
-                                try {
-                                  const dataBase64: string = await new Promise((resolve, reject) => {
-                                    const r = new FileReader();
-                                    r.onload = () => resolve(String(r.result || ""));
-                                    r.onerror = () => reject(new Error("read failed"));
-                                    r.readAsDataURL(file);
-                                  });
-                                  const res = await apiCall("manage-app", {
-                                    action: "admin_upload_notification_image",
-                                    filename: file.name,
-                                    contentType: file.type || "image/jpeg",
-                                    dataBase64,
-                                  });
-                                  if (res?.success && res.url) { setNotifImageUrl(res.url); notify.success("Uploaded"); }
-                                  else throw new Error(res?.error || "upload failed");
-                                } catch (err: any) { notify.error(err?.message || "Upload failed"); }
-                                finally { setNotifImageUploading(false); }
-                              }} />
-                          </label>
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-2 gap-3">
-                        <input value={notifActionLabel} onChange={(e) => setNotifActionLabel(e.target.value)} placeholder="CTA label (auto if empty)"
-                          className="px-3.5 py-2 bg-white/[0.04] border border-white/10 rounded-xl dark-input text-sm text-white placeholder:text-slate-600" />
-                        <input value={notifExpiresDays} onChange={(e) => setNotifExpiresDays(e.target.value)} placeholder="Expires (days)" type="number" min="1"
-                          className="px-3.5 py-2 bg-white/[0.04] border border-white/10 rounded-xl dark-input text-sm text-white placeholder:text-slate-600" />
-                      </div>
-                      <div className="grid grid-cols-2 gap-3">
-                        <select value={notifPriority} onChange={(e) => setNotifPriority(e.target.value as any)}
-                          className="px-3.5 py-2 bg-white border border-white/10 rounded-xl text-sm text-slate-900 font-medium capitalize focus:outline-none focus:border-orange-500/60">
-                          {(["low","normal","high","critical"] as const).map(p => <option key={p} value={p} className="capitalize">{p} priority</option>)}
-                        </select>
-                        <select value={notifShowFrequency} onChange={(e) => setNotifShowFrequency(e.target.value as any)}
-                          className="px-3.5 py-2 bg-white border border-white/10 rounded-xl text-sm text-slate-900 font-medium focus:outline-none focus:border-orange-500/60">
-                          <option value="once">Show once</option>
-                          <option value="session">Every session</option>
-                          <option value="daily">Once per day</option>
-                          <option value="always">Always until read</option>
-                        </select>
-                      </div>
-
-                    </div>
-                  </details>
-
-                  <button onClick={sendNotification} disabled={sendingNotif || !notifTitle.trim() || !notifBody.trim()}
-                    className="w-full mt-2 bg-gradient-to-r from-orange-500 to-red-600 hover:from-orange-400 hover:to-red-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold py-3 rounded-xl text-sm flex items-center justify-center gap-2 shadow-lg shadow-orange-500/25 transition-all">
-                    <Send className="w-4 h-4" /> {sendingNotif ? "Publishing…" : "Publish Notification"}
-                  </button>
                 </div>
+
+                {notifAudience === "user" && (
+                  <select value={notifTargetUser} onChange={(e) => setNotifTargetUser(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 font-medium focus:outline-none focus:border-slate-900">
+                    <option value="">— select user —</option>
+                    {users.map((u) => <option key={u.id} value={u.id}>{u.name || u.username}</option>)}
+                  </select>
+                )}
+
+                {/* Advanced */}
+                <details className="group bg-slate-50 border border-slate-200 rounded-xl">
+                  <summary className="cursor-pointer text-[11px] font-semibold text-slate-600 hover:text-slate-900 transition-colors flex items-center gap-1.5 list-none px-3 py-2.5">
+                    <ChevronDown className="w-3.5 h-3.5 group-open:rotate-180 transition-transform" />
+                    Advanced (image, CTA label, expiry)
+                  </summary>
+                  <div className="px-3 pb-3 space-y-3">
+                    <div>
+                      <label className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500 mb-1.5 block">Hero image URL</label>
+                      <div className="flex gap-2">
+                        <input value={notifImageUrl} onChange={(e) => setNotifImageUrl(e.target.value)} placeholder="https://…/image.jpg"
+                          className="flex-1 px-3.5 py-2 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-slate-900" />
+                        <label className={`px-3 py-2 rounded-xl text-xs font-semibold cursor-pointer whitespace-nowrap transition-colors ${notifImageUploading ? "bg-slate-200 text-slate-500 cursor-wait" : "bg-slate-900 text-white hover:bg-slate-800"}`}>
+                          {notifImageUploading ? "Uploading…" : "Upload"}
+                          <input type="file" accept="image/*" className="hidden" disabled={notifImageUploading}
+                            onChange={async (e) => {
+                              const file = e.target.files?.[0];
+                              e.currentTarget.value = "";
+                              if (!file) return;
+                              if (file.size > 8 * 1024 * 1024) { notify.error("Image too large (max 8 MB)"); return; }
+                              setNotifImageUploading(true);
+                              try {
+                                const dataBase64: string = await new Promise((resolve, reject) => {
+                                  const r = new FileReader();
+                                  r.onload = () => resolve(String(r.result || ""));
+                                  r.onerror = () => reject(new Error("read failed"));
+                                  r.readAsDataURL(file);
+                                });
+                                const res = await apiCall("manage-app", {
+                                  action: "admin_upload_notification_image",
+                                  filename: file.name,
+                                  contentType: file.type || "image/jpeg",
+                                  dataBase64,
+                                });
+                                if (res?.success && res.url) { setNotifImageUrl(res.url); notify.success("Uploaded"); }
+                                else throw new Error(res?.error || "upload failed");
+                              } catch (err: any) { notify.error(err?.message || "Upload failed"); }
+                              finally { setNotifImageUploading(false); }
+                            }} />
+                        </label>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <input value={notifActionLabel} onChange={(e) => setNotifActionLabel(e.target.value)} placeholder="CTA label (auto if empty)"
+                        className="px-3.5 py-2 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-slate-900" />
+                      <input value={notifExpiresDays} onChange={(e) => setNotifExpiresDays(e.target.value)} placeholder="Expires (days)" type="number" min="1"
+                        className="px-3.5 py-2 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-slate-900" />
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <select value={notifPriority} onChange={(e) => setNotifPriority(e.target.value as any)}
+                        className="px-3.5 py-2 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 font-medium capitalize focus:outline-none focus:border-slate-900">
+                        {(["low","normal","high","critical"] as const).map(p => <option key={p} value={p} className="capitalize">{p} priority</option>)}
+                      </select>
+                      <select value={notifShowFrequency} onChange={(e) => setNotifShowFrequency(e.target.value as any)}
+                        className="px-3.5 py-2 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 font-medium focus:outline-none focus:border-slate-900">
+                        <option value="once">Show once</option>
+                        <option value="session">Every session</option>
+                        <option value="daily">Once per day</option>
+                        <option value="always">Always until read</option>
+                      </select>
+                    </div>
+                  </div>
+                </details>
+
+                <button onClick={sendNotification} disabled={sendingNotif || !notifTitle.trim() || !notifBody.trim()}
+                  className="w-full mt-2 bg-slate-900 hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold py-3 rounded-xl text-sm flex items-center justify-center gap-2 shadow-sm transition-all">
+                  <Send className="w-4 h-4" /> {sendingNotif ? "Publishing…" : "Publish Notification"}
+                </button>
               </div>
             </section>
 
-
             {/* --- Live preview + Past notifications --- */}
             <div className="space-y-4 sm:space-y-6">
-              <section className="rounded-2xl overflow-hidden border shadow-sm" style={{ background: "linear-gradient(180deg,#111 0%,#1a1a1c 100%)" }}>
-                <div className="px-4 py-2.5 flex items-center justify-between border-b border-white/[0.06]">
-                  <span className="text-[10.5px] uppercase tracking-[0.16em] text-zinc-400 font-medium">Live Preview</span>
-                  <span className="text-[10px] text-zinc-500">how users will see it</span>
+              {/* Live preview keeps the dark card look because that's how users see it in the app */}
+              <section className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-sm">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-[10.5px] uppercase tracking-[0.16em] text-slate-500 font-bold">Live Preview</span>
+                  <span className="text-[10px] text-slate-400">how users will see it</span>
                 </div>
-                <div className="p-5">
-                  <div className="rounded-2xl overflow-hidden mx-auto max-w-[400px]" style={{
-                    background: "rgba(14,14,17,0.92)",
-                    border: "1px solid rgba(255,255,255,0.08)",
-                    boxShadow: "0 20px 50px -10px rgba(0,0,0,0.6)",
-                  }}>
-                    <div className={`h-[3px] ${notifPriority === "critical" ? "bg-rose-500" : notifPriority === "high" ? "bg-amber-500" : notifPriority === "normal" ? "bg-sky-500" : "bg-zinc-500"}`} />
-                    {notifImageUrl && (
-                      <div className="aspect-[16/9] w-full bg-zinc-900 overflow-hidden">
-                        <img src={notifImageUrl} referrerPolicy="no-referrer" className="w-full h-full object-cover" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
+                <div className="rounded-2xl overflow-hidden mx-auto max-w-[400px]" style={{
+                  background: "rgba(14,14,17,0.96)",
+                  border: "1px solid rgba(255,255,255,0.06)",
+                  boxShadow: "0 20px 50px -18px rgba(0,0,0,0.35)",
+                }}>
+                  <div className={`h-[3px] ${notifPriority === "critical" ? "bg-rose-500" : notifPriority === "high" ? "bg-amber-500" : notifPriority === "normal" ? "bg-sky-500" : "bg-zinc-500"}`} />
+                  {notifImageUrl && (
+                    <div className="aspect-[16/9] w-full bg-zinc-900 overflow-hidden">
+                      <img src={notifImageUrl} referrerPolicy="no-referrer" className="w-full h-full object-cover" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
+                    </div>
+                  )}
+                  <div className="p-5">
+                    <div className="flex items-center gap-2 mb-2">
+                      {notifPlatformIcon ? <PlatformChipVisual id={notifPlatformIcon} size={22} /> : null}
+                      <span className="text-[10px] uppercase tracking-[0.14em] text-zinc-400 font-medium capitalize">{notifCategory}</span>
+                    </div>
+                    <h3 className="text-white text-[19px] leading-tight mb-2" style={{ fontFamily: "'Instrument Serif', ui-serif, Georgia, serif", letterSpacing: "-0.015em" }}>
+                      {notifTitle || "Your title here"}
+                    </h3>
+                    <p className="text-zinc-300 text-[13px] leading-relaxed font-light">{notifBody || "Short body text preview…"}</p>
+                    {notifDescription && <p className="mt-2 text-zinc-500 text-[12px] leading-relaxed font-light line-clamp-3">{notifDescription}</p>}
+                    {(notifActionLabel || notifActionUrl) && (
+                      <div className="mt-4 py-2 px-4 rounded-xl bg-white text-black text-center text-[13px] font-semibold">
+                        {notifActionLabel || "CTA"}
                       </div>
                     )}
-                    <div className="p-5">
-                      <span className="text-[10px] uppercase tracking-[0.14em] text-zinc-400 font-medium capitalize">{notifCategory}</span>
-                      <h3 className="text-white text-[19px] leading-tight mt-2 mb-2" style={{ fontFamily: "'Instrument Serif', ui-serif, Georgia, serif", letterSpacing: "-0.015em" }}>
-                        {notifTitle || "Your title here"}
-                      </h3>
-                      <p className="text-zinc-300 text-[13px] leading-relaxed font-light">{notifBody || "Short body text preview…"}</p>
-                      {notifDescription && <p className="mt-2 text-zinc-500 text-[12px] leading-relaxed font-light line-clamp-3">{notifDescription}</p>}
-                      {(notifActionLabel || notifActionUrl) && (
-                        <div className="mt-4 py-2 px-4 rounded-xl bg-white text-black text-center text-[13px] font-semibold">
-                          {notifActionLabel || "CTA"}
-                        </div>
-                      )}
-                    </div>
                   </div>
                 </div>
               </section>
 
-              <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="font-black text-base sm:text-lg flex items-center gap-2">
-                    <div className="bg-slate-100 p-1.5 rounded-lg"><MessageSquare className="w-4 h-4 text-slate-700" /></div>
+              <section className="bg-white p-5 sm:p-6 rounded-2xl border border-slate-200 shadow-sm">
+                <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
+                  <h2 className="font-bold text-base sm:text-lg flex items-center gap-2 text-slate-900">
+                    <div className="bg-slate-900 p-1.5 rounded-lg"><MessageSquare className="w-4 h-4 text-white" /></div>
                     Past Notifications
                     <span className="text-[11px] font-semibold text-slate-400">({adminNotifs.length})</span>
                   </h2>
@@ -10454,47 +10447,59 @@ function AdminPanel() {
                     <RefreshCw className="w-3 h-3" /> Refresh
                   </button>
                 </div>
-                <div className="space-y-2 max-h-[60vh] overflow-y-auto">
-                  {adminNotifs.length === 0 && <p className="text-sm text-slate-500">No notifications yet.</p>}
+                <div className="space-y-2.5 max-h-[60vh] overflow-y-auto pr-1">
+                  {adminNotifs.length === 0 && (
+                    <div className="text-center py-10">
+                      <div className="w-12 h-12 mx-auto rounded-full bg-slate-100 flex items-center justify-center mb-2">
+                        <Bell className="w-5 h-5 text-slate-400" />
+                      </div>
+                      <p className="text-sm text-slate-500">No notifications yet.</p>
+                    </div>
+                  )}
                   {adminNotifs.map((n) => (
-                    <div key={n.id} className="border-2 rounded-2xl p-4 hover:border-slate-300 hover:shadow-md transition-all group bg-white">
-                      <div className="flex items-start justify-between gap-3">
+                    <div key={n.id} className="border border-slate-200 rounded-xl p-3.5 sm:p-4 hover:border-slate-300 hover:shadow-sm transition-all bg-white">
+                      <div className="flex items-start gap-3">
+                        {/* Prominent platform icon rail */}
+                        <div className="shrink-0">
+                          {n.platform_icon
+                            ? <PlatformChipVisual id={n.platform_icon} size={44} />
+                            : <div className="w-11 h-11 rounded-xl bg-slate-100 flex items-center justify-center"><Bell className="w-4 h-4 text-slate-400" /></div>}
+                        </div>
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
-                            {n.platform_icon ? <PlatformChipVisual id={n.platform_icon} size={20} /> : null}
-                            <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-semibold ${n.locked ? "bg-amber-50 text-amber-700 border border-amber-200" : "bg-emerald-50 text-emerald-700 border border-emerald-200"}`}>
-                              {n.locked ? "🔒 Locked" : "🔓 User delete OK"}
-                            </span>
-                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 capitalize font-medium">{n.category || "announcement"}</span>
-                            <span className={`inline-flex items-center gap-1 text-[10px] font-semibold capitalize ${n.priority === "critical" ? "text-rose-600" : n.priority === "high" ? "text-amber-600" : n.priority === "normal" ? "text-sky-600" : "text-zinc-500"}`}>
-                              <span className={`w-1.5 h-1.5 rounded-full ${n.priority === "critical" ? "bg-rose-500" : n.priority === "high" ? "bg-amber-500" : n.priority === "normal" ? "bg-sky-500" : "bg-zinc-400"}`} />
+                          <div className="flex items-center gap-1.5 mb-1 flex-wrap">
+                            <span className={`inline-flex items-center gap-1 text-[10px] font-semibold capitalize ${n.priority === "critical" ? "text-rose-600" : n.priority === "high" ? "text-amber-600" : n.priority === "normal" ? "text-sky-600" : "text-slate-500"}`}>
+                              <span className={`w-1.5 h-1.5 rounded-full ${n.priority === "critical" ? "bg-rose-500" : n.priority === "high" ? "bg-amber-500" : n.priority === "normal" ? "bg-sky-500" : "bg-slate-400"}`} />
                               {n.priority || "low"}
                             </span>
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 capitalize font-medium">{n.category || "announcement"}</span>
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${n.locked ? "bg-amber-50 text-amber-700 border border-amber-100" : "bg-emerald-50 text-emerald-700 border border-emerald-100"}`}>
+                              {n.locked ? "Locked" : "User delete OK"}
+                            </span>
                             <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-medium">
-                              {n.audience === "all" ? `👥 Sabko (${n.totalRecipients || 0})` : "👤 Ek user ko"}
+                              {n.audience === "all" ? `All · ${n.totalRecipients || 0}` : "Specific"}
                             </span>
                           </div>
-                          <p className="font-black text-[15px] text-slate-900 truncate">{n.title}</p>
-                          <p className="text-xs text-slate-600 line-clamp-2 mt-0.5">{n.body}</p>
-                          <div className="flex items-center gap-3 mt-2 flex-wrap text-[11px] font-semibold">
-                            <span className="inline-flex items-center gap-1 text-slate-600">👀 {n.seenCount || 0} <span className="text-slate-400 font-normal">seen</span></span>
-                            <span className="inline-flex items-center gap-1 text-emerald-700">✅ {n.readCount || 0} <span className="text-slate-400 font-normal">read</span></span>
-                            <span className="inline-flex items-center gap-1 text-sky-700">🖱 {n.clickCount || 0} <span className="text-slate-400 font-normal">clicked</span></span>
-                            <span className="inline-flex items-center gap-1 text-rose-600">🗑 {n.deletedCount || 0} <span className="text-slate-400 font-normal">deleted</span></span>
+                          <p className="font-bold text-[14.5px] text-slate-900 truncate">{n.title}</p>
+                          <p className="text-[12.5px] text-slate-600 line-clamp-2 mt-0.5">{n.body}</p>
+                          <div className="flex items-center gap-3 mt-2 flex-wrap text-[11px]">
+                            <span className="inline-flex items-center gap-1 text-slate-600"><span className="font-bold">{n.seenCount || 0}</span> <span className="text-slate-400">seen</span></span>
+                            <span className="inline-flex items-center gap-1 text-emerald-700"><span className="font-bold">{n.readCount || 0}</span> <span className="text-slate-400">read</span></span>
+                            <span className="inline-flex items-center gap-1 text-sky-700"><span className="font-bold">{n.clickCount || 0}</span> <span className="text-slate-400">clicked</span></span>
+                            <span className="inline-flex items-center gap-1 text-rose-600"><span className="font-bold">{n.deletedCount || 0}</span> <span className="text-slate-400">deleted</span></span>
                           </div>
                         </div>
                       </div>
                       <div className="flex items-center gap-1.5 mt-3 pt-3 border-t border-slate-100">
-                        <button onClick={() => setRecipientsFor(n)} className="flex-1 min-h-[40px] px-3 py-2 rounded-lg text-[12px] font-bold text-white bg-slate-900 hover:bg-slate-800 flex items-center justify-center gap-1.5">
+                        <button onClick={() => setRecipientsFor(n)} className="flex-1 min-h-[36px] px-3 py-1.5 rounded-lg text-[12px] font-bold text-white bg-slate-900 hover:bg-slate-800 flex items-center justify-center gap-1.5">
                           <Users className="w-3.5 h-3.5" /> Recipients
                         </button>
-                        <button onClick={() => setEditingNotif({ ...n })} className="flex-1 min-h-[40px] px-3 py-2 rounded-lg text-[12px] font-semibold text-slate-700 hover:bg-slate-100 border border-slate-200 flex items-center justify-center gap-1.5">
+                        <button onClick={() => setEditingNotif({ ...n })} className="flex-1 min-h-[36px] px-3 py-1.5 rounded-lg text-[12px] font-semibold text-slate-700 hover:bg-slate-100 border border-slate-200 flex items-center justify-center gap-1.5">
                           <Edit className="w-3.5 h-3.5" /> Edit
                         </button>
-                        <button onClick={() => duplicateToComposer(n)} className="min-h-[40px] px-3 py-2 rounded-lg text-[12px] font-semibold text-slate-700 hover:bg-slate-100 border border-slate-200 flex items-center justify-center gap-1.5" title="Duplicate">
+                        <button onClick={() => duplicateToComposer(n)} className="min-h-[36px] px-3 py-1.5 rounded-lg text-[12px] font-semibold text-slate-700 hover:bg-slate-100 border border-slate-200 flex items-center justify-center gap-1.5" title="Duplicate">
                           <Copy className="w-3.5 h-3.5" />
                         </button>
-                        <button onClick={() => deleteNotification(n.id)} className="min-h-[40px] px-3 py-2 rounded-lg text-[12px] font-semibold text-red-600 hover:bg-red-50 border border-red-200 flex items-center justify-center gap-1.5" title="Delete for everyone">
+                        <button onClick={() => deleteNotification(n.id)} className="min-h-[36px] px-3 py-1.5 rounded-lg text-[12px] font-semibold text-rose-600 hover:bg-rose-50 border border-rose-200 flex items-center justify-center gap-1.5" title="Delete for everyone">
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
