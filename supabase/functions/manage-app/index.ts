@@ -5875,6 +5875,9 @@ Deno.serve(async (originalReq) => {
         .limit(1)
         .maybeSingle();
       return new Response(JSON.stringify({ success: true, event: ev || null }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+
 
     // ── TV auto-login: runner fetches job (HMAC-signed, plaintext) ──
     if (action === "tv_login_fetch_job" || action === "tv_login_report") {
