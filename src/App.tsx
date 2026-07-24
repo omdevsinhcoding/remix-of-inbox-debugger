@@ -2642,8 +2642,19 @@ function TvSignInPage() {
     setStatus("idle");
     setResultInfo({});
     setPollElapsed(0);
+    try { sessionStorage.removeItem(DRAFT_KEY); } catch {}
     setTimeout(() => inputsRef.current[0]?.focus(), 40);
   }, []);
+
+  // Persist draft (step + chosen + code) so a workflow switch doesn't wipe it.
+  useEffect(() => {
+    try {
+      if (status === "success") { sessionStorage.removeItem(DRAFT_KEY); return; }
+      sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ step, chosen, code }));
+    } catch {}
+  }, [step, chosen, code, status]);
+
+
 
   useEffect(() => {
     const eventId = resultInfo.eventId;
