@@ -2767,7 +2767,7 @@ Deno.serve(async (originalReq) => {
     }
 
     if (action === "create") {
-      const { username, password, name, role, assigned_accounts, is_free, expires_at, tv_override } = params;
+      const { username, password, name, role, assigned_accounts, is_free, expires_at, tv_override, plan_starts_at, plan_ends_at } = params;
       const isFree = !!is_free;
       if (!name) throw new Error("Name required");
       if (!isFree && (!username || !password)) throw new Error("Username and password required");
