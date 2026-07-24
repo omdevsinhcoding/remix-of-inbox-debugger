@@ -9854,15 +9854,6 @@ function AdminPanel() {
                     />
                   </div>
 
-                  <div>
-                    <label className="text-[11px] font-black uppercase tracking-wider text-slate-500">Runner URL</label>
-                    <input
-                      value={vpsCfg.runnerUrl}
-                      onChange={(e) => setVpsCfg((p) => ({ ...p, runnerUrl: e.target.value }))}
-                      placeholder={vpsCfg.ip ? `http://${vpsCfg.ip}:8788` : "http://IP:8788"}
-                      className="mt-2 w-full h-12 rounded-xl border border-slate-200 bg-white px-4 font-mono text-[14px] font-bold text-slate-950 outline-none focus:border-slate-950 focus:ring-2 focus:ring-slate-950/10"
-                    />
-                  </div>
 
                   <div>
                     <label className="text-[11px] font-black uppercase tracking-wider text-slate-500">SSH Private Key</label>
