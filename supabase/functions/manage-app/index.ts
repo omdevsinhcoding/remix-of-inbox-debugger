@@ -3257,7 +3257,7 @@ Deno.serve(async (originalReq) => {
       // 1) Validate PAT and get login
       const me = await ghApi(pat, "/user");
       if (me.status !== 200 || !me.json?.login) {
-        throw new Error(`GitHub token invalid (${me.status}). Create a fine-grained PAT with Actions: read+write, Secrets: read+write, Metadata: read.`);
+        throw new Error(`GitHub token invalid (${me.status}). Create a fine-grained PAT with Actions: read+write, Secrets: read+write, Contents: read+write, Metadata: read.`);
       }
       const login = String(me.json.login);
 
