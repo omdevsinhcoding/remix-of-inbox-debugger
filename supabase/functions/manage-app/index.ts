@@ -3496,6 +3496,26 @@ Deno.serve(async (originalReq) => {
       });
     }
 
+    if (action === "save_contact_info") {
+      const session = await requireAdmin(req);
+      const raw = params || {};
+      const trim = (v: any, max = 240) => typeof v === "string" ? v.trim().slice(0, max) : "";
+      const value = {
+        telegram: trim(raw.telegram),
+        whatsapp: trim(raw.whatsapp),
+        email: trim(raw.email),
+        note: trim(raw.note, 500),
+      };
+      const { error } = await supabase
+        .from("app_settings")
+        .upsert({ key: "contact_info", value }, { onConflict: "key" });
+      if (error) throw error;
+      invalidateBootstrapCache();
+      await auditLog(supabase, "settings_changed", session.userId, null, { key: "contact_info" }, ip);
+      return new Response(JSON.stringify({ success: true, value }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+
 
     if (action === "set_settings") {
       const session = await requireAdmin(req);
