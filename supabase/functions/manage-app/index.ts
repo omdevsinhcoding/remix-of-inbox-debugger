@@ -4132,12 +4132,30 @@ Deno.serve(async (originalReq) => {
       const session = await requireSession(req);
       const { data: user, error } = await supabase
         .from("app_users")
-        .select("id, username, name, role, must_change_password, assigned_accounts, profile_prefs, is_free, expires_at, auto_delete, tv_override, feature_gmail, feature_tv, feature_link, last_workflow_view")
+        .select("id, username, name, role, must_change_password, assigned_accounts, profile_prefs, is_free, expires_at, auto_delete, tv_override, feature_gmail, feature_tv, feature_link, last_workflow_view, plan_starts_at, plan_ends_at")
         .eq("id", session.userId)
         .single();
       if (error || !user) throw new Error("Account not found");
+
+      // Enforce plan expiry mid-session: if the plan ended after login, revoke.
+      if (user.role !== "admin" && !user.is_free && user.plan_ends_at) {
+        const endMs = Date.parse(String(user.plan_ends_at));
+        if (Number.isFinite(endMs) && endMs <= Date.now()) {
+          let contactInfo: any = null;
+          try {
+            const { data: ci } = await supabase.from("app_settings").select("value").eq("key", "contact_info").maybeSingle();
+            contactInfo = ci?.value || null;
+          } catch {}
+          return new Response(JSON.stringify({ success: false, error: "plan_finished", planEndsAt: user.plan_ends_at, contactInfo }), {
+            status: 200,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+      }
+
       return new Response(JSON.stringify({
         success: true,
+        serverNow: new Date().toISOString(),
         user: {
           id: user.id,
           username: user.username,
@@ -4154,6 +4172,8 @@ Deno.serve(async (originalReq) => {
           tvOverride: user.tv_override === "on" || user.tv_override === "off" ? user.tv_override : null,
           tvFeatureEnabled: await loadTvFeatureEnabled(supabase),
           features: pickFeatures(user),
+          planStartsAt: (user as any).plan_starts_at || null,
+          planEndsAt: (user as any).plan_ends_at || null,
           lastWorkflowView: ((): string | null => {
             const v = (user as any).last_workflow_view;
             return v === "gmail" || v === "tv" || v === "link" ? v : null;
