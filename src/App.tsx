@@ -113,6 +113,52 @@ const resolvePlatformOption = (value: string | null | undefined) => {
   return PLATFORM_OPTIONS.find((platform) => platform.id === id) || PLATFORM_OPTIONS.find((platform) => platform.id === "")!;
 };
 
+function DurationQuickAdd({ baseDateStr, onApply }: { baseDateStr: string; onApply: (localStr: string) => void }) {
+  const [amount, setAmount] = useState<string>("");
+  const [unit, setUnit] = useState<"days" | "months" | "years">("months");
+  const apply = () => {
+    const n = parseInt(amount, 10);
+    if (!Number.isFinite(n) || n <= 0) return;
+    const base = baseDateStr ? new Date(baseDateStr) : new Date();
+    if (Number.isNaN(base.getTime())) return;
+    const d = new Date(base);
+    if (unit === "days") d.setDate(d.getDate() + n);
+    else if (unit === "months") d.setMonth(d.getMonth() + n);
+    else d.setFullYear(d.getFullYear() + n);
+    const pad = (v: number) => String(v).padStart(2, "0");
+    onApply(`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`);
+    setAmount("");
+  };
+  return (
+    <div className="mt-2 flex items-stretch gap-1.5">
+      <input
+        type="number"
+        min={1}
+        inputMode="numeric"
+        value={amount}
+        onChange={(e) => setAmount(e.target.value.replace(/[^0-9]/g, ""))}
+        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); apply(); } }}
+        placeholder="e.g. 2"
+        className="w-20 px-2.5 py-1.5 rounded-lg border border-sky-200 bg-white text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-400"
+      />
+      <select
+        value={unit}
+        onChange={(e) => setUnit(e.target.value as "days" | "months" | "years")}
+        className="px-2 py-1.5 rounded-lg border border-sky-200 bg-white text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-400"
+      >
+        <option value="days">days</option>
+        <option value="months">months</option>
+        <option value="years">years</option>
+      </select>
+      <button type="button" onClick={apply}
+        className="px-3 py-1.5 rounded-lg text-xs font-black bg-sky-600 text-white hover:bg-sky-700 active:scale-95 transition-all">
+        Add
+      </button>
+    </div>
+  );
+}
+
+
 const platformMatchesSearch = (platform: PlatformOption, search: string) => {
   const query = normalizePlatformKey(search);
   if (!query) return true;
