@@ -8302,6 +8302,10 @@ function AdminPanel() {
       }
       // Free profile: passwordless one-tap entry. Username is optional/manual only
       // (never generated); password is never sent for free profiles.
+      if (!newIsFree && newPlanStartsAt && !newPlanEndsAt) {
+        notify.error("Plan end date required", { description: "Add an end date or use the duration box so the Plan pill can count down." });
+        return;
+      }
       const tvOv: "on" | "off" | null = newTvOverride === "on" || newTvOverride === "off" ? newTvOverride : null;
       const body: any = newIsFree
         ? {
@@ -8506,6 +8510,10 @@ function AdminPanel() {
       }
       const tvOvOut: "on" | "off" | null = editTvOverride === "on" ? "on" : editTvOverride === "off" ? "off" : null;
       const isPaidNonAdmin = !isFreeTarget && target?.role !== "admin";
+      if (isPaidNonAdmin && editPlanStartsAt && !editPlanEndsAt) {
+        notify.error("Plan end date required", { description: "Add an end date or use the duration box so the Plan pill can count down." });
+        return;
+      }
       const plan_starts_at = isPaidNonAdmin ? (editPlanStartsAt ? new Date(editPlanStartsAt).toISOString() : null) : undefined;
       const plan_ends_at = isPaidNonAdmin ? (editPlanEndsAt ? new Date(editPlanEndsAt).toISOString() : null) : undefined;
       await apiCall("manage-app", {
