@@ -16,7 +16,7 @@ const HMAC_KEY = process.env.TV_REPORT_HMAC_KEY;
 const RUN_URL = process.env.GITHUB_RUN_URL || "";
 const EVENT_PATH = process.env.EVENT_PATH;
 const DIRECT_EVENT_ID = process.env.EVENT_ID;
-const MAX_MS = Math.max(3000, Math.min(60000, Number(process.env.TV_LOGIN_MAX_MS || 45000)));
+const MAX_MS = Math.max(10000, Math.min(60000, Number(process.env.TV_LOGIN_MAX_MS || 30000)));
 const SCRIPT_STARTED_AT = Date.now();
 
 if (!TV_REPORT_URL || !HMAC_KEY || (!DIRECT_EVENT_ID && !EVENT_PATH)) {
@@ -123,7 +123,12 @@ function normalizeCookie(c) {
   return out;
 }
 
-const remaining = () => Math.max(1, MAX_MS - (Date.now() - SCRIPT_STARTED_AT));
+const remaining = () => Math.max(0, MAX_MS - (Date.now() - SCRIPT_STARTED_AT));
+const timeoutBudget = (desiredMs, floorMs = 1500) => {
+  const left = remaining();
+  if (left <= 0) return floorMs;
+  return Math.max(floorMs, Math.min(desiredMs, left));
+};
 
 // ── Main ────────────────────────────────────────────────────────────
 let EVENT_ID = DIRECT_EVENT_ID;
@@ -213,14 +218,14 @@ try {
     return route.continue();
   });
 
-  await page.goto("https://www.netflix.com/tv8", { waitUntil: "domcontentloaded", timeout: Math.min(8000, remaining()) });
+  await page.goto("https://www.netflix.com/tv8", { waitUntil: "domcontentloaded", timeout: timeoutBudget(10000, 5000) });
   console.log(`[perf] tv8 loaded in ${Date.now() - t0}ms url=${page.url()}`);
 
   // Netflix SPA hydrates the PIN inputs after JS runs. Give it real time
   // on GitHub runners (slower CPU than VPS).
   const hasCodeInput = await page.waitForSelector(
     'input.pin-number-input, input[aria-label^="PIN entry input"], input[maxlength="1"], input[data-uia*="digit"], input[type="tel"], input[inputmode="numeric"], input[name*="code" i]',
-    { timeout: Math.min(12000, remaining()) },
+    { timeout: timeoutBudget(12000, 4000) },
   ).then(() => true).catch(() => false);
 
   if (!hasCodeInput) {
@@ -245,21 +250,34 @@ try {
     }
   } else {
     const single = page.locator('input[type="tel"], input[inputmode="numeric"], input[name*="code" i]').first();
-    await single.waitFor({ timeout: Math.min(1500, remaining()) });
+    await single.waitFor({ timeout: timeoutBudget(3000, 1500) });
     await single.fill(code);
   }
 
-  await page.waitForFunction(() => {
+  const ready = await page.waitForFunction(() => {
     const buttons = Array.from(document.querySelectorAll("button"));
-    const btn = buttons.find((b) => /enter code|continue|sign in|submit/i.test(b.textContent || "") || b.classList.contains("tvsignup-continue-button"));
-    return !!btn && !btn.disabled;
-  }, { timeout: Math.min(1200, remaining()) }).catch(() => {});
-  const submit = page.locator('button.tvsignup-continue-button, button:has-text("Enter code"), button:has-text("Continue"), button:has-text("Sign In"), button:has-text("Submit")').first();
-  await submit.click({ timeout: Math.min(1000, remaining()) });
+    const btn = buttons.find((b) => b.classList.contains("tvsignup-continue-button") || /enter code|continue|sign in|submit/i.test(b.textContent || ""));
+    if (!btn || btn.disabled) return false;
+    const rect = btn.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  }, { timeout: timeoutBudget(5000, 2500) }).then(() => true).catch(() => false);
+
+  if (!ready) {
+    const bodyText = (await page.locator("body").innerText().catch(() => "")).toLowerCase();
+    status = "error"; result = "netflix_timeout"; message = `Netflix submit button did not become ready. body="${bodyText.slice(0, 160)}"`;
+    throw new Error(message);
+  }
+
+  await page.evaluate(() => {
+    const buttons = Array.from(document.querySelectorAll("button"));
+    const btn = buttons.find((b) => b.classList.contains("tvsignup-continue-button") || /enter code|continue|sign in|submit/i.test(b.textContent || ""));
+    if (!btn) throw new Error("submit_button_missing");
+    btn.click();
+  });
   console.log(`[perf] code submitted at ${Date.now() - t0}ms`);
 
   // Poll for result inside the global 9s SLA.
-  const deadline = Date.now() + Math.min(3000, remaining());
+  const deadline = Date.now() + Math.max(3000, Math.min(6000, timeoutBudget(6000, 3000)));
   let bodyText = "";
   while (Date.now() < deadline) {
     await page.waitForTimeout(200);
@@ -287,7 +305,22 @@ try {
   console.log(`Result: ${status} | ${message.slice(0, 120)} | total ${Date.now() - t0}ms`);
   await context.close();
 } catch (e) {
-  status = "error"; result = "runner_error"; message = e?.message || String(e);
+  const raw = e?.message || String(e);
+  if (result === "netflix_timeout") {
+    status = "error";
+    message = "Netflix took too long to show the submit/result screen. Please try a fresh TV code.";
+  } else if (/Timeout|timed out|timeout/i.test(raw)) {
+    status = "error"; result = "netflix_timeout";
+    message = "Netflix took too long to respond. Please try a fresh TV code.";
+  } else if (/invalid|wasn.?t right|incorrect|not recognized|try again/i.test(raw)) {
+    status = "invalid_code"; result = "invalid_code";
+    message = "Netflix rejected the code. Please generate a fresh code on your TV.";
+  } else if (/cookies expired|login|password|email/i.test(raw)) {
+    status = "cookies_expired"; result = "cookies_expired";
+    message = "Saved Netflix cookies are expired. Ask the admin to refresh cookies.";
+  } else {
+    status = "error"; result = "runner_error"; message = raw;
+  }
   console.error("Runner error:", message);
 } finally {
   await browser.close().catch(() => {});
