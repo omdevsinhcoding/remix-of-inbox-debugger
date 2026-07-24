@@ -2008,160 +2008,27 @@ function TvProcessButton({
   const title = terminalCopy?.title || (active ? process.title : idleText);
   const detail = terminalCopy?.detail || (active ? process.detail : "");
 
-  // Show the "process is queued — keep your TV on" notice the first time this
-  // sign-in enters an active runner state. It auto-hides on terminal.
-  const [noticeOpen, setNoticeOpen] = useState(false);
-  const noticeShownRef = useRef(false);
-  useEffect(() => {
-    if (active && !noticeShownRef.current) {
-      noticeShownRef.current = true;
-      setNoticeOpen(true);
-    }
-    if (terminal) {
-      noticeShownRef.current = false;
-      setNoticeOpen(false);
-    }
-    if (status === "idle") {
-      noticeShownRef.current = false;
-    }
-  }, [active, terminal, status]);
-
   return (
-    <>
-      <button type="button" onClick={click} disabled={disabled} className={`${base} ${active ? activeClass : terminal ? terminalClass : idleClass}`}>
-        <span className="relative z-10 flex min-h-[inherit] flex-col items-center justify-center gap-0.5 px-4 py-2.5 text-center leading-tight">
-          <span className="inline-flex items-center justify-center gap-2">
-            {active && <Loader2 className="w-4 h-4 animate-spin" />}
-            {terminalCopy?.tone === "success" && <CheckCircle2 className="w-4 h-4" />}
-            <span>{title}</span>
-          </span>
-          {detail && <span className={`text-[10.5px] sm:text-[11px] font-semibold ${dark ? "opacity-70" : "opacity-75"}`}>{detail}</span>}
+    <button type="button" onClick={click} disabled={disabled} className={`${base} ${active ? activeClass : terminal ? terminalClass : idleClass}`}>
+      <span className="relative z-10 flex min-h-[inherit] flex-col items-center justify-center gap-0.5 px-4 py-2.5 text-center leading-tight">
+        <span className="inline-flex items-center justify-center gap-2">
+          {active && <Loader2 className="w-4 h-4 animate-spin" />}
+          {terminalCopy?.tone === "success" && <CheckCircle2 className="w-4 h-4" />}
+          <span>{title}</span>
         </span>
-        {active && (
-          <span className={`absolute inset-x-0 bottom-0 h-1 ${dark ? "bg-white/10" : "bg-white/15"}`}>
-            <span className="block h-full bg-current opacity-70 transition-all duration-500 ease-out" style={{ width: `${process.progress}%` }} />
-          </span>
-        )}
-      </button>
-      <TvQueueNoticeModal open={noticeOpen && active} onClose={() => setNoticeOpen(false)} />
-    </>
-  );
-}
-
-// ============================================================================
-// TvQueueNoticeModal — attractive "your job is queued, keep TV on" modal.
-// Portaled to <body>, responsive bottom-sheet on mobile / centered on desktop.
-// ============================================================================
-function TvQueueNoticeModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
-
-  if (typeof document === "undefined") return null;
-  return createPortal(
-    <AnimatePresence>
-      {open && (
-        <motion.div
-          key="tvq-backdrop"
-          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-          transition={{ duration: 0.18 }}
-          className="fixed inset-0 z-[10025] bg-slate-950/60 backdrop-blur-md flex items-end sm:items-center justify-center px-3 sm:px-4 pt-4 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:py-4"
-          onClick={onClose}
-        >
-          <motion.div
-            key="tvq-card"
-            initial={{ opacity: 0, y: 32, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 18, scale: 0.98 }}
-            transition={{ type: "spring", stiffness: 260, damping: 24 }}
-            onClick={(e) => e.stopPropagation()}
-            className="relative w-full sm:max-w-md rounded-[1.75rem] sm:rounded-3xl bg-white shadow-[0_30px_90px_-20px_rgba(15,23,42,0.55)] overflow-hidden max-h-[min(88dvh,42rem)] overflow-y-auto overscroll-contain"
-          >
-            <div aria-hidden className="sm:hidden flex justify-center pt-2.5">
-              <div className="w-10 h-1 rounded-full bg-slate-300" />
-            </div>
-
-            {/* Netflix-red hero band */}
-            <div className="relative px-5 sm:px-7 pt-5 sm:pt-7 pb-6 sm:pb-7 bg-gradient-to-br from-[#e50914] via-[#b0060f] to-[#7a0410] text-white overflow-hidden">
-              <div aria-hidden className="pointer-events-none absolute -top-10 -right-10 w-40 h-40 rounded-full bg-white/10 blur-2xl" />
-              <div aria-hidden className="pointer-events-none absolute -bottom-14 -left-8 w-44 h-44 rounded-full bg-white/10 blur-3xl" />
-              <div className="relative flex items-start justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-11 h-11 rounded-2xl bg-white/15 ring-1 ring-white/30 flex items-center justify-center shadow-lg">
-                    <Tv className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <div className="text-[10px] uppercase tracking-[0.24em] font-bold opacity-80">Please wait</div>
-                    <div className="text-xl sm:text-2xl font-black tracking-tight leading-tight">Signing you in</div>
-                  </div>
-                </div>
-                <button
-                  onClick={onClose}
-                  aria-label="Close"
-                  className="w-9 h-9 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center transition-colors shrink-0"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-              <p className="relative mt-4 text-[13px] sm:text-sm leading-relaxed text-white/90">
-                This usually finishes in about <span className="font-bold text-white">20–30 seconds</span>. Please keep your TV on.
-              </p>
-            </div>
-
-            {/* Do / Don't list */}
-            <div className="px-5 sm:px-7 py-5 sm:py-6 space-y-3">
-              <div className="flex items-start gap-3 rounded-2xl bg-emerald-50 border border-emerald-100 p-3.5">
-                <div className="w-8 h-8 rounded-xl bg-emerald-500 text-white flex items-center justify-center shrink-0 shadow-sm">
-                  <Tv className="w-4 h-4" />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-emerald-900 font-black text-sm">Keep Netflix open on your TV</div>
-                  <div className="text-emerald-800/80 text-xs mt-0.5 leading-relaxed">Stay on the 8-digit code screen — don't close the app or turn off your TV.</div>
-                </div>
-              </div>
-
-              <div className="flex items-start gap-3 rounded-2xl bg-sky-50 border border-sky-100 p-3.5">
-                <div className="w-8 h-8 rounded-xl bg-sky-500 text-white flex items-center justify-center shrink-0 shadow-sm">
-                  <CheckCircle2 className="w-4 h-4" />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-sky-900 font-black text-sm">You can leave this screen</div>
-                  <div className="text-sky-800/80 text-xs mt-0.5 leading-relaxed">Sign-in continues in the background. Come back anytime to see the result.</div>
-                </div>
-              </div>
-
-              <div className="flex items-start gap-3 rounded-2xl bg-amber-50 border border-amber-100 p-3.5">
-                <div className="w-8 h-8 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-sm">
-                  <AlertTriangle className="w-4 h-4" />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-amber-900 font-black text-sm">Don't turn off or close Netflix on TV</div>
-                  <div className="text-amber-800/80 text-xs mt-0.5 leading-relaxed">If the TV app closes, the code becomes invalid and sign-in can't complete.</div>
-                </div>
-              </div>
-
-              <button
-                onClick={onClose}
-                className="mt-2 w-full min-h-12 rounded-xl bg-slate-900 text-white font-black text-sm tracking-wide hover:bg-slate-800 active:scale-[0.98] transition-all"
-              >
-                Got it — I'll keep TV on
-              </button>
-
-              <div className="flex items-center justify-center gap-1.5 text-[10.5px] text-slate-400 pt-1">
-                <ShieldCheck className="w-3 h-3" />
-                <span>Secure sign-in · Auto times-out safely</span>
-              </div>
-            </div>
-          </motion.div>
-        </motion.div>
+        {detail && <span className={`text-[10.5px] sm:text-[11px] font-semibold ${dark ? "opacity-70" : "opacity-75"}`}>{detail}</span>}
+      </span>
+      {active && (
+        <span className={`absolute inset-x-0 bottom-0 h-1 ${dark ? "bg-white/10" : "bg-white/15"}`}>
+          <span className="block h-full bg-current opacity-70 transition-all duration-500 ease-out" style={{ width: `${process.progress}%` }} />
+        </span>
       )}
-    </AnimatePresence>,
-    document.body,
+    </button>
   );
 }
+
+// TvQueueNoticeModal removed — the inline button state ("Signing you in… please keep your TV on")
+// is enough. No global popup so users who did not submit a code never see it.
 
 function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
 
@@ -2256,6 +2123,25 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
       return () => clearTimeout(t);
     }
   }, [open, step]);
+
+  // Resume in-flight sign-in from DB after a workflow switch / reload — state
+  // must not live only in React memory or switching to Gmail loses it.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res: any = await apiCall("manage-app", { action: "tv_login_active" });
+        if (cancelled) return;
+        const ev = res?.event;
+        if (!ev) return;
+        const s = String(ev.status || "");
+        if (!["queued", "running", "in_progress"].includes(s)) return;
+        setResultInfo({ accountLabel: ev.account_label, imapMasked: ev.imap_user || null, eventId: ev.id, message: ev.message || null, runUrl: ev.github_run_url || null });
+        setStatus(s as any);
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const setDigit = (i: number, v: string) => {
     const d = v.replace(/\D/g, "").slice(-1);
@@ -2686,6 +2572,24 @@ function TvSignInPage() {
       return () => clearTimeout(t);
     }
   }, [step]);
+
+  // Resume in-flight sign-in from DB (survives workflow switch / reload).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res: any = await apiCall("manage-app", { action: "tv_login_active" });
+        if (cancelled) return;
+        const ev = res?.event;
+        if (!ev) return;
+        const s = String(ev.status || "");
+        if (!["queued", "running", "in_progress"].includes(s)) return;
+        setResultInfo({ accountLabel: ev.account_label, imapMasked: ev.imap_user || null, eventId: ev.id, message: ev.message || null, runUrl: ev.github_run_url || null });
+        setStatus(s as any);
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const setDigit = (i: number, v: string) => {
     const d = v.replace(/\D/g, "").slice(-1);

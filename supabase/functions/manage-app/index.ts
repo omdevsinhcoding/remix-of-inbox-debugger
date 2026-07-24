@@ -5738,7 +5738,8 @@ Deno.serve(async (originalReq) => {
         const vpsCfgForRunner = publicVpsConfig(vpsRowForRunner?.value);
         const runnerMode: "vps" | "github" = (vpsCfgForRunner as any).mode === "github" ? "github" : "vps";
         const runnerBase = effectiveTvRunnerUrl(vpsRowForRunner?.value);
-        const userLabel = String(user?.name || user?.username || "user");
+        const baseLabel = String(user?.name || user?.username || "user");
+        const userLabel = matched?.label ? `${baseLabel} · ${matched.label}` : baseLabel;
         const tryGithubOnly = async (reason: string) => runnerMode === "github"
           ? await dispatchGithubTvRunner(inserted!.id, reason, userLabel).catch((err) => ({ ok: false, diag: "github_exception", message: err instanceof Error ? err.message : String(err) }))
           : { ok: false, diag: "vps_only_mode", message: "VPS mode is selected, so GitHub Actions will not run." };
@@ -5857,6 +5858,26 @@ Deno.serve(async (originalReq) => {
       const outEv = ev;
       return new Response(JSON.stringify({ success: true, event: outEv }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
+
+    // Returns the caller's most recent non-terminal TV login event (if any).
+    // Lets the UI resume in-flight sign-ins after workflow switches / reloads
+    // instead of losing state that only lived in React memory.
+    if (action === "tv_login_active") {
+      const session = await requireSession(req);
+      const cutoffIso = new Date(Date.now() - 10 * 60_000).toISOString();
+      const { data: ev } = await supabase
+        .from("tv_login_events")
+        .select("id, status, result, message, account_label, imap_user, github_run_url, created_at, finished_at, cookies_available")
+        .eq("user_id", session.userId)
+        .in("status", ["queued", "running", "in_progress", "verifying", "checking"])
+        .gte("created_at", cutoffIso)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      return new Response(JSON.stringify({ success: true, event: ev || null }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+
 
     // ── TV auto-login: runner fetches job (HMAC-signed, plaintext) ──
     if (action === "tv_login_fetch_job" || action === "tv_login_report") {
