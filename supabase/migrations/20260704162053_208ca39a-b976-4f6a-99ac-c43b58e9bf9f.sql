@@ -1,2 +1,0 @@
-ALTER TABLE public.app_users ADD COLUMN IF NOT EXISTS session_limit integer;
-ALTER TABLE public.app_users ADD CONSTRAINT app_users_session_limit_check CHECK (session_limit IS NULL OR session_limit >= 0);
