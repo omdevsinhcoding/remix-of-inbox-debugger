@@ -275,9 +275,13 @@ function getSessionDeadline(role: "admin" | "user", minutes?: number): number {
   const configuredMinutes = Number.isFinite(Number(minutes)) && Number(minutes) > 0
     ? Number(minutes)
     : DEFAULT_SESSION_TIMEOUT_MINUTES[role];
+  // The admin-configured absolute session window is the source of truth.
+  // Supabase access tokens auto-refresh in the background (~15 min lifetime),
+  // so `session_expires_at` must NEVER cap the configured deadline — otherwise
+  // an Admin Timeout of 60 min renders as ~15 min in the pill. Fall back to
+  // the raw access-token expiry only when no configured window exists.
   const configuredDeadline = started && configuredMinutes > 0 ? started + configuredMinutes * 60_000 : 0;
-  if (accessExpiresAt && configuredDeadline) return Math.min(accessExpiresAt, configuredDeadline);
-  return accessExpiresAt || configuredDeadline || 0;
+  return configuredDeadline || accessExpiresAt || 0;
 }
 
 function getSessionTotalMinutes(role: "admin" | "user", minutes?: number): number {
