@@ -2033,6 +2033,71 @@ Deno.serve(async (originalReq) => {
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
   );
 
+  // ---- GitHub Actions setup: DB-first config with env fallback -------------
+  async function loadGithubConfig(): Promise<{ pat: string; repo: string; hmacKey: string; updatedAt: string | null }> {
+    try {
+      const { data } = await supabase.from("github_config").select("pat, repo, hmac_key, updated_at").eq("id", 1).maybeSingle();
+      return {
+        pat: (data?.pat && String(data.pat)) || Deno.env.get("GITHUB_DISPATCH_PAT") || "",
+        repo: (data?.repo && String(data.repo)) || Deno.env.get("GITHUB_REPO") || "",
+        hmacKey: (data?.hmac_key && String(data.hmac_key)) || Deno.env.get("TV_REPORT_HMAC_KEY") || "",
+        updatedAt: data?.updated_at ? String(data.updated_at) : null,
+      };
+    } catch {
+      return {
+        pat: Deno.env.get("GITHUB_DISPATCH_PAT") || "",
+        repo: Deno.env.get("GITHUB_REPO") || "",
+        hmacKey: Deno.env.get("TV_REPORT_HMAC_KEY") || "",
+        updatedAt: null,
+      };
+    }
+  }
+  async function saveGithubConfig(patch: { pat?: string; repo?: string; hmac_key?: string; updated_by?: string | null }) {
+    const row: any = { id: 1, updated_at: new Date().toISOString() };
+    if (typeof patch.pat === "string") row.pat = patch.pat;
+    if (typeof patch.repo === "string") row.repo = patch.repo;
+    if (typeof patch.hmac_key === "string") row.hmac_key = patch.hmac_key;
+    if (patch.updated_by) row.updated_by = patch.updated_by;
+    const { error } = await supabase.from("github_config").upsert(row, { onConflict: "id" });
+    if (error) throw new Error(`Failed to save github_config: ${error.message}`);
+  }
+  async function ghApi(pat: string, path: string, init: RequestInit = {}): Promise<{ status: number; json: any; text: string }> {
+    const res = await fetch(`https://api.github.com${path}`, {
+      ...init,
+      headers: {
+        "Authorization": `Bearer ${pat}`,
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "Content-Type": "application/json",
+        ...(init.headers || {}),
+      },
+      signal: AbortSignal.timeout(10000),
+    });
+    const text = await res.text().catch(() => "");
+    let json: any = null;
+    try { json = text ? JSON.parse(text) : null; } catch {}
+    return { status: res.status, json, text };
+  }
+  async function pushGithubActionsSecret(pat: string, repo: string, name: string, value: string) {
+    const pk = await ghApi(pat, `/repos/${repo}/actions/secrets/public-key`);
+    if (pk.status !== 200 || !pk.json?.key || !pk.json?.key_id) {
+      throw new Error(`Could not read GitHub public key (${pk.status}). Ensure PAT has "Secrets: write" and repo access.`);
+    }
+    await sodium.ready;
+    const keyBytes = sodium.from_base64(String(pk.json.key), sodium.base64_variants.ORIGINAL);
+    const messageBytes = sodium.from_string(value);
+    const encrypted = sodium.crypto_box_seal(messageBytes, keyBytes);
+    const encryptedB64 = sodium.to_base64(encrypted, sodium.base64_variants.ORIGINAL);
+    const put = await ghApi(pat, `/repos/${repo}/actions/secrets/${encodeURIComponent(name)}`, {
+      method: "PUT",
+      body: JSON.stringify({ encrypted_value: encryptedB64, key_id: String(pk.json.key_id) }),
+    });
+    if (put.status !== 201 && put.status !== 204) {
+      throw new Error(`GitHub secret PUT failed (${put.status}): ${(put.text || "").slice(0, 200)}`);
+    }
+  }
+
+
   // F5: split signing key (session tokens) from encryption key (IMAP passwords).
   // ENCRYPTION_SECRET must remain SUPABASE_SERVICE_ROLE_KEY so existing AES-GCM
   // ciphertexts in app_settings.email_accounts can still be decrypted.
