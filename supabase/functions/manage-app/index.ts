@@ -42,7 +42,9 @@ const BOOTSTRAP_TTL_MS = 10_000;
 function invalidateBootstrapCache() { __bootstrapCache = null; }
 
 const TV_RUNNER_START_TIMEOUT_MS = 30_000;
+const TV_GITHUB_START_TIMEOUT_MS = 120_000;
 const TV_RUNNER_RESULT_TIMEOUT_MS = 55_000;
+const TV_GITHUB_RESULT_TIMEOUT_MS = 90_000;
 const TV_RUNNER_DISPATCH_TIMEOUT_MS = 3_500;
 
 type EmailVisibilityFilters = { showSignInCodes?: boolean; showPasswordResets?: boolean; showAccountUpdates?: boolean };
@@ -5609,7 +5611,10 @@ Deno.serve(async (originalReq) => {
       const code = String(p?.code || "").replace(/\D/g, "").slice(0, 8);
       if (code.length !== 8) throw new Error("Enter the 8-digit code shown on your TV");
 
-      const staleCutoffIso = new Date(Date.now() - 60_000).toISOString();
+      // GitHub Actions can cold-start slowly. Do not mark queued TV jobs stale
+      // before the workflow has had time to boot and fetch the event, otherwise
+      // the runner reaches `tv_login_fetch_job` and receives "Event is not runnable".
+      const staleCutoffIso = new Date(Date.now() - 10 * 60_000).toISOString();
       await supabase
         .from("tv_login_events")
         .update({
@@ -5745,7 +5750,12 @@ Deno.serve(async (originalReq) => {
               dispatched = true;
               dispatchDiag = backup.diag;
               responseMessage = backup.message;
-              await supabase.from("tv_login_events").update({ status: "queued", result: null, message: responseMessage }).eq("id", inserted.id);
+              await supabase.from("tv_login_events").update({
+                status: "queued",
+                result: null,
+                message: responseMessage,
+                metadata: { ...metadata, runnerMode: "github", githubQueuedAt: new Date().toISOString() },
+              }).eq("id", inserted.id);
             } else {
               responseMessage = `GitHub Actions failed: ${backup.message}`;
               await supabase.from("tv_login_events").update({ status: "error", result: "fast_runner_unavailable", message: responseMessage, finished_at: new Date().toISOString() }).eq("id", inserted.id);
@@ -5894,13 +5904,19 @@ Deno.serve(async (originalReq) => {
       const pendingStatuses = new Set(["queued", "running", "in_progress"]);
       const runnerStartedAtMs = Date.parse(String((ev.metadata as any)?.runnerStartedAt || ""));
       const createdAtMs = Date.parse(String(ev.created_at || ""));
+      const mode = String((ev.metadata as any)?.runnerMode || "");
+      const isGithub = mode === "github" || String(ev.github_run_url || "").includes("github.com/");
       const hasRunnerStart = Number.isFinite(runnerStartedAtMs);
       const timeoutAnchorMs = hasRunnerStart ? runnerStartedAtMs : createdAtMs;
-      const timeoutMs = hasRunnerStart ? TV_RUNNER_RESULT_TIMEOUT_MS : TV_RUNNER_START_TIMEOUT_MS;
+      const timeoutMs = hasRunnerStart
+        ? (isGithub ? TV_GITHUB_RESULT_TIMEOUT_MS : TV_RUNNER_RESULT_TIMEOUT_MS)
+        : (isGithub ? TV_GITHUB_START_TIMEOUT_MS : TV_RUNNER_START_TIMEOUT_MS);
       if (pendingStatuses.has(String(ev.status || "")) && Number.isFinite(timeoutAnchorMs) && Date.now() - timeoutAnchorMs > timeoutMs) {
         const timeoutMessage = hasRunnerStart
           ? "Netflix did not return a final TV login result in time. Please generate a fresh TV code and try again."
-          : "Fast TV runner did not start in time. Please try again after a few seconds.";
+          : isGithub
+            ? "GitHub runner is still queued. Please wait a little longer or try again if it stays stuck."
+            : "Fast TV runner did not start in time. Please try again after a few seconds.";
         const { data: timedOut } = await supabase
           .from("tv_login_events")
           .update({ status: "error", result: "runner_timeout", message: timeoutMessage, finished_at: new Date().toISOString() })

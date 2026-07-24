@@ -1955,7 +1955,7 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
   const [status, setStatus] = useState<"idle" | "verifying" | "checking" | "queued" | "running" | "in_progress" | "success" | "invalid_code" | "cookies_expired" | "no_cookies" | "error" | "timeout">("idle");
   const [resultInfo, setResultInfo] = useState<{ accountLabel?: string | null; imapMasked?: string | null; eventId?: string | null; message?: string | null; runUrl?: string | null }>({});
   const [pollElapsed, setPollElapsed] = useState(0);
-  const POLL_TIMEOUT_MS = 60_000; // GitHub Actions cold start ~30s + browser ~15s
+  const POLL_TIMEOUT_MS = 130_000; // GitHub Actions can cold-start/queue before fetching the job
   const inputsRef = useRef<Array<HTMLInputElement | null>>([]);
 
   const placePanel = useCallback(() => {
@@ -2116,7 +2116,7 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
       if (elapsed >= POLL_TIMEOUT_MS) {
         if (!cancelled) {
           setStatus("timeout");
-          setResultInfo((prev) => ({ ...prev, message: prev.message || "Netflix did not return a final TV login result in time. Generate a fresh TV code and try again." }));
+          setResultInfo((prev) => ({ ...prev, message: prev.message || "GitHub runner is taking too long. Generate a fresh TV code and try again." }));
         }
         return;
       }
