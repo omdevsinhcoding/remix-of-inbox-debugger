@@ -3299,7 +3299,7 @@ Deno.serve(async (originalReq) => {
       let chosenRepo = "";
       let checkedWorkflow = false;
       for (const cand of candidates) {
-        const wf = await ghApi(pat, `/repos/${cand}/contents/.github/workflows/tv-login.yml`);
+        const wf = await ghApi(pat, `/repos/${cand}/actions/workflows/tv-login.yml`);
         if (wf.status === 200) { chosenRepo = cand; checkedWorkflow = true; break; }
       }
       // Fallback: scan user's repos for the workflow file (first page only)
@@ -3309,12 +3309,12 @@ Deno.serve(async (originalReq) => {
         for (const r of repos) {
           const full = String(r?.full_name || "");
           if (!full) continue;
-          const wf = await ghApi(pat, `/repos/${full}/contents/.github/workflows/tv-login.yml`);
+          const wf = await ghApi(pat, `/repos/${full}/actions/workflows/tv-login.yml`);
           if (wf.status === 200) { chosenRepo = full; checkedWorkflow = true; break; }
         }
       }
       if (!chosenRepo) {
-        throw new Error("Could not find a repo with .github/workflows/tv-login.yml. Pass the repo as owner/name.");
+        throw new Error("Could not find the TV workflow. Repo field me exact owner/name daalo, token me wahi repo selected rakho, aur repo me .github/workflows/tv-login.yml present hona chahiye.");
       }
 
       // 3) Generate a fresh HMAC key
