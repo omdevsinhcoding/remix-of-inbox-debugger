@@ -9225,7 +9225,7 @@ function AdminPanel() {
                               )}
 
                               {/* Plan window (paid users only) */}
-                              {!u.isFree && u.role !== "admin" && (
+                              {!u.isFree && (u as any).role !== "admin" && (
                                 <div className="rounded-xl border border-sky-200 bg-sky-50/60 p-3 space-y-3">
                                   <div className="text-[11px] font-black uppercase tracking-wider text-sky-800">Plan Window</div>
                                   <div>
