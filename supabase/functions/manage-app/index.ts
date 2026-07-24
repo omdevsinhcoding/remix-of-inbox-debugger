@@ -2867,6 +2867,8 @@ Deno.serve(async (originalReq) => {
           sortOrder: data.sort_order ?? null,
           expiresAt: data.expires_at || null,
           tvOverride: data.tv_override === "on" || data.tv_override === "off" ? data.tv_override : null,
+          planStartsAt: (data as any).plan_starts_at || null,
+          planEndsAt: (data as any).plan_ends_at || null,
         },
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
