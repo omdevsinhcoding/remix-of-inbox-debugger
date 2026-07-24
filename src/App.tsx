@@ -3108,8 +3108,110 @@ function FreeExpiryPill({ userOverride }: { userOverride?: any } = {}) {
 }
 
 
+// --- Paid user plan-end countdown pill (mirror of FreeExpiryPill styling) ---
+function PlanEndsPill({ userOverride }: { userOverride?: any } = {}) {
+  const { user: authUser } = useAuth();
+  const user = userOverride || authUser;
+  const [now, setNow] = useState<number>(() => Date.now());
+  const [showInfo, setShowInfo] = useState(false);
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
 
-// --- Types ---
+  const isFree = !!(user as any)?.isFree;
+  const role = (user as any)?.role;
+  const endIso = (user as any)?.planEndsAt as string | null | undefined;
+  // Show only for paid non-admin users with a set plan end date.
+  if (isFree || role === "admin" || !endIso) return null;
+  const endMs = Date.parse(endIso);
+  if (!Number.isFinite(endMs)) return null;
+  const rem = endMs - now;
+  if (rem <= 0) return null;
+
+  const totalSec = Math.floor(rem / 1000);
+  const days = Math.floor(totalSec / 86400);
+  const hrs = Math.floor((totalSec % 86400) / 3600);
+  const mins = Math.floor((totalSec % 3600) / 60);
+  const secs = totalSec % 60;
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  const label = days >= 1 ? `${days}d ${pad(hrs)}:${pad(mins)}:${pad(secs)}` : `${pad(hrs)}:${pad(mins)}:${pad(secs)}`;
+
+  const urgent = rem <= 10 * 60_000;
+  const warn = !urgent && rem <= 60 * 60_000;
+  const cls = urgent
+    ? "bg-red-500 text-white animate-pulse ring-2 ring-red-300"
+    : warn
+    ? "bg-amber-500 text-white"
+    : "bg-sky-600/90 text-white";
+  const full = new Date(endMs).toLocaleString();
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setShowInfo((v) => !v)}
+        title="Plan ends"
+        className={`fixed z-[10001] left-3 sm:left-4 bottom-[calc(env(safe-area-inset-bottom)+0.75rem+2.25rem)] sm:bottom-[calc(1rem+2.5rem)] h-7 sm:h-8 px-3 sm:px-3.5 rounded-full text-[11px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1.5 select-none active:scale-95 transition`}
+      >
+        <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" />
+        Plan ends: {label}
+      </button>
+
+      {showInfo && createPortal(
+        <div
+          className="fixed inset-0 z-[10002] bg-slate-900/50 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"
+          onClick={() => setShowInfo(false)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="relative w-full sm:w-auto sm:min-w-[22rem] sm:max-w-md max-h-[92dvh] overflow-y-auto rounded-t-3xl sm:rounded-3xl bg-white shadow-2xl border border-slate-200 p-5 sm:p-6 pb-[calc(env(safe-area-inset-bottom)+1.25rem)] sm:pb-6"
+          >
+            <div aria-hidden className="sm:hidden flex justify-center -mt-1 mb-3">
+              <div className="w-10 h-1 rounded-full bg-slate-300" />
+            </div>
+            <div className="flex items-center gap-3 mb-4">
+              <div className={`w-11 h-11 rounded-2xl flex items-center justify-center flex-shrink-0 ${urgent ? "bg-red-100 text-red-600" : warn ? "bg-amber-100 text-amber-600" : "bg-sky-100 text-sky-600"}`}>
+                <Clock className="w-5 h-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-base font-extrabold text-slate-900 leading-tight">Your plan</div>
+                <div className="text-[11px] text-slate-500 mt-0.5">Time remaining</div>
+              </div>
+              <button
+                onClick={() => setShowInfo(false)}
+                aria-label="Close"
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-600 flex-shrink-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <p className="text-sm text-slate-700 leading-relaxed">
+              After your plan ends, sign-in features will be paused. Contact the admin to renew.
+            </p>
+            <div className="mt-4 rounded-xl bg-slate-50 border border-slate-200 px-4 py-3">
+              <div className="text-[10px] uppercase tracking-[0.14em] text-slate-500 font-bold">Ends on</div>
+              <div className="text-sm font-semibold text-slate-900 mt-1 break-words">{full}</div>
+              <div className="text-[11px] text-slate-500 mt-2">Remaining: <span className="font-bold text-slate-800">{label}</span></div>
+            </div>
+            <button
+              onClick={() => setShowInfo(false)}
+              className="mt-5 w-full h-11 rounded-xl bg-slate-900 text-white text-sm font-bold hover:bg-slate-800 active:scale-[0.98] transition"
+            >
+              Got it
+            </button>
+          </div>
+        </div>,
+        document.body,
+      )}
+    </>
+  );
+}
+
+
+
 interface Email {
   id: string; subject: string; from: string; to?: string; date: string; otp: string | null; preview: string; html: string; account_label?: string | null; cached_at?: string | null; destroyed?: boolean;
 }
