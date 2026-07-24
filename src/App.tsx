@@ -1916,7 +1916,7 @@ function userFriendlyTvError(message?: string | null) {
     return "Netflix rejected the code. Generate a fresh code on your TV and try again.";
   }
   if (/cookies?|login|password|email|expired/.test(lower)) {
-    return "Saved Netflix cookies are expired. Ask the admin to refresh cookies.";
+    return "This account isn't ready right now. Please contact the admin.";
   }
   return raw.length > 180 ? `${raw.slice(0, 177)}…` : raw;
 }
@@ -1924,27 +1924,27 @@ function userFriendlyTvError(message?: string | null) {
 type TvLoginStatus = "idle" | "verifying" | "checking" | "queued" | "running" | "in_progress" | "success" | "invalid_code" | "cookies_expired" | "no_cookies" | "error";
 
 const tvActiveCopy = [
-  "Starting secure browser",
-  "Opening Netflix TV",
-  "Entering your code",
-  "Checking sign-in result",
+  "Signing you in",
+  "Almost there",
+  "Just a moment",
+  "Finishing up",
 ];
 
 function getTvProgress(status: TvLoginStatus, elapsedMs: number) {
-  if (status === "verifying") return { title: "Verifying code", detail: "Checking the 8-digit code now.", progress: 14 };
-  if (status === "checking") return { title: "Checking account", detail: "Confirming saved cookies before sign-in.", progress: 28 };
+  if (status === "verifying") return { title: "Signing you in", detail: "Please keep your TV on.", progress: 14 };
+  if (status === "checking") return { title: "Signing you in", detail: "Please keep your TV on.", progress: 28 };
   const activeIndex = Math.floor(elapsedMs / 2200) % tvActiveCopy.length;
   if (status === "queued") {
     return {
       title: tvActiveCopy[activeIndex],
-      detail: "Runner started. Keep this screen open.",
+      detail: "Please keep your TV on.",
       progress: Math.min(72, 34 + Math.floor(elapsedMs / 700)),
     };
   }
   if (status === "running" || status === "in_progress") {
     return {
       title: tvActiveCopy[(activeIndex + 1) % tvActiveCopy.length],
-      detail: "Processing now. Keep your TV on the code screen.",
+      detail: "Please keep your TV on.",
       progress: Math.min(94, 58 + Math.floor(elapsedMs / 650)),
     };
   }
@@ -1952,10 +1952,10 @@ function getTvProgress(status: TvLoginStatus, elapsedMs: number) {
 }
 
 function getTvTerminalCopy(status: TvLoginStatus, message?: string | null) {
-  if (status === "success") return { title: "TV signed in", detail: "Securing this browser session now.", tone: "success" as const };
+  if (status === "success") return { title: "TV signed in", detail: "All set — enjoy!", tone: "success" as const };
   if (status === "invalid_code") return { title: "Code rejected — try again", detail: "Open Netflix on your TV and generate a fresh code.", tone: "danger" as const };
-  if (status === "cookies_expired") return { title: "Cookies expired", detail: "Ask admin to refresh this account in Cookies Vault.", tone: "warning" as const };
-  if (status === "no_cookies") return { title: "Session not ready", detail: "Saved cookies are not available for this account yet.", tone: "warning" as const };
+  if (status === "cookies_expired") return { title: "Account not ready", detail: "Please contact the admin.", tone: "warning" as const };
+  if (status === "no_cookies") return { title: "Account not ready", detail: "Please contact the admin.", tone: "warning" as const };
   if (status === "error") return { title: "Could not sign in — try again", detail: userFriendlyTvError(message), tone: "danger" as const };
   return null;
 }
@@ -2095,7 +2095,7 @@ function TvQueueNoticeModal({ open, onClose }: { open: boolean; onClose: () => v
                   </div>
                   <div>
                     <div className="text-[10px] uppercase tracking-[0.24em] font-bold opacity-80">Please wait</div>
-                    <div className="text-xl sm:text-2xl font-black tracking-tight leading-tight">Your sign-in is queued</div>
+                    <div className="text-xl sm:text-2xl font-black tracking-tight leading-tight">Signing you in</div>
                   </div>
                 </div>
                 <button
@@ -2107,7 +2107,7 @@ function TvQueueNoticeModal({ open, onClose }: { open: boolean; onClose: () => v
                 </button>
               </div>
               <p className="relative mt-4 text-[13px] sm:text-sm leading-relaxed text-white/90">
-                A secure runner is picking up your request. This usually finishes in about <span className="font-bold text-white">20–30 seconds</span>.
+                This usually finishes in about <span className="font-bold text-white">20–30 seconds</span>. Please keep your TV on.
               </p>
             </div>
 
@@ -2129,7 +2129,7 @@ function TvQueueNoticeModal({ open, onClose }: { open: boolean; onClose: () => v
                 </div>
                 <div className="min-w-0">
                   <div className="text-sky-900 font-black text-sm">You can leave this screen</div>
-                  <div className="text-sky-800/80 text-xs mt-0.5 leading-relaxed">We'll keep processing in the background. Come back anytime to see the result.</div>
+                  <div className="text-sky-800/80 text-xs mt-0.5 leading-relaxed">Sign-in continues in the background. Come back anytime to see the result.</div>
                 </div>
               </div>
 
@@ -2139,7 +2139,7 @@ function TvQueueNoticeModal({ open, onClose }: { open: boolean; onClose: () => v
                 </div>
                 <div className="min-w-0">
                   <div className="text-amber-900 font-black text-sm">Don't turn off or close Netflix on TV</div>
-                  <div className="text-amber-800/80 text-xs mt-0.5 leading-relaxed">If the TV app closes, the code becomes invalid and the queued run can't complete.</div>
+                  <div className="text-amber-800/80 text-xs mt-0.5 leading-relaxed">If the TV app closes, the code becomes invalid and sign-in can't complete.</div>
                 </div>
               </div>
 
@@ -2152,7 +2152,7 @@ function TvQueueNoticeModal({ open, onClose }: { open: boolean; onClose: () => v
 
               <div className="flex items-center justify-center gap-1.5 text-[10.5px] text-slate-400 pt-1">
                 <ShieldCheck className="w-3 h-3" />
-                <span>Encrypted runner · Auto times-out safely</span>
+                <span>Secure sign-in · Auto times-out safely</span>
               </div>
             </div>
           </motion.div>
