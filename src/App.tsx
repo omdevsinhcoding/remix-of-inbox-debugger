@@ -3168,6 +3168,7 @@ function PlanEndsPill({ userOverride }: { userOverride?: any } = {}) {
   const user = userOverride || authUser;
   const [now, setNow] = useState<number>(() => Date.now());
   const [showInfo, setShowInfo] = useState(false);
+  const expiredNoticeRef = useRef(false);
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
@@ -3175,13 +3176,23 @@ function PlanEndsPill({ userOverride }: { userOverride?: any } = {}) {
 
   const isFree = !!(user as any)?.isFree;
   const role = (user as any)?.role;
-  const endIso = (user as any)?.planEndsAt as string | null | undefined;
+  const endIso = ((user as any)?.planEndsAt || (user as any)?.plan_ends_at) as string | null | undefined;
   // Show only for paid non-admin users with a set plan end date.
   if (isFree || role === "admin" || !endIso) return null;
   const endMs = Date.parse(endIso);
   if (!Number.isFinite(endMs)) return null;
   const rem = endMs - now;
-  if (rem <= 0) return null;
+  if (rem <= 0) {
+    if (!expiredNoticeRef.current) {
+      expiredNoticeRef.current = true;
+      apiCall("manage-app", { action: "me" }).catch(() => {
+        try {
+          window.dispatchEvent(new CustomEvent("app:plan-finished", { detail: { planEndsAt: endIso } }));
+        } catch {}
+      });
+    }
+    return null;
+  }
 
   const totalSec = Math.floor(rem / 1000);
   const days = Math.floor(totalSec / 86400);
