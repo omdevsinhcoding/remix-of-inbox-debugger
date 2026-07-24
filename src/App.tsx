@@ -2530,7 +2530,6 @@ function TvSignInPage() {
   }, [applyAccounts]);
 
   useEffect(() => {
-    window.dispatchEvent(new CustomEvent("notif:open"));
     // Instant paint from session cache (populated by prefetchWorkflowAccounts), then
     // silently refresh in background so switching to TV feels immediate.
     const cached: any = readAccountsCache("tv");
@@ -2542,7 +2541,7 @@ function TvSignInPage() {
     } else {
       loadAccounts();
     }
-    return () => { window.dispatchEvent(new CustomEvent("notif:close")); };
+    return undefined;
   }, [loadAccounts, applyAccounts]);
 
   useEffect(() => {
@@ -2646,7 +2645,7 @@ function TvSignInPage() {
   }, [resultInfo.eventId, status]);
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] px-3 sm:px-6 py-8 sm:py-12 xl:py-16 bg-gradient-to-b from-white via-rose-50/40 to-white">
+    <div className="min-h-[calc(100vh-4rem)] px-3 sm:px-6 pt-8 sm:pt-12 xl:pt-16 pb-32 sm:pb-36 bg-gradient-to-b from-white via-rose-50/40 to-white">
       <div className="max-w-2xl xl:max-w-4xl 2xl:max-w-5xl mx-auto">
         {/* Hero */}
         <div className="text-center mb-8 xl:mb-10">
@@ -2951,8 +2950,9 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
 
 // --- Free profile expiry pill (auto-deletion notice) ---
 // Matches SessionCountdown style; sits directly above the session pill (bottom-right).
-function FreeExpiryPill() {
-  const { user } = useAuth();
+function FreeExpiryPill({ userOverride }: { userOverride?: any } = {}) {
+  const { user: authUser } = useAuth();
+  const user = userOverride || authUser;
   const [now, setNow] = useState<number>(() => Date.now());
   const [showInfo, setShowInfo] = useState(false);
   useEffect(() => {
@@ -13553,12 +13553,37 @@ export default function App() {
 }
 
 function GlobalSessionOverlay() {
-  const { user } = useAuth();
-  const role: "admin" | "user" = user?.role === "admin" ? "admin" : "user";
-  const hasSessionToken = !!sessionGet("session_token" as any);
-  const isLoggedIn = !!user && hasSessionToken;
-  const isImpersonating = (user as any)?.impersonated === true;
-  const isPendingAdmin = (user as any)?.pending === true;
+  const { user: authUser } = useAuth();
+  const readSessionState = useCallback(() => {
+    const token = sessionGet("session_token" as any);
+    let storedUser: any = null;
+    try {
+      const raw = sessionGet("user" as any);
+      storedUser = raw ? JSON.parse(raw) : null;
+    } catch {}
+    return { token, storedUser };
+  }, []);
+  const [sessionState, setSessionState] = useState(readSessionState);
+
+  useEffect(() => {
+    const sync = () => setSessionState(readSessionState());
+    sync();
+    const id = window.setInterval(sync, 500);
+    window.addEventListener("storage", sync);
+    window.addEventListener("focus", sync);
+    return () => {
+      window.clearInterval(id);
+      window.removeEventListener("storage", sync);
+      window.removeEventListener("focus", sync);
+    };
+  }, [readSessionState]);
+
+  const effectiveUser = authUser || sessionState.storedUser;
+  const role: "admin" | "user" = effectiveUser?.role === "admin" ? "admin" : "user";
+  const hasSessionToken = !!sessionState.token;
+  const isLoggedIn = !!effectiveUser && hasSessionToken;
+  const isImpersonating = (effectiveUser as any)?.impersonated === true;
+  const isPendingAdmin = (effectiveUser as any)?.pending === true;
 
   useSessionTimeoutGuard(role, isLoggedIn && !isImpersonating && !isPendingAdmin);
 
@@ -13568,7 +13593,7 @@ function GlobalSessionOverlay() {
   return createPortal(
     <>
       <SessionCountdown role={role} />
-      {role === "user" && <FreeExpiryPill />}
+      {role === "user" && <FreeExpiryPill userOverride={effectiveUser} />}
     </>,
     document.body
   );
@@ -13577,7 +13602,7 @@ function GlobalSessionOverlay() {
 
 const ProtectedRoute = ({ children, role }: { children: React.ReactNode; role: "admin" | "user" }) => {
   const { user, loading } = useAuth();
-  if (loading) return <div className="min-h-screen bg-slate-950 flex items-center justify-center"><div className="w-8 h-8 border-2 border-red-500 border-t-transparent rounded-full animate-spin" /></div>;
+  if (loading) return <div className="min-h-screen bg-slate-950 flex items-center justify-center"><GlobalSessionOverlay /><div className="w-8 h-8 border-2 border-red-500 border-t-transparent rounded-full animate-spin" /></div>;
   if (!user) return <Navigate to={role === "admin" ? "/admin" : "/"} />;
   if (role === "user" && (user as any)?.impersonated === true && window.location.pathname === "/viewer") return <Navigate to="/admin/viewer" replace />;
   if (role === "user" && user.role === "admin") return <Navigate to="/admin/dashboard" replace />;

@@ -333,7 +333,7 @@ export function DirectLinkView({ apiCall, notify }: { apiCall: ApiCall; notify: 
   })();
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] px-3 sm:px-6 py-8 sm:py-12 xl:py-16 bg-gradient-to-b from-white via-rose-50/40 to-white">
+    <div className="min-h-[calc(100vh-4rem)] px-3 sm:px-6 pt-8 sm:pt-12 xl:pt-16 pb-32 sm:pb-36 bg-gradient-to-b from-white via-rose-50/40 to-white">
       <div className="max-w-2xl xl:max-w-4xl 2xl:max-w-5xl mx-auto">
         {/* Hero */}
         <div className="text-center mb-8 xl:mb-10">
