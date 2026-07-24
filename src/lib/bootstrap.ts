@@ -13,7 +13,8 @@ export type MaintenanceInfo = { enabled: boolean; title?: string; message?: stri
 export type FreeAvatarCooldown = { minutes: number; lastAt: string | null };
 export type LocationPolicy = { required: boolean };
 export type TvFeature = { enabled: boolean };
-export type BootstrapResult = { users: any[]; recaptcha: any; workerUrls: string[]; emailFilters?: EmailFilters; maintenance?: MaintenanceInfo; avatarBaseUrl?: string; freeAvatarCooldown?: FreeAvatarCooldown; locationPolicy?: LocationPolicy; tvFeature?: TvFeature };
+export type ContactInfo = { telegram: string; whatsapp: string; email: string; note: string };
+export type BootstrapResult = { users: any[]; recaptcha: any; workerUrls: string[]; emailFilters?: EmailFilters; maintenance?: MaintenanceInfo; avatarBaseUrl?: string; freeAvatarCooldown?: FreeAvatarCooldown; locationPolicy?: LocationPolicy; tvFeature?: TvFeature; contactInfo?: ContactInfo; serverNow?: string };
 
 // Module-level free-avatar cooldown cache — kept in sync with bootstrap.
 let currentFreeAvatarCooldown: FreeAvatarCooldown = { minutes: 5, lastAt: null };
