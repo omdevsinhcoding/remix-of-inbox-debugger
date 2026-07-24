@@ -9790,6 +9790,7 @@ function AdminPanel() {
                             <div className="grid grid-cols-2 bg-slate-100 font-bold text-slate-700 px-2 py-1.5"><span>Permission</span><span>Access</span></div>
                             <div className="grid grid-cols-2 px-2 py-1.5 border-t border-slate-100"><span>Actions</span><span className="font-mono">Read and write</span></div>
                             <div className="grid grid-cols-2 px-2 py-1.5 border-t border-slate-100"><span>Secrets</span><span className="font-mono">Read and write</span></div>
+                            <div className="grid grid-cols-2 px-2 py-1.5 border-t border-slate-100"><span>Contents</span><span className="font-mono">Read and write</span></div>
                             <div className="grid grid-cols-2 px-2 py-1.5 border-t border-slate-100"><span>Metadata</span><span className="font-mono">Read-only (auto)</span></div>
                           </div>
                           <p className="text-[11px] text-slate-500 mt-1.5">Baaki sab <b>No access</b> chhod do.</p>
