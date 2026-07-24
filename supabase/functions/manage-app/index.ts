@@ -5840,54 +5840,6 @@ Deno.serve(async (originalReq) => {
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // ── User-triggered error report from TV modal ──
-    if (action === "tv_report_error") {
-      const session = await requireSession(req);
-      const p = (params || {}) as any;
-      const eventId = String(p?.event_id || "").trim();
-      const userNote = String(p?.note || "").slice(0, 500);
-      const uiStatus = String(p?.ui_status || "").slice(0, 40);
-      const uiMessage = String(p?.ui_message || "").slice(0, 500);
-      const { data: user } = await supabase
-        .from("app_users")
-        .select("id, username, name")
-        .eq("id", session.userId)
-        .maybeSingle();
-      let ev: any = null;
-      if (eventId) {
-        const { data } = await supabase
-          .from("tv_login_events")
-          .select("id, status, result, message, account_label, imap_user, code, created_at, finished_at, github_run_url, metadata")
-          .eq("id", eventId)
-          .maybeSingle();
-        if (data && String(data.user_id ?? user?.id) === String(user?.id)) ev = data;
-        else ev = data; // still include for admin visibility
-      }
-      void sendTvLoginTelegram("user_error_report", {
-        event_id: eventId || "(none)",
-        user: user?.username,
-        user_id: user?.id,
-        display_name: user?.name,
-        ui_status: uiStatus,
-        ui_message: uiMessage,
-        user_note: userNote || "(no note)",
-        event_status: ev?.status,
-        event_result: ev?.result,
-        event_message: ev?.message,
-        account_label: ev?.account_label,
-        imap_user: ev?.imap_user,
-        code_last4: typeof ev?.code === "string" ? ev.code.slice(-4) : undefined,
-        created_at: ev?.created_at,
-        finished_at: ev?.finished_at,
-        run_url: ev?.github_run_url,
-        ip,
-        user_agent: (req.headers.get("user-agent") || "").slice(0, 160),
-      });
-      await auditLog(supabase, "tv_user_error_report", user?.id || null, user?.id || null, { event_id: eventId, ui_status: uiStatus }, ip);
-      return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-
-
     // ── TV auto-login: client polling ──────────────────────────────
     if (action === "tv_login_status") {
       const session = await requireSession(req);

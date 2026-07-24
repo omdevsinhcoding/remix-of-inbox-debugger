@@ -243,7 +243,10 @@ const server = http.createServer(async (req, res) => {
     if (!eventId || runnerToken.length < 32) return json(res, 400, { success: false, error: "bad_request" });
 
     activeJobs += 1;
-    runTvJob(eventId, runnerToken).catch((e) => { busy = false; console.error("job failed", e); });
+    runTvJob(eventId, runnerToken).catch((e) => {
+      activeJobs = Math.max(0, activeJobs - 1);
+      console.error("job failed", e);
+    });
     return json(res, 202, { success: true, status: "running", message: "Warm TV runner accepted the job." });
   } catch (e) {
     return json(res, 500, { success: false, error: e instanceof Error ? e.message : String(e) });
