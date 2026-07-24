@@ -1103,21 +1103,13 @@ function useSessionTimeoutGuard(role: "admin" | "user", enabled = true) {
       const started = Number(sessionGet("session_started_at" as any) || "0");
       if (started) {
         armFrom(started);
-      } else if (role === "admin") {
-        // Admin has no email load — start immediately.
+      } else {
+        // Global session: start immediately on login regardless of workflow
+        // choice (Gmail / TV / Direct Link). Previously only Gmail inbox load
+        // would kick off the countdown, so TV and Direct Link users had no
+        // active session timer. Admins already started immediately here too.
         markSessionStart();
         armFrom(Date.now());
-      } else {
-        // User: wait for EmailViewer to call markSessionStart after first inbox load.
-        poll = setInterval(() => {
-          if (cancelled) return;
-          const s = Number(sessionGet("session_started_at" as any) || "0");
-          if (s) {
-            clearInterval(poll);
-            poll = null;
-            armFrom(s);
-          }
-        }, 500);
       }
     })();
     return () => {
