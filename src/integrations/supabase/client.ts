@@ -2,20 +2,15 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
-const SUPABASE_URL_FALLBACK = "https://jsqchutnfdeljajkxmly.supabase.co";
-const SUPABASE_PUBLISHABLE_KEY_FALLBACK = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpzcWNodXRuZmRlbGphamt4bWx5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxMjI5MzksImV4cCI6MjA4OTY5ODkzOX0.HYN4zMEYEiP-H5KD_iIbFpr0GsatNoeyw40FI2mW_eA";
-
-const configuredUrl = import.meta.env.VITE_SUPABASE_URL;
-const configuredKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-const SUPABASE_URL = configuredUrl && configuredUrl !== "undefined" && configuredUrl !== "null" ? configuredUrl : SUPABASE_URL_FALLBACK;
-const SUPABASE_PUBLISHABLE_KEY = configuredKey && configuredKey !== "undefined" && configuredKey !== "null" ? configuredKey : SUPABASE_PUBLISHABLE_KEY_FALLBACK;
+const SUPABASE_URL = "https://jsqchutnfdeljajkxmly.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpzcWNodXRuZmRlbGphamt4bWx5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxMjI5MzksImV4cCI6MjA4OTY5ODkzOX0.HYN4zMEYEiP-H5KD_iIbFpr0GsatNoeyw40FI2mW_eA";
 
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
 
 export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
   auth: {
-    storage: localStorage,
+    storage: typeof window !== 'undefined' ? localStorage : undefined,
     persistSession: true,
     autoRefreshToken: true,
   }
