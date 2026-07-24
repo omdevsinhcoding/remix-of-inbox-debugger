@@ -1,5 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { authenticator } from "npm:otplib@12.0.1";
+import sodium from "https://esm.sh/libsodium-wrappers@0.7.13";
 import { readRequest, maybeEncryptResponse, EncryptedRequestContext, PlaintextRejectedError, plaintextRejectedResponse, TransportError, transportErrorResponse } from "../_shared/crypto.ts";
 import { getSetting, invalidateSetting, invalidateAllSettings } from "../_shared/settingsCache.ts";
 // build-marker: tv-runner-observability v21 (2026-07-23) — wider result window + clearer runner errors
