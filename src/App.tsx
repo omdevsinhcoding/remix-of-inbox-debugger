@@ -3191,13 +3191,17 @@ function PlanEndsPill({ userOverride }: { userOverride?: any } = {}) {
   const pad = (n: number) => n.toString().padStart(2, "0");
   const label = days >= 1 ? `${days}d ${pad(hrs)}:${pad(mins)}:${pad(secs)}` : `${pad(hrs)}:${pad(mins)}:${pad(secs)}`;
 
+  // Compact label so the pill matches Session pill footprint on mobile.
+  const shortLabel = days >= 1
+    ? `${days}d ${pad(hrs)}h`
+    : (hrs >= 1 ? `${pad(hrs)}:${pad(mins)}:${pad(secs)}` : `${pad(mins)}:${pad(secs)}`);
   const urgent = rem <= 10 * 60_000;
   const warn = !urgent && rem <= 60 * 60_000;
   const cls = urgent
     ? "bg-red-500 text-white animate-pulse ring-2 ring-red-300"
     : warn
     ? "bg-amber-500 text-white"
-    : "bg-sky-600/90 text-white";
+    : "bg-indigo-600/90 text-white";
   const full = new Date(endMs).toLocaleString();
 
   return (
@@ -3206,10 +3210,10 @@ function PlanEndsPill({ userOverride }: { userOverride?: any } = {}) {
         type="button"
         onClick={() => setShowInfo((v) => !v)}
         title="Plan ends"
-        className={`fixed z-[10001] right-3 sm:right-4 bottom-[calc(env(safe-area-inset-bottom)+0.75rem+2.25rem)] sm:bottom-[calc(1rem+2.5rem)] h-7 sm:h-8 px-3 sm:px-3.5 rounded-full text-[11px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1.5 select-none active:scale-95 transition`}
+        className={`fixed z-[10001] right-3 sm:right-4 bottom-[calc(env(safe-area-inset-bottom)+0.75rem+2.75rem)] sm:bottom-[calc(1rem+3rem)] h-7 sm:h-8 px-3 sm:px-3.5 rounded-full text-[11px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1.5 select-none active:scale-95 transition`}
       >
         <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" />
-        Plan ends: {label}
+        Plan: {shortLabel}
       </button>
 
       {showInfo && createPortal(
@@ -3227,7 +3231,7 @@ function PlanEndsPill({ userOverride }: { userOverride?: any } = {}) {
               <div className="w-10 h-1 rounded-full bg-slate-300" />
             </div>
             <div className="flex items-center gap-3 mb-4">
-              <div className={`w-11 h-11 rounded-2xl flex items-center justify-center flex-shrink-0 ${urgent ? "bg-red-100 text-red-600" : warn ? "bg-amber-100 text-amber-600" : "bg-sky-100 text-sky-600"}`}>
+              <div className={`w-11 h-11 rounded-2xl flex items-center justify-center flex-shrink-0 ${urgent ? "bg-red-100 text-red-600" : warn ? "bg-amber-100 text-amber-600" : "bg-indigo-100 text-indigo-600"}`}>
                 <Clock className="w-5 h-5" />
               </div>
               <div className="min-w-0 flex-1">
