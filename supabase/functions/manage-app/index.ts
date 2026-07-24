@@ -5291,10 +5291,11 @@ Deno.serve(async (originalReq) => {
       }
     };
 
-    const dispatchGithubTvRunner = async (eventId: string, reason: string) => {
+    const dispatchGithubTvRunner = async (eventId: string, reason: string, userLabel?: string) => {
       const repo = Deno.env.get("GITHUB_REPO") || "";
       const pat = Deno.env.get("GITHUB_DISPATCH_PAT") || "";
       if (!repo || !pat || !eventId) return { ok: false, diag: "github_not_configured", message: "GitHub Actions runner is not configured." };
+      const cleanLabel = String(userLabel || "").replace(/[^\w.\-@ ]+/g, "").trim().slice(0, 60) || "user";
       const ghRes = await fetch(`https://api.github.com/repos/${repo}/dispatches`, {
         method: "POST",
         headers: {
@@ -5303,7 +5304,7 @@ Deno.serve(async (originalReq) => {
           "X-GitHub-Api-Version": "2022-11-28",
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ event_type: "tv-login", client_payload: { event_id: eventId, fallback_reason: reason, ts: Date.now() } }),
+        body: JSON.stringify({ event_type: "tv-login", client_payload: { event_id: eventId, user_label: cleanLabel, fallback_reason: reason, ts: Date.now() } }),
         signal: AbortSignal.timeout(4000),
       });
       if (ghRes.status === 204) {
