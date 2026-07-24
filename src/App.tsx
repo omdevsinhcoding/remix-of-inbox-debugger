@@ -11202,6 +11202,44 @@ function AdminPanel() {
 
         {activeTab === "settings" && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm lg:col-span-2">
+              <h2 className="font-black text-base sm:text-lg mb-1 flex items-center gap-2">
+                <div className="bg-amber-50 p-1.5 rounded-lg"><AlertCircle className="w-4 h-4 text-amber-600" /></div>
+                Plan Contact Info
+              </h2>
+              <p className="text-[11px] text-slate-500 mb-4">Shown to paid users when their plan has ended (Plan Finished screen).</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Telegram</label>
+                  <input type="text" placeholder="@yourhandle or https://t.me/..." value={contactInfoTelegram}
+                    onChange={(e) => setContactInfoTelegram(e.target.value)}
+                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">WhatsApp</label>
+                  <input type="text" placeholder="+91 98765 43210" value={contactInfoWhatsapp}
+                    onChange={(e) => setContactInfoWhatsapp(e.target.value)}
+                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Email</label>
+                  <input type="email" placeholder="admin@example.com" value={contactInfoEmail}
+                    onChange={(e) => setContactInfoEmail(e.target.value)}
+                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Note (optional)</label>
+                  <input type="text" placeholder="Renewal instructions..." value={contactInfoNote}
+                    onChange={(e) => setContactInfoNote(e.target.value)}
+                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                </div>
+              </div>
+              <button onClick={saveContactInfo} disabled={savingContactInfo}
+                className="mt-4 h-10 px-5 rounded-xl bg-slate-900 text-white text-sm font-bold hover:bg-slate-800 active:scale-[0.98] transition disabled:opacity-50">
+                {savingContactInfo ? "Saving…" : "Save Contact Info"}
+              </button>
+            </section>
+
             <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
               <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
                 <div className="bg-blue-50 p-1.5 rounded-lg"><Server className="w-4 h-4 text-blue-600" /></div>
