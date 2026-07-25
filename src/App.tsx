@@ -11889,7 +11889,7 @@ function AdminPanel() {
                   <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">Current version (auto)</label>
                   <input type="text" value={maintenanceVersionFrom} readOnly disabled
                     placeholder="—"
-                    className="w-full bg-slate-100 border rounded-xl p-3 outline-none text-sm font-mono text-slate-500 cursor-not-allowed select-all"
+                    className="w-full bg-slate-100 border rounded-xl p-3 outline-none text-sm font-mono text-slate-700 cursor-not-allowed select-all"
                     title="Auto-filled from the last saved upgrade target. Change it only from the database." />
                   <p className="text-[10.5px] text-slate-500 mt-1 ml-1">Locked — mirrors the last saved “Upgrading to”. Edit in DB only.</p>
                 </div>
@@ -11901,26 +11901,35 @@ function AdminPanel() {
                   <p className="text-[10.5px] text-slate-500 mt-1 ml-1">Stored in DB. Downgrades are blocked. Leave blank to auto-bump patch.</p>
                 </div>
 
-                <div>
-                  <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">Current version (auto)</label>
-                  <input type="text" value={maintenanceVersionFrom} readOnly disabled
-                    placeholder="—"
-                    className="w-full bg-slate-100 border rounded-xl p-3 outline-none text-sm font-mono text-slate-500 cursor-not-allowed select-all"
-                    title="Auto-filled from the last saved upgrade target. Change it only from the database." />
-                  <p className="text-[10.5px] text-slate-500 mt-1 ml-1">Locked — mirrors the last saved “Upgrading to”. Edit in DB only.</p>
+                <div className="md:col-span-2">
+                  <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">Back online at (optional)</label>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <input type="datetime-local" value={maintenanceEndsAt} onChange={(e) => setMaintenanceEndsAt(e.target.value)}
+                      className="flex-1 min-w-[220px] bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm text-slate-900" />
+                    {maintenanceEndsAt && (
+                      <button type="button" onClick={() => setMaintenanceEndsAt("")}
+                        className="px-3 py-2 rounded-xl border text-xs font-semibold text-slate-600 hover:bg-slate-50">Clear</button>
+                    )}
+                    {[15, 30, 60, 120].map((mins) => (
+                      <button key={mins} type="button"
+                        onClick={() => {
+                          const d = new Date(Date.now() + mins * 60000);
+                          const pad = (n: number) => String(n).padStart(2, "0");
+                          setMaintenanceEndsAt(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`);
+                        }}
+                        className="px-2.5 py-1.5 rounded-lg border text-[11px] font-semibold text-slate-600 hover:bg-slate-50">
+                        +{mins < 60 ? `${mins}m` : `${mins / 60}h`}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[10.5px] text-slate-500 mt-1 ml-1">Shown as “Back at …” with a live countdown on the maintenance screen. Leave blank to hide.</p>
                 </div>
-                <div>
-                  <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">Upgrading to (upgrade-only)</label>
-                  <input type="text" value={maintenanceVersionTo} onChange={(e) => setMaintenanceVersionTo(e.target.value)}
-                    placeholder="e.g. 2.5.0"
-                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm font-mono text-slate-900" />
-                  <p className="text-[10.5px] text-slate-500 mt-1 ml-1">Stored in DB. Downgrades are blocked. Leave blank to auto-bump patch.</p>
-                </div>
+
                 <div className="md:col-span-2">
                   <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">Message shown to users</label>
                   <textarea value={maintenanceMessage} onChange={(e) => setMaintenanceMessage(e.target.value)} rows={3}
                     placeholder="The site is offline for a short while so we can make it faster and safer for you. No action needed — please check back soon."
-                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm resize-none" />
+                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm resize-none text-slate-900" />
                 </div>
               </div>
 
