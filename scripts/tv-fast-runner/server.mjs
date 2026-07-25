@@ -316,6 +316,18 @@ server.listen(PORT, "0.0.0.0", async () => {
   await ensureBrowser();
   console.log(`tv-fast-runner v${SERVER_VERSION} commit=${GIT_COMMIT || "unknown"} listening on :${PORT} max=${MAX_MS}ms env_max=${ENV_MAX_MS || "unset"} concurrency=${MAX_CONCURRENT}`);
 });
-
-process.on("SIGINT", async () => { try { (await browserPromise)?.close?.(); } catch {} process.exit(0); });
-process.on("SIGTERM", async () => { try { (await browserPromise)?.close?.(); } catch {} process.exit(0); });
+async function shutdown(signal) {
+  console.log(`received ${signal}; draining ${activeJobs} active job(s)…`);
+  server.close(() => {});
+  // Give in-flight jobs a bounded window (2× MAX_MS) to finish reporting
+  // before we tear down Chromium — otherwise a SIGTERM mid-job leaves the
+  // tv_login_events row stuck in `running`.
+  const deadline = Date.now() + Math.max(5000, MAX_MS * 2);
+  while (activeJobs > 0 && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  try { (await browserPromise)?.close?.(); } catch {}
+  process.exit(0);
+}
+process.on("SIGINT", () => { shutdown("SIGINT").catch(() => process.exit(1)); });
+process.on("SIGTERM", () => { shutdown("SIGTERM").catch(() => process.exit(1)); });
