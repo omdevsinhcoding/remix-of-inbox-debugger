@@ -5366,7 +5366,7 @@ function AdminAuthPage() {
   const [copied, setCopied] = useState(false);
   const navigate = useNavigate();
   const otpRequested = React.useRef(false);
-  const { user } = useAuth();
+  const { user, checkAuth } = useAuth();
   const PROOF_TTL_MS = 15 * 60 * 1000;
   const [remainingMs, setRemainingMs] = useState<number>(() => {
     const at = Number(sessionGet("pending_admin_token_at" as any) || 0);
@@ -5477,9 +5477,12 @@ function AdminAuthPage() {
       }
       if (finalData.sessionToken) sessionSet("session_token" as any, finalData.sessionToken);
       sessionRemove("pending_admin_token" as any);
+      sessionRemove("pending_admin_token_at" as any);
       sessionSet("admin_auth" as any, "true");
-      sessionSet("user" as any, JSON.stringify(finalData.user));
+      const adminUser = { ...(finalData.user || {}), pending: false };
+      sessionSet("user" as any, JSON.stringify(adminUser));
       markSessionStart();
+      checkAuth();
       notify.success("Admin session secured.");
       navigate("/admin/dashboard");
     } catch (err) {
