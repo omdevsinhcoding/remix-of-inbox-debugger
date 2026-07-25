@@ -2,7 +2,7 @@ import React, { useState, useEffect, createContext, useContext, useCallback, use
 import { createPortal } from "react-dom";
 import { Mail, RefreshCw, ShieldCheck, Shield, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, Globe, Edit, Info, UserCircle, Search, ChevronRight, Bell, Send, MessageSquare, Image as ImageIcon, ExternalLink, AlertTriangle, Sparkles, Megaphone, Wrench, CreditCard, Tag, ChevronDown, ChevronUp, HardDrive, Upload, Zap, BookOpen, GraduationCap, Film, PlayCircle, Pin, MapPin, MapPinOff, Tv, Loader2, Download, ClipboardPaste, Link as LinkIcon, Activity, HelpCircle } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router";
+import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate, useLocation } from "react-router";
 import NetflixHouseholdVerificationGuide from "./pages/NetflixHouseholdVerificationGuide";
 import { notify } from "./components/toast/notify";
 import { ToastProvider } from "./components/toast/toast-provider";
@@ -373,6 +373,31 @@ function getSessionToken(): string | null {
   try {
     return sessionGet("session_token" as any);
   } catch { return null; }
+}
+
+function readStoredSessionUser(): any | null {
+  try {
+    const raw = sessionGet("user" as any);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+
+function clearRouteSessionState(): void {
+  const keys = [
+    "session_token",
+    "refresh_token",
+    "session_expires_at",
+    "refresh_expires_at",
+    "session_family_id",
+    "session_started_at",
+    "user",
+    "admin_auth",
+    "cloudflare_worker_urls",
+  ];
+  keys.forEach((key) => {
+    try { sessionRemove(key as any); } catch {}
+  });
+  import("./lib/sessionRefresh").then(({ clearRefreshState }) => clearRefreshState()).catch(() => {});
 }
 
 type DeviceFingerprint = {
