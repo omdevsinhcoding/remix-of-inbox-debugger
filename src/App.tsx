@@ -3226,7 +3226,46 @@ function TvSignInPage() {
 
 
 
+// Shared idle-visibility hook. Pills using this fade behind (opacity + no
+// pointer events) while the user is actively interacting with the page
+// (scroll, wheel, touch, click, keypress) and fade back in after ~1.5s idle.
+// Keeps the countdown accessible without stealing focus from the content.
+function useIdleVisible(idleMs = 1500) {
+  const [visible, setVisible] = useState(true);
+  useEffect(() => {
+    let t: ReturnType<typeof setTimeout> | null = null;
+    const arm = () => {
+      setVisible(false);
+      if (t) clearTimeout(t);
+      t = setTimeout(() => setVisible(true), idleMs);
+    };
+    const opts: AddEventListenerOptions = { passive: true, capture: true };
+    window.addEventListener("scroll", arm, opts);
+    window.addEventListener("wheel", arm, opts);
+    window.addEventListener("touchstart", arm, opts);
+    window.addEventListener("touchmove", arm, opts);
+    window.addEventListener("pointerdown", arm, opts);
+    window.addEventListener("keydown", arm, opts);
+    return () => {
+      if (t) clearTimeout(t);
+      window.removeEventListener("scroll", arm, opts);
+      window.removeEventListener("wheel", arm, opts);
+      window.removeEventListener("touchstart", arm, opts);
+      window.removeEventListener("touchmove", arm, opts);
+      window.removeEventListener("pointerdown", arm, opts);
+      window.removeEventListener("keydown", arm, opts);
+    };
+  }, [idleMs]);
+  return visible;
+}
+
+const pillIdleClass = (visible: boolean) =>
+  visible
+    ? "opacity-100 pointer-events-auto"
+    : "opacity-0 pointer-events-none";
+
 function SessionCountdown({ role }: { role: "admin" | "user" }) {
+
   const [minutes, setMinutes] = useState<number>(() => DEFAULT_SESSION_TIMEOUT_MINUTES[role]);
   const [remainingMs, setRemainingMs] = useState<number>(() => {
     ensureSessionStarted();
@@ -3269,7 +3308,9 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
   }, [role, minutes]);
 
   const [showInfo, setShowInfo] = useState(false);
+  const idleVisible = useIdleVisible();
   if (remainingMs <= 0) return null;
+
 
   const totalSec = Math.ceil(remainingMs / 1000);
   const mm = Math.floor(totalSec / 60);
@@ -3294,7 +3335,7 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
         type="button"
         onClick={() => setShowInfo((v) => !v)}
         title="Tap for details"
-        className={`fixed z-[10001] right-3 sm:right-4 bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:bottom-4 h-7 sm:h-8 px-3 sm:px-3.5 rounded-full text-[11px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1.5 select-none active:scale-95 transition`}
+        className={`fixed z-[10001] right-3 sm:right-4 bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:bottom-4 h-7 sm:h-8 px-3 sm:px-3.5 rounded-full text-[11px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} ${pillIdleClass(idleVisible)} flex items-center gap-1.5 select-none active:scale-95 transition-all duration-300`}
       >
         <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" />
         {role === "admin" ? "Admin" : "Session"}: {pad(mm)}:{pad(ss)}
@@ -3360,6 +3401,7 @@ function FreeExpiryPill({ userOverride }: { userOverride?: any } = {}) {
   const user = userOverride || authUser;
   const [now, setNow] = useState<number>(() => Date.now());
   const [showInfo, setShowInfo] = useState(false);
+  const idleVisible = useIdleVisible();
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
@@ -3400,7 +3442,7 @@ function FreeExpiryPill({ userOverride }: { userOverride?: any } = {}) {
         type="button"
         onClick={() => setShowInfo((v) => !v)}
         title="Tap for details"
-        className={`fixed z-[10001] right-3 sm:right-4 bottom-[calc(env(safe-area-inset-bottom)+0.75rem+2.25rem)] sm:bottom-[calc(1rem+2.5rem)] h-7 sm:h-8 px-3 sm:px-3.5 rounded-full text-[11px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1.5 select-none active:scale-95 transition`}
+        className={`fixed z-[10001] right-3 sm:right-4 bottom-[calc(env(safe-area-inset-bottom)+0.75rem+2.25rem)] sm:bottom-[calc(1rem+2.5rem)] h-7 sm:h-8 px-3 sm:px-3.5 rounded-full text-[11px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} ${pillIdleClass(idleVisible)} flex items-center gap-1.5 select-none active:scale-95 transition-all duration-300`}
       >
         <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" />
         Deletes in: {label}
@@ -3465,6 +3507,7 @@ function PlanEndsPill({ userOverride }: { userOverride?: any } = {}) {
   const user = userOverride || authUser;
   const [now, setNow] = useState<number>(() => Date.now());
   const [showInfo, setShowInfo] = useState(false);
+  const idleVisible = useIdleVisible();
   const expiredNoticeRef = useRef(false);
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
@@ -3528,7 +3571,7 @@ function PlanEndsPill({ userOverride }: { userOverride?: any } = {}) {
         onClick={() => setShowInfo((v) => !v)}
         title={`Plan ends ${full}`}
         aria-label={`Plan ends in ${label}`}
-        className={`fixed z-[10001] right-3 sm:right-4 bottom-[calc(env(safe-area-inset-bottom)+0.75rem+2.75rem)] sm:bottom-[calc(1rem+3rem)] h-7 sm:h-8 px-3 sm:px-3.5 rounded-full text-[11px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1.5 select-none active:scale-95 transition tabular-nums`}
+        className={`fixed z-[10001] right-3 sm:right-4 bottom-[calc(env(safe-area-inset-bottom)+0.75rem+2.75rem)] sm:bottom-[calc(1rem+3rem)] h-7 sm:h-8 px-3 sm:px-3.5 rounded-full text-[11px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} ${pillIdleClass(idleVisible)} flex items-center gap-1.5 select-none active:scale-95 transition-all duration-300 tabular-nums`}
       >
         <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" />
         Plan: {label}
