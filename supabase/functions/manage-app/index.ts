@@ -3165,12 +3165,22 @@ Deno.serve(async (originalReq) => {
       const { data: user, error } = await supabase.from("app_users").select("*").eq("id", pending.userId).single();
       if (error || !user || user.role !== "admin") throw new Error("Admin not found");
       const normalizedAssignedAccounts = await normalizeAssignedAccounts(supabase, user.assigned_accounts);
+      let adminSessionTtlMs = 60 * 60_000;
+      try {
+        const { data: sessionCfg } = await supabase
+          .from("app_settings")
+          .select("value")
+          .eq("key", "admin_session_config")
+          .maybeSingle();
+        const minutes = Number((sessionCfg?.value as any)?.timeoutMinutes);
+        if (Number.isFinite(minutes) && minutes > 0) adminSessionTtlMs = Math.max(1, Math.min(24 * 60, Math.floor(minutes))) * 60_000;
+      } catch {}
       const pair = await mintSessionPair(user.id, "admin", {
         userId: user.id,
         username: user.username,
         role: "admin",
         assignedAccounts: normalizedAssignedAccounts,
-      });
+      }, { ttlOverrideMs: adminSessionTtlMs });
       const workerUrls = await loadWorkerUrls(supabase);
       await supabase.from("app_admin_2fa_state").delete().eq("token_hash", tokenHash);
       await auditLog(supabase, "admin_2fa_finalized", user.id, user.id, {}, ip);
