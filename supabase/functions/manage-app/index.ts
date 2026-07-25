@@ -3155,8 +3155,7 @@ Deno.serve(async (originalReq) => {
       if (isFree && avatarChanged) {
         const nowIso = new Date().toISOString();
         await upsertSetting(supabase, "free_avatar_last_change", { at: nowIso, byUserId: session.userId });
-        const { data: cdRow } = await supabase
-          .from("app_settings").select("value").eq("key", "free_avatar_cooldown").maybeSingle();
+        const { data: cdRow } = await readSettingRow(supabase, "free_avatar_cooldown");
         const minutesRaw = Number((cdRow?.value as any)?.minutes);
         const minutes = Number.isFinite(minutesRaw) && minutesRaw > 0 ? Math.floor(minutesRaw) : 5;
         cooldownNow = { minutes, lastAt: nowIso };
