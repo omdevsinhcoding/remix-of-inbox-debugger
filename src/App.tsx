@@ -7369,7 +7369,7 @@ function AdminPanel() {
   }, [activeTab]);
 
   const availableAccounts = useMemo<string[]>(() => {
-    const labels = ["Primary"];
+    const labels: string[] = [];
     emailAccounts.forEach(acc => {
       if (acc.label && !labels.includes(acc.label)) labels.push(acc.label);
     });
