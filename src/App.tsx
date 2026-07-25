@@ -8834,13 +8834,18 @@ function AdminPanel() {
 
 
   const deleteUser = async (id: string) => {
+    // Optimistic removal — the UI feels instant; rollback if the server rejects.
+    const snapshot = users;
+    setUsers(prev => prev.filter(u => u.id !== id));
+    setStats(prev => ({ ...prev, totalUsers: Math.max(0, prev.totalUsers - 1) }));
+    setDeleteConfirmUser(null);
     setDeletingUser(true);
     try {
       await apiCall("manage-app", { action: "delete", id });
-      setUsers(users.filter(u => u.id !== id));
       notify.success("User deleted!");
-      setDeleteConfirmUser(null);
     } catch (err) {
+      setUsers(snapshot);
+      setStats(prev => ({ ...prev, totalUsers: snapshot.length }));
       notify.error("Failed: " + (err instanceof Error ? err.message : String(err)));
     } finally {
       setDeletingUser(false);
