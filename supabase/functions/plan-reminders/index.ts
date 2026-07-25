@@ -42,7 +42,7 @@ Deno.serve(async (req) => {
   const supabase = createClient(SUPABASE_URL, SERVICE_ROLE);
   const now = Date.now();
   const in7d = new Date(now + 7 * 24 * 60 * 60 * 1000).toISOString();
-  const oneHourAgo = new Date(now - 55 * 60 * 1000).toISOString();
+  
 
   let startNotified = 0;
   let reminded = 0;
