@@ -3668,9 +3668,15 @@ function applyTvOverrideToStoredUser(userId: string, tvOverride: "on" | "off" | 
 
 function isLocationRequiredForProfile(profile?: Partial<UserData> | null) {
   if (!profile) return false;
-  // Admin login must never be blocked by browser GPS; admin password auth is
-  // followed by the dedicated OTP/TOTP step.
-  if (profile.role === "admin") return false;
+  // Admins default to GPS OFF, but the admin card toggle can turn it ON
+  // explicitly. Honor the top-level flag / prefs override when present.
+  if (profile.role === "admin") {
+    if (typeof profile.locationRequired === "boolean") return profile.locationRequired;
+    if (profile.profilePrefs?.locationRequiredOverride === true) {
+      return profile.profilePrefs?.locationRequired === true;
+    }
+    return false;
+  }
   // Trust the top-level flag the server sends (already role-aware). Fall back
   // to nested prefs only if the top-level flag is missing.
   if (typeof profile.locationRequired === "boolean") return profile.locationRequired;
