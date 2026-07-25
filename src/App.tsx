@@ -3705,7 +3705,9 @@ function sanitizeEmailHtmlFragment(input = "", preview = "") {
 
   try {
     const doc = new DOMParser().parseFromString(raw, "text/html");
-    doc.querySelectorAll("script, style, noscript, meta, link, title, base, object, embed, iframe").forEach((el) => el.remove());
+    // Keep the email's own <style> and inline styles so the original message
+    // renders like the sender designed it. Only strip executable/embedding tags.
+    doc.querySelectorAll("script, noscript, meta, title, base, object, embed, iframe").forEach((el) => el.remove());
     stripVisibleCssTextNodes(doc);
     doc.querySelectorAll("*").forEach((el) => {
       Array.from(el.attributes).forEach((attr) => {
@@ -3719,8 +3721,11 @@ function sanitizeEmailHtmlFragment(input = "", preview = "") {
         el.setAttribute("rel", "noopener noreferrer");
       }
     });
+    const headStyles = Array.from(doc.head?.querySelectorAll("style") || [])
+      .map((el) => el.outerHTML)
+      .join("\n");
     const bodyHtml = (doc.body?.innerHTML || "").trim();
-    if (bodyHtml) return bodyHtml;
+    if (bodyHtml) return `${headStyles}${bodyHtml}`;
   } catch {}
 
   const cleaned = stripRawMimeNoise(decodeQuotedPrintableText(raw));
@@ -3779,49 +3784,25 @@ function responsiveEmailSrcDoc(email: Email | null) {
   const iframeId = String((email as any)?.id || "email-preview").replace(/[^a-zA-Z0-9_-]/g, "_");
 
   return `<!DOCTYPE html><html><head><base target="_blank"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"><style>
-    html,body{margin:0!important;padding:0!important;width:100%!important;max-width:100%!important;min-width:0!important;height:auto!important;min-height:0!important;overflow:hidden!important;-webkit-text-size-adjust:100%;text-size-adjust:100%;}
-    body{font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:14px;line-height:1.5;color:#0f172a;background:#fff;}
-    #email-root{display:block!important;width:100%!important;max-width:100%!important;min-width:0!important;height:auto!important;min-height:0!important;overflow:visible!important;}
-    *,*::before,*::after{box-sizing:border-box!important;max-width:100%!important;min-width:0!important;}
-    table,tbody,thead,tfoot,tr,td,th{max-width:100%!important;min-width:0!important;}
-    table{width:100%!important;border-collapse:collapse!important;border-spacing:0!important;}
-    td,th{width:auto!important;word-break:break-word!important;overflow-wrap:anywhere!important;white-space:normal!important;text-align:left!important;}
-    img,video,picture,canvas,svg{display:inline-block!important;max-width:100%!important;height:auto!important;}
-    #email-root :where(table,tbody,thead,tfoot,tr,td,th,div,p,section,article,main,header,footer,span,center){height:auto!important;min-height:0!important;max-height:none!important;}
-    p,div,span,li,strong,b,em,a,h1,h2,h3,h4,h5,h6{max-width:100%!important;overflow-wrap:anywhere!important;word-break:break-word!important;white-space:normal!important;}
-    div[align],td[align],th[align],center{text-align:left!important;}
-    [align="right"],[align="center"]{text-align:left!important;}
-    [style*="float"]{float:none!important;}
-    h1{font-size:clamp(22px,8vw,32px)!important;line-height:1.12!important;margin:12px 0!important;}
-    h2{font-size:clamp(18px,6vw,26px)!important;line-height:1.18!important;margin:10px 0!important;}
-    h3,h4,h5,h6{font-size:clamp(16px,5vw,22px)!important;line-height:1.22!important;margin:8px 0!important;}
-    pre,code{white-space:pre-wrap!important;word-break:break-word!important;overflow-wrap:anywhere!important;}
-    a{color:#e11d48;word-break:break-word!important;overflow-wrap:anywhere!important;}
-    [width],[height]{max-width:100%!important;}
-    [style*="width"],[style*="min-width"],[style*="max-width"]{max-width:100%!important;min-width:0!important;}
-    @media (max-width:700px){table,tbody,thead,tfoot,tr,td,th{display:block!important;width:100%!important;}td,th{padding-left:0!important;padding-right:0!important;}}
+    html,body{margin:0!important;padding:0!important;width:100%!important;min-width:0!important;height:auto!important;min-height:0!important;overflow:hidden!important;-webkit-text-size-adjust:100%;text-size-adjust:100%;background:#fff;}
+    body{font-family:Arial,Helvetica,sans-serif;color:#221f1f;}
+    #email-root{display:block!important;width:100%!important;min-width:0!important;height:auto!important;overflow:visible!important;transform-origin:top left;}
+    img{max-width:100%;height:auto;}
+    pre{white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;}
+    a{word-break:break-word;overflow-wrap:anywhere;}
   </style></head><body><div id="email-root">${html}</div><script>(function(){
     var iframeId=${JSON.stringify(iframeId)};
-    var fitting=false;
-    function fit(){if(fitting)return;fitting=true;try{
-      var vw=Math.max(1,document.documentElement.clientWidth||window.innerWidth||320);
+    var scale=1;
+    function fit(){try{
       var root=document.getElementById('email-root')||document.body;
-      document.querySelectorAll('[width]').forEach(function(el){el.removeAttribute('width');});
-      document.querySelectorAll('[height]').forEach(function(el){if(/^(IMG|VIDEO|PICTURE|SVG|CANVAS)$/i.test(el.tagName))return;el.removeAttribute('height');});
-      document.querySelectorAll('[align]').forEach(function(el){try{el.removeAttribute('align');}catch(e){}});
-      document.querySelectorAll('*').forEach(function(el){
-        if(el.__fitted)return;
-        var s=el.style;if(!s){el.__fitted=1;return;}
-        s.maxWidth='100%';s.minWidth='0';s.boxSizing='border-box';s.float='none';
-        if(el!==root&&!/^(IMG|VIDEO|PICTURE|SVG|CANVAS)$/i.test(el.tagName)){s.height='auto';s.minHeight='0';s.maxHeight='none';}
-        var w=parseFloat(getComputedStyle(el).width||'0');
-        if(w>vw){s.width='100%';}
-        if(/^(TABLE|TBODY|THEAD|TFOOT|TR|TD|TH)$/i.test(el.tagName)){s.whiteSpace='normal';s.wordBreak='break-word';s.overflowWrap='anywhere';}
-        if(/^TABLE$/i.test(el.tagName)){s.width='100%';}
-        el.__fitted=1;
-      });
-      document.documentElement.style.overflow='hidden';document.documentElement.style.height='auto';document.documentElement.style.minHeight='0';document.body.style.overflow='hidden';document.body.style.height='auto';document.body.style.minHeight='0';root.style.height='auto';root.style.minHeight='0';
-    }catch(e){}finally{fitting=false;}}
+      root.style.transform='none';root.style.width='auto';
+      var vw=Math.max(1,document.documentElement.clientWidth||window.innerWidth||320);
+      var natural=Math.max(root.scrollWidth||0,document.body.scrollWidth||0,document.documentElement.scrollWidth||0,vw);
+      scale=Math.min(1,vw/natural);
+      root.style.transform='scale('+scale+')';
+      root.style.width=(100/scale)+'%';
+      document.documentElement.style.overflow='hidden';document.body.style.overflow='hidden';
+    }catch(e){scale=1;}}
     function measureContentHeight(){try{
       var root=document.getElementById('email-root')||document.body;
       var rootRect=root.getBoundingClientRect();
@@ -3845,7 +3826,7 @@ function responsiveEmailSrcDoc(email: Email | null) {
     document.addEventListener('click',function(e){var a=e.target.closest('a,button');if(!a)return;var href=a.getAttribute('href')||a.dataset.href;if(href){e.preventDefault();window.open(href,'_blank','noopener,noreferrer');}},true);
     document.addEventListener('contextmenu',function(e){e.preventDefault();});
     window.addEventListener('load',tick);
-    window.addEventListener('resize',function(){document.querySelectorAll('*').forEach(function(el){el.__fitted=0;});tick();});
+    window.addEventListener('resize',tick);
     document.querySelectorAll('img').forEach(function(img){img.addEventListener('load',tick);img.addEventListener('error',tick);});
     scanLinks();tick();[50,200,500,1000,2000].forEach(function(t){setTimeout(tick,t);});
     try{new MutationObserver(function(){scanLinks();schedulePostH();}).observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['href','target']});}catch(e){}
@@ -14089,22 +14070,6 @@ function EmailViewer() {
                 </div>
 
                 <div className="flex-1 overflow-visible md:overflow-auto p-2 sm:p-6 bg-white rounded-b-2xl">
-                  {selectedEmail.otp && (
-                    <div className="mb-4 sm:mb-8 bg-slate-900 rounded-xl sm:rounded-2xl p-4 sm:p-6 text-center shadow-xl shadow-slate-200 relative overflow-hidden">
-                      <div className="relative z-10">
-                        <p className="text-slate-400 text-[10px] sm:text-xs font-bold uppercase tracking-[0.15em] mb-1 sm:mb-2">Detected OTP Code</p>
-                        <div className="text-3xl sm:text-5xl font-mono font-black text-white tracking-wider sm:tracking-widest mb-2 sm:mb-4">{selectedEmail.otp}</div>
-                        <button onClick={() => copyOtp(selectedEmail.otp!)}
-                          className="flex items-center gap-1.5 mx-auto px-4 py-1.5 sm:px-6 sm:py-2 bg-red-600 hover:bg-red-700 text-white rounded-full font-bold text-xs sm:text-sm transition-all active:scale-95">
-                          {otpCopied ? <><Check className="w-4 h-4" />Copied!</> : <><Copy className="w-4 h-4" />Copy Code</>}
-                        </button>
-                      </div>
-                      <div className="absolute top-0 right-0 p-2 sm:p-4 opacity-10">
-                        <ShieldCheck className="w-16 h-16 sm:w-24 sm:h-24 text-white" />
-                      </div>
-                    </div>
-                  )}
-
                   <div className="email-html-wrapper">
                     {loadingEmailHtmlId === selectedEmail.id && !selectedEmail.html ? (
                       <div className="flex items-center justify-center py-16">
