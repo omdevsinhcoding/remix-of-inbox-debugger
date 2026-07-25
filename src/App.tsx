@@ -8961,49 +8961,39 @@ function AdminPanel() {
                             const gmailOn = f.gmail !== false;
                             const linkOn = f.link === true;
                             const accts = u.assignedAccounts || [];
-                            const StatusIcon = ({ Icon, on, label, onClick, activeCls }: any) => (
-                              <button type="button" onClick={(e) => { e.stopPropagation(); onClick?.(); }}
-                                title={`${label} · ${on ? "ON" : "OFF"} — tap to toggle`}
-                                className={`group/si relative inline-flex items-center justify-center w-7 h-7 rounded-lg transition-all active:scale-90 ${on ? activeCls : "text-slate-300 hover:text-slate-500 hover:bg-slate-100"}`}>
-                                <Icon className="w-3.5 h-3.5" strokeWidth={2.4} />
-                                <span className={`absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full ${on ? "bg-current" : "bg-transparent"}`} />
-                              </button>
+                            const sessionLimit = (u as any).session_limit;
+                            const expiresAt = (u as any).expiresAt as string | null | undefined;
+                            const parts: React.ReactNode[] = [];
+                            parts.push(
+                              <span key="mb" className={accts.length === 0 ? "text-amber-600 font-semibold" : ""}>
+                                {accts.length === 0 ? "No mailbox" : `${accts.length} mailbox${accts.length === 1 ? "" : "es"}`}
+                              </span>,
                             );
+                            if (!u.isFree && sessionLimit != null) {
+                              parts.push(
+                                <span key="ss">{sessionLimit === 0 ? "Unlimited sessions" : `${sessionLimit} session${sessionLimit === 1 ? "" : "s"}`}</span>,
+                              );
+                            }
+                            if (u.isFree && expiresAt) {
+                              parts.push(<span key="ex" className="text-emerald-700 font-medium">Expires {new Date(expiresAt).toLocaleDateString()}</span>);
+                            }
+                            const caps: string[] = [];
+                            if (gpsOn) caps.push("GPS");
+                            if (tvOn) caps.push("TV");
+                            if (gmailOn) caps.push("Gmail");
+                            if (linkOn) caps.push("Link");
+                            if (caps.length) parts.push(<span key="cap" className="text-slate-600 font-medium">{caps.join(" · ")}</span>);
                             return (
-                              <div className="mt-2 flex items-center gap-2 min-w-0">
-                                <div className="flex items-center -ml-1">
-                                  <StatusIcon Icon={gpsOn ? MapPin : MapPinOff} on={gpsOn} label="Location"
-                                    activeCls="text-sky-600 bg-sky-50"
-                                    onClick={() => toggleProfileLocationRequired(u)} />
-                                  <StatusIcon Icon={Tv} on={tvOn} label="TV auto-login"
-                                    activeCls="text-rose-600 bg-rose-50"
-                                    onClick={() => toggleProfileTvOverride(u)} />
-                                  <StatusIcon Icon={Mail} on={gmailOn} label="Gmail workflow"
-                                    activeCls="text-slate-800 bg-slate-100"
-                                    onClick={() => toggleUserFeature(u, "gmail")} />
-                                  <StatusIcon Icon={LinkIcon} on={linkOn} label="Direct link"
-                                    activeCls="text-emerald-600 bg-emerald-50"
-                                    onClick={() => toggleUserFeature(u, "link")} />
-                                </div>
-                                <div className="h-4 w-px bg-slate-200" />
-                                <div className="min-w-0 flex-1 text-[11px] text-slate-500 font-medium truncate">
-                                  {accts.length > 0
-                                    ? <><span className="text-slate-400">Mailboxes</span> <span className="text-slate-700 font-semibold">{accts.length}</span></>
-                                    : <span className="text-amber-600">No mailbox assigned</span>}
-                                </div>
-                              </div>
+                              <p className="mt-1.5 text-[11px] leading-relaxed text-slate-400 truncate">
+                                {parts.map((p, i) => (
+                                  <React.Fragment key={i}>
+                                    {i > 0 && <span className="mx-1.5 text-slate-300">·</span>}
+                                    {p}
+                                  </React.Fragment>
+                                ))}
+                              </p>
                             );
                           })()}
-                          {u.role !== "admin" && !u.isFree && (u as any).session_limit != null && (
-                            <p className="text-[10px] text-emerald-700 mt-1.5 font-mono">
-                              sessions: <span className="font-bold">{(u as any).session_limit === 0 ? "∞" : (u as any).session_limit}</span>
-                            </p>
-                          )}
-                          {u.isFree && (u as any).expiresAt && (
-                            <p className="text-[10px] text-emerald-700 mt-1.5 font-mono truncate">
-                              expires: <span className="font-bold">{new Date((u as any).expiresAt).toLocaleString()}</span>
-                            </p>
-                          )}
                         </div>
                       </div>
 
