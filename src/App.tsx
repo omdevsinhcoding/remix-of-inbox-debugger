@@ -11323,38 +11323,12 @@ function AdminPanel() {
 
             <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
               <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
-                <div className="bg-red-50 p-1.5 rounded-lg"><Mail className="w-4 h-4 text-red-600" /></div>
-                Primary IMAP Server
+                <div className="bg-slate-100 p-1.5 rounded-lg"><Globe className="w-4 h-4 text-slate-600" /></div>
+                Cloudflare Workers
               </h2>
-              <p className="text-[10px] text-slate-400 mb-3">💡 Save once to persist these values</p>
+              <p className="text-[10px] text-slate-400 mb-3">💡 Shared fallback workers used for accounts without dedicated URLs</p>
               <div className="space-y-3">
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Host</label>
-                    <input type="text" placeholder="imap.gmail.com" value={serverConfig.IMAP_HOST}
-                      onChange={(e) => setServerConfig({ ...serverConfig, IMAP_HOST: e.target.value })}
-                      className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Port</label>
-                    <input type="text" placeholder="993" value={serverConfig.IMAP_PORT}
-                      onChange={(e) => setServerConfig({ ...serverConfig, IMAP_PORT: e.target.value })}
-                      className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">IMAP Email</label>
-                  <input type="text" placeholder="Email Address" value={serverConfig.IMAP_USER}
-                    onChange={(e) => setServerConfig({ ...serverConfig, IMAP_USER: e.target.value })}
-                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">App Password</label>
-                  <PasswordInput value={serverConfig.IMAP_PASSWORD}
-                    onChange={(e) => setServerConfig({ ...serverConfig, IMAP_PASSWORD: e.target.value })}
-                    placeholder="16-digit App Password"
-                    className="w-full bg-slate-50 border rounded-xl p-3 pr-12 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
-                </div>
+
 
                 <div>
                   <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Cloudflare Worker URLs</label>
