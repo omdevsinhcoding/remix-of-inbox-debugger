@@ -3666,7 +3666,6 @@ function isLocationRequiredForProfile(profile?: Partial<UserData> | null) {
   if (typeof profile.locationRequired === "boolean") return profile.locationRequired;
   const explicitOverride = profile.profilePrefs?.locationRequiredOverride === true;
   const nested = profile.profilePrefs?.locationRequired;
-  if (profile.role === "admin") return explicitOverride && nested === true;
   return !(explicitOverride && nested === false);
 }
 
