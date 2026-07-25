@@ -14429,7 +14429,17 @@ function PlanFinishedModal() {
   useEffect(() => {
     const handler = (e: any) => {
       const detail = e?.detail || {};
-      setState({ open: true, contactInfo: detail.contactInfo || null, planEndsAt: detail.planEndsAt || null });
+      // MERGE — never overwrite existing contact info with an empty payload.
+      // Two dispatchers race: the client-side plan-ends pill fires a "bare"
+      // event (planEndsAt only) the moment the timer hits 0, and shortly
+      // after the server "me" refresh returns full contactInfo. Without a
+      // merge the modal would flicker between "with contacts" and "no
+      // contacts" as the two events arrived in unpredictable order.
+      setState(prev => ({
+        open: true,
+        contactInfo: (detail.contactInfo && Object.keys(detail.contactInfo).length ? detail.contactInfo : prev.contactInfo) || null,
+        planEndsAt: detail.planEndsAt || prev.planEndsAt || null,
+      }));
       // Kill any active session so protected routes bounce out.
       try {
         sessionSet("session_token" as any, "");
