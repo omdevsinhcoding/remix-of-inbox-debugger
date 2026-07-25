@@ -5003,7 +5003,7 @@ Deno.serve(async (originalReq) => {
       const settingsMapForUsers = new Map((settingsRes.data || []).map((row: any) => [row.key, row.value]));
       const globalLocationRequired = isGlobalLocationRequired(settingsMapForUsers.get("location_policy"));
       const emailAccountsForLabels = Array.isArray(settingsMapForUsers.get("email_accounts")) ? settingsMapForUsers.get("email_accounts") : [];
-      const availableAccountLabelsForList = ["Primary", ...emailAccountsForLabels.map((acc: any) => String(acc?.label || acc?.user || "").trim()).filter(Boolean)];
+      const availableAccountLabelsForList = emailAccountsForLabels.map((acc: any) => String(acc?.label || acc?.user || "").trim()).filter(Boolean);
 
       // Users mapping
       const users = (usersRes.data || []).map((u: any) => ({
