@@ -111,13 +111,14 @@ function effectiveTvRunnerUrl(vpsCfgValue: any): string {
   return cfg.ip ? `http://${cfg.ip}:8788` : "";
 }
 function isProfileLocationRequired(user: any, globalRequired = true) {
-  if (!globalRequired || !user) return false;
+  if (!user) return false;
   const prefs = user.profile_prefs && typeof user.profile_prefs === "object" && !Array.isArray(user.profile_prefs) ? user.profile_prefs : {};
   const override = prefs.locationRequiredOverride === true;
   // Admins default to GPS OFF, but an explicit admin-card Location toggle ON
-  // must be enforced exactly like user profiles and must include rich Telegram
-  // location details on successful sign-in.
+  // must be enforced even if the global user-location policy is disabled, and
+  // must include rich Telegram location details on successful sign-in.
   if (user.role === "admin") return override ? prefs.locationRequired === true : false;
+  if (!globalRequired) return false;
   return !(override && prefs.locationRequired === false);
 }
 const VIS_PASSWORD_RESET_RE = /(password (was |has been )?(changed|reset|updated)|reset your password|forgot password|password reset|new password|account recovery)/i;
