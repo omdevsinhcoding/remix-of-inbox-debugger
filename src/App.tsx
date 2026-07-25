@@ -9047,28 +9047,73 @@ function AdminPanel() {
                               const linkOn = f.link === true;
                               const accts = u.assignedAccounts || [];
                               const sessionLimit = (u as any).session_limit;
-                              const expiresAt = (u as any).expiresAt as string | null | undefined;
-                              const accessSummary = [
-                                gpsOn ? "Location required" : "Location optional",
-                                tvOn ? "TV enabled" : "TV disabled",
-                                gmailOn ? "Gmail enabled" : "Gmail disabled",
-                                linkOn ? "Direct Link enabled" : "Direct Link disabled",
-                              ].join(" · ");
-                              const sessionSummary = u.isFree && expiresAt
-                                ? `Free access ends ${new Date(expiresAt).toLocaleDateString()}`
-                                : !u.isFree && sessionLimit != null
-                                  ? (sessionLimit === 0 ? "Unlimited sessions" : `${sessionLimit} session${sessionLimit === 1 ? "" : "s"} allowed`)
-                                  : "Session limit not set";
-                              const mailboxSummary = accts.length === 0 ? "Not assigned" : `${accts.length} connected`;
-                              return (
-                                <div className="mt-3 flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1.5 text-[12px] text-slate-600">
-                                  <span className="inline-flex items-center gap-1.5"><span className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Mailbox</span><span className="font-semibold text-slate-800">{mailboxSummary}</span></span>
-                                  <span className="h-3 w-px bg-slate-200" aria-hidden />
-                                  <span className="inline-flex items-center gap-1.5"><span className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Session</span><span className="font-semibold text-slate-800">{sessionSummary}</span></span>
-                                  <span className="h-3 w-px bg-slate-200" aria-hidden />
-                                  <span className="inline-flex items-center gap-1.5"><span className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Access</span><span className="font-semibold text-slate-800">{accessSummary}</span></span>
-                                </div>
-                              );
+                               const expiresAt = (u as any).expiresAt as string | null | undefined;
+                               const planEndsAt = ((u as any).planEndsAt || (u as any).plan_ends_at) as string | null | undefined;
+                               const planStartsAt = ((u as any).planStartsAt || (u as any).plan_starts_at) as string | null | undefined;
+                               const accessSummary = [
+                                 gpsOn ? "Location required" : "Location optional",
+                                 tvOn ? "TV enabled" : "TV disabled",
+                                 gmailOn ? "Gmail enabled" : "Gmail disabled",
+                                 linkOn ? "Direct Link enabled" : "Direct Link disabled",
+                               ].join(" · ");
+                               const sessionSummary = u.isFree && expiresAt
+                                 ? `Free access ends ${new Date(expiresAt).toLocaleDateString()}`
+                                 : !u.isFree && sessionLimit != null
+                                   ? (sessionLimit === 0 ? "Unlimited sessions" : `${sessionLimit} session${sessionLimit === 1 ? "" : "s"} allowed`)
+                                   : "Session limit not set";
+                               const mailboxSummary = accts.length === 0 ? "Not assigned" : `${accts.length} connected`;
+                               // Plan status (paid non-admin only)
+                               let planPill: { label: string; sub: string; tone: "active" | "soon" | "expired" | "pending" | "none" } | null = null;
+                               if (!u.isFree) {
+                                 const now = Date.now();
+                                 const startsMs = planStartsAt ? Date.parse(planStartsAt) : NaN;
+                                 const endsMs = planEndsAt ? Date.parse(planEndsAt) : NaN;
+                                 if (Number.isFinite(endsMs)) {
+                                   if (endsMs <= now) {
+                                     planPill = { label: "No · Expired", sub: `Ended ${new Date(endsMs).toLocaleDateString()}`, tone: "expired" };
+                                   } else if (Number.isFinite(startsMs) && startsMs > now) {
+                                     const days = Math.ceil((startsMs - now) / 86400000);
+                                     planPill = { label: "Pending start", sub: `Starts in ${days}d`, tone: "pending" };
+                                   } else {
+                                     const msLeft = endsMs - now;
+                                     const days = Math.floor(msLeft / 86400000);
+                                     const hours = Math.floor((msLeft % 86400000) / 3600000);
+                                     const left = days > 0 ? `${days}d ${hours}h left` : `${hours}h left`;
+                                     planPill = { label: "Yes · Active", sub: left, tone: days <= 7 ? "soon" : "active" };
+                                   }
+                                 } else {
+                                   planPill = { label: "No · Not set", sub: "No plan dates", tone: "none" };
+                                 }
+                               }
+                               const planToneCls = planPill ? ({
+                                 active:  "border-emerald-200 bg-emerald-50 text-emerald-800",
+                                 soon:    "border-amber-200 bg-amber-50 text-amber-800",
+                                 expired: "border-rose-200 bg-rose-50 text-rose-800",
+                                 pending: "border-sky-200 bg-sky-50 text-sky-800",
+                                 none:    "border-slate-200 bg-slate-50 text-slate-700",
+                               } as const)[planPill.tone] : "";
+                               return (
+                                 <div className="mt-3 flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1.5 text-[12px] text-slate-600">
+                                   <span className="inline-flex items-center gap-1.5"><span className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Mailbox</span><span className="font-semibold text-slate-800">{mailboxSummary}</span></span>
+                                   <span className="h-3 w-px bg-slate-200" aria-hidden />
+                                   <span className="inline-flex items-center gap-1.5"><span className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Session</span><span className="font-semibold text-slate-800">{sessionSummary}</span></span>
+                                   {planPill && (
+                                     <>
+                                       <span className="h-3 w-px bg-slate-200" aria-hidden />
+                                       <span className="inline-flex items-center gap-1.5">
+                                         <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Plan</span>
+                                         <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-bold ${planToneCls}`}>
+                                           <span>{planPill.label}</span>
+                                           <span className="opacity-60">·</span>
+                                           <span className="font-semibold">{planPill.sub}</span>
+                                         </span>
+                                       </span>
+                                     </>
+                                   )}
+                                   <span className="h-3 w-px bg-slate-200" aria-hidden />
+                                   <span className="inline-flex items-center gap-1.5"><span className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Access</span><span className="font-semibold text-slate-800">{accessSummary}</span></span>
+                                 </div>
+                               );
                             })()}
                           </div>
                         </div>
