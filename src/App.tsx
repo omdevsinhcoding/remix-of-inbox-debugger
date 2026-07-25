@@ -9534,6 +9534,7 @@ function AdminPanel() {
                       </div>,
                       document.body
                     )}
+                      </div>
                     </div>
                   </div>
 
