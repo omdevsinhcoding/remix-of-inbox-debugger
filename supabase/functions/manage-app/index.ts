@@ -2777,6 +2777,12 @@ Deno.serve(async (originalReq) => {
             contactInfo = ci?.value || null;
           } catch {}
           await auditLog(supabase, "login_blocked_plan_finished", user.id, null, { username, planEndsAt: user.plan_ends_at }, ip);
+          // Fire an instant "Plan expired" Telegram alert if the cron hasn't
+          // already sent one. This closes the gap where a user's session
+          // hits expiry between cron ticks and the admin is left in the dark.
+          if (!(user as any).plan_end_notified_at) {
+            ((globalThis as any).EdgeRuntime?.waitUntil?.(notifyPlanExpiredOnce(supabase, user)) ?? notifyPlanExpiredOnce(supabase, user).catch(() => {}));
+          }
           return new Response(JSON.stringify({ success: false, error: "plan_finished", planEndsAt: user.plan_ends_at, contactInfo }), {
             status: 200,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
