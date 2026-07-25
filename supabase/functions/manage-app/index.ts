@@ -4372,7 +4372,7 @@ Deno.serve(async (originalReq) => {
       const session = await requireSession(req);
       const { data: user, error } = await supabase
         .from("app_users")
-        .select("id, username, name, role, must_change_password, assigned_accounts, profile_prefs, is_free, expires_at, auto_delete, tv_override, feature_gmail, feature_tv, feature_link, last_workflow_view, plan_starts_at, plan_ends_at")
+        .select("id, username, name, role, must_change_password, assigned_accounts, profile_prefs, is_free, expires_at, auto_delete, tv_override, feature_gmail, feature_tv, feature_link, last_workflow_view, plan_starts_at, plan_ends_at, plan_end_notified_at")
         .eq("id", session.userId)
         .single();
       if (error || !user) throw new Error("Account not found");
@@ -4386,6 +4386,10 @@ Deno.serve(async (originalReq) => {
             const { data: ci } = await readSettingRow(supabase, "contact_info");
             contactInfo = ci?.value || null;
           } catch {}
+          // Instant "Plan expired" TG alert if cron hasn't sent one yet.
+          if (!(user as any).plan_end_notified_at) {
+            ((globalThis as any).EdgeRuntime?.waitUntil?.(notifyPlanExpiredOnce(supabase, user)) ?? notifyPlanExpiredOnce(supabase, user).catch(() => {}));
+          }
           return new Response(JSON.stringify({ success: false, error: "plan_finished", planEndsAt: user.plan_ends_at, contactInfo }), {
             status: 200,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
