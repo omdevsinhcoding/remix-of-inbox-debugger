@@ -313,6 +313,12 @@ export async function maybeEncryptResponse(
   if (!ctx) return res;
   const contentType = res.headers.get("content-type") || "";
   if (!contentType.includes("application/json")) return res;
+  // Never encrypt error responses. Error messages ("Authentication required",
+  // "bad request", validation errors, etc.) carry no sensitive data, and
+  // encrypting them means any client-side decrypt hiccup (stale session key
+  // after handshake reset, transport downgrade, proxy content-type rewrite)
+  // surfaces to the user as raw binary garbage instead of a readable message.
+  if (!res.ok) return res;
   const text = await res.text();
   let payload: any = null;
   try { payload = text ? JSON.parse(text) : null; } catch { payload = text; }
