@@ -14258,7 +14258,17 @@ function SessionRouteBoundary() {
       storedUser?.pending === true &&
       !!sessionGet("pending_admin_token" as any);
 
-    if (isPendingAdmin) return;
+    // finalize_admin_session stores the real admin session while the current
+    // route is still /admin-auth, then navigates to /admin/dashboard. Do not
+    // clear that fresh session during the tiny render window between those two
+    // steps, otherwise the user only sees the success toast and gets bounced.
+    const isActiveAdminSession =
+      (path === "/admin" || path === "/admin-auth") &&
+      storedUser?.role === "admin" &&
+      storedUser?.pending !== true &&
+      !!token;
+
+    if (isPendingAdmin || isActiveAdminSession) return;
 
     // The public admin login/2FA routes must never inherit a normal user or
     // impersonated profile session. Clear the tab-scoped identity immediately
