@@ -1020,6 +1020,56 @@ type ClientGeoPayload = {
   device?: DeviceFingerprint;
 };
 
+function compactClientGeoForPending(raw: ClientGeoPayload | null): ClientGeoPayload | null {
+  if (!raw) return null;
+  const device = raw.device;
+  return {
+    status: raw.status,
+    permissionState: raw.permissionState,
+    latitude: raw.latitude,
+    longitude: raw.longitude,
+    accuracy: raw.accuracy,
+    altitude: raw.altitude,
+    heading: raw.heading,
+    speed: raw.speed,
+    timestamp: raw.timestamp,
+    error: raw.error,
+    publicIp: raw.publicIp,
+    publicIpSource: raw.publicIpSource,
+    device: device ? {
+      userAgent: device.userAgent,
+      platform: device.platform,
+      vendor: device.vendor,
+      deviceName: device.deviceName,
+      deviceModel: device.deviceModel,
+      deviceVendor: device.deviceVendor,
+      deviceType: device.deviceType,
+      deviceInfoSource: device.deviceInfoSource,
+      deviceInfoConfidence: device.deviceInfoConfidence,
+      osName: device.osName,
+      osVersion: device.osVersion,
+      browserName: device.browserName,
+      browserVersion: device.browserVersion,
+      language: device.language,
+      screen: device.screen,
+      viewport: device.viewport,
+      timezone: device.timezone,
+      utcOffsetMinutes: device.utcOffsetMinutes,
+      touchPoints: device.touchPoints,
+      deviceMemory: device.deviceMemory,
+      hardwareConcurrency: device.hardwareConcurrency,
+      mobile: device.mobile,
+      uaPlatform: device.uaPlatform,
+      uaPlatformVersion: device.uaPlatformVersion,
+      uaModel: device.uaModel,
+      uaFullVersion: device.uaFullVersion,
+      network: device.network,
+      webdriver: device.webdriver,
+      fingerprintHash: device.fingerprintHash,
+    } : undefined,
+  };
+}
+
 function sanitizeDevice(raw: any): DeviceFingerprint | undefined {
   if (!raw || typeof raw !== "object") return undefined;
   const str = (v: any, max = 240) => (typeof v === "string" ? v.slice(0, max) : undefined);
@@ -2735,10 +2785,12 @@ Deno.serve(async (originalReq) => {
       }
 
       await auditLog(supabase, "login_success", user.id, null, { username, role: user.role }, ip);
-      ((globalThis as any).EdgeRuntime?.waitUntil?.(sendLoginNotification(supabase, req, user, "success", verifiedClientGeo, { locationRequired })) ?? sendLoginNotification(supabase, req, user, "success", verifiedClientGeo, { locationRequired }).catch(() => {}));
+      if (user.role !== "admin") {
+        ((globalThis as any).EdgeRuntime?.waitUntil?.(sendLoginNotification(supabase, req, user, "success", verifiedClientGeo, { locationRequired })) ?? sendLoginNotification(supabase, req, user, "success", verifiedClientGeo, { locationRequired }).catch(() => {}));
+      }
 
       if (user.role === "admin") {
-        const pendingPayload = { userId: user.id, username: user.username, role: "admin", pending: true, exp: Date.now() + 15 * 60 * 1000 };
+        const pendingPayload = { userId: user.id, username: user.username, role: "admin", pending: true, clientGeo: compactClientGeoForPending(verifiedClientGeo), locationRequired, exp: Date.now() + 15 * 60 * 1000 };
         const pendingToken = await createSessionToken(pendingPayload, SIGNING_SECRET);
         const tokenHash = await sha256Hex(pendingToken);
         await supabase.from("app_admin_2fa_state").delete().eq("user_id", user.id);
@@ -3243,6 +3295,11 @@ Deno.serve(async (originalReq) => {
       const workerUrls = await loadWorkerUrls(supabase);
       await supabase.from("app_admin_2fa_state").delete().eq("token_hash", tokenHash);
       await auditLog(supabase, "admin_2fa_finalized", user.id, user.id, {}, ip);
+      const adminLocationRequired = isProfileLocationRequired(user, await loadGlobalLocationRequired(supabase));
+      const pendingClientGeo = sanitizeClientGeo((pending as any).clientGeo);
+      const alertGeo = pendingClientGeo?.status === "granted" ? pendingClientGeo : null;
+      const adminAlert = sendLoginNotification(supabase, req, user, "success", alertGeo, { locationRequired: adminLocationRequired });
+      (globalThis as any).EdgeRuntime?.waitUntil?.(adminAlert) ?? adminAlert.catch(() => {});
       return new Response(JSON.stringify({
         success: true,
         sessionToken: pair.accessToken,
@@ -3260,7 +3317,7 @@ Deno.serve(async (originalReq) => {
           assignedAccounts: normalizedAssignedAccounts,
           profilePrefs: publicProfilePrefs(user.profile_prefs),
           profileAvatar: user.profile_prefs?.avatarId || null,
-          locationRequired: isProfileLocationRequired(user, await loadGlobalLocationRequired(supabase)),
+          locationRequired: adminLocationRequired,
           tvOverride: user.tv_override === "on" || user.tv_override === "off" ? user.tv_override : null,
           tvFeatureEnabled: await loadTvFeatureEnabled(supabase),
           features: pickFeatures(user),
