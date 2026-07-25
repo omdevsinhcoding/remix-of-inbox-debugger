@@ -5145,7 +5145,7 @@ function AdminLoginPage() {
       checkAuth();
 
       perf.end("navigate_admin_auth");
-      notify.success("Password verified. Complete 2FA to enter admin.");
+      notify.success("Password verified. Complete 2FA to enter admin.", { id: "admin-password-verified", duration: 3000 });
       navigate("/admin-auth");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Login failed";
@@ -5168,9 +5168,9 @@ function AdminLoginPage() {
 
 
   return (
-    <div className="min-h-[100dvh] bg-slate-900 flex items-center justify-center px-4 py-6 pt-[calc(env(safe-area-inset-top)+1rem)]">
+    <div className="min-h-[100dvh] overflow-y-auto bg-slate-900 flex items-center justify-center px-4 py-10 pt-[calc(env(safe-area-inset-top)+4.75rem)] sm:py-8 sm:pt-[calc(env(safe-area-inset-top)+2rem)]">
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
-        className="bg-white w-full max-w-md rounded-2xl sm:rounded-3xl p-5 sm:p-8 shadow-2xl border-t-4 sm:border-t-8 border-red-600 mx-2 sm:mx-0">
+        className="bg-white w-full max-w-md rounded-2xl sm:rounded-3xl p-5 sm:p-8 shadow-2xl border-t-4 sm:border-t-8 border-red-600 mx-2 sm:mx-0 my-auto">
         <div className="flex justify-center mb-8">
           <div className="bg-slate-900 p-3 sm:p-4 rounded-2xl shadow-lg">
             <ShieldCheck className="text-white w-6 h-6 sm:w-8 sm:h-8" />
