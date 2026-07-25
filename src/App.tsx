@@ -8977,29 +8977,29 @@ function AdminPanel() {
                           </div>
                         </div>
 
-                      {!isAdmin && (
-                        <div className="grid grid-cols-2 gap-2 border-t border-slate-100 pt-4 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-8">
-                          <button onClick={() => moveUser(u.id, -1)} disabled={isFirst || reordering} title="Move up"
-                            className="h-10 min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3 text-[12px] font-bold text-slate-700 hover:bg-white hover:border-slate-300 transition disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap overflow-hidden text-ellipsis">
-                            Move up
-                          </button>
-                          <button onClick={() => moveUser(u.id, 1)} disabled={isLast || reordering} title="Move down"
-                            className="h-10 min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3 text-[12px] font-bold text-slate-700 hover:bg-white hover:border-slate-300 transition disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap overflow-hidden text-ellipsis">
-                            Move down
-                          </button>
-                          <button onClick={() => togglePinnedUser(u)} title={u.pinned ? "Unpin" : "Pin"}
-                            className={`h-10 min-w-0 rounded-lg border px-3 text-[12px] font-bold transition whitespace-nowrap overflow-hidden text-ellipsis ${u.pinned ? "border-amber-300 bg-amber-50 text-amber-800" : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-white hover:border-slate-300"}`}>
-                            {u.pinned ? "Unpin" : "Pin"}
-                          </button>
-                          <button onClick={() => toggleProfileLocationRequired(u)} title={isLocationRequiredForProfile(u) ? "GPS on" : "GPS off"}
-                            className={`h-10 min-w-0 rounded-lg border px-3 text-[12px] font-bold transition whitespace-nowrap overflow-hidden text-ellipsis ${isLocationRequiredForProfile(u) ? "border-red-200 bg-red-50 text-red-700" : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-white hover:border-slate-300"}`}>
-                            {isLocationRequiredForProfile(u) ? "Location on" : "Location off"}
-                          </button>
-                          <button onClick={() => loginAsUser(u)} title="View as user"
-                            className="h-10 min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3 text-[12px] font-bold text-slate-700 hover:bg-white hover:border-slate-300 transition whitespace-nowrap overflow-hidden text-ellipsis">
-                            View
-                          </button>
-                          <button onClick={() => {
+                       {!isAdmin && (
+                         <div className="mt-4 flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-3">
+                           <button onClick={() => moveUser(u.id, -1)} disabled={isFirst || reordering} title="Move up"
+                             className="h-8 rounded-md border border-slate-200 bg-white px-2.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 transition disabled:opacity-40 disabled:cursor-not-allowed">
+                             Move up
+                           </button>
+                           <button onClick={() => moveUser(u.id, 1)} disabled={isLast || reordering} title="Move down"
+                             className="h-8 rounded-md border border-slate-200 bg-white px-2.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 transition disabled:opacity-40 disabled:cursor-not-allowed">
+                             Move down
+                           </button>
+                           <button onClick={() => togglePinnedUser(u)} title={u.pinned ? "Unpin" : "Pin"}
+                             className={`h-8 rounded-md border px-2.5 text-[11px] font-semibold transition ${u.pinned ? "border-amber-300 bg-amber-50 text-amber-800" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`}>
+                             {u.pinned ? "Unpin" : "Pin"}
+                           </button>
+                           <button onClick={() => toggleProfileLocationRequired(u)} title={isLocationRequiredForProfile(u) ? "GPS on" : "GPS off"}
+                             className={`h-8 rounded-md border px-2.5 text-[11px] font-semibold transition ${isLocationRequiredForProfile(u) ? "border-red-200 bg-red-50 text-red-700" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`}>
+                             {isLocationRequiredForProfile(u) ? "Location on" : "Location off"}
+                           </button>
+                           <button onClick={() => loginAsUser(u)} title="View as user"
+                             className="h-8 rounded-md border border-slate-200 bg-white px-2.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 transition">
+                             View
+                           </button>
+                           <button onClick={() => {
                               const opening = editingUserAccounts !== u.id;
                               setEditingUserAccounts(opening ? u.id : null);
                               setEditUsername(u.username || "");
