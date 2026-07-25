@@ -8965,7 +8965,7 @@ function AdminPanel() {
                                 ? <><MapPin className="w-2.5 h-2.5" /> GPS</>
                                 : <><MapPinOff className="w-2.5 h-2.5" /> OFF</>}
                             </button>
-                            {u.role !== "admin" && (() => {
+                            {(() => {
                               const ov = u.tvOverride === "on" || u.tvOverride === "off" ? u.tvOverride : null;
                               const effective = ov === "on" ? true : ov === "off" ? false : tvFeatureEnabled;
                               const label = ov === "on" ? "TV ON" : ov === "off" ? "TV OFF" : (effective ? "TV" : "TV —");
