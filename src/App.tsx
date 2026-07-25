@@ -1084,7 +1084,6 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       } catch {}
     }
     if (!token) {
-      try { sessionRemove("user" as any); } catch {}
       const liveCached = readCached();
       const livePendingAdminToken = (() => { try { return sessionGet("pending_admin_token" as any); } catch { return null; } })();
       if (livePendingAdminToken && liveCached?.role === "admin" && liveCached?.pending === true) {
@@ -1092,6 +1091,7 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         setLoading(false);
         return;
       }
+      try { sessionRemove("user" as any); } catch {}
       setUser(null);
       setLoading(false);
       return;

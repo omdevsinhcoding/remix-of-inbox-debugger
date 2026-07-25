@@ -2021,6 +2021,7 @@ Deno.serve(async (originalReq) => {
   } catch (e) {
     if (e instanceof PlaintextRejectedError) return plaintextRejectedResponse();
     if (e instanceof TransportError) return transportErrorResponse(e);
+    console.warn("[manage-app] request_parse_failed", e instanceof Error ? e.message : String(e));
     return new Response(JSON.stringify({ success: false, error: "bad request" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
   const req = new Request(originalReq.url, {
@@ -6356,6 +6357,14 @@ Deno.serve(async (originalReq) => {
 
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    try {
+      console.error("[manage-app] action_failed", {
+        action: typeof action === "string" ? action : "unknown",
+        message,
+      });
+    } catch (_) {
+      console.error("[manage-app] action_failed", message);
+    }
     return new Response(JSON.stringify({ success: false, error: message }), {
       status: 400,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
