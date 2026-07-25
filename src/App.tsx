@@ -2327,6 +2327,23 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
   const [pollElapsed, setPollElapsed] = useState(0);
   const inputsRef = useRef<Array<HTMLInputElement | null>>([]);
 
+  const resumeActiveTvLogin = useCallback(async (): Promise<boolean> => {
+    try {
+      const res: any = await apiCall("manage-app", { action: "tv_login_active" });
+      const ev = res?.event;
+      if (!ev) return false;
+      const s = normalizeTvStatus(ev.status);
+      if (s === "idle") return false;
+      setResultInfo(tvRunInfoFromEvent(ev));
+      if (ev.code) setCode(splitTvCode(ev.code));
+      setStep("code");
+      setStatus(s);
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
   const placePanel = useCallback(() => {
     const rect = buttonRef.current?.getBoundingClientRect();
     if (!rect) return;
@@ -2374,26 +2391,31 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
 
   useEffect(() => {
     if (!open) return;
+    let cancelled = false;
     window.dispatchEvent(new CustomEvent("notif:open"));
     placePanel();
-    setStep("select");
-    setChosen(null);
-    setCode(["", "", "", "", "", "", "", ""]);
-    setStatus("idle");
-    setResultInfo({});
     loadAccounts();
+    resumeActiveTvLogin().then((resumed) => {
+      if (cancelled || resumed) return;
+      setStep("select");
+      setChosen(null);
+      setCode(["", "", "", "", "", "", "", ""]);
+      setStatus("idle");
+      setResultInfo({});
+    });
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
     const onReposition = () => placePanel();
     window.addEventListener("keydown", onKey);
     window.addEventListener("resize", onReposition);
     window.addEventListener("scroll", onReposition, true);
     return () => {
+      cancelled = true;
       window.dispatchEvent(new CustomEvent("notif:close"));
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("resize", onReposition);
       window.removeEventListener("scroll", onReposition, true);
     };
-  }, [open, placePanel, loadAccounts]);
+  }, [open, placePanel, loadAccounts, resumeActiveTvLogin]);
 
   useEffect(() => {
     if (open && step === "code") {
@@ -2407,21 +2429,10 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      try {
-        const res: any = await apiCall("manage-app", { action: "tv_login_active" });
-        if (cancelled) return;
-        const ev = res?.event;
-        if (!ev) return;
-        const s = normalizeTvStatus(ev.status);
-        if (s === "idle") return;
-        setResultInfo(tvRunInfoFromEvent(ev));
-        if (ev.code) setCode(splitTvCode(ev.code));
-        setStep("code");
-        setStatus(s);
-      } catch {}
+      if (!cancelled) await resumeActiveTvLogin();
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [resumeActiveTvLogin]);
 
   const setDigit = (i: number, v: string) => {
     const d = v.replace(/\D/g, "").slice(-1);
@@ -2815,7 +2826,7 @@ function TvSignInPage() {
     if (saved && saved.length === 8) return saved.map((d: any) => (typeof d === "string" ? d.slice(0, 1) : ""));
     return ["", "", "", "", "", "", "", ""];
   });
-  const [status, setStatus] = useState<TvLoginStatus>("idle");
+  const [status, setStatus] = useState<TvLoginStatus>(() => normalizeTvStatus(initialDraft.status));
   const [resultInfo, setResultInfo] = useState<TvRunInfo>(initialDraft.resultInfo || {});
   const [recentRuns, setRecentRuns] = useState<any[]>([]);
   const [pollElapsed, setPollElapsed] = useState(0);
@@ -3169,6 +3180,8 @@ function TvSignInPage() {
                   theme="light"
                 />
 
+                <TvRunDetails info={resultInfo} status={status} code={full || undefined} theme="light" />
+
                 {status === "idle" && (
                   <div className="mt-4 flex items-center justify-center gap-1.5 text-[11px] text-slate-400">
                     <ShieldCheck className="w-3 h-3" />
@@ -3179,6 +3192,8 @@ function TvSignInPage() {
             )}
           </div>
         </div>
+
+        <TvRecentRuns events={recentRuns} onRefresh={loadRecentRuns} />
       </div>
     </div>
   );
