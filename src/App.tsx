@@ -4396,7 +4396,6 @@ function ProfileSelectPage() {
       const msg = err instanceof Error ? err.message : "Login failed";
       if (isGpsPermissionDeniedMessage(msg)) {
         setError("");
-        if (normalizedAdminUsername) setAdminLocationPolicy({ username: normalizedAdminUsername, required: true, loading: false });
         setGpsPermissionMode(getGpsPermissionMode(msg));
         showGpsPermissionToast(msg);
       } else {
@@ -4520,7 +4519,6 @@ function ProfileSelectPage() {
       perf.end(`failed: ${msg.slice(0, 60)}`);
       if (isGpsPermissionDeniedMessage(msg)) {
         setError("");
-        if (normalizedAdminUsername) setAdminLocationPolicy({ username: normalizedAdminUsername, required: true, loading: false });
         setGpsPermissionMode(getGpsPermissionMode(msg));
         showGpsPermissionToast(msg);
       } else {
@@ -4583,6 +4581,7 @@ function ProfileSelectPage() {
       perf.end(`failed: ${msg.slice(0, 60)}`);
       if (isGpsPermissionDeniedMessage(msg)) {
         setError("");
+        if (normalizedAdminUsername) setAdminLocationPolicy({ username: normalizedAdminUsername, required: true, loading: false });
         setGpsPermissionMode(getGpsPermissionMode(msg));
         showGpsPermissionToast(msg);
       } else {
