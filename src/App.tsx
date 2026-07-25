@@ -3941,7 +3941,7 @@ function preloadAvatarCategory(categoryKey: string, maxWaitMs?: number, priority
 
 
 function emailIdentity(email: Pick<Email, "id" | "account_label">) {
-  return `${email.account_label || "Primary"}:${email.id}`;
+  return `${email.account_label || "unassigned"}:${email.id}`;
 }
 
 type EmailCategory = "signin" | "password_reset" | "account_update" | "other";
