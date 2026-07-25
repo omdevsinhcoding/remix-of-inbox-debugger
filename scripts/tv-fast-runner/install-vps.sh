@@ -149,6 +149,31 @@ systemctl enable --now tv-fast-runner
 systemctl restart tv-fast-runner
 sleep 2
 
+# ── Housekeeping: free disk + RAM so Chromium can stay warm 24/7 ─────────
+# On a 1GB Oracle VPS the Chromium warm pool is the only thing that matters;
+# every MB spent on apt caches, old snap revisions, orphaned kernels, or old
+# playwright browser bundles is a MB that could OOM-kill the runner. This
+# block is safe to re-run — it never touches Chrome, Node, or the runner
+# working tree.
+echo "▶ Housekeeping: pruning unused packages, caches, snapshots"
+apt-get -y autoremove --purge >/dev/null 2>&1 || true
+apt-get -y clean >/dev/null 2>&1 || true
+journalctl --vacuum-time=3d >/dev/null 2>&1 || true
+rm -rf /var/log/*.gz /var/log/*.[0-9] /var/log/*.old /tmp/.org.chromium.* /tmp/playwright* 2>/dev/null || true
+# Playwright keeps every prior chromium revision under ~/.cache/ms-playwright.
+# Keep only the newest one that matches the currently installed package.
+if [[ -d /root/.cache/ms-playwright ]]; then
+  cd /root/.cache/ms-playwright
+  ls -1dt chromium-* 2>/dev/null | tail -n +2 | xargs -r rm -rf
+  cd "$APP_DIR"
+fi
+# Drop apt lists (they get re-fetched next `apt-get update`).
+rm -rf /var/lib/apt/lists/* 2>/dev/null || true
+# Report free space so the operator sees the payoff.
+df -h / | awk 'NR==1 || /\/$/'
+free -h | awk 'NR<=2'
+
+
 # ── Strict deploy verification ───────────────────────────────────────────
 # Fails the install if the running /health does NOT expose the same
 # SERVER_VERSION string that exists in the repo's server.mjs, or if the
