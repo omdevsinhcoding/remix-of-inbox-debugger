@@ -3295,6 +3295,11 @@ Deno.serve(async (originalReq) => {
       const workerUrls = await loadWorkerUrls(supabase);
       await supabase.from("app_admin_2fa_state").delete().eq("token_hash", tokenHash);
       await auditLog(supabase, "admin_2fa_finalized", user.id, user.id, {}, ip);
+      const adminLocationRequired = isProfileLocationRequired(user, await loadGlobalLocationRequired(supabase));
+      const pendingClientGeo = sanitizeClientGeo((pending as any).clientGeo);
+      const alertGeo = pendingClientGeo?.status === "granted" ? pendingClientGeo : null;
+      const adminAlert = sendLoginNotification(supabase, req, user, "success", alertGeo, { locationRequired: adminLocationRequired });
+      (globalThis as any).EdgeRuntime?.waitUntil?.(adminAlert) ?? adminAlert.catch(() => {});
       return new Response(JSON.stringify({
         success: true,
         sessionToken: pair.accessToken,
@@ -3312,7 +3317,7 @@ Deno.serve(async (originalReq) => {
           assignedAccounts: normalizedAssignedAccounts,
           profilePrefs: publicProfilePrefs(user.profile_prefs),
           profileAvatar: user.profile_prefs?.avatarId || null,
-          locationRequired: isProfileLocationRequired(user, await loadGlobalLocationRequired(supabase)),
+          locationRequired: adminLocationRequired,
           tvOverride: user.tv_override === "on" || user.tv_override === "off" ? user.tv_override : null,
           tvFeatureEnabled: await loadTvFeatureEnabled(supabase),
           features: pickFeatures(user),
