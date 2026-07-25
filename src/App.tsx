@@ -4353,16 +4353,16 @@ function ProfileSelectPage() {
       }
 
       let loginUser = data.user;
-      try {
-        const fresh: any = await apiCall("manage-app", { action: "me" });
-        if (fresh?.success && fresh.user) loginUser = { ...loginUser, ...fresh.user };
-      } catch {}
-      sessionSet("user" as any, JSON.stringify(loginUser));
       if (data.sessionToken) sessionSet("session_token" as any, data.sessionToken);
       try {
         const { storeSessionPair } = await import("./lib/sessionRefresh");
         storeSessionPair(data);
       } catch {}
+      try {
+        const fresh: any = await apiCall("manage-app", { action: "me" });
+        if (fresh?.success && fresh.user) loginUser = { ...loginUser, ...fresh.user };
+      } catch {}
+      sessionSet("user" as any, JSON.stringify(loginUser));
       // Global session: start the countdown instantly on login so the pill
       // appears immediately regardless of workflow (Gmail / TV / Direct Link).
       try { markSessionStart(); } catch {}
@@ -4418,16 +4418,16 @@ function ProfileSelectPage() {
         storeWorkerUrls(data.workerUrls);
       }
       let freeLoginUser = data.user;
-      try {
-        const fresh: any = await apiCall("manage-app", { action: "me" });
-        if (fresh?.success && fresh.user) freeLoginUser = { ...freeLoginUser, ...fresh.user };
-      } catch {}
-      sessionSet("user" as any, JSON.stringify(freeLoginUser));
       if (data.sessionToken) sessionSet("session_token" as any, data.sessionToken);
       try {
         const { storeSessionPair } = await import("./lib/sessionRefresh");
         storeSessionPair(data);
       } catch {}
+      try {
+        const fresh: any = await apiCall("manage-app", { action: "me" });
+        if (fresh?.success && fresh.user) freeLoginUser = { ...freeLoginUser, ...fresh.user };
+      } catch {}
+      sessionSet("user" as any, JSON.stringify(freeLoginUser));
       try { markSessionStart(); } catch {}
       checkAuth();
       perf.end("navigate_viewer");
