@@ -699,6 +699,8 @@ function beginDeviceFingerprintCapture(): Promise<DeviceFingerprint> {
 
 
 const LOGIN_GEO_TIMEOUT_MS = 45_000;
+const LOGIN_HANDSHAKE_TIMEOUT_MS = 15_000;
+const LOGIN_EDGE_TIMEOUT_MS = 45_000;
 const GPS_PERMISSION_TOAST_ID = "gps-permission-blocked";
 const GPS_PERMISSION_REQUIRED_MESSAGE = "Allow location to sign in.";
 const GPS_PERMISSION_BLOCKED_MESSAGE = "Location blocked. Enable it in browser site settings.";
@@ -707,7 +709,7 @@ type GpsPermissionMode = "needed" | "blocked";
 
 function isGpsPermissionDeniedMessage(message: string) {
   const m = message.toLowerCase();
-  return m.includes("gps permission") || m.includes("location permission") || m.includes("allow location") || m.includes("location blocked") || m.includes("browser location popup");
+  return m.includes("gps permission") || m.includes("gps coordinates missing") || m.includes("gps timed out") || m.includes("device gps unavailable") || m.includes("location permission") || m.includes("allow location") || m.includes("location blocked") || m.includes("browser location popup") || m.includes("does not support gps");
 }
 
 function getGpsPermissionMode(message: string): GpsPermissionMode {
@@ -3656,12 +3658,14 @@ function applyTvOverrideToStoredUser(userId: string, tvOverride: "on" | "off" | 
 
 function isLocationRequiredForProfile(profile?: Partial<UserData> | null) {
   if (!profile) return false;
+  // Admin login must never be blocked by browser GPS; admin password auth is
+  // followed by the dedicated OTP/TOTP step.
+  if (profile.role === "admin") return false;
   // Trust the top-level flag the server sends (already role-aware). Fall back
   // to nested prefs only if the top-level flag is missing.
   if (typeof profile.locationRequired === "boolean") return profile.locationRequired;
   const explicitOverride = profile.profilePrefs?.locationRequiredOverride === true;
   const nested = profile.profilePrefs?.locationRequired;
-  if (profile.role === "admin") return explicitOverride && nested === true;
   return !(explicitOverride && nested === false);
 }
 
@@ -4455,17 +4459,17 @@ function ProfileSelectPage() {
       // user sees an active step while the encrypted request is in flight.
       const { warmupSession } = await import("./lib/secureTransport");
       setLoginStage("connecting");
-      await warmupSession();
+      await withTimeout(warmupSession(), LOGIN_HANDSHAKE_TIMEOUT_MS, "Connection is busy. Please try again.");
       perf.mark("handshake_ready");
 
       setLoginStage("authenticating");
-      const data: any = await apiCall("manage-app", {
+      const data: any = await withTimeout(apiCall("manage-app", {
         action: "login",
         username: selectedProfile.username,
         password,
         clientGeo,
         captchaToken,
-      });
+      }), LOGIN_EDGE_TIMEOUT_MS, "Login took too long. Please try again.");
       if (!data?.success || !data?.user) {
         throw new Error(data?.error === "plan_finished" ? "Plan finished" : (data?.error || "Login failed"));
       }
@@ -4531,10 +4535,10 @@ function ProfileSelectPage() {
       perf.mark("geo_ready");
       const { warmupSession } = await import("./lib/secureTransport");
       setLoginStage("connecting");
-      await warmupSession();
+      await withTimeout(warmupSession(), LOGIN_HANDSHAKE_TIMEOUT_MS, "Connection is busy. Please try again.");
       perf.mark("handshake_ready");
       setLoginStage("authenticating");
-      const data: any = await apiCall("manage-app", { action: "login_free", user_id: profile.id, clientGeo, captchaToken });
+      const data: any = await withTimeout(apiCall("manage-app", { action: "login_free", user_id: profile.id, clientGeo, captchaToken }), LOGIN_EDGE_TIMEOUT_MS, "Login took too long. Please try again.");
       perf.mark("manage_app_login_free_ok");
       if (!data?.success) throw new Error(data?.error || "Failed to enter profile");
       if (data.workerUrls && Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
@@ -5184,11 +5188,11 @@ function AdminLoginPage() {
 
       const { warmupSession } = await import("./lib/secureTransport");
       setLoginStage("connecting");
-      await warmupSession();
+      await withTimeout(warmupSession(), LOGIN_HANDSHAKE_TIMEOUT_MS, "Connection is busy. Please try again.");
       perf.mark("handshake_ready");
 
       setLoginStage("authenticating");
-      const data: any = await apiCall("manage-app", { action: "login", username, password, clientGeo, captchaToken });
+      const data: any = await withTimeout(apiCall("manage-app", { action: "login", username, password, clientGeo, captchaToken }), LOGIN_EDGE_TIMEOUT_MS, "Login took too long. Please try again.");
       perf.mark("manage_app_login_ok");
 
       if (!data?.success || !data?.user) {

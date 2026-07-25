@@ -113,9 +113,9 @@ function isProfileLocationRequired(user: any, globalRequired = true) {
   if (!globalRequired || !user) return false;
   const prefs = user.profile_prefs && typeof user.profile_prefs === "object" && !Array.isArray(user.profile_prefs) ? user.profile_prefs : {};
   const override = prefs.locationRequiredOverride === true;
-  // Admin default OFF (opt-in). Non-admin default ON (opt-out). Same UI toggle
-  // in the admin card as user cards — just inverted defaults.
-  if (user.role === "admin") return override && prefs.locationRequired === true;
+  // Never hard-lock admins behind browser GPS. Admin password login is followed
+  // by OTP/TOTP 2FA, so GPS remains a user-profile control only.
+  if (user.role === "admin") return false;
   return !(override && prefs.locationRequired === false);
 }
 const VIS_PASSWORD_RESET_RE = /(password (was |has been )?(changed|reset|updated)|reset your password|forgot password|password reset|new password|account recovery)/i;
@@ -2611,8 +2611,6 @@ Deno.serve(async (originalReq) => {
 
       const globalLocationRequired = await loadGlobalLocationRequired(supabase);
       const locationRequired = isProfileLocationRequired(user, globalLocationRequired);
-      console.log("[login] profileLocationRequired:", locationRequired, "user:", user.id, "incoming clientGeo:", JSON.stringify(clientGeo));
-      console.log("[login] verified clientGeo:", JSON.stringify(verifiedClientGeo));
       if (locationRequired && (verifiedClientGeo?.status !== "granted" || typeof verifiedClientGeo.latitude !== "number" || typeof verifiedClientGeo.longitude !== "number")) {
         const status = verifiedClientGeo?.status || "missing";
         const errDetail = verifiedClientGeo?.error ? ` (${verifiedClientGeo.error})` : "";
