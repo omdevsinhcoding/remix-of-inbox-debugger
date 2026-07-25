@@ -3458,12 +3458,20 @@ function PlanEndsPill({ userOverride }: { userOverride?: any } = {}) {
   if (rem <= 0) {
     if (!expiredNoticeRef.current) {
       expiredNoticeRef.current = true;
-      // Always surface the plan-finished popup locally, and refresh from
-      // server to pull latest contact info (best-effort).
-      apiCall("manage-app", { action: "me" }).catch(() => {});
-      try {
-        window.dispatchEvent(new CustomEvent("app:plan-finished", { detail: { planEndsAt: endIso } }));
-      } catch {}
+      // Ask the server to confirm expiry. When it returns
+      // { error: "plan_finished", contactInfo, planEndsAt } the global
+      // apiCall interceptor dispatches app:plan-finished with the full
+      // payload. We do NOT dispatch a bare event here — that used to
+      // race the server response and flicker the modal between
+      // "with contacts" and "no contacts" states.
+      apiCall("manage-app", { action: "me" }).catch(() => {
+        // Offline / server unreachable → surface the popup anyway so
+        // the user isn't stuck on a dead timer. Contacts merge in
+        // later if the server call succeeds on retry.
+        try {
+          window.dispatchEvent(new CustomEvent("app:plan-finished", { detail: { planEndsAt: endIso } }));
+        } catch {}
+      });
     }
     return null;
   }
