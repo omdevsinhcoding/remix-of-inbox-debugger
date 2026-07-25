@@ -1,13 +1,32 @@
-// Warm Netflix TV auto-login runner for strict sub-10s attempts.
+// Warm Netflix TV auto-login runner for strict sub-20s attempts.
 // Keep this process alive on the VPS. The app calls POST /run directly;
 // no GitHub Actions queue, checkout, browser install, or runner allocation.
 
 import http from "node:http";
 import { chromium } from "playwright";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
+import { execSync } from "node:child_process";
+
+// SERVER_VERSION is bumped whenever the on-wire /health schema, timeout
+// budget, or reporting protocol changes. If /health shows a version older
+// than this constant in the repo, the VPS is running a stale build.
+const SERVER_VERSION = "2026.07.25-3";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+let PACKAGE_VERSION = "unknown";
+try { PACKAGE_VERSION = JSON.parse(readFileSync(resolve(__dirname, "package.json"), "utf8")).version || "unknown"; } catch {}
+let GIT_COMMIT = process.env.COMMIT_SHA || "";
+if (!GIT_COMMIT) {
+  try { GIT_COMMIT = execSync("git -C " + JSON.stringify(__dirname) + " rev-parse --short HEAD", { stdio: ["ignore", "pipe", "ignore"] }).toString().trim(); } catch {}
+}
+const STARTED_AT = new Date().toISOString();
 
 const PORT = Number(process.env.PORT || 8788);
 const TV_REPORT_URL = process.env.TV_REPORT_URL;
-const MAX_MS = Math.max(3000, Math.min(22000, Number(process.env.TV_LOGIN_MAX_MS || 20000)));
+const ENV_MAX_MS = process.env.TV_LOGIN_MAX_MS;
+const MAX_MS = Math.max(3000, Math.min(22000, Number(ENV_MAX_MS || 20000)));
 const MAX_CONCURRENT = Math.max(1, Math.min(8, Number(process.env.TV_RUNNER_CONCURRENCY || 4)));
 const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36";
 
