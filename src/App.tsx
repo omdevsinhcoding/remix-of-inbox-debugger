@@ -14234,10 +14234,12 @@ function GlobalSessionOverlay() {
     const sync = () => setSessionState(readSessionState());
     sync();
     const id = window.setInterval(sync, 500);
+    window.addEventListener("app:session-change", sync as EventListener);
     window.addEventListener("storage", sync);
     window.addEventListener("focus", sync);
     return () => {
       window.clearInterval(id);
+      window.removeEventListener("app:session-change", sync as EventListener);
       window.removeEventListener("storage", sync);
       window.removeEventListener("focus", sync);
     };
