@@ -3,7 +3,7 @@ import { authenticator } from "npm:otplib@12.0.1";
 import sodium from "https://esm.sh/libsodium-wrappers@0.7.13";
 import { readRequest, maybeEncryptResponse, EncryptedRequestContext, PlaintextRejectedError, plaintextRejectedResponse, TransportError, transportErrorResponse } from "../_shared/crypto.ts";
 import { getSetting, invalidateSetting, invalidateAllSettings } from "../_shared/settingsCache.ts";
-// build-marker: tv-runner-observability v21 (2026-07-23) — wider result window + clearer runner errors
+// build-marker: tv-runner-observability v22 (2026-07-25) — stale-run cleanup + VPS fallback URL
 
 // Wrap `app_settings` writes so the shared TTL cache is invalidated the moment
 // an admin changes a value. Prevents 30-second staleness on toggles.
@@ -107,7 +107,8 @@ function effectiveTvRunnerUrl(vpsCfgValue: any): string {
   const cfg = publicVpsConfig(vpsCfgValue);
   if (cfg.runnerUrl) return cfg.runnerUrl;
   const env = (Deno.env.get("TV_FAST_RUNNER_URL") || "").trim().replace(/\/+$/g, "");
-  return env;
+  if (env) return env;
+  return cfg.ip ? `http://${cfg.ip}:8788` : "";
 }
 function isProfileLocationRequired(user: any, globalRequired = true) {
   if (!globalRequired || !user) return false;
@@ -6159,6 +6160,28 @@ Deno.serve(async (originalReq) => {
       if (evErr) throw new Error(evErr.message);
       if (!ev) throw new Error("Event not found");
       if (String(ev.user_id) !== String(session.userId)) throw new Error("Forbidden");
+      const evStatus = String(ev.status || "");
+      const evCreated = Date.parse(String(ev.created_at || ""));
+      const isStaleActive = ["queued", "running", "in_progress", "verifying", "checking"].includes(evStatus)
+        && Number.isFinite(evCreated)
+        && Date.now() - evCreated > 10 * 60_000;
+      if (isStaleActive) {
+        const expired = {
+          ...ev,
+          status: "error",
+          result: "runner_timeout",
+          message: evStatus === "queued"
+            ? "TV sign-in took too long to start. Please try a fresh TV code."
+            : "TV sign-in took too long to finish. Please try a fresh TV code.",
+          finished_at: new Date().toISOString(),
+          metadata: { ...((ev.metadata as any) || {}), autoExpiredAt: new Date().toISOString(), autoExpireReason: "status_poll_stale" },
+        };
+        await supabase
+          .from("tv_login_events")
+          .update({ status: expired.status, result: expired.result, message: expired.message, finished_at: expired.finished_at, metadata: expired.metadata })
+          .eq("id", eventId);
+        return new Response(JSON.stringify({ success: true, event: expired }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
       const outEv = ev;
       return new Response(JSON.stringify({ success: true, event: outEv }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }

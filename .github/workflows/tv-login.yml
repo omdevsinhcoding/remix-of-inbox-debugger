@@ -37,7 +37,12 @@ jobs:
     # cache key `pw-browsers-v1-1.48.0-chromium-headless-shell` was
     # captured against.
     runs-on: ubuntu-22.04
-    timeout-minutes: 3
+    # Must be comfortably larger than checkout/setup/cache/cold Chromium install
+    # plus the 2-minute runner step. If the job-level timeout fires, GitHub
+    # cancels the whole job before our failure-report step can update Supabase,
+    # leaving tv_login_events stuck in queued/running. Keep this as the outer
+    # safety wall only; the actual automation budget is TV_LOGIN_MAX_MS below.
+    timeout-minutes: 8
     permissions:
       contents: read
     env:
@@ -138,7 +143,9 @@ jobs:
           TV_LOGIN_MAX_MS: 30000
         run: node tv-login.mjs
 
-      # Guarantees the tv_login_events row is never left in `queued`.
+      # Guarantees the tv_login_events row is never left in `queued` for step
+      # failures. The job-level timeout above is intentionally much larger so
+      # this step still gets a chance to execute.
       # Any earlier failure (checkout, npm, playwright install, node
       # missing, etc.) hits this step and reports back to manage-app
       # with a signed message so the UI shows a real error instead of
