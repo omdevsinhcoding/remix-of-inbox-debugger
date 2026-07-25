@@ -411,7 +411,10 @@ function clearRouteSessionState(): void {
     "user",
     "admin_auth",
     "cloudflare_worker_urls",
+    "admin_session_timeout_min",
+    "user_session_timeout_min",
   ];
+
   keys.forEach((key) => {
     try { sessionRemove(key as any); } catch {}
   });
