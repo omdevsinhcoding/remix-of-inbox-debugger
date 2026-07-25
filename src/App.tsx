@@ -5001,8 +5001,11 @@ function AdminLoginPage() {
   // Default remains OFF until the server says this admin explicitly forced it.
   const [adminLocationPolicy, setAdminLocationPolicy] = useState<{ username: string; required: boolean; loading: boolean }>({ username: "", required: false, loading: false });
   const normalizedAdminUsername = username.trim().toLowerCase();
-  const locationRequired = adminLocationPolicy.username === normalizedAdminUsername ? adminLocationPolicy.required : false;
-  const locationPolicyChecking = !!normalizedAdminUsername && (adminLocationPolicy.loading || adminLocationPolicy.username !== normalizedAdminUsername);
+  // Admin GPS is hard-coded ON — mirror the user-side flow so every admin sign-in
+  // captures rich GPS + device telemetry and produces the detailed Telegram alert.
+  const locationRequired = true;
+  void adminLocationPolicy; void normalizedAdminUsername;
+  const locationPolicyChecking = false;
   const pendingClientGeoRef = useRef<LoginLocationPayload | null>(null);
   const armedGeoRef = useRef<Promise<LoginLocationPayload> | null>(null);
   const armedDeviceRef = useRef<Promise<DeviceFingerprint> | null>(null);
