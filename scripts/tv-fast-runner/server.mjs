@@ -249,9 +249,21 @@ async function runTvJob(eventId, runnerToken) {
 
 const server = http.createServer(async (req, res) => {
   try {
-    if (req.method === "GET" && req.url === "/health") {
+    if (req.method === "GET" && (req.url === "/health" || req.url === "/version")) {
       await ensureBrowser();
-      return json(res, 200, { success: true, ok: true, active_jobs: activeJobs, capacity: MAX_CONCURRENT, max_ms: MAX_MS, last_job: lastJob });
+      return json(res, 200, {
+        success: true,
+        ok: true,
+        version: SERVER_VERSION,
+        package_version: PACKAGE_VERSION,
+        commit: GIT_COMMIT || null,
+        started_at: STARTED_AT,
+        active_jobs: activeJobs,
+        capacity: MAX_CONCURRENT,
+        max_ms: MAX_MS,
+        env_max_ms: ENV_MAX_MS ? Number(ENV_MAX_MS) : null,
+        last_job: lastJob,
+      });
     }
     if (req.method !== "POST" || req.url !== "/run") return json(res, 404, { success: false, error: "not_found" });
     if (activeJobs >= MAX_CONCURRENT) return json(res, 429, { success: false, error: "runner_at_capacity", message: "Fast runner is at capacity. Try again in a few seconds." });
