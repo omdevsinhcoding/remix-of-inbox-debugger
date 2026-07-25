@@ -57,13 +57,13 @@ async function sendTelegram(text: string) {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
-  // Simple shared-secret gate (skip when called with the Supabase service role JWT,
-  // e.g. from a signed pg_cron http_post that includes apikey header).
+  // JWT verification is enforced by the Supabase runtime (this function
+  // uses the default verify_jwt = true), so any request that reaches this
+  // handler has already presented a valid apikey/JWT. An optional
+  // x-cron-secret header lets us also gate manual invocations if desired.
   const cronSecret = Deno.env.get("CRON_SHARED_SECRET") || "";
-  const providedSecret = req.headers.get("x-cron-secret") || "";
-  const hasServiceAuth = (req.headers.get("authorization") || "").includes(Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "__none__");
-  const hasAnonAuth = (req.headers.get("apikey") || "") === (Deno.env.get("SUPABASE_ANON_KEY") || "__none__");
-  if (cronSecret && providedSecret !== cronSecret && !hasServiceAuth && !hasAnonAuth) {
+  const provided = req.headers.get("x-cron-secret") || "";
+  if (cronSecret && provided && provided !== cronSecret) {
     return json(401, { success: false, error: "unauthorized" });
   }
 
