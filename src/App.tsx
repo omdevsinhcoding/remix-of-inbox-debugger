@@ -2179,7 +2179,7 @@ function TvRecentRuns({ events, onRefresh }: { events: any[]; onRefresh: () => v
         <h3 className="font-bold text-slate-900 flex items-center gap-2 text-sm"><Clock className="w-4 h-4 text-slate-500" /> Recent TV sign-ins</h3>
         <button type="button" onClick={onRefresh} className="p-1.5 rounded-full hover:bg-slate-100" title="Refresh"><RefreshCw className="w-3.5 h-3.5 text-slate-500" /></button>
       </div>
-      <ul className="divide-y divide-slate-100 max-h-[360px] sm:max-h-[420px] overflow-y-auto pr-1 -mr-1 overscroll-contain">
+      <ul className="divide-y divide-slate-100 max-h-[360px] sm:max-h-[420px] overflow-y-auto overscroll-contain [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
         {events.map((ev) => {
           const status = String(ev?.status || "");
           return (
