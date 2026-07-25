@@ -9010,7 +9010,7 @@ function AdminPanel() {
                             {u.assignedAccounts && u.assignedAccounts.length > 0 && u.assignedAccounts.map((a: string) => (
                               <span key={a} className="bg-blue-50 text-blue-700 border border-blue-200 text-[10px] px-1.5 py-0.5 rounded font-bold font-mono">{a}</span>
                             ))}
-                            {(!u.assignedAccounts || u.assignedAccounts.length === 0) && u.role !== "admin" && (
+                            {(!u.assignedAccounts || u.assignedAccounts.length === 0) && (
                               <span className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded font-bold">no accounts</span>
                             )}
                           </div>)}
