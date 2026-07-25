@@ -6301,10 +6301,8 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
         });
       }
     };
-    pushWithFilters(
-      { key: "__primary__", label: "Primary", user: serverConfig?.IMAP_USER || "", host: serverConfig?.IMAP_HOST || "" },
-      serverConfig?.IMAP_RECIPIENT_FILTERS || serverConfig?.recipientFilters,
-    );
+
+
 
     for (const a of (emailAccounts || [])) {
       pushWithFilters(
