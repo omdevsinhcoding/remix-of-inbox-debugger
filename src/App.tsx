@@ -139,11 +139,13 @@ function DurationQuickAdd({ baseDateStr, onApply }: { baseDateStr: string; onApp
         onChange={(e) => setAmount(e.target.value.replace(/[^0-9]/g, ""))}
         onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); apply(); } }}
         placeholder="e.g. 2"
+        aria-label="Duration amount"
         className="w-20 px-2.5 py-1.5 rounded-lg border border-sky-200 bg-white text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-400"
       />
       <select
         value={unit}
         onChange={(e) => setUnit(e.target.value as "days" | "months" | "years")}
+        aria-label="Duration unit"
         className="px-2 py-1.5 rounded-lg border border-sky-200 bg-white text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-400"
       >
         <option value="days">days</option>
