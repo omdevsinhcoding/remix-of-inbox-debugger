@@ -14276,7 +14276,7 @@ function GlobalSessionOverlay() {
   const isPendingAdmin = (effectiveUser as any)?.pending === true;
   const isAdminRoute = location.pathname.startsWith("/admin");
 
-  useSessionTimeoutGuard(role, isLoggedIn && !isAdminRoute && !isImpersonating && !isPendingAdmin);
+  useSessionTimeoutGuard(role, isLoggedIn && !isImpersonating && !isPendingAdmin);
 
   if (!isLoggedIn || isPendingAdmin) return null;
   if (typeof document === "undefined") return null;
