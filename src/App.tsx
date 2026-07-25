@@ -2323,7 +2323,7 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
 
   const [code, setCode] = useState<string[]>(["", "", "", "", "", "", "", ""]);
   const [status, setStatus] = useState<TvLoginStatus>("idle");
-  const [resultInfo, setResultInfo] = useState<{ accountLabel?: string | null; imapMasked?: string | null; eventId?: string | null; message?: string | null; runUrl?: string | null }>({});
+  const [resultInfo, setResultInfo] = useState<TvRunInfo>({});
   const [pollElapsed, setPollElapsed] = useState(0);
   const inputsRef = useRef<Array<HTMLInputElement | null>>([]);
 
@@ -2412,10 +2412,12 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
         if (cancelled) return;
         const ev = res?.event;
         if (!ev) return;
-        const s = String(ev.status || "");
-        if (!["queued", "running", "in_progress"].includes(s)) return;
-        setResultInfo({ accountLabel: ev.account_label, imapMasked: ev.imap_user || null, eventId: ev.id, message: ev.message || null, runUrl: ev.github_run_url || null });
-        setStatus(s as any);
+        const s = normalizeTvStatus(ev.status);
+        if (s === "idle") return;
+        setResultInfo(tvRunInfoFromEvent(ev));
+        if (ev.code) setCode(splitTvCode(ev.code));
+        setStep("code");
+        setStatus(s);
       } catch {}
     })();
     return () => { cancelled = true; };
@@ -2470,6 +2472,7 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
         imapMasked: res.imap_user_masked,
         eventId: res.event_id,
         message: res.message || null,
+        createdAt: res.created_at || new Date().toISOString(),
       });
       if (!res.cookies_available) { setStatus("no_cookies"); return; }
       setStatus(res.status === "queued" ? "queued" : res.status === "error" ? "error" : "in_progress");
@@ -2496,7 +2499,7 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
     if (!["queued", "running", "in_progress"].includes(status)) return;
     let cancelled = false;
     let timer: number | null = null;
-    const startedAt = Date.now();
+    const startedAt = resultInfo.createdAt ? new Date(resultInfo.createdAt).getTime() : Date.now();
     setPollElapsed(0);
     let consecutiveErrors = 0;
 
@@ -2509,12 +2512,11 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
         consecutiveErrors = 0;
         const ev = res?.event;
         if (ev) {
-          setResultInfo((prev) => ({ ...prev, message: ev.message || prev.message, runUrl: ev.github_run_url || prev.runUrl }));
-          const s = String(ev.status || "");
+          setResultInfo((prev) => ({ ...prev, ...tvRunInfoFromEvent(ev), message: ev.message || prev.message, runUrl: ev.github_run_url || prev.runUrl }));
+          const s = normalizeTvStatus(ev.status);
           const r = String(ev.result || "");
           if (s === "success") {
             setStatus("success");
-            setTimeout(() => { try { nukeBrowserIdentity().catch(() => {}); } catch {} }, 1600);
             return;
           }
           if (r === "runner_timeout" || r === "netflix_timeout") {
@@ -2522,11 +2524,11 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
             setResultInfo((prev) => ({ ...prev, message: "Netflix did not respond cleanly. Generate a fresh TV code and try again." }));
             return;
           }
-          if (s === "invalid_code" || s === "cookies_expired" || s === "error") {
-            setStatus(s as any);
+          if (s === "invalid_code" || s === "cookies_expired" || s === "no_cookies" || s === "error") {
+            setStatus(s);
             return;
           }
-          if (s === "running" || s === "queued") setStatus(s as any);
+          if (s === "running" || s === "queued" || s === "in_progress") setStatus(s);
         }
       } catch {
         consecutiveErrors += 1;
@@ -2546,7 +2548,7 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
     };
     timer = window.setTimeout(tick, 500);
     return () => { cancelled = true; if (timer) clearTimeout(timer); };
-  }, [resultInfo.eventId, status]);
+  }, [resultInfo.eventId, resultInfo.createdAt, status]);
 
 
 
@@ -2750,6 +2752,8 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
                   theme="dark"
                 />
 
+                <TvRunDetails info={resultInfo} status={status} code={full || undefined} theme="dark" />
+
 
                 {status === "idle" && (
                   <div className="mt-4 flex items-center justify-center gap-1.5 text-[10.5px] text-white/40">
@@ -2812,7 +2816,8 @@ function TvSignInPage() {
     return ["", "", "", "", "", "", "", ""];
   });
   const [status, setStatus] = useState<TvLoginStatus>("idle");
-  const [resultInfo, setResultInfo] = useState<{ accountLabel?: string | null; imapMasked?: string | null; eventId?: string | null; message?: string | null; runUrl?: string | null }>({});
+  const [resultInfo, setResultInfo] = useState<TvRunInfo>(initialDraft.resultInfo || {});
+  const [recentRuns, setRecentRuns] = useState<any[]>([]);
   const [pollElapsed, setPollElapsed] = useState(0);
   const inputsRef = useRef<Array<HTMLInputElement | null>>([]);
 
@@ -2846,6 +2851,13 @@ function TvSignInPage() {
     }
   }, [applyAccounts]);
 
+  const loadRecentRuns = useCallback(async () => {
+    try {
+      const res: any = await apiCall("manage-app", { action: "tv_login_recent" });
+      if (Array.isArray(res?.events)) setRecentRuns(res.events);
+    } catch {}
+  }, []);
+
   useEffect(() => {
     // Instant paint from session cache (populated by prefetchWorkflowAccounts), then
     // silently refresh in background so switching to TV feels immediate.
@@ -2860,6 +2872,8 @@ function TvSignInPage() {
     }
     return undefined;
   }, [loadAccounts, applyAccounts]);
+
+  useEffect(() => { loadRecentRuns(); }, [loadRecentRuns]);
 
   useEffect(() => {
     if (step === "code") {
@@ -2877,10 +2891,12 @@ function TvSignInPage() {
         if (cancelled) return;
         const ev = res?.event;
         if (!ev) return;
-        const s = String(ev.status || "");
-        if (!["queued", "running", "in_progress"].includes(s)) return;
-        setResultInfo({ accountLabel: ev.account_label, imapMasked: ev.imap_user || null, eventId: ev.id, message: ev.message || null, runUrl: ev.github_run_url || null });
-        setStatus(s as any);
+        const s = normalizeTvStatus(ev.status);
+        if (s === "idle") return;
+        setResultInfo(tvRunInfoFromEvent(ev));
+        if (ev.code) setCode(splitTvCode(ev.code));
+        setStep("code");
+        setStatus(s);
       } catch {}
     })();
     return () => { cancelled = true; };
@@ -2918,9 +2934,10 @@ function TvSignInPage() {
     try {
       const res: any = await apiCall("manage-app", { action: "tv_submit_code", code: full, imap_user: chosen.imap_user, account_key: chosen.account_key });
       if (!res?.success) throw new Error(res?.error || "Failed to submit code");
-      setResultInfo({ accountLabel: res.account_label, imapMasked: res.imap_user_masked, eventId: res.event_id, message: res.message || null });
+      setResultInfo({ accountLabel: res.account_label, imapMasked: res.imap_user_masked, eventId: res.event_id, message: res.message || null, createdAt: res.created_at || new Date().toISOString() });
       if (!res.cookies_available) { setStatus("no_cookies"); return; }
       setStatus(res.status === "queued" ? "queued" : res.status === "error" ? "error" : "in_progress");
+      void loadRecentRuns();
     } catch (err) {
       setResultInfo({ message: err instanceof Error ? err.message : "Something went wrong" });
       setStatus("error");
@@ -2939,10 +2956,9 @@ function TvSignInPage() {
   // Persist draft (step + chosen + code) so a workflow switch doesn't wipe it.
   useEffect(() => {
     try {
-      if (status === "success") { sessionStorage.removeItem(DRAFT_KEY); return; }
-      sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ step, chosen, code }));
+      sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ step, chosen, code, status, resultInfo }));
     } catch {}
-  }, [step, chosen, code, status]);
+  }, [step, chosen, code, status, resultInfo]);
 
 
 
@@ -2952,7 +2968,7 @@ function TvSignInPage() {
     if (!["queued", "running", "in_progress"].includes(status)) return;
     let cancelled = false;
     let timer: number | null = null;
-    const startedAt = Date.now();
+    const startedAt = resultInfo.createdAt ? new Date(resultInfo.createdAt).getTime() : Date.now();
     setPollElapsed(0);
     let consecutiveErrors = 0;
     const tick = async () => {
@@ -2964,17 +2980,17 @@ function TvSignInPage() {
         consecutiveErrors = 0;
         const ev = res?.event;
         if (ev) {
-          setResultInfo((p) => ({ ...p, message: ev.message || p.message, runUrl: ev.github_run_url || p.runUrl }));
-          const s = String(ev.status || "");
+          setResultInfo((p) => ({ ...p, ...tvRunInfoFromEvent(ev), message: ev.message || p.message, runUrl: ev.github_run_url || p.runUrl }));
+          const s = normalizeTvStatus(ev.status);
           const r = String(ev.result || "");
           if (s === "success") {
             setStatus("success");
-            setTimeout(() => { try { nukeBrowserIdentity().catch(() => {}); } catch {} }, 1600);
+            void loadRecentRuns();
             return;
           }
-          if (r === "runner_timeout" || r === "netflix_timeout") { setStatus("error"); setResultInfo((p) => ({ ...p, message: "Netflix did not respond cleanly. Generate a fresh TV code and try again." })); return; }
-          if (s === "invalid_code" || s === "cookies_expired" || s === "error") { setStatus(s as any); return; }
-          if (s === "running" || s === "queued") setStatus(s as any);
+          if (r === "runner_timeout" || r === "netflix_timeout") { setStatus("error"); setResultInfo((p) => ({ ...p, message: "Netflix did not respond cleanly. Generate a fresh TV code and try again." })); void loadRecentRuns(); return; }
+          if (s === "invalid_code" || s === "cookies_expired" || s === "no_cookies" || s === "error") { setStatus(s); void loadRecentRuns(); return; }
+          if (s === "running" || s === "queued" || s === "in_progress") setStatus(s);
         }
       } catch {
         consecutiveErrors += 1;
@@ -2993,7 +3009,7 @@ function TvSignInPage() {
     };
     timer = window.setTimeout(tick, 500);
     return () => { cancelled = true; if (timer) clearTimeout(timer); };
-  }, [resultInfo.eventId, status]);
+  }, [resultInfo.eventId, resultInfo.createdAt, status, loadRecentRuns]);
 
   return (
     <div className="min-h-[calc(100vh-4rem)] px-3 sm:px-6 pt-8 sm:pt-12 xl:pt-16 pb-32 sm:pb-36 bg-gradient-to-b from-white via-rose-50/40 to-white">
