@@ -5066,7 +5066,7 @@ Deno.serve(async (originalReq) => {
           r2 = {
             accountId: normalized.config.accountId,
             accessKeyId: normalized.config.accessKeyId,
-            secretAccessKey: normalized.config.secretAccessKey,
+            secretAccessKey: "",
             bucket: normalized.config.bucket,
             publicBaseUrl: normalized.config.publicBaseUrl,
             pathPrefix: normalized.config.pathPrefix,
@@ -5109,7 +5109,7 @@ Deno.serve(async (originalReq) => {
         config: {
           accountId: normalized.config.accountId,
           accessKeyId: normalized.config.accessKeyId,
-          secretAccessKey: normalized.config.secretAccessKey,
+          secretAccessKey: "",
           bucket: normalized.config.bucket,
           publicBaseUrl: normalized.config.publicBaseUrl,
           pathPrefix: normalized.config.pathPrefix,
@@ -5132,7 +5132,20 @@ Deno.serve(async (originalReq) => {
       invalidateAllSettings();
       if (error) throw error;
       await auditLog(supabase, "r2_config_updated", session.userId, null, { bucket: value.bucket, enabled: value.enabled }, ip);
-      return new Response(JSON.stringify({ success: true, warnings: normalized.warnings, config: value }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({
+        success: true,
+        warnings: normalized.warnings,
+        config: {
+          accountId: value.accountId,
+          accessKeyId: value.accessKeyId,
+          secretAccessKey: "",
+          bucket: value.bucket,
+          publicBaseUrl: value.publicBaseUrl,
+          pathPrefix: value.pathPrefix,
+          enabled: value.enabled,
+          secretAccessKeySet: typeof value.secretAccessKey === "string" && value.secretAccessKey.length > 0,
+        },
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     if (action === "admin_r2_test") {
