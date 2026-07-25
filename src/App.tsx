@@ -906,6 +906,13 @@ function GpsPermissionSheet({ mode, loading, onEnable, onPrimeEnable }: { mode: 
 
 // --- API Helper (encrypted-only Supabase edge transport) ---
 
+// In-flight coalescer: overlapping calls for read-only idempotent actions
+// (e.g. `me` fired by hydration + plan-expiry + route boundary within the
+// same tick) share a single Promise instead of triggering N edge invocations.
+// Keyed by function+action+token so different sessions never share a result.
+const inflightReads = new Map<string, Promise<any>>();
+const COALESCE_ACTIONS = new Set(["me", "bootstrap_public"]);
+
 async function apiCall(functionName: string, body: any) {
 
   const token = getSessionToken();
@@ -914,6 +921,14 @@ async function apiCall(functionName: string, body: any) {
   const extraHeaders: Record<string, string> = {};
   if (token) extraHeaders["X-Session-Token"] = token;
   if (pendingToken && functionName === "manage-app" && pendingActions.has(body?.action)) extraHeaders["X-Pending-Token"] = pendingToken;
+
+  const coalesceKey = (functionName === "manage-app" && COALESCE_ACTIONS.has(body?.action))
+    ? `${functionName}:${body.action}:${token || "anon"}`
+    : null;
+  if (coalesceKey) {
+    const existing = inflightReads.get(coalesceKey);
+    if (existing) return existing;
+  }
 
   const { invokeEdge } = await import("./lib/secureTransport");
   const { storeSessionPair, refreshNow, ensureFreshAccess, hasRefreshToken } = await import("./lib/sessionRefresh");
@@ -935,45 +950,55 @@ async function apiCall(functionName: string, body: any) {
     value instanceof Error ? value.message : String(value || ""),
   );
 
-  let data: any;
-  try {
-    data = await invokeEdge(functionName, body, { headers: extraHeaders });
-  } catch (err: any) {
-    const msg = String(err?.message || err || "");
-    const looksExpired = /access token expired|session expired|session revoked|authentication required|session invalid/i.test(msg);
-    // C.2: single retry after refresh on stale-session errors, except for the
-    // refresh endpoint itself and unauthenticated calls.
-    if (looksExpired && !(functionName === "manage-app" && skipRefreshActions.has(body?.action)) && (getSessionToken() || hasRefreshToken())) {
-      const ok = await refreshNow();
-      if (!ok) throw err;
-      const t3 = getSessionToken();
-      if (t3) extraHeaders["X-Session-Token"] = t3;
-      data = await invokeEdge(functionName, body, { headers: extraHeaders });
-    } else if (isTransientEdgeError(err)) {
-      await new Promise((r) => setTimeout(r, 750));
-      const t4 = getSessionToken();
-      if (t4) extraHeaders["X-Session-Token"] = t4;
-      data = await invokeEdge(functionName, body, { headers: extraHeaders });
-    } else {
-      throw err;
-    }
-  }
-
-  if (data?.sessionToken) {
-    sessionSet("session_token" as any, data.sessionToken);
-  }
-  if (data?.refreshToken || data?.expiresAt) {
-    storeSessionPair(data);
-  }
-  // Plan-expiry surface: any endpoint (login, me, ...) that returns
-  // { success: false, error: "plan_finished", ... } is broadcast globally
-  // so a friendly "Plan Finished" screen can render — regardless of caller.
-  if (data && data.success === false && data.error === "plan_finished") {
+  const run = (async () => {
+    let data: any;
     try {
-      window.dispatchEvent(new CustomEvent("app:plan-finished", { detail: { contactInfo: data.contactInfo || null, planEndsAt: data.planEndsAt || null } }));
-    } catch {}
+      data = await invokeEdge(functionName, body, { headers: extraHeaders });
+    } catch (err: any) {
+      const msg = String(err?.message || err || "");
+      const looksExpired = /access token expired|session expired|session revoked|authentication required|session invalid/i.test(msg);
+      // C.2: single retry after refresh on stale-session errors, except for the
+      // refresh endpoint itself and unauthenticated calls.
+      if (looksExpired && !(functionName === "manage-app" && skipRefreshActions.has(body?.action)) && (getSessionToken() || hasRefreshToken())) {
+        const ok = await refreshNow();
+        if (!ok) throw err;
+        const t3 = getSessionToken();
+        if (t3) extraHeaders["X-Session-Token"] = t3;
+        data = await invokeEdge(functionName, body, { headers: extraHeaders });
+      } else if (isTransientEdgeError(err)) {
+        await new Promise((r) => setTimeout(r, 750));
+        const t4 = getSessionToken();
+        if (t4) extraHeaders["X-Session-Token"] = t4;
+        data = await invokeEdge(functionName, body, { headers: extraHeaders });
+      } else {
+        throw err;
+      }
+    }
+
+    if (data?.sessionToken) {
+      sessionSet("session_token" as any, data.sessionToken);
+    }
+    if (data?.refreshToken || data?.expiresAt) {
+      storeSessionPair(data);
+    }
+    // Plan-expiry surface: any endpoint (login, me, ...) that returns
+    // { success: false, error: "plan_finished", ... } is broadcast globally
+    // so a friendly "Plan Finished" screen can render — regardless of caller.
+    if (data && data.success === false && data.error === "plan_finished") {
+      try {
+        window.dispatchEvent(new CustomEvent("app:plan-finished", { detail: { contactInfo: data.contactInfo || null, planEndsAt: data.planEndsAt || null } }));
+      } catch {}
+    }
+    return data;
+  })();
+
+  if (coalesceKey) {
+    inflightReads.set(coalesceKey, run);
+    run.finally(() => {
+      if (inflightReads.get(coalesceKey) === run) inflightReads.delete(coalesceKey);
+    });
   }
-  return data;
+  return run;
 }
 
 
