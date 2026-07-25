@@ -8908,9 +8908,7 @@ function AdminPanel() {
                   const isFirst = idx === 0;
                   const isLast = idx === nonAdminOrder.length - 1;
                   const isAdmin = u.role === "admin";
-                  const accent = isAdmin ? "#f43f5e" : (u.isFree ? "#10b981" : "#7c3aed");
-                  const accentSoft = isAdmin ? "rgba(244,63,94,0.08)" : (u.isFree ? "rgba(16,185,129,0.08)" : "rgba(124,58,237,0.08)");
-                  const roleLabel = isAdmin ? "Admin" : (u.isFree ? "Free" : "Member");
+                  const roleLabel = isAdmin ? "Administrator" : (u.isFree ? "Free profile" : "Member profile");
                   return (
                   <div
                     key={u.id}
@@ -8919,115 +8917,90 @@ function AdminPanel() {
                     onDragOver={(e) => { if (canDrag && dragUserId && dragUserId !== u.id) e.preventDefault(); }}
                     onDrop={(e) => { e.preventDefault(); if (canDrag) onDropUser(u.id); }}
                     onDragEnd={() => setDragUserId(null)}
-                    className={`group relative rounded-2xl bg-white transition-all min-w-0 ${dragUserId === u.id ? "opacity-50 ring-2 ring-violet-300" : "hover:-translate-y-0.5"} ${canDrag ? "sm:cursor-move" : ""}`}
-                    style={{
-                      border: `1px solid ${dragUserId === u.id ? accent : "rgba(15,23,42,0.08)"}`,
-                      boxShadow: dragUserId === u.id ? `0 12px 32px -12px ${accent}66` : "0 1px 2px rgba(15,23,42,0.04)",
-                    }}
+                    className={`group relative overflow-hidden rounded-xl border bg-white transition-all min-w-0 ${dragUserId === u.id ? "opacity-60 border-primary shadow-lg" : "border-slate-200 hover:border-slate-300 hover:shadow-md"} ${canDrag ? "sm:cursor-move" : ""}`}
                   >
                     <div className="p-4 sm:p-5">
-                      {/* Header row */}
-                      <div className="flex items-center gap-3.5 min-w-0">
-                        <div className="relative flex-shrink-0">
+                      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
+                        <div className="min-w-0 flex items-start gap-3.5">
                           <ProfileAvatar
                             avatarId={getStableProfileAvatar(u)}
                             name={u.name}
-                            className="w-12 h-12 sm:w-[52px] sm:h-[52px] !rounded-full"
-                            fallbackColor="bg-slate-900"
-                          />
-                          <span
-                            className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full ring-2 ring-white"
-                            style={{ background: accent }}
+                            className="w-12 h-12 sm:w-14 sm:h-14 !rounded-xl border border-slate-200 shadow-sm"
+                            fallbackColor="bg-red-600"
                           />
                           {u.pinned && (
-                            <span className="absolute -top-1 -left-1 w-5 h-5 rounded-full bg-slate-900 text-white flex items-center justify-center ring-2 ring-white">
-                              <Pin className="w-2.5 h-2.5" strokeWidth={3} fill="currentColor" />
-                            </span>
+                            <span className="absolute right-3 top-3 text-[10px] font-bold uppercase tracking-[0.18em] text-amber-700">Pinned</span>
                           )}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <p className="font-semibold text-slate-900 truncate text-[15px] tracking-tight">{u.name || "Unnamed"}</p>
-                            <span
-                              className="hidden sm:inline-flex items-center text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded-md flex-shrink-0"
-                              style={{ background: accentSoft, color: accent }}
-                            >{roleLabel}</span>
+                          <div className="min-w-0 flex-1 pr-16 sm:pr-0">
+                            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                              <p className="font-black text-slate-950 text-[17px] sm:text-xl tracking-tight leading-tight break-words">{u.name || "Unnamed"}</p>
+                              <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-red-600">{roleLabel}</span>
+                            </div>
+                            <p className="text-[13px] text-slate-500 mt-1 break-all">
+                              {u.username ? `@${u.username}` : "username not set"}
+                            </p>
+                            {!isAdmin && (() => {
+                              const gpsOn = isLocationRequiredForProfile(u);
+                              const ov = u.tvOverride === "on" || u.tvOverride === "off" ? u.tvOverride : null;
+                              const tvOn = ov === "on" ? true : ov === "off" ? false : tvFeatureEnabled;
+                              const f = adminUserFeatures(u);
+                              const gmailOn = f.gmail !== false;
+                              const linkOn = f.link === true;
+                              const accts = u.assignedAccounts || [];
+                              const sessionLimit = (u as any).session_limit;
+                              const expiresAt = (u as any).expiresAt as string | null | undefined;
+                              const accessSummary = [
+                                gpsOn ? "Location required" : "Location optional",
+                                tvOn ? "TV enabled" : "TV disabled",
+                                gmailOn ? "Gmail enabled" : "Gmail disabled",
+                                linkOn ? "Direct Link enabled" : "Direct Link disabled",
+                              ].join(" · ");
+                              const sessionSummary = u.isFree && expiresAt
+                                ? `Free access ends ${new Date(expiresAt).toLocaleDateString()}`
+                                : !u.isFree && sessionLimit != null
+                                  ? (sessionLimit === 0 ? "Unlimited sessions" : `${sessionLimit} session${sessionLimit === 1 ? "" : "s"} allowed`)
+                                  : "Session limit not set";
+                              return (
+                                <div className="mt-4 grid gap-3 text-[12px] sm:grid-cols-3">
+                                  <div className="min-w-0 border-t border-slate-100 pt-2">
+                                    <div className="font-bold uppercase tracking-[0.16em] text-slate-400 text-[10px]">Mailbox</div>
+                                    <div className="mt-1 font-semibold text-slate-800 break-words">{accts.length === 0 ? "Not assigned" : `${accts.length} connected`}</div>
+                                  </div>
+                                  <div className="min-w-0 border-t border-slate-100 pt-2">
+                                    <div className="font-bold uppercase tracking-[0.16em] text-slate-400 text-[10px]">Session</div>
+                                    <div className="mt-1 font-semibold text-slate-800 break-words">{sessionSummary}</div>
+                                  </div>
+                                  <div className="min-w-0 border-t border-slate-100 pt-2 sm:col-span-1">
+                                    <div className="font-bold uppercase tracking-[0.16em] text-slate-400 text-[10px]">Access</div>
+                                    <div className="mt-1 font-semibold text-slate-800 break-words">{accessSummary}</div>
+                                  </div>
+                                </div>
+                              );
+                            })()}
                           </div>
-                          <p className="text-[12px] text-slate-500 truncate mt-0.5">
-                            {u.username ? `@${u.username}` : "no handle"}
-                          </p>
                         </div>
-                        <span
-                          className="sm:hidden text-[9px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-md flex-shrink-0"
-                          style={{ background: accentSoft, color: accent }}
-                        >{roleLabel}</span>
-                      </div>
 
-                      {/* Meta chips row — wraps, no truncation */}
-                      {!isAdmin && (() => {
-                        const gpsOn = isLocationRequiredForProfile(u);
-                        const ov = u.tvOverride === "on" || u.tvOverride === "off" ? u.tvOverride : null;
-                        const tvOn = ov === "on" ? true : ov === "off" ? false : tvFeatureEnabled;
-                        const f = adminUserFeatures(u);
-                        const gmailOn = f.gmail !== false;
-                        const linkOn = f.link === true;
-                        const accts = u.assignedAccounts || [];
-                        const sessionLimit = (u as any).session_limit;
-                        const expiresAt = (u as any).expiresAt as string | null | undefined;
-                        const chip = (key: string, label: string, on: boolean) => (
-                          <span key={key}
-                            className={`inline-flex items-center gap-1 text-[10.5px] font-medium px-2 py-1 rounded-md ${on ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-400 line-through"}`}>
-                            {label}
-                          </span>
-                        );
-                        return (
-                          <div className="mt-3.5 flex flex-wrap items-center gap-1.5">
-                            <span className={`inline-flex items-center text-[10.5px] font-medium px-2 py-1 rounded-md ${accts.length === 0 ? "bg-amber-50 text-amber-700" : "bg-slate-50 text-slate-700 border border-slate-200/70"}`}>
-                              {accts.length === 0 ? "No mailbox" : `${accts.length} mailbox${accts.length === 1 ? "" : "es"}`}
-                            </span>
-                            {!u.isFree && sessionLimit != null && (
-                              <span className="inline-flex items-center text-[10.5px] font-medium px-2 py-1 rounded-md bg-slate-50 text-slate-700 border border-slate-200/70">
-                                {sessionLimit === 0 ? "∞ sessions" : `${sessionLimit} session${sessionLimit === 1 ? "" : "s"}`}
-                              </span>
-                            )}
-                            {u.isFree && expiresAt && (
-                              <span className="inline-flex items-center text-[10.5px] font-medium px-2 py-1 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200/60">
-                                exp {new Date(expiresAt).toLocaleDateString()}
-                              </span>
-                            )}
-                            <span className="w-px h-3.5 bg-slate-200 mx-0.5" />
-                            {chip("gps", "GPS", gpsOn)}
-                            {chip("tv", "TV", tvOn)}
-                            {chip("gm", "Gmail", gmailOn)}
-                            {chip("lk", "Link", linkOn)}
-                          </div>
-                        );
-                      })()}
-
-                      {/* Action rail — dark inverted bar */}
                       {!isAdmin && (
-                        <div className="mt-4 flex items-center gap-0.5 p-1 rounded-xl bg-slate-950">
+                        <div className="mt-4 grid grid-cols-2 gap-2 border-t border-slate-100 pt-4 sm:flex sm:flex-wrap">
                           <button onClick={() => moveUser(u.id, -1)} disabled={isFirst || reordering} title="Move up"
-                            className="flex-1 flex items-center justify-center h-8 rounded-lg text-white/60 hover:text-white hover:bg-white/10 transition disabled:opacity-25 disabled:cursor-not-allowed">
-                            <ChevronUp className="w-4 h-4" strokeWidth={2.2} />
+                            className="h-10 rounded-lg border border-slate-200 bg-slate-50 px-3 text-[12px] font-bold text-slate-700 hover:bg-white hover:border-slate-300 transition disabled:opacity-40 disabled:cursor-not-allowed sm:min-w-24">
+                            Move up
                           </button>
                           <button onClick={() => moveUser(u.id, 1)} disabled={isLast || reordering} title="Move down"
-                            className="flex-1 flex items-center justify-center h-8 rounded-lg text-white/60 hover:text-white hover:bg-white/10 transition disabled:opacity-25 disabled:cursor-not-allowed">
-                            <ChevronDown className="w-4 h-4" strokeWidth={2.2} />
+                            className="h-10 rounded-lg border border-slate-200 bg-slate-50 px-3 text-[12px] font-bold text-slate-700 hover:bg-white hover:border-slate-300 transition disabled:opacity-40 disabled:cursor-not-allowed sm:min-w-24">
+                            Move down
                           </button>
-                          <div className="w-px h-4 bg-white/10 mx-0.5" />
                           <button onClick={() => togglePinnedUser(u)} title={u.pinned ? "Unpin" : "Pin"}
-                            className={`flex-1 flex items-center justify-center h-8 rounded-lg transition ${u.pinned ? "text-amber-300 bg-white/10" : "text-white/60 hover:text-white hover:bg-white/10"}`}>
-                            <Pin className="w-3.5 h-3.5" strokeWidth={2.2} fill={u.pinned ? "currentColor" : "none"} />
+                            className={`h-10 rounded-lg border px-3 text-[12px] font-bold transition sm:min-w-20 ${u.pinned ? "border-amber-300 bg-amber-50 text-amber-800" : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-white hover:border-slate-300"}`}>
+                            {u.pinned ? "Unpin" : "Pin"}
                           </button>
                           <button onClick={() => toggleProfileLocationRequired(u)} title={isLocationRequiredForProfile(u) ? "GPS on" : "GPS off"}
-                            className={`flex-1 flex items-center justify-center h-8 rounded-lg transition ${isLocationRequiredForProfile(u) ? "text-sky-300 bg-white/10" : "text-white/60 hover:text-white hover:bg-white/10"}`}>
-                            {isLocationRequiredForProfile(u) ? <MapPin className="w-3.5 h-3.5" /> : <MapPinOff className="w-3.5 h-3.5" />}
+                            className={`h-10 rounded-lg border px-3 text-[12px] font-bold transition sm:min-w-28 ${isLocationRequiredForProfile(u) ? "border-red-200 bg-red-50 text-red-700" : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-white hover:border-slate-300"}`}>
+                            {isLocationRequiredForProfile(u) ? "Location on" : "Location off"}
                           </button>
-                          <div className="w-px h-4 bg-white/10 mx-0.5" />
                           <button onClick={() => loginAsUser(u)} title="View as user"
-                            className="flex-1 flex items-center justify-center h-8 rounded-lg text-white/60 hover:text-white hover:bg-white/10 transition">
-                            <Eye className="w-3.5 h-3.5" />
+                            className="h-10 rounded-lg border border-slate-200 bg-slate-50 px-3 text-[12px] font-bold text-slate-700 hover:bg-white hover:border-slate-300 transition sm:min-w-20">
+                            View
                           </button>
                           <button onClick={() => {
                               const opening = editingUserAccounts !== u.id;
@@ -9056,40 +9029,36 @@ function AdminPanel() {
                               const ovInit = (u as any).tvOverride;
                               setEditTvOverride(ovInit === "on" ? "on" : ovInit === "off" ? "off" : "inherit");
                               setEditDirectLinkEnabled(adminUserFeatures(u).link === true);
-                            }} title="Edit"
-                            className={`flex-1 flex items-center justify-center h-8 rounded-lg transition ${editingUserAccounts === u.id ? "text-emerald-300 bg-white/10" : "text-white/60 hover:text-white hover:bg-white/10"}`}>
-                            <Edit className="w-3.5 h-3.5" />
+                          }} title="Edit"
+                            className={`h-10 rounded-lg border px-3 text-[12px] font-bold transition sm:min-w-20 ${editingUserAccounts === u.id ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-white hover:border-slate-300"}`}>
+                            Edit
                           </button>
                           {!u.isFree && (
                             <button onClick={() => { setChangingUserPass(changingUserPass === u.id ? null : u.id); setUserNewPass(""); }} title="Change password"
-                              className={`flex-1 flex items-center justify-center h-8 rounded-lg transition ${changingUserPass === u.id ? "text-amber-300 bg-white/10" : "text-white/60 hover:text-white hover:bg-white/10"}`}>
-                              <KeyRound className="w-3.5 h-3.5" />
+                              className={`h-10 rounded-lg border px-3 text-[12px] font-bold transition sm:min-w-24 ${changingUserPass === u.id ? "border-amber-300 bg-amber-50 text-amber-800" : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-white hover:border-slate-300"}`}>
+                              Password
                             </button>
                           )}
-                          <div className="w-px h-4 bg-white/10 mx-0.5" />
                           <button onClick={() => setDeleteConfirmUser(u)} title="Delete"
-                            className="flex-1 flex items-center justify-center h-8 rounded-lg text-white/60 hover:text-rose-300 hover:bg-rose-500/15 transition">
-                            <Trash2 className="w-3.5 h-3.5" />
+                            className="h-10 rounded-lg border border-red-200 bg-red-50 px-3 text-[12px] font-bold text-red-700 hover:bg-red-100 transition sm:min-w-20">
+                            Delete
                           </button>
                         </div>
                       )}
 
                       {isAdmin && (
-                        <div className="mt-4 flex items-center gap-0.5 p-1 rounded-xl bg-slate-950">
+                        <div className="mt-4 grid grid-cols-2 gap-2 border-t border-slate-100 pt-4 sm:flex sm:flex-wrap">
                           <button onClick={() => toggleProfileLocationRequired(u)}
                             title={isLocationRequiredForProfile(u) ? "GPS required" : "GPS off"}
-                            className={`flex-1 flex items-center justify-center gap-1.5 h-8 rounded-lg transition text-[11px] font-semibold ${isLocationRequiredForProfile(u) ? "text-sky-300 bg-white/10" : "text-white/60 hover:text-white hover:bg-white/10"}`}>
-                            {isLocationRequiredForProfile(u) ? <MapPin className="w-3.5 h-3.5" /> : <MapPinOff className="w-3.5 h-3.5" />}
-                            <span className="hidden sm:inline">{isLocationRequiredForProfile(u) ? "GPS On" : "GPS Off"}</span>
+                            className={`h-10 rounded-lg border px-3 text-[12px] font-bold transition sm:min-w-32 ${isLocationRequiredForProfile(u) ? "border-red-200 bg-red-50 text-red-700" : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-white hover:border-slate-300"}`}>
+                            {isLocationRequiredForProfile(u) ? "Location on" : "Location off"}
                           </button>
-                          <div className="w-px h-4 bg-white/10 mx-0.5" />
                           {currentUser?.id !== u.id && (
                             <>
                               <button onClick={() => loginAsUser(u)} title="Sign in as admin"
-                                className="flex-1 flex items-center justify-center gap-1.5 h-8 rounded-lg text-white/60 hover:text-white hover:bg-white/10 transition text-[11px] font-semibold">
-                                <Eye className="w-3.5 h-3.5" /> <span className="hidden sm:inline">View</span>
+                                className="h-10 rounded-lg border border-slate-200 bg-slate-50 px-3 text-[12px] font-bold text-slate-700 hover:bg-white hover:border-slate-300 transition sm:min-w-20">
+                                View
                               </button>
-                              <div className="w-px h-4 bg-white/10 mx-0.5" />
                             </>
                           )}
                           <button onClick={() => {
@@ -9097,14 +9066,13 @@ function AdminPanel() {
                               setEditingUserAccounts(opening ? u.id : null);
                               setEditUsername(u.username || "");
                             }} title="Edit admin"
-                            className={`flex-1 flex items-center justify-center gap-1.5 h-8 rounded-lg transition text-[11px] font-semibold ${editingUserAccounts === u.id ? "text-emerald-300 bg-white/10" : "text-white/60 hover:text-white hover:bg-white/10"}`}>
-                            <Edit className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Edit</span>
+                            className={`h-10 rounded-lg border px-3 text-[12px] font-bold transition sm:min-w-20 ${editingUserAccounts === u.id ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-white hover:border-slate-300"}`}>
+                            Edit
                           </button>
-                          <div className="w-px h-4 bg-white/10 mx-0.5" />
                           <button onClick={() => { setChangingUserPass(changingUserPass === u.id ? null : u.id); setUserNewPass(""); }}
                             title="Change password"
-                            className={`flex-1 flex items-center justify-center gap-1.5 h-8 rounded-lg transition text-[11px] font-semibold ${changingUserPass === u.id ? "text-amber-300 bg-white/10" : "text-white/60 hover:text-white hover:bg-white/10"}`}>
-                            <KeyRound className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Key</span>
+                            className={`h-10 rounded-lg border px-3 text-[12px] font-bold transition sm:min-w-24 ${changingUserPass === u.id ? "border-amber-300 bg-amber-50 text-amber-800" : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-white hover:border-slate-300"}`}>
+                            Password
                           </button>
                         </div>
                       )}
@@ -9566,6 +9534,7 @@ function AdminPanel() {
                       </div>,
                       document.body
                     )}
+                      </div>
                     </div>
                   </div>
 
