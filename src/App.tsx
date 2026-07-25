@@ -12079,27 +12079,74 @@ function AdminPanel() {
 
                 <div className="md:col-span-2">
                   <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">Back online at (optional)</label>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <input type="datetime-local" value={maintenanceEndsAt} onChange={(e) => setMaintenanceEndsAt(e.target.value)}
-                      className="flex-1 min-w-[220px] bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm text-slate-900" />
-                    {maintenanceEndsAt && (
-                      <button type="button" onClick={() => setMaintenanceEndsAt("")}
-                        className="px-3 py-2 rounded-xl border text-xs font-semibold text-slate-600 hover:bg-slate-50">Clear</button>
-                    )}
-                    {[15, 30, 60, 120].map((mins) => (
-                      <button key={mins} type="button"
-                        onClick={() => {
-                          const d = new Date(Date.now() + mins * 60000);
-                          const pad = (n: number) => String(n).padStart(2, "0");
-                          setMaintenanceEndsAt(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`);
-                        }}
-                        className="px-2.5 py-1.5 rounded-lg border text-[11px] font-semibold text-slate-600 hover:bg-slate-50">
-                        +{mins < 60 ? `${mins}m` : `${mins / 60}h`}
-                      </button>
-                    ))}
-                  </div>
-                  <p className="text-[10.5px] text-slate-500 mt-1 ml-1">Shown as “Back at …” with a live countdown on the maintenance screen. Leave blank to hide.</p>
+                  {(() => {
+                    const pad = (n: number) => String(n).padStart(2, "0");
+                    const parts = (() => {
+                      if (!maintenanceEndsAt) return { date: "", h12: "", min: "", ampm: "AM" as "AM" | "PM" };
+                      const m = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/.exec(maintenanceEndsAt);
+                      if (!m) return { date: "", h12: "", min: "", ampm: "AM" as "AM" | "PM" };
+                      const h = parseInt(m[2], 10);
+                      const ampm: "AM" | "PM" = h >= 12 ? "PM" : "AM";
+                      const h12 = h % 12 === 0 ? 12 : h % 12;
+                      return { date: m[1], h12: String(h12), min: m[3], ampm };
+                    })();
+                    const compose = (date: string, h12: string, min: string, ampm: "AM" | "PM") => {
+                      if (!date || !h12 || min === "") { setMaintenanceEndsAt(""); return; }
+                      let h = parseInt(h12, 10) % 12;
+                      if (ampm === "PM") h += 12;
+                      setMaintenanceEndsAt(`${date}T${pad(h)}:${pad(parseInt(min, 10) || 0)}`);
+                    };
+                    return (
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <input type="date" value={parts.date}
+                          onChange={(e) => compose(e.target.value, parts.h12 || "12", parts.min || "00", parts.ampm)}
+                          className="bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-amber-500 text-sm text-slate-900" />
+                        <div className="flex items-center gap-1 bg-slate-50 border rounded-xl px-2 py-1">
+                          <select value={parts.h12} onChange={(e) => compose(parts.date, e.target.value, parts.min || "00", parts.ampm)}
+                            className="bg-transparent text-sm text-slate-900 outline-none px-1 py-1.5">
+                            <option value="" disabled>HH</option>
+                            {Array.from({ length: 12 }, (_, i) => i + 1).map((h) => (
+                              <option key={h} value={String(h)}>{pad(h)}</option>
+                            ))}
+                          </select>
+                          <span className="text-slate-400 text-sm">:</span>
+                          <select value={parts.min} onChange={(e) => compose(parts.date, parts.h12 || "12", e.target.value, parts.ampm)}
+                            className="bg-transparent text-sm text-slate-900 outline-none px-1 py-1.5">
+                            <option value="" disabled>MM</option>
+                            {Array.from({ length: 60 }, (_, i) => i).map((m) => (
+                              <option key={m} value={pad(m)}>{pad(m)}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="inline-flex rounded-xl border overflow-hidden text-xs font-semibold">
+                          {(["AM", "PM"] as const).map((v) => (
+                            <button key={v} type="button"
+                              onClick={() => compose(parts.date || new Date().toISOString().slice(0, 10), parts.h12 || "12", parts.min || "00", v)}
+                              className={`px-3 py-2 ${parts.ampm === v ? "bg-amber-500 text-white" : "bg-slate-50 text-slate-600 hover:bg-slate-100"}`}>
+                              {v}
+                            </button>
+                          ))}
+                        </div>
+                        {maintenanceEndsAt && (
+                          <button type="button" onClick={() => setMaintenanceEndsAt("")}
+                            className="px-3 py-2 rounded-xl border text-xs font-semibold text-slate-600 hover:bg-slate-50">Clear</button>
+                        )}
+                        {[15, 30, 60, 120].map((mins) => (
+                          <button key={mins} type="button"
+                            onClick={() => {
+                              const d = new Date(Date.now() + mins * 60000);
+                              setMaintenanceEndsAt(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`);
+                            }}
+                            className="px-2.5 py-1.5 rounded-lg border text-[11px] font-semibold text-slate-600 hover:bg-slate-50">
+                            +{mins < 60 ? `${mins}m` : `${mins / 60}h`}
+                          </button>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                  <p className="text-[10.5px] text-slate-500 mt-1 ml-1">12-hour format with AM/PM. Shown as “Back at …” with a live countdown on the maintenance screen. Leave blank to hide.</p>
                 </div>
+
 
                 <div className="md:col-span-2">
                   <label className="block text-[10.5px] font-bold text-slate-400 uppercase mb-1 ml-1 tracking-wider">Message shown to users</label>
