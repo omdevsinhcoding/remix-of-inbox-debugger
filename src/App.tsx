@@ -5762,9 +5762,8 @@ function AllEmailsPanel() {
   };
 
   if (view === "picker") {
-    const hasPrimary = !!primaryUser;
-    const hasAny = hasPrimary || labels.length > 0;
-    const totalAccounts = (hasPrimary ? 1 : 0) + labels.length;
+    const hasAny = labels.length > 0;
+    const totalAccounts = labels.length;
     return (
       <section className="relative overflow-hidden rounded-3xl bg-white p-5 sm:p-7 border border-slate-200/70 shadow-[0_20px_60px_-30px_rgba(220,38,38,0.25)]">
         {/* Soft brand blush */}
@@ -5812,27 +5811,6 @@ function AllEmailsPanel() {
               </div>
             </button>
 
-            {hasPrimary && (
-              <button
-                onClick={() => openAccount("Primary")}
-                className="group relative overflow-hidden text-left rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 via-white to-white hover:border-amber-400 hover:shadow-lg hover:shadow-amber-500/10 active:scale-[0.99] transition-all p-4"
-              >
-                <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-amber-400 to-amber-600" />
-                <div className="flex items-center gap-3 pl-1">
-                  <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center flex-shrink-0 shadow-md shadow-amber-500/40">
-                    <Mail className="w-5 h-5 text-white" strokeWidth={2.5} />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5">
-                      <p className="font-black text-slate-900 text-sm truncate">Primary</p>
-                      <span className="text-[8px] font-black bg-amber-500 text-white px-1.5 py-0.5 rounded tracking-wider shadow-sm">DEFAULT</span>
-                    </div>
-                    <p className="text-[10px] text-amber-700 font-mono truncate mt-0.5" title={primaryUser}>{primaryUser}</p>
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-amber-400 group-hover:text-amber-600 group-hover:translate-x-0.5 transition-all flex-shrink-0" />
-                </div>
-              </button>
-            )}
 
             {labels.map((a, idx) => (
               <button key={a.label} onClick={() => openAccount(a.label)}
@@ -6323,10 +6301,9 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
         });
       }
     };
-    pushWithFilters(
-      { key: "__primary__", label: "Primary", user: serverConfig?.IMAP_USER || "", host: serverConfig?.IMAP_HOST || "" },
-      serverConfig?.IMAP_RECIPIENT_FILTERS || serverConfig?.recipientFilters,
-    );
+
+
+
     for (const a of (emailAccounts || [])) {
       pushWithFilters(
         { key: a.label || a.user, label: a.label || a.user, user: a.user, host: a.host },
@@ -7369,7 +7346,7 @@ function AdminPanel() {
   }, [activeTab]);
 
   const availableAccounts = useMemo<string[]>(() => {
-    const labels = ["Primary"];
+    const labels: string[] = [];
     emailAccounts.forEach(acc => {
       if (acc.label && !labels.includes(acc.label)) labels.push(acc.label);
     });

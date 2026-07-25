@@ -362,7 +362,7 @@ async function normalizeAssignedAccounts(supabase: any, raw: any): Promise<strin
 
 async function loadAvailableAccountLabels(supabase: any): Promise<string[]> {
   const value = await getSetting<any[]>(supabase, "email_accounts");
-  return ["Primary", ...((Array.isArray(value) ? value : []).map((acc: any) => String(acc?.label || acc?.user || "").trim()).filter(Boolean))];
+  return (Array.isArray(value) ? value : []).map((acc: any) => String(acc?.label || acc?.user || "").trim()).filter(Boolean);
 }
 
 async function loadRecipientFiltersByLabel(supabase: any): Promise<Map<string, string[]>> {
@@ -5003,7 +5003,7 @@ Deno.serve(async (originalReq) => {
       const settingsMapForUsers = new Map((settingsRes.data || []).map((row: any) => [row.key, row.value]));
       const globalLocationRequired = isGlobalLocationRequired(settingsMapForUsers.get("location_policy"));
       const emailAccountsForLabels = Array.isArray(settingsMapForUsers.get("email_accounts")) ? settingsMapForUsers.get("email_accounts") : [];
-      const availableAccountLabelsForList = ["Primary", ...emailAccountsForLabels.map((acc: any) => String(acc?.label || acc?.user || "").trim()).filter(Boolean)];
+      const availableAccountLabelsForList = emailAccountsForLabels.map((acc: any) => String(acc?.label || acc?.user || "").trim()).filter(Boolean);
 
       // Users mapping
       const users = (usersRes.data || []).map((u: any) => ({
@@ -5666,15 +5666,11 @@ Deno.serve(async (originalReq) => {
       }
 
       // --- Shared: resolve candidate accounts w/ cookies ---
-      const [cfg, emailAccounts] = await Promise.all([
+      const [, emailAccounts] = await Promise.all([
         getSetting<any>(supabase, "config"),
         getSetting<any[]>(supabase, "email_accounts"),
       ]);
-      const primaryUser = String(cfg?.IMAP_USER || "").trim().toLowerCase();
-      const primaryAccount = primaryUser
-        ? [{ label: "Primary", user: primaryUser, host: cfg?.IMAP_HOST || "", recipientFilters: normalizeRecipientFilters(cfg?.IMAP_RECIPIENT_FILTERS || cfg?.recipientFilters) }]
-        : [];
-      const allAccounts: any[] = [...primaryAccount, ...(Array.isArray(emailAccounts) ? emailAccounts : [])];
+      const allAccounts: any[] = Array.isArray(emailAccounts) ? emailAccounts : [];
       const candidates = resolveTvAccountCandidates(allAccounts, user.assigned_accounts);
       const lookupKeys = Array.from(new Set(candidates.map((c) => c.login_email))).filter(Boolean);
       const cookieMap = new Map<string, string>();
@@ -5834,15 +5830,11 @@ Deno.serve(async (originalReq) => {
       if (user.role !== "admin" && user.feature_tv === false) {
         return new Response(JSON.stringify({ success: true, accounts: [], not_configured: true, message: "TV login isn't enabled for your account." }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
-      const [cfg, emailAccounts] = await Promise.all([
+      const [, emailAccounts] = await Promise.all([
         getSetting<any>(supabase, "config"),
         getSetting<any[]>(supabase, "email_accounts"),
       ]);
-      const primaryUser = String(cfg?.IMAP_USER || "").trim().toLowerCase();
-      const primaryAccount = primaryUser
-        ? [{ label: "Primary", user: primaryUser, host: cfg?.IMAP_HOST || "", recipientFilters: normalizeRecipientFilters(cfg?.IMAP_RECIPIENT_FILTERS || cfg?.recipientFilters) }]
-        : [];
-      const allAccounts: any[] = [...primaryAccount, ...(Array.isArray(emailAccounts) ? emailAccounts : [])];
+      const allAccounts: any[] = Array.isArray(emailAccounts) ? emailAccounts : [];
       const candidates = resolveTvAccountCandidates(allAccounts, user.assigned_accounts);
 
       // Cookies are keyed per recipient filter (login_email). An account is
@@ -5918,17 +5910,14 @@ Deno.serve(async (originalReq) => {
       }
       if (!user) throw new Error("User not found");
 
-      // Resolve the user's linked IMAP accounts, including the configured
-      // Primary account. Users assigned "Primary" must not see every account.
-      const [cfg, emailAccounts] = await Promise.all([
+      // Resolve the user's linked IMAP accounts strictly from admin-configured
+      // email_accounts. No implicit "Primary" fallback — users see only what
+      // the admin explicitly assigned to them.
+      const [, emailAccounts] = await Promise.all([
         getSetting<any>(supabase, "config"),
         getSetting<any[]>(supabase, "email_accounts"),
       ]);
-      const primaryUser = String(cfg?.IMAP_USER || "").trim().toLowerCase();
-      const primaryAccount = primaryUser
-        ? [{ label: "Primary", user: primaryUser, host: cfg?.IMAP_HOST || "", recipientFilters: normalizeRecipientFilters(cfg?.IMAP_RECIPIENT_FILTERS || cfg?.recipientFilters) }]
-        : [];
-      const allAccounts: any[] = [...primaryAccount, ...(Array.isArray(emailAccounts) ? emailAccounts : [])];
+      const allAccounts: any[] = Array.isArray(emailAccounts) ? emailAccounts : [];
       const assignedLabels = (Array.isArray(user.assigned_accounts) ? user.assigned_accounts : [])
         .map((v: any) => String(v || "").trim().toLowerCase())
         .filter(Boolean);
