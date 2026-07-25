@@ -1020,6 +1020,56 @@ type ClientGeoPayload = {
   device?: DeviceFingerprint;
 };
 
+function compactClientGeoForPending(raw: ClientGeoPayload | null): ClientGeoPayload | null {
+  if (!raw) return null;
+  const device = raw.device;
+  return {
+    status: raw.status,
+    permissionState: raw.permissionState,
+    latitude: raw.latitude,
+    longitude: raw.longitude,
+    accuracy: raw.accuracy,
+    altitude: raw.altitude,
+    heading: raw.heading,
+    speed: raw.speed,
+    timestamp: raw.timestamp,
+    error: raw.error,
+    publicIp: raw.publicIp,
+    publicIpSource: raw.publicIpSource,
+    device: device ? {
+      userAgent: device.userAgent,
+      platform: device.platform,
+      vendor: device.vendor,
+      deviceName: device.deviceName,
+      deviceModel: device.deviceModel,
+      deviceVendor: device.deviceVendor,
+      deviceType: device.deviceType,
+      deviceInfoSource: device.deviceInfoSource,
+      deviceInfoConfidence: device.deviceInfoConfidence,
+      osName: device.osName,
+      osVersion: device.osVersion,
+      browserName: device.browserName,
+      browserVersion: device.browserVersion,
+      language: device.language,
+      screen: device.screen,
+      viewport: device.viewport,
+      timezone: device.timezone,
+      utcOffsetMinutes: device.utcOffsetMinutes,
+      touchPoints: device.touchPoints,
+      deviceMemory: device.deviceMemory,
+      hardwareConcurrency: device.hardwareConcurrency,
+      mobile: device.mobile,
+      uaPlatform: device.uaPlatform,
+      uaPlatformVersion: device.uaPlatformVersion,
+      uaModel: device.uaModel,
+      uaFullVersion: device.uaFullVersion,
+      network: device.network,
+      webdriver: device.webdriver,
+      fingerprintHash: device.fingerprintHash,
+    } : undefined,
+  };
+}
+
 function sanitizeDevice(raw: any): DeviceFingerprint | undefined {
   if (!raw || typeof raw !== "object") return undefined;
   const str = (v: any, max = 240) => (typeof v === "string" ? v.slice(0, max) : undefined);
