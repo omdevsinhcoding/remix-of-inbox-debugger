@@ -552,26 +552,29 @@ export function DirectLinkView({ apiCall, notify }: { apiCall: ApiCall; notify: 
               <h3 className="font-bold text-slate-900 flex items-center gap-2 text-sm"><Clock className="w-4 h-4 text-slate-500" /> Recent links</h3>
               <button onClick={loadLinks} className="p-1.5 rounded-full hover:bg-slate-100" title="Refresh"><RefreshCw className="w-3.5 h-3.5 text-slate-500" /></button>
             </div>
-            <ul className="divide-y divide-slate-100">
-              {links.map(l => {
-                const expired = new Date(l.expires_at).getTime() <= Date.now() || l.status !== "active";
-                return (
-                  <li key={l.id} className="py-3 flex items-center gap-3">
-                    <div className={`w-2 h-2 rounded-full ${expired ? "bg-slate-300" : "bg-rose-500"}`} />
-                    <div className="flex-1 min-w-0">
-                      <div className="text-xs text-slate-600 truncate font-semibold">Direct link</div>
-                      <div className="text-[11px] text-slate-400">Exp: <b>{fmtIST(l.expires_at)}</b> · {expired ? <span className="text-slate-400">expired</span> : <span className="text-rose-600">{remaining(l.expires_at)}</span>}</div>
-                    </div>
-                    {!expired && (
-                      <>
-                        <button onClick={() => copy(l.link_url)} className="p-2 rounded-lg hover:bg-slate-100" title="Copy link"><Copy className="w-4 h-4 text-slate-600" /></button>
-                        <a href={l.link_url} target="_blank" rel="noopener noreferrer" className="px-3 h-8 rounded-lg bg-slate-900 text-white text-[11px] font-bold flex items-center hover:bg-slate-800">Open</a>
-                      </>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
+            <div className="max-h-[320px] sm:max-h-[380px] overflow-y-auto pr-1 -mr-1 [scrollbar-width:thin]">
+              <ul className="divide-y divide-slate-100">
+                {links.map(l => {
+                  const expired = new Date(l.expires_at).getTime() <= Date.now() || l.status !== "active";
+                  return (
+                    <li key={l.id} className="py-3 flex items-center gap-2 sm:gap-3">
+                      <div className={`w-2 h-2 rounded-full shrink-0 ${expired ? "bg-slate-300" : "bg-rose-500"}`} />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-xs text-slate-600 truncate font-semibold">Direct link</div>
+                        <div className="text-[11px] text-slate-400 truncate">Exp: <b>{fmtIST(l.expires_at)}</b> · {expired ? <span className="text-slate-400">expired</span> : <span className="text-rose-600">{remaining(l.expires_at)}</span>}</div>
+                      </div>
+                      {!expired && (
+                        <>
+                          <button onClick={() => copy(l.link_url)} className="p-2 rounded-lg hover:bg-slate-100 shrink-0" title="Copy link"><Copy className="w-4 h-4 text-slate-600" /></button>
+                          <a href={l.link_url} target="_blank" rel="noopener noreferrer" className="px-3 h-8 rounded-lg bg-slate-900 text-white text-[11px] font-bold flex items-center hover:bg-slate-800 shrink-0">Open</a>
+                        </>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+
           </div>
         )}
       </div>
