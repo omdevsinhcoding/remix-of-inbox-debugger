@@ -9013,7 +9013,7 @@ function AdminPanel() {
                             {(!u.assignedAccounts || u.assignedAccounts.length === 0) && u.role !== "admin" && (
                               <span className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded font-bold">no accounts</span>
                             )}
-                          </div>
+                          </div>)}
                           {u.role !== "admin" && !u.isFree && (u as any).session_limit != null && (
                             <p className="text-[10px] text-emerald-700 mt-1.5 font-mono">
                               sessions: <span className="font-bold">{(u as any).session_limit === 0 ? "∞" : (u as any).session_limit}</span>
