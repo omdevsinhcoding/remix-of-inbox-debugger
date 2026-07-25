@@ -2052,6 +2052,154 @@ function userFriendlyTvError(message?: string | null) {
 }
 
 type TvLoginStatus = "idle" | "verifying" | "checking" | "queued" | "running" | "in_progress" | "success" | "invalid_code" | "cookies_expired" | "no_cookies" | "error";
+type TvRunInfo = {
+  accountLabel?: string | null;
+  imapMasked?: string | null;
+  eventId?: string | null;
+  message?: string | null;
+  runUrl?: string | null;
+  createdAt?: string | null;
+  finishedAt?: string | null;
+  result?: string | null;
+};
+
+const TV_ACTIVE_STATUSES = new Set<TvLoginStatus>(["verifying", "checking", "queued", "running", "in_progress"]);
+const TV_TERMINAL_STATUSES = new Set<TvLoginStatus>(["success", "invalid_code", "cookies_expired", "no_cookies", "error"]);
+
+function normalizeTvStatus(value: unknown): TvLoginStatus {
+  const s = String(value || "");
+  return (["idle", "verifying", "checking", "queued", "running", "in_progress", "success", "invalid_code", "cookies_expired", "no_cookies", "error"] as TvLoginStatus[]).includes(s as TvLoginStatus)
+    ? (s as TvLoginStatus)
+    : "idle";
+}
+
+function splitTvCode(value: unknown): string[] {
+  const clean = String(value || "").replace(/\D/g, "").slice(0, 8);
+  return Array.from({ length: 8 }, (_, i) => clean[i] || "");
+}
+
+function maskTvEmail(value: string): string {
+  const raw = String(value || "").trim();
+  const at = raw.indexOf("@");
+  if (at <= 1) return raw;
+  const name = raw.slice(0, at);
+  const domain = raw.slice(at);
+  return `${name.slice(0, 3)}•••${name.slice(-2)}${domain}`;
+}
+
+function tvRunInfoFromEvent(ev: any): TvRunInfo {
+  return {
+    accountLabel: ev?.account_label || null,
+    imapMasked: ev?.imap_user ? maskTvEmail(String(ev.imap_user)) : null,
+    eventId: ev?.id || null,
+    message: ev?.message || null,
+    runUrl: ev?.github_run_url || null,
+    createdAt: ev?.created_at || null,
+    finishedAt: ev?.finished_at || null,
+    result: ev?.result || null,
+  };
+}
+
+function formatTvRunTime(iso?: string | null): string {
+  if (!iso) return "—";
+  try {
+    return new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" }).format(new Date(iso));
+  } catch { return String(iso); }
+}
+
+function formatTvDuration(start?: string | null, end?: string | null): string {
+  const a = start ? new Date(start).getTime() : 0;
+  const b = end ? new Date(end).getTime() : Date.now();
+  if (!Number.isFinite(a) || !Number.isFinite(b) || !a || b < a) return "—";
+  const sec = Math.max(1, Math.round((b - a) / 1000));
+  if (sec < 60) return `${sec}s`;
+  const min = Math.floor(sec / 60);
+  const rem = sec % 60;
+  return `${min}m ${String(rem).padStart(2, "0")}s`;
+}
+
+function TvRunDetails({ info, status, code, theme = "light" }: { info: TvRunInfo; status: TvLoginStatus; code?: string; theme?: "dark" | "light" }) {
+  if (!info?.eventId && !info?.createdAt) return null;
+  const dark = theme === "dark";
+  const terminal = TV_TERMINAL_STATUSES.has(status);
+  const active = TV_ACTIVE_STATUSES.has(status);
+  const tone = status === "success" ? "emerald" : active ? "rose" : status === "idle" ? "slate" : "amber";
+  const shell = dark
+    ? "border-white/10 bg-white/[0.04] text-white"
+    : "border-slate-200 bg-slate-50/80 text-slate-900";
+  const muted = dark ? "text-white/55" : "text-slate-500";
+  const value = dark ? "text-white" : "text-slate-900";
+  const badge = tone === "emerald"
+    ? dark ? "bg-emerald-500/15 text-emerald-200 border-emerald-400/25" : "bg-emerald-50 text-emerald-700 border-emerald-200"
+    : tone === "rose"
+      ? dark ? "bg-rose-500/15 text-rose-200 border-rose-400/25" : "bg-rose-50 text-rose-700 border-rose-200"
+      : dark ? "bg-amber-500/15 text-amber-200 border-amber-400/25" : "bg-amber-50 text-amber-700 border-amber-200";
+  const label = status === "success" ? "Process completed" : active ? "Process running" : "Process ended";
+  return (
+    <div className={`mt-5 rounded-2xl border p-4 ${shell}`}>
+      <div className="flex items-center justify-between gap-3">
+        <div className={`text-[10px] uppercase tracking-[0.18em] font-black ${muted}`}>TV sign-in details</div>
+        <div className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-wider ${badge}`}>{label}</div>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] sm:text-xs">
+        <div className={`rounded-xl px-3 py-2 ${dark ? "bg-black/20" : "bg-white border border-slate-100"}`}>
+          <div className={muted}>Started</div>
+          <div className={`mt-0.5 font-bold ${value}`}>{formatTvRunTime(info.createdAt)}</div>
+        </div>
+        <div className={`rounded-xl px-3 py-2 ${dark ? "bg-black/20" : "bg-white border border-slate-100"}`}>
+          <div className={muted}>{terminal ? "Finished" : "Running for"}</div>
+          <div className={`mt-0.5 font-bold ${value}`}>{terminal ? formatTvRunTime(info.finishedAt) : formatTvDuration(info.createdAt, null)}</div>
+        </div>
+        <div className={`rounded-xl px-3 py-2 ${dark ? "bg-black/20" : "bg-white border border-slate-100"}`}>
+          <div className={muted}>Taken time</div>
+          <div className={`mt-0.5 font-bold ${value}`}>{formatTvDuration(info.createdAt, info.finishedAt)}</div>
+        </div>
+        <div className={`rounded-xl px-3 py-2 ${dark ? "bg-black/20" : "bg-white border border-slate-100"}`}>
+          <div className={muted}>Code</div>
+          <div className={`mt-0.5 font-bold tabular-nums ${value}`}>{code || "—"}</div>
+        </div>
+      </div>
+      {(info.accountLabel || info.imapMasked) && (
+        <div className={`mt-2 rounded-xl px-3 py-2 text-[11px] sm:text-xs ${dark ? "bg-black/20" : "bg-white border border-slate-100"}`}>
+          <div className={muted}>Account</div>
+          <div className={`mt-0.5 font-bold truncate ${value}`}>{info.imapMasked || info.accountLabel}{info.accountLabel && info.imapMasked ? ` · ${info.accountLabel}` : ""}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TvRecentRuns({ events, onRefresh }: { events: any[]; onRefresh: () => void }) {
+  if (!events.length) return null;
+  const statusLabel = (ev: any) => String(ev?.status || "").replace(/_/g, " ") || "unknown";
+  const dot = (status: string) => status === "success" ? "bg-emerald-500" : ["queued", "running", "in_progress"].includes(status) ? "bg-rose-500 animate-pulse" : "bg-amber-500";
+  return (
+    <div className="mt-6 rounded-3xl bg-white border border-slate-200 shadow-sm p-5 xl:p-6">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="font-bold text-slate-900 flex items-center gap-2 text-sm"><Clock className="w-4 h-4 text-slate-500" /> Recent TV sign-ins</h3>
+        <button type="button" onClick={onRefresh} className="p-1.5 rounded-full hover:bg-slate-100" title="Refresh"><RefreshCw className="w-3.5 h-3.5 text-slate-500" /></button>
+      </div>
+      <ul className="divide-y divide-slate-100">
+        {events.map((ev) => {
+          const status = String(ev?.status || "");
+          return (
+            <li key={ev.id} className="py-3 flex items-start gap-3">
+              <div className={`mt-1.5 w-2 h-2 rounded-full ${dot(status)}`} />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-xs text-slate-700 truncate font-bold capitalize">{statusLabel(ev)}</div>
+                  <div className="text-[11px] text-slate-400 shrink-0">{formatTvDuration(ev.created_at, ev.finished_at)}</div>
+                </div>
+                <div className="text-[11px] text-slate-500 mt-0.5 truncate">{ev.imap_user ? maskTvEmail(String(ev.imap_user)) : ev.account_label || "TV sign-in"}</div>
+                <div className="text-[11px] text-slate-400 mt-0.5">Started <b>{formatTvRunTime(ev.created_at)}</b>{ev.finished_at ? <> · Finished <b>{formatTvRunTime(ev.finished_at)}</b></> : null}</div>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
 
 const tvActiveCopy = [
   "Signing you in",
@@ -2115,8 +2263,8 @@ function TvProcessButton({
   const terminalCopy = getTvTerminalCopy(status, message);
   const canSubmit = status === "idle" && isComplete;
   const dark = theme === "dark";
-  const disabled = active || (status === "idle" && !isComplete) || status === "success" || status === "no_cookies" || status === "cookies_expired";
-  const click = terminal && status !== "success" && status !== "no_cookies" && status !== "cookies_expired" ? onRetry : onSubmit;
+  const disabled = active || (status === "idle" && !isComplete) || status === "no_cookies" || status === "cookies_expired";
+  const click = terminal && status !== "no_cookies" && status !== "cookies_expired" ? onRetry : onSubmit;
   const base = dark
     ? "mt-6 w-full min-h-12 rounded-xl font-bold text-sm tracking-wide transition-all active:scale-[0.98] overflow-hidden relative"
     : "mt-8 w-full min-h-14 2xl:min-h-16 rounded-xl xl:rounded-2xl font-black text-sm xl:text-base tracking-wide transition-all active:scale-[0.98] overflow-hidden relative";
@@ -2175,9 +2323,26 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
 
   const [code, setCode] = useState<string[]>(["", "", "", "", "", "", "", ""]);
   const [status, setStatus] = useState<TvLoginStatus>("idle");
-  const [resultInfo, setResultInfo] = useState<{ accountLabel?: string | null; imapMasked?: string | null; eventId?: string | null; message?: string | null; runUrl?: string | null }>({});
+  const [resultInfo, setResultInfo] = useState<TvRunInfo>({});
   const [pollElapsed, setPollElapsed] = useState(0);
   const inputsRef = useRef<Array<HTMLInputElement | null>>([]);
+
+  const resumeActiveTvLogin = useCallback(async (): Promise<boolean> => {
+    try {
+      const res: any = await apiCall("manage-app", { action: "tv_login_active" });
+      const ev = res?.event;
+      if (!ev) return false;
+      const s = normalizeTvStatus(ev.status);
+      if (s === "idle") return false;
+      setResultInfo(tvRunInfoFromEvent(ev));
+      if (ev.code) setCode(splitTvCode(ev.code));
+      setStep("code");
+      setStatus(s);
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
 
   const placePanel = useCallback(() => {
     const rect = buttonRef.current?.getBoundingClientRect();
@@ -2226,26 +2391,31 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
 
   useEffect(() => {
     if (!open) return;
+    let cancelled = false;
     window.dispatchEvent(new CustomEvent("notif:open"));
     placePanel();
-    setStep("select");
-    setChosen(null);
-    setCode(["", "", "", "", "", "", "", ""]);
-    setStatus("idle");
-    setResultInfo({});
     loadAccounts();
+    resumeActiveTvLogin().then((resumed) => {
+      if (cancelled || resumed) return;
+      setStep("select");
+      setChosen(null);
+      setCode(["", "", "", "", "", "", "", ""]);
+      setStatus("idle");
+      setResultInfo({});
+    });
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
     const onReposition = () => placePanel();
     window.addEventListener("keydown", onKey);
     window.addEventListener("resize", onReposition);
     window.addEventListener("scroll", onReposition, true);
     return () => {
+      cancelled = true;
       window.dispatchEvent(new CustomEvent("notif:close"));
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("resize", onReposition);
       window.removeEventListener("scroll", onReposition, true);
     };
-  }, [open, placePanel, loadAccounts]);
+  }, [open, placePanel, loadAccounts, resumeActiveTvLogin]);
 
   useEffect(() => {
     if (open && step === "code") {
@@ -2259,19 +2429,10 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      try {
-        const res: any = await apiCall("manage-app", { action: "tv_login_active" });
-        if (cancelled) return;
-        const ev = res?.event;
-        if (!ev) return;
-        const s = String(ev.status || "");
-        if (!["queued", "running", "in_progress"].includes(s)) return;
-        setResultInfo({ accountLabel: ev.account_label, imapMasked: ev.imap_user || null, eventId: ev.id, message: ev.message || null, runUrl: ev.github_run_url || null });
-        setStatus(s as any);
-      } catch {}
+      if (!cancelled) await resumeActiveTvLogin();
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [resumeActiveTvLogin]);
 
   const setDigit = (i: number, v: string) => {
     const d = v.replace(/\D/g, "").slice(-1);
@@ -2322,6 +2483,7 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
         imapMasked: res.imap_user_masked,
         eventId: res.event_id,
         message: res.message || null,
+        createdAt: res.created_at || new Date().toISOString(),
       });
       if (!res.cookies_available) { setStatus("no_cookies"); return; }
       setStatus(res.status === "queued" ? "queued" : res.status === "error" ? "error" : "in_progress");
@@ -2348,7 +2510,7 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
     if (!["queued", "running", "in_progress"].includes(status)) return;
     let cancelled = false;
     let timer: number | null = null;
-    const startedAt = Date.now();
+    const startedAt = resultInfo.createdAt ? new Date(resultInfo.createdAt).getTime() : Date.now();
     setPollElapsed(0);
     let consecutiveErrors = 0;
 
@@ -2361,12 +2523,11 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
         consecutiveErrors = 0;
         const ev = res?.event;
         if (ev) {
-          setResultInfo((prev) => ({ ...prev, message: ev.message || prev.message, runUrl: ev.github_run_url || prev.runUrl }));
-          const s = String(ev.status || "");
+          setResultInfo((prev) => ({ ...prev, ...tvRunInfoFromEvent(ev), message: ev.message || prev.message, runUrl: ev.github_run_url || prev.runUrl }));
+          const s = normalizeTvStatus(ev.status);
           const r = String(ev.result || "");
           if (s === "success") {
             setStatus("success");
-            setTimeout(() => { try { nukeBrowserIdentity().catch(() => {}); } catch {} }, 1600);
             return;
           }
           if (r === "runner_timeout" || r === "netflix_timeout") {
@@ -2374,11 +2535,11 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
             setResultInfo((prev) => ({ ...prev, message: "Netflix did not respond cleanly. Generate a fresh TV code and try again." }));
             return;
           }
-          if (s === "invalid_code" || s === "cookies_expired" || s === "error") {
-            setStatus(s as any);
+          if (s === "invalid_code" || s === "cookies_expired" || s === "no_cookies" || s === "error") {
+            setStatus(s);
             return;
           }
-          if (s === "running" || s === "queued") setStatus(s as any);
+          if (s === "running" || s === "queued" || s === "in_progress") setStatus(s);
         }
       } catch {
         consecutiveErrors += 1;
@@ -2398,7 +2559,7 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
     };
     timer = window.setTimeout(tick, 500);
     return () => { cancelled = true; if (timer) clearTimeout(timer); };
-  }, [resultInfo.eventId, status]);
+  }, [resultInfo.eventId, resultInfo.createdAt, status]);
 
 
 
@@ -2602,6 +2763,8 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
                   theme="dark"
                 />
 
+                <TvRunDetails info={resultInfo} status={status} code={full || undefined} theme="dark" />
+
 
                 {status === "idle" && (
                   <div className="mt-4 flex items-center justify-center gap-1.5 text-[10.5px] text-white/40">
@@ -2663,8 +2826,9 @@ function TvSignInPage() {
     if (saved && saved.length === 8) return saved.map((d: any) => (typeof d === "string" ? d.slice(0, 1) : ""));
     return ["", "", "", "", "", "", "", ""];
   });
-  const [status, setStatus] = useState<TvLoginStatus>("idle");
-  const [resultInfo, setResultInfo] = useState<{ accountLabel?: string | null; imapMasked?: string | null; eventId?: string | null; message?: string | null; runUrl?: string | null }>({});
+  const [status, setStatus] = useState<TvLoginStatus>(() => normalizeTvStatus(initialDraft.status));
+  const [resultInfo, setResultInfo] = useState<TvRunInfo>(initialDraft.resultInfo || {});
+  const [recentRuns, setRecentRuns] = useState<any[]>([]);
   const [pollElapsed, setPollElapsed] = useState(0);
   const inputsRef = useRef<Array<HTMLInputElement | null>>([]);
 
@@ -2698,6 +2862,13 @@ function TvSignInPage() {
     }
   }, [applyAccounts]);
 
+  const loadRecentRuns = useCallback(async () => {
+    try {
+      const res: any = await apiCall("manage-app", { action: "tv_login_recent" });
+      if (Array.isArray(res?.events)) setRecentRuns(res.events);
+    } catch {}
+  }, []);
+
   useEffect(() => {
     // Instant paint from session cache (populated by prefetchWorkflowAccounts), then
     // silently refresh in background so switching to TV feels immediate.
@@ -2712,6 +2883,8 @@ function TvSignInPage() {
     }
     return undefined;
   }, [loadAccounts, applyAccounts]);
+
+  useEffect(() => { loadRecentRuns(); }, [loadRecentRuns]);
 
   useEffect(() => {
     if (step === "code") {
@@ -2729,10 +2902,12 @@ function TvSignInPage() {
         if (cancelled) return;
         const ev = res?.event;
         if (!ev) return;
-        const s = String(ev.status || "");
-        if (!["queued", "running", "in_progress"].includes(s)) return;
-        setResultInfo({ accountLabel: ev.account_label, imapMasked: ev.imap_user || null, eventId: ev.id, message: ev.message || null, runUrl: ev.github_run_url || null });
-        setStatus(s as any);
+        const s = normalizeTvStatus(ev.status);
+        if (s === "idle") return;
+        setResultInfo(tvRunInfoFromEvent(ev));
+        if (ev.code) setCode(splitTvCode(ev.code));
+        setStep("code");
+        setStatus(s);
       } catch {}
     })();
     return () => { cancelled = true; };
@@ -2770,9 +2945,10 @@ function TvSignInPage() {
     try {
       const res: any = await apiCall("manage-app", { action: "tv_submit_code", code: full, imap_user: chosen.imap_user, account_key: chosen.account_key });
       if (!res?.success) throw new Error(res?.error || "Failed to submit code");
-      setResultInfo({ accountLabel: res.account_label, imapMasked: res.imap_user_masked, eventId: res.event_id, message: res.message || null });
+      setResultInfo({ accountLabel: res.account_label, imapMasked: res.imap_user_masked, eventId: res.event_id, message: res.message || null, createdAt: res.created_at || new Date().toISOString() });
       if (!res.cookies_available) { setStatus("no_cookies"); return; }
       setStatus(res.status === "queued" ? "queued" : res.status === "error" ? "error" : "in_progress");
+      void loadRecentRuns();
     } catch (err) {
       setResultInfo({ message: err instanceof Error ? err.message : "Something went wrong" });
       setStatus("error");
@@ -2791,10 +2967,9 @@ function TvSignInPage() {
   // Persist draft (step + chosen + code) so a workflow switch doesn't wipe it.
   useEffect(() => {
     try {
-      if (status === "success") { sessionStorage.removeItem(DRAFT_KEY); return; }
-      sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ step, chosen, code }));
+      sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ step, chosen, code, status, resultInfo }));
     } catch {}
-  }, [step, chosen, code, status]);
+  }, [step, chosen, code, status, resultInfo]);
 
 
 
@@ -2804,7 +2979,7 @@ function TvSignInPage() {
     if (!["queued", "running", "in_progress"].includes(status)) return;
     let cancelled = false;
     let timer: number | null = null;
-    const startedAt = Date.now();
+    const startedAt = resultInfo.createdAt ? new Date(resultInfo.createdAt).getTime() : Date.now();
     setPollElapsed(0);
     let consecutiveErrors = 0;
     const tick = async () => {
@@ -2816,17 +2991,17 @@ function TvSignInPage() {
         consecutiveErrors = 0;
         const ev = res?.event;
         if (ev) {
-          setResultInfo((p) => ({ ...p, message: ev.message || p.message, runUrl: ev.github_run_url || p.runUrl }));
-          const s = String(ev.status || "");
+          setResultInfo((p) => ({ ...p, ...tvRunInfoFromEvent(ev), message: ev.message || p.message, runUrl: ev.github_run_url || p.runUrl }));
+          const s = normalizeTvStatus(ev.status);
           const r = String(ev.result || "");
           if (s === "success") {
             setStatus("success");
-            setTimeout(() => { try { nukeBrowserIdentity().catch(() => {}); } catch {} }, 1600);
+            void loadRecentRuns();
             return;
           }
-          if (r === "runner_timeout" || r === "netflix_timeout") { setStatus("error"); setResultInfo((p) => ({ ...p, message: "Netflix did not respond cleanly. Generate a fresh TV code and try again." })); return; }
-          if (s === "invalid_code" || s === "cookies_expired" || s === "error") { setStatus(s as any); return; }
-          if (s === "running" || s === "queued") setStatus(s as any);
+          if (r === "runner_timeout" || r === "netflix_timeout") { setStatus("error"); setResultInfo((p) => ({ ...p, message: "Netflix did not respond cleanly. Generate a fresh TV code and try again." })); void loadRecentRuns(); return; }
+          if (s === "invalid_code" || s === "cookies_expired" || s === "no_cookies" || s === "error") { setStatus(s); void loadRecentRuns(); return; }
+          if (s === "running" || s === "queued" || s === "in_progress") setStatus(s);
         }
       } catch {
         consecutiveErrors += 1;
@@ -2845,7 +3020,7 @@ function TvSignInPage() {
     };
     timer = window.setTimeout(tick, 500);
     return () => { cancelled = true; if (timer) clearTimeout(timer); };
-  }, [resultInfo.eventId, status]);
+  }, [resultInfo.eventId, resultInfo.createdAt, status, loadRecentRuns]);
 
   return (
     <div className="min-h-[calc(100vh-4rem)] px-3 sm:px-6 pt-8 sm:pt-12 xl:pt-16 pb-32 sm:pb-36 bg-gradient-to-b from-white via-rose-50/40 to-white">
@@ -3005,6 +3180,8 @@ function TvSignInPage() {
                   theme="light"
                 />
 
+                <TvRunDetails info={resultInfo} status={status} code={full || undefined} theme="light" />
+
                 {status === "idle" && (
                   <div className="mt-4 flex items-center justify-center gap-1.5 text-[11px] text-slate-400">
                     <ShieldCheck className="w-3 h-3" />
@@ -3015,6 +3192,8 @@ function TvSignInPage() {
             )}
           </div>
         </div>
+
+        <TvRecentRuns events={recentRuns} onRefresh={loadRecentRuns} />
       </div>
     </div>
   );
