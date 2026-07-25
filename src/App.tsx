@@ -13825,16 +13825,20 @@ function EmailViewer() {
                       <iframe
                         srcDoc={responsiveEmailSrcDoc(selectedEmail)}
                         sandbox="allow-popups allow-popups-to-escape-sandbox allow-scripts"
-                        className="w-full border-0"
-                        style={{ minHeight: "400px" }}
+                        className="w-full border-0 block"
+                        scrolling="no"
+                        style={{ minHeight: "200px", height: "200px", overflow: "hidden" }}
                         title="Email content"
+                        data-email-iframe="true"
                         onLoad={(e) => {
                           const iframe = e.target as HTMLIFrameElement;
-                          if (iframe.contentDocument?.body) {
-                            iframe.style.height = iframe.contentDocument.body.scrollHeight + 20 + "px";
-                          }
+                          try {
+                            const h = iframe.contentDocument?.body?.scrollHeight;
+                            if (h) iframe.style.height = h + 20 + "px";
+                          } catch {}
                         }}
                       />
+
                     )}
                   </div>
                 </div>
