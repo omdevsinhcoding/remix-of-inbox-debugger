@@ -4968,7 +4968,7 @@ function AdminLoginPage() {
   const [adminLocationPolicy, setAdminLocationPolicy] = useState<{ username: string; required: boolean; loading: boolean }>({ username: "", required: false, loading: false });
   const normalizedAdminUsername = username.trim().toLowerCase();
   const locationRequired = adminLocationPolicy.username === normalizedAdminUsername ? adminLocationPolicy.required : false;
-  const locationPolicyChecking = !!normalizedAdminUsername && adminLocationPolicy.loading;
+  const locationPolicyChecking = !!normalizedAdminUsername && (adminLocationPolicy.loading || adminLocationPolicy.username !== normalizedAdminUsername);
   const pendingClientGeoRef = useRef<LoginLocationPayload | null>(null);
   const armedGeoRef = useRef<Promise<LoginLocationPayload> | null>(null);
   const armedDeviceRef = useRef<Promise<DeviceFingerprint> | null>(null);
