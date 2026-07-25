@@ -64,7 +64,7 @@ Deno.serve(async (req) => {
   // x-cron-secret header lets us also gate manual invocations if desired.
   const cronSecret = Deno.env.get("CRON_SHARED_SECRET") || "";
   const provided = req.headers.get("x-cron-secret") || "";
-  if (cronSecret && provided && provided !== cronSecret) {
+  if (!cronSecret || provided !== cronSecret) {
     return json(401, { success: false, error: "unauthorized" });
   }
 
