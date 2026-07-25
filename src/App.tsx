@@ -9086,11 +9086,15 @@ function AdminPanel() {
                             <span className="hidden sm:inline">{isLocationRequiredForProfile(u) ? "GPS On" : "GPS Off"}</span>
                           </button>
                           <div className="w-px h-6 bg-slate-200" />
-                          <button onClick={() => loginAsUser(u)} title="Sign in as admin"
-                            className="flex-1 flex items-center justify-center gap-1.5 h-9 rounded-lg text-slate-500 hover:bg-white hover:text-blue-600 hover:shadow-sm transition-all active:scale-95 text-[11px] font-bold uppercase tracking-wider">
-                            <Eye className="w-3.5 h-3.5" /> <span className="hidden sm:inline">View</span>
-                          </button>
-                          <div className="w-px h-6 bg-slate-200" />
+                          {currentUser?.id !== u.id && (
+                            <>
+                              <button onClick={() => loginAsUser(u)} title="Sign in as admin"
+                                className="flex-1 flex items-center justify-center gap-1.5 h-9 rounded-lg text-slate-500 hover:bg-white hover:text-blue-600 hover:shadow-sm transition-all active:scale-95 text-[11px] font-bold uppercase tracking-wider">
+                                <Eye className="w-3.5 h-3.5" /> <span className="hidden sm:inline">View</span>
+                              </button>
+                              <div className="w-px h-6 bg-slate-200" />
+                            </>
+                          )}
                           <button onClick={() => {
                               const opening = editingUserAccounts !== u.id;
                               setEditingUserAccounts(opening ? u.id : null);
