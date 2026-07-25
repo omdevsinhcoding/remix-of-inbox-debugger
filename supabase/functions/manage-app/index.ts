@@ -3206,7 +3206,7 @@ Deno.serve(async (originalReq) => {
       if (!code || String(code).length < 6) throw new Error("TOTP code required");
       const { data: user, error } = await supabase.from("app_users").select("totp_secret").eq("id", pending.userId).single();
       if (error || !user?.totp_secret) throw new Error("TOTP is not configured");
-      if (!authenticator.check(String(code), user.totp_secret)) throw new Error("Invalid Google Authenticator code");
+      if (!(await verifyTotpWithGrace(String(code), user.totp_secret))) throw new Error("Invalid Google Authenticator code");
       await supabase.from("app_admin_2fa_state").update({ totp_verified_at: new Date().toISOString() }).eq("token_hash", tokenHash).eq("user_id", pending.userId);
       return new Response(JSON.stringify({ success: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
