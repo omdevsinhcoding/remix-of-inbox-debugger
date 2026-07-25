@@ -3130,7 +3130,7 @@ function TvSignInPage() {
                       onClick={() => { setStep("select"); setStatus("idle"); setResultInfo({}); setCode(["", "", "", "", "", "", "", ""]); }}
                       disabled={["queued", "running", "in_progress", "verifying", "checking"].includes(status)}
                       className="inline-flex items-center gap-1.5 text-xs font-bold text-rose-600 hover:text-rose-700 transition disabled:opacity-40 disabled:cursor-not-allowed">
-                      <ChevronLeft className="w-4 h-4" /> Choose a different account
+                      <ArrowLeft className="w-4 h-4" /> Choose a different account
                     </button>
                     <span className="text-[11px] text-slate-400">{accounts.length} accounts</span>
                   </div>
