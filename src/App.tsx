@@ -3501,8 +3501,8 @@ function emailHtmlForDisplay(email: Email | null) {
   return normalizeEmailHtmlForDisplay(String(email.html || ""), String((email as any).preview || (email as any).snippet || ""));
 }
 
-// Global listener: resize any [data-email-iframe] iframe when its inner
-// document posts its measured content height. Kills the nested scrollbar.
+// Global listener: resize email iframes from their own measured content height.
+// Uses a per-iframe id fallback so sandboxed windows do not miss the match.
 if (typeof window !== "undefined" && !(window as any).__emailIframeResizeInstalled) {
   (window as any).__emailIframeResizeInstalled = true;
   window.addEventListener("message", (ev: MessageEvent) => {
@@ -3510,27 +3510,35 @@ if (typeof window !== "undefined" && !(window as any).__emailIframeResizeInstall
     if (!data || typeof data !== "object") return;
     const h = Number(data.__emailIframeHeight);
     if (!h || h < 40) return;
+    const frameId = typeof data.__emailIframeId === "string" ? data.__emailIframeId : "";
     const iframes = document.querySelectorAll<HTMLIFrameElement>('iframe[data-email-iframe="true"]');
     iframes.forEach((f) => {
-      if (f.contentWindow === ev.source) {
-        f.style.height = h + 8 + "px";
-      }
+      const sourceMatches = f.contentWindow === ev.source;
+      const idMatches = frameId && f.dataset.emailIframeId === frameId;
+      if (!sourceMatches && !idMatches) return;
+      const next = Math.ceil(Math.min(Math.max(h + 12, 220), 12000));
+      const current = parseFloat(f.style.height || "0");
+      if (!current || Math.abs(current - next) > 6) f.style.height = next + "px";
     });
   });
 }
 
 function responsiveEmailSrcDoc(email: Email | null) {
   const html = emailHtmlForDisplay(email);
+  const iframeId = String((email as any)?.id || "email-preview").replace(/[^a-zA-Z0-9_-]/g, "_");
 
   return `<!DOCTYPE html><html><head><base target="_blank"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"><style>
     html,body{margin:0!important;padding:0!important;width:100%!important;max-width:100%!important;min-width:0!important;overflow:hidden!important;-webkit-text-size-adjust:100%;text-size-adjust:100%;}
     body{font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:14px;line-height:1.5;color:#0f172a;background:#fff;}
     *,*::before,*::after{box-sizing:border-box!important;max-width:100%!important;min-width:0!important;}
     table,tbody,thead,tfoot,tr,td,th{max-width:100%!important;min-width:0!important;}
-    table{width:100%!important;table-layout:fixed!important;border-collapse:collapse!important;border-spacing:0!important;}
-    td,th{width:auto!important;word-break:break-word!important;overflow-wrap:anywhere!important;white-space:normal!important;}
+    table{width:100%!important;border-collapse:collapse!important;border-spacing:0!important;}
+    td,th{width:auto!important;word-break:break-word!important;overflow-wrap:anywhere!important;white-space:normal!important;text-align:left!important;}
     img,video,picture,canvas,svg{display:inline-block!important;max-width:100%!important;height:auto!important;}
     p,div,span,li,strong,b,em,a,h1,h2,h3,h4,h5,h6{max-width:100%!important;overflow-wrap:anywhere!important;word-break:break-word!important;white-space:normal!important;}
+    div[align],td[align],th[align],center{text-align:left!important;}
+    [align="right"],[align="center"]{text-align:left!important;}
+    [style*="float"]{float:none!important;}
     h1{font-size:clamp(22px,8vw,32px)!important;line-height:1.12!important;margin:12px 0!important;}
     h2{font-size:clamp(18px,6vw,26px)!important;line-height:1.18!important;margin:10px 0!important;}
     h3,h4,h5,h6{font-size:clamp(16px,5vw,22px)!important;line-height:1.22!important;margin:8px 0!important;}
@@ -3538,20 +3546,23 @@ function responsiveEmailSrcDoc(email: Email | null) {
     a{color:#e11d48;word-break:break-word!important;overflow-wrap:anywhere!important;}
     [width],[height]{max-width:100%!important;}
     [style*="width"],[style*="min-width"],[style*="max-width"]{max-width:100%!important;min-width:0!important;}
+    @media (max-width:700px){table,tbody,thead,tfoot,tr,td,th{display:block!important;width:100%!important;}td,th{padding-left:0!important;padding-right:0!important;}}
   </style></head><body>${html}<script>(function(){
+    var iframeId=${JSON.stringify(iframeId)};
     var fitting=false;
     function fit(){if(fitting)return;fitting=true;try{
       var vw=Math.max(1,document.documentElement.clientWidth||window.innerWidth||320);
       document.querySelectorAll('[width]').forEach(function(el){el.removeAttribute('width');});
       document.querySelectorAll('[height]').forEach(function(el){if(/^(IMG|VIDEO|PICTURE|SVG|CANVAS)$/i.test(el.tagName))return;el.removeAttribute('height');});
+      document.querySelectorAll('[align]').forEach(function(el){try{el.removeAttribute('align');}catch(e){}});
       document.querySelectorAll('*').forEach(function(el){
         if(el.__fitted)return;
         var s=el.style;if(!s){el.__fitted=1;return;}
-        s.maxWidth='100%';s.minWidth='0';s.boxSizing='border-box';
+        s.maxWidth='100%';s.minWidth='0';s.boxSizing='border-box';s.float='none';
         var w=parseFloat(getComputedStyle(el).width||'0');
         if(w>vw){s.width='100%';}
         if(/^(TABLE|TBODY|THEAD|TFOOT|TR|TD|TH)$/i.test(el.tagName)){s.whiteSpace='normal';s.wordBreak='break-word';s.overflowWrap='anywhere';}
-        if(/^TABLE$/i.test(el.tagName)){s.width='100%';s.tableLayout='fixed';}
+        if(/^TABLE$/i.test(el.tagName)){s.width='100%';}
         el.__fitted=1;
       });
       document.documentElement.style.overflow='hidden';document.body.style.overflow='hidden';
@@ -3559,7 +3570,7 @@ function responsiveEmailSrcDoc(email: Email | null) {
     var lastH=0,pendingH=0;
     function postH(){try{
       var h=Math.max(document.documentElement.scrollHeight,document.body.scrollHeight,document.documentElement.offsetHeight,document.body.offsetHeight);
-      if(h&&Math.abs(h-lastH)>4){lastH=h;parent.postMessage({__emailIframeHeight:h},'*');}
+      if(h&&Math.abs(h-lastH)>8){lastH=h;parent.postMessage({__emailIframeHeight:h,__emailIframeId:iframeId},'*');}
     }catch(e){}}
     function schedulePostH(){if(pendingH)return;pendingH=1;requestAnimationFrame(function(){pendingH=0;postH();});}
     function tick(){fit();schedulePostH();}
@@ -5993,7 +6004,7 @@ function AllEmailsPanel() {
             </div>
             <div className="p-4 overflow-auto flex-1">
               {viewing.html ? (
-                <iframe title="email" srcDoc={responsiveEmailSrcDoc(viewing as Email)} className="w-full border rounded block" scrolling="no" style={{ height: 200, minHeight: 200, overflow: "hidden" }} data-email-iframe="true" sandbox="allow-popups allow-popups-to-escape-sandbox allow-scripts" />
+                <iframe title="email" srcDoc={responsiveEmailSrcDoc(viewing as Email)} className="w-full border rounded block" scrolling="no" style={{ height: 220, minHeight: 220, overflow: "hidden" }} data-email-iframe="true" data-email-iframe-id={String((viewing as Email).id || "email-preview").replace(/[^a-zA-Z0-9_-]/g, "_")} sandbox="allow-popups allow-popups-to-escape-sandbox allow-scripts" />
               ) : (
                 <pre className="text-xs whitespace-pre-wrap text-slate-700">{viewing.preview || "(no content)"}</pre>
               )}
@@ -13849,16 +13860,10 @@ function EmailViewer() {
                         sandbox="allow-popups allow-popups-to-escape-sandbox allow-scripts"
                         className="w-full border-0 block"
                         scrolling="no"
-                        style={{ minHeight: "200px", height: "200px", overflow: "hidden" }}
+                        style={{ minHeight: "220px", height: "220px", overflow: "hidden" }}
                         title="Email content"
                         data-email-iframe="true"
-                        onLoad={(e) => {
-                          const iframe = e.target as HTMLIFrameElement;
-                          try {
-                            const h = iframe.contentDocument?.body?.scrollHeight;
-                            if (h) iframe.style.height = h + 20 + "px";
-                          } catch {}
-                        }}
+                        data-email-iframe-id={String(selectedEmail.id || "email-preview").replace(/[^a-zA-Z0-9_-]/g, "_")}
                       />
 
                     )}
