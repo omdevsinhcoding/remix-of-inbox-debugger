@@ -3226,7 +3226,46 @@ function TvSignInPage() {
 
 
 
+// Shared idle-visibility hook. Pills using this fade behind (opacity + no
+// pointer events) while the user is actively interacting with the page
+// (scroll, wheel, touch, click, keypress) and fade back in after ~1.5s idle.
+// Keeps the countdown accessible without stealing focus from the content.
+function useIdleVisible(idleMs = 1500) {
+  const [visible, setVisible] = useState(true);
+  useEffect(() => {
+    let t: ReturnType<typeof setTimeout> | null = null;
+    const arm = () => {
+      setVisible(false);
+      if (t) clearTimeout(t);
+      t = setTimeout(() => setVisible(true), idleMs);
+    };
+    const opts: AddEventListenerOptions = { passive: true, capture: true };
+    window.addEventListener("scroll", arm, opts);
+    window.addEventListener("wheel", arm, opts);
+    window.addEventListener("touchstart", arm, opts);
+    window.addEventListener("touchmove", arm, opts);
+    window.addEventListener("pointerdown", arm, opts);
+    window.addEventListener("keydown", arm, opts);
+    return () => {
+      if (t) clearTimeout(t);
+      window.removeEventListener("scroll", arm, opts);
+      window.removeEventListener("wheel", arm, opts);
+      window.removeEventListener("touchstart", arm, opts);
+      window.removeEventListener("touchmove", arm, opts);
+      window.removeEventListener("pointerdown", arm, opts);
+      window.removeEventListener("keydown", arm, opts);
+    };
+  }, [idleMs]);
+  return visible;
+}
+
+const pillIdleClass = (visible: boolean) =>
+  visible
+    ? "opacity-100 pointer-events-auto"
+    : "opacity-0 pointer-events-none";
+
 function SessionCountdown({ role }: { role: "admin" | "user" }) {
+
   const [minutes, setMinutes] = useState<number>(() => DEFAULT_SESSION_TIMEOUT_MINUTES[role]);
   const [remainingMs, setRemainingMs] = useState<number>(() => {
     ensureSessionStarted();
