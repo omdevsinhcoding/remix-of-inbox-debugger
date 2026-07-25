@@ -2179,7 +2179,7 @@ function TvRecentRuns({ events, onRefresh }: { events: any[]; onRefresh: () => v
         <h3 className="font-bold text-slate-900 flex items-center gap-2 text-sm"><Clock className="w-4 h-4 text-slate-500" /> Recent TV sign-ins</h3>
         <button type="button" onClick={onRefresh} className="p-1.5 rounded-full hover:bg-slate-100" title="Refresh"><RefreshCw className="w-3.5 h-3.5 text-slate-500" /></button>
       </div>
-      <ul className="divide-y divide-slate-100">
+      <ul className="divide-y divide-slate-100 max-h-[360px] sm:max-h-[420px] overflow-y-auto pr-1 -mr-1 overscroll-contain">
         {events.map((ev) => {
           const status = String(ev?.status || "");
           return (
@@ -3124,7 +3124,7 @@ function TvSignInPage() {
               </div>
             ) : (
               <div>
-                {chosen && accounts.length > 1 && (
+                {chosen && accounts.length >= 1 && (
                   <div className="flex items-center justify-between gap-2 rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3">
                     <div className="min-w-0 flex items-center gap-2.5">
                       <div className="w-9 h-9 rounded-lg bg-white border border-slate-200 flex items-center justify-center">
@@ -3135,11 +3135,13 @@ function TvSignInPage() {
                         {chosen.label && <div className="text-[11px] text-slate-500 truncate">{chosen.label}</div>}
                       </div>
                     </div>
-                    <button onClick={() => { setStep("select"); setStatus("idle"); setCode(["", "", "", "", "", "", "", ""]); }}
-                      disabled={status !== "idle"}
-                      className="text-[11px] font-bold text-rose-600 hover:text-rose-700 transition disabled:opacity-40 disabled:cursor-not-allowed">
-                      Change
-                    </button>
+                    {accounts.length > 1 && (
+                      <button onClick={() => { setStep("select"); setStatus("idle"); setResultInfo({}); setCode(["", "", "", "", "", "", "", ""]); }}
+                        disabled={["queued", "running", "in_progress", "verifying", "checking"].includes(status)}
+                        className="shrink-0 inline-flex items-center gap-1 text-[11px] font-bold text-rose-600 hover:text-rose-700 transition disabled:opacity-40 disabled:cursor-not-allowed px-2.5 py-1.5 rounded-lg border border-rose-200 hover:bg-rose-50">
+                        <RefreshCw className="w-3 h-3" /> Change account
+                      </button>
+                    )}
                   </div>
                 )}
 
