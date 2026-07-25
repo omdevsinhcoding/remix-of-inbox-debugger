@@ -6305,6 +6305,7 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
       { key: "__primary__", label: "Primary", user: serverConfig?.IMAP_USER || "", host: serverConfig?.IMAP_HOST || "" },
       serverConfig?.IMAP_RECIPIENT_FILTERS || serverConfig?.recipientFilters,
     );
+
     for (const a of (emailAccounts || [])) {
       pushWithFilters(
         { key: a.label || a.user, label: a.label || a.user, user: a.user, host: a.host },
