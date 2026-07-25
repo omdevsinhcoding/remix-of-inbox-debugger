@@ -3395,7 +3395,9 @@ Deno.serve(async (originalReq) => {
       crypto.getRandomValues(hmacBytes);
       const hmacKey = Array.from(hmacBytes).map((b) => b.toString(16).padStart(2, "0")).join("");
 
-      // 4) Push it as a GitHub Actions secret
+      // 4) Push it as a GitHub Actions secret. TV_REPORT_URL is intentionally
+      // not a secret anymore; the workflow contains the public Edge Function
+      // URL inline so missing repo secrets cannot leave events stuck queued.
       await pushGithubActionsSecret(pat, chosenRepo, "TV_REPORT_HMAC_KEY", hmacKey);
 
       // 5) Save all three in DB

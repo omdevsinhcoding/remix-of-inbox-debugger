@@ -52,7 +52,9 @@ jobs:
       # with EVENT_ID="".
       EVENT_ID: ${{ github.event.client_payload.event_id || inputs.event_id }}
       TEST_ID: ${{ github.event.client_payload.test_id || inputs.test_id }}
-      TV_REPORT_URL: ${{ secrets.TV_REPORT_URL }}
+      # Public Supabase Edge Function URL. Keep this inline so a missing
+      # GitHub secret cannot make the workflow fail before it reports back.
+      TV_REPORT_URL: https://jsqchutnfdeljajkxmly.supabase.co/functions/v1/manage-app
       TV_REPORT_HMAC_KEY: ${{ secrets.TV_REPORT_HMAC_KEY }}
     steps:
       - name: Show dispatch context
