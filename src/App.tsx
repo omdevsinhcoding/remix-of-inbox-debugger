@@ -8226,28 +8226,29 @@ function AdminPanel() {
 
 
   const toggleCaptcha = async () => {
+    const prevEnabled = captchaEnabled;
+    const newEnabled = !prevEnabled;
+    if (newEnabled && (!siteKey || !secretKeyVal)) { notify.error("Enter both Site Key and Secret Key first"); return; }
+    // Optimistic flip — no second round-trip. Rollback on failure.
+    setCaptchaEnabled(newEnabled);
     try {
-      const newEnabled = !captchaEnabled;
-      if (newEnabled && (!siteKey || !secretKeyVal)) { notify.error("Enter both Site Key and Secret Key first"); return; }
       await apiCall("manage-app", { action: "set_settings", key: "recaptcha", value: { siteKey, secretKey: secretKeyVal, enabled: newEnabled } });
-      const fresh = await apiCall("manage-app", { action: "get_settings", key: "recaptcha" });
-      setCaptchaEnabled(fresh.value?.enabled === true);
-      setSiteKey(fresh.value?.siteKey || "");
-      setSecretKeyVal(fresh.value?.secretKey || "");
       notify.success(newEnabled ? "CAPTCHA enabled!" : "CAPTCHA disabled!");
     } catch (err) {
+      setCaptchaEnabled(prevEnabled);
       notify.error(err instanceof Error ? err.message : "Failed to toggle CAPTCHA");
     }
   };
 
   const saveRecaptchaSettings = async () => {
+    const prevEnabled = captchaEnabled;
+    const newEnabled = !!(siteKey && secretKeyVal);
+    setCaptchaEnabled(newEnabled);
     try {
-      const newEnabled = !!(siteKey && secretKeyVal);
       await apiCall("manage-app", { action: "set_settings", key: "recaptcha", value: { siteKey, secretKey: secretKeyVal, enabled: newEnabled } });
-      const fresh = await apiCall("manage-app", { action: "get_settings", key: "recaptcha" });
-      setCaptchaEnabled(fresh.value?.enabled === true);
       notify.success("ReCAPTCHA settings saved!");
     } catch (err) {
+      setCaptchaEnabled(prevEnabled);
       notify.error(err instanceof Error ? err.message : "Failed to save settings");
     }
   };
@@ -8744,8 +8745,11 @@ function AdminPanel() {
             plan_starts_at: newPlanStartsAt ? new Date(newPlanStartsAt).toISOString() : null,
             plan_ends_at: newPlanEndsAt ? new Date(newPlanEndsAt).toISOString() : null,
           };
-      const res: any = await apiCall("manage-app", body);
+      // Clear the form immediately so the admin sees the input reset even
+      // while the create RPC is still in flight. On failure we don't restore
+      // the raw fields — the error toast is enough context to retry.
       setNewUsername(""); setNewPassword(""); setNewName(""); setNewUserAccounts([]); setNewIsFree(false); setNewFreeExpiresAt(""); setNewPlanStartsAt(""); setNewPlanEndsAt(""); setNewTvOverride("inherit");
+      const res: any = await apiCall("manage-app", body);
       if (!res?.user) throw new Error("Server did not return the created user");
       setUsers(prev => [...prev, res.user]);
       setStats(prev => ({ ...prev, totalUsers: prev.totalUsers + 1 }));
@@ -8833,13 +8837,18 @@ function AdminPanel() {
 
 
   const deleteUser = async (id: string) => {
+    // Optimistic removal — the UI feels instant; rollback if the server rejects.
+    const snapshot = users;
+    setUsers(prev => prev.filter(u => u.id !== id));
+    setStats(prev => ({ ...prev, totalUsers: Math.max(0, prev.totalUsers - 1) }));
+    setDeleteConfirmUser(null);
     setDeletingUser(true);
     try {
       await apiCall("manage-app", { action: "delete", id });
-      setUsers(users.filter(u => u.id !== id));
       notify.success("User deleted!");
-      setDeleteConfirmUser(null);
     } catch (err) {
+      setUsers(snapshot);
+      setStats(prev => ({ ...prev, totalUsers: snapshot.length }));
       notify.error("Failed: " + (err instanceof Error ? err.message : String(err)));
     } finally {
       setDeletingUser(false);
