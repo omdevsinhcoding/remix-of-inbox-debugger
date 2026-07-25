@@ -8953,6 +8953,13 @@ function AdminPanel() {
                             <span className="mx-1.5 text-slate-300">·</span>
                             <span className={u.role === "admin" ? "text-red-600 font-bold uppercase" : (u.isFree ? "text-emerald-600 font-bold uppercase" : "text-blue-600 font-bold uppercase")}>{u.isFree ? "free" : u.role}</span>
                           </p>
+                          {u.role !== "admin" && (
+                          <div className="flex flex-wrap gap-1 mt-1.5 sm:mt-2">
+                          </div>) }
+                          {u.role !== "admin" && (
+                          <div className="flex flex-wrap gap-1 mt-1.5 sm:mt-2 hidden">
+                          </div>) }
+                          {u.role !== "admin" && (
                           <div className="flex flex-wrap gap-1 mt-1.5 sm:mt-2">
                             <button
                               type="button"
