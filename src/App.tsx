@@ -7980,7 +7980,6 @@ function AdminPanel() {
       setMaintenanceVersionFrom(nextVersionFrom);
       setMaintenanceVersionTo(nextVersionTo);
       setMaintenanceStartsAt("");
-      setMaintenanceEndsAt("");
       prevSavedVersionToRef.current = nextVersionTo;
       try { await refreshBootstrap(); } catch {}
       window.dispatchEvent(new Event("maintenance:changed"));
