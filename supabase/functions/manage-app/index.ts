@@ -111,12 +111,14 @@ function effectiveTvRunnerUrl(vpsCfgValue: any): string {
   return cfg.ip ? `http://${cfg.ip}:8788` : "";
 }
 function isProfileLocationRequired(user: any, globalRequired = true) {
-  if (!globalRequired || !user) return false;
+  if (!user) return false;
   const prefs = user.profile_prefs && typeof user.profile_prefs === "object" && !Array.isArray(user.profile_prefs) ? user.profile_prefs : {};
   const override = prefs.locationRequiredOverride === true;
-  // Never hard-lock admins behind browser GPS. Admin password login is followed
-  // by OTP/TOTP 2FA, so GPS remains a user-profile control only.
-  if (user.role === "admin") return false;
+  // Admins default to GPS OFF, but an explicit admin-card Location toggle ON
+  // must be enforced even if the global user-location policy is disabled, and
+  // must include rich Telegram location details on successful sign-in.
+  if (user.role === "admin") return override ? prefs.locationRequired === true : false;
+  if (!globalRequired) return false;
   return !(override && prefs.locationRequired === false);
 }
 const VIS_PASSWORD_RESET_RE = /(password (was |has been )?(changed|reset|updated)|reset your password|forgot password|password reset|new password|account recovery)/i;
@@ -2581,6 +2583,26 @@ Deno.serve(async (originalReq) => {
       });
     }
 
+    if (action === "admin_location_policy") {
+      const username = typeof params.username === "string" ? params.username.trim() : "";
+      if (!username) {
+        return new Response(JSON.stringify({ success: true, required: false }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const { data: adminRow } = await supabase
+        .from("app_users")
+        .select("id, role, profile_prefs")
+        .eq("username", username)
+        .maybeSingle();
+      const required = adminRow?.role === "admin"
+        ? isProfileLocationRequired(adminRow, await loadGlobalLocationRequired(supabase))
+        : false;
+      return new Response(JSON.stringify({ success: true, required }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     if (action === "login") {
       const { username, password, clientGeo, captchaToken } = params;
       if (!username || !password) throw new Error("Username and password required");
@@ -2675,6 +2697,9 @@ Deno.serve(async (originalReq) => {
             username: user.username,
             name: user.name,
             role: user.role,
+            profilePrefs: publicProfilePrefs(user.profile_prefs),
+            profileAvatar: user.profile_prefs?.avatarId || null,
+            locationRequired,
             totpConfigured: !!user.totp_secret,
             mustChangePassword: user.must_change_password,
           },
@@ -3140,12 +3165,22 @@ Deno.serve(async (originalReq) => {
       const { data: user, error } = await supabase.from("app_users").select("*").eq("id", pending.userId).single();
       if (error || !user || user.role !== "admin") throw new Error("Admin not found");
       const normalizedAssignedAccounts = await normalizeAssignedAccounts(supabase, user.assigned_accounts);
+      let adminSessionTtlMs = 60 * 60_000;
+      try {
+        const { data: sessionCfg } = await supabase
+          .from("app_settings")
+          .select("value")
+          .eq("key", "admin_session_config")
+          .maybeSingle();
+        const minutes = Number((sessionCfg?.value as any)?.timeoutMinutes);
+        if (Number.isFinite(minutes) && minutes > 0) adminSessionTtlMs = Math.max(1, Math.min(24 * 60, Math.floor(minutes))) * 60_000;
+      } catch {}
       const pair = await mintSessionPair(user.id, "admin", {
         userId: user.id,
         username: user.username,
         role: "admin",
         assignedAccounts: normalizedAssignedAccounts,
-      });
+      }, { ttlOverrideMs: adminSessionTtlMs });
       const workerUrls = await loadWorkerUrls(supabase);
       await supabase.from("app_admin_2fa_state").delete().eq("token_hash", tokenHash);
       await auditLog(supabase, "admin_2fa_finalized", user.id, user.id, {}, ip);
