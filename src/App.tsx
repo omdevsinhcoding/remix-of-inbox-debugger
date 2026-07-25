@@ -9023,7 +9023,7 @@ function AdminPanel() {
           </div>
           <div className="bg-white rounded-2xl border p-4 flex items-center gap-3">
             <div className="bg-purple-50 p-2.5 rounded-xl"><Globe className="w-5 h-5 text-purple-600" /></div>
-            <div><p className="text-2xl font-black text-slate-900">{emailAccounts.length + 1}</p><p className="text-xs text-slate-500">Email Accounts</p></div>
+            <div><p className="text-2xl font-black text-slate-900">{emailAccounts.length}</p><p className="text-xs text-slate-500">Email Accounts</p></div>
           </div>
           <div className="bg-white rounded-2xl border p-4 flex items-center gap-3">
             <div className="bg-amber-50 p-2.5 rounded-xl"><ShieldCheck className="w-5 h-5 text-amber-600" /></div>
