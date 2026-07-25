@@ -14207,6 +14207,37 @@ function PlanFinishedModal() {
 }
 
 
+function SessionRouteBoundary() {
+  const location = useLocation();
+  const { checkAuth } = useAuth();
+
+  useEffect(() => {
+    const path = location.pathname;
+    if (path !== "/admin" && path !== "/admin-auth") return;
+
+    const storedUser = readStoredSessionUser();
+    const token = getSessionToken();
+    const isPendingAdmin =
+      path === "/admin-auth" &&
+      storedUser?.role === "admin" &&
+      storedUser?.pending === true &&
+      !!sessionGet("pending_admin_token" as any);
+
+    if (isPendingAdmin) return;
+
+    // The public admin login/2FA routes must never inherit a normal user or
+    // impersonated profile session. Clear the tab-scoped identity immediately
+    // so profile data and countdown pills cannot bleed into admin screens.
+    if (token || storedUser) {
+      clearRouteSessionState();
+      checkAuth();
+    }
+  }, [location.pathname, checkAuth]);
+
+  return null;
+}
+
+
 // ==================== MAIN APP ====================
 export default function App() {
   return (
@@ -14214,6 +14245,7 @@ export default function App() {
       <AuthProvider>
         <ToastProvider />
         <AdminSyncStatus />
+        <SessionRouteBoundary />
         <GlobalSessionOverlay />
         <PlanFinishedModal />
         <ErrorBoundary>
@@ -14243,13 +14275,10 @@ export default function App() {
 
 function GlobalSessionOverlay() {
   const { user: authUser } = useAuth();
+  const location = useLocation();
   const readSessionState = useCallback(() => {
     const token = sessionGet("session_token" as any);
-    let storedUser: any = null;
-    try {
-      const raw = sessionGet("user" as any);
-      storedUser = raw ? JSON.parse(raw) : null;
-    } catch {}
+    const storedUser = readStoredSessionUser();
     return { token, storedUser };
   }, []);
   const [sessionState, setSessionState] = useState(readSessionState);
@@ -14286,9 +14315,11 @@ function GlobalSessionOverlay() {
   const isLoggedIn = !!effectiveUser && hasSessionToken;
   const isImpersonating = (effectiveUser as any)?.impersonated === true;
   const isPendingAdmin = (effectiveUser as any)?.pending === true;
+  const isAdminRoute = location.pathname.startsWith("/admin");
 
-  useSessionTimeoutGuard(role, isLoggedIn && !isImpersonating && !isPendingAdmin);
+  useSessionTimeoutGuard(role, isLoggedIn && !isAdminRoute && !isImpersonating && !isPendingAdmin);
 
+  if (isAdminRoute) return null;
   if (!isLoggedIn || isPendingAdmin) return null;
   if (typeof document === "undefined") return null;
 
