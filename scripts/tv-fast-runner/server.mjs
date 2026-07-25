@@ -286,7 +286,7 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, "0.0.0.0", async () => {
   await ensureBrowser();
-  console.log(`tv-fast-runner listening on :${PORT} max=${MAX_MS}ms concurrency=${MAX_CONCURRENT}`);
+  console.log(`tv-fast-runner v${SERVER_VERSION} commit=${GIT_COMMIT || "unknown"} listening on :${PORT} max=${MAX_MS}ms env_max=${ENV_MAX_MS || "unset"} concurrency=${MAX_CONCURRENT}`);
 });
 
 process.on("SIGINT", async () => { try { (await browserPromise)?.close?.(); } catch {} process.exit(0); });
