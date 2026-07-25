@@ -128,7 +128,10 @@ jobs:
         id: run
         if: env.EVENT_ID != ''
         working-directory: scripts/tv-login-runner
-        timeout-minutes: 1
+        # 2 min (not 1) because a cold Chromium install on cache miss can
+        # take 40-70s and would guillotine a valid run. tv-login.mjs
+        # enforces its own TV_LOGIN_MAX_MS budget internally.
+        timeout-minutes: 2
         env:
           EVENT_PATH: ${{ github.event_path }}
           GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
