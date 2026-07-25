@@ -7398,6 +7398,7 @@ function AdminPanel() {
   const [r2TestResult, setR2TestResult] = useState<{ ok: boolean; message: string; latencyMs?: number; publicUrlWorks?: boolean; warnings?: string[] } | null>(null);
   const [r2ShowSecret, setR2ShowSecret] = useState(false);
   const [r2Dirty, setR2Dirty] = useState(false);
+  const safeR2ForCache = (r2: any | null | undefined) => r2 ? { ...r2, secretAccessKey: "" } : null;
   const lastAdminRefreshRef = useRef(0);
   const updateR2Cfg = useCallback((patch: Partial<R2Cfg>) => {
     setR2Dirty(true);
