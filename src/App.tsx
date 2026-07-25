@@ -3501,6 +3501,48 @@ function emailHtmlForDisplay(email: Email | null) {
   return normalizeEmailHtmlForDisplay(String(email.html || ""), String((email as any).preview || (email as any).snippet || ""));
 }
 
+function responsiveEmailSrcDoc(email: Email | null) {
+  const html = emailHtmlForDisplay(email);
+  return `<!DOCTYPE html><html><head><base target="_blank"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"><style>
+    html,body{margin:0!important;padding:0!important;width:100%!important;max-width:100%!important;min-width:0!important;overflow-x:hidden!important;overflow-y:visible!important;-webkit-text-size-adjust:100%;text-size-adjust:100%;}
+    body{font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:14px;line-height:1.5;color:#0f172a;background:#fff;}
+    *,*::before,*::after{box-sizing:border-box!important;max-width:100%!important;min-width:0!important;}
+    table,tbody,thead,tfoot,tr,td,th{max-width:100%!important;min-width:0!important;}
+    table{width:100%!important;table-layout:fixed!important;border-collapse:collapse!important;border-spacing:0!important;}
+    td,th{width:auto!important;word-break:break-word!important;overflow-wrap:anywhere!important;white-space:normal!important;}
+    img,video,picture,canvas,svg{display:inline-block!important;max-width:100%!important;height:auto!important;}
+    p,div,span,li,strong,b,em,a,h1,h2,h3,h4,h5,h6{max-width:100%!important;overflow-wrap:anywhere!important;word-break:break-word!important;white-space:normal!important;}
+    h1{font-size:clamp(22px,8vw,32px)!important;line-height:1.12!important;margin:12px 0!important;}
+    h2{font-size:clamp(18px,6vw,26px)!important;line-height:1.18!important;margin:10px 0!important;}
+    h3,h4,h5,h6{font-size:clamp(16px,5vw,22px)!important;line-height:1.22!important;margin:8px 0!important;}
+    pre,code{white-space:pre-wrap!important;word-break:break-word!important;overflow-wrap:anywhere!important;}
+    a{color:#e11d48;word-break:break-word!important;overflow-wrap:anywhere!important;}
+    [width],[height]{max-width:100%!important;}
+    [style*="width"],[style*="min-width"],[style*="max-width"]{max-width:100%!important;min-width:0!important;}
+  </style></head><body>${html}<script>(function(){
+    function fit(){try{
+      var vw=Math.max(1,document.documentElement.clientWidth||window.innerWidth||320);
+      document.querySelectorAll('[width]').forEach(function(el){el.removeAttribute('width');});
+      document.querySelectorAll('[height]').forEach(function(el){if(/^(IMG|VIDEO|PICTURE|SVG|CANVAS)$/i.test(el.tagName))return;el.removeAttribute('height');});
+      document.querySelectorAll('*').forEach(function(el){
+        var s=el.style;if(!s)return;
+        s.maxWidth='100%';s.minWidth='0';s.boxSizing='border-box';
+        var w=parseFloat(getComputedStyle(el).width||'0');
+        if(w>vw){s.width='100%';}
+        if(/^(TABLE|TBODY|THEAD|TFOOT|TR|TD|TH)$/i.test(el.tagName)){s.whiteSpace='normal';s.wordBreak='break-word';s.overflowWrap='anywhere';}
+        if(/^TABLE$/i.test(el.tagName)){s.width='100%';s.tableLayout='fixed';}
+      });
+      document.documentElement.style.overflowX='hidden';document.body.style.overflowX='hidden';
+    }catch(e){}}
+    function force(a){try{a.setAttribute('target','_blank');a.setAttribute('rel','noopener noreferrer');}catch(e){}}
+    function scan(){document.querySelectorAll('a,button').forEach(force);fit();}
+    document.addEventListener('click',function(e){var a=e.target.closest('a,button');if(!a)return;var href=a.getAttribute('href')||a.dataset.href;if(href){e.preventDefault();window.open(href,'_blank','noopener,noreferrer');}},true);
+    document.addEventListener('contextmenu',function(e){e.preventDefault();});
+    scan();setTimeout(fit,50);setTimeout(fit,250);
+    try{new MutationObserver(scan).observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['href','target','width','height','style']});}catch(e){}
+  })();<\/script></body></html>`;
+}
+
 interface UserData {
   id: string; username: string | null; name: string; role: "admin" | "user"; totpSecret?: string; mustChangePassword?: boolean; assignedAccounts?: string[] | null; profileAvatar?: string | null; profilePrefs?: UserProfilePrefs;
   isFree?: boolean; pinned?: boolean; sortOrder?: number | null; session_limit?: number | null; expiresAt?: string | null; locationRequired?: boolean;
