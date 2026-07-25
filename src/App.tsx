@@ -4962,16 +4962,13 @@ function AdminLoginPage() {
   const [loginStage, setLoginStage] = useState<CaptchaStage | null>(null);
   const [gpsRequesting, setGpsRequesting] = useState(false);
   const [gpsPermissionMode, setGpsPermissionMode] = useState<GpsPermissionMode | null>(null);
-  // Per-admin GPS policy: default OFF. Only ON if the admin card toggle was
-  // explicitly enabled by another admin. Resolved from the bootstrap user list
-  // once the typed username matches a known admin — same flag the card shows.
-  const [adminUsers, setAdminUsers] = useState<any[]>([]);
-  const matchedAdmin = useMemo(() => {
-    const u = username.trim().toLowerCase();
-    if (!u) return null;
-    return adminUsers.find((x: any) => x?.role === "admin" && typeof x?.username === "string" && x.username.toLowerCase() === u) || null;
-  }, [username, adminUsers]);
-  const locationRequired = matchedAdmin ? isLocationRequiredForProfile(matchedAdmin) : false;
+  // Per-admin GPS policy: public bootstrap intentionally excludes admins, so
+  // resolve the typed admin username through a tiny public policy endpoint.
+  // Default remains OFF until the server says this admin explicitly forced it.
+  const [adminLocationPolicy, setAdminLocationPolicy] = useState<{ username: string; required: boolean; loading: boolean }>({ username: "", required: false, loading: false });
+  const normalizedAdminUsername = username.trim().toLowerCase();
+  const locationRequired = adminLocationPolicy.username === normalizedAdminUsername ? adminLocationPolicy.required : false;
+  const locationPolicyChecking = !!normalizedAdminUsername && adminLocationPolicy.loading;
   const pendingClientGeoRef = useRef<LoginLocationPayload | null>(null);
   const armedGeoRef = useRef<Promise<LoginLocationPayload> | null>(null);
   const armedDeviceRef = useRef<Promise<DeviceFingerprint> | null>(null);
@@ -4985,7 +4982,6 @@ function AdminLoginPage() {
       try {
         const bootstrap = await bootstrapFromSupabase({ force: true });
         if (cancelled) return;
-        setAdminUsers(Array.isArray(bootstrap.users) ? bootstrap.users : []);
         if (bootstrap.recaptcha?.enabled === true && bootstrap.recaptcha?.siteKey) {
           setSiteKey(bootstrap.recaptcha.siteKey);
           preloadRecaptchaScript();
@@ -5006,6 +5002,34 @@ function AdminLoginPage() {
     })();
     return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    const u = username.trim();
+    const normalized = u.toLowerCase();
+    if (!normalized) {
+      setAdminLocationPolicy({ username: "", required: false, loading: false });
+      return;
+    }
+    let cancelled = false;
+    setAdminLocationPolicy((prev) => prev.username === normalized && prev.required
+      ? { ...prev, loading: true }
+      : { username: normalized, required: false, loading: true });
+    const t = window.setTimeout(() => {
+      apiCall("manage-app", { action: "admin_location_policy", username: u })
+        .then((res: any) => {
+          if (cancelled) return;
+          setAdminLocationPolicy({ username: normalized, required: res?.required === true, loading: false });
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setAdminLocationPolicy({ username: normalized, required: false, loading: false });
+        });
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(t);
+    };
+  }, [username]);
 
   useEffect(() => {
     if (!locationRequired) { setGpsPermissionMode(null); return; }
@@ -5034,6 +5058,12 @@ function AdminLoginPage() {
       const msg = "Username and password required";
       setError(msg);
       notify.error(msg);
+      return;
+    }
+    if (locationPolicyChecking) {
+      const msg = "Checking admin security policy. Try again in a moment.";
+      setError(msg);
+      notify.info("Checking security", { id: "admin-policy-checking", description: "Try again in a moment.", duration: 2500 });
       return;
     }
     if (!locationRequired) {
@@ -5216,6 +5246,9 @@ function AdminLoginPage() {
         throw new Error(data?.error === "plan_finished" ? "Plan finished" : (data?.error || "Login failed"));
       }
       if (data.user.role !== "admin") throw new Error("Access denied");
+      if (typeof data.user.locationRequired === "boolean") {
+        setAdminLocationPolicy({ username: username.trim().toLowerCase(), required: data.user.locationRequired, loading: false });
+      }
       if (data.pendingToken) {
         sessionSet("pending_admin_token" as any, data.pendingToken);
         sessionSet("pending_admin_token_at" as any, String(Date.now()));
@@ -5292,9 +5325,9 @@ function AdminLoginPage() {
             <GpsPermissionSheet mode={gpsPermissionMode} loading={gpsRequesting || loading} onPrimeEnable={primeGpsEnableFromPointer} onEnable={() => void requestGpsPermissionOnly()} />
           </AnimatePresence>
 
-          <button type="submit" onPointerDownCapture={primeGpsFromPointer} disabled={loading}
+          <button type="submit" onPointerDownCapture={primeGpsFromPointer} disabled={loading || locationPolicyChecking}
             className="w-full bg-red-600 text-white font-bold py-4 rounded-2xl hover:bg-red-700 transition-all active:scale-95 disabled:opacity-50">
-            {loading ? "Authenticating..." : "Admin Sign In"}
+            {loading ? "Authenticating..." : locationPolicyChecking ? "Checking..." : "Admin Sign In"}
           </button>
         </form>
 
