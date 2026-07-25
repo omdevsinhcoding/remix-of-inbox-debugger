@@ -1,9 +1,10 @@
 // Plan reminders cron: sends Telegram notifications to admin about paid users' plans.
 //   - On plan start day (first time only): "Plan started for <user>".
 //   - In the last 7 days before expiry: hourly reminders (throttled by plan_last_reminder_at).
+//   - At the moment of expiry: one-time "Plan expired" alert (±5 min precision).
 //
-// Intended to be invoked by pg_cron every hour. Uses the shared cron secret so
-// only cron / admin can trigger it. Verify_jwt is false in config.toml.
+// Invoked by pg_cron every 5 minutes to stay well under Supabase free-tier
+// invocation limits (~8.6k/month). Uses the shared cron secret; verify_jwt=false.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
