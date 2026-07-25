@@ -9211,7 +9211,6 @@ function AdminPanel() {
                               <div className="flex items-center gap-2 min-w-0">
                                 <span className="w-1.5 h-1.5 rounded-full bg-red-600 animate-pulse" />
                                 <span className="text-[10px] font-black tracking-[0.35em] text-slate-900 uppercase">Edit · Profile</span>
-                                <span className="hidden sm:inline text-[10px] font-mono text-slate-400 tracking-widest truncate">/{u.id.slice(0,8)}</span>
                               </div>
                               <button onClick={() => { setEditingUserAccounts(null); setEditHint(null); }}
                                 className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-100 hover:bg-red-600 text-slate-600 hover:text-white flex items-center justify-center transition-all active:scale-90">
