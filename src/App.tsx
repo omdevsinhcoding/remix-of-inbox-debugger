@@ -7970,7 +7970,7 @@ function AdminPanel() {
           title: maintenanceTitle.trim(),
           message: maintenanceMessage.trim(),
           startsAt: null,
-          endsAt: null,
+          endsAt: maintenanceEndsAt ? new Date(maintenanceEndsAt).toISOString() : null,
           versionFrom: nextVersionFrom,
           versionTo: nextVersionTo,
           updated_at: new Date().toISOString(),
