@@ -8953,67 +8953,47 @@ function AdminPanel() {
                             <span className="mx-1.5 text-slate-300">·</span>
                             <span className={u.role === "admin" ? "text-red-600 font-bold uppercase" : (u.isFree ? "text-emerald-600 font-bold uppercase" : "text-blue-600 font-bold uppercase")}>{u.isFree ? "free" : u.role}</span>
                           </p>
-                          {u.role !== "admin" && (
-                          <div className="flex flex-wrap gap-1 mt-1.5 sm:mt-2">
-                            <button
-                              type="button"
-                              onClick={(e) => { e.stopPropagation(); toggleProfileLocationRequired(u); }}
-                              title={isLocationRequiredForProfile(u) ? "GPS required — tap to turn OFF" : "GPS off — tap to turn ON"}
-                              className={`inline-flex items-center gap-1 text-[9px] font-black px-1.5 py-0.5 rounded border transition-all active:scale-95 ${isLocationRequiredForProfile(u) ? "bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100" : "bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200"}`}
-                            >
-                              {isLocationRequiredForProfile(u)
-                                ? <><MapPin className="w-2.5 h-2.5" /> GPS</>
-                                : <><MapPinOff className="w-2.5 h-2.5" /> OFF</>}
-                            </button>
-                            {(() => {
-                              const ov = u.tvOverride === "on" || u.tvOverride === "off" ? u.tvOverride : null;
-                              const effective = ov === "on" ? true : ov === "off" ? false : tvFeatureEnabled;
-                              const label = ov === "on" ? "TV ON" : ov === "off" ? "TV OFF" : (effective ? "TV" : "TV —");
-                              const cls = ov === "on"
-                                ? "bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100"
-                                : ov === "off"
-                                ? "bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200 line-through"
-                                : effective
-                                ? "bg-rose-50/60 text-rose-600 border-rose-100 hover:bg-rose-100"
-                                : "bg-slate-100 text-slate-400 border-slate-200 hover:bg-slate-200";
-                              const title = `TV Auto-Login for this profile — ${ov ? `forced ${ov.toUpperCase()}` : `inherit global (${tvFeatureEnabled ? "ON" : "OFF"})`}. Tap to cycle: inherit → on → off.`;
-                              return (
-                                <button
-                                  type="button"
-                                  onClick={(e) => { e.stopPropagation(); toggleProfileTvOverride(u); }}
-                                  title={title}
-                                  className={`inline-flex items-center gap-1 text-[9px] font-black px-1.5 py-0.5 rounded border transition-all active:scale-95 ${cls}`}
-                                >
-                                  <Tv className="w-2.5 h-2.5" /> {label}
-                                </button>
-                              );
-                            })()}
-                            {(() => {
-                              const f = adminUserFeatures(u);
-                              const pill = (key: "gmail" | "link", label: string, Icon: any, onCls: string) => {
-                                const on = key === "link" ? f[key] === true : f[key] !== false;
-                                const offCls = "bg-white text-slate-500 border-dashed border-slate-300 hover:bg-slate-50";
-                                return (
-                                  <button key={key} type="button"
-                                    onClick={(e) => { e.stopPropagation(); toggleUserFeature(u, key); }}
-                                    title={`${label} workflow — tap to ${on ? "disable" : "enable"}`}
-                                    className={`inline-flex items-center gap-1 text-[9px] font-black px-1.5 py-0.5 rounded border transition-all active:scale-95 ${on ? onCls : offCls}`}>
-                                    <Icon className="w-2.5 h-2.5" /> {label} {on ? "ON" : "OFF"}
-                                  </button>
-                                );
-                              };
-                              return <>
-                                {pill("gmail", "GMAIL", Mail, "bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100")}
-                                {pill("link", "LINK", LinkIcon, "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100")}
-                              </>;
-                            })()}
-                            {u.assignedAccounts && u.assignedAccounts.length > 0 && u.assignedAccounts.map((a: string) => (
-                              <span key={a} className="bg-blue-50 text-blue-700 border border-blue-200 text-[10px] px-1.5 py-0.5 rounded font-bold font-mono">{a}</span>
-                            ))}
-                            {(!u.assignedAccounts || u.assignedAccounts.length === 0) && (
-                              <span className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded font-bold">no accounts</span>
-                            )}
-                          </div>)}
+                          {u.role !== "admin" && (() => {
+                            const gpsOn = isLocationRequiredForProfile(u);
+                            const ov = u.tvOverride === "on" || u.tvOverride === "off" ? u.tvOverride : null;
+                            const tvOn = ov === "on" ? true : ov === "off" ? false : tvFeatureEnabled;
+                            const f = adminUserFeatures(u);
+                            const gmailOn = f.gmail !== false;
+                            const linkOn = f.link === true;
+                            const accts = u.assignedAccounts || [];
+                            const StatusIcon = ({ Icon, on, label, onClick, activeCls }: any) => (
+                              <button type="button" onClick={(e) => { e.stopPropagation(); onClick?.(); }}
+                                title={`${label} · ${on ? "ON" : "OFF"} — tap to toggle`}
+                                className={`group/si relative inline-flex items-center justify-center w-7 h-7 rounded-lg transition-all active:scale-90 ${on ? activeCls : "text-slate-300 hover:text-slate-500 hover:bg-slate-100"}`}>
+                                <Icon className="w-3.5 h-3.5" strokeWidth={2.4} />
+                                <span className={`absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full ${on ? "bg-current" : "bg-transparent"}`} />
+                              </button>
+                            );
+                            return (
+                              <div className="mt-2 flex items-center gap-2 min-w-0">
+                                <div className="flex items-center -ml-1">
+                                  <StatusIcon Icon={gpsOn ? MapPin : MapPinOff} on={gpsOn} label="Location"
+                                    activeCls="text-sky-600 bg-sky-50"
+                                    onClick={() => toggleProfileLocationRequired(u)} />
+                                  <StatusIcon Icon={Tv} on={tvOn} label="TV auto-login"
+                                    activeCls="text-rose-600 bg-rose-50"
+                                    onClick={() => toggleProfileTvOverride(u)} />
+                                  <StatusIcon Icon={Mail} on={gmailOn} label="Gmail workflow"
+                                    activeCls="text-slate-800 bg-slate-100"
+                                    onClick={() => toggleUserFeature(u, "gmail")} />
+                                  <StatusIcon Icon={LinkIcon} on={linkOn} label="Direct link"
+                                    activeCls="text-emerald-600 bg-emerald-50"
+                                    onClick={() => toggleUserFeature(u, "link")} />
+                                </div>
+                                <div className="h-4 w-px bg-slate-200" />
+                                <div className="min-w-0 flex-1 text-[11px] text-slate-500 font-medium truncate">
+                                  {accts.length > 0
+                                    ? <><span className="text-slate-400">Mailboxes</span> <span className="text-slate-700 font-semibold">{accts.length}</span></>
+                                    : <span className="text-amber-600">No mailbox assigned</span>}
+                                </div>
+                              </div>
+                            );
+                          })()}
                           {u.role !== "admin" && !u.isFree && (u as any).session_limit != null && (
                             <p className="text-[10px] text-emerald-700 mt-1.5 font-mono">
                               sessions: <span className="font-bold">{(u as any).session_limit === 0 ? "∞" : (u as any).session_limit}</span>
@@ -9106,11 +9086,15 @@ function AdminPanel() {
                             <span className="hidden sm:inline">{isLocationRequiredForProfile(u) ? "GPS On" : "GPS Off"}</span>
                           </button>
                           <div className="w-px h-6 bg-slate-200" />
-                          <button onClick={() => loginAsUser(u)} title="Sign in as admin"
-                            className="flex-1 flex items-center justify-center gap-1.5 h-9 rounded-lg text-slate-500 hover:bg-white hover:text-blue-600 hover:shadow-sm transition-all active:scale-95 text-[11px] font-bold uppercase tracking-wider">
-                            <Eye className="w-3.5 h-3.5" /> <span className="hidden sm:inline">View</span>
-                          </button>
-                          <div className="w-px h-6 bg-slate-200" />
+                          {currentUser?.id !== u.id && (
+                            <>
+                              <button onClick={() => loginAsUser(u)} title="Sign in as admin"
+                                className="flex-1 flex items-center justify-center gap-1.5 h-9 rounded-lg text-slate-500 hover:bg-white hover:text-blue-600 hover:shadow-sm transition-all active:scale-95 text-[11px] font-bold uppercase tracking-wider">
+                                <Eye className="w-3.5 h-3.5" /> <span className="hidden sm:inline">View</span>
+                              </button>
+                              <div className="w-px h-6 bg-slate-200" />
+                            </>
+                          )}
                           <button onClick={() => {
                               const opening = editingUserAccounts !== u.id;
                               setEditingUserAccounts(opening ? u.id : null);
