@@ -5625,6 +5625,13 @@ function AdminLoginPage() {
 
 // ==================== ADMIN 2FA ====================
 function AdminAuthPage() {
+  useRouteHead({
+    title: "Admin 2FA — Netflix Mail",
+    description: "Two-factor verification for Netflix Mail admin operators.",
+    ogTitle: "Admin 2FA — Netflix Mail",
+    ogDescription: "Two-factor verification for Netflix Mail admin operators.",
+    robots: "noindex, nofollow",
+  });
   const [step, setStep] = useState(1);
   const [otp, setOtp] = useState("");
   const [totp, setTotp] = useState("");
