@@ -3834,6 +3834,8 @@ Deno.serve(async (originalReq) => {
           tvOverride: user.tv_override === "on" || user.tv_override === "off" ? user.tv_override : null,
           tvFeatureEnabled: await loadTvFeatureEnabled(supabase),
           features: pickFeatures(user),
+          planStartsAt: (user as any).plan_starts_at || null,
+          planEndsAt: (user as any).plan_ends_at || null,
         },
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -3884,6 +3886,8 @@ Deno.serve(async (originalReq) => {
           tvOverride: targetUser.tv_override === "on" || targetUser.tv_override === "off" ? targetUser.tv_override : null,
           tvFeatureEnabled: await loadTvFeatureEnabled(supabase),
           features: pickFeatures(targetUser),
+          planStartsAt: (targetUser as any).plan_starts_at || null,
+          planEndsAt: (targetUser as any).plan_ends_at || null,
           impersonated: true,
           adminId: session.userId,
         },
