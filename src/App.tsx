@@ -9026,22 +9026,22 @@ function AdminPanel() {
                               const ovInit = (u as any).tvOverride;
                               setEditTvOverride(ovInit === "on" ? "on" : ovInit === "off" ? "off" : "inherit");
                               setEditDirectLinkEnabled(adminUserFeatures(u).link === true);
-                          }} title="Edit"
-                            className={`h-10 min-w-0 rounded-lg border px-3 text-[12px] font-bold transition whitespace-nowrap overflow-hidden text-ellipsis ${editingUserAccounts === u.id ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-white hover:border-slate-300"}`}>
-                            Edit
-                          </button>
-                          {!u.isFree && (
-                            <button onClick={() => { setChangingUserPass(changingUserPass === u.id ? null : u.id); setUserNewPass(""); }} title="Change password"
-                              className={`h-10 min-w-0 rounded-lg border px-3 text-[12px] font-bold transition whitespace-nowrap overflow-hidden text-ellipsis ${changingUserPass === u.id ? "border-amber-300 bg-amber-50 text-amber-800" : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-white hover:border-slate-300"}`}>
-                              Password
-                            </button>
-                          )}
-                          <button onClick={() => setDeleteConfirmUser(u)} title="Delete"
-                            className="h-10 min-w-0 rounded-lg border border-red-200 bg-red-50 px-3 text-[12px] font-bold text-red-700 hover:bg-red-100 transition whitespace-nowrap overflow-hidden text-ellipsis">
-                            Delete
-                          </button>
-                        </div>
-                      )}
+                           }} title="Edit"
+                             className={`h-8 rounded-md border px-2.5 text-[11px] font-semibold transition ${editingUserAccounts === u.id ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`}>
+                             Edit
+                           </button>
+                           {!u.isFree && (
+                             <button onClick={() => { setChangingUserPass(changingUserPass === u.id ? null : u.id); setUserNewPass(""); }} title="Change password"
+                               className={`h-8 rounded-md border px-2.5 text-[11px] font-semibold transition ${changingUserPass === u.id ? "border-amber-300 bg-amber-50 text-amber-800" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`}>
+                               Password
+                             </button>
+                           )}
+                           <button onClick={() => setDeleteConfirmUser(u)} title="Delete"
+                             className="ml-auto h-8 rounded-md border border-red-200 bg-red-50 px-2.5 text-[11px] font-semibold text-red-700 hover:bg-red-100 transition">
+                             Delete
+                           </button>
+                         </div>
+                       )}
 
                       {isAdmin && (
                         <div className="grid grid-cols-2 gap-2 border-t border-slate-100 pt-4 sm:grid-cols-3 xl:grid-cols-4">
