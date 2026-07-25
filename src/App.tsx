@@ -14682,6 +14682,7 @@ export default function App() {
               <Route path="/admin/viewer" element={<AdminUserViewRoute><EmailViewer /></AdminUserViewRoute>} />
               <Route path="/viewer" element={<ProtectedRoute role="user"><EmailViewer /></ProtectedRoute>} />
               <Route path="/guides/netflix-household-verification" element={<NetflixHouseholdVerificationGuide />} />
+              <Route path="/guides/netflix-tv-activation" element={<NetflixTvActivationGuide />} />
               {/* Any URL that "looks like" a logout/clear intent runs the
                   same instant-wipe flow. Covers typos like /clesrcatch,
                   /cler, /signot, /logot, /rest, /cokie, etc. */}
