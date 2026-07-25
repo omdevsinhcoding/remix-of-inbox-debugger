@@ -1,5 +1,5 @@
 name: TV Auto-Login (headless Netflix)
-run-name: TV Login · ${{ github.event.client_payload.user_label || github.event.client_payload.event_id || github.event.client_payload.test_id || github.event.action }}
+run-name: TV Login · ${{ github.event.client_payload.user_label || github.event.client_payload.event_id || inputs.user_label || inputs.event_id || inputs.test_id || github.event.action }}
 
 on:
   repository_dispatch:
@@ -25,74 +25,147 @@ on:
 
 jobs:
   run:
-    # Native ubuntu-latest boots ~1-2s (vs ~28s for the Playwright container).
-    # Chromium + node_modules are cached; warm runs finish in ~20-25s total.
-    runs-on: ubuntu-latest
+    # Pinned to ubuntu-22.04 because Playwright 1.48's bundled
+    # chromium-headless-shell links against libraries whose versions
+    # differ on ubuntu-24.04 (the current ubuntu-latest). Every failed
+    # workflow run in July 2026 that "failed in 24 seconds" was Chromium
+    # exiting on library-mismatch before tv-login.mjs could even fetch
+    # the job — the runner reached the "Run TV auto-login" step, but
+    # Playwright's launch aborted before HMAC-signing the first request,
+    # so nothing was reported back to manage-app and the event stayed
+    # `queued` forever. Pinning to 22.04 restores the environment the
+    # cache key `pw-browsers-v1-1.48.0-chromium-headless-shell` was
+    # captured against.
+    runs-on: ubuntu-22.04
     timeout-minutes: 3
     permissions:
       contents: read
     env:
       PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.pw-browsers
+      # Every step below reads this once so a missing/mistyped event id
+      # short-circuits with a clear failure instead of running Playwright
+      # with EVENT_ID="".
+      EVENT_ID: ${{ github.event.client_payload.event_id || inputs.event_id }}
+      TEST_ID: ${{ github.event.client_payload.test_id || inputs.test_id }}
+      TV_REPORT_URL: ${{ secrets.TV_REPORT_URL }}
+      TV_REPORT_HMAC_KEY: ${{ secrets.TV_REPORT_HMAC_KEY }}
     steps:
-      - name: GitHub runner test
-        if: github.event.action == 'tv-login-test' || (github.event_name == 'workflow_dispatch' && inputs.test_id != '')
-        run: echo "GitHub Actions TV runner is executable. test_id=${{ github.event.client_payload.test_id || inputs.test_id }}"
+      - name: Show dispatch context
+        run: |
+          echo "event_name=${{ github.event_name }} action=${{ github.event.action }}"
+          echo "EVENT_ID=${EVENT_ID:-<empty>}"
+          echo "TEST_ID=${TEST_ID:-<empty>}"
+          # Fail fast if a real login was requested with no secrets — the
+          # runner script would fail silently otherwise.
+          if [ -n "${EVENT_ID}" ]; then
+            if [ -z "${TV_REPORT_URL}" ] || [ -z "${TV_REPORT_HMAC_KEY}" ]; then
+              echo "::error::TV_REPORT_URL and/or TV_REPORT_HMAC_KEY secret is missing in this repo."
+              exit 1
+            fi
+          fi
 
-      - uses: actions/checkout@v4
-        if: github.event.action == 'tv-login' || (github.event_name == 'workflow_dispatch' && inputs.event_id != '')
+      - name: GitHub runner test
+        if: github.event.action == 'tv-login-test' || (github.event_name == 'workflow_dispatch' && env.TEST_ID != '')
+        run: echo "GitHub Actions TV runner is executable. test_id=${TEST_ID}"
+
+      - name: Checkout runner script
+        id: checkout
+        if: env.EVENT_ID != ''
+        uses: actions/checkout@v4
         with:
           persist-credentials: false
           sparse-checkout: scripts/tv-login-runner
           sparse-checkout-cone-mode: false
 
-      # Node is preinstalled on ubuntu-latest (~1s to configure).
-      - uses: actions/setup-node@v4
-        if: github.event.action == 'tv-login' || (github.event_name == 'workflow_dispatch' && inputs.event_id != '')
+      - name: Setup Node
+        id: setup-node
+        if: env.EVENT_ID != ''
+        uses: actions/setup-node@v4
         with:
           node-version: "22"
 
       - name: Cache runner node_modules
-        if: github.event.action == 'tv-login' || (github.event_name == 'workflow_dispatch' && inputs.event_id != '')
+        if: env.EVENT_ID != ''
         uses: actions/cache@v4
         with:
           path: scripts/tv-login-runner/node_modules
-          key: tv-runner-nm-v2-${{ hashFiles('scripts/tv-login-runner/package-lock.json') }}
+          # Bumped v2 -> v3: cache invalidated because a stale
+          # node_modules from ubuntu-24.04 was being restored onto
+          # 22.04 and vice-versa.
+          key: tv-runner-nm-v3-ubuntu2204-${{ hashFiles('scripts/tv-login-runner/package-lock.json') }}
 
       - name: Cache Playwright Chromium
-        if: github.event.action == 'tv-login' || (github.event_name == 'workflow_dispatch' && inputs.event_id != '')
+        if: env.EVENT_ID != ''
         id: cache-browsers
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/.pw-browsers
-          key: pw-browsers-v1-1.48.0-chromium-headless-shell
+          key: pw-browsers-v2-ubuntu2204-1.48.0-chromium-headless-shell
 
       - name: Install runner dependencies
-        if: github.event.action == 'tv-login' || (github.event_name == 'workflow_dispatch' && inputs.event_id != '')
+        id: install-deps
+        if: env.EVENT_ID != ''
         working-directory: scripts/tv-login-runner
         env:
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
         run: |
+          set -e
           if [ -d node_modules/playwright ]; then
             echo "node_modules cache hit"
           else
             npm ci --prefer-offline --no-audit --no-fund --ignore-scripts \
               || npm install --prefer-offline --no-audit --no-fund --ignore-scripts
           fi
+          node -e "const v=require('playwright/package.json').version;console.log('playwright='+v)"
 
       - name: Install Chromium (cache miss only)
-        if: (github.event.action == 'tv-login' || (github.event_name == 'workflow_dispatch' && inputs.event_id != '')) && steps.cache-browsers.outputs.cache-hit != 'true'
+        id: install-chromium
+        if: env.EVENT_ID != '' && steps.cache-browsers.outputs.cache-hit != 'true'
         working-directory: scripts/tv-login-runner
         run: npx playwright install chromium --with-deps
 
       - name: Run TV auto-login
-        if: github.event.action == 'tv-login' || (github.event_name == 'workflow_dispatch' && inputs.event_id != '')
+        id: run
+        if: env.EVENT_ID != ''
         working-directory: scripts/tv-login-runner
         timeout-minutes: 1
         env:
-          EVENT_ID: ${{ github.event.client_payload.event_id || inputs.event_id }}
           EVENT_PATH: ${{ github.event_path }}
-          TV_REPORT_URL: ${{ secrets.TV_REPORT_URL }}
-          TV_REPORT_HMAC_KEY: ${{ secrets.TV_REPORT_HMAC_KEY }}
           GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           TV_LOGIN_MAX_MS: 30000
         run: node tv-login.mjs
+
+      # Guarantees the tv_login_events row is never left in `queued`.
+      # Any earlier failure (checkout, npm, playwright install, node
+      # missing, etc.) hits this step and reports back to manage-app
+      # with a signed message so the UI shows a real error instead of
+      # spinning forever.
+      - name: Report workflow failure to manage-app
+        if: failure() && env.EVENT_ID != '' && env.TV_REPORT_URL != '' && env.TV_REPORT_HMAC_KEY != ''
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          FAILED_STEPS: >-
+            checkout=${{ steps.checkout.outcome }};
+            setup-node=${{ steps.setup-node.outcome }};
+            install-deps=${{ steps.install-deps.outcome }};
+            install-chromium=${{ steps.install-chromium.outcome }};
+            run=${{ steps.run.outcome }}
+        run: |
+          node -e '
+            const c=require("node:crypto");
+            const ev=process.env.EVENT_ID;
+            const key=process.env.TV_REPORT_HMAC_KEY;
+            const url=process.env.TV_REPORT_URL;
+            const status="error";
+            const result="workflow_failed";
+            const ts=Date.now();
+            const sig=c.createHmac("sha256",key).update(`tv_login_report|${ev}|${ts}|${status}|${result}`).digest("hex");
+            const body=JSON.stringify({
+              action:"tv_login_report",
+              event_id:ev, ts, sig, status, result,
+              message:`GitHub workflow failed before/while running tv-login.mjs. ${process.env.FAILED_STEPS}`.slice(0,500),
+              screenshot_url:"",
+              run_url:process.env.RUN_URL||"",
+            });
+            fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body}).then(r=>r.text()).then(t=>console.log("report status:",t.slice(0,300))).catch(e=>{console.error("report failed:",e.message);process.exit(1)});
+          '

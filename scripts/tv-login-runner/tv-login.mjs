@@ -218,27 +218,44 @@ try {
     return route.continue();
   });
 
-  await page.goto("https://www.netflix.com/tv8", { waitUntil: "domcontentloaded", timeout: timeoutBudget(10000, 5000) });
-  console.log(`[perf] tv8 loaded in ${Date.now() - t0}ms url=${page.url()}`);
+  // Retry the initial navigation once — Netflix occasionally serves a
+  // transient 5xx / anti-bot interstitial on the first hit that clears
+  // after a fresh request. Deterministic retry, no fixed sleep.
+  const openTv8 = async (attempt) => {
+    const t = Date.now();
+    await page.goto("https://www.netflix.com/tv8", { waitUntil: "domcontentloaded", timeout: timeoutBudget(10000, 5000) });
+    console.log(`[perf] tv8 attempt#${attempt} loaded in ${Date.now() - t}ms url=${page.url()}`);
+  };
+  await openTv8(1);
 
   // Netflix SPA hydrates the PIN inputs after JS runs. Give it real time
   // on GitHub runners (slower CPU than VPS).
-  const hasCodeInput = await page.waitForSelector(
-    'input.pin-number-input, input[aria-label^="PIN entry input"], input[maxlength="1"], input[data-uia*="digit"], input[type="tel"], input[inputmode="numeric"], input[name*="code" i]',
-    { timeout: timeoutBudget(12000, 4000) },
-  ).then(() => true).catch(() => false);
+  const PIN_SELECTOR = 'input.pin-number-input, input[aria-label^="PIN entry input"], input[maxlength="1"], input[data-uia*="digit"], input[type="tel"], input[inputmode="numeric"], input[name*="code" i]';
+  let hasCodeInput = await page.waitForSelector(PIN_SELECTOR, { timeout: timeoutBudget(12000, 4000) }).then(() => true).catch(() => false);
+
+  if (!hasCodeInput && remaining() > 8000 && !/login|unsupportedbrowser/i.test(page.url())) {
+    // One deterministic reload attempt inside the remaining budget.
+    console.log(`[debug] retry_tv8 remaining=${remaining()}ms`);
+    await openTv8(2).catch(() => {});
+    hasCodeInput = await page.waitForSelector(PIN_SELECTOR, { timeout: timeoutBudget(8000, 3000) }).then(() => true).catch(() => false);
+  }
 
   if (!hasCodeInput) {
     const bodyText = (await page.locator("body").innerText().catch(() => "")).toLowerCase();
     const url = page.url();
-    // Ship a short DOM snippet so we can see WHY inputs never appeared.
+    const title = await page.title().catch(() => "");
+    // Ship a short DOM snippet + a class-name summary so we can see WHY
+    // inputs never appeared without leaking cookie values into logs.
     const domSnippet = (await page.content().catch(() => "")).slice(0, 800).replace(/\s+/g, " ");
-    console.log(`[debug] no_code_input url=${url} bodyStart="${bodyText.slice(0, 200)}"`);
+    const classSample = await page.$$eval("body *[class]", (els) => Array.from(new Set(els.slice(0, 40).map((el) => el.className))).join("|").slice(0, 400)).catch(() => "");
+    console.log(`[debug] no_code_input url=${url} title="${title}" elapsed=${Date.now() - t0}ms`);
+    console.log(`[debug] bodyStart="${bodyText.slice(0, 200)}"`);
+    console.log(`[debug] classes="${classSample}"`);
     console.log(`[debug] dom="${domSnippet}"`);
     if (/sign ?in|log ?in|password|email|expired|unsupported|not available|something went wrong/i.test(bodyText) || /login|unsupportedbrowser/i.test(url)) {
-      status = "cookies_expired"; result = "cookies_expired"; message = `Cookies expired at ${url}`;
+      status = "cookies_expired"; result = "cookies_expired"; message = `Cookies expired at ${url} (title=${title.slice(0,60)})`;
     } else {
-      status = "error"; result = "no_code_input"; message = `Netflix code input did not appear at ${url} | body="${bodyText.slice(0, 120)}"`;
+      status = "error"; result = "no_code_input"; message = `Netflix code input did not appear at ${url} (title=${title.slice(0,60)}) after ${Date.now() - t0}ms | body="${bodyText.slice(0, 120)}"`;
     }
     throw new Error(message);
   }

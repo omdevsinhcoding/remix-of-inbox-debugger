@@ -1,13 +1,32 @@
-// Warm Netflix TV auto-login runner for strict sub-10s attempts.
+// Warm Netflix TV auto-login runner for strict sub-20s attempts.
 // Keep this process alive on the VPS. The app calls POST /run directly;
 // no GitHub Actions queue, checkout, browser install, or runner allocation.
 
 import http from "node:http";
 import { chromium } from "playwright";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
+import { execSync } from "node:child_process";
+
+// SERVER_VERSION is bumped whenever the on-wire /health schema, timeout
+// budget, or reporting protocol changes. If /health shows a version older
+// than this constant in the repo, the VPS is running a stale build.
+const SERVER_VERSION = "2026.07.25-3";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+let PACKAGE_VERSION = "unknown";
+try { PACKAGE_VERSION = JSON.parse(readFileSync(resolve(__dirname, "package.json"), "utf8")).version || "unknown"; } catch {}
+let GIT_COMMIT = process.env.COMMIT_SHA || "";
+if (!GIT_COMMIT) {
+  try { GIT_COMMIT = execSync("git -C " + JSON.stringify(__dirname) + " rev-parse --short HEAD", { stdio: ["ignore", "pipe", "ignore"] }).toString().trim(); } catch {}
+}
+const STARTED_AT = new Date().toISOString();
 
 const PORT = Number(process.env.PORT || 8788);
 const TV_REPORT_URL = process.env.TV_REPORT_URL;
-const MAX_MS = Math.max(3000, Math.min(22000, Number(process.env.TV_LOGIN_MAX_MS || 20000)));
+const ENV_MAX_MS = process.env.TV_LOGIN_MAX_MS;
+const MAX_MS = Math.max(3000, Math.min(22000, Number(ENV_MAX_MS || 20000)));
 const MAX_CONCURRENT = Math.max(1, Math.min(8, Number(process.env.TV_RUNNER_CONCURRENCY || 4)));
 const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36";
 
@@ -230,9 +249,21 @@ async function runTvJob(eventId, runnerToken) {
 
 const server = http.createServer(async (req, res) => {
   try {
-    if (req.method === "GET" && req.url === "/health") {
+    if (req.method === "GET" && (req.url === "/health" || req.url === "/version")) {
       await ensureBrowser();
-      return json(res, 200, { success: true, ok: true, active_jobs: activeJobs, capacity: MAX_CONCURRENT, max_ms: MAX_MS, last_job: lastJob });
+      return json(res, 200, {
+        success: true,
+        ok: true,
+        version: SERVER_VERSION,
+        package_version: PACKAGE_VERSION,
+        commit: GIT_COMMIT || null,
+        started_at: STARTED_AT,
+        active_jobs: activeJobs,
+        capacity: MAX_CONCURRENT,
+        max_ms: MAX_MS,
+        env_max_ms: ENV_MAX_MS ? Number(ENV_MAX_MS) : null,
+        last_job: lastJob,
+      });
     }
     if (req.method !== "POST" || req.url !== "/run") return json(res, 404, { success: false, error: "not_found" });
     if (activeJobs >= MAX_CONCURRENT) return json(res, 429, { success: false, error: "runner_at_capacity", message: "Fast runner is at capacity. Try again in a few seconds." });
@@ -255,7 +286,7 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, "0.0.0.0", async () => {
   await ensureBrowser();
-  console.log(`tv-fast-runner listening on :${PORT} max=${MAX_MS}ms concurrency=${MAX_CONCURRENT}`);
+  console.log(`tv-fast-runner v${SERVER_VERSION} commit=${GIT_COMMIT || "unknown"} listening on :${PORT} max=${MAX_MS}ms env_max=${ENV_MAX_MS || "unset"} concurrency=${MAX_CONCURRENT}`);
 });
 
 process.on("SIGINT", async () => { try { (await browserPromise)?.close?.(); } catch {} process.exit(0); });
