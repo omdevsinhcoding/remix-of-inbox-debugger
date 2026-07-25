@@ -7881,9 +7881,10 @@ function AdminPanel() {
           setAdminSlice(AdminSliceKeys.emailAccounts, { labels });
         }
         const m1 = Number(s.session_config?.timeoutMinutes);
-        if (Number.isFinite(m1) && m1 >= 0) setSessionTimeoutMin(String(m1));
+        if (Number.isFinite(m1) && m1 >= 0) { setSessionTimeoutMin(String(m1)); if (m1 > 0) writeCachedTimeoutMinutes("user", m1); }
         const m2 = Number(s.admin_session_config?.timeoutMinutes);
-        if (Number.isFinite(m2) && m2 >= 0) setAdminSessionTimeoutMin(String(m2));
+        if (Number.isFinite(m2) && m2 >= 0) { setAdminSessionTimeoutMin(String(m2)); if (m2 > 0) writeCachedTimeoutMinutes("admin", m2); }
+
         const cs = Number(s.session_limits?.maxPerUser);
         if (Number.isFinite(cs) && cs >= 0) setConcurrentSessionLimit(String(cs));
         setIpwhoAlertEnabled(s.ipwho_alert?.enabled === true);
