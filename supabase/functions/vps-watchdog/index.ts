@@ -75,8 +75,8 @@ Deno.serve(async (req) => {
 
   // Load current vps_config and prior watchdog state.
   const [{ data: vpsRow }, { data: stateRow }] = await Promise.all([
-    supabase.from("app_settings").select("value").eq("key", "vps_config").maybeSingle(),
-    supabase.from("app_settings").select("value").eq("key", "vps_watchdog_state").maybeSingle(),
+    readSettingRow(supabase, "vps_config"),
+    readSettingRow(supabase, "vps_watchdog_state"),
   ]);
 
   const vpsCfg = (vpsRow?.value || {}) as Record<string, any>;
