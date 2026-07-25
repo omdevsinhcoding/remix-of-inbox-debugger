@@ -3668,9 +3668,15 @@ function applyTvOverrideToStoredUser(userId: string, tvOverride: "on" | "off" | 
 
 function isLocationRequiredForProfile(profile?: Partial<UserData> | null) {
   if (!profile) return false;
-  // Admin login must never be blocked by browser GPS; admin password auth is
-  // followed by the dedicated OTP/TOTP step.
-  if (profile.role === "admin") return false;
+  // Admins default to GPS OFF, but the admin card toggle can turn it ON
+  // explicitly. Honor the top-level flag / prefs override when present.
+  if (profile.role === "admin") {
+    if (typeof profile.locationRequired === "boolean") return profile.locationRequired;
+    if (profile.profilePrefs?.locationRequiredOverride === true) {
+      return profile.profilePrefs?.locationRequired === true;
+    }
+    return false;
+  }
   // Trust the top-level flag the server sends (already role-aware). Fall back
   // to nested prefs only if the top-level flag is missing.
   if (typeof profile.locationRequired === "boolean") return profile.locationRequired;
@@ -8947,6 +8953,7 @@ function AdminPanel() {
                             <span className="mx-1.5 text-slate-300">·</span>
                             <span className={u.role === "admin" ? "text-red-600 font-bold uppercase" : (u.isFree ? "text-emerald-600 font-bold uppercase" : "text-blue-600 font-bold uppercase")}>{u.isFree ? "free" : u.role}</span>
                           </p>
+                          {u.role !== "admin" && (
                           <div className="flex flex-wrap gap-1 mt-1.5 sm:mt-2">
                             <button
                               type="button"
@@ -8958,7 +8965,7 @@ function AdminPanel() {
                                 ? <><MapPin className="w-2.5 h-2.5" /> GPS</>
                                 : <><MapPinOff className="w-2.5 h-2.5" /> OFF</>}
                             </button>
-                            {u.role !== "admin" && (() => {
+                            {(() => {
                               const ov = u.tvOverride === "on" || u.tvOverride === "off" ? u.tvOverride : null;
                               const effective = ov === "on" ? true : ov === "off" ? false : tvFeatureEnabled;
                               const label = ov === "on" ? "TV ON" : ov === "off" ? "TV OFF" : (effective ? "TV" : "TV —");
@@ -8981,7 +8988,7 @@ function AdminPanel() {
                                 </button>
                               );
                             })()}
-                            {u.role !== "admin" && (() => {
+                            {(() => {
                               const f = adminUserFeatures(u);
                               const pill = (key: "gmail" | "link", label: string, Icon: any, onCls: string) => {
                                 const on = key === "link" ? f[key] === true : f[key] !== false;
@@ -9003,10 +9010,10 @@ function AdminPanel() {
                             {u.assignedAccounts && u.assignedAccounts.length > 0 && u.assignedAccounts.map((a: string) => (
                               <span key={a} className="bg-blue-50 text-blue-700 border border-blue-200 text-[10px] px-1.5 py-0.5 rounded font-bold font-mono">{a}</span>
                             ))}
-                            {(!u.assignedAccounts || u.assignedAccounts.length === 0) && u.role !== "admin" && (
+                            {(!u.assignedAccounts || u.assignedAccounts.length === 0) && (
                               <span className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded font-bold">no accounts</span>
                             )}
-                          </div>
+                          </div>)}
                           {u.role !== "admin" && !u.isFree && (u as any).session_limit != null && (
                             <p className="text-[10px] text-emerald-700 mt-1.5 font-mono">
                               sessions: <span className="font-bold">{(u as any).session_limit === 0 ? "∞" : (u as any).session_limit}</span>
@@ -9087,6 +9094,63 @@ function AdminPanel() {
 
                             <Trash2 className="w-4 h-4" />
                           </button>
+                        </div>
+                      )}
+
+                      {u.role === "admin" && (
+                        <div className="mt-3 flex items-center gap-1 p-1 rounded-xl bg-gradient-to-br from-slate-50 to-slate-100/60 border border-slate-200/80">
+                          <button onClick={() => toggleProfileLocationRequired(u)}
+                            title={isLocationRequiredForProfile(u) ? "Location required for admin login" : "Location not required"}
+                            className={`flex-1 flex items-center justify-center gap-1.5 h-9 rounded-lg transition-all active:scale-95 text-[11px] font-bold uppercase tracking-wider ${isLocationRequiredForProfile(u) ? "bg-white text-sky-600 ring-1 ring-sky-300 shadow-sm" : "text-slate-500 hover:bg-white hover:text-sky-600"}`}>
+                            {isLocationRequiredForProfile(u) ? <MapPin className="w-3.5 h-3.5" /> : <MapPinOff className="w-3.5 h-3.5" />}
+                            <span className="hidden sm:inline">{isLocationRequiredForProfile(u) ? "GPS On" : "GPS Off"}</span>
+                          </button>
+                          <div className="w-px h-6 bg-slate-200" />
+                          <button onClick={() => loginAsUser(u)} title="Sign in as admin"
+                            className="flex-1 flex items-center justify-center gap-1.5 h-9 rounded-lg text-slate-500 hover:bg-white hover:text-blue-600 hover:shadow-sm transition-all active:scale-95 text-[11px] font-bold uppercase tracking-wider">
+                            <Eye className="w-3.5 h-3.5" /> <span className="hidden sm:inline">View</span>
+                          </button>
+                          <div className="w-px h-6 bg-slate-200" />
+                          <button onClick={() => {
+                              const opening = editingUserAccounts !== u.id;
+                              setEditingUserAccounts(opening ? u.id : null);
+                              setEditUsername(u.username || "");
+                            }} title="Edit admin profile"
+                            className={`flex-1 flex items-center justify-center gap-1.5 h-9 rounded-lg transition-all active:scale-95 text-[11px] font-bold uppercase tracking-wider ${editingUserAccounts === u.id ? "bg-white text-emerald-600 ring-1 ring-emerald-300 shadow-sm" : "text-slate-500 hover:bg-white hover:text-emerald-600 hover:shadow-sm"}`}>
+                            <Edit className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Edit</span>
+                          </button>
+                          <div className="w-px h-6 bg-slate-200" />
+                          <button onClick={() => { setChangingUserPass(changingUserPass === u.id ? null : u.id); setUserNewPass(""); }}
+                            title="Change password"
+                            className={`flex-1 flex items-center justify-center gap-1.5 h-9 rounded-lg transition-all active:scale-95 text-[11px] font-bold uppercase tracking-wider ${changingUserPass === u.id ? "bg-white text-amber-600 ring-1 ring-amber-300 shadow-sm" : "text-slate-500 hover:bg-white hover:text-amber-600 hover:shadow-sm"}`}>
+                            <KeyRound className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Key</span>
+                          </button>
+                        </div>
+                      )}
+
+                      {editingUserAccounts === u.id && u.role === "admin" && (
+                        <div className="mt-2 p-3.5 rounded-xl border border-slate-200 bg-white shadow-sm space-y-2.5">
+                          <label className="text-[10px] font-black uppercase tracking-[0.15em] text-slate-500 flex items-center gap-1.5">
+                            <UserCircle className="w-3.5 h-3.5 text-red-600" /> Admin username
+                          </label>
+                          <input type="text" value={editUsername} onChange={(e) => setEditUsername(e.target.value)}
+                            placeholder="e.g. admin"
+                            className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm font-semibold text-slate-900 outline-none focus:border-red-500 focus:bg-white focus:ring-2 focus:ring-red-100 transition-all" />
+                          <div className="flex gap-2 pt-1">
+                            <button onClick={() => setEditingUserAccounts(null)}
+                              className="flex-1 h-9 rounded-lg border border-slate-200 text-slate-600 text-xs font-bold hover:bg-slate-50 active:scale-95 transition-all">Cancel</button>
+                            <button onClick={async () => {
+                                try {
+                                  const next = editUsername.trim() || null;
+                                  await apiCall("manage-app", { action: "update_user", id: u.id, username: next });
+                                  setUsers(prev => prev.map(x => x.id === u.id ? { ...x, username: next as any } : x));
+                                  setEditingUserAccounts(null);
+                                  try { await refreshBootstrap(); } catch {}
+                                  notify.success("Admin updated");
+                                } catch (err) { notify.error(err instanceof Error ? err.message : "Failed to update"); }
+                              }}
+                              className="flex-1 h-9 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-bold active:scale-95 transition-all shadow-sm shadow-red-200">Save</button>
+                          </div>
                         </div>
                       )}
 
@@ -9205,7 +9269,6 @@ function AdminPanel() {
                               <div className="flex items-center gap-2 min-w-0">
                                 <span className="w-1.5 h-1.5 rounded-full bg-red-600 animate-pulse" />
                                 <span className="text-[10px] font-black tracking-[0.35em] text-slate-900 uppercase">Edit · Profile</span>
-                                <span className="hidden sm:inline text-[10px] font-mono text-slate-400 tracking-widest truncate">/{u.id.slice(0,8)}</span>
                               </div>
                               <button onClick={() => { setEditingUserAccounts(null); setEditHint(null); }}
                                 className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-100 hover:bg-red-600 text-slate-600 hover:text-white flex items-center justify-center transition-all active:scale-90">
