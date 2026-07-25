@@ -48,8 +48,10 @@ cat >"$ENV_FILE" <<EOF
 PORT=8788
 TV_LOGIN_MAX_MS=24000
 TV_RUNNER_CONCURRENCY=4
+TV_WARM_POOL=2
 TV_REPORT_URL=https://jsqchutnfdeljajkxmly.supabase.co/functions/v1/manage-app
 TV_REPORT_HMAC_KEY=$EXISTING_HMAC
+NODE_ENV=production
 EOF
 chmod 600 "$ENV_FILE"
 
