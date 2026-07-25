@@ -4581,7 +4581,6 @@ function ProfileSelectPage() {
       perf.end(`failed: ${msg.slice(0, 60)}`);
       if (isGpsPermissionDeniedMessage(msg)) {
         setError("");
-        if (normalizedAdminUsername) setAdminLocationPolicy({ username: normalizedAdminUsername, required: true, loading: false });
         setGpsPermissionMode(getGpsPermissionMode(msg));
         showGpsPermissionToast(msg);
       } else {
@@ -5270,6 +5269,7 @@ function AdminLoginPage() {
       perf.end(`failed: ${msg.slice(0, 60)}`);
       if (isGpsPermissionDeniedMessage(msg)) {
         setError("");
+        if (normalizedAdminUsername) setAdminLocationPolicy({ username: normalizedAdminUsername, required: true, loading: false });
         setGpsPermissionMode(getGpsPermissionMode(msg));
         showGpsPermissionToast(msg);
       } else {
