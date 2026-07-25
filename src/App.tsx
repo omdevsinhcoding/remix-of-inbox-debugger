@@ -8745,8 +8745,11 @@ function AdminPanel() {
             plan_starts_at: newPlanStartsAt ? new Date(newPlanStartsAt).toISOString() : null,
             plan_ends_at: newPlanEndsAt ? new Date(newPlanEndsAt).toISOString() : null,
           };
-      const res: any = await apiCall("manage-app", body);
+      // Clear the form immediately so the admin sees the input reset even
+      // while the create RPC is still in flight. On failure we don't restore
+      // the raw fields — the error toast is enough context to retry.
       setNewUsername(""); setNewPassword(""); setNewName(""); setNewUserAccounts([]); setNewIsFree(false); setNewFreeExpiresAt(""); setNewPlanStartsAt(""); setNewPlanEndsAt(""); setNewTvOverride("inherit");
+      const res: any = await apiCall("manage-app", body);
       if (!res?.user) throw new Error("Server did not return the created user");
       setUsers(prev => [...prev, res.user]);
       setStats(prev => ({ ...prev, totalUsers: prev.totalUsers + 1 }));
