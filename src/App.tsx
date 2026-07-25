@@ -9043,36 +9043,34 @@ function AdminPanel() {
                          </div>
                        )}
 
-                      {isAdmin && (
-                        <div className="grid grid-cols-2 gap-2 border-t border-slate-100 pt-4 sm:grid-cols-3 xl:grid-cols-4">
-                          <button onClick={() => toggleProfileLocationRequired(u)}
-                            title={isLocationRequiredForProfile(u) ? "GPS required" : "GPS off"}
-                            className={`h-10 min-w-0 rounded-lg border px-3 text-[12px] font-bold transition whitespace-nowrap overflow-hidden text-ellipsis ${isLocationRequiredForProfile(u) ? "border-red-200 bg-red-50 text-red-700" : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-white hover:border-slate-300"}`}>
-                            {isLocationRequiredForProfile(u) ? "Location on" : "Location off"}
-                          </button>
-                          {currentUser?.id !== u.id && (
-                            <>
-                              <button onClick={() => loginAsUser(u)} title="Sign in as admin"
-                                className="h-10 min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3 text-[12px] font-bold text-slate-700 hover:bg-white hover:border-slate-300 transition whitespace-nowrap overflow-hidden text-ellipsis">
-                                View
-                              </button>
-                            </>
-                          )}
-                          <button onClick={() => {
-                              const opening = editingUserAccounts !== u.id;
-                              setEditingUserAccounts(opening ? u.id : null);
-                              setEditUsername(u.username || "");
-                            }} title="Edit admin"
-                            className={`h-10 min-w-0 rounded-lg border px-3 text-[12px] font-bold transition whitespace-nowrap overflow-hidden text-ellipsis ${editingUserAccounts === u.id ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-white hover:border-slate-300"}`}>
-                            Edit
-                          </button>
-                          <button onClick={() => { setChangingUserPass(changingUserPass === u.id ? null : u.id); setUserNewPass(""); }}
-                            title="Change password"
-                            className={`h-10 min-w-0 rounded-lg border px-3 text-[12px] font-bold transition whitespace-nowrap overflow-hidden text-ellipsis ${changingUserPass === u.id ? "border-amber-300 bg-amber-50 text-amber-800" : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-white hover:border-slate-300"}`}>
-                            Password
-                          </button>
-                        </div>
-                      )}
+                       {isAdmin && (
+                         <div className="mt-4 flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-3">
+                           <button onClick={() => toggleProfileLocationRequired(u)}
+                             title={isLocationRequiredForProfile(u) ? "GPS required" : "GPS off"}
+                             className={`h-8 rounded-md border px-2.5 text-[11px] font-semibold transition ${isLocationRequiredForProfile(u) ? "border-red-200 bg-red-50 text-red-700" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`}>
+                             {isLocationRequiredForProfile(u) ? "Location on" : "Location off"}
+                           </button>
+                           {currentUser?.id !== u.id && (
+                             <button onClick={() => loginAsUser(u)} title="Sign in as admin"
+                               className="h-8 rounded-md border border-slate-200 bg-white px-2.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 transition">
+                               View
+                             </button>
+                           )}
+                           <button onClick={() => {
+                               const opening = editingUserAccounts !== u.id;
+                               setEditingUserAccounts(opening ? u.id : null);
+                               setEditUsername(u.username || "");
+                             }} title="Edit admin"
+                             className={`h-8 rounded-md border px-2.5 text-[11px] font-semibold transition ${editingUserAccounts === u.id ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`}>
+                             Edit
+                           </button>
+                           <button onClick={() => { setChangingUserPass(changingUserPass === u.id ? null : u.id); setUserNewPass(""); }}
+                             title="Change password"
+                             className={`h-8 rounded-md border px-2.5 text-[11px] font-semibold transition ${changingUserPass === u.id ? "border-amber-300 bg-amber-50 text-amber-800" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`}>
+                             Password
+                           </button>
+                         </div>
+                       )}
 
                       {editingUserAccounts === u.id && u.role === "admin" && (
                         <div className="mt-2 p-3.5 rounded-xl border border-slate-200 bg-white shadow-sm space-y-2.5">
