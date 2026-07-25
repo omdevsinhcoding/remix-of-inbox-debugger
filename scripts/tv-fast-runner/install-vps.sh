@@ -116,6 +116,9 @@ cat >"$SERVICE_FILE" <<EOF
 Description=Warm TV Login Fast Runner
 After=network-online.target
 Wants=network-online.target
+# Never give up restarting — required for true 24/7 uptime.
+StartLimitIntervalSec=0
+StartLimitBurst=0
 
 [Service]
 Type=simple
@@ -123,8 +126,16 @@ WorkingDirectory=$APP_DIR
 EnvironmentFile=$ENV_FILE
 Environment=COMMIT_SHA=$COMMIT_SHA
 ExecStart=/usr/bin/node $APP_DIR/server.mjs
+# Aggressive self-heal: restart on any exit reason.
 Restart=always
 RestartSec=2
+# Node/Chromium can be memory-hungry; if the box OOM-reaps us, come back fast.
+OOMPolicy=continue
+# Raise fd limit for many concurrent Playwright contexts.
+LimitNOFILE=65536
+# Kill lingering child processes (Chromium) when the unit stops/restarts.
+KillMode=mixed
+TimeoutStopSec=15
 NoNewPrivileges=true
 
 [Install]
