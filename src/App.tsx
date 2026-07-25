@@ -13631,6 +13631,7 @@ function EmailViewer() {
       <AnimatePresence mode="wait" initial={false}>
         {workflowView === null && countEnabled(userFeatures) >= 2 ? (
           <motion.main key="wf-chooser"
+            className="h-[calc(100dvh-3.5rem)] sm:h-[calc(100dvh-4rem)] overflow-y-auto overscroll-contain"
             initial={{ opacity: 0, y: 12, filter: "blur(6px)" }}
             animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
             exit={{ opacity: 0, y: -12, filter: "blur(6px)" }}
