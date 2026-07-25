@@ -843,8 +843,12 @@ async function repairCronScheduleIfNeeded(supabase: any, cronSecret: string) {
       auth_key: cronSecret,
     });
     if (error) throw error;
-    await supabase.from("app_settings").upsert({ key: "cron_config", value: { active: true, interval } }, { onConflict: "key" });
-    console.log(`[cron] Repaired schedule with secret header at */${interval} minute(s)`);
+    // Only upsert when the stored value actually differs (avoid churn on every cron repair)
+    const prev = cfg?.value || {};
+    if (prev.active !== true || prev.interval !== interval) {
+      await supabase.from("app_settings").upsert({ key: "cron_config", value: { active: true, interval } }, { onConflict: "key" });
+      console.log(`[cron] Repaired schedule with secret header at */${interval} minute(s)`);
+    }
   } catch (err) {
     console.error("[cron] Repair failed:", err instanceof Error ? err.message : String(err));
   }
