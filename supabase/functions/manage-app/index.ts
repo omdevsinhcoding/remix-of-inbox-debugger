@@ -648,6 +648,46 @@ async function auditLog(
 }
 
 
+// Fires a one-shot "Plan expired" Telegram alert to the admin and marks
+// plan_end_notified_at so neither this helper nor the plan-reminders cron
+// re-sends. Safe to call fire-and-forget from any request path that
+// detects mid-session expiry — races are settled by a conditional update
+// that only succeeds when the column is still null.
+async function notifyPlanExpiredOnce(supabase: any, user: any) {
+  try {
+    // Claim the notification slot atomically. If some other request
+    // (or the cron) already set the column, .select() returns 0 rows
+    // and we bail without sending a duplicate message.
+    const { data: claimed } = await supabase
+      .from("app_users")
+      .update({ plan_end_notified_at: new Date().toISOString() })
+      .eq("id", user.id)
+      .is("plan_end_notified_at", null)
+      .select("id")
+      .maybeSingle();
+    if (!claimed) return;
+
+    const botToken = Deno.env.get("TELEGRAM_BOT_TOKEN");
+    const chatId = Deno.env.get("TELEGRAM_CHAT_ID");
+    if (!botToken || !chatId) return;
+    const fmt = (iso: any) => { try { return new Date(iso).toISOString().replace("T", " ").replace(/\..+/, " UTC"); } catch { return String(iso || ""); } };
+    const startedLine = user.plan_starts_at ? `\nStarted: ${fmt(user.plan_starts_at)}` : "";
+    const text = [
+      "🛑 <b>Plan expired</b>",
+      `User: ${user.name || user.username || user.id}${startedLine}`,
+      `Ended: ${fmt(user.plan_ends_at)}`,
+      `<i>Detected mid-session — user was signed out.</i>`,
+    ].join("\n");
+    await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML", disable_web_page_preview: true }),
+    }).catch(() => {});
+  } catch (e) { console.error("notifyPlanExpiredOnce error:", e); }
+}
+
+
+
 function isPrivateIp(ip: string): boolean {
   if (!ip || ip === "unknown") return true;
   if (ip === "::1" || ip === "127.0.0.1" || ip.startsWith("::ffff:127.")) return true;
