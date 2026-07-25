@@ -3333,7 +3333,7 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
         type="button"
         onClick={() => setShowInfo((v) => !v)}
         title="Tap for details"
-        className={`fixed z-[10001] right-3 sm:right-4 bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:bottom-4 h-7 sm:h-8 px-3 sm:px-3.5 rounded-full text-[11px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1.5 select-none active:scale-95 transition`}
+        className={`fixed z-[10001] right-3 sm:right-4 bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:bottom-4 h-7 sm:h-8 px-3 sm:px-3.5 rounded-full text-[11px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} ${pillIdleClass(idleVisible)} flex items-center gap-1.5 select-none active:scale-95 transition-all duration-300`}
       >
         <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" />
         {role === "admin" ? "Admin" : "Session"}: {pad(mm)}:{pad(ss)}
