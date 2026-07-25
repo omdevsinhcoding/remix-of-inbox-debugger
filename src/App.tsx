@@ -3308,7 +3308,9 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
   }, [role, minutes]);
 
   const [showInfo, setShowInfo] = useState(false);
+  const idleVisible = useIdleVisible();
   if (remainingMs <= 0) return null;
+
 
   const totalSec = Math.ceil(remainingMs / 1000);
   const mm = Math.floor(totalSec / 60);
