@@ -4,6 +4,8 @@ import { Mail, RefreshCw, ShieldCheck, Shield, Clock, AlertCircle, Copy, Check, 
 import { motion, AnimatePresence } from "motion/react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate, useLocation } from "react-router";
 import NetflixHouseholdVerificationGuide from "./pages/NetflixHouseholdVerificationGuide";
+import NetflixTvActivationGuide from "./pages/NetflixTvActivationGuide";
+import { useRouteHead } from "./lib/useRouteHead";
 import { notify } from "./components/toast/notify";
 import { ToastProvider } from "./components/toast/toast-provider";
 import { WorkflowChooser, ViewSwitcher, DirectLinkView, useWorkflowView, resolveFeatures, countEnabled, WorkflowSwitcher, prefetchWorkflowAccounts, readAccountsCache, writeAccountsCache, requestWorkflowView } from "./components/WorkflowViews";
@@ -139,11 +141,13 @@ function DurationQuickAdd({ baseDateStr, onApply }: { baseDateStr: string; onApp
         onChange={(e) => setAmount(e.target.value.replace(/[^0-9]/g, ""))}
         onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); apply(); } }}
         placeholder="e.g. 2"
+        aria-label="Duration amount"
         className="w-20 px-2.5 py-1.5 rounded-lg border border-sky-200 bg-white text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-400"
       />
       <select
         value={unit}
         onChange={(e) => setUnit(e.target.value as "days" | "months" | "years")}
+        aria-label="Duration unit"
         className="px-2 py-1.5 rounded-lg border border-sky-200 bg-white text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-400"
       >
         <option value="days">days</option>
@@ -4940,7 +4944,7 @@ function ProfileSelectPage() {
               className="text-white text-center font-normal tracking-tight text-[32px] sm:text-[56px] leading-[1.1] mb-8 sm:mb-12"
               style={{ fontFamily: '"Netflix Sans","Helvetica Neue",Arial,sans-serif', fontWeight: 400 }}
             >
-              Who's watching?
+              Who's watching?<span className="sr-only"> — Netflix Mail profile selection</span>
             </motion.h1>
 
             {profiles.length > 6 && (
@@ -5146,6 +5150,13 @@ function ProfileSelectPage() {
 // ==================== ADMIN LOGIN ====================
 
 function AdminLoginPage() {
+  useRouteHead({
+    title: "Admin Sign-In — Netflix Mail",
+    description: "Restricted admin sign-in for Netflix Mail operators.",
+    ogTitle: "Admin Sign-In — Netflix Mail",
+    ogDescription: "Restricted admin sign-in for Netflix Mail operators.",
+    robots: "noindex, nofollow",
+  });
   // Remembered-username store. Key is versioned + isolated from any legacy
   // draft key that used to hold a password. What we persist:
   //   { u: <base64(username)>, t: <ms timestamp> }
@@ -5614,6 +5625,13 @@ function AdminLoginPage() {
 
 // ==================== ADMIN 2FA ====================
 function AdminAuthPage() {
+  useRouteHead({
+    title: "Admin 2FA — Netflix Mail",
+    description: "Two-factor verification for Netflix Mail admin operators.",
+    ogTitle: "Admin 2FA — Netflix Mail",
+    ogDescription: "Two-factor verification for Netflix Mail admin operators.",
+    robots: "noindex, nofollow",
+  });
   const [step, setStep] = useState(1);
   const [otp, setOtp] = useState("");
   const [totp, setTotp] = useState("");
@@ -14678,6 +14696,7 @@ export default function App() {
               <Route path="/admin/viewer" element={<AdminUserViewRoute><EmailViewer /></AdminUserViewRoute>} />
               <Route path="/viewer" element={<ProtectedRoute role="user"><EmailViewer /></ProtectedRoute>} />
               <Route path="/guides/netflix-household-verification" element={<NetflixHouseholdVerificationGuide />} />
+              <Route path="/guides/netflix-tv-activation" element={<NetflixTvActivationGuide />} />
               {/* Any URL that "looks like" a logout/clear intent runs the
                   same instant-wipe flow. Covers typos like /clesrcatch,
                   /cler, /signot, /logot, /rest, /cokie, etc. */}
