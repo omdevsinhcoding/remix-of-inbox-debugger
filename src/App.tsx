@@ -8988,7 +8988,7 @@ function AdminPanel() {
                                 </button>
                               );
                             })()}
-                            {u.role !== "admin" && (() => {
+                            {(() => {
                               const f = adminUserFeatures(u);
                               const pill = (key: "gmail" | "link", label: string, Icon: any, onCls: string) => {
                                 const on = key === "link" ? f[key] === true : f[key] !== false;
