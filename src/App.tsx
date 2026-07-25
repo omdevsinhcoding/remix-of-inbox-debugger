@@ -5176,7 +5176,9 @@ function AdminLoginPage() {
     try {
       if (!checkRateLimit(`admin_${username}`)) throw new Error("Too many attempts. Wait 1 minute.");
 
-      const clientGeo = preparedGeo || pendingClientGeoRef.current || await requireLoginLocation();
+      const clientGeo = locationRequired
+        ? (preparedGeo || pendingClientGeoRef.current || await requireLoginLocation())
+        : (preparedGeo || pendingClientGeoRef.current || null);
       pendingClientGeoRef.current = null;
       perf.mark("geo_ready");
 
@@ -5189,6 +5191,9 @@ function AdminLoginPage() {
       const data: any = await apiCall("manage-app", { action: "login", username, password, clientGeo, captchaToken });
       perf.mark("manage_app_login_ok");
 
+      if (!data?.success || !data?.user) {
+        throw new Error(data?.error === "plan_finished" ? "Plan finished" : (data?.error || "Login failed"));
+      }
       if (data.user.role !== "admin") throw new Error("Access denied");
       if (data.pendingToken) {
         sessionSet("pending_admin_token" as any, data.pendingToken);
@@ -7393,6 +7398,7 @@ function AdminPanel() {
   const [r2TestResult, setR2TestResult] = useState<{ ok: boolean; message: string; latencyMs?: number; publicUrlWorks?: boolean; warnings?: string[] } | null>(null);
   const [r2ShowSecret, setR2ShowSecret] = useState(false);
   const [r2Dirty, setR2Dirty] = useState(false);
+  const safeR2ForCache = (r2: any | null | undefined) => r2 ? { ...r2, secretAccessKey: "" } : null;
   const lastAdminRefreshRef = useRef(0);
   const updateR2Cfg = useCallback((patch: Partial<R2Cfg>) => {
     setR2Dirty(true);
@@ -7587,7 +7593,7 @@ function AdminPanel() {
           setR2Cfg((current) => r2Dirty ? current : ({
             accountId: res.r2.accountId || "",
             accessKeyId: res.r2.accessKeyId || "",
-            secretAccessKey: res.r2.secretAccessKey || "",
+            secretAccessKey: "",
             bucket: res.r2.bucket || "",
             publicBaseUrl: res.r2.publicBaseUrl || "",
             pathPrefix: res.r2.pathPrefix || "notifications/",
@@ -7601,7 +7607,7 @@ function AdminPanel() {
           const serverVersion = Number(res.settings?.settings_version) || Date.now();
           const prev = readAdminCache();
           reconcileVersion(prev?.version ?? 0, serverVersion);
-          writeAdminCache({ version: serverVersion, settings: res.settings, r2: res.r2 || null });
+          writeAdminCache({ version: serverVersion, settings: res.settings, r2: safeR2ForCache(res.r2) });
           emitSyncStatus({ kind: "saved" });
         } catch (e) {
           emitSyncStatus({ kind: "error", message: "Cache write failed" });
@@ -7693,7 +7699,7 @@ function AdminPanel() {
         setR2Cfg({
           accountId: r2.accountId || "",
           accessKeyId: r2.accessKeyId || "",
-          secretAccessKey: r2.secretAccessKey || "",
+          secretAccessKey: "",
           bucket: r2.bucket || "",
           publicBaseUrl: r2.publicBaseUrl || "",
           pathPrefix: r2.pathPrefix || "notifications/",
@@ -7880,7 +7886,7 @@ function AdminPanel() {
           ...c,
           accountId: res.config.accountId ?? c.accountId,
           accessKeyId: res.config.accessKeyId ?? c.accessKeyId,
-          secretAccessKey: res.config.secretAccessKey ?? c.secretAccessKey,
+          secretAccessKey: "",
           bucket: res.config.bucket ?? c.bucket,
           publicBaseUrl: res.config.publicBaseUrl ?? c.publicBaseUrl,
           pathPrefix: res.config.pathPrefix ?? c.pathPrefix,
