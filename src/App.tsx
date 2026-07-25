@@ -14236,8 +14236,14 @@ function SessionRouteBoundary() {
 
     const storedUser = readStoredSessionUser();
     const token = getSessionToken();
+    // Preserve the transient pending-admin identity on BOTH /admin and
+    // /admin-auth. The password step lives on /admin and, on success, sets
+    // { user (pending:true), pending_admin_token } synchronously before it
+    // calls navigate("/admin-auth"). A React re-render can re-fire this
+    // effect on /admin between those two steps — if we clear here, the
+    // pending token is wiped and the 2FA page bounces back with no OTP.
     const isPendingAdmin =
-      path === "/admin-auth" &&
+      (path === "/admin" || path === "/admin-auth") &&
       storedUser?.role === "admin" &&
       storedUser?.pending === true &&
       !!sessionGet("pending_admin_token" as any);
