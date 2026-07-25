@@ -8226,28 +8226,29 @@ function AdminPanel() {
 
 
   const toggleCaptcha = async () => {
+    const prevEnabled = captchaEnabled;
+    const newEnabled = !prevEnabled;
+    if (newEnabled && (!siteKey || !secretKeyVal)) { notify.error("Enter both Site Key and Secret Key first"); return; }
+    // Optimistic flip — no second round-trip. Rollback on failure.
+    setCaptchaEnabled(newEnabled);
     try {
-      const newEnabled = !captchaEnabled;
-      if (newEnabled && (!siteKey || !secretKeyVal)) { notify.error("Enter both Site Key and Secret Key first"); return; }
       await apiCall("manage-app", { action: "set_settings", key: "recaptcha", value: { siteKey, secretKey: secretKeyVal, enabled: newEnabled } });
-      const fresh = await apiCall("manage-app", { action: "get_settings", key: "recaptcha" });
-      setCaptchaEnabled(fresh.value?.enabled === true);
-      setSiteKey(fresh.value?.siteKey || "");
-      setSecretKeyVal(fresh.value?.secretKey || "");
       notify.success(newEnabled ? "CAPTCHA enabled!" : "CAPTCHA disabled!");
     } catch (err) {
+      setCaptchaEnabled(prevEnabled);
       notify.error(err instanceof Error ? err.message : "Failed to toggle CAPTCHA");
     }
   };
 
   const saveRecaptchaSettings = async () => {
+    const prevEnabled = captchaEnabled;
+    const newEnabled = !!(siteKey && secretKeyVal);
+    setCaptchaEnabled(newEnabled);
     try {
-      const newEnabled = !!(siteKey && secretKeyVal);
       await apiCall("manage-app", { action: "set_settings", key: "recaptcha", value: { siteKey, secretKey: secretKeyVal, enabled: newEnabled } });
-      const fresh = await apiCall("manage-app", { action: "get_settings", key: "recaptcha" });
-      setCaptchaEnabled(fresh.value?.enabled === true);
       notify.success("ReCAPTCHA settings saved!");
     } catch (err) {
+      setCaptchaEnabled(prevEnabled);
       notify.error(err instanceof Error ? err.message : "Failed to save settings");
     }
   };
