@@ -399,6 +399,64 @@ async function verifyRecaptchaToken(secretKey: string, token: string, ip?: strin
   return data?.success === true;
 }
 
+const TOTP_STEP_SECONDS = 30;
+const TOTP_DIGITS = 6;
+const BASE32_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+
+function base32ToBytes(input: string): Uint8Array {
+  const clean = String(input || "").toUpperCase().replace(/[^A-Z2-7]/g, "");
+  let bits = "";
+  const out: number[] = [];
+  for (const ch of clean) {
+    const value = BASE32_ALPHABET.indexOf(ch);
+    if (value < 0) continue;
+    bits += value.toString(2).padStart(5, "0");
+    while (bits.length >= 8) {
+      out.push(parseInt(bits.slice(0, 8), 2));
+      bits = bits.slice(8);
+    }
+  }
+  return new Uint8Array(out);
+}
+
+function counterToBytes(counter: number): Uint8Array {
+  const bytes = new Uint8Array(8);
+  let n = BigInt(Math.max(0, Math.floor(counter)));
+  for (let i = 7; i >= 0; i--) {
+    bytes[i] = Number(n & 0xffn);
+    n >>= 8n;
+  }
+  return bytes;
+}
+
+async function hotpSha1(secretBytes: Uint8Array, counter: number): Promise<string> {
+  const key = await crypto.subtle.importKey("raw", secretBytes, { name: "HMAC", hash: "SHA-1" }, false, ["sign"]);
+  const signature = new Uint8Array(await crypto.subtle.sign("HMAC", key, counterToBytes(counter)));
+  const offset = signature[signature.length - 1] & 0x0f;
+  const binary = ((signature[offset] & 0x7f) << 24)
+    | ((signature[offset + 1] & 0xff) << 16)
+    | ((signature[offset + 2] & 0xff) << 8)
+    | (signature[offset + 3] & 0xff);
+  return String(binary % 10 ** TOTP_DIGITS).padStart(TOTP_DIGITS, "0");
+}
+
+async function verifyTotpWithGrace(code: string, secret: string): Promise<boolean> {
+  const normalized = String(code || "").replace(/\D/g, "").slice(0, TOTP_DIGITS);
+  if (normalized.length !== TOTP_DIGITS) return false;
+  // Keep otplib's normal validation as the first path, then add a controlled
+  // ±1-step grace window so a just-expired Authenticator code still works.
+  try {
+    if (authenticator.check(normalized, secret)) return true;
+  } catch {}
+  const secretBytes = base32ToBytes(secret);
+  if (!secretBytes.length) return false;
+  const currentCounter = Math.floor(Date.now() / 1000 / TOTP_STEP_SECONDS);
+  for (const drift of [-1, 0, 1]) {
+    if (await hotpSha1(secretBytes, currentCounter + drift) === normalized) return true;
+  }
+  return false;
+}
+
 // --- AES-256-GCM encryption for IMAP credentials ---
 async function deriveEncKey(secret: string): Promise<CryptoKey> {
   const encoder = new TextEncoder();
@@ -2021,6 +2079,7 @@ Deno.serve(async (originalReq) => {
   } catch (e) {
     if (e instanceof PlaintextRejectedError) return plaintextRejectedResponse();
     if (e instanceof TransportError) return transportErrorResponse(e);
+    console.warn("[manage-app] request_parse_failed", e instanceof Error ? e.message : String(e));
     return new Response(JSON.stringify({ success: false, error: "bad request" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
   const req = new Request(originalReq.url, {
@@ -3147,7 +3206,7 @@ Deno.serve(async (originalReq) => {
       if (!code || String(code).length < 6) throw new Error("TOTP code required");
       const { data: user, error } = await supabase.from("app_users").select("totp_secret").eq("id", pending.userId).single();
       if (error || !user?.totp_secret) throw new Error("TOTP is not configured");
-      if (!authenticator.check(String(code), user.totp_secret)) throw new Error("Invalid Google Authenticator code");
+      if (!(await verifyTotpWithGrace(String(code), user.totp_secret))) throw new Error("Invalid Google Authenticator code");
       await supabase.from("app_admin_2fa_state").update({ totp_verified_at: new Date().toISOString() }).eq("token_hash", tokenHash).eq("user_id", pending.userId);
       return new Response(JSON.stringify({ success: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -6356,6 +6415,14 @@ Deno.serve(async (originalReq) => {
 
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    try {
+      console.error("[manage-app] action_failed", {
+        action: typeof action === "string" ? action : "unknown",
+        message,
+      });
+    } catch (_) {
+      console.error("[manage-app] action_failed", message);
+    }
     return new Response(JSON.stringify({ success: false, error: message }), {
       status: 400,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
