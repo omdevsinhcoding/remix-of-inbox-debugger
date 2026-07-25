@@ -3181,7 +3181,7 @@ Deno.serve(async (originalReq) => {
       let session: Record<string, any> | null = null;
 
       // Fully admin-only keys
-      const adminOnlyKeys = ["config", "cron_config", "vps_config"];
+      const adminOnlyKeys = ["config", "cron_config", "vps_config", "r2_storage"];
       if (adminOnlyKeys.includes(key)) {
         session = await requireAdmin(req);
       }
@@ -3190,6 +3190,14 @@ Deno.serve(async (originalReq) => {
       const authenticatedKeys = ["primary_cloudflare_urls", "email_accounts", "recaptcha", "email_filters", "session_config", "admin_session_config", "session_limits", "ipwho_alert", "location_policy", "free_session_minutes", "tv_feature", "contact_info"];
       if (!session && authenticatedKeys.includes(key)) {
         session = await requireSession(req);
+      }
+
+      // Default-deny settings access: only explicitly listed keys are readable.
+      // This prevents newly-added secret settings (for example storage/API
+      // credentials) from becoming public through this generic endpoint.
+      const publicKeys = ["maintenance"];
+      if (!session && !publicKeys.includes(key)) {
+        throw new Error("Settings key is not public");
       }
 
       const { data } = await supabase
@@ -3207,6 +3215,21 @@ Deno.serve(async (originalReq) => {
 
       if (key === "tv_feature") {
         value = { enabled: value?.enabled !== false };
+      }
+
+      if (key === "r2_storage") {
+        const normalized = normalizeR2Config(value || {});
+        const hasSecret = typeof normalized.config.secretAccessKey === "string" && normalized.config.secretAccessKey.length > 0;
+        value = {
+          accountId: normalized.config.accountId,
+          accessKeyId: normalized.config.accessKeyId,
+          secretAccessKey: "",
+          bucket: normalized.config.bucket,
+          publicBaseUrl: normalized.config.publicBaseUrl,
+          pathPrefix: normalized.config.pathPrefix,
+          enabled: normalized.config.enabled,
+          secretAccessKeySet: hasSecret,
+        };
       }
 
       if (key === "config" && value && session?.role === "admin") {
