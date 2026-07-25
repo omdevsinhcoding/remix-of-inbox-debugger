@@ -5509,6 +5509,9 @@ function AdminAuthPage() {
     try {
       await apiCall("manage-app", { action: "verify_totp", user_id: effectiveUser.id, code });
       const finalData = await apiCall("manage-app", { action: "finalize_admin_session", user_id: effectiveUser.id });
+      if (!finalData?.success || !finalData?.sessionToken || finalData?.user?.role !== "admin") {
+        throw new Error(finalData?.error || "Admin session could not be finalized");
+      }
       if (finalData.workerUrls && Array.isArray(finalData.workerUrls) && finalData.workerUrls.length > 0) {
         storeWorkerUrls(finalData.workerUrls);
       }
