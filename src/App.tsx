@@ -5441,7 +5441,7 @@ function AdminAuthPage() {
       setLoading(true);
       (async () => {
         try {
-          await apiCall("manage-app", { action: "request_admin_otp", user_id: user.id });
+          await apiCall("manage-app", { action: "request_admin_otp", user_id: effectiveUser.id });
           notify.success("Secure OTP sent to your Telegram.");
         } catch (err) {
           const msg = err instanceof Error ? err.message : "Failed to send OTP";
