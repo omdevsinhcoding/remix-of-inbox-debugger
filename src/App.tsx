@@ -3528,13 +3528,15 @@ function responsiveEmailSrcDoc(email: Email | null) {
   const iframeId = String((email as any)?.id || "email-preview").replace(/[^a-zA-Z0-9_-]/g, "_");
 
   return `<!DOCTYPE html><html><head><base target="_blank"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"><style>
-    html,body{margin:0!important;padding:0!important;width:100%!important;max-width:100%!important;min-width:0!important;overflow:hidden!important;-webkit-text-size-adjust:100%;text-size-adjust:100%;}
+    html,body{margin:0!important;padding:0!important;width:100%!important;max-width:100%!important;min-width:0!important;height:auto!important;min-height:0!important;overflow:hidden!important;-webkit-text-size-adjust:100%;text-size-adjust:100%;}
     body{font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:14px;line-height:1.5;color:#0f172a;background:#fff;}
+    #email-root{display:block!important;width:100%!important;max-width:100%!important;min-width:0!important;height:auto!important;min-height:0!important;overflow:visible!important;}
     *,*::before,*::after{box-sizing:border-box!important;max-width:100%!important;min-width:0!important;}
     table,tbody,thead,tfoot,tr,td,th{max-width:100%!important;min-width:0!important;}
     table{width:100%!important;border-collapse:collapse!important;border-spacing:0!important;}
     td,th{width:auto!important;word-break:break-word!important;overflow-wrap:anywhere!important;white-space:normal!important;text-align:left!important;}
     img,video,picture,canvas,svg{display:inline-block!important;max-width:100%!important;height:auto!important;}
+    #email-root :where(table,tbody,thead,tfoot,tr,td,th,div,p,section,article,main,header,footer,span,center){height:auto!important;min-height:0!important;max-height:none!important;}
     p,div,span,li,strong,b,em,a,h1,h2,h3,h4,h5,h6{max-width:100%!important;overflow-wrap:anywhere!important;word-break:break-word!important;white-space:normal!important;}
     div[align],td[align],th[align],center{text-align:left!important;}
     [align="right"],[align="center"]{text-align:left!important;}
@@ -3547,11 +3549,12 @@ function responsiveEmailSrcDoc(email: Email | null) {
     [width],[height]{max-width:100%!important;}
     [style*="width"],[style*="min-width"],[style*="max-width"]{max-width:100%!important;min-width:0!important;}
     @media (max-width:700px){table,tbody,thead,tfoot,tr,td,th{display:block!important;width:100%!important;}td,th{padding-left:0!important;padding-right:0!important;}}
-  </style></head><body>${html}<script>(function(){
+  </style></head><body><div id="email-root">${html}</div><script>(function(){
     var iframeId=${JSON.stringify(iframeId)};
     var fitting=false;
     function fit(){if(fitting)return;fitting=true;try{
       var vw=Math.max(1,document.documentElement.clientWidth||window.innerWidth||320);
+      var root=document.getElementById('email-root')||document.body;
       document.querySelectorAll('[width]').forEach(function(el){el.removeAttribute('width');});
       document.querySelectorAll('[height]').forEach(function(el){if(/^(IMG|VIDEO|PICTURE|SVG|CANVAS)$/i.test(el.tagName))return;el.removeAttribute('height');});
       document.querySelectorAll('[align]').forEach(function(el){try{el.removeAttribute('align');}catch(e){}});
@@ -3559,17 +3562,29 @@ function responsiveEmailSrcDoc(email: Email | null) {
         if(el.__fitted)return;
         var s=el.style;if(!s){el.__fitted=1;return;}
         s.maxWidth='100%';s.minWidth='0';s.boxSizing='border-box';s.float='none';
+        if(el!==root&&!/^(IMG|VIDEO|PICTURE|SVG|CANVAS)$/i.test(el.tagName)){s.height='auto';s.minHeight='0';s.maxHeight='none';}
         var w=parseFloat(getComputedStyle(el).width||'0');
         if(w>vw){s.width='100%';}
         if(/^(TABLE|TBODY|THEAD|TFOOT|TR|TD|TH)$/i.test(el.tagName)){s.whiteSpace='normal';s.wordBreak='break-word';s.overflowWrap='anywhere';}
         if(/^TABLE$/i.test(el.tagName)){s.width='100%';}
         el.__fitted=1;
       });
-      document.documentElement.style.overflow='hidden';document.body.style.overflow='hidden';
+      document.documentElement.style.overflow='hidden';document.documentElement.style.height='auto';document.documentElement.style.minHeight='0';document.body.style.overflow='hidden';document.body.style.height='auto';document.body.style.minHeight='0';root.style.height='auto';root.style.minHeight='0';
     }catch(e){}finally{fitting=false;}}
+    function measureContentHeight(){try{
+      var root=document.getElementById('email-root')||document.body;
+      var rootRect=root.getBoundingClientRect();
+      var max=Math.ceil(rootRect.height||root.scrollHeight||0);
+      root.querySelectorAll('*').forEach(function(el){
+        var r=el.getBoundingClientRect();
+        var bottom=Math.ceil(r.bottom-rootRect.top);
+        if(bottom>max&&bottom<20000)max=bottom;
+      });
+      return Math.max(40,max+2);
+    }catch(e){return Math.max(40,document.body.scrollHeight||document.documentElement.scrollHeight||0);}}
     var lastH=0,pendingH=0;
     function postH(){try{
-      var h=Math.max(document.documentElement.scrollHeight,document.body.scrollHeight,document.documentElement.offsetHeight,document.body.offsetHeight);
+      var h=measureContentHeight();
       if(h&&Math.abs(h-lastH)>8){lastH=h;parent.postMessage({__emailIframeHeight:h,__emailIframeId:iframeId},'*');}
     }catch(e){}}
     function schedulePostH(){if(pendingH)return;pendingH=1;requestAnimationFrame(function(){pendingH=0;postH();});}
@@ -13739,11 +13754,11 @@ function EmailViewer() {
             <TvSignInPage />
           </motion.main>
         ) : workflowView === "gmail" || countEnabled(userFeatures) < 2 ? (
-      <motion.main key="wf-gmail" className="max-w-6xl mx-auto px-2 sm:px-4 h-[calc(100vh-3.5rem)] sm:h-[calc(100vh-4rem)] overflow-hidden"
+      <motion.main key="wf-gmail" className="max-w-6xl mx-auto px-2 sm:px-4 min-h-[calc(100dvh-3.5rem)] md:h-[calc(100vh-4rem)] overflow-visible md:overflow-hidden"
         initial={{ opacity: 0, y: 12, filter: "blur(6px)" }} animate={{ opacity: 1, y: 0, filter: "blur(0px)" }} exit={{ opacity: 0, y: -12, filter: "blur(6px)" }} transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}>
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-4 sm:gap-8 h-full py-2 sm:py-4">
-          <div className={`${selectedEmail ? "hidden md:block" : "block"} md:col-span-5 xl:col-span-4 flex flex-col overflow-hidden h-full`}>
-            <section className="flex-1 overflow-y-auto min-h-0 flex flex-col">
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-4 sm:gap-8 md:h-full py-2 sm:py-4 pb-28 md:pb-4">
+          <div className={`${selectedEmail ? "hidden md:block" : "block"} md:col-span-5 xl:col-span-4 flex flex-col overflow-visible md:overflow-hidden md:h-full`}>
+            <section className="flex-1 overflow-visible md:overflow-y-auto min-h-0 flex flex-col">
               <div className="flex items-center justify-between mb-2">
                 <h3 className="font-bold text-slate-800 flex items-center gap-2">
                   Inbox
@@ -13757,7 +13772,7 @@ function EmailViewer() {
                 </div>
               )}
 
-              <div className="space-y-2 flex-1 overflow-y-auto min-h-0">
+              <div className="space-y-2 flex-1 overflow-visible md:overflow-y-auto min-h-0">
                 {emails.length === 0 && !error ? (
                   <div className="bg-white border border-dashed border-slate-200 rounded-xl p-12 text-center">
                     <div className="bg-slate-50 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3">
@@ -13798,11 +13813,11 @@ function EmailViewer() {
             </section>
           </div>
 
-          <div className={`${selectedEmail ? "block" : "hidden md:flex"} md:col-span-7 xl:col-span-8 flex flex-col overflow-hidden h-full`}>
+          <div className={`${selectedEmail ? "block" : "hidden md:flex"} md:col-span-7 xl:col-span-8 flex flex-col overflow-visible md:overflow-hidden md:h-full`}>
             {selectedEmail ? (
               <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }}
-                className="bg-white rounded-2xl shadow-sm border border-slate-200 flex flex-col h-full overflow-hidden">
-                <div className="p-3 sm:p-6 border-b border-slate-100 bg-white sticky top-0 z-10">
+                className="bg-white rounded-2xl shadow-sm border border-slate-200 flex flex-col md:h-full overflow-visible md:overflow-hidden">
+                <div className="p-3 sm:p-6 border-b border-slate-100 bg-white md:sticky md:top-0 z-10 rounded-t-2xl">
                   <div className="flex items-center gap-2 sm:gap-4 mb-3 sm:mb-6">
                     <button onClick={() => setSelectedEmail(null)}
                       className="flex items-center gap-1.5 px-3 py-1.5 sm:px-4 sm:py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-full transition-colors font-bold text-xs sm:text-sm active:scale-95">
@@ -13832,7 +13847,7 @@ function EmailViewer() {
                   </div>
                 </div>
 
-                <div className="flex-1 overflow-auto p-2 sm:p-6 bg-white">
+                <div className="flex-1 overflow-visible md:overflow-auto p-2 sm:p-6 bg-white rounded-b-2xl">
                   {selectedEmail.otp && (
                     <div className="mb-4 sm:mb-8 bg-slate-900 rounded-xl sm:rounded-2xl p-4 sm:p-6 text-center shadow-xl shadow-slate-200 relative overflow-hidden">
                       <div className="relative z-10">
