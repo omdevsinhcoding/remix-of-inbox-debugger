@@ -268,3 +268,79 @@ Symptom → owner → fix:
 4. **`SESSION_SIGNING_SECRET` rotation = mass logout.** Schedule it.
 5. If a feature breaks after any change, section 8 tells you which secret is
    wrong in under 10 seconds.
+
+---
+
+## 10. TV Login runners — deployment truth table
+
+There are two runners that submit the 8-digit Netflix TV code. Only one is
+active at a time; which one is chosen from `app_settings.vps_config.mode`.
+
+| Mode  | Runner                    | Source of truth                        | Deploy how |
+|-------|---------------------------|----------------------------------------|-----------|
+| `vps` | `tv-fast-runner` on the VPS | `scripts/tv-fast-runner/server.mjs`     | `sudo bash scripts/tv-fast-runner/redeploy.sh` on the VPS |
+| `github` | GitHub Actions workflow  | `.github/workflows/tv-login.yml` + `scripts/tv-login-runner/tv-login.mjs` | Auto — every push to `main` is what Actions runs |
+
+### 10.1 VPS is running stale code (drift detection)
+
+Symptom: `/health` on the VPS omits `version`, returns `busy` instead of
+`active_jobs`, or `max_ms` < the repo default (20000). Root cause: the
+original `install-vps.sh` seeded `TV_LOGIN_MAX_MS=15000` and skipped the
+env-file write on every subsequent run, and it never pulled fresh code.
+That has been fixed — the current installer always writes today's
+defaults (backing the old file up to `/etc/tv-fast-runner.env.bak`) and
+`git pull --ff-only`s the repo before restart.
+
+Redeploy any VPS in one command:
+
+```bash
+ssh root@<VPS_IP>
+cd /path/to/repo && git pull
+sudo bash scripts/tv-fast-runner/redeploy.sh
+```
+
+Verify:
+
+```bash
+curl -s http://127.0.0.1:8788/health | jq
+# version must equal SERVER_VERSION in scripts/tv-fast-runner/server.mjs
+# max_ms must be 20000
+# active_jobs must be present
+```
+
+If `version` is missing or older than the repo, the VPS is still stale —
+`redeploy.sh` failed or the checkout isn't a git worktree. Re-clone the
+repo under a git checkout and re-run.
+
+### 10.2 GitHub Actions "failed in ~24 seconds" with no report
+
+Symptom: `tv_login_events` row stays `status='queued'` forever;
+`github_run_url IS NULL`; the failed workflow email arrives but no
+`tv_login_report` ever reaches `manage-app`.
+
+Root cause identified: the workflow was running on `ubuntu-latest`
+(Ubuntu 24.04) while the Playwright Chromium cache was captured on
+22.04. Chromium's dynamic linker aborts at launch on the library
+mismatch, so `tv-login.mjs` exits before the first HMAC-signed fetch —
+nothing is reported and the event row is never updated.
+
+Fixes applied:
+
+1. `runs-on: ubuntu-22.04` (pinned).
+2. Playwright + node_modules cache keys bumped so the 24.04 caches
+   can't be restored on the pinned 22.04 runner.
+3. A new `Report workflow failure to manage-app` step runs with
+   `if: failure()` on every job — it re-computes the HMAC and POSTs
+   `tv_login_report` with `result: workflow_failed`, listing which
+   step's `outcome` was `failure`. Events can no longer stay `queued`
+   silently.
+4. A `Show dispatch context` step logs `event_name`, `EVENT_ID`,
+   `TEST_ID`, and secret presence at the top of every run so
+   inspecting a failed run is one glance.
+
+Manual verification required (I cannot read GitHub Actions logs from
+this environment): after this PR merges, dispatch a run and confirm
+(a) `Show dispatch context` prints a non-empty `EVENT_ID`, and
+(b) if you deliberately break something, the failure-report step still
+runs and the DB event lands in `status='error'`, `result='workflow_failed'`.
+
