@@ -7593,7 +7593,7 @@ function AdminPanel() {
           setR2Cfg((current) => r2Dirty ? current : ({
             accountId: res.r2.accountId || "",
             accessKeyId: res.r2.accessKeyId || "",
-            secretAccessKey: res.r2.secretAccessKey || "",
+            secretAccessKey: "",
             bucket: res.r2.bucket || "",
             publicBaseUrl: res.r2.publicBaseUrl || "",
             pathPrefix: res.r2.pathPrefix || "notifications/",
@@ -7607,7 +7607,7 @@ function AdminPanel() {
           const serverVersion = Number(res.settings?.settings_version) || Date.now();
           const prev = readAdminCache();
           reconcileVersion(prev?.version ?? 0, serverVersion);
-          writeAdminCache({ version: serverVersion, settings: res.settings, r2: res.r2 || null });
+          writeAdminCache({ version: serverVersion, settings: res.settings, r2: safeR2ForCache(res.r2) });
           emitSyncStatus({ kind: "saved" });
         } catch (e) {
           emitSyncStatus({ kind: "error", message: "Cache write failed" });
@@ -7699,7 +7699,7 @@ function AdminPanel() {
         setR2Cfg({
           accountId: r2.accountId || "",
           accessKeyId: r2.accessKeyId || "",
-          secretAccessKey: r2.secretAccessKey || "",
+          secretAccessKey: "",
           bucket: r2.bucket || "",
           publicBaseUrl: r2.publicBaseUrl || "",
           pathPrefix: r2.pathPrefix || "notifications/",
@@ -7886,7 +7886,7 @@ function AdminPanel() {
           ...c,
           accountId: res.config.accountId ?? c.accountId,
           accessKeyId: res.config.accessKeyId ?? c.accessKeyId,
-          secretAccessKey: res.config.secretAccessKey ?? c.secretAccessKey,
+          secretAccessKey: "",
           bucket: res.config.bucket ?? c.bucket,
           publicBaseUrl: res.config.publicBaseUrl ?? c.publicBaseUrl,
           pathPrefix: res.config.pathPrefix ?? c.pathPrefix,
