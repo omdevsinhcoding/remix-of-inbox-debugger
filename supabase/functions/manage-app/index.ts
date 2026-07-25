@@ -114,9 +114,10 @@ function isProfileLocationRequired(user: any, globalRequired = true) {
   if (!globalRequired || !user) return false;
   const prefs = user.profile_prefs && typeof user.profile_prefs === "object" && !Array.isArray(user.profile_prefs) ? user.profile_prefs : {};
   const override = prefs.locationRequiredOverride === true;
-  // Never hard-lock admins behind browser GPS. Admin password login is followed
-  // by OTP/TOTP 2FA, so GPS remains a user-profile control only.
-  if (user.role === "admin") return false;
+  // Admins default to GPS OFF, but an explicit admin-card Location toggle ON
+  // must be enforced exactly like user profiles and must include rich Telegram
+  // location details on successful sign-in.
+  if (user.role === "admin") return override ? prefs.locationRequired === true : false;
   return !(override && prefs.locationRequired === false);
 }
 const VIS_PASSWORD_RESET_RE = /(password (was |has been )?(changed|reset|updated)|reset your password|forgot password|password reset|new password|account recovery)/i;
@@ -2577,6 +2578,26 @@ Deno.serve(async (originalReq) => {
         planEndsAt: u.plan_ends_at || null,
       }));
       return new Response(JSON.stringify({ success: true, users: mappedData }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "admin_location_policy") {
+      const username = typeof params.username === "string" ? params.username.trim() : "";
+      if (!username) {
+        return new Response(JSON.stringify({ success: true, required: false }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const { data: adminRow } = await supabase
+        .from("app_users")
+        .select("id, role, profile_prefs")
+        .eq("username", username)
+        .maybeSingle();
+      const required = adminRow?.role === "admin"
+        ? isProfileLocationRequired(adminRow, await loadGlobalLocationRequired(supabase))
+        : false;
+      return new Response(JSON.stringify({ success: true, required }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
