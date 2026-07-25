@@ -3501,8 +3501,27 @@ function emailHtmlForDisplay(email: Email | null) {
   return normalizeEmailHtmlForDisplay(String(email.html || ""), String((email as any).preview || (email as any).snippet || ""));
 }
 
+// Global listener: resize any [data-email-iframe] iframe when its inner
+// document posts its measured content height. Kills the nested scrollbar.
+if (typeof window !== "undefined" && !(window as any).__emailIframeResizeInstalled) {
+  (window as any).__emailIframeResizeInstalled = true;
+  window.addEventListener("message", (ev: MessageEvent) => {
+    const data: any = ev?.data;
+    if (!data || typeof data !== "object") return;
+    const h = Number(data.__emailIframeHeight);
+    if (!h || h < 40) return;
+    const iframes = document.querySelectorAll<HTMLIFrameElement>('iframe[data-email-iframe="true"]');
+    iframes.forEach((f) => {
+      if (f.contentWindow === ev.source) {
+        f.style.height = h + 8 + "px";
+      }
+    });
+  });
+}
+
 function responsiveEmailSrcDoc(email: Email | null) {
   const html = emailHtmlForDisplay(email);
+
   return `<!DOCTYPE html><html><head><base target="_blank"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"><style>
     html,body{margin:0!important;padding:0!important;width:100%!important;max-width:100%!important;min-width:0!important;overflow:hidden!important;-webkit-text-size-adjust:100%;text-size-adjust:100%;}
     body{font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:14px;line-height:1.5;color:#0f172a;background:#fff;}
