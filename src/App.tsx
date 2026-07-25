@@ -5746,7 +5746,7 @@ function AllEmailsPanel() {
   const [search, setSearch] = useState("");
   const [accountLabel, setAccountLabel] = useState("");
   const [labels, setLabels] = useState<{ label: string; user: string }[]>([]);
-  const [primaryUser, setPrimaryUser] = useState<string>("");
+  
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [viewing, setViewing] = useState<any | null>(null);
   const [offset, setOffset] = useState(0);
@@ -5799,26 +5799,21 @@ function AllEmailsPanel() {
   // SWR: cache the account picker so All Emails opens instantly on every
   // subsequent visit. Fetcher is tiny (2 KV-cached settings reads).
   const accountsFetcher = React.useCallback(async () => {
-    const [accData, cfgData]: any = await Promise.all([
-      apiCall("manage-app", { action: "get_settings", key: "email_accounts" }),
-      apiCall("manage-app", { action: "get_settings", key: "config" }),
-    ]);
+    const accData: any = await apiCall("manage-app", { action: "get_settings", key: "email_accounts" });
     const labels = Array.isArray(accData?.value)
       ? accData.value
           .map((a: any) => ({ label: String(a.label || a.user || "").trim(), user: String(a.user || "").trim() }))
           .filter((a: any) => a.label)
       : [];
-    const primary = typeof cfgData?.value?.IMAP_USER === "string" ? cfgData.value.IMAP_USER.trim() : "";
-    return { labels, primary };
+    return { labels };
   }, []);
-  const { data: accountsData } = useAdminSlice<{ labels: { label: string; user: string }[]; primary: string }>(
+  const { data: accountsData } = useAdminSlice<{ labels: { label: string; user: string }[] }>(
     AdminSliceKeys.emailAccounts,
     accountsFetcher,
   );
   React.useEffect(() => {
     if (!accountsData) return;
     setLabels(accountsData.labels);
-    if (accountsData.primary) setPrimaryUser(accountsData.primary);
     // Do NOT auto-load emails — admin picks an account first.
   }, [accountsData]);
 
@@ -6391,7 +6386,7 @@ function afterNextPaint(fn: () => void) {
   window.requestAnimationFrame(() => window.setTimeout(fn, 0));
 }
 
-function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; serverConfig: any }) {
+function CookiesTab({ emailAccounts }: { emailAccounts: any[] }) {
   const accounts = React.useMemo(() => {
     type Acc = { key: string; label: string; user: string; host: string; isFilter?: boolean; parentLabel?: string };
     const out: Acc[] = [];
@@ -6421,7 +6416,7 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
     }
     // Recipient-filter entries take first priority
     return out.sort((x, y) => Number(!!y.isFilter) - Number(!!x.isFilter));
-  }, [emailAccounts, serverConfig]);
+  }, [emailAccounts]);
 
   // `selected` is the imap_user (email address) of the account being edited.
   const [selected, setSelected] = React.useState<string | null>(null);
@@ -6660,7 +6655,6 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
             ) : (
               <ul className="divide-y divide-slate-100">
                 {accounts.filter((a) => !savedByUser[(a.user || "").toLowerCase()]).map((a) => {
-                  const isPrimary = a.key === "__primary__";
                   return (
                     <li key={a.key}>
                       <button
@@ -6668,8 +6662,8 @@ function CookiesTab({ emailAccounts, serverConfig }: { emailAccounts: any[]; ser
                         disabled={!a.user}
                         className="w-full flex items-center gap-3 py-3 px-2 rounded-xl hover:bg-slate-50 transition-colors text-left disabled:opacity-50"
                       >
-                        <div className={`p-2 rounded-xl ${a.isFilter ? "bg-red-50" : isPrimary ? "bg-green-50" : "bg-slate-100"}`}>
-                          <Mail className={`w-4 h-4 ${a.isFilter ? "text-red-600" : isPrimary ? "text-green-600" : "text-slate-500"}`} />
+                        <div className={`p-2 rounded-xl ${a.isFilter ? "bg-red-50" : "bg-slate-100"}`}>
+                          <Mail className={`w-4 h-4 ${a.isFilter ? "text-red-600" : "text-slate-500"}`} />
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5 flex-wrap">
@@ -7077,7 +7071,7 @@ function AdminPanel() {
   const [dragUserId, setDragUserId] = useState<string | null>(null);
   const [reordering, setReordering] = useState(false);
   const [serverConfig, setServerConfig] = useState({
-    TELEGRAM_BOT_TOKEN: "", TELEGRAM_CHAT_ID: "", IMAP_HOST: "", IMAP_PORT: "", IMAP_USER: "", IMAP_PASSWORD: "",
+    TELEGRAM_BOT_TOKEN: "", TELEGRAM_CHAT_ID: "",
   });
   const [savingConfig, setSavingConfig] = useState(false);
   const [emailAccounts, setEmailAccounts] = useState<EmailAccountConfig[]>([]);
@@ -7536,10 +7530,6 @@ function AdminPanel() {
           setServerConfig({
             TELEGRAM_BOT_TOKEN: c.TELEGRAM_BOT_TOKEN || "",
             TELEGRAM_CHAT_ID: c.TELEGRAM_CHAT_ID || "",
-            IMAP_HOST: c.IMAP_HOST || "",
-            IMAP_PORT: c.IMAP_PORT || "",
-            IMAP_USER: c.IMAP_USER || "",
-            IMAP_PASSWORD: c.IMAP_PASSWORD || "",
           });
         }
         if (Array.isArray(s.primary_cloudflare_urls)) setPrimaryCfUrls(s.primary_cloudflare_urls);
@@ -7561,8 +7551,7 @@ function AdminPanel() {
           const labels = migrated
             .map((a: any) => ({ label: String(a.label || a.user || "").trim(), user: String(a.user || "").trim() }))
             .filter((a: any) => a.label);
-          const primary = typeof s.config?.IMAP_USER === "string" ? s.config.IMAP_USER.trim() : "";
-          setAdminSlice(AdminSliceKeys.emailAccounts, { labels, primary });
+          setAdminSlice(AdminSliceKeys.emailAccounts, { labels });
         }
         const m1 = Number(s.session_config?.timeoutMinutes);
         if (Number.isFinite(m1) && m1 >= 0) setSessionTimeoutMin(String(m1));
@@ -7656,10 +7645,6 @@ function AdminPanel() {
         setServerConfig({
           TELEGRAM_BOT_TOKEN: c.TELEGRAM_BOT_TOKEN || "",
           TELEGRAM_CHAT_ID: c.TELEGRAM_CHAT_ID || "",
-          IMAP_HOST: c.IMAP_HOST || "",
-          IMAP_PORT: c.IMAP_PORT || "",
-          IMAP_USER: c.IMAP_USER || "",
-          IMAP_PASSWORD: c.IMAP_PASSWORD || "",
         });
       }
       if (Array.isArray(s.primary_cloudflare_urls)) setPrimaryCfUrls(s.primary_cloudflare_urls);
@@ -10495,7 +10480,7 @@ function AdminPanel() {
           </div>
         )}
 
-        {activeTab === "cookies" && <CookiesTab emailAccounts={emailAccounts} serverConfig={serverConfig} />}
+        {activeTab === "cookies" && <CookiesTab emailAccounts={emailAccounts} />}
 
         {activeTab === "directlink" && (
           <div className="max-w-4xl mx-auto space-y-5">
@@ -11338,38 +11323,12 @@ function AdminPanel() {
 
             <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
               <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
-                <div className="bg-red-50 p-1.5 rounded-lg"><Mail className="w-4 h-4 text-red-600" /></div>
-                Primary IMAP Server
+                <div className="bg-slate-100 p-1.5 rounded-lg"><Globe className="w-4 h-4 text-slate-600" /></div>
+                Cloudflare Workers
               </h2>
-              <p className="text-[10px] text-slate-400 mb-3">💡 Save once to persist these values</p>
+              <p className="text-[10px] text-slate-400 mb-3">💡 Shared fallback workers used for accounts without dedicated URLs</p>
               <div className="space-y-3">
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Host</label>
-                    <input type="text" placeholder="imap.gmail.com" value={serverConfig.IMAP_HOST}
-                      onChange={(e) => setServerConfig({ ...serverConfig, IMAP_HOST: e.target.value })}
-                      className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Port</label>
-                    <input type="text" placeholder="993" value={serverConfig.IMAP_PORT}
-                      onChange={(e) => setServerConfig({ ...serverConfig, IMAP_PORT: e.target.value })}
-                      className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">IMAP Email</label>
-                  <input type="text" placeholder="Email Address" value={serverConfig.IMAP_USER}
-                    onChange={(e) => setServerConfig({ ...serverConfig, IMAP_USER: e.target.value })}
-                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">App Password</label>
-                  <PasswordInput value={serverConfig.IMAP_PASSWORD}
-                    onChange={(e) => setServerConfig({ ...serverConfig, IMAP_PASSWORD: e.target.value })}
-                    placeholder="16-digit App Password"
-                    className="w-full bg-slate-50 border rounded-xl p-3 pr-12 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
-                </div>
+
 
                 <div>
                   <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Cloudflare Worker URLs</label>
