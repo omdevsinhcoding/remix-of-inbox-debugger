@@ -6004,7 +6004,7 @@ function AllEmailsPanel() {
             </div>
             <div className="p-4 overflow-auto flex-1">
               {viewing.html ? (
-                <iframe title="email" srcDoc={responsiveEmailSrcDoc(viewing as Email)} className="w-full border rounded block" scrolling="no" style={{ height: 200, minHeight: 200, overflow: "hidden" }} data-email-iframe="true" sandbox="allow-popups allow-popups-to-escape-sandbox allow-scripts" />
+                <iframe title="email" srcDoc={responsiveEmailSrcDoc(viewing as Email)} className="w-full border rounded block" scrolling="no" style={{ height: 220, minHeight: 220, overflow: "hidden" }} data-email-iframe="true" data-email-iframe-id={String((viewing as Email).id || "email-preview").replace(/[^a-zA-Z0-9_-]/g, "_")} sandbox="allow-popups allow-popups-to-escape-sandbox allow-scripts" />
               ) : (
                 <pre className="text-xs whitespace-pre-wrap text-slate-700">{viewing.preview || "(no content)"}</pre>
               )}
@@ -13860,16 +13860,10 @@ function EmailViewer() {
                         sandbox="allow-popups allow-popups-to-escape-sandbox allow-scripts"
                         className="w-full border-0 block"
                         scrolling="no"
-                        style={{ minHeight: "200px", height: "200px", overflow: "hidden" }}
+                        style={{ minHeight: "220px", height: "220px", overflow: "hidden" }}
                         title="Email content"
                         data-email-iframe="true"
-                        onLoad={(e) => {
-                          const iframe = e.target as HTMLIFrameElement;
-                          try {
-                            const h = iframe.contentDocument?.body?.scrollHeight;
-                            if (h) iframe.style.height = h + 20 + "px";
-                          } catch {}
-                        }}
+                        data-email-iframe-id={String(selectedEmail.id || "email-preview").replace(/[^a-zA-Z0-9_-]/g, "_")}
                       />
 
                     )}
