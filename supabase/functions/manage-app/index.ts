@@ -5910,17 +5910,14 @@ Deno.serve(async (originalReq) => {
       }
       if (!user) throw new Error("User not found");
 
-      // Resolve the user's linked IMAP accounts, including the configured
-      // Primary account. Users assigned "Primary" must not see every account.
-      const [cfg, emailAccounts] = await Promise.all([
+      // Resolve the user's linked IMAP accounts strictly from admin-configured
+      // email_accounts. No implicit "Primary" fallback — users see only what
+      // the admin explicitly assigned to them.
+      const [, emailAccounts] = await Promise.all([
         getSetting<any>(supabase, "config"),
         getSetting<any[]>(supabase, "email_accounts"),
       ]);
-      const primaryUser = String(cfg?.IMAP_USER || "").trim().toLowerCase();
-      const primaryAccount = primaryUser
-        ? [{ label: "Primary", user: primaryUser, host: cfg?.IMAP_HOST || "", recipientFilters: normalizeRecipientFilters(cfg?.IMAP_RECIPIENT_FILTERS || cfg?.recipientFilters) }]
-        : [];
-      const allAccounts: any[] = [...primaryAccount, ...(Array.isArray(emailAccounts) ? emailAccounts : [])];
+      const allAccounts: any[] = Array.isArray(emailAccounts) ? emailAccounts : [];
       const assignedLabels = (Array.isArray(user.assigned_accounts) ? user.assigned_accounts : [])
         .map((v: any) => String(v || "").trim().toLowerCase())
         .filter(Boolean);
