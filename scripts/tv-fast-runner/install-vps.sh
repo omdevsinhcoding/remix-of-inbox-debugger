@@ -54,18 +54,50 @@ if [[ -z "$EXISTING_HMAC" ]]; then
 fi
 
 # ── Refresh code from the repo when this is a git worktree ───────────────
+# Fatal on failure: previously `git pull || echo "..."` swallowed errors and
+# the version check further below then compared the local (stale) server.mjs
+# against itself, so install reported success while deploying the exact
+# stale build we were trying to replace.
+COMMIT_SHA="unknown"
 if [[ -d "$REPO_DIR/.git" ]]; then
-  echo "▶ git pull --ff-only in $REPO_DIR"
-  git -C "$REPO_DIR" pull --ff-only || echo "  (pull skipped — resolve manually if code is out of date)"
+  echo "▶ git fetch + pull --ff-only in $REPO_DIR"
+  BEFORE_SHA="$(git -C "$REPO_DIR" rev-parse HEAD 2>/dev/null || echo unknown)"
+  git -C "$REPO_DIR" fetch --quiet || { echo "ERROR: git fetch failed" >&2; exit 5; }
+  UPSTREAM="$(git -C "$REPO_DIR" rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null || true)"
+  if [[ -n "$UPSTREAM" ]]; then
+    REMOTE_SHA="$(git -C "$REPO_DIR" rev-parse @{u})"
+    if [[ "$BEFORE_SHA" != "$REMOTE_SHA" ]]; then
+      git -C "$REPO_DIR" pull --ff-only || { echo "ERROR: git pull --ff-only failed (diverged or dirty tree). Resolve manually and re-run." >&2; exit 5; }
+    fi
+  else
+    echo "  (no upstream tracking branch; skipping remote compare)"
+  fi
   COMMIT_SHA="$(git -C "$REPO_DIR" rev-parse --short HEAD || echo unknown)"
 else
-  COMMIT_SHA="unknown"
   echo "▶ $REPO_DIR is not a git worktree; skipping git pull."
 fi
 
 # ── System deps ──────────────────────────────────────────────────────────
+# apt's default `nodejs` package on Ubuntu 22.04 LTS is Node 12.22.9, which
+# is far below Playwright 1.48's Node 18+ requirement and lacks
+# `AbortSignal.timeout` (Node 17+) that server.mjs uses. Install the current
+# LTS from NodeSource whenever a supported node is not already on PATH.
+# Ref: https://playwright.dev/docs/intro#system-requirements
+#      https://github.com/nodesource/distributions
 apt-get update
-apt-get install -y ca-certificates curl nodejs
+apt-get install -y ca-certificates curl gnupg git
+NEED_NODESOURCE=1
+if command -v node >/dev/null 2>&1; then
+  NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
+  if [[ "${NODE_MAJOR:-0}" -ge 20 ]]; then NEED_NODESOURCE=0; fi
+fi
+if [[ "$NEED_NODESOURCE" -eq 1 ]]; then
+  echo "▶ Installing Node.js 20.x from NodeSource"
+  curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+  apt-get install -y nodejs
+fi
+node -v
+npm -v
 
 cd "$APP_DIR"
 npm install --omit=dev
