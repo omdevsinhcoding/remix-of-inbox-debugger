@@ -9194,285 +9194,285 @@ function AdminPanel() {
                       <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center animate-in fade-in duration-200 font-['Manrope',system-ui,sans-serif] px-0 sm:px-4"
                           onClick={() => { setEditingUserAccounts(null); setEditHint(null); }}
                         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
-                        <div className="absolute inset-0 bg-gradient-to-br from-slate-950/70 via-rose-950/60 to-slate-950/70 backdrop-blur-xl" />
+                        <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md" />
                         <div onClick={(e) => e.stopPropagation()}
-                          className="relative w-full sm:max-w-lg lg:max-w-xl max-h-[94vh] sm:max-h-[90vh] overflow-hidden bg-white sm:rounded-3xl rounded-t-3xl shadow-[0_-20px_80px_-10px_rgba(0,0,0,0.4)] sm:shadow-[0_30px_120px_-30px_rgba(244,63,94,0.5)] ring-1 ring-rose-100 animate-in slide-in-from-bottom-8 sm:zoom-in-95 duration-300 flex flex-col">
+                          className="relative w-full sm:max-w-2xl lg:max-w-3xl max-h-[95vh] sm:max-h-[90vh] overflow-hidden bg-white sm:rounded-[28px] rounded-t-[28px] shadow-[0_40px_120px_-20px_rgba(190,18,60,0.35),0_0_0_1px_rgba(15,23,42,0.05)] animate-in slide-in-from-bottom-8 sm:zoom-in-95 duration-300 flex flex-col">
                           {/* Mobile grab handle */}
                           <div className="sm:hidden flex justify-center pt-2.5 pb-1 bg-white"><div className="w-10 h-1 rounded-full bg-slate-300" /></div>
-                          {/* Header — red gradient */}
-                          <div className="relative overflow-hidden px-5 sm:px-7 pt-5 sm:pt-6 pb-6 bg-gradient-to-br from-rose-500 via-red-600 to-orange-600">
-                            <div className="absolute inset-0 opacity-30" style={{ backgroundImage: "radial-gradient(circle at 20% 20%, rgba(255,255,255,0.4) 0%, transparent 50%), radial-gradient(circle at 80% 80%, rgba(255,255,255,0.2) 0%, transparent 50%)" }} />
-                            <div className="absolute -top-10 -right-10 w-48 h-48 rounded-full bg-white/15 blur-3xl" />
-                            <div className="absolute -bottom-12 -left-8 w-40 h-40 rounded-full bg-white/10 blur-3xl" />
-                            <div className="relative flex items-center gap-3 sm:gap-4">
-                              <div className="relative flex-shrink-0">
-                                <div className="absolute inset-0 bg-white/40 rounded-2xl blur-md" />
-                                <ProfileAvatar avatarId={getStableProfileAvatar(u)} name={u.name}
-                                  className="relative w-14 h-14 sm:w-16 sm:h-16 !rounded-2xl ring-2 ring-white/70 shadow-xl" />
-                              </div>
-                              <div className="min-w-0 flex-1">
-                                <p className="text-[10px] font-bold tracking-[0.25em] text-white/80 uppercase mb-0.5">Edit Profile</p>
-                                <h2 className="text-white font-bold text-lg sm:text-xl leading-tight tracking-tight truncate font-['Sora',system-ui,sans-serif]">{u.name}</h2>
-                                <p className="text-white/80 text-[11px] font-mono truncate mt-0.5">{u.username ? `@${u.username}` : "no username"}</p>
+
+                          {/* Editorial hero — bold red band + big serif title */}
+                          <div className="relative bg-white pt-6 sm:pt-8 pb-5 sm:pb-6 px-5 sm:px-8 border-b border-slate-100">
+                            <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-rose-500 via-red-600 to-orange-500" />
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="flex items-center gap-3 sm:gap-4 min-w-0 flex-1">
+                                <div className="relative flex-shrink-0">
+                                  <div className="absolute -inset-1 rounded-2xl bg-gradient-to-br from-rose-400 to-red-600 blur-md opacity-50" />
+                                  <ProfileAvatar avatarId={getStableProfileAvatar(u)} name={u.name}
+                                    className="relative w-14 h-14 sm:w-16 sm:h-16 !rounded-2xl ring-2 ring-white shadow-lg" />
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <span className="inline-block w-6 h-[2px] bg-red-600" />
+                                    <span className="text-[10px] font-black tracking-[0.3em] text-red-600 uppercase">Edit Profile</span>
+                                  </div>
+                                  <h2 className="text-slate-900 font-black text-xl sm:text-2xl leading-tight tracking-tight truncate font-['Sora',system-ui,sans-serif]">{u.name}</h2>
+                                  <p className="text-slate-500 text-[11px] sm:text-xs font-mono truncate mt-0.5">{u.username ? `@${u.username}` : "no username set"}</p>
+                                </div>
                               </div>
                               <button onClick={() => { setEditingUserAccounts(null); setEditHint(null); }}
-                                className="flex-shrink-0 w-9 h-9 rounded-xl bg-white/20 hover:bg-white/30 text-white flex items-center justify-center transition-all active:scale-90 ring-1 ring-white/40 backdrop-blur-sm">
+                                className="flex-shrink-0 w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-slate-100 hover:bg-red-600 text-slate-600 hover:text-white flex items-center justify-center transition-all active:scale-90">
                                 <X className="w-4 h-4" strokeWidth={2.5} />
                               </button>
                             </div>
                           </div>
-                          {/* Body */}
-                          <div className="relative flex-1 overflow-y-auto px-5 sm:px-7 py-5 space-y-6 bg-white">
-                              {/* Username */}
-                              <div className="space-y-2">
-                                <div className="flex items-center justify-between">
-                                  <label className="flex items-center gap-2 text-[11px] uppercase tracking-widest text-rose-600 font-bold">
-                                    <UserCircle className="w-3.5 h-3.5" />
-                                    Username {u.isFree && <span className="text-[10px] font-medium text-slate-400 normal-case tracking-normal">(optional)</span>}
-                                  </label>
+
+                          {/* Body — numbered section cards */}
+                          <div className="relative flex-1 overflow-y-auto bg-gradient-to-b from-slate-50/50 to-white px-4 sm:px-8 py-5 sm:py-6 space-y-4 sm:space-y-5">
+
+                              {/* 01 — Identity */}
+                              <section className="relative bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-sm">
+                                <div className="flex items-center justify-between mb-3">
+                                  <div className="flex items-center gap-2.5">
+                                    <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-red-600 text-white text-[10px] font-black tracking-wider">01</span>
+                                    <div>
+                                      <h3 className="text-slate-900 font-bold text-[13px] uppercase tracking-wider flex items-center gap-1.5"><UserCircle className="w-3.5 h-3.5 text-red-600" />Identity</h3>
+                                      <p className="text-[11px] text-slate-500 mt-0.5">Username {u.isFree && <span className="text-slate-400">· optional</span>}</p>
+                                    </div>
+                                  </div>
                                   <button type="button" onClick={() => setEditHint(editHint === "user" ? null : "user")}
-                                    className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors ${editHint === "user" ? "bg-rose-500 text-white" : "bg-rose-50 hover:bg-rose-100 text-rose-500"}`} title="What is this?">
-                                    <Info className="w-3 h-3" />
+                                    className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors ${editHint === "user" ? "bg-red-600 text-white" : "bg-slate-100 hover:bg-red-50 text-slate-500 hover:text-red-600"}`}>
+                                    <Info className="w-3.5 h-3.5" />
                                   </button>
                                 </div>
                                 <input type="text" value={editUsername} onChange={(e) => setEditUsername(e.target.value)}
                                   placeholder={u.isFree ? "No username needed" : "e.g. john123"}
-                                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 outline-none focus:border-rose-400 focus:ring-4 focus:ring-rose-100 text-sm font-medium text-slate-900 placeholder:text-slate-400 transition-all" />
+                                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 outline-none focus:border-red-500 focus:bg-white focus:ring-4 focus:ring-red-100 text-sm font-medium text-slate-900 placeholder:text-slate-400 transition-all" />
                                 {editHint === "user" && (
-                                  <p className="text-[11px] text-rose-700 bg-rose-50 border border-rose-100 rounded-lg px-3 py-2 leading-snug">The name this user types to log in — like a nickname.</p>
+                                  <p className="mt-2 text-[11px] text-red-700 bg-red-50 border-l-2 border-red-500 rounded-r-lg px-3 py-2 leading-snug">The name this user types to log in — like a nickname.</p>
                                 )}
-                              </div>
+                              </section>
 
-                              {/* IMAP Accounts */}
-                              <div className="space-y-2">
-                                <div className="flex items-center justify-between">
-                                  <label className="flex items-center gap-2 text-[11px] uppercase tracking-widest text-rose-600 font-bold">
-                                    <Mail className="w-3.5 h-3.5" />
-                                    Mailbox Permissions
-                                  </label>
+                              {/* 02 — Mailbox */}
+                              <section className="relative bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-sm">
+                                <div className="flex items-center justify-between mb-3">
+                                  <div className="flex items-center gap-2.5">
+                                    <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-red-600 text-white text-[10px] font-black tracking-wider">02</span>
+                                    <div>
+                                      <h3 className="text-slate-900 font-bold text-[13px] uppercase tracking-wider flex items-center gap-1.5"><Mail className="w-3.5 h-3.5 text-red-600" />Mailbox Access</h3>
+                                      <p className="text-[11px] text-slate-500 mt-0.5">Tap to allow · tap again to hide</p>
+                                    </div>
+                                  </div>
                                   <button type="button" onClick={() => setEditHint(editHint === "mail" ? null : "mail")}
-                                    className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors ${editHint === "mail" ? "bg-rose-500 text-white" : "bg-rose-50 hover:bg-rose-100 text-rose-500"}`} title="What is this?">
-                                    <Info className="w-3 h-3" />
+                                    className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors ${editHint === "mail" ? "bg-red-600 text-white" : "bg-slate-100 hover:bg-red-50 text-slate-500 hover:text-red-600"}`}>
+                                    <Info className="w-3.5 h-3.5" />
                                   </button>
                                 </div>
                                 {editHint === "mail" && (
-                                  <p className="text-[11px] text-rose-700 bg-rose-50 border border-rose-100 rounded-lg px-3 py-2 leading-snug">Tick a mailbox = user can open it. Untick = hidden from them.</p>
+                                  <p className="mb-2 text-[11px] text-red-700 bg-red-50 border-l-2 border-red-500 rounded-r-lg px-3 py-2 leading-snug">Tick a mailbox = user can open it. Untick = hidden from them.</p>
                                 )}
-                                <p className="text-[11px] text-slate-500">Tap to allow · tap again to hide</p>
-                                <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-60 overflow-y-auto pr-1">
                                   {availableAccounts.map(label => {
                                     const checked = editAccountsList.includes(label);
                                     return (
-                                      <label key={label} className={`flex items-center justify-between gap-3 p-3 rounded-xl cursor-pointer transition-all border ${checked ? "bg-rose-50 border-rose-300" : "bg-slate-50 border-slate-200 hover:border-rose-200"}`}>
-                                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                                      <label key={label} className={`flex items-center justify-between gap-2 p-3 rounded-xl cursor-pointer transition-all border-2 ${checked ? "bg-red-50 border-red-500 shadow-sm shadow-red-100" : "bg-slate-50 border-slate-200 hover:border-red-200"}`}>
+                                        <div className="flex items-center gap-2.5 min-w-0 flex-1">
                                           <input type="checkbox" checked={checked}
                                             onChange={(e) => {
                                               if (e.target.checked) setEditAccountsList([...editAccountsList, label]);
                                               else setEditAccountsList(editAccountsList.filter(a => a !== label));
                                             }}
-                                            className="w-4 h-4 rounded border-slate-300 bg-white text-rose-500 focus:ring-rose-400 focus:ring-offset-0" />
-                                          <span className={`text-sm truncate ${checked ? "text-slate-900 font-semibold" : "text-slate-700 font-medium"}`}>{label}</span>
+                                            className="w-4 h-4 rounded border-slate-300 bg-white text-red-600 focus:ring-red-400 focus:ring-offset-0 shrink-0" />
+                                          <span className={`text-[13px] truncate ${checked ? "text-slate-900 font-bold" : "text-slate-700 font-medium"}`}>{label}</span>
                                         </div>
-                                        <span className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase border ${checked ? "bg-emerald-100 text-emerald-700 border-emerald-200" : "bg-slate-100 text-slate-500 border-slate-200"}`}>
-                                          {checked ? "Allowed" : "Hidden"}
+                                        <span className={`shrink-0 px-1.5 py-0.5 rounded-md text-[9px] font-black tracking-widest uppercase ${checked ? "bg-red-600 text-white" : "bg-slate-200 text-slate-500"}`}>
+                                          {checked ? "ON" : "OFF"}
                                         </span>
                                       </label>
                                     );
                                   })}
                                 </div>
-                              </div>
+                              </section>
 
-                              {/* Session Limit */}
+                              {/* 03 — Devices */}
                               {!u.isFree && (
-                                <div className="space-y-2">
-                                  <div className="flex items-center justify-between">
-                                    <label className="flex items-center gap-2 text-[11px] uppercase tracking-widest text-rose-600 font-bold">
-                                      <Users className="w-3.5 h-3.5" />
-                                      Concurrent Devices
-                                    </label>
+                                <section className="relative bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-sm">
+                                  <div className="flex items-center justify-between mb-3">
+                                    <div className="flex items-center gap-2.5">
+                                      <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-red-600 text-white text-[10px] font-black tracking-wider">03</span>
+                                      <div>
+                                        <h3 className="text-slate-900 font-bold text-[13px] uppercase tracking-wider flex items-center gap-1.5"><Users className="w-3.5 h-3.5 text-red-600" />Concurrent Devices</h3>
+                                        <p className="text-[11px] text-slate-500 mt-0.5">Max simultaneous logins</p>
+                                      </div>
+                                    </div>
                                     <button type="button" onClick={() => setEditHint(editHint === "sess" ? null : "sess")}
-                                      className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors ${editHint === "sess" ? "bg-rose-500 text-white" : "bg-rose-50 hover:bg-rose-100 text-rose-500"}`} title="What is this?">
-                                      <Info className="w-3 h-3" />
+                                      className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors ${editHint === "sess" ? "bg-red-600 text-white" : "bg-slate-100 hover:bg-red-50 text-slate-500 hover:text-red-600"}`}>
+                                      <Info className="w-3.5 h-3.5" />
                                     </button>
                                   </div>
                                   {editHint === "sess" && (
-                                    <p className="text-[11px] text-rose-700 bg-rose-50 border border-rose-100 rounded-lg px-3 py-2 leading-snug">Set 2 = user can log in on max 2 devices. A 3rd login kicks out the oldest.</p>
+                                    <p className="mb-2 text-[11px] text-red-700 bg-red-50 border-l-2 border-red-500 rounded-r-lg px-3 py-2 leading-snug">Set 2 = user can log in on max 2 devices. A 3rd login kicks out the oldest.</p>
                                   )}
-                                  <input type="number" min={0} max={50} step={1} value={editSessionLimit}
-                                    onChange={(e) => setEditSessionLimit(e.target.value)}
-                                    placeholder="Leave empty for default"
-                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 outline-none focus:border-rose-400 focus:ring-4 focus:ring-rose-100 text-sm font-medium text-slate-900 placeholder:text-slate-400 transition-all" />
-                                  <div className="grid grid-cols-3 gap-2 pt-1">
-                                    {[
-                                      { v: "", label: "Default" },
-                                      { v: "0", label: "Unlimited" },
-                                      { v: "1", label: "Only 1" },
-                                    ].map(o => (
-                                      <button key={o.v} type="button" onClick={() => setEditSessionLimit(o.v)}
-                                        className={`text-[10px] font-bold py-2 rounded-lg border transition-all uppercase tracking-wider ${editSessionLimit === o.v ? "bg-rose-500 border-rose-500 text-white shadow-sm shadow-rose-200" : "bg-white border-slate-200 text-slate-600 hover:border-rose-300 hover:text-rose-600"}`}>
-                                        {o.label}
-                                      </button>
-                                    ))}
+                                  <div className="flex flex-col sm:flex-row gap-2">
+                                    <input type="number" min={0} max={50} step={1} value={editSessionLimit}
+                                      onChange={(e) => setEditSessionLimit(e.target.value)}
+                                      placeholder="Leave empty for default"
+                                      className="flex-1 sm:max-w-[160px] bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 outline-none focus:border-red-500 focus:bg-white focus:ring-4 focus:ring-red-100 text-sm font-bold text-slate-900 placeholder:text-slate-400 transition-all" />
+                                    <div className="grid grid-cols-3 gap-1.5 flex-1">
+                                      {[
+                                        { v: "", label: "Default" },
+                                        { v: "0", label: "Unlimited" },
+                                        { v: "1", label: "Only 1" },
+                                      ].map(o => (
+                                        <button key={o.v} type="button" onClick={() => setEditSessionLimit(o.v)}
+                                          className={`text-[10px] font-black py-2.5 rounded-lg border transition-all uppercase tracking-wider ${editSessionLimit === o.v ? "bg-red-600 border-red-600 text-white shadow-md shadow-red-200" : "bg-white border-slate-200 text-slate-600 hover:border-red-400 hover:text-red-600"}`}>
+                                          {o.label}
+                                        </button>
+                                      ))}
+                                    </div>
                                   </div>
-                                </div>
+                                </section>
                               )}
 
-                              {/* TV Auto-Login override */}
-                              <div className="space-y-2">
-                                <div className="flex items-center justify-between">
-                                  <label className="flex items-center gap-2 text-[11px] uppercase tracking-widest text-rose-600 font-bold">
-                                    <Tv className="w-3.5 h-3.5" />
-                                    TV Presence
-                                  </label>
-                                  {editTvOverride !== "inherit" && (
-                                    <button
-                                      type="button"
-                                      onClick={() => setEditTvOverride("inherit")}
-                                      className="text-[11px] font-semibold text-rose-500 hover:text-rose-700 transition-colors"
-                                    >
-                                      Same as everyone
-                                    </button>
-                                  )}
-                                </div>
-                                <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200">
-                                  {([
-                                    { value: "on" as const,  label: "Show", Icon: Eye },
-                                    { value: "off" as const, label: "Hide", Icon: EyeOff },
-                                  ]).map((opt) => {
-                                    const active = editTvOverride === opt.value;
-                                    const Icon = opt.Icon;
-                                    return (
-                                      <button
-                                        key={opt.value}
-                                        type="button"
-                                        onClick={() => setEditTvOverride(opt.value)}
-                                        className={`flex-1 inline-flex items-center justify-center gap-1.5 py-2 rounded-lg text-[12px] font-bold transition-all active:scale-[0.97] ${active ? "bg-gradient-to-br from-rose-500 to-red-600 text-white shadow-lg shadow-rose-200" : "text-slate-500 hover:text-rose-600"}`}
-                                        aria-pressed={active}
-                                      >
-                                        <Icon className="w-3.5 h-3.5" />
-                                        <span>{opt.label}</span>
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                                <p className="text-[11px] text-slate-500">
-                                  {editTvOverride === "inherit"
-                                    ? <>Follows the global switch ({tvFeatureEnabled ? "currently visible" : "currently hidden"}).</>
-                                    : editTvOverride === "on"
-                                    ? "Always visible for this profile."
-                                    : "Always hidden for this profile."}
-                                </p>
-                              </div>
-
-                              {/* Direct Link access */}
-                              <div className="space-y-2">
-                                <label className="flex items-center gap-2 text-[11px] uppercase tracking-widest text-rose-600 font-bold">
-                                  <LinkIcon className="w-3.5 h-3.5" />
-                                  Direct Link Access
-                                </label>
-                                <div className={`rounded-xl border p-4 transition-all ${editDirectLinkEnabled ? "border-emerald-300 bg-emerald-50" : "border-slate-200 bg-slate-50"}`}>
-                                  <div className="flex items-center justify-between gap-3">
-                                    <div className="min-w-0 flex-1">
-                                      <div className="text-sm font-semibold text-slate-900">Direct Link workflow</div>
-                                      <div className="text-[11px] text-slate-600 leading-snug mt-0.5">
-                                        {editDirectLinkEnabled
-                                          ? "User can generate Netflix links from their workflow."
-                                          : "Hidden for this user."}
-                                      </div>
+                              {/* 04 — Feature toggles (grid on desktop) */}
+                              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5">
+                                <section className="relative bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-sm">
+                                  <div className="flex items-center justify-between mb-3">
+                                    <div className="flex items-center gap-2.5">
+                                      <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-red-600 text-white text-[10px] font-black tracking-wider">04</span>
+                                      <h3 className="text-slate-900 font-bold text-[13px] uppercase tracking-wider flex items-center gap-1.5"><Tv className="w-3.5 h-3.5 text-red-600" />TV Presence</h3>
                                     </div>
-                                    <button
-                                      type="button"
-                                      onClick={() => setEditDirectLinkEnabled((v) => !v)}
+                                    {editTvOverride !== "inherit" && (
+                                      <button type="button" onClick={() => setEditTvOverride("inherit")}
+                                        className="text-[10px] font-bold text-red-600 hover:text-red-800 uppercase tracking-wider transition-colors">
+                                        Reset
+                                      </button>
+                                    )}
+                                  </div>
+                                  <div className="flex bg-slate-100 p-1 rounded-xl">
+                                    {([
+                                      { value: "on" as const,  label: "Show", Icon: Eye },
+                                      { value: "off" as const, label: "Hide", Icon: EyeOff },
+                                    ]).map((opt) => {
+                                      const active = editTvOverride === opt.value;
+                                      const Icon = opt.Icon;
+                                      return (
+                                        <button key={opt.value} type="button" onClick={() => setEditTvOverride(opt.value)}
+                                          className={`flex-1 inline-flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-[12px] font-black transition-all active:scale-[0.97] ${active ? "bg-white text-red-600 shadow-md ring-1 ring-red-200" : "text-slate-500 hover:text-slate-800"}`}
+                                          aria-pressed={active}>
+                                          <Icon className="w-3.5 h-3.5" />
+                                          <span className="uppercase tracking-wider">{opt.label}</span>
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                  <p className="text-[11px] text-slate-500 mt-2 leading-snug">
+                                    {editTvOverride === "inherit"
+                                      ? <>Follows global switch ({tvFeatureEnabled ? "visible" : "hidden"}).</>
+                                      : editTvOverride === "on" ? "Always visible for this profile." : "Always hidden for this profile."}
+                                  </p>
+                                </section>
+
+                                <section className="relative bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-sm">
+                                  <div className="flex items-center justify-between mb-3">
+                                    <div className="flex items-center gap-2.5">
+                                      <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-red-600 text-white text-[10px] font-black tracking-wider">05</span>
+                                      <h3 className="text-slate-900 font-bold text-[13px] uppercase tracking-wider flex items-center gap-1.5"><LinkIcon className="w-3.5 h-3.5 text-red-600" />Direct Link</h3>
+                                    </div>
+                                    <button type="button" onClick={() => setEditDirectLinkEnabled((v) => !v)}
                                       aria-pressed={editDirectLinkEnabled}
-                                      className={`relative shrink-0 w-11 h-6 rounded-full transition-colors ${editDirectLinkEnabled ? "bg-emerald-500" : "bg-slate-300"}`}
-                                      title={editDirectLinkEnabled ? "Disable Direct Link" : "Enable Direct Link"}
-                                    >
-                                      <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${editDirectLinkEnabled ? "translate-x-5" : "translate-x-0.5"}`} />
+                                      className={`relative shrink-0 w-12 h-7 rounded-full transition-colors ${editDirectLinkEnabled ? "bg-red-600" : "bg-slate-300"}`}>
+                                      <span className={`absolute top-0.5 w-6 h-6 rounded-full bg-white shadow-md transition-transform ${editDirectLinkEnabled ? "translate-x-[22px]" : "translate-x-0.5"}`} />
                                     </button>
                                   </div>
-                                </div>
+                                  <p className="text-[12px] text-slate-600 leading-snug">
+                                    {editDirectLinkEnabled ? "User can generate Netflix links from their workflow." : "Direct Link workflow is hidden for this user."}
+                                  </p>
+                                </section>
                               </div>
 
                               {/* Free profile expiry */}
                               {u.isFree && (
-                                <div className="space-y-2">
-                                  <div className="flex items-center justify-between">
-                                    <label className="flex items-center gap-2 text-[11px] uppercase tracking-widest text-rose-600 font-bold">
-                                      <Clock className="w-3.5 h-3.5" />
-                                      Auto-delete on
-                                    </label>
+                                <section className="relative bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-sm">
+                                  <div className="flex items-center justify-between mb-3">
+                                    <div className="flex items-center gap-2.5">
+                                      <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-red-600 text-white text-[10px] font-black tracking-wider">06</span>
+                                      <div>
+                                        <h3 className="text-slate-900 font-bold text-[13px] uppercase tracking-wider flex items-center gap-1.5"><Clock className="w-3.5 h-3.5 text-red-600" />Auto-Delete</h3>
+                                        <p className="text-[11px] text-slate-500 mt-0.5">Empty = keep forever</p>
+                                      </div>
+                                    </div>
                                     <button type="button" onClick={() => setEditHint(editHint === "exp" ? null : "exp")}
-                                      className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors ${editHint === "exp" ? "bg-rose-500 text-white" : "bg-rose-50 hover:bg-rose-100 text-rose-500"}`} title="What is this?">
-                                      <Info className="w-3 h-3" />
+                                      className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors ${editHint === "exp" ? "bg-red-600 text-white" : "bg-slate-100 hover:bg-red-50 text-slate-500 hover:text-red-600"}`}>
+                                      <Info className="w-3.5 h-3.5" />
                                     </button>
                                   </div>
                                   {editHint === "exp" && (
-                                    <p className="text-[11px] text-rose-700 bg-rose-50 border border-rose-100 rounded-lg px-3 py-2 leading-snug">Pick a date — this free profile auto-deletes then. Empty = never.</p>
+                                    <p className="mb-2 text-[11px] text-red-700 bg-red-50 border-l-2 border-red-500 rounded-r-lg px-3 py-2 leading-snug">Pick a date — this free profile auto-deletes then.</p>
                                   )}
                                   <DateTimePicker value={editExpiresAt} onChange={setEditExpiresAt} />
-                                  <div className="flex items-center justify-between">
-                                    <p className="text-[11px] text-slate-500">Empty = keep forever</p>
-                                    {editExpiresAt && (
-                                      <button type="button" onClick={() => setEditExpiresAt("")}
-                                        className="text-[11px] text-rose-500 font-bold hover:text-rose-700 transition-colors">Clear date</button>
-                                    )}
-                                  </div>
-                                </div>
+                                  {editExpiresAt && (
+                                    <button type="button" onClick={() => setEditExpiresAt("")}
+                                      className="mt-2 text-[11px] text-red-600 font-black hover:text-red-800 uppercase tracking-wider transition-colors">Clear date</button>
+                                  )}
+                                </section>
                               )}
 
-                              {/* Free profile auto-delete pill toggle */}
                               {u.isFree && (
-                                <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                                <section className="relative bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-sm flex items-center justify-between gap-3">
                                   <div className="min-w-0">
-                                    <div className="text-sm font-semibold text-slate-900">Show expiry pill</div>
-                                    <div className="text-[11px] text-slate-600 leading-snug mt-0.5">
+                                    <div className="text-[13px] font-bold text-slate-900">Show expiry pill</div>
+                                    <div className="text-[11px] text-slate-500 leading-snug mt-0.5">
                                       {editAutoDelete ? "Live countdown visible to user." : "Countdown hidden."}
                                     </div>
                                   </div>
-                                  <button
-                                    type="button"
-                                    onClick={() => setEditAutoDelete((v) => !v)}
+                                  <button type="button" onClick={() => setEditAutoDelete((v) => !v)}
                                     aria-pressed={editAutoDelete}
-                                    className={`relative shrink-0 w-11 h-6 rounded-full transition-colors ${editAutoDelete ? "bg-emerald-500" : "bg-slate-300"}`}
-                                    title="Toggle auto-delete pill"
-                                  >
-                                    <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${editAutoDelete ? "translate-x-5" : "translate-x-0.5"}`} />
+                                    className={`relative shrink-0 w-12 h-7 rounded-full transition-colors ${editAutoDelete ? "bg-red-600" : "bg-slate-300"}`}>
+                                    <span className={`absolute top-0.5 w-6 h-6 rounded-full bg-white shadow-md transition-transform ${editAutoDelete ? "translate-x-[22px]" : "translate-x-0.5"}`} />
                                   </button>
-                                </div>
+                                </section>
                               )}
 
-                              {/* Plan window (paid users only) */}
+                              {/* Plan window (paid) */}
                               {!u.isFree && (u as any).role !== "admin" && (
-                                <div className="rounded-xl border border-rose-200 bg-rose-50/50 p-4 space-y-3">
-                                  <div className="text-[11px] font-bold uppercase tracking-widest text-rose-600">Plan Window</div>
-                                  <div>
-                                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Plan starts at</label>
-                                    <DateTimePicker value={editPlanStartsAt} onChange={setEditPlanStartsAt} />
+                                <section className="relative bg-gradient-to-br from-red-50 to-orange-50 rounded-2xl border-2 border-red-200 p-4 sm:p-5 shadow-sm">
+                                  <div className="flex items-center gap-2.5 mb-4">
+                                    <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-red-600 text-white text-[10px] font-black tracking-wider">07</span>
+                                    <div>
+                                      <h3 className="text-red-700 font-black text-[13px] uppercase tracking-wider">Plan Window</h3>
+                                      <p className="text-[11px] text-red-600/70 mt-0.5">Locks access after end date</p>
+                                    </div>
                                   </div>
-                                  <div>
-                                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Plan ends at</label>
-                                    <DateTimePicker value={editPlanEndsAt} onChange={setEditPlanEndsAt} />
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <div>
+                                      <label className="block text-[10px] font-black text-slate-600 uppercase tracking-wider mb-1.5">Starts at</label>
+                                      <DateTimePicker value={editPlanStartsAt} onChange={setEditPlanStartsAt} />
+                                    </div>
+                                    <div>
+                                      <label className="block text-[10px] font-black text-slate-600 uppercase tracking-wider mb-1.5">Ends at</label>
+                                      <DateTimePicker value={editPlanEndsAt} onChange={setEditPlanEndsAt} />
+                                    </div>
+                                  </div>
+                                  <div className="mt-3">
                                     <DurationQuickAdd baseDateStr={editPlanStartsAt} onApply={setEditPlanEndsAt} />
                                     <p className="text-[10px] text-slate-500 mt-1.5">Type a number + pick days/months/years — calculated from Plan Start (or now).</p>
                                   </div>
-                                  <div className="flex items-center justify-between">
-                                    <p className="text-[10px] text-slate-500 leading-snug">Locks access after end date. Telegram reminders last 7 days.</p>
-                                    {(editPlanStartsAt || editPlanEndsAt) && (
-                                      <button type="button" onClick={() => { setEditPlanStartsAt(""); setEditPlanEndsAt(""); }}
-                                        className="text-[11px] text-rose-500 font-bold hover:text-rose-700 whitespace-nowrap ml-2 transition-colors">Clear</button>
-                                    )}
-                                  </div>
-                                </div>
+                                  {(editPlanStartsAt || editPlanEndsAt) && (
+                                    <button type="button" onClick={() => { setEditPlanStartsAt(""); setEditPlanEndsAt(""); }}
+                                      className="mt-2 text-[10px] text-red-600 font-black hover:text-red-800 uppercase tracking-wider transition-colors">Clear plan window</button>
+                                  )}
+                                </section>
                               )}
                           </div>
-                          {/* Footer */}
+
+                          {/* Footer — sticky red CTA */}
                           <div className="border-t border-slate-200 p-4 sm:p-5 flex gap-3 bg-white">
                             <button onClick={() => { setEditingUserAccounts(null); setEditHint(null); }}
-                              className="flex-1 py-3 rounded-xl border border-slate-200 bg-white text-slate-700 text-sm font-bold hover:bg-slate-50 hover:border-slate-300 hover:text-slate-900 active:scale-[0.98] transition-all">
+                              className="flex-1 py-3 sm:py-3.5 rounded-xl border-2 border-slate-200 bg-white text-slate-700 text-sm font-black uppercase tracking-wider hover:bg-slate-50 hover:border-slate-300 active:scale-[0.98] transition-all">
                               Cancel
                             </button>
                             <button onClick={() => updateUserAccounts(u.id)}
-                              className="flex-[2] py-3 rounded-xl text-white text-sm font-bold bg-gradient-to-br from-rose-500 via-red-600 to-orange-600 hover:from-rose-600 hover:via-red-700 hover:to-orange-700 active:scale-[0.98] shadow-lg shadow-rose-300/60 transition-all font-['Sora',system-ui,sans-serif]">
+                              className="flex-[2] py-3 sm:py-3.5 rounded-xl text-white text-sm font-black uppercase tracking-wider bg-gradient-to-br from-rose-500 via-red-600 to-red-700 hover:from-rose-600 hover:via-red-700 hover:to-red-800 active:scale-[0.98] shadow-lg shadow-red-300/60 hover:shadow-red-400/70 transition-all font-['Sora',system-ui,sans-serif]">
                               Save Changes
                             </button>
                           </div>
