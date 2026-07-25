@@ -1,6 +1,18 @@
 // Warm Netflix TV auto-login runner for strict sub-20s attempts.
 // Keep this process alive on the VPS. The app calls POST /run directly;
 // no GitHub Actions queue, checkout, browser install, or runner allocation.
+//
+// 24/7 warm-browser policy:
+//   - The Chromium process is launched at boot and NEVER intentionally closed.
+//   - A background keep-alive pings it every 30s; if `browser.isConnected()`
+//     ever returns false (crash, OOM, GPU reset, etc.), we relaunch instantly
+//     so the next incoming /run has a hot browser waiting.
+//   - A warm context pool holds N pre-created BrowserContexts with cookies
+//     NOT yet injected. When a job arrives we pull one off the pool (no
+//     newContext() latency on the hot path) and refill in the background.
+//   - We NEVER call browser.close() on shutdown paths that aren't SIGTERM /
+//     SIGINT — even the "safe teardown" after a job only closes the context,
+//     never the browser.
 
 import http from "node:http";
 import { chromium } from "playwright";
@@ -12,7 +24,7 @@ import { execSync } from "node:child_process";
 // SERVER_VERSION is bumped whenever the on-wire /health schema, timeout
 // budget, or reporting protocol changes. If /health shows a version older
 // than this constant in the repo, the VPS is running a stale build.
-const SERVER_VERSION = "2026.07.25-5";
+const SERVER_VERSION = "2026.07.25-6";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 let PACKAGE_VERSION = "unknown";
@@ -28,6 +40,7 @@ const TV_REPORT_URL = process.env.TV_REPORT_URL;
 const ENV_MAX_MS = process.env.TV_LOGIN_MAX_MS;
 const MAX_MS = Math.max(12000, Math.min(30000, Number(ENV_MAX_MS || 24000)));
 const MAX_CONCURRENT = Math.max(1, Math.min(8, Number(process.env.TV_RUNNER_CONCURRENCY || 4)));
+const WARM_POOL_SIZE = Math.max(1, Math.min(MAX_CONCURRENT, Number(process.env.TV_WARM_POOL || 2)));
 const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36";
 
 if (!TV_REPORT_URL) {
@@ -35,9 +48,14 @@ if (!TV_REPORT_URL) {
   process.exit(1);
 }
 
-let browserPromise = null;
+let browser = null;
+let browserLaunchInFlight = null;
+let browserRelaunchCount = 0;
+let lastRelaunchAt = null;
+const warmContexts = []; // pre-created BrowserContexts ready to accept cookies
 let activeJobs = 0;
 let lastJob = null;
+let shuttingDown = false;
 
 const now = () => Date.now();
 function json(res, status, body) {
@@ -51,21 +69,83 @@ async function readJson(req) {
   return JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
 }
 
+async function launchBrowser() {
+  const b = await chromium.launch({
+    headless: true,
+    args: [
+      "--disable-blink-features=AutomationControlled",
+      "--disable-dev-shm-usage",
+      "--no-sandbox",
+      "--disable-gpu",
+      "--disable-background-networking",
+      "--disable-features=Translate,MediaRouter",
+      "--no-zygote",
+      "--disable-extensions",
+    ],
+  });
+  b.on("disconnected", () => {
+    console.error("[browser] disconnected — will relaunch on next demand");
+    if (browser === b) browser = null;
+    // Purge stale warm contexts tied to the dead browser.
+    warmContexts.length = 0;
+    if (!shuttingDown) {
+      // Kick off an immediate relaunch so the next /run is hot.
+      ensureBrowser().catch((e) => console.error("[browser] relaunch failed", e));
+    }
+  });
+  return b;
+}
+
 async function ensureBrowser() {
-  if (!browserPromise) {
-    browserPromise = chromium.launch({
-      headless: true,
-      args: [
-        "--disable-blink-features=AutomationControlled",
-        "--disable-dev-shm-usage",
-        "--no-sandbox",
-        "--disable-gpu",
-        "--disable-background-networking",
-        "--disable-features=Translate,MediaRouter",
-      ],
-    });
+  if (browser && browser.isConnected()) return browser;
+  if (browserLaunchInFlight) return browserLaunchInFlight;
+  browserLaunchInFlight = (async () => {
+    try {
+      const b = await launchBrowser();
+      browser = b;
+      if (browserRelaunchCount > 0) lastRelaunchAt = new Date().toISOString();
+      browserRelaunchCount += 1;
+      console.log(`[browser] launched (count=${browserRelaunchCount})`);
+      // Kick off warm-pool refill in the background.
+      refillWarmPool().catch(() => {});
+      return b;
+    } finally {
+      browserLaunchInFlight = null;
+    }
+  })();
+  return browserLaunchInFlight;
+}
+
+async function createWarmContext() {
+  const b = await ensureBrowser();
+  return b.newContext({
+    userAgent: USER_AGENT,
+    viewport: { width: 1280, height: 800 },
+    locale: "en-US",
+    javaScriptEnabled: true,
+  });
+}
+
+async function refillWarmPool() {
+  while (!shuttingDown && warmContexts.length < WARM_POOL_SIZE) {
+    try {
+      const ctx = await createWarmContext();
+      // Guard: if browser died between await and here, discard.
+      if (!browser || !browser.isConnected()) { try { await ctx.close(); } catch {} break; }
+      warmContexts.push(ctx);
+    } catch (e) {
+      console.error("[pool] refill failed", e instanceof Error ? e.message : e);
+      break;
+    }
   }
-  return browserPromise;
+}
+
+async function takeWarmContext() {
+  const ctx = warmContexts.shift();
+  // Refill asynchronously so the next job also gets a warm context.
+  refillWarmPool().catch(() => {});
+  if (ctx) return ctx;
+  return createWarmContext();
 }
 
 async function postManageApp(body, timeoutMs = 2500) {
@@ -139,10 +219,6 @@ async function runTvJob(eventId, runnerToken) {
   const mark = {};
   let stage = "starting";
   let context = null;
-  // Once we successfully report a terminal outcome, the outer catch must
-  // NOT report again — otherwise transient network flakes on the FIRST
-  // report throw into catch and produce a second, contradictory report
-  // for the same event_id.
   let reported = false;
   const elapsed = () => now() - started;
   const remaining = () => Math.max(1, MAX_MS - elapsed());
@@ -170,16 +246,12 @@ async function runTvJob(eventId, runnerToken) {
     if (code.length !== 8) throw new Error("Code from event is not 8 digits");
     if (cookies.length === 0) throw new Error("No cookies could be parsed");
 
-    const browser = await ensureBrowser();
+    // Warm context from the pool — no launch latency on the hot path.
+    context = await takeWarmContext();
     mark.browser = elapsed();
-    context = await browser.newContext({ userAgent: USER_AGENT, viewport: { width: 1280, height: 800 }, locale: "en-US", javaScriptEnabled: true });
     stage = "inject_cookies";
     await context.addCookies(cookies);
     const page = await context.newPage();
-    // Route handlers must swallow their own errors — Playwright aborts the
-    // handler chain if any of abort()/continue() throws (which happens
-    // routinely when the context is torn down mid-navigation), and that
-    // rejection would otherwise bubble up as an unhandled promise.
     await page.route("**/*", (route) => {
       try {
         const req = route.request();
@@ -258,8 +330,6 @@ async function runTvJob(eventId, runnerToken) {
     lastJob = { ...lastJob, status, result, finishedAt: new Date().toISOString(), timing };
   } catch (e) {
     if (reported) {
-      // Terminal outcome already delivered — this catch is only firing on
-      // teardown / post-report noise. Log and swallow.
       console.error("post-report error", e instanceof Error ? e.message : String(e));
     } else {
       const message = e instanceof Error ? e.message : String(e);
@@ -272,8 +342,11 @@ async function runTvJob(eventId, runnerToken) {
       lastJob = { ...lastJob, status: "error", result, finishedAt: new Date().toISOString(), error: userMessage, timing };
     }
   } finally {
-    if (context) { try { await context.close(); } catch { /* browser may already be gone */ } }
+    // Close the CONTEXT only. The browser stays warm.
+    if (context) { try { await context.close(); } catch { /* pool context tied to dead browser */ } }
     activeJobs = Math.max(0, activeJobs - 1);
+    // Top the pool back up for the next arrival.
+    refillWarmPool().catch(() => {});
   }
 }
 
@@ -290,6 +363,11 @@ const server = http.createServer(async (req, res) => {
         started_at: STARTED_AT,
         active_jobs: activeJobs,
         capacity: MAX_CONCURRENT,
+        warm_pool: warmContexts.length,
+        warm_pool_target: WARM_POOL_SIZE,
+        browser_connected: !!(browser && browser.isConnected()),
+        browser_relaunches: Math.max(0, browserRelaunchCount - 1),
+        last_relaunch_at: lastRelaunchAt,
         max_ms: MAX_MS,
         env_max_ms: ENV_MAX_MS ? Number(ENV_MAX_MS) : null,
         schema: "v2",
@@ -305,9 +383,6 @@ const server = http.createServer(async (req, res) => {
     if (!eventId || runnerToken.length < 32) return json(res, 400, { success: false, error: "bad_request" });
 
     activeJobs += 1;
-    // runTvJob decrements activeJobs in its own finally block; the outer
-    // catch must NOT decrement again or capacity accounting drifts on any
-    // path where the finally has already run and a later throw bubbles up.
     runTvJob(eventId, runnerToken).catch((e) => {
       console.error("job failed", e);
     });
@@ -319,19 +394,44 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, "0.0.0.0", async () => {
   await ensureBrowser();
-  console.log(`tv-fast-runner v${SERVER_VERSION} commit=${GIT_COMMIT || "unknown"} listening on :${PORT} max=${MAX_MS}ms env_max=${ENV_MAX_MS || "unset"} concurrency=${MAX_CONCURRENT}`);
+  await refillWarmPool();
+  console.log(`tv-fast-runner v${SERVER_VERSION} commit=${GIT_COMMIT || "unknown"} listening on :${PORT} max=${MAX_MS}ms env_max=${ENV_MAX_MS || "unset"} concurrency=${MAX_CONCURRENT} warm_pool=${WARM_POOL_SIZE}`);
 });
+
+// ── 24/7 keep-alive loop ───────────────────────────────────────────────
+// Every 30s: verify browser is connected + pool is topped up. If Chromium
+// silently died (e.g. renderer crash under memory pressure), this catches
+// it BEFORE the next user hits /run.
+setInterval(() => {
+  if (shuttingDown) return;
+  if (!browser || !browser.isConnected()) {
+    console.log("[keepalive] browser missing/disconnected — relaunching");
+    ensureBrowser().catch((e) => console.error("[keepalive] relaunch failed", e));
+  } else if (warmContexts.length < WARM_POOL_SIZE) {
+    refillWarmPool().catch(() => {});
+  }
+}, 30_000).unref();
+
+// Log unhandled rejections rather than exit — systemd restart is expensive
+// and we want to stay warm through transient noise.
+process.on("unhandledRejection", (reason) => {
+  console.error("[unhandledRejection]", reason instanceof Error ? reason.stack || reason.message : reason);
+});
+process.on("uncaughtException", (err) => {
+  console.error("[uncaughtException]", err instanceof Error ? err.stack || err.message : err);
+});
+
 async function shutdown(signal) {
+  shuttingDown = true;
   console.log(`received ${signal}; draining ${activeJobs} active job(s)…`);
   server.close(() => {});
-  // Give in-flight jobs a bounded window (2× MAX_MS) to finish reporting
-  // before we tear down Chromium — otherwise a SIGTERM mid-job leaves the
-  // tv_login_events row stuck in `running`.
   const deadline = Date.now() + Math.max(5000, MAX_MS * 2);
   while (activeJobs > 0 && Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 200));
   }
-  try { (await browserPromise)?.close?.(); } catch {}
+  // Close warm contexts first so browser.close() isn't racing them.
+  for (const ctx of warmContexts.splice(0)) { try { await ctx.close(); } catch {} }
+  try { await browser?.close?.(); } catch {}
   process.exit(0);
 }
 process.on("SIGINT", () => { shutdown("SIGINT").catch(() => process.exit(1)); });
