@@ -293,7 +293,7 @@ try {
   });
   console.log(`[perf] code submitted at ${Date.now() - t0}ms`);
 
-  // Poll for result inside the global 9s SLA.
+  // Poll for a terminal Netflix result inside the remaining MAX_MS budget.
   const deadline = Date.now() + Math.max(3000, Math.min(6000, timeoutBudget(6000, 3000)));
   let bodyText = "";
   while (Date.now() < deadline) {
