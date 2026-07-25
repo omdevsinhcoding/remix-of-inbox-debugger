@@ -1246,6 +1246,7 @@ export type Database = {
         Args: { _job: string; _lease_seconds: number }
         Returns: boolean
       }
+      expire_stale_tv_login_events: { Args: never; Returns: number }
       get_cron_status: { Args: never; Returns: Json }
       get_email_cleanup_status: { Args: never; Returns: Json }
       prune_audit_logs: { Args: never; Returns: undefined }
@@ -1264,6 +1265,7 @@ export type Database = {
         Args: { auth_key: string; cron_expr: string; function_url: string }
         Returns: undefined
       }
+      schedule_tv_login_cleanup: { Args: never; Returns: undefined }
       unschedule_email_cleanup: { Args: never; Returns: undefined }
       unschedule_email_sync: { Args: never; Returns: undefined }
     }
