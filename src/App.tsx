@@ -1055,10 +1055,7 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   // Read cached user immediately for fast paint, then re-hydrate from the DB.
   const readCached = () => {
-    try {
-      const stored = sessionGet("user" as any);
-      return stored ? JSON.parse(stored) : null;
-    } catch { return null; }
+    return readStoredSessionUser();
   };
 
   const hydrateFromServer = async () => {
