@@ -3721,8 +3721,11 @@ function sanitizeEmailHtmlFragment(input = "", preview = "") {
         el.setAttribute("rel", "noopener noreferrer");
       }
     });
+    const headStyles = Array.from(doc.head?.querySelectorAll("style") || [])
+      .map((el) => el.outerHTML)
+      .join("\n");
     const bodyHtml = (doc.body?.innerHTML || "").trim();
-    if (bodyHtml) return bodyHtml;
+    if (bodyHtml) return `${headStyles}${bodyHtml}`;
   } catch {}
 
   const cleaned = stripRawMimeNoise(decodeQuotedPrintableText(raw));
