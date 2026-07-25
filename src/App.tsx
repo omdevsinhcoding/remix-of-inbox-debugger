@@ -2330,6 +2330,11 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
           return;
         }
       }
+      if (elapsed > 11 * 60_000) {
+        setStatus("error");
+        setResultInfo((prev) => ({ ...prev, message: "TV sign-in took too long. Please try a fresh TV code." }));
+        return;
+      }
       if (!cancelled) timer = window.setTimeout(tick, 700);
     };
     timer = window.setTimeout(tick, 500);
@@ -2771,6 +2776,11 @@ function TvSignInPage() {
           setResultInfo((p) => ({ ...p, message: "Lost connection to the status service. Check your network and try again." }));
           return;
         }
+      }
+      if (elapsed > 11 * 60_000) {
+        setStatus("error");
+        setResultInfo((p) => ({ ...p, message: "TV sign-in took too long. Please try a fresh TV code." }));
+        return;
       }
       if (!cancelled) timer = window.setTimeout(tick, 700);
     };

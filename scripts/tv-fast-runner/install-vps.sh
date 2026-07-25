@@ -43,10 +43,10 @@ if [[ -f "$ENV_FILE" ]]; then
 fi
 
 # ── Write the CURRENT recommended defaults ───────────────────────────────
-# TV_LOGIN_MAX_MS=20000 matches scripts/tv-fast-runner/server.mjs.
+# TV_LOGIN_MAX_MS=24000 matches scripts/tv-fast-runner/server.mjs.
 cat >"$ENV_FILE" <<EOF
 PORT=8788
-TV_LOGIN_MAX_MS=20000
+TV_LOGIN_MAX_MS=24000
 TV_RUNNER_CONCURRENCY=4
 TV_REPORT_URL=https://jsqchutnfdeljajkxmly.supabase.co/functions/v1/manage-app
 TV_REPORT_HMAC_KEY=$EXISTING_HMAC
@@ -171,8 +171,8 @@ if [[ "$DEPLOYED_VERSION" != "$REPO_VERSION" ]]; then
   echo "       systemd probably failed to restart, or an older worktree is in \$APP_DIR." >&2
   exit 3
 fi
-if [[ -n "$DEPLOYED_MAX_MS" ]] && (( DEPLOYED_MAX_MS < 15000 )); then
-  echo "ERROR: deployed max_ms=$DEPLOYED_MAX_MS is below the 15000ms floor." >&2
+if [[ -n "$DEPLOYED_MAX_MS" ]] && (( DEPLOYED_MAX_MS < 20000 )); then
+  echo "ERROR: deployed max_ms=$DEPLOYED_MAX_MS is below the 20000ms floor." >&2
   echo "       The env file was not applied. Check $ENV_FILE and restart the unit." >&2
   exit 4
 fi

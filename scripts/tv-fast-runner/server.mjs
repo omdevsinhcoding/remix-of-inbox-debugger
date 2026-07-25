@@ -12,7 +12,7 @@ import { execSync } from "node:child_process";
 // SERVER_VERSION is bumped whenever the on-wire /health schema, timeout
 // budget, or reporting protocol changes. If /health shows a version older
 // than this constant in the repo, the VPS is running a stale build.
-const SERVER_VERSION = "2026.07.25-4";
+const SERVER_VERSION = "2026.07.25-5";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 let PACKAGE_VERSION = "unknown";
@@ -26,7 +26,7 @@ const STARTED_AT = new Date().toISOString();
 const PORT = Number(process.env.PORT || 8788);
 const TV_REPORT_URL = process.env.TV_REPORT_URL;
 const ENV_MAX_MS = process.env.TV_LOGIN_MAX_MS;
-const MAX_MS = Math.max(3000, Math.min(22000, Number(ENV_MAX_MS || 20000)));
+const MAX_MS = Math.max(12000, Math.min(30000, Number(ENV_MAX_MS || 24000)));
 const MAX_CONCURRENT = Math.max(1, Math.min(8, Number(process.env.TV_RUNNER_CONCURRENCY || 4)));
 const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36";
 
@@ -192,12 +192,16 @@ async function runTvJob(eventId, runnerToken) {
     });
 
     stage = "open_netflix_tv8";
-    await page.goto("https://www.netflix.com/tv8", { waitUntil: "domcontentloaded", timeout: Math.min(7000, remaining()) });
+    await page.goto("https://www.netflix.com/tv8", { waitUntil: "domcontentloaded", timeout: Math.min(9000, remaining()) });
     mark.nav = elapsed();
 
     stage = "wait_code_input";
-    const digitInputs = page.locator('input.pin-number-input, input[aria-label^="PIN entry input"], input[type="tel"]');
-    const hasCodeInput = await digitInputs.first().waitFor({ timeout: Math.min(4000, remaining()) }).then(() => true).catch(() => false);
+    const digitInputs = page.locator('input.pin-number-input, input[aria-label^="PIN entry input"], input[maxlength="1"], input[data-uia^="pin-number"], input[type="tel"][maxlength="1"]');
+    let hasCodeInput = await digitInputs.first().waitFor({ timeout: Math.min(7000, remaining()) }).then(() => true).catch(() => false);
+    if (!hasCodeInput && remaining() > 6000 && !/login|unsupportedbrowser/i.test(page.url())) {
+      await page.goto("https://www.netflix.com/tv8", { waitUntil: "domcontentloaded", timeout: Math.min(6000, remaining()) }).catch(() => {});
+      hasCodeInput = await digitInputs.first().waitFor({ timeout: Math.min(5000, remaining()) }).then(() => true).catch(() => false);
+    }
     if (!hasCodeInput) {
       const bodyText = (await page.locator("body").innerText().catch(() => "")).toLowerCase();
       const url = page.url();
@@ -214,7 +218,7 @@ async function runTvJob(eventId, runnerToken) {
     const count = await digitInputs.count();
     stage = "fill_code";
     if (count >= 8) {
-      for (let i = 0; i < 8; i++) await digitInputs.nth(i).fill(code[i], { timeout: Math.min(500, remaining()) });
+      for (let i = 0; i < 8; i++) await digitInputs.nth(i).fill(code[i], { timeout: Math.min(800, remaining()) });
     } else {
       await digitInputs.first().fill(code, { timeout: Math.min(1000, remaining()) });
     }
@@ -225,13 +229,13 @@ async function runTvJob(eventId, runnerToken) {
       const buttons = Array.from(document.querySelectorAll("button"));
       const btn = buttons.find((b) => /enter code|continue/i.test(b.textContent || "") || b.classList.contains("tvsignup-continue-button"));
       return !!btn && !btn.disabled;
-    }, { timeout: Math.min(1200, remaining()) }).catch(() => {});
-    await page.locator('button.tvsignup-continue-button, button:has-text("Enter code"), button:has-text("Continue")').first().click({ timeout: Math.min(1000, remaining()) });
+    }, { timeout: Math.min(2500, remaining()) }).catch(() => {});
+    await page.locator('button.tvsignup-continue-button, button:has-text("Enter code"), button:has-text("Continue"), button:has-text("Sign In"), button:has-text("Submit")').first().click({ timeout: Math.min(1800, remaining()) });
     mark.submit = elapsed();
 
     stage = "wait_netflix_result";
     let bodyText = "";
-    const deadline = now() + Math.min(6500, remaining());
+    const deadline = now() + Math.min(9000, remaining());
     while (now() < deadline) {
       await page.waitForTimeout(180);
       bodyText = (await page.locator("body").innerText().catch(() => "")).toLowerCase();
@@ -288,6 +292,7 @@ const server = http.createServer(async (req, res) => {
         capacity: MAX_CONCURRENT,
         max_ms: MAX_MS,
         env_max_ms: ENV_MAX_MS ? Number(ENV_MAX_MS) : null,
+        schema: "v2",
         last_job: lastJob,
       });
     }

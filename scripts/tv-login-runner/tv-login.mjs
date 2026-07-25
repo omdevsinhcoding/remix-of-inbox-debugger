@@ -294,7 +294,7 @@ try {
   console.log(`[perf] code submitted at ${Date.now() - t0}ms`);
 
   // Poll for a terminal Netflix result inside the remaining MAX_MS budget.
-  const deadline = Date.now() + Math.max(3000, Math.min(6000, timeoutBudget(6000, 3000)));
+  const deadline = Date.now() + Math.max(3000, Math.min(9000, timeoutBudget(9000, 3000)));
   let bodyText = "";
   while (Date.now() < deadline) {
     await page.waitForTimeout(200);
