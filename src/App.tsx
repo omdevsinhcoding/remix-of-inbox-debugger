@@ -13754,11 +13754,11 @@ function EmailViewer() {
             <TvSignInPage />
           </motion.main>
         ) : workflowView === "gmail" || countEnabled(userFeatures) < 2 ? (
-      <motion.main key="wf-gmail" className="max-w-6xl mx-auto px-2 sm:px-4 h-[calc(100vh-3.5rem)] sm:h-[calc(100vh-4rem)] overflow-hidden"
+      <motion.main key="wf-gmail" className="max-w-6xl mx-auto px-2 sm:px-4 min-h-[calc(100dvh-3.5rem)] md:h-[calc(100vh-4rem)] overflow-visible md:overflow-hidden"
         initial={{ opacity: 0, y: 12, filter: "blur(6px)" }} animate={{ opacity: 1, y: 0, filter: "blur(0px)" }} exit={{ opacity: 0, y: -12, filter: "blur(6px)" }} transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}>
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-4 sm:gap-8 h-full py-2 sm:py-4">
-          <div className={`${selectedEmail ? "hidden md:block" : "block"} md:col-span-5 xl:col-span-4 flex flex-col overflow-hidden h-full`}>
-            <section className="flex-1 overflow-y-auto min-h-0 flex flex-col">
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-4 sm:gap-8 md:h-full py-2 sm:py-4 pb-28 md:pb-4">
+          <div className={`${selectedEmail ? "hidden md:block" : "block"} md:col-span-5 xl:col-span-4 flex flex-col overflow-visible md:overflow-hidden md:h-full`}>
+            <section className="flex-1 overflow-visible md:overflow-y-auto min-h-0 flex flex-col">
               <div className="flex items-center justify-between mb-2">
                 <h3 className="font-bold text-slate-800 flex items-center gap-2">
                   Inbox
@@ -13772,7 +13772,7 @@ function EmailViewer() {
                 </div>
               )}
 
-              <div className="space-y-2 flex-1 overflow-y-auto min-h-0">
+              <div className="space-y-2 flex-1 overflow-visible md:overflow-y-auto min-h-0">
                 {emails.length === 0 && !error ? (
                   <div className="bg-white border border-dashed border-slate-200 rounded-xl p-12 text-center">
                     <div className="bg-slate-50 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3">
@@ -13813,11 +13813,11 @@ function EmailViewer() {
             </section>
           </div>
 
-          <div className={`${selectedEmail ? "block" : "hidden md:flex"} md:col-span-7 xl:col-span-8 flex flex-col overflow-hidden h-full`}>
+          <div className={`${selectedEmail ? "block" : "hidden md:flex"} md:col-span-7 xl:col-span-8 flex flex-col overflow-visible md:overflow-hidden md:h-full`}>
             {selectedEmail ? (
               <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }}
-                className="bg-white rounded-2xl shadow-sm border border-slate-200 flex flex-col h-full overflow-hidden">
-                <div className="p-3 sm:p-6 border-b border-slate-100 bg-white sticky top-0 z-10">
+                className="bg-white rounded-2xl shadow-sm border border-slate-200 flex flex-col md:h-full overflow-visible md:overflow-hidden">
+                <div className="p-3 sm:p-6 border-b border-slate-100 bg-white md:sticky md:top-0 z-10 rounded-t-2xl">
                   <div className="flex items-center gap-2 sm:gap-4 mb-3 sm:mb-6">
                     <button onClick={() => setSelectedEmail(null)}
                       className="flex items-center gap-1.5 px-3 py-1.5 sm:px-4 sm:py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-full transition-colors font-bold text-xs sm:text-sm active:scale-95">
@@ -13847,7 +13847,7 @@ function EmailViewer() {
                   </div>
                 </div>
 
-                <div className="flex-1 overflow-auto p-2 sm:p-6 bg-white">
+                <div className="flex-1 overflow-visible md:overflow-auto p-2 sm:p-6 bg-white rounded-b-2xl">
                   {selectedEmail.otp && (
                     <div className="mb-4 sm:mb-8 bg-slate-900 rounded-xl sm:rounded-2xl p-4 sm:p-6 text-center shadow-xl shadow-slate-200 relative overflow-hidden">
                       <div className="relative z-10">
