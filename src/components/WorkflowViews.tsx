@@ -128,10 +128,63 @@ export function WorkflowChooser({ features, user, lastView, onPick, onLogout, au
             <h2 className="mt-0 sm:mt-4 text-[25px] leading-[1.08] sm:text-4xl lg:text-5xl xl:text-6xl 2xl:text-8xl font-black tracking-tight text-slate-900">How would you like to sign in?</h2>
             <p className="mt-2 sm:mt-3 text-[12.5px] sm:text-base xl:text-lg 2xl:text-2xl text-slate-500 max-w-xl xl:max-w-2xl 2xl:max-w-4xl mx-auto leading-relaxed">Three dedicated experiences for the same account. Pick one to get started.</p>
             {remembered && !cancelled && (
-              <div className="mt-4 sm:mt-5 inline-flex items-center gap-2 px-3 py-1.5 xl:px-4 xl:py-2 rounded-full bg-slate-900 text-white text-[11px] xl:text-sm 2xl:text-base font-bold shadow-sm">
-                <Clock className="w-3.5 h-3.5 xl:w-4 xl:h-4" />
-                Opening your last choice in {secondsLeft}s — press any key to cancel
-              </div>
+              <motion.div
+                initial={{ opacity: 0, y: 8, scale: 0.96 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                transition={{ type: "spring", stiffness: 260, damping: 22 }}
+                className="mt-4 sm:mt-5 inline-flex items-stretch max-w-[92%] sm:max-w-none rounded-full bg-white/80 backdrop-blur border border-slate-200 shadow-[0_10px_30px_-12px_rgba(2,6,23,0.25)] overflow-hidden"
+                role="status"
+                aria-live="polite"
+              >
+                {/* Circular countdown */}
+                <div className="relative flex items-center justify-center pl-1.5 pr-2 py-1.5">
+                  <svg className="w-8 h-8 xl:w-9 xl:h-9 -rotate-90" viewBox="0 0 36 36" aria-hidden>
+                    <circle cx="18" cy="18" r="15" fill="none" stroke="hsl(215 20% 90%)" strokeWidth="3" />
+                    <circle
+                      cx="18" cy="18" r="15" fill="none"
+                      stroke="url(#pillGrad)"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      strokeDasharray={2 * Math.PI * 15}
+                      strokeDashoffset={2 * Math.PI * 15 * (1 - secondsLeft / totalSec)}
+                      style={{ transition: "stroke-dashoffset 1s linear" }}
+                    />
+                    <defs>
+                      <linearGradient id="pillGrad" x1="0" y1="0" x2="1" y2="1">
+                        <stop offset="0%" stopColor="#0f172a" />
+                        <stop offset="100%" stopColor="#4f46e5" />
+                      </linearGradient>
+                    </defs>
+                  </svg>
+                  <span className="absolute inset-0 flex items-center justify-center text-[10px] xl:text-[11px] font-black text-slate-900 tabular-nums">
+                    {secondsLeft}
+                  </span>
+                </div>
+                {/* Label */}
+                <div className="flex items-center gap-2 pr-3 sm:pr-4 pl-0.5 py-1.5">
+                  <div className="flex flex-col leading-tight">
+                    <span className="text-[10px] xl:text-[11px] uppercase tracking-[0.18em] font-bold text-indigo-600">Auto-opening</span>
+                    <span className="text-[11.5px] sm:text-xs xl:text-sm font-semibold text-slate-800">Your last choice</span>
+                  </div>
+                  <span aria-hidden className="hidden sm:block w-px h-6 bg-slate-200 mx-1" />
+                  <button
+                    type="button"
+                    onClick={() => setCancelled(true)}
+                    className="hidden sm:inline-flex items-center gap-1 h-7 px-3 rounded-full bg-slate-900 text-white text-[10.5px] xl:text-xs font-bold uppercase tracking-wider hover:bg-slate-800 active:scale-95 transition"
+                  >
+                    Cancel
+                  </button>
+                </div>
+                {/* Mobile-only cancel tap area */}
+                <button
+                  type="button"
+                  onClick={() => setCancelled(true)}
+                  aria-label="Cancel auto-open"
+                  className="sm:hidden flex items-center justify-center pr-3 pl-1 text-slate-500 hover:text-slate-900"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </motion.div>
             )}
           </div>
 
