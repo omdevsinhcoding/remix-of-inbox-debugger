@@ -9557,7 +9557,7 @@ function AdminPanel() {
                     )}
 
 
-                    {changingUserPass === u.id && u.role !== "admin" && createPortal(
+                    {changingUserPass === u.id && createPortal(
                       <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center animate-in fade-in duration-200"
                         onClick={() => setChangingUserPass(null)}
                         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
