@@ -31,7 +31,14 @@ fi
 # ── Preserve existing HMAC key across re-installs ────────────────────────
 EXISTING_HMAC=""
 if [[ -f "$ENV_FILE" ]]; then
+  # Strip surrounding whitespace and any wrapping single/double quotes so
+  # we re-emit a clean unquoted value below. Previously a value like
+  # TV_REPORT_HMAC_KEY="abc" round-tripped as ="abc"" which broke HMAC.
   EXISTING_HMAC="$(grep -E '^TV_REPORT_HMAC_KEY=' "$ENV_FILE" | head -n1 | cut -d= -f2- || true)"
+  EXISTING_HMAC="${EXISTING_HMAC#"${EXISTING_HMAC%%[![:space:]]*}"}"
+  EXISTING_HMAC="${EXISTING_HMAC%"${EXISTING_HMAC##*[![:space:]]}"}"
+  EXISTING_HMAC="${EXISTING_HMAC%\"}"; EXISTING_HMAC="${EXISTING_HMAC#\"}"
+  EXISTING_HMAC="${EXISTING_HMAC%\'}"; EXISTING_HMAC="${EXISTING_HMAC#\'}"
   cp -a "$ENV_FILE" "${ENV_FILE}.bak"
 fi
 
@@ -42,7 +49,7 @@ PORT=8788
 TV_LOGIN_MAX_MS=20000
 TV_RUNNER_CONCURRENCY=4
 TV_REPORT_URL=https://jsqchutnfdeljajkxmly.supabase.co/functions/v1/manage-app
-TV_REPORT_HMAC_KEY=${EXISTING_HMAC}
+TV_REPORT_HMAC_KEY=$EXISTING_HMAC
 EOF
 chmod 600 "$ENV_FILE"
 
