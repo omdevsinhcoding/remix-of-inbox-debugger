@@ -1063,7 +1063,18 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const hydrateFromServer = async () => {
     let token = getSessionToken();
     const cachedBeforeHydrate = readCached();
+    const pendingAdminToken = (() => { try { return sessionGet("pending_admin_token" as any); } catch { return null; } })();
+    const cachedPendingAdmin = cachedBeforeHydrate?.role === "admin" && cachedBeforeHydrate?.pending === true;
     if (!token) {
+      // Admin password step creates a short-lived pending 2FA identity before a
+      // real session_token exists. Do not let the initial /me hydration sweep
+      // race clear that identity, or the 2FA page bounces back to /admin even
+      // after a correct password.
+      if (pendingAdminToken && cachedPendingAdmin) {
+        setUser(cachedBeforeHydrate);
+        setLoading(false);
+        return;
+      }
       try {
         const { hasRefreshToken, refreshNow } = await import("./lib/sessionRefresh");
         if (hasRefreshToken()) {
@@ -1074,6 +1085,13 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
     if (!token) {
       try { sessionRemove("user" as any); } catch {}
+      const liveCached = readCached();
+      const livePendingAdminToken = (() => { try { return sessionGet("pending_admin_token" as any); } catch { return null; } })();
+      if (livePendingAdminToken && liveCached?.role === "admin" && liveCached?.pending === true) {
+        setUser(liveCached);
+        setLoading(false);
+        return;
+      }
       setUser(null);
       setLoading(false);
       return;
@@ -1099,6 +1117,10 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       }
       const msg = err instanceof Error ? err.message : String(err || "");
       if (cachedBeforeHydrate?.id && /Secure connection|handshake|Failed to fetch|NetworkError|busy|timeout|temporar|Unknown session/i.test(msg)) {
+        setUser(cachedBeforeHydrate);
+        return;
+      }
+      if (pendingAdminToken && cachedPendingAdmin) {
         setUser(cachedBeforeHydrate);
         return;
       }
@@ -4974,7 +4996,13 @@ function AdminLoginPage() {
   const armedDeviceRef = useRef<Promise<DeviceFingerprint> | null>(null);
   const gpsBlocked = locationRequired && gpsPermissionMode !== null;
   const navigate = useNavigate();
-  const { checkAuth } = useAuth();
+  const { user: authUser, checkAuth } = useAuth();
+
+  useEffect(() => {
+    if (authUser?.role === "admin" && authUser?.pending !== true && getSessionToken()) {
+      navigate("/admin/dashboard", { replace: true });
+    }
+  }, [authUser?.role, authUser?.pending, navigate]);
 
   useEffect(() => {
     let cancelled = false;
@@ -5368,6 +5396,7 @@ function AdminAuthPage() {
   const navigate = useNavigate();
   const otpRequested = React.useRef(false);
   const { user, checkAuth } = useAuth();
+  const effectiveUser = user?.role === "admin" ? user : readStoredSessionUser();
   const PROOF_TTL_MS = 15 * 60 * 1000;
   const [remainingMs, setRemainingMs] = useState<number>(() => {
     const at = Number(sessionGet("pending_admin_token_at" as any) || 0);
@@ -5396,8 +5425,15 @@ function AdminAuthPage() {
 
   useEffect(() => {
     const pending = (() => { try { return sessionGet("pending_admin_token" as any); } catch { return null; } })();
-    if (!pending) { navigate("/admin", { replace: true }); return; }
-    if (!user || user.role !== "admin") { navigate("/admin", { replace: true }); return; }
+    if (!pending) {
+      if (effectiveUser?.role === "admin" && effectiveUser?.pending !== true && getSessionToken()) {
+        navigate("/admin/dashboard", { replace: true });
+      } else {
+        navigate("/admin", { replace: true });
+      }
+      return;
+    }
+    if (!effectiveUser || effectiveUser.role !== "admin") { navigate("/admin", { replace: true }); return; }
 
 
     if (step === 1 && !otpRequested.current) {
@@ -5405,7 +5441,7 @@ function AdminAuthPage() {
       setLoading(true);
       (async () => {
         try {
-          await apiCall("manage-app", { action: "request_admin_otp", user_id: user.id });
+          await apiCall("manage-app", { action: "request_admin_otp", user_id: effectiveUser.id });
           notify.success("Secure OTP sent to your Telegram.");
         } catch (err) {
           const msg = err instanceof Error ? err.message : "Failed to send OTP";
@@ -5418,11 +5454,11 @@ function AdminAuthPage() {
       })();
     }
 
-    if (step === 2 && !user.totpSecret) {
+    if (step === 2 && !effectiveUser.totpSecret) {
       (async () => {
         try {
-          if (user.totpConfigured) return;
-          const res = await apiCall("manage-app", { action: "update_totp", user_id: user.id });
+          if (effectiveUser.totpConfigured) return;
+          const res = await apiCall("manage-app", { action: "update_totp", user_id: effectiveUser.id });
           if (res.secret) setSecretKey(res.secret);
           if (res.otpauthUrl) setQrCode(res.otpauthUrl);
         } catch (err) {
@@ -5431,12 +5467,12 @@ function AdminAuthPage() {
         }
       })();
     }
-  }, [step, user]);
+  }, [step, effectiveUser?.id, effectiveUser?.role, effectiveUser?.pending, effectiveUser?.totpConfigured, effectiveUser?.totpSecret, navigate]);
 
   const verifyTelegramOtp = async (submittedOtp = otp) => {
     const code = submittedOtp.trim();
     if (loading) return;
-    if (!user?.id) {
+    if (!effectiveUser?.id) {
       navigate("/admin", { replace: true });
       return;
     }
@@ -5446,7 +5482,7 @@ function AdminAuthPage() {
     }
     setLoading(true);
     try {
-      await apiCall("manage-app", { action: "verify_otp", user_id: user.id, otp: code });
+      await apiCall("manage-app", { action: "verify_otp", user_id: effectiveUser.id, otp: code });
       setStep(2);
       setError("");
     } catch (err) {
@@ -5461,7 +5497,7 @@ function AdminAuthPage() {
   const verifyTotp = async (submittedTotp = totp) => {
     const code = submittedTotp.trim();
     if (loading) return;
-    if (!user?.id) {
+    if (!effectiveUser?.id) {
       navigate("/admin", { replace: true });
       return;
     }
@@ -5471,8 +5507,8 @@ function AdminAuthPage() {
     }
     setLoading(true);
     try {
-      await apiCall("manage-app", { action: "verify_totp", user_id: user.id, code });
-      const finalData = await apiCall("manage-app", { action: "finalize_admin_session", user_id: user.id });
+      await apiCall("manage-app", { action: "verify_totp", user_id: effectiveUser.id, code });
+      const finalData = await apiCall("manage-app", { action: "finalize_admin_session", user_id: effectiveUser.id });
       if (finalData.workerUrls && Array.isArray(finalData.workerUrls) && finalData.workerUrls.length > 0) {
         storeWorkerUrls(finalData.workerUrls);
       }
