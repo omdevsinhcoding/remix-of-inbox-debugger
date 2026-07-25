@@ -1116,6 +1116,18 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         return;
       }
       const msg = err instanceof Error ? err.message : String(err || "");
+      const path = typeof window !== "undefined" ? window.location.pathname : "";
+      const latestCached = readCached();
+      const adminFinalizeHandoff =
+        (path === "/admin" || path === "/admin-auth") &&
+        latestCached?.role === "admin" &&
+        latestCached?.pending !== true &&
+        !!getSessionToken() &&
+        sessionGet("admin_auth" as any) === "true";
+      if (adminFinalizeHandoff) {
+        setUser(latestCached);
+        return;
+      }
       if (cachedBeforeHydrate?.id && /Secure connection|handshake|Failed to fetch|NetworkError|busy|timeout|temporar|Unknown session/i.test(msg)) {
         setUser(cachedBeforeHydrate);
         return;
@@ -5509,19 +5521,22 @@ function AdminAuthPage() {
     try {
       await apiCall("manage-app", { action: "verify_totp", user_id: effectiveUser.id, code });
       const finalData = await apiCall("manage-app", { action: "finalize_admin_session", user_id: effectiveUser.id });
+      if (!finalData?.success || !finalData?.sessionToken || finalData?.user?.role !== "admin") {
+        throw new Error(finalData?.error || "Admin session could not be finalized");
+      }
       if (finalData.workerUrls && Array.isArray(finalData.workerUrls) && finalData.workerUrls.length > 0) {
         storeWorkerUrls(finalData.workerUrls);
       }
+      sessionSet("admin_auth" as any, "true");
       if (finalData.sessionToken) sessionSet("session_token" as any, finalData.sessionToken);
       sessionRemove("pending_admin_token" as any);
       sessionRemove("pending_admin_token_at" as any);
-      sessionSet("admin_auth" as any, "true");
       const adminUser = { ...(finalData.user || {}), pending: false };
       sessionSet("user" as any, JSON.stringify(adminUser));
       markSessionStart();
       checkAuth();
       notify.success("Admin session secured.");
-      navigate("/admin/dashboard");
+      navigate("/admin/dashboard", { replace: true });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Invalid Google Auth Code";
       setError(msg);
@@ -14255,7 +14270,17 @@ function SessionRouteBoundary() {
       storedUser?.pending === true &&
       !!sessionGet("pending_admin_token" as any);
 
-    if (isPendingAdmin) return;
+    // finalize_admin_session stores the real admin session while the current
+    // route is still /admin-auth, then navigates to /admin/dashboard. Do not
+    // clear that fresh session during the tiny render window between those two
+    // steps, otherwise the user only sees the success toast and gets bounced.
+    const isActiveAdminSession =
+      (path === "/admin" || path === "/admin-auth") &&
+      storedUser?.role === "admin" &&
+      storedUser?.pending !== true &&
+      !!token;
+
+    if (isPendingAdmin || isActiveAdminSession) return;
 
     // The public admin login/2FA routes must never inherit a normal user or
     // impersonated profile session. Clear the tab-scoped identity immediately
