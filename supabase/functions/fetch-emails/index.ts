@@ -243,7 +243,7 @@ async function getAssignedAccountFilter(supabase: any, session: Session | null):
   ]);
   // For non-admin users: return the assigned list (possibly empty).
   // An empty array means "no accounts ticked" -> show nothing.
-  const labels = ["Primary", ...((Array.isArray(accountsData?.value) ? accountsData.value : []).map((acc: any) => String(acc?.label || acc?.user || "").trim()).filter(Boolean))];
+  const labels = (Array.isArray(accountsData?.value) ? accountsData.value : []).map((acc: any) => String(acc?.label || acc?.user || "").trim()).filter(Boolean);
   return Array.isArray(userData?.assigned_accounts) ? normalizeAccountLabels(userData.assigned_accounts, labels) : [];
 }
 
@@ -644,73 +644,42 @@ async function loadAccounts(supabase: any, secret: string, accountLabels: string
   let requested = accountLabels && accountLabels.length > 0
     ? new Set(accountLabels.map((label) => String(label).trim()).filter(Boolean))
     : null;
-  const onlyPrimaryRequested = !!requested && requested.size === 1 && requested.has("Primary");
 
-  if (!onlyPrimaryRequested) {
-    try {
-      const { data: accountsData } = await supabase.from("app_settings").select("value").eq("key", "email_accounts").single();
-      if (Array.isArray(accountsData?.value)) {
-        const healedAccounts = await Promise.all(accountsData.value.map(async (acc: any) => {
-          const password = acc?.password;
-          if (typeof password === "string" && password.length > 0 && !password.startsWith("enc:")) {
-            return { ...acc, password: await encryptValue(password, secret) };
-          }
-          return acc;
-        }));
-        if (JSON.stringify(healedAccounts) !== JSON.stringify(accountsData.value)) {
-          await supabase.from("app_settings").upsert({ key: "email_accounts", value: healedAccounts }, { onConflict: "key" });
+  try {
+    const { data: accountsData } = await supabase.from("app_settings").select("value").eq("key", "email_accounts").single();
+    if (Array.isArray(accountsData?.value)) {
+      const healedAccounts = await Promise.all(accountsData.value.map(async (acc: any) => {
+        const password = acc?.password;
+        if (typeof password === "string" && password.length > 0 && !password.startsWith("enc:")) {
+          return { ...acc, password: await encryptValue(password, secret) };
         }
-        const availableLabels = ["Primary", ...accountsData.value.map((acc: any) => String(acc.label || acc.user || "").trim()).filter(Boolean)];
-        if (accountLabels && accountLabels.length > 0) {
-          requested = new Set(normalizeAccountLabels(accountLabels, availableLabels));
-        }
-        const accountRows = requested
-          ? healedAccounts.filter((acc: any) => requested.has(String(acc.label || acc.user || "").trim()))
-          : healedAccounts;
-        const decrypted = await Promise.all(accountRows.map(async (acc: any) => {
-          if (!acc.user || !acc.password) return null;
-          return {
-            label: acc.label || acc.user,
-            host: acc.host || "imap.gmail.com",
-            port: parseInt(acc.port) || 993,
-            user: acc.user,
-            password: await decryptValue(acc.password, secret),
-            recipientFilters: normalizeRecipientFilters(acc.recipientFilters || acc.recipientFilter || acc.allowedRecipients),
-          } as Account;
-        }));
-        accounts.push(...decrypted.filter(Boolean) as Account[]);
+        return acc;
+      }));
+      if (JSON.stringify(healedAccounts) !== JSON.stringify(accountsData.value)) {
+        await supabase.from("app_settings").upsert({ key: "email_accounts", value: healedAccounts }, { onConflict: "key" });
       }
-    } catch (err) {
-      console.error("[sync] Failed to load email_accounts:", err);
-    }
-  }
-
-  if (!requested || requested.has("Primary")) {
-    let primaryHost = "", primaryPort = 993, primaryUser = "", primaryPassword = "";
-    try {
-      const { data } = await supabase.from("app_settings").select("value").eq("key", "config").single();
-      const config = data?.value as any;
-      if (config) {
-        primaryHost = config.IMAP_HOST || "";
-        primaryPort = parseInt(config.IMAP_PORT) || 993;
-        primaryUser = config.IMAP_USER || "";
-        primaryPassword = config.IMAP_PASSWORD || "";
-        if (primaryPassword && !primaryPassword?.startsWith?.("enc:")) {
-          const healedConfig = { ...config, IMAP_PASSWORD: await encryptValue(primaryPassword, secret) };
-          await supabase.from("app_settings").upsert({ key: "config", value: healedConfig }, { onConflict: "key" });
-        } else if (primaryPassword?.startsWith?.("enc:")) primaryPassword = await decryptValue(primaryPassword, secret);
+      const availableLabels = accountsData.value.map((acc: any) => String(acc.label || acc.user || "").trim()).filter(Boolean);
+      if (accountLabels && accountLabels.length > 0) {
+        requested = new Set(normalizeAccountLabels(accountLabels, availableLabels));
       }
-    } catch {}
-
-    if (!primaryHost) primaryHost = Deno.env.get("IMAP_HOST") || "imap.gmail.com";
-    if (!primaryUser) primaryUser = Deno.env.get("IMAP_USER") || "";
-    if (!primaryPassword) primaryPassword = Deno.env.get("IMAP_PASSWORD") || "";
-    const envPort = Deno.env.get("IMAP_PORT");
-    if (primaryPort === 993 && envPort) primaryPort = parseInt(envPort) || 993;
-
-    if (primaryUser && primaryPassword && !accounts.some(a => a.label === "Primary")) {
-      accounts.unshift({ label: "Primary", host: primaryHost, port: primaryPort, user: primaryUser, password: primaryPassword, recipientFilters: [] });
+      const accountRows = requested
+        ? healedAccounts.filter((acc: any) => requested.has(String(acc.label || acc.user || "").trim()))
+        : healedAccounts;
+      const decrypted = await Promise.all(accountRows.map(async (acc: any) => {
+        if (!acc.user || !acc.password) return null;
+        return {
+          label: acc.label || acc.user,
+          host: acc.host || "imap.gmail.com",
+          port: parseInt(acc.port) || 993,
+          user: acc.user,
+          password: await decryptValue(acc.password, secret),
+          recipientFilters: normalizeRecipientFilters(acc.recipientFilters || acc.recipientFilter || acc.allowedRecipients),
+        } as Account;
+      }));
+      accounts.push(...decrypted.filter(Boolean) as Account[]);
     }
+  } catch (err) {
+    console.error("[sync] Failed to load email_accounts:", err);
   }
 
   if (accountLabels && accountLabels.length > 0) {
@@ -833,7 +802,7 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
         otp: e.otp || null,
         preview: e.preview || null,
         html: e.html || null,
-        account_label: e.account_label || "Primary",
+        account_label: e.account_label || null,
         cached_at: new Date().toISOString(),
         message_id: e.message_id || null,
         destroyed: false,
