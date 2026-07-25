@@ -3220,11 +3220,12 @@ function PlanEndsPill({ userOverride }: { userOverride?: any } = {}) {
   if (rem <= 0) {
     if (!expiredNoticeRef.current) {
       expiredNoticeRef.current = true;
-      apiCall("manage-app", { action: "me" }).catch(() => {
-        try {
-          window.dispatchEvent(new CustomEvent("app:plan-finished", { detail: { planEndsAt: endIso } }));
-        } catch {}
-      });
+      // Always surface the plan-finished popup locally, and refresh from
+      // server to pull latest contact info (best-effort).
+      apiCall("manage-app", { action: "me" }).catch(() => {});
+      try {
+        window.dispatchEvent(new CustomEvent("app:plan-finished", { detail: { planEndsAt: endIso } }));
+      } catch {}
     }
     return null;
   }
