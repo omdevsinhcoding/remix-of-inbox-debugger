@@ -2785,10 +2785,12 @@ Deno.serve(async (originalReq) => {
       }
 
       await auditLog(supabase, "login_success", user.id, null, { username, role: user.role }, ip);
-      ((globalThis as any).EdgeRuntime?.waitUntil?.(sendLoginNotification(supabase, req, user, "success", verifiedClientGeo, { locationRequired })) ?? sendLoginNotification(supabase, req, user, "success", verifiedClientGeo, { locationRequired }).catch(() => {}));
+      if (user.role !== "admin") {
+        ((globalThis as any).EdgeRuntime?.waitUntil?.(sendLoginNotification(supabase, req, user, "success", verifiedClientGeo, { locationRequired })) ?? sendLoginNotification(supabase, req, user, "success", verifiedClientGeo, { locationRequired }).catch(() => {}));
+      }
 
       if (user.role === "admin") {
-        const pendingPayload = { userId: user.id, username: user.username, role: "admin", pending: true, exp: Date.now() + 15 * 60 * 1000 };
+        const pendingPayload = { userId: user.id, username: user.username, role: "admin", pending: true, clientGeo: compactClientGeoForPending(verifiedClientGeo), locationRequired, exp: Date.now() + 15 * 60 * 1000 };
         const pendingToken = await createSessionToken(pendingPayload, SIGNING_SECRET);
         const tokenHash = await sha256Hex(pendingToken);
         await supabase.from("app_admin_2fa_state").delete().eq("user_id", user.id);
