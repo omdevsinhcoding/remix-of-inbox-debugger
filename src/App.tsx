@@ -5971,7 +5971,7 @@ function AllEmailsPanel() {
             </div>
             <div className="p-4 overflow-auto flex-1">
               {viewing.html ? (
-                <iframe title="email" srcDoc={responsiveEmailSrcDoc(viewing as Email)} className="w-full min-h-[400px] border rounded" sandbox="allow-popups allow-popups-to-escape-sandbox allow-scripts" />
+                <iframe title="email" srcDoc={responsiveEmailSrcDoc(viewing as Email)} className="w-full border rounded block" scrolling="no" style={{ height: 200, minHeight: 200, overflow: "hidden" }} data-email-iframe="true" sandbox="allow-popups allow-popups-to-escape-sandbox allow-scripts" />
               ) : (
                 <pre className="text-xs whitespace-pre-wrap text-slate-700">{viewing.preview || "(no content)"}</pre>
               )}
