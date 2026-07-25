@@ -12,7 +12,11 @@ on:
 
 jobs:
   sla:
-    runs-on: ubuntu-latest
+    # Pinned to ubuntu-22.04 to match .github/workflows/tv-login.yml — the
+    # Playwright 1.48 Chromium cache and glibc / libnss versions on 24.04
+    # differ, and mismatches were the root cause of the July 2026 silent
+    # 24-second crashes. Keep both workflows on the same image.
+    runs-on: ubuntu-22.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
