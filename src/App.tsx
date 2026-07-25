@@ -14739,8 +14739,21 @@ function GlobalSessionOverlay() {
 
   useSessionTimeoutGuard(role, isLoggedIn && !isImpersonating && !isPendingAdmin);
 
+  const [notifOpen, setNotifOpen] = useState(false);
+  useEffect(() => {
+    const onOpen = () => setNotifOpen(true);
+    const onClose = () => setNotifOpen(false);
+    window.addEventListener("notif:open", onOpen);
+    window.addEventListener("notif:close", onClose);
+    return () => {
+      window.removeEventListener("notif:open", onOpen);
+      window.removeEventListener("notif:close", onClose);
+    };
+  }, []);
+
   if (!isLoggedIn || isPendingAdmin) return null;
   if (typeof document === "undefined") return null;
+  if (notifOpen) return null;
 
   return createPortal(
     <>
