@@ -11156,85 +11156,9 @@ function AdminPanel() {
               <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
                 <div className="bg-blue-50 p-1.5 rounded-lg"><Mail className="w-4 h-4 text-blue-600" /></div>
                 Connected Accounts
-                <span className="bg-slate-100 text-slate-600 text-xs px-2 py-0.5 rounded-full ml-auto">{emailAccounts.length + 1}</span>
+                <span className="bg-slate-100 text-slate-600 text-xs px-2 py-0.5 rounded-full ml-auto">{emailAccounts.length}</span>
               </h2>
 
-              <div
-                className={`p-4 rounded-2xl border mb-3 cursor-pointer transition-all ${expandedAccount === -1 ? "bg-green-100 border-green-300 shadow-md" : "bg-green-50 border-green-100 hover:border-green-200"}`}
-                onClick={() => setExpandedAccount(expandedAccount === -1 ? null : -1)}
-              >
-                <div className="flex items-center gap-3">
-                  <div className="bg-green-200 p-2 rounded-xl">
-                    <Server className="w-4 h-4 text-green-700" />
-                  </div>
-                  <div className="flex-1">
-                    <p className="font-bold text-sm text-green-900">Primary</p>
-                    <p className="text-xs text-green-700">{serverConfig.IMAP_USER || "Configure in Settings tab"} • {serverConfig.IMAP_HOST || "imap.gmail.com"}:{serverConfig.IMAP_PORT || "993"}</p>
-                  </div>
-                  <Eye className={`w-4 h-4 transition-transform ${expandedAccount === -1 ? "text-green-700" : "text-green-400"}`} />
-                </div>
-                {expandedAccount === -1 && (
-                  <div className="mt-4 pt-3 border-t border-green-200 space-y-3" onClick={(e) => e.stopPropagation()}>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-[10px] font-bold text-green-600 uppercase mb-1">Host</label>
-                        <input type="text" value={serverConfig.IMAP_HOST} onChange={(e) => setServerConfig({ ...serverConfig, IMAP_HOST: e.target.value })}
-                          placeholder="imap.gmail.com" className="w-full bg-white/80 border border-green-100 rounded-lg p-2 outline-none focus:ring-2 focus:ring-green-500 text-sm text-green-900" />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-bold text-green-600 uppercase mb-1">Port</label>
-                        <input type="text" value={serverConfig.IMAP_PORT} onChange={(e) => setServerConfig({ ...serverConfig, IMAP_PORT: e.target.value })}
-                          placeholder="993" className="w-full bg-white/80 border border-green-100 rounded-lg p-2 outline-none focus:ring-2 focus:ring-green-500 text-sm text-green-900" />
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-green-600 uppercase mb-1">Email / Username</label>
-                      <input type="text" value={serverConfig.IMAP_USER} onChange={(e) => setServerConfig({ ...serverConfig, IMAP_USER: e.target.value })}
-                        placeholder="Email address" className="w-full bg-white/80 border border-green-100 rounded-lg p-2 outline-none focus:ring-2 focus:ring-green-500 text-sm text-green-900" />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-green-600 uppercase mb-1">Password</label>
-                      <PasswordInput value={serverConfig.IMAP_PASSWORD} onChange={(e) => setServerConfig({ ...serverConfig, IMAP_PASSWORD: e.target.value })}
-                        placeholder="App password" className="w-full bg-white/80 border border-green-100 rounded-lg p-2 pr-12 outline-none focus:ring-2 focus:ring-green-500 text-sm" />
-                    </div>
-                    <div className="bg-white/60 rounded-lg p-2">
-                      <p className="text-[10px] font-bold text-green-600 uppercase mb-1">Cloudflare Worker URLs</p>
-                      <div className="space-y-1.5 mb-2">
-                        {primaryCfUrls.map((url, ui) => (
-                          <div key={ui} className="flex items-center gap-2 bg-white rounded-md px-2 py-1 border border-green-100">
-                            <input type="text" value={url} onChange={(e) => setPrimaryCfUrls(primaryCfUrls.map((item, idx) => idx === ui ? e.target.value : item))}
-                              className="text-sm text-green-900 font-medium flex-1 min-w-0 bg-transparent outline-none" />
-                            <button type="button" onClick={() => copyToClipboard(url, "Worker URL copied")}
-                              className="p-1 rounded hover:bg-green-100 text-green-700 flex-shrink-0" aria-label="Copy worker URL">
-                              <Copy className="w-3 h-3" />
-                            </button>
-                            <button type="button" onClick={() => setPrimaryCfUrls(primaryCfUrls.filter((_, idx) => idx !== ui))}
-                              className="p-1 rounded hover:bg-red-50 text-red-500 flex-shrink-0" aria-label="Remove worker URL">
-                              <X className="w-3 h-3" />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                      <div className="flex gap-2">
-                        <input type="text" placeholder="https://worker.workers.dev" value={primaryCfInput}
-                          onChange={(e) => setPrimaryCfInput(e.target.value)}
-                          className="flex-1 bg-white border border-green-100 rounded-lg p-2 outline-none focus:ring-2 focus:ring-green-500 text-xs text-green-900" />
-                        <button type="button" onClick={() => {
-                          if (!primaryCfInput.trim()) return;
-                          setPrimaryCfUrls([...primaryCfUrls, primaryCfInput.trim().replace(/\/+$/, "")]);
-                          setPrimaryCfInput("");
-                        }} className="px-3 py-1.5 bg-green-700 text-white text-xs font-bold rounded-lg hover:bg-green-800">
-                          Add
-                        </button>
-                      </div>
-                    </div>
-                    <button type="button" onClick={saveServerConfig} disabled={savingConfig}
-                      className="w-full bg-green-700 text-white text-sm font-bold py-2.5 rounded-xl hover:bg-green-800 disabled:opacity-60 transition-all">
-                      {savingConfig ? "Saving..." : "Save Primary Account"}
-                    </button>
-                  </div>
-                )}
-              </div>
 
               {emailAccounts.length === 0 ? (
                 <p className="text-slate-400 text-sm text-center py-6">No additional accounts. Add one from the left panel.</p>
