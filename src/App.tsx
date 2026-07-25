@@ -8963,49 +8963,43 @@ function AdminPanel() {
                                 : !u.isFree && sessionLimit != null
                                   ? (sessionLimit === 0 ? "Unlimited sessions" : `${sessionLimit} session${sessionLimit === 1 ? "" : "s"} allowed`)
                                   : "Session limit not set";
+                              const mailboxSummary = accts.length === 0 ? "Not assigned" : `${accts.length} connected`;
                               return (
-                                <div className="mt-4 grid min-w-0 gap-3 text-[12px] md:grid-cols-3">
-                                  <div className="min-w-0 rounded-xl border border-slate-100 bg-slate-50/60 p-3">
-                                    <div className="font-bold uppercase tracking-[0.16em] text-slate-400 text-[10px]">Mailbox</div>
-                                    <div className="mt-1 font-semibold text-slate-800 break-words">{accts.length === 0 ? "Not assigned" : `${accts.length} connected`}</div>
-                                  </div>
-                                  <div className="min-w-0 rounded-xl border border-slate-100 bg-slate-50/60 p-3">
-                                    <div className="font-bold uppercase tracking-[0.16em] text-slate-400 text-[10px]">Session</div>
-                                    <div className="mt-1 font-semibold text-slate-800 break-words">{sessionSummary}</div>
-                                  </div>
-                                  <div className="min-w-0 rounded-xl border border-slate-100 bg-slate-50/60 p-3 md:col-span-1">
-                                    <div className="font-bold uppercase tracking-[0.16em] text-slate-400 text-[10px]">Access</div>
-                                    <div className="mt-1 font-semibold leading-relaxed text-slate-800 break-words">{accessSummary}</div>
-                                  </div>
+                                <div className="mt-3 flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1.5 text-[12px] text-slate-600">
+                                  <span className="inline-flex items-center gap-1.5"><span className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Mailbox</span><span className="font-semibold text-slate-800">{mailboxSummary}</span></span>
+                                  <span className="h-3 w-px bg-slate-200" aria-hidden />
+                                  <span className="inline-flex items-center gap-1.5"><span className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Session</span><span className="font-semibold text-slate-800">{sessionSummary}</span></span>
+                                  <span className="h-3 w-px bg-slate-200" aria-hidden />
+                                  <span className="inline-flex items-center gap-1.5"><span className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Access</span><span className="font-semibold text-slate-800">{accessSummary}</span></span>
                                 </div>
                               );
                             })()}
                           </div>
                         </div>
 
-                      {!isAdmin && (
-                        <div className="grid grid-cols-2 gap-2 border-t border-slate-100 pt-4 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-8">
-                          <button onClick={() => moveUser(u.id, -1)} disabled={isFirst || reordering} title="Move up"
-                            className="h-10 min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3 text-[12px] font-bold text-slate-700 hover:bg-white hover:border-slate-300 transition disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap overflow-hidden text-ellipsis">
-                            Move up
-                          </button>
-                          <button onClick={() => moveUser(u.id, 1)} disabled={isLast || reordering} title="Move down"
-                            className="h-10 min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3 text-[12px] font-bold text-slate-700 hover:bg-white hover:border-slate-300 transition disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap overflow-hidden text-ellipsis">
-                            Move down
-                          </button>
-                          <button onClick={() => togglePinnedUser(u)} title={u.pinned ? "Unpin" : "Pin"}
-                            className={`h-10 min-w-0 rounded-lg border px-3 text-[12px] font-bold transition whitespace-nowrap overflow-hidden text-ellipsis ${u.pinned ? "border-amber-300 bg-amber-50 text-amber-800" : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-white hover:border-slate-300"}`}>
-                            {u.pinned ? "Unpin" : "Pin"}
-                          </button>
-                          <button onClick={() => toggleProfileLocationRequired(u)} title={isLocationRequiredForProfile(u) ? "GPS on" : "GPS off"}
-                            className={`h-10 min-w-0 rounded-lg border px-3 text-[12px] font-bold transition whitespace-nowrap overflow-hidden text-ellipsis ${isLocationRequiredForProfile(u) ? "border-red-200 bg-red-50 text-red-700" : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-white hover:border-slate-300"}`}>
-                            {isLocationRequiredForProfile(u) ? "Location on" : "Location off"}
-                          </button>
-                          <button onClick={() => loginAsUser(u)} title="View as user"
-                            className="h-10 min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3 text-[12px] font-bold text-slate-700 hover:bg-white hover:border-slate-300 transition whitespace-nowrap overflow-hidden text-ellipsis">
-                            View
-                          </button>
-                          <button onClick={() => {
+                       {!isAdmin && (
+                         <div className="mt-4 flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-3">
+                           <button onClick={() => moveUser(u.id, -1)} disabled={isFirst || reordering} title="Move up"
+                             className="h-8 rounded-md border border-slate-200 bg-white px-2.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 transition disabled:opacity-40 disabled:cursor-not-allowed">
+                             Move up
+                           </button>
+                           <button onClick={() => moveUser(u.id, 1)} disabled={isLast || reordering} title="Move down"
+                             className="h-8 rounded-md border border-slate-200 bg-white px-2.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 transition disabled:opacity-40 disabled:cursor-not-allowed">
+                             Move down
+                           </button>
+                           <button onClick={() => togglePinnedUser(u)} title={u.pinned ? "Unpin" : "Pin"}
+                             className={`h-8 rounded-md border px-2.5 text-[11px] font-semibold transition ${u.pinned ? "border-amber-300 bg-amber-50 text-amber-800" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`}>
+                             {u.pinned ? "Unpin" : "Pin"}
+                           </button>
+                           <button onClick={() => toggleProfileLocationRequired(u)} title={isLocationRequiredForProfile(u) ? "GPS on" : "GPS off"}
+                             className={`h-8 rounded-md border px-2.5 text-[11px] font-semibold transition ${isLocationRequiredForProfile(u) ? "border-red-200 bg-red-50 text-red-700" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`}>
+                             {isLocationRequiredForProfile(u) ? "Location on" : "Location off"}
+                           </button>
+                           <button onClick={() => loginAsUser(u)} title="View as user"
+                             className="h-8 rounded-md border border-slate-200 bg-white px-2.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 transition">
+                             View
+                           </button>
+                           <button onClick={() => {
                               const opening = editingUserAccounts !== u.id;
                               setEditingUserAccounts(opening ? u.id : null);
                               setEditUsername(u.username || "");
@@ -9032,53 +9026,51 @@ function AdminPanel() {
                               const ovInit = (u as any).tvOverride;
                               setEditTvOverride(ovInit === "on" ? "on" : ovInit === "off" ? "off" : "inherit");
                               setEditDirectLinkEnabled(adminUserFeatures(u).link === true);
-                          }} title="Edit"
-                            className={`h-10 min-w-0 rounded-lg border px-3 text-[12px] font-bold transition whitespace-nowrap overflow-hidden text-ellipsis ${editingUserAccounts === u.id ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-white hover:border-slate-300"}`}>
-                            Edit
-                          </button>
-                          {!u.isFree && (
-                            <button onClick={() => { setChangingUserPass(changingUserPass === u.id ? null : u.id); setUserNewPass(""); }} title="Change password"
-                              className={`h-10 min-w-0 rounded-lg border px-3 text-[12px] font-bold transition whitespace-nowrap overflow-hidden text-ellipsis ${changingUserPass === u.id ? "border-amber-300 bg-amber-50 text-amber-800" : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-white hover:border-slate-300"}`}>
-                              Password
-                            </button>
-                          )}
-                          <button onClick={() => setDeleteConfirmUser(u)} title="Delete"
-                            className="h-10 min-w-0 rounded-lg border border-red-200 bg-red-50 px-3 text-[12px] font-bold text-red-700 hover:bg-red-100 transition whitespace-nowrap overflow-hidden text-ellipsis">
-                            Delete
-                          </button>
-                        </div>
-                      )}
+                           }} title="Edit"
+                             className={`h-8 rounded-md border px-2.5 text-[11px] font-semibold transition ${editingUserAccounts === u.id ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`}>
+                             Edit
+                           </button>
+                           {!u.isFree && (
+                             <button onClick={() => { setChangingUserPass(changingUserPass === u.id ? null : u.id); setUserNewPass(""); }} title="Change password"
+                               className={`h-8 rounded-md border px-2.5 text-[11px] font-semibold transition ${changingUserPass === u.id ? "border-amber-300 bg-amber-50 text-amber-800" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`}>
+                               Password
+                             </button>
+                           )}
+                           <button onClick={() => setDeleteConfirmUser(u)} title="Delete"
+                             className="ml-auto h-8 rounded-md border border-red-200 bg-red-50 px-2.5 text-[11px] font-semibold text-red-700 hover:bg-red-100 transition">
+                             Delete
+                           </button>
+                         </div>
+                       )}
 
-                      {isAdmin && (
-                        <div className="grid grid-cols-2 gap-2 border-t border-slate-100 pt-4 sm:grid-cols-3 xl:grid-cols-4">
-                          <button onClick={() => toggleProfileLocationRequired(u)}
-                            title={isLocationRequiredForProfile(u) ? "GPS required" : "GPS off"}
-                            className={`h-10 min-w-0 rounded-lg border px-3 text-[12px] font-bold transition whitespace-nowrap overflow-hidden text-ellipsis ${isLocationRequiredForProfile(u) ? "border-red-200 bg-red-50 text-red-700" : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-white hover:border-slate-300"}`}>
-                            {isLocationRequiredForProfile(u) ? "Location on" : "Location off"}
-                          </button>
-                          {currentUser?.id !== u.id && (
-                            <>
-                              <button onClick={() => loginAsUser(u)} title="Sign in as admin"
-                                className="h-10 min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3 text-[12px] font-bold text-slate-700 hover:bg-white hover:border-slate-300 transition whitespace-nowrap overflow-hidden text-ellipsis">
-                                View
-                              </button>
-                            </>
-                          )}
-                          <button onClick={() => {
-                              const opening = editingUserAccounts !== u.id;
-                              setEditingUserAccounts(opening ? u.id : null);
-                              setEditUsername(u.username || "");
-                            }} title="Edit admin"
-                            className={`h-10 min-w-0 rounded-lg border px-3 text-[12px] font-bold transition whitespace-nowrap overflow-hidden text-ellipsis ${editingUserAccounts === u.id ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-white hover:border-slate-300"}`}>
-                            Edit
-                          </button>
-                          <button onClick={() => { setChangingUserPass(changingUserPass === u.id ? null : u.id); setUserNewPass(""); }}
-                            title="Change password"
-                            className={`h-10 min-w-0 rounded-lg border px-3 text-[12px] font-bold transition whitespace-nowrap overflow-hidden text-ellipsis ${changingUserPass === u.id ? "border-amber-300 bg-amber-50 text-amber-800" : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-white hover:border-slate-300"}`}>
-                            Password
-                          </button>
-                        </div>
-                      )}
+                       {isAdmin && (
+                         <div className="mt-4 flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-3">
+                           <button onClick={() => toggleProfileLocationRequired(u)}
+                             title={isLocationRequiredForProfile(u) ? "GPS required" : "GPS off"}
+                             className={`h-8 rounded-md border px-2.5 text-[11px] font-semibold transition ${isLocationRequiredForProfile(u) ? "border-red-200 bg-red-50 text-red-700" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`}>
+                             {isLocationRequiredForProfile(u) ? "Location on" : "Location off"}
+                           </button>
+                           {currentUser?.id !== u.id && (
+                             <button onClick={() => loginAsUser(u)} title="Sign in as admin"
+                               className="h-8 rounded-md border border-slate-200 bg-white px-2.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 transition">
+                               View
+                             </button>
+                           )}
+                           <button onClick={() => {
+                               const opening = editingUserAccounts !== u.id;
+                               setEditingUserAccounts(opening ? u.id : null);
+                               setEditUsername(u.username || "");
+                             }} title="Edit admin"
+                             className={`h-8 rounded-md border px-2.5 text-[11px] font-semibold transition ${editingUserAccounts === u.id ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`}>
+                             Edit
+                           </button>
+                           <button onClick={() => { setChangingUserPass(changingUserPass === u.id ? null : u.id); setUserNewPass(""); }}
+                             title="Change password"
+                             className={`h-8 rounded-md border px-2.5 text-[11px] font-semibold transition ${changingUserPass === u.id ? "border-amber-300 bg-amber-50 text-amber-800" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`}>
+                             Password
+                           </button>
+                         </div>
+                       )}
 
                       {editingUserAccounts === u.id && u.role === "admin" && (
                         <div className="mt-2 p-3.5 rounded-xl border border-slate-200 bg-white shadow-sm space-y-2.5">
