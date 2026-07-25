@@ -42,7 +42,7 @@ Deno.serve(async (req) => {
   const supabase = createClient(SUPABASE_URL, SERVICE_ROLE);
   const now = Date.now();
   const in7d = new Date(now + 7 * 24 * 60 * 60 * 1000).toISOString();
-  const oneHourAgo = new Date(now - 55 * 60 * 1000).toISOString();
+  
 
   let startNotified = 0;
   let reminded = 0;
@@ -66,25 +66,36 @@ Deno.serve(async (req) => {
     }
   }
 
-  // 2) Last-7-days reminders (hourly, throttled by plan_last_reminder_at ≥ 55 min).
+  // 2) Last-7-days reminders — 5x/day at IST daytime slots (09, 12, 15, 18, 21 IST).
+  //    Cron ticks every 5 min; we only send when current IST time is within the
+  //    first 10 min of a slot hour, and throttle each user to ≥ 2h since last send.
   {
-    const { data: ending } = await supabase
-      .from('app_users')
-      .select('id, name, username, plan_ends_at, plan_last_reminder_at')
-      .eq('is_free', false)
-      .neq('role', 'admin')
-      .not('plan_ends_at', 'is', null)
-      .gt('plan_ends_at', new Date(now).toISOString())
-      .lte('plan_ends_at', in7d);
-    for (const u of (ending || [])) {
-      if (u.plan_last_reminder_at && u.plan_last_reminder_at > oneHourAgo) continue;
-      const endMs = Date.parse(String(u.plan_ends_at));
-      const hoursLeft = Math.max(0, Math.round((endMs - now) / (60 * 60 * 1000)));
-      const daysLeft = Math.max(0, Math.floor(hoursLeft / 24));
-      const timeStr = daysLeft > 0 ? `${daysLeft}d ${hoursLeft % 24}h` : `${hoursLeft}h`;
-      await tg(`⏳ <b>Plan ending soon</b>\nUser: ${u.name || u.username || u.id}\nTime left: <b>${timeStr}</b>\nEnds: ${fmt(u.plan_ends_at!)}`);
-      await supabase.from('app_users').update({ plan_last_reminder_at: new Date().toISOString() }).eq('id', u.id);
-      reminded++;
+    const istMinutes = (new Date(now).getUTCHours() * 60 + new Date(now).getUTCMinutes() + 330) % (24 * 60);
+    const istHour = Math.floor(istMinutes / 60);
+    const istMinOfHour = istMinutes % 60;
+    const SLOTS = [9, 12, 15, 18, 21]; // IST daytime
+    const inSlot = SLOTS.includes(istHour) && istMinOfHour < 10;
+
+    if (inSlot) {
+      const twoHoursAgo = new Date(now - 2 * 60 * 60 * 1000).toISOString();
+      const { data: ending } = await supabase
+        .from('app_users')
+        .select('id, name, username, plan_ends_at, plan_last_reminder_at')
+        .eq('is_free', false)
+        .neq('role', 'admin')
+        .not('plan_ends_at', 'is', null)
+        .gt('plan_ends_at', new Date(now).toISOString())
+        .lte('plan_ends_at', in7d);
+      for (const u of (ending || [])) {
+        if (u.plan_last_reminder_at && u.plan_last_reminder_at > twoHoursAgo) continue;
+        const endMs = Date.parse(String(u.plan_ends_at));
+        const hoursLeft = Math.max(0, Math.round((endMs - now) / (60 * 60 * 1000)));
+        const daysLeft = Math.max(0, Math.floor(hoursLeft / 24));
+        const timeStr = daysLeft > 0 ? `${daysLeft}d ${hoursLeft % 24}h` : `${hoursLeft}h`;
+        await tg(`⏳ <b>Plan ending soon</b>\nUser: ${u.name || u.username || u.id}\nTime left: <b>${timeStr}</b>\nEnds: ${fmt(u.plan_ends_at!)}`);
+        await supabase.from('app_users').update({ plan_last_reminder_at: new Date().toISOString() }).eq('id', u.id);
+        reminded++;
+      }
     }
   }
 
