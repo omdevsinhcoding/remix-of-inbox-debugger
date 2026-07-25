@@ -62,10 +62,7 @@ const STALE_DAYS = 60;
 // ------- Durable job coordination (survives Deno isolate recycles) --------
 // Every knob below is a constant so ops can grep + tune in one place.
 const SYNC_JOB_NAME = "email-sync";
-const BACKFILL_JOB_NAME = "legacy-label-backfill";
 const SYNC_LOCK_LEASE_SECONDS = 120;        // cron runs every 3min; 2min lease
-const BACKFILL_LOCK_LEASE_SECONDS = 60;
-const BACKFILL_BATCH_SIZE = 500;            // bounded per-run — no full scan
 const STALE_CLEANUP_MIN_INTERVAL_MS = 6 * 60 * 60_000; // 6h floor per isolate
 const DEDUP_ID_LIMIT = 2000;                // keyset window, not offset
 
