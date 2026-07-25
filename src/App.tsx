@@ -8963,20 +8963,14 @@ function AdminPanel() {
                                 : !u.isFree && sessionLimit != null
                                   ? (sessionLimit === 0 ? "Unlimited sessions" : `${sessionLimit} session${sessionLimit === 1 ? "" : "s"} allowed`)
                                   : "Session limit not set";
+                              const mailboxSummary = accts.length === 0 ? "Not assigned" : `${accts.length} connected`;
                               return (
-                                <div className="mt-4 grid min-w-0 gap-3 text-[12px] md:grid-cols-3">
-                                  <div className="min-w-0 rounded-xl border border-slate-100 bg-slate-50/60 p-3">
-                                    <div className="font-bold uppercase tracking-[0.16em] text-slate-400 text-[10px]">Mailbox</div>
-                                    <div className="mt-1 font-semibold text-slate-800 break-words">{accts.length === 0 ? "Not assigned" : `${accts.length} connected`}</div>
-                                  </div>
-                                  <div className="min-w-0 rounded-xl border border-slate-100 bg-slate-50/60 p-3">
-                                    <div className="font-bold uppercase tracking-[0.16em] text-slate-400 text-[10px]">Session</div>
-                                    <div className="mt-1 font-semibold text-slate-800 break-words">{sessionSummary}</div>
-                                  </div>
-                                  <div className="min-w-0 rounded-xl border border-slate-100 bg-slate-50/60 p-3 md:col-span-1">
-                                    <div className="font-bold uppercase tracking-[0.16em] text-slate-400 text-[10px]">Access</div>
-                                    <div className="mt-1 font-semibold leading-relaxed text-slate-800 break-words">{accessSummary}</div>
-                                  </div>
+                                <div className="mt-3 flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1.5 text-[12px] text-slate-600">
+                                  <span className="inline-flex items-center gap-1.5"><span className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Mailbox</span><span className="font-semibold text-slate-800">{mailboxSummary}</span></span>
+                                  <span className="h-3 w-px bg-slate-200" aria-hidden />
+                                  <span className="inline-flex items-center gap-1.5"><span className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Session</span><span className="font-semibold text-slate-800">{sessionSummary}</span></span>
+                                  <span className="h-3 w-px bg-slate-200" aria-hidden />
+                                  <span className="inline-flex items-center gap-1.5"><span className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Access</span><span className="font-semibold text-slate-800">{accessSummary}</span></span>
                                 </div>
                               );
                             })()}
