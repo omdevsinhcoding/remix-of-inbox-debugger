@@ -45,6 +45,7 @@ Deno.serve(async (req) => {
 
   let startNotified = 0;
   let reminded = 0;
+  let expiredNotified = 0;
 
   // 1) Plan-start notifications (once per user).
   {
@@ -86,7 +87,25 @@ Deno.serve(async (req) => {
     }
   }
 
-  return new Response(JSON.stringify({ success: true, startNotified, reminded }), {
+  // 3) Plan-expired notifications (fires once, the minute the plan ends).
+  {
+    const { data: expired } = await supabase
+      .from('app_users')
+      .select('id, name, username, plan_starts_at, plan_ends_at, plan_end_notified_at')
+      .eq('is_free', false)
+      .neq('role', 'admin')
+      .not('plan_ends_at', 'is', null)
+      .lte('plan_ends_at', new Date(now).toISOString())
+      .is('plan_end_notified_at', null);
+    for (const u of (expired || [])) {
+      const startedLine = u.plan_starts_at ? `\nStarted: ${fmt(u.plan_starts_at)}` : '';
+      await tg(`🛑 <b>Plan expired</b>\nUser: ${u.name || u.username || u.id}${startedLine}\nEnded: ${fmt(u.plan_ends_at!)}`);
+      await supabase.from('app_users').update({ plan_end_notified_at: new Date().toISOString() }).eq('id', u.id);
+      expiredNotified++;
+    }
+  }
+
+  return new Response(JSON.stringify({ success: true, startNotified, reminded, expiredNotified }), {
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
 });

@@ -169,6 +169,7 @@ export type Database = {
           name: string
           password: string | null
           pinned: boolean
+          plan_end_notified_at: string | null
           plan_ends_at: string | null
           plan_last_reminder_at: string | null
           plan_start_notified_at: string | null
@@ -196,6 +197,7 @@ export type Database = {
           name: string
           password?: string | null
           pinned?: boolean
+          plan_end_notified_at?: string | null
           plan_ends_at?: string | null
           plan_last_reminder_at?: string | null
           plan_start_notified_at?: string | null
@@ -223,6 +225,7 @@ export type Database = {
           name?: string
           password?: string | null
           pinned?: boolean
+          plan_end_notified_at?: string | null
           plan_ends_at?: string | null
           plan_last_reminder_at?: string | null
           plan_start_notified_at?: string | null
