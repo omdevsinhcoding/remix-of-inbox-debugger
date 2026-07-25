@@ -3524,7 +3524,7 @@ Deno.serve(async (originalReq) => {
 
     if (action === "save_contact_info") {
       const session = await requireAdmin(req);
-      const raw = params || {};
+      const raw = ((params as any)?.value && typeof (params as any).value === "object") ? (params as any).value : (params || {});
       const trim = (v: any, max = 240) => typeof v === "string" ? v.trim().slice(0, max) : "";
       const value = {
         telegram: trim(raw.telegram),
