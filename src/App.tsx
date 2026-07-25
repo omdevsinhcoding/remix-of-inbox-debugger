@@ -5176,7 +5176,9 @@ function AdminLoginPage() {
     try {
       if (!checkRateLimit(`admin_${username}`)) throw new Error("Too many attempts. Wait 1 minute.");
 
-      const clientGeo = preparedGeo || pendingClientGeoRef.current || await requireLoginLocation();
+      const clientGeo = locationRequired
+        ? (preparedGeo || pendingClientGeoRef.current || await requireLoginLocation())
+        : (preparedGeo || pendingClientGeoRef.current || null);
       pendingClientGeoRef.current = null;
       perf.mark("geo_ready");
 
@@ -5189,6 +5191,9 @@ function AdminLoginPage() {
       const data: any = await apiCall("manage-app", { action: "login", username, password, clientGeo, captchaToken });
       perf.mark("manage_app_login_ok");
 
+      if (!data?.success || !data?.user) {
+        throw new Error(data?.error === "plan_finished" ? "Plan finished" : (data?.error || "Login failed"));
+      }
       if (data.user.role !== "admin") throw new Error("Access denied");
       if (data.pendingToken) {
         sessionSet("pending_admin_token" as any, data.pendingToken);
