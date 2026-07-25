@@ -5830,15 +5830,11 @@ Deno.serve(async (originalReq) => {
       if (user.role !== "admin" && user.feature_tv === false) {
         return new Response(JSON.stringify({ success: true, accounts: [], not_configured: true, message: "TV login isn't enabled for your account." }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
-      const [cfg, emailAccounts] = await Promise.all([
+      const [, emailAccounts] = await Promise.all([
         getSetting<any>(supabase, "config"),
         getSetting<any[]>(supabase, "email_accounts"),
       ]);
-      const primaryUser = String(cfg?.IMAP_USER || "").trim().toLowerCase();
-      const primaryAccount = primaryUser
-        ? [{ label: "Primary", user: primaryUser, host: cfg?.IMAP_HOST || "", recipientFilters: normalizeRecipientFilters(cfg?.IMAP_RECIPIENT_FILTERS || cfg?.recipientFilters) }]
-        : [];
-      const allAccounts: any[] = [...primaryAccount, ...(Array.isArray(emailAccounts) ? emailAccounts : [])];
+      const allAccounts: any[] = Array.isArray(emailAccounts) ? emailAccounts : [];
       const candidates = resolveTvAccountCandidates(allAccounts, user.assigned_accounts);
 
       // Cookies are keyed per recipient filter (login_email). An account is
