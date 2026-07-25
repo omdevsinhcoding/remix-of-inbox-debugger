@@ -906,6 +906,13 @@ function GpsPermissionSheet({ mode, loading, onEnable, onPrimeEnable }: { mode: 
 
 // --- API Helper (encrypted-only Supabase edge transport) ---
 
+// In-flight coalescer: overlapping calls for read-only idempotent actions
+// (e.g. `me` fired by hydration + plan-expiry + route boundary within the
+// same tick) share a single Promise instead of triggering N edge invocations.
+// Keyed by function+action+token so different sessions never share a result.
+const inflightReads = new Map<string, Promise<any>>();
+const COALESCE_ACTIONS = new Set(["me", "bootstrap_public"]);
+
 async function apiCall(functionName: string, body: any) {
 
   const token = getSessionToken();
@@ -914,6 +921,14 @@ async function apiCall(functionName: string, body: any) {
   const extraHeaders: Record<string, string> = {};
   if (token) extraHeaders["X-Session-Token"] = token;
   if (pendingToken && functionName === "manage-app" && pendingActions.has(body?.action)) extraHeaders["X-Pending-Token"] = pendingToken;
+
+  const coalesceKey = (functionName === "manage-app" && COALESCE_ACTIONS.has(body?.action))
+    ? `${functionName}:${body.action}:${token || "anon"}`
+    : null;
+  if (coalesceKey) {
+    const existing = inflightReads.get(coalesceKey);
+    if (existing) return existing;
+  }
 
   const { invokeEdge } = await import("./lib/secureTransport");
   const { storeSessionPair, refreshNow, ensureFreshAccess, hasRefreshToken } = await import("./lib/sessionRefresh");
