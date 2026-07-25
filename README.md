@@ -1,6 +1,6 @@
 <div align="center">
 
-# 📬 Inbox Debuggerr
+# 📬 Inbox Debugger
 
 **Netflix-style email inbox** — IMAP sync → Supabase cache → Cloudflare Workers edge delivery
 
