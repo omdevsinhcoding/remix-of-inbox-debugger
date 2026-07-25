@@ -12,7 +12,7 @@ import { execSync } from "node:child_process";
 // SERVER_VERSION is bumped whenever the on-wire /health schema, timeout
 // budget, or reporting protocol changes. If /health shows a version older
 // than this constant in the repo, the VPS is running a stale build.
-const SERVER_VERSION = "2026.07.25-3";
+const SERVER_VERSION = "2026.07.25-4";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 let PACKAGE_VERSION = "unknown";
@@ -138,9 +138,24 @@ async function runTvJob(eventId, runnerToken) {
   const started = now();
   const mark = {};
   let stage = "starting";
+  let context = null;
+  // Once we successfully report a terminal outcome, the outer catch must
+  // NOT report again — otherwise transient network flakes on the FIRST
+  // report throw into catch and produce a second, contradictory report
+  // for the same event_id.
+  let reported = false;
   const elapsed = () => now() - started;
   const remaining = () => Math.max(1, MAX_MS - elapsed());
   lastJob = { eventId, startedAt: new Date().toISOString(), status: "running" };
+
+  const safeReport = async (payload) => {
+    try {
+      await report(eventId, runnerToken, payload);
+      reported = true;
+    } catch (err) {
+      console.error("report failed", err instanceof Error ? err.message : err);
+    }
+  };
 
   try {
     stage = "fetch_job";
@@ -157,17 +172,23 @@ async function runTvJob(eventId, runnerToken) {
 
     const browser = await ensureBrowser();
     mark.browser = elapsed();
-    const context = await browser.newContext({ userAgent: USER_AGENT, viewport: { width: 1280, height: 800 }, locale: "en-US", javaScriptEnabled: true });
+    context = await browser.newContext({ userAgent: USER_AGENT, viewport: { width: 1280, height: 800 }, locale: "en-US", javaScriptEnabled: true });
     stage = "inject_cookies";
     await context.addCookies(cookies);
     const page = await context.newPage();
+    // Route handlers must swallow their own errors — Playwright aborts the
+    // handler chain if any of abort()/continue() throws (which happens
+    // routinely when the context is torn down mid-navigation), and that
+    // rejection would otherwise bubble up as an unhandled promise.
     await page.route("**/*", (route) => {
-      const req = route.request();
-      const type = req.resourceType();
-      const url = req.url();
-      if (["image", "media", "font"].includes(type)) return route.abort();
-      if (/googletagmanager|google-analytics|doubleclick|segment|monet|adtech|logs\.netflix\.com|\.mp4|\.jpg|\.png|\.webp/i.test(url)) return route.abort();
-      return route.continue();
+      try {
+        const req = route.request();
+        const type = req.resourceType();
+        const url = req.url();
+        if (["image", "media", "font"].includes(type)) return route.abort().catch(() => {});
+        if (/googletagmanager|google-analytics|doubleclick|segment|monet|adtech|logs\.netflix\.com|\.mp4|\.jpg|\.png|\.webp/i.test(url)) return route.abort().catch(() => {});
+        return route.continue().catch(() => {});
+      } catch { /* context closed */ }
     });
 
     stage = "open_netflix_tv8";
@@ -180,10 +201,9 @@ async function runTvJob(eventId, runnerToken) {
     if (!hasCodeInput) {
       const bodyText = (await page.locator("body").innerText().catch(() => "")).toLowerCase();
       const url = page.url();
-      await context.close().catch(() => {});
       const timing = `timing fetch=${mark.fetch}ms browser=${mark.browser}ms nav=${mark.nav}ms total=${elapsed()}ms`;
       const looksExpired = /sign ?in|log ?in|password|email|expired|unsupported|not available|something went wrong/i.test(bodyText) || /login|unsupportedbrowser/i.test(url);
-      await report(eventId, runnerToken, {
+      await safeReport({
         status: looksExpired ? "cookies_expired" : "error",
         result: looksExpired ? "cookies_expired" : "no_code_input",
         message: `${looksExpired ? "Cookies appear to be expired" : "Netflix code input did not appear"} | ${timing}`,
@@ -229,20 +249,26 @@ async function runTvJob(eventId, runnerToken) {
       status = "cookies_expired"; result = "cookies_expired"; message = "Cookies appear to be expired";
     }
 
-    await context.close().catch(() => {});
     const timing = `timing fetch=${mark.fetch}ms browser=${mark.browser}ms nav=${mark.nav}ms fill=${mark.fill}ms submit=${mark.submit}ms result=${mark.result}ms total=${elapsed()}ms`;
-    await report(eventId, runnerToken, { status, result, message: `${message} | ${timing}` });
+    await safeReport({ status, result, message: `${message} | ${timing}` });
     lastJob = { ...lastJob, status, result, finishedAt: new Date().toISOString(), timing };
   } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
-    const timing = `timing total=${elapsed()}ms`;
-    const result = /aborted due to timeout|timeout/i.test(message) ? "netflix_no_response" : "runner_error";
-    const userMessage = result === "netflix_no_response"
-      ? `Netflix did not respond cleanly during ${stage.replace(/_/g, " ")}`
-      : `${message} (stage: ${stage})`;
-    await report(eventId, runnerToken, { status: "error", result, message: `${userMessage} | ${timing}` }).catch((err) => console.error("report failed", err));
-    lastJob = { ...lastJob, status: "error", result, finishedAt: new Date().toISOString(), error: userMessage, timing };
+    if (reported) {
+      // Terminal outcome already delivered — this catch is only firing on
+      // teardown / post-report noise. Log and swallow.
+      console.error("post-report error", e instanceof Error ? e.message : String(e));
+    } else {
+      const message = e instanceof Error ? e.message : String(e);
+      const timing = `timing total=${elapsed()}ms`;
+      const result = /aborted due to timeout|timeout/i.test(message) ? "netflix_no_response" : "runner_error";
+      const userMessage = result === "netflix_no_response"
+        ? `Netflix did not respond cleanly during ${stage.replace(/_/g, " ")}`
+        : `${message} (stage: ${stage})`;
+      await safeReport({ status: "error", result, message: `${userMessage} | ${timing}` });
+      lastJob = { ...lastJob, status: "error", result, finishedAt: new Date().toISOString(), error: userMessage, timing };
+    }
   } finally {
+    if (context) { try { await context.close(); } catch { /* browser may already be gone */ } }
     activeJobs = Math.max(0, activeJobs - 1);
   }
 }
@@ -290,6 +316,18 @@ server.listen(PORT, "0.0.0.0", async () => {
   await ensureBrowser();
   console.log(`tv-fast-runner v${SERVER_VERSION} commit=${GIT_COMMIT || "unknown"} listening on :${PORT} max=${MAX_MS}ms env_max=${ENV_MAX_MS || "unset"} concurrency=${MAX_CONCURRENT}`);
 });
-
-process.on("SIGINT", async () => { try { (await browserPromise)?.close?.(); } catch {} process.exit(0); });
-process.on("SIGTERM", async () => { try { (await browserPromise)?.close?.(); } catch {} process.exit(0); });
+async function shutdown(signal) {
+  console.log(`received ${signal}; draining ${activeJobs} active job(s)…`);
+  server.close(() => {});
+  // Give in-flight jobs a bounded window (2× MAX_MS) to finish reporting
+  // before we tear down Chromium — otherwise a SIGTERM mid-job leaves the
+  // tv_login_events row stuck in `running`.
+  const deadline = Date.now() + Math.max(5000, MAX_MS * 2);
+  while (activeJobs > 0 && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  try { (await browserPromise)?.close?.(); } catch {}
+  process.exit(0);
+}
+process.on("SIGINT", () => { shutdown("SIGINT").catch(() => process.exit(1)); });
+process.on("SIGTERM", () => { shutdown("SIGTERM").catch(() => process.exit(1)); });
