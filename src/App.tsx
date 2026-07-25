@@ -4942,7 +4942,7 @@ function ProfileSelectPage() {
               className="text-white text-center font-normal tracking-tight text-[32px] sm:text-[56px] leading-[1.1] mb-8 sm:mb-12"
               style={{ fontFamily: '"Netflix Sans","Helvetica Neue",Arial,sans-serif', fontWeight: 400 }}
             >
-              Who's watching?
+              Who's watching?<span className="sr-only"> — Netflix Mail profile selection</span>
             </motion.h1>
 
             {profiles.length > 6 && (
