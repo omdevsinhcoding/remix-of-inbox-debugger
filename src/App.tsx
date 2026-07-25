@@ -3124,21 +3124,8 @@ function TvSignInPage() {
               </div>
             ) : (
               <div>
-                {accounts.length > 1 && (
-                  <div className="mb-3 flex items-center justify-between">
-                    <button type="button"
-                      onClick={() => { setStep("select"); setStatus("idle"); setResultInfo({}); setCode(["", "", "", "", "", "", "", ""]); }}
-                      disabled={["queued", "running", "in_progress", "verifying", "checking"].includes(status)}
-                      className="inline-flex items-center gap-1.5 text-xs font-bold text-rose-600 hover:text-rose-700 transition disabled:opacity-40 disabled:cursor-not-allowed">
-                      <ArrowLeft className="w-4 h-4" /> Choose a different account
-                    </button>
-                    <span className="text-[11px] text-slate-400">{accounts.length} accounts</span>
-                  </div>
-                )}
-                {chosen && (
-                  <button type="button"
-                    onClick={() => { if (accounts.length > 1 && !["queued", "running", "in_progress", "verifying", "checking"].includes(status)) { setStep("select"); setStatus("idle"); setResultInfo({}); setCode(["", "", "", "", "", "", "", ""]); } }}
-                    className={`w-full flex items-center justify-between gap-2 rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 text-left ${accounts.length > 1 ? "hover:bg-slate-100 hover:border-rose-300 cursor-pointer" : "cursor-default"}`}>
+                {chosen && accounts.length > 1 && (
+                  <div className="flex items-center justify-between gap-2 rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3">
                     <div className="min-w-0 flex items-center gap-2.5">
                       <div className="w-9 h-9 rounded-lg bg-white border border-slate-200 flex items-center justify-center">
                         <Mail className="w-4 h-4 text-slate-500" />
@@ -3148,12 +3135,12 @@ function TvSignInPage() {
                         {chosen.label && <div className="text-[11px] text-slate-500 truncate">{chosen.label}</div>}
                       </div>
                     </div>
-                    {accounts.length > 1 && (
-                      <span className="shrink-0 inline-flex items-center gap-1 text-[11px] font-bold text-rose-600 px-2.5 py-1.5 rounded-lg border border-rose-200 bg-white">
-                        <RefreshCw className="w-3 h-3" /> Change
-                      </span>
-                    )}
-                  </button>
+                    <button onClick={() => { setStep("select"); setStatus("idle"); setResultInfo({}); setCode(["", "", "", "", "", "", "", ""]); }}
+                      disabled={["queued", "running", "in_progress", "verifying", "checking"].includes(status)}
+                      className="shrink-0 text-[11px] font-bold text-rose-600 hover:text-rose-700 transition disabled:opacity-40 disabled:cursor-not-allowed">
+                      Change
+                    </button>
+                  </div>
                 )}
 
                 <div className="mt-10 sm:mt-8 flex items-stretch justify-center gap-1.5 sm:gap-2">
