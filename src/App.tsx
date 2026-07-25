@@ -7099,9 +7099,9 @@ function AdminPanel() {
   const [savingConcurrentSessionLimit, setSavingConcurrentSessionLimit] = useState(false);
   const [freeAvatarCooldownMin, setFreeAvatarCooldownMinState] = useState<string>("5");
   const [savingFreeAvatarCooldown, setSavingFreeAvatarCooldown] = useState(false);
-  const [contactInfoTelegram, setContactInfoTelegram] = useState<string>("");
-  const [contactInfoWhatsapp, setContactInfoWhatsapp] = useState<string>("");
-  const [contactInfoEmail, setContactInfoEmail] = useState<string>("");
+  const [contactInfoTelegrams, setContactInfoTelegrams] = useState<string[]>([""]);
+  const [contactInfoWhatsapps, setContactInfoWhatsapps] = useState<string[]>([""]);
+  const [contactInfoEmails, setContactInfoEmails] = useState<string[]>([""]);
   const [contactInfoNote, setContactInfoNote] = useState<string>("");
   const [savingContactInfo, setSavingContactInfo] = useState(false);
   const loadContactInfoRef = useRef(false);
@@ -7113,9 +7113,14 @@ function AdminPanel() {
         const res: any = await apiCall("manage-app", { action: "get_settings", key: "contact_info" });
         const v = res?.value || res?.settings?.contact_info || null;
         if (v && typeof v === "object") {
-          setContactInfoTelegram(v.telegram || "");
-          setContactInfoWhatsapp(v.whatsapp || "");
-          setContactInfoEmail(v.email || "");
+          const pickArr = (plural: any, singular: any): string[] => {
+            if (Array.isArray(plural) && plural.length) return plural.map((x: any) => String(x || "")).filter(Boolean);
+            if (typeof singular === "string" && singular.trim()) return [singular.trim()];
+            return [""];
+          };
+          setContactInfoTelegrams(pickArr(v.telegrams, v.telegram));
+          setContactInfoWhatsapps(pickArr(v.whatsapps, v.whatsapp));
+          setContactInfoEmails(pickArr(v.emails, v.email));
           setContactInfoNote(v.note || "");
         }
       } catch {}
@@ -7124,10 +7129,11 @@ function AdminPanel() {
   const saveContactInfo = async () => {
     setSavingContactInfo(true);
     try {
+      const clean = (arr: string[]) => Array.from(new Set(arr.map(s => s.trim()).filter(Boolean)));
       await apiCall("manage-app", { action: "save_contact_info", value: {
-        telegram: contactInfoTelegram.trim(),
-        whatsapp: contactInfoWhatsapp.trim(),
-        email: contactInfoEmail.trim(),
+        telegrams: clean(contactInfoTelegrams),
+        whatsapps: clean(contactInfoWhatsapps),
+        emails: clean(contactInfoEmails),
         note: contactInfoNote.trim(),
       }});
       notify.success("Contact info saved");
@@ -7137,6 +7143,8 @@ function AdminPanel() {
       setSavingContactInfo(false);
     }
   };
+
+
 
   const [savingAdminSessionTimeout, setSavingAdminSessionTimeout] = useState(false);
   const [captchaEnabled, setCaptchaEnabled] = useState<boolean>(false);
@@ -11338,38 +11346,48 @@ function AdminPanel() {
                 <div className="bg-amber-50 p-1.5 rounded-lg"><AlertCircle className="w-4 h-4 text-amber-600" /></div>
                 Plan Contact Info
               </h2>
-              <p className="text-[11px] text-slate-500 mb-4">Shown to paid users when their plan has ended (Plan Finished screen).</p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Telegram</label>
-                  <input type="text" placeholder="@yourhandle or https://t.me/..." value={contactInfoTelegram}
-                    onChange={(e) => setContactInfoTelegram(e.target.value)}
-                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+              <p className="text-[11px] text-slate-500 mb-4">Shown to paid users when their plan has ended. Add multiple entries per channel — perfect for a support team.</p>
+              {([
+                { label: "Telegram", list: contactInfoTelegrams, set: setContactInfoTelegrams, placeholder: "@yourhandle or https://t.me/...", icon: Send, tint: "sky" },
+                { label: "WhatsApp", list: contactInfoWhatsapps, set: setContactInfoWhatsapps, placeholder: "+91 98765 43210", icon: MessageSquare, tint: "emerald" },
+                { label: "Email", list: contactInfoEmails, set: setContactInfoEmails, placeholder: "admin@example.com", icon: Mail, tint: "slate" },
+              ] as const).map(({ label, list, set, placeholder, icon: Icon, tint }) => (
+                <div key={label} className="mb-4">
+                  <label className="flex items-center gap-1.5 text-xs font-bold text-slate-500 uppercase mb-1.5 ml-1">
+                    <Icon className={`w-3.5 h-3.5 text-${tint}-600`} /> {label}
+                  </label>
+                  <div className="space-y-2">
+                    {list.map((val, idx) => (
+                      <div key={idx} className="flex items-center gap-2">
+                        <input type={label === "Email" ? "email" : "text"} placeholder={placeholder} value={val}
+                          onChange={(e) => set(list.map((v, i) => i === idx ? e.target.value : v))}
+                          className="flex-1 bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                        <button type="button" onClick={() => set(list.length > 1 ? list.filter((_, i) => i !== idx) : [""])}
+                          className="h-11 w-11 rounded-xl border border-slate-200 text-slate-400 hover:text-red-600 hover:border-red-200 hover:bg-red-50 flex items-center justify-center transition"
+                          title="Remove">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                    <button type="button" onClick={() => set([...list, ""])}
+                      className="text-xs font-bold text-slate-600 hover:text-red-600 flex items-center gap-1 transition">
+                      <Plus className="w-3.5 h-3.5" /> Add {label.toLowerCase()}
+                    </button>
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">WhatsApp</label>
-                  <input type="text" placeholder="+91 98765 43210" value={contactInfoWhatsapp}
-                    onChange={(e) => setContactInfoWhatsapp(e.target.value)}
-                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Email</label>
-                  <input type="email" placeholder="admin@example.com" value={contactInfoEmail}
-                    onChange={(e) => setContactInfoEmail(e.target.value)}
-                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Note (optional)</label>
-                  <input type="text" placeholder="Renewal instructions..." value={contactInfoNote}
-                    onChange={(e) => setContactInfoNote(e.target.value)}
-                    className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
-                </div>
+              ))}
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5 ml-1">Note (optional)</label>
+                <input type="text" placeholder="Renewal instructions..." value={contactInfoNote}
+                  onChange={(e) => setContactInfoNote(e.target.value)}
+                  className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
               </div>
               <button onClick={saveContactInfo} disabled={savingContactInfo}
                 className="mt-4 h-10 px-5 rounded-xl bg-slate-900 text-white text-sm font-bold hover:bg-slate-800 active:scale-[0.98] transition disabled:opacity-50">
                 {savingContactInfo ? "Saving…" : "Save Contact Info"}
               </button>
             </section>
+
 
             <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
               <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
@@ -14193,8 +14211,22 @@ function PlanFinishedModal() {
   if (!state.open || typeof document === "undefined") return null;
   const c = state.contactInfo || {};
   const endedOn = state.planEndsAt ? new Date(state.planEndsAt).toLocaleString() : null;
+  const toList = (plural: any, singular: any): string[] => {
+    if (Array.isArray(plural) && plural.length) return plural.map((x: any) => String(x || "")).filter(Boolean);
+    if (typeof singular === "string" && singular.trim()) return [singular.trim()];
+    return [];
+  };
+  const tgs = toList(c.telegrams, c.telegram);
+  const was = toList(c.whatsapps, c.whatsapp);
+  const ems = toList(c.emails, c.email);
+  const tgHref = (v: string) => v.startsWith("http") ? v : `https://t.me/${String(v).replace(/^@/, "")}`;
+  const waHref = (v: string) => `https://wa.me/${String(v).replace(/[^\d]/g, "")}`;
+  const hasAny = tgs.length || was.length || ems.length || (c.note && String(c.note).trim());
   return createPortal(
-    <div className="fixed inset-0 z-[10050] bg-slate-950/70 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div className="fixed inset-0 z-[10050] flex items-end sm:items-center justify-center p-0 sm:p-4">
+      {/* Solid opaque backdrop — no bleed-through of profile grid behind. */}
+      <div aria-hidden className="absolute inset-0 bg-slate-950/95 backdrop-blur-2xl" />
+      <div aria-hidden className="absolute inset-0 bg-[radial-gradient(circle_at_50%_30%,rgba(239,68,68,0.15),transparent_60%)] pointer-events-none" />
       <div className="relative w-full sm:w-auto sm:min-w-[24rem] sm:max-w-md max-h-[92dvh] overflow-y-auto rounded-t-3xl sm:rounded-3xl bg-white shadow-2xl border border-slate-200 p-6 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] sm:pb-6">
         <div aria-hidden className="sm:hidden flex justify-center -mt-1 mb-3">
           <div className="w-10 h-1 rounded-full bg-slate-300" />
@@ -14213,25 +14245,34 @@ function PlanFinishedModal() {
           <div className="mt-3 rounded-xl bg-slate-50 border border-slate-200 px-3 py-2 text-xs text-slate-600">Ended on <span className="font-semibold text-slate-900">{endedOn}</span></div>
         )}
         <div className="mt-4 space-y-2">
-          {c.telegram && (
-            <a href={c.telegram.startsWith("http") ? c.telegram : `https://t.me/${String(c.telegram).replace(/^@/, "")}`} target="_blank" rel="noreferrer" className="flex items-center justify-between rounded-xl bg-sky-50 border border-sky-200 px-4 py-3 text-sm font-semibold text-sky-900 hover:bg-sky-100 transition">
-              <span>Telegram</span><span className="text-xs opacity-70 truncate ml-3">{c.telegram}</span>
+          {tgs.map((v, i) => (
+            <a key={`tg-${i}`} href={tgHref(v)} target="_blank" rel="noreferrer"
+              className="flex items-center gap-3 rounded-xl bg-sky-50 border border-sky-200 px-3.5 py-2.5 text-sm font-semibold text-sky-900 hover:bg-sky-100 transition">
+              <Send className="w-4 h-4 flex-shrink-0" />
+              <span className="text-xs uppercase tracking-wide font-bold text-sky-700/80">Telegram</span>
+              <span className="ml-auto text-xs opacity-80 truncate">{v}</span>
             </a>
-          )}
-          {c.whatsapp && (
-            <a href={`https://wa.me/${String(c.whatsapp).replace(/[^\d]/g, "")}`} target="_blank" rel="noreferrer" className="flex items-center justify-between rounded-xl bg-emerald-50 border border-emerald-200 px-4 py-3 text-sm font-semibold text-emerald-900 hover:bg-emerald-100 transition">
-              <span>WhatsApp</span><span className="text-xs opacity-70 truncate ml-3">{c.whatsapp}</span>
+          ))}
+          {was.map((v, i) => (
+            <a key={`wa-${i}`} href={waHref(v)} target="_blank" rel="noreferrer"
+              className="flex items-center gap-3 rounded-xl bg-emerald-50 border border-emerald-200 px-3.5 py-2.5 text-sm font-semibold text-emerald-900 hover:bg-emerald-100 transition">
+              <MessageSquare className="w-4 h-4 flex-shrink-0" />
+              <span className="text-xs uppercase tracking-wide font-bold text-emerald-700/80">WhatsApp</span>
+              <span className="ml-auto text-xs opacity-80 truncate">{v}</span>
             </a>
-          )}
-          {c.email && (
-            <a href={`mailto:${c.email}`} className="flex items-center justify-between rounded-xl bg-slate-50 border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-900 hover:bg-slate-100 transition">
-              <span>Email</span><span className="text-xs opacity-70 truncate ml-3">{c.email}</span>
+          ))}
+          {ems.map((v, i) => (
+            <a key={`em-${i}`} href={`mailto:${v}`}
+              className="flex items-center gap-3 rounded-xl bg-slate-50 border border-slate-200 px-3.5 py-2.5 text-sm font-semibold text-slate-900 hover:bg-slate-100 transition">
+              <Mail className="w-4 h-4 flex-shrink-0" />
+              <span className="text-xs uppercase tracking-wide font-bold text-slate-600">Email</span>
+              <span className="ml-auto text-xs opacity-80 truncate">{v}</span>
             </a>
-          )}
+          ))}
           {c.note && (
             <div className="rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 text-xs text-amber-900 whitespace-pre-wrap">{c.note}</div>
           )}
-          {!c.telegram && !c.whatsapp && !c.email && !c.note && (
+          {!hasAny && (
             <div className="rounded-xl bg-slate-50 border border-slate-200 px-4 py-3 text-xs text-slate-600">Please contact the admin to renew your plan.</div>
           )}
         </div>
@@ -14246,6 +14287,7 @@ function PlanFinishedModal() {
     document.body
   );
 }
+
 
 
 function SessionRouteBoundary() {

@@ -3677,10 +3677,31 @@ Deno.serve(async (originalReq) => {
       const session = await requireAdmin(req);
       const raw = ((params as any)?.value && typeof (params as any).value === "object") ? (params as any).value : (params || {});
       const trim = (v: any, max = 240) => typeof v === "string" ? v.trim().slice(0, max) : "";
+      const arr = (v: any, max = 240, limit = 10): string[] => {
+        if (!Array.isArray(v)) return [];
+        const out: string[] = [];
+        const seen = new Set<string>();
+        for (const it of v) {
+          const s = trim(it, max);
+          if (!s || seen.has(s)) continue;
+          seen.add(s);
+          out.push(s);
+          if (out.length >= limit) break;
+        }
+        return out;
+      };
+      const telegrams = arr(raw.telegrams);
+      const whatsapps = arr(raw.whatsapps);
+      const emails = arr(raw.emails);
+      // Legacy singular fields — if arrays given, first entry wins; else keep singular.
+      const telegram = telegrams[0] || trim(raw.telegram);
+      const whatsapp = whatsapps[0] || trim(raw.whatsapp);
+      const email = emails[0] || trim(raw.email);
       const value = {
-        telegram: trim(raw.telegram),
-        whatsapp: trim(raw.whatsapp),
-        email: trim(raw.email),
+        telegram, whatsapp, email,
+        telegrams: telegrams.length ? telegrams : (telegram ? [telegram] : []),
+        whatsapps: whatsapps.length ? whatsapps : (whatsapp ? [whatsapp] : []),
+        emails: emails.length ? emails : (email ? [email] : []),
         note: trim(raw.note, 500),
       };
       const { error } = await supabase
@@ -3693,6 +3714,7 @@ Deno.serve(async (originalReq) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
 
 
 
