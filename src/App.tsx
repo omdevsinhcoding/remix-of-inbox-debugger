@@ -3401,6 +3401,7 @@ function FreeExpiryPill({ userOverride }: { userOverride?: any } = {}) {
   const user = userOverride || authUser;
   const [now, setNow] = useState<number>(() => Date.now());
   const [showInfo, setShowInfo] = useState(false);
+  const idleVisible = useIdleVisible();
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
@@ -3441,7 +3442,7 @@ function FreeExpiryPill({ userOverride }: { userOverride?: any } = {}) {
         type="button"
         onClick={() => setShowInfo((v) => !v)}
         title="Tap for details"
-        className={`fixed z-[10001] right-3 sm:right-4 bottom-[calc(env(safe-area-inset-bottom)+0.75rem+2.25rem)] sm:bottom-[calc(1rem+2.5rem)] h-7 sm:h-8 px-3 sm:px-3.5 rounded-full text-[11px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1.5 select-none active:scale-95 transition`}
+        className={`fixed z-[10001] right-3 sm:right-4 bottom-[calc(env(safe-area-inset-bottom)+0.75rem+2.25rem)] sm:bottom-[calc(1rem+2.5rem)] h-7 sm:h-8 px-3 sm:px-3.5 rounded-full text-[11px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} ${pillIdleClass(idleVisible)} flex items-center gap-1.5 select-none active:scale-95 transition-all duration-300`}
       >
         <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" />
         Deletes in: {label}
@@ -3506,6 +3507,7 @@ function PlanEndsPill({ userOverride }: { userOverride?: any } = {}) {
   const user = userOverride || authUser;
   const [now, setNow] = useState<number>(() => Date.now());
   const [showInfo, setShowInfo] = useState(false);
+  const idleVisible = useIdleVisible();
   const expiredNoticeRef = useRef(false);
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
@@ -3569,7 +3571,7 @@ function PlanEndsPill({ userOverride }: { userOverride?: any } = {}) {
         onClick={() => setShowInfo((v) => !v)}
         title={`Plan ends ${full}`}
         aria-label={`Plan ends in ${label}`}
-        className={`fixed z-[10001] right-3 sm:right-4 bottom-[calc(env(safe-area-inset-bottom)+0.75rem+2.75rem)] sm:bottom-[calc(1rem+3rem)] h-7 sm:h-8 px-3 sm:px-3.5 rounded-full text-[11px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1.5 select-none active:scale-95 transition tabular-nums`}
+        className={`fixed z-[10001] right-3 sm:right-4 bottom-[calc(env(safe-area-inset-bottom)+0.75rem+2.75rem)] sm:bottom-[calc(1rem+3rem)] h-7 sm:h-8 px-3 sm:px-3.5 rounded-full text-[11px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} ${pillIdleClass(idleVisible)} flex items-center gap-1.5 select-none active:scale-95 transition-all duration-300 tabular-nums`}
       >
         <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" />
         Plan: {label}
