@@ -2052,6 +2052,145 @@ function userFriendlyTvError(message?: string | null) {
 }
 
 type TvLoginStatus = "idle" | "verifying" | "checking" | "queued" | "running" | "in_progress" | "success" | "invalid_code" | "cookies_expired" | "no_cookies" | "error";
+type TvRunInfo = {
+  accountLabel?: string | null;
+  imapMasked?: string | null;
+  eventId?: string | null;
+  message?: string | null;
+  runUrl?: string | null;
+  createdAt?: string | null;
+  finishedAt?: string | null;
+  result?: string | null;
+};
+
+const TV_ACTIVE_STATUSES = new Set<TvLoginStatus>(["verifying", "checking", "queued", "running", "in_progress"]);
+const TV_TERMINAL_STATUSES = new Set<TvLoginStatus>(["success", "invalid_code", "cookies_expired", "no_cookies", "error"]);
+
+function normalizeTvStatus(value: unknown): TvLoginStatus {
+  const s = String(value || "");
+  return (["idle", "verifying", "checking", "queued", "running", "in_progress", "success", "invalid_code", "cookies_expired", "no_cookies", "error"] as TvLoginStatus[]).includes(s as TvLoginStatus)
+    ? (s as TvLoginStatus)
+    : "idle";
+}
+
+function splitTvCode(value: unknown): string[] {
+  const clean = String(value || "").replace(/\D/g, "").slice(0, 8);
+  return Array.from({ length: 8 }, (_, i) => clean[i] || "");
+}
+
+function tvRunInfoFromEvent(ev: any): TvRunInfo {
+  return {
+    accountLabel: ev?.account_label || null,
+    imapMasked: ev?.imap_user ? maskTvEmail(String(ev.imap_user)) : null,
+    eventId: ev?.id || null,
+    message: ev?.message || null,
+    runUrl: ev?.github_run_url || null,
+    createdAt: ev?.created_at || null,
+    finishedAt: ev?.finished_at || null,
+    result: ev?.result || null,
+  };
+}
+
+function formatTvRunTime(iso?: string | null): string {
+  if (!iso) return "—";
+  try {
+    return new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" }).format(new Date(iso));
+  } catch { return String(iso); }
+}
+
+function formatTvDuration(start?: string | null, end?: string | null): string {
+  const a = start ? new Date(start).getTime() : 0;
+  const b = end ? new Date(end).getTime() : Date.now();
+  if (!Number.isFinite(a) || !Number.isFinite(b) || !a || b < a) return "—";
+  const sec = Math.max(1, Math.round((b - a) / 1000));
+  if (sec < 60) return `${sec}s`;
+  const min = Math.floor(sec / 60);
+  const rem = sec % 60;
+  return `${min}m ${String(rem).padStart(2, "0")}s`;
+}
+
+function TvRunDetails({ info, status, code, theme = "light" }: { info: TvRunInfo; status: TvLoginStatus; code?: string; theme?: "dark" | "light" }) {
+  if (!info?.eventId && !info?.createdAt) return null;
+  const dark = theme === "dark";
+  const terminal = TV_TERMINAL_STATUSES.has(status);
+  const active = TV_ACTIVE_STATUSES.has(status);
+  const tone = status === "success" ? "emerald" : active ? "rose" : status === "idle" ? "slate" : "amber";
+  const shell = dark
+    ? "border-white/10 bg-white/[0.04] text-white"
+    : "border-slate-200 bg-slate-50/80 text-slate-900";
+  const muted = dark ? "text-white/55" : "text-slate-500";
+  const value = dark ? "text-white" : "text-slate-900";
+  const badge = tone === "emerald"
+    ? dark ? "bg-emerald-500/15 text-emerald-200 border-emerald-400/25" : "bg-emerald-50 text-emerald-700 border-emerald-200"
+    : tone === "rose"
+      ? dark ? "bg-rose-500/15 text-rose-200 border-rose-400/25" : "bg-rose-50 text-rose-700 border-rose-200"
+      : dark ? "bg-amber-500/15 text-amber-200 border-amber-400/25" : "bg-amber-50 text-amber-700 border-amber-200";
+  const label = status === "success" ? "Process completed" : active ? "Process running" : "Process ended";
+  return (
+    <div className={`mt-5 rounded-2xl border p-4 ${shell}`}>
+      <div className="flex items-center justify-between gap-3">
+        <div className={`text-[10px] uppercase tracking-[0.18em] font-black ${muted}`}>TV sign-in details</div>
+        <div className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-wider ${badge}`}>{label}</div>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] sm:text-xs">
+        <div className={`rounded-xl px-3 py-2 ${dark ? "bg-black/20" : "bg-white border border-slate-100"}`}>
+          <div className={muted}>Started</div>
+          <div className={`mt-0.5 font-bold ${value}`}>{formatTvRunTime(info.createdAt)}</div>
+        </div>
+        <div className={`rounded-xl px-3 py-2 ${dark ? "bg-black/20" : "bg-white border border-slate-100"}`}>
+          <div className={muted}>{terminal ? "Finished" : "Running for"}</div>
+          <div className={`mt-0.5 font-bold ${value}`}>{terminal ? formatTvRunTime(info.finishedAt) : formatTvDuration(info.createdAt, null)}</div>
+        </div>
+        <div className={`rounded-xl px-3 py-2 ${dark ? "bg-black/20" : "bg-white border border-slate-100"}`}>
+          <div className={muted}>Taken time</div>
+          <div className={`mt-0.5 font-bold ${value}`}>{formatTvDuration(info.createdAt, info.finishedAt)}</div>
+        </div>
+        <div className={`rounded-xl px-3 py-2 ${dark ? "bg-black/20" : "bg-white border border-slate-100"}`}>
+          <div className={muted}>Code</div>
+          <div className={`mt-0.5 font-bold tabular-nums ${value}`}>{code || "—"}</div>
+        </div>
+      </div>
+      {(info.accountLabel || info.imapMasked) && (
+        <div className={`mt-2 rounded-xl px-3 py-2 text-[11px] sm:text-xs ${dark ? "bg-black/20" : "bg-white border border-slate-100"}`}>
+          <div className={muted}>Account</div>
+          <div className={`mt-0.5 font-bold truncate ${value}`}>{info.imapMasked || info.accountLabel}{info.accountLabel && info.imapMasked ? ` · ${info.accountLabel}` : ""}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TvRecentRuns({ events, onRefresh }: { events: any[]; onRefresh: () => void }) {
+  if (!events.length) return null;
+  const statusLabel = (ev: any) => String(ev?.status || "").replace(/_/g, " ") || "unknown";
+  const dot = (status: string) => status === "success" ? "bg-emerald-500" : ["queued", "running", "in_progress"].includes(status) ? "bg-rose-500 animate-pulse" : "bg-amber-500";
+  return (
+    <div className="mt-6 rounded-3xl bg-white border border-slate-200 shadow-sm p-5 xl:p-6">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="font-bold text-slate-900 flex items-center gap-2 text-sm"><Clock className="w-4 h-4 text-slate-500" /> Recent TV sign-ins</h3>
+        <button type="button" onClick={onRefresh} className="p-1.5 rounded-full hover:bg-slate-100" title="Refresh"><RefreshCw className="w-3.5 h-3.5 text-slate-500" /></button>
+      </div>
+      <ul className="divide-y divide-slate-100">
+        {events.map((ev) => {
+          const status = String(ev?.status || "");
+          return (
+            <li key={ev.id} className="py-3 flex items-start gap-3">
+              <div className={`mt-1.5 w-2 h-2 rounded-full ${dot(status)}`} />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-xs text-slate-700 truncate font-bold capitalize">{statusLabel(ev)}</div>
+                  <div className="text-[11px] text-slate-400 shrink-0">{formatTvDuration(ev.created_at, ev.finished_at)}</div>
+                </div>
+                <div className="text-[11px] text-slate-500 mt-0.5 truncate">{ev.imap_user ? maskTvEmail(String(ev.imap_user)) : ev.account_label || "TV sign-in"}</div>
+                <div className="text-[11px] text-slate-400 mt-0.5">Started <b>{formatTvRunTime(ev.created_at)}</b>{ev.finished_at ? <> · Finished <b>{formatTvRunTime(ev.finished_at)}</b></> : null}</div>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
 
 const tvActiveCopy = [
   "Signing you in",

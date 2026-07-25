@@ -6327,7 +6327,7 @@ Deno.serve(async (originalReq) => {
       if (!eventId) throw new Error("event_id required");
       const { data: ev, error: evErr } = await supabase
         .from("tv_login_events")
-        .select("id, status, result, message, account_label, screenshot_url, github_run_url, created_at, finished_at, user_id, metadata")
+        .select("id, status, result, message, account_label, imap_user, screenshot_url, github_run_url, created_at, finished_at, user_id, metadata")
         .eq("id", eventId)
         .maybeSingle();
       if (evErr) throw new Error(evErr.message);
@@ -6364,17 +6364,32 @@ Deno.serve(async (originalReq) => {
     // instead of losing state that only lived in React memory.
     if (action === "tv_login_active") {
       const session = await requireSession(req);
-      const cutoffIso = new Date(Date.now() - 10 * 60_000).toISOString();
+      const cutoffIso = new Date(Date.now() - 30 * 60_000).toISOString();
       const { data: ev } = await supabase
         .from("tv_login_events")
-        .select("id, status, result, message, account_label, imap_user, github_run_url, created_at, finished_at, cookies_available")
+        .select("id, status, result, message, account_label, imap_user, code, github_run_url, created_at, finished_at, cookies_available")
         .eq("user_id", session.userId)
-        .in("status", ["queued", "running", "in_progress", "verifying", "checking"])
+        .in("status", ["queued", "running", "in_progress", "verifying", "checking", "success", "invalid_code", "cookies_expired", "no_cookies", "error"])
         .gte("created_at", cutoffIso)
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
       return new Response(JSON.stringify({ success: true, event: ev || null }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // Latest TV login attempts for the signed-in user. The UI uses this as the
+    // durable per-profile process history, so workflow switches/reloads never
+    // erase success/error details.
+    if (action === "tv_login_recent") {
+      const session = await requireSession(req);
+      const { data, error } = await supabase
+        .from("tv_login_events")
+        .select("id, status, result, message, account_label, imap_user, github_run_url, created_at, finished_at, cookies_available")
+        .eq("user_id", session.userId)
+        .order("created_at", { ascending: false })
+        .limit(8);
+      if (error) throw new Error(error.message);
+      return new Response(JSON.stringify({ success: true, events: data || [] }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
 
