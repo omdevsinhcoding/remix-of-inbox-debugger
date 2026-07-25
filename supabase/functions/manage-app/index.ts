@@ -3939,8 +3939,7 @@ Deno.serve(async (originalReq) => {
 
       // Same CAPTCHA gate as paid login: if admin enabled reCAPTCHA globally,
       // free profile entry also requires a solved captcha token.
-      const { data: recaptchaSettingFree } = await supabase
-        .from("app_settings").select("value").eq("key", "recaptcha").maybeSingle();
+      const { data: recaptchaSettingFree } = await readSettingRow(supabase, "recaptcha");
       const recaptchaCfgFree: any = recaptchaSettingFree?.value || null;
       if (recaptchaCfgFree?.enabled === true) {
         if (!recaptchaCfgFree?.secretKey) throw new Error("CAPTCHA is misconfigured. Contact admin.");
