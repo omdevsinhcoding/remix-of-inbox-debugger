@@ -5762,9 +5762,8 @@ function AllEmailsPanel() {
   };
 
   if (view === "picker") {
-    const hasPrimary = !!primaryUser;
-    const hasAny = hasPrimary || labels.length > 0;
-    const totalAccounts = (hasPrimary ? 1 : 0) + labels.length;
+    const hasAny = labels.length > 0;
+    const totalAccounts = labels.length;
     return (
       <section className="relative overflow-hidden rounded-3xl bg-white p-5 sm:p-7 border border-slate-200/70 shadow-[0_20px_60px_-30px_rgba(220,38,38,0.25)]">
         {/* Soft brand blush */}
