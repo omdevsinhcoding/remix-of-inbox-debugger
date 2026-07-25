@@ -298,6 +298,9 @@ const TemplateIcon: React.FC<{ id: string; className?: string }> = ({ id, classN
 const SESSION_CONFIG_KEY_FOR = (role: "admin" | "user") =>
   role === "admin" ? "admin_session_config" : "session_config";
 
+const SESSION_TIMEOUT_CACHE_KEY = (role: "admin" | "user") =>
+  role === "admin" ? "admin_session_timeout_min" : "user_session_timeout_min";
+
 const DEFAULT_SESSION_TIMEOUT_MINUTES: Record<"admin" | "user", number> = {
   admin: 60,
   user: 5,
@@ -315,17 +318,30 @@ function ensureSessionStarted(): number {
   return readSessionNumber("session_started_at") || Date.now();
 }
 
+function readCachedTimeoutMinutes(role: "admin" | "user"): number {
+  try {
+    const raw = Number(sessionGet(SESSION_TIMEOUT_CACHE_KEY(role) as any) || "0");
+    return Number.isFinite(raw) && raw > 0 ? raw : 0;
+  } catch { return 0; }
+}
+
+function writeCachedTimeoutMinutes(role: "admin" | "user", minutes: number): void {
+  try {
+    if (Number.isFinite(minutes) && minutes > 0) {
+      sessionSet(SESSION_TIMEOUT_CACHE_KEY(role) as any, String(Math.floor(minutes)));
+    }
+  } catch {}
+}
+
 function getSessionDeadline(role: "admin" | "user", minutes?: number): number {
   const started = readSessionNumber("session_started_at");
   const accessExpiresAt = readSessionNumber("session_expires_at");
-  const configuredMinutes = Number.isFinite(Number(minutes)) && Number(minutes) > 0
-    ? Number(minutes)
-    : DEFAULT_SESSION_TIMEOUT_MINUTES[role];
-  // The admin-configured absolute session window is the source of truth.
-  // Supabase access tokens auto-refresh in the background (~15 min lifetime),
-  // so `session_expires_at` must NEVER cap the configured deadline — otherwise
-  // an Admin Timeout of 60 min renders as ~15 min in the pill. Fall back to
-  // the raw access-token expiry only when no configured window exists.
+  const explicit = Number.isFinite(Number(minutes)) && Number(minutes) > 0 ? Number(minutes) : 0;
+  // Prefer explicit (fresh from server) → cached configured → default. Using the
+  // default synchronously on remount would nuke long admin windows (e.g. 60min
+  // default vs 180min configured) as soon as elapsed exceeds 60min, before the
+  // async settings fetch had a chance to re-arm.
+  const configuredMinutes = explicit || readCachedTimeoutMinutes(role) || DEFAULT_SESSION_TIMEOUT_MINUTES[role];
   const configuredDeadline = started && configuredMinutes > 0 ? started + configuredMinutes * 60_000 : 0;
   return configuredDeadline || accessExpiresAt || 0;
 }
@@ -334,8 +350,10 @@ function getSessionTotalMinutes(role: "admin" | "user", minutes?: number): numbe
   const started = readSessionNumber("session_started_at");
   const deadline = getSessionDeadline(role, minutes);
   if (started && deadline > started) return Math.max(1, Math.ceil((deadline - started) / 60_000));
-  return Number.isFinite(Number(minutes)) && Number(minutes) > 0 ? Number(minutes) : DEFAULT_SESSION_TIMEOUT_MINUTES[role];
+  const explicit = Number.isFinite(Number(minutes)) && Number(minutes) > 0 ? Number(minutes) : 0;
+  return explicit || readCachedTimeoutMinutes(role) || DEFAULT_SESSION_TIMEOUT_MINUTES[role];
 }
+
 
 // --- Worker URL Types & Helpers ---
 type WorkerUrlMap = {
