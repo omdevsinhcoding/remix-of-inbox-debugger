@@ -648,6 +648,46 @@ async function auditLog(
 }
 
 
+// Fires a one-shot "Plan expired" Telegram alert to the admin and marks
+// plan_end_notified_at so neither this helper nor the plan-reminders cron
+// re-sends. Safe to call fire-and-forget from any request path that
+// detects mid-session expiry — races are settled by a conditional update
+// that only succeeds when the column is still null.
+async function notifyPlanExpiredOnce(supabase: any, user: any) {
+  try {
+    // Claim the notification slot atomically. If some other request
+    // (or the cron) already set the column, .select() returns 0 rows
+    // and we bail without sending a duplicate message.
+    const { data: claimed } = await supabase
+      .from("app_users")
+      .update({ plan_end_notified_at: new Date().toISOString() })
+      .eq("id", user.id)
+      .is("plan_end_notified_at", null)
+      .select("id")
+      .maybeSingle();
+    if (!claimed) return;
+
+    const botToken = Deno.env.get("TELEGRAM_BOT_TOKEN");
+    const chatId = Deno.env.get("TELEGRAM_CHAT_ID");
+    if (!botToken || !chatId) return;
+    const fmt = (iso: any) => { try { return new Date(iso).toISOString().replace("T", " ").replace(/\..+/, " UTC"); } catch { return String(iso || ""); } };
+    const startedLine = user.plan_starts_at ? `\nStarted: ${fmt(user.plan_starts_at)}` : "";
+    const text = [
+      "🛑 <b>Plan expired</b>",
+      `User: ${user.name || user.username || user.id}${startedLine}`,
+      `Ended: ${fmt(user.plan_ends_at)}`,
+      `<i>Detected mid-session — user was signed out.</i>`,
+    ].join("\n");
+    await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML", disable_web_page_preview: true }),
+    }).catch(() => {});
+  } catch (e) { console.error("notifyPlanExpiredOnce error:", e); }
+}
+
+
+
 function isPrivateIp(ip: string): boolean {
   if (!ip || ip === "unknown") return true;
   if (ip === "::1" || ip === "127.0.0.1" || ip.startsWith("::ffff:127.")) return true;
@@ -2777,6 +2817,12 @@ Deno.serve(async (originalReq) => {
             contactInfo = ci?.value || null;
           } catch {}
           await auditLog(supabase, "login_blocked_plan_finished", user.id, null, { username, planEndsAt: user.plan_ends_at }, ip);
+          // Fire an instant "Plan expired" Telegram alert if the cron hasn't
+          // already sent one. This closes the gap where a user's session
+          // hits expiry between cron ticks and the admin is left in the dark.
+          if (!(user as any).plan_end_notified_at) {
+            ((globalThis as any).EdgeRuntime?.waitUntil?.(notifyPlanExpiredOnce(supabase, user)) ?? notifyPlanExpiredOnce(supabase, user).catch(() => {}));
+          }
           return new Response(JSON.stringify({ success: false, error: "plan_finished", planEndsAt: user.plan_ends_at, contactInfo }), {
             status: 200,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -4366,7 +4412,7 @@ Deno.serve(async (originalReq) => {
       const session = await requireSession(req);
       const { data: user, error } = await supabase
         .from("app_users")
-        .select("id, username, name, role, must_change_password, assigned_accounts, profile_prefs, is_free, expires_at, auto_delete, tv_override, feature_gmail, feature_tv, feature_link, last_workflow_view, plan_starts_at, plan_ends_at")
+        .select("id, username, name, role, must_change_password, assigned_accounts, profile_prefs, is_free, expires_at, auto_delete, tv_override, feature_gmail, feature_tv, feature_link, last_workflow_view, plan_starts_at, plan_ends_at, plan_end_notified_at")
         .eq("id", session.userId)
         .single();
       if (error || !user) throw new Error("Account not found");
@@ -4380,6 +4426,10 @@ Deno.serve(async (originalReq) => {
             const { data: ci } = await readSettingRow(supabase, "contact_info");
             contactInfo = ci?.value || null;
           } catch {}
+          // Instant "Plan expired" TG alert if cron hasn't sent one yet.
+          if (!(user as any).plan_end_notified_at) {
+            ((globalThis as any).EdgeRuntime?.waitUntil?.(notifyPlanExpiredOnce(supabase, user)) ?? notifyPlanExpiredOnce(supabase, user).catch(() => {}));
+          }
           return new Response(JSON.stringify({ success: false, error: "plan_finished", planEndsAt: user.plan_ends_at, contactInfo }), {
             status: 200,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
