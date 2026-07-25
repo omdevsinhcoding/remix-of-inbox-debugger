@@ -2,7 +2,7 @@ import React, { useState, useEffect, createContext, useContext, useCallback, use
 import { createPortal } from "react-dom";
 import { Mail, RefreshCw, ShieldCheck, Shield, Clock, AlertCircle, Copy, Check, ArrowLeft, Lock, Key, LogOut, Settings, Plus, Users, Trash2, CheckCircle2, X, Eye, EyeOff, KeyRound, Filter, Server, Globe, Edit, Info, UserCircle, Search, ChevronRight, Bell, Send, MessageSquare, Image as ImageIcon, ExternalLink, AlertTriangle, Sparkles, Megaphone, Wrench, CreditCard, Tag, ChevronDown, ChevronUp, HardDrive, Upload, Zap, BookOpen, GraduationCap, Film, PlayCircle, Pin, MapPin, MapPinOff, Tv, Loader2, Download, ClipboardPaste, Link as LinkIcon, Activity, HelpCircle } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router";
+import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate, useLocation } from "react-router";
 import NetflixHouseholdVerificationGuide from "./pages/NetflixHouseholdVerificationGuide";
 import { notify } from "./components/toast/notify";
 import { ToastProvider } from "./components/toast/toast-provider";
@@ -373,6 +373,31 @@ function getSessionToken(): string | null {
   try {
     return sessionGet("session_token" as any);
   } catch { return null; }
+}
+
+function readStoredSessionUser(): any | null {
+  try {
+    const raw = sessionGet("user" as any);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+
+function clearRouteSessionState(): void {
+  const keys = [
+    "session_token",
+    "refresh_token",
+    "session_expires_at",
+    "refresh_expires_at",
+    "session_family_id",
+    "session_started_at",
+    "user",
+    "admin_auth",
+    "cloudflare_worker_urls",
+  ];
+  keys.forEach((key) => {
+    try { sessionRemove(key as any); } catch {}
+  });
+  import("./lib/sessionRefresh").then(({ clearRefreshState }) => clearRefreshState()).catch(() => {});
 }
 
 type DeviceFingerprint = {
@@ -1030,10 +1055,7 @@ const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   // Read cached user immediately for fast paint, then re-hydrate from the DB.
   const readCached = () => {
-    try {
-      const stored = sessionGet("user" as any);
-      return stored ? JSON.parse(stored) : null;
-    } catch { return null; }
+    return readStoredSessionUser();
   };
 
   const hydrateFromServer = async () => {
@@ -14185,6 +14207,37 @@ function PlanFinishedModal() {
 }
 
 
+function SessionRouteBoundary() {
+  const location = useLocation();
+  const { checkAuth } = useAuth();
+
+  useEffect(() => {
+    const path = location.pathname;
+    if (path !== "/admin" && path !== "/admin-auth") return;
+
+    const storedUser = readStoredSessionUser();
+    const token = getSessionToken();
+    const isPendingAdmin =
+      path === "/admin-auth" &&
+      storedUser?.role === "admin" &&
+      storedUser?.pending === true &&
+      !!sessionGet("pending_admin_token" as any);
+
+    if (isPendingAdmin) return;
+
+    // The public admin login/2FA routes must never inherit a normal user or
+    // impersonated profile session. Clear the tab-scoped identity immediately
+    // so profile data and countdown pills cannot bleed into admin screens.
+    if (token || storedUser) {
+      clearRouteSessionState();
+      checkAuth();
+    }
+  }, [location.pathname, checkAuth]);
+
+  return null;
+}
+
+
 // ==================== MAIN APP ====================
 export default function App() {
   return (
@@ -14192,6 +14245,7 @@ export default function App() {
       <AuthProvider>
         <ToastProvider />
         <AdminSyncStatus />
+        <SessionRouteBoundary />
         <GlobalSessionOverlay />
         <PlanFinishedModal />
         <ErrorBoundary>
@@ -14221,13 +14275,10 @@ export default function App() {
 
 function GlobalSessionOverlay() {
   const { user: authUser } = useAuth();
+  const location = useLocation();
   const readSessionState = useCallback(() => {
     const token = sessionGet("session_token" as any);
-    let storedUser: any = null;
-    try {
-      const raw = sessionGet("user" as any);
-      storedUser = raw ? JSON.parse(raw) : null;
-    } catch {}
+    const storedUser = readStoredSessionUser();
     return { token, storedUser };
   }, []);
   const [sessionState, setSessionState] = useState(readSessionState);
@@ -14264,9 +14315,11 @@ function GlobalSessionOverlay() {
   const isLoggedIn = !!effectiveUser && hasSessionToken;
   const isImpersonating = (effectiveUser as any)?.impersonated === true;
   const isPendingAdmin = (effectiveUser as any)?.pending === true;
+  const isAdminRoute = location.pathname.startsWith("/admin");
 
-  useSessionTimeoutGuard(role, isLoggedIn && !isImpersonating && !isPendingAdmin);
+  useSessionTimeoutGuard(role, isLoggedIn && !isAdminRoute && !isImpersonating && !isPendingAdmin);
 
+  if (isAdminRoute) return null;
   if (!isLoggedIn || isPendingAdmin) return null;
   if (typeof document === "undefined") return null;
 
