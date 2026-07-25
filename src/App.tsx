@@ -3528,13 +3528,15 @@ function responsiveEmailSrcDoc(email: Email | null) {
   const iframeId = String((email as any)?.id || "email-preview").replace(/[^a-zA-Z0-9_-]/g, "_");
 
   return `<!DOCTYPE html><html><head><base target="_blank"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"><style>
-    html,body{margin:0!important;padding:0!important;width:100%!important;max-width:100%!important;min-width:0!important;overflow:hidden!important;-webkit-text-size-adjust:100%;text-size-adjust:100%;}
+    html,body{margin:0!important;padding:0!important;width:100%!important;max-width:100%!important;min-width:0!important;height:auto!important;min-height:0!important;overflow:hidden!important;-webkit-text-size-adjust:100%;text-size-adjust:100%;}
     body{font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:14px;line-height:1.5;color:#0f172a;background:#fff;}
+    #email-root{display:block!important;width:100%!important;max-width:100%!important;min-width:0!important;height:auto!important;min-height:0!important;overflow:visible!important;}
     *,*::before,*::after{box-sizing:border-box!important;max-width:100%!important;min-width:0!important;}
     table,tbody,thead,tfoot,tr,td,th{max-width:100%!important;min-width:0!important;}
     table{width:100%!important;border-collapse:collapse!important;border-spacing:0!important;}
     td,th{width:auto!important;word-break:break-word!important;overflow-wrap:anywhere!important;white-space:normal!important;text-align:left!important;}
     img,video,picture,canvas,svg{display:inline-block!important;max-width:100%!important;height:auto!important;}
+    #email-root :where(table,tbody,thead,tfoot,tr,td,th,div,p,section,article,main,header,footer,span,center){height:auto!important;min-height:0!important;max-height:none!important;}
     p,div,span,li,strong,b,em,a,h1,h2,h3,h4,h5,h6{max-width:100%!important;overflow-wrap:anywhere!important;word-break:break-word!important;white-space:normal!important;}
     div[align],td[align],th[align],center{text-align:left!important;}
     [align="right"],[align="center"]{text-align:left!important;}
@@ -3547,11 +3549,12 @@ function responsiveEmailSrcDoc(email: Email | null) {
     [width],[height]{max-width:100%!important;}
     [style*="width"],[style*="min-width"],[style*="max-width"]{max-width:100%!important;min-width:0!important;}
     @media (max-width:700px){table,tbody,thead,tfoot,tr,td,th{display:block!important;width:100%!important;}td,th{padding-left:0!important;padding-right:0!important;}}
-  </style></head><body>${html}<script>(function(){
+  </style></head><body><div id="email-root">${html}</div><script>(function(){
     var iframeId=${JSON.stringify(iframeId)};
     var fitting=false;
     function fit(){if(fitting)return;fitting=true;try{
       var vw=Math.max(1,document.documentElement.clientWidth||window.innerWidth||320);
+      var root=document.getElementById('email-root')||document.body;
       document.querySelectorAll('[width]').forEach(function(el){el.removeAttribute('width');});
       document.querySelectorAll('[height]').forEach(function(el){if(/^(IMG|VIDEO|PICTURE|SVG|CANVAS)$/i.test(el.tagName))return;el.removeAttribute('height');});
       document.querySelectorAll('[align]').forEach(function(el){try{el.removeAttribute('align');}catch(e){}});
@@ -3559,17 +3562,29 @@ function responsiveEmailSrcDoc(email: Email | null) {
         if(el.__fitted)return;
         var s=el.style;if(!s){el.__fitted=1;return;}
         s.maxWidth='100%';s.minWidth='0';s.boxSizing='border-box';s.float='none';
+        if(el!==root&&!/^(IMG|VIDEO|PICTURE|SVG|CANVAS)$/i.test(el.tagName)){s.height='auto';s.minHeight='0';s.maxHeight='none';}
         var w=parseFloat(getComputedStyle(el).width||'0');
         if(w>vw){s.width='100%';}
         if(/^(TABLE|TBODY|THEAD|TFOOT|TR|TD|TH)$/i.test(el.tagName)){s.whiteSpace='normal';s.wordBreak='break-word';s.overflowWrap='anywhere';}
         if(/^TABLE$/i.test(el.tagName)){s.width='100%';}
         el.__fitted=1;
       });
-      document.documentElement.style.overflow='hidden';document.body.style.overflow='hidden';
+      document.documentElement.style.overflow='hidden';document.documentElement.style.height='auto';document.documentElement.style.minHeight='0';document.body.style.overflow='hidden';document.body.style.height='auto';document.body.style.minHeight='0';root.style.height='auto';root.style.minHeight='0';
     }catch(e){}finally{fitting=false;}}
+    function measureContentHeight(){try{
+      var root=document.getElementById('email-root')||document.body;
+      var rootRect=root.getBoundingClientRect();
+      var max=Math.ceil(rootRect.height||root.scrollHeight||0);
+      root.querySelectorAll('*').forEach(function(el){
+        var r=el.getBoundingClientRect();
+        var bottom=Math.ceil(r.bottom-rootRect.top);
+        if(bottom>max&&bottom<20000)max=bottom;
+      });
+      return Math.max(40,max+2);
+    }catch(e){return Math.max(40,document.body.scrollHeight||document.documentElement.scrollHeight||0);}}
     var lastH=0,pendingH=0;
     function postH(){try{
-      var h=Math.max(document.documentElement.scrollHeight,document.body.scrollHeight,document.documentElement.offsetHeight,document.body.offsetHeight);
+      var h=measureContentHeight();
       if(h&&Math.abs(h-lastH)>8){lastH=h;parent.postMessage({__emailIframeHeight:h,__emailIframeId:iframeId},'*');}
     }catch(e){}}
     function schedulePostH(){if(pendingH)return;pendingH=1;requestAnimationFrame(function(){pendingH=0;postH();});}
