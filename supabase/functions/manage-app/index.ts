@@ -362,7 +362,7 @@ async function normalizeAssignedAccounts(supabase: any, raw: any): Promise<strin
 
 async function loadAvailableAccountLabels(supabase: any): Promise<string[]> {
   const value = await getSetting<any[]>(supabase, "email_accounts");
-  return ["Primary", ...((Array.isArray(value) ? value : []).map((acc: any) => String(acc?.label || acc?.user || "").trim()).filter(Boolean))];
+  return (Array.isArray(value) ? value : []).map((acc: any) => String(acc?.label || acc?.user || "").trim()).filter(Boolean);
 }
 
 async function loadRecipientFiltersByLabel(supabase: any): Promise<Map<string, string[]>> {
