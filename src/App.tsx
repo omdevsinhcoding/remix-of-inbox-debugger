@@ -14303,7 +14303,6 @@ function GlobalSessionOverlay() {
 
   useSessionTimeoutGuard(role, isLoggedIn && !isAdminRoute && !isImpersonating && !isPendingAdmin);
 
-  if (isAdminRoute) return null;
   if (!isLoggedIn || isPendingAdmin) return null;
   if (typeof document === "undefined") return null;
 
