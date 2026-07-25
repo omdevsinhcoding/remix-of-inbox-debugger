@@ -97,13 +97,46 @@ systemctl enable --now tv-fast-runner
 systemctl restart tv-fast-runner
 sleep 2
 
+# ── Strict deploy verification ───────────────────────────────────────────
+# Fails the install if the running /health does NOT expose the same
+# SERVER_VERSION string that exists in the repo's server.mjs, or if the
+# deployed max_ms is below the 15s floor. Prevents the "install said OK
+# but VPS is still stale / still on 9s timeout" failure mode that caused
+# every runner_timeout in July 2026.
+REPO_VERSION="$(grep -E '^const SERVER_VERSION' "$APP_DIR/server.mjs" | head -n1 | sed -E 's/.*"([^"]+)".*/\1/')"
+HEALTH_PORT="$(grep -E '^PORT=' "$ENV_FILE" | head -n1 | cut -d= -f2- || echo 8788)"
+HEALTH_PORT="${HEALTH_PORT:-8788}"
+
 echo
 echo "──────── deploy verification ────────"
 systemctl status tv-fast-runner --no-pager | head -n 8 || true
 echo
-echo "GET /health:"
-curl -sS --max-time 5 "http://127.0.0.1:${PORT:-8788}/health" || echo "  health probe failed"
+echo "GET /health (port ${HEALTH_PORT}):"
+HEALTH_JSON="$(curl -sS --max-time 5 "http://127.0.0.1:${HEALTH_PORT}/health" || true)"
+echo "$HEALTH_JSON"
 echo
+
+DEPLOYED_VERSION="$(printf '%s' "$HEALTH_JSON" | sed -nE 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' | head -n1)"
+DEPLOYED_MAX_MS="$(printf '%s' "$HEALTH_JSON" | sed -nE 's/.*"max_ms"[[:space:]]*:[[:space:]]*([0-9]+).*/\1/p' | head -n1)"
+
+echo "repo SERVER_VERSION = $REPO_VERSION"
+echo "deployed version    = ${DEPLOYED_VERSION:-<none>}"
+echo "deployed max_ms     = ${DEPLOYED_MAX_MS:-<none>}"
+
+if [[ -z "$DEPLOYED_VERSION" ]]; then
+  echo "ERROR: /health did not return a version field. tv-fast-runner is not serving traffic." >&2
+  exit 2
+fi
+if [[ "$DEPLOYED_VERSION" != "$REPO_VERSION" ]]; then
+  echo "ERROR: VPS runs SERVER_VERSION=$DEPLOYED_VERSION but repo has $REPO_VERSION." >&2
+  echo "       systemd probably failed to restart, or an older worktree is in \$APP_DIR." >&2
+  exit 3
+fi
+if [[ -n "$DEPLOYED_MAX_MS" ]] && (( DEPLOYED_MAX_MS < 15000 )); then
+  echo "ERROR: deployed max_ms=$DEPLOYED_MAX_MS is below the 15000ms floor." >&2
+  echo "       The env file was not applied. Check $ENV_FILE and restart the unit." >&2
+  exit 4
+fi
+
 echo
-echo "Compare the 'version' field above with SERVER_VERSION in scripts/tv-fast-runner/server.mjs."
-echo "They MUST match. If they don't, the VPS is serving stale code."
+echo "✓ tv-fast-runner v$DEPLOYED_VERSION deployed at commit ${COMMIT_SHA} with max_ms=${DEPLOYED_MAX_MS}ms."
