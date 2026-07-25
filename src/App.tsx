@@ -2008,6 +2008,7 @@ function NotificationBell() {
   const { items, loading, refresh } = useNotifications();
   const [open, setOpen] = useState(false);
   const [initialId, setInitialId] = useState<string | null>(null);
+  useOverlayFlag(open);
 
   useEffect(() => {
     const onOpenCenter = (e: any) => {
