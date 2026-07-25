@@ -2078,6 +2078,15 @@ function splitTvCode(value: unknown): string[] {
   return Array.from({ length: 8 }, (_, i) => clean[i] || "");
 }
 
+function maskTvEmail(value: string): string {
+  const raw = String(value || "").trim();
+  const at = raw.indexOf("@");
+  if (at <= 1) return raw;
+  const name = raw.slice(0, at);
+  const domain = raw.slice(at);
+  return `${name.slice(0, 3)}•••${name.slice(-2)}${domain}`;
+}
+
 function tvRunInfoFromEvent(ev: any): TvRunInfo {
   return {
     accountLabel: ev?.account_label || null,
@@ -2254,8 +2263,8 @@ function TvProcessButton({
   const terminalCopy = getTvTerminalCopy(status, message);
   const canSubmit = status === "idle" && isComplete;
   const dark = theme === "dark";
-  const disabled = active || (status === "idle" && !isComplete) || status === "success" || status === "no_cookies" || status === "cookies_expired";
-  const click = terminal && status !== "success" && status !== "no_cookies" && status !== "cookies_expired" ? onRetry : onSubmit;
+  const disabled = active || (status === "idle" && !isComplete) || status === "no_cookies" || status === "cookies_expired";
+  const click = terminal && status !== "no_cookies" && status !== "cookies_expired" ? onRetry : onSubmit;
   const base = dark
     ? "mt-6 w-full min-h-12 rounded-xl font-bold text-sm tracking-wide transition-all active:scale-[0.98] overflow-hidden relative"
     : "mt-8 w-full min-h-14 2xl:min-h-16 rounded-xl xl:rounded-2xl font-black text-sm xl:text-base tracking-wide transition-all active:scale-[0.98] overflow-hidden relative";
