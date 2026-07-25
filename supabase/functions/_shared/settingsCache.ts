@@ -41,3 +41,11 @@ export function invalidateAllSettings(): void {
 export function primeSetting(key: string, value: any): void {
   cache.set(key, { at: Date.now(), value });
 }
+
+// Drop-in replacement for `supabase.from("app_settings").select("value").eq("key", KEY).maybeSingle()`.
+// Returns the same `{ data: { value } | null }` shape so destructuring at call sites is unchanged.
+// Uses the shared 30s TTL cache, invalidated by upsertSetting()/invalidateSetting() on any admin write.
+export async function readSettingRow(supabase: any, key: string): Promise<{ data: { value: any } | null }> {
+  const value = await getSetting(supabase, key);
+  return { data: value === null || value === undefined ? null : { value } };
+}

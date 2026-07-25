@@ -3,7 +3,7 @@ import { ImapFlow } from "npm:imapflow@1.2.18";
 import { simpleParser } from "npm:mailparser@3.9.6";
 import { readRequest, maybeEncryptResponse, EncryptedRequestContext, PlaintextRejectedError, plaintextRejectedResponse, TransportError, transportErrorResponse } from "../_shared/crypto.ts";
 import { redactEmailsHtml, redactEmailsText } from "../_shared/redact.ts";
-import { getSetting, invalidateSetting } from "../_shared/settingsCache.ts";
+import { getSetting, invalidateSetting, readSettingRow } from "../_shared/settingsCache.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -236,7 +236,7 @@ async function getAssignedAccountFilter(supabase: any, session: Session | null):
   if (!session || session.role === "admin") return null;
   const [{ data: userData }, { data: accountsData }] = await Promise.all([
     supabase.from("app_users").select("assigned_accounts").eq("id", session.userId).single(),
-    supabase.from("app_settings").select("value").eq("key", "email_accounts").maybeSingle(),
+    readSettingRow(supabase, "email_accounts"),
   ]);
   // For non-admin users: return the assigned list (possibly empty).
   // An empty array means "no accounts ticked" -> show nothing.
@@ -833,7 +833,7 @@ async function repairCronScheduleIfNeeded(supabase: any, cronSecret: string) {
   if (!cronSecret || Date.now() - cronRepairLastAttempt < 10 * 60_000) return;
   cronRepairLastAttempt = Date.now();
   try {
-    const { data: cfg } = await supabase.from("app_settings").select("value").eq("key", "cron_config").maybeSingle();
+    const { data: cfg } = await readSettingRow(supabase, "cron_config");
     const interval = Math.max(1, Math.min(10, parseInt(String(cfg?.value?.interval || "1")) || 1));
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
     try { await supabase.rpc("unschedule_email_sync"); } catch {}

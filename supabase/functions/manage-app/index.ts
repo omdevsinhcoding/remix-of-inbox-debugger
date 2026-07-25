@@ -2,7 +2,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { authenticator } from "npm:otplib@12.0.1";
 import sodium from "https://esm.sh/libsodium-wrappers@0.7.13";
 import { readRequest, maybeEncryptResponse, EncryptedRequestContext, PlaintextRejectedError, plaintextRejectedResponse, TransportError, transportErrorResponse } from "../_shared/crypto.ts";
-import { getSetting, invalidateSetting, invalidateAllSettings } from "../_shared/settingsCache.ts";
+import { getSetting, invalidateSetting, invalidateAllSettings, readSettingRow } from "../_shared/settingsCache.ts";
 // build-marker: tv-runner-observability v22 (2026-07-25) — stale-run cleanup + VPS fallback URL
 
 // Wrap `app_settings` writes so the shared TTL cache is invalidated the moment
@@ -1813,7 +1813,7 @@ async function sendLoginNotification(
     let locationRequired = opts?.locationRequired;
     if (locationRequired === undefined) {
       try {
-        const { data: locRow } = await supabase.from("app_settings").select("value").eq("key", "location_policy").maybeSingle();
+        const { data: locRow } = await readSettingRow(supabase, "location_policy");
         const v: any = locRow?.value;
         locationRequired = !(v && typeof v === "object" && v.required === false);
       } catch { locationRequired = true; }
@@ -2773,7 +2773,7 @@ Deno.serve(async (originalReq) => {
         if (Number.isFinite(endMs) && endMs <= Date.now()) {
           let contactInfo: any = null;
           try {
-            const { data: ci } = await supabase.from("app_settings").select("value").eq("key", "contact_info").maybeSingle();
+            const { data: ci } = await readSettingRow(supabase, "contact_info");
             contactInfo = ci?.value || null;
           } catch {}
           await auditLog(supabase, "login_blocked_plan_finished", user.id, null, { username, planEndsAt: user.plan_ends_at }, ip);
@@ -2821,7 +2821,7 @@ Deno.serve(async (originalReq) => {
       // Default: unlimited (0). When set, revoke oldest families so only
       // (maxPerUser - 1) remain active — the new login becomes the Nth session.
       try {
-        const { data: limitRow } = await supabase.from("app_settings").select("value").eq("key", "session_limits").maybeSingle();
+        const { data: limitRow } = await readSettingRow(supabase, "session_limits");
         const globalLimit = Math.max(0, Math.floor(Number((limitRow?.value as any)?.maxPerUser) || 0));
         // Per-user override wins when set (non-null). 0 = unlimited for this user even if a global cap exists.
         const perUser = (user as any).session_limit;
@@ -3155,8 +3155,7 @@ Deno.serve(async (originalReq) => {
       if (isFree && avatarChanged) {
         const nowIso = new Date().toISOString();
         await upsertSetting(supabase, "free_avatar_last_change", { at: nowIso, byUserId: session.userId });
-        const { data: cdRow } = await supabase
-          .from("app_settings").select("value").eq("key", "free_avatar_cooldown").maybeSingle();
+        const { data: cdRow } = await readSettingRow(supabase, "free_avatar_cooldown");
         const minutesRaw = Number((cdRow?.value as any)?.minutes);
         const minutes = Number.isFinite(minutesRaw) && minutesRaw > 0 ? Math.floor(minutesRaw) : 5;
         cooldownNow = { minutes, lastAt: nowIso };
@@ -3414,7 +3413,7 @@ Deno.serve(async (originalReq) => {
 
     if (action === "admin_get_vps_config") {
       await requireAdmin(req);
-      const { data } = await supabase.from("app_settings").select("value").eq("key", "vps_config").maybeSingle();
+      const { data } = await readSettingRow(supabase, "vps_config");
       return new Response(JSON.stringify({ success: true, value: publicVpsConfig(data?.value) }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -3434,7 +3433,7 @@ Deno.serve(async (originalReq) => {
           throw new Error("Runner URL must be like http://IP:8788");
         }
       }
-      const { data } = await supabase.from("app_settings").select("value").eq("key", "vps_config").maybeSingle();
+      const { data } = await readSettingRow(supabase, "vps_config");
       const prev = publicVpsConfig(data?.value);
       const rawMode = String(params?.mode || "").trim().toLowerCase();
       const nextMode: "vps" | "github" = rawMode === "github" ? "github" : "vps";
@@ -3450,7 +3449,7 @@ Deno.serve(async (originalReq) => {
 
     if (action === "admin_test_vps_runner") {
       await requireAdmin(req);
-      const { data } = await supabase.from("app_settings").select("value").eq("key", "vps_config").maybeSingle();
+      const { data } = await readSettingRow(supabase, "vps_config");
       const url = effectiveTvRunnerUrl(data?.value);
       if (!url) {
         return new Response(JSON.stringify({ success: false, ok: false, message: "Runner URL is not configured." }), {
@@ -3940,8 +3939,7 @@ Deno.serve(async (originalReq) => {
 
       // Same CAPTCHA gate as paid login: if admin enabled reCAPTCHA globally,
       // free profile entry also requires a solved captcha token.
-      const { data: recaptchaSettingFree } = await supabase
-        .from("app_settings").select("value").eq("key", "recaptcha").maybeSingle();
+      const { data: recaptchaSettingFree } = await readSettingRow(supabase, "recaptcha");
       const recaptchaCfgFree: any = recaptchaSettingFree?.value || null;
       if (recaptchaCfgFree?.enabled === true) {
         if (!recaptchaCfgFree?.secretKey) throw new Error("CAPTCHA is misconfigured. Contact admin.");
@@ -3988,7 +3986,7 @@ Deno.serve(async (originalReq) => {
       // stay in sync — each login gets its own countdown from its own login time.
       let freeMinutes = 0;
       try {
-        const { data: fsRow } = await supabase.from("app_settings").select("value").eq("key", "session_config").maybeSingle();
+        const { data: fsRow } = await readSettingRow(supabase, "session_config");
         const m = Number((fsRow?.value as any)?.timeoutMinutes);
         if (Number.isFinite(m) && m > 0) freeMinutes = Math.floor(m);
       } catch {}
@@ -4379,7 +4377,7 @@ Deno.serve(async (originalReq) => {
         if (Number.isFinite(endMs) && endMs <= Date.now()) {
           let contactInfo: any = null;
           try {
-            const { data: ci } = await supabase.from("app_settings").select("value").eq("key", "contact_info").maybeSingle();
+            const { data: ci } = await readSettingRow(supabase, "contact_info");
             contactInfo = ci?.value || null;
           } catch {}
           return new Response(JSON.stringify({ success: false, error: "plan_finished", planEndsAt: user.plan_ends_at, contactInfo }), {
@@ -4491,14 +4489,14 @@ Deno.serve(async (originalReq) => {
       let visibilityFilters: EmailVisibilityFilters = DEFAULT_EMAIL_FILTERS;
       if (!isAdmin) {
         try {
-          const { data: filterRow } = await supabase.from("app_settings").select("value").eq("key", "email_filters").maybeSingle();
+          const { data: filterRow } = await readSettingRow(supabase, "email_filters");
           visibilityFilters = normalizeEmailFilters(filterRow?.value);
         } catch {}
       }
 
       let dateCutoff: string | null = null;
       if (!isAdmin) {
-        const { data: visRow } = await supabase.from("app_settings").select("value").eq("key", "email_visibility").maybeSingle();
+        const { data: visRow } = await readSettingRow(supabase, "email_visibility");
         const vis = (visRow?.value || {}) as { enabled?: boolean; days?: number };
         if (vis?.enabled && Number(vis.days) > 0) {
           const cut = new Date();
@@ -4570,7 +4568,7 @@ Deno.serve(async (originalReq) => {
       let visibilityFilters: EmailVisibilityFilters = DEFAULT_EMAIL_FILTERS;
       if (!isAdmin) {
         try {
-          const { data: filterRow } = await supabase.from("app_settings").select("value").eq("key", "email_filters").maybeSingle();
+          const { data: filterRow } = await readSettingRow(supabase, "email_filters");
           visibilityFilters = normalizeEmailFilters(filterRow?.value);
         } catch {}
       }
@@ -5274,7 +5272,7 @@ Deno.serve(async (originalReq) => {
 
     if (action === "admin_get_r2_config") {
       await requireAdmin(req);
-      const { data } = await supabase.from("app_settings").select("value").eq("key", "r2_storage").maybeSingle();
+      const { data } = await readSettingRow(supabase, "r2_storage");
       const v: any = data?.value || {};
       const normalized = normalizeR2Config(v);
       const hasSecret = typeof normalized.config.secretAccessKey === "string" && normalized.config.secretAccessKey.length > 0;
@@ -5297,7 +5295,7 @@ Deno.serve(async (originalReq) => {
     if (action === "admin_save_r2_config") {
       const session = await requireAdmin(req);
       const p = (params || {}) as any;
-      const { data: existing } = await supabase.from("app_settings").select("value").eq("key", "r2_storage").maybeSingle();
+      const { data: existing } = await readSettingRow(supabase, "r2_storage");
       const prev: any = existing?.value || {};
       const normalized = normalizeR2Config(p, prev.secretAccessKey || "");
       if (normalized.errors.length) throw new Error(normalized.errors.join(" "));
@@ -5324,7 +5322,7 @@ Deno.serve(async (originalReq) => {
 
     if (action === "admin_r2_test") {
       await requireAdmin(req);
-      const { data } = await supabase.from("app_settings").select("value").eq("key", "r2_storage").maybeSingle();
+      const { data } = await readSettingRow(supabase, "r2_storage");
       const saved: any = data?.value || {};
       const draft: any = params || {};
       const hasDraftConfig = draft.useSaved !== true && ["accountId", "accessKeyId", "secretAccessKey", "bucket", "publicBaseUrl", "pathPrefix", "enabled"].some((k) => k in draft);
@@ -5375,7 +5373,7 @@ Deno.serve(async (originalReq) => {
       await requireAdmin(req);
       const p = (params || {}) as any;
       if (!p?.dataBase64 || !p?.filename) throw new Error("dataBase64 and filename required");
-      const { data } = await supabase.from("app_settings").select("value").eq("key", "r2_storage").maybeSingle();
+      const { data } = await readSettingRow(supabase, "r2_storage");
       const v: any = data?.value || {};
       if (!v.enabled) throw new Error("R2 is not enabled — configure it in Settings → Storage");
       const normalized = normalizeR2Config(v);
@@ -5412,7 +5410,7 @@ Deno.serve(async (originalReq) => {
       const session = await requireAdmin(req);
       const p = (params || {}) as any;
       if (!p?.dataBase64 || !p?.filename) throw new Error("Private key file required");
-      const { data: r2Row } = await supabase.from("app_settings").select("value").eq("key", "r2_storage").maybeSingle();
+      const { data: r2Row } = await readSettingRow(supabase, "r2_storage");
       const r2Value: any = r2Row?.value || {};
       if (!r2Value.enabled) throw new Error("R2 is not enabled — configure it in Settings → Storage first");
       const normalized = normalizeR2Config(r2Value);
@@ -5438,7 +5436,7 @@ Deno.serve(async (originalReq) => {
         throw new Error(`R2 upload failed: ${r2FailureMessage(res.status, t, normalized.warnings)}`);
       }
 
-      const { data: existing } = await supabase.from("app_settings").select("value").eq("key", "vps_config").maybeSingle();
+      const { data: existing } = await readSettingRow(supabase, "vps_config");
       const prev = publicVpsConfig(existing?.value);
       if (prev.keyObjectKey) {
         try { await r2Delete(creds, prev.keyObjectKey); } catch {}
@@ -5461,10 +5459,10 @@ Deno.serve(async (originalReq) => {
 
     if (action === "admin_download_vps_key") {
       const session = await requireAdmin(req);
-      const { data: vpsRow } = await supabase.from("app_settings").select("value").eq("key", "vps_config").maybeSingle();
+      const { data: vpsRow } = await readSettingRow(supabase, "vps_config");
       const vps = publicVpsConfig(vpsRow?.value);
       if (!vps.keyObjectKey) throw new Error("No private key has been uploaded yet");
-      const { data: r2Row } = await supabase.from("app_settings").select("value").eq("key", "r2_storage").maybeSingle();
+      const { data: r2Row } = await readSettingRow(supabase, "r2_storage");
       const r2Value: any = r2Row?.value || {};
       if (!r2Value.enabled) throw new Error("R2 is not enabled — configure it in Settings → Storage first");
       const normalized = normalizeR2Config(r2Value);
@@ -5489,14 +5487,14 @@ Deno.serve(async (originalReq) => {
 
     if (action === "admin_delete_vps_key") {
       const session = await requireAdmin(req);
-      const { data: vpsRow } = await supabase.from("app_settings").select("value").eq("key", "vps_config").maybeSingle();
+      const { data: vpsRow } = await readSettingRow(supabase, "vps_config");
       const vps = publicVpsConfig(vpsRow?.value);
       if (!vps.keyObjectKey) {
         return new Response(JSON.stringify({ success: true, value: vps, message: "No key was stored." }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
       // Best-effort delete from R2 (never fail the request if R2 is unreachable).
       try {
-        const { data: r2Row } = await supabase.from("app_settings").select("value").eq("key", "r2_storage").maybeSingle();
+        const { data: r2Row } = await readSettingRow(supabase, "r2_storage");
         const r2Value: any = r2Row?.value || {};
         if (r2Value.enabled) {
           const normalized = normalizeR2Config(r2Value);
@@ -6214,7 +6212,7 @@ Deno.serve(async (originalReq) => {
       let responseMessage: string | null = null;
       console.log(`[tv_submit] event=${inserted?.id} cookiesAvailable=${cookiesAvailable} matched_login=${matched?.login_email || "-"} parent_imap=${matched?.imap_user || "-"}`);
       if (cookiesAvailable && inserted?.id && matched?.login_email) {
-        const { data: vpsRowForRunner } = await supabase.from("app_settings").select("value").eq("key", "vps_config").maybeSingle();
+        const { data: vpsRowForRunner } = await readSettingRow(supabase, "vps_config");
         const vpsCfgForRunner = publicVpsConfig(vpsRowForRunner?.value);
         const runnerMode: "vps" | "github" = (vpsCfgForRunner as any).mode === "github" ? "github" : "vps";
         const runnerBase = effectiveTvRunnerUrl(vpsRowForRunner?.value);
