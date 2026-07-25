@@ -716,32 +716,9 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
       return { success: false, error: "Inbox not configured. Add IMAP email in Admin Panel.", stats: {}, totalFetched: 0, inserted: 0 };
     }
 
-    // ---- Bounded legacy backfill: at most BACKFILL_BATCH_SIZE rows/run.
-    // Driven by partial index `idx_cached_emails_null_label` so cost is O(batch).
-    // Uses a separate lock so retries don't starve the sync path.
-    if (!quickRefresh) {
-      const gotBf = await acquireLock(supabase, BACKFILL_JOB_NAME, BACKFILL_LOCK_LEASE_SECONDS);
-      if (gotBf) {
-        let bfOk = true;
-        try {
-          const { data: nullRows } = await supabase
-            .from("cached_emails")
-            .select("id")
-            .is("account_label", null)
-            .limit(BACKFILL_BATCH_SIZE);
-          const ids = (nullRows || []).map((r: any) => r.id);
-          if (ids.length > 0) {
-            const { error } = await supabase
-              .from("cached_emails")
-              .update({ account_label: "Primary" })
-              .in("id", ids);
-            if (error) { bfOk = false; console.error("[sync] backfill batch failed", error); }
-            else console.log(`[sync] backfill: labelled ${ids.length} legacy rows`);
-          }
-        } catch (e) { bfOk = false; console.error("[sync] backfill exception", e); }
-        finally { await releaseLock(supabase, BACKFILL_JOB_NAME, bfOk); }
-      }
-    }
+    // Legacy backfill removed: `account_label` is now sourced from real
+    // per-account labels; historical NULL rows are left as-is.
+
 
     // ---- Dedup cache: keyset-bounded scan of recent IDs.
     // Uses the (date DESC, id DESC) partial index so this is an index-only scan
