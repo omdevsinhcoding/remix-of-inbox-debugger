@@ -7099,9 +7099,9 @@ function AdminPanel() {
   const [savingConcurrentSessionLimit, setSavingConcurrentSessionLimit] = useState(false);
   const [freeAvatarCooldownMin, setFreeAvatarCooldownMinState] = useState<string>("5");
   const [savingFreeAvatarCooldown, setSavingFreeAvatarCooldown] = useState(false);
-  const [contactInfoTelegram, setContactInfoTelegram] = useState<string>("");
-  const [contactInfoWhatsapp, setContactInfoWhatsapp] = useState<string>("");
-  const [contactInfoEmail, setContactInfoEmail] = useState<string>("");
+  const [contactInfoTelegrams, setContactInfoTelegrams] = useState<string[]>([""]);
+  const [contactInfoWhatsapps, setContactInfoWhatsapps] = useState<string[]>([""]);
+  const [contactInfoEmails, setContactInfoEmails] = useState<string[]>([""]);
   const [contactInfoNote, setContactInfoNote] = useState<string>("");
   const [savingContactInfo, setSavingContactInfo] = useState(false);
   const loadContactInfoRef = useRef(false);
@@ -7113,9 +7113,14 @@ function AdminPanel() {
         const res: any = await apiCall("manage-app", { action: "get_settings", key: "contact_info" });
         const v = res?.value || res?.settings?.contact_info || null;
         if (v && typeof v === "object") {
-          setContactInfoTelegram(v.telegram || "");
-          setContactInfoWhatsapp(v.whatsapp || "");
-          setContactInfoEmail(v.email || "");
+          const pickArr = (plural: any, singular: any): string[] => {
+            if (Array.isArray(plural) && plural.length) return plural.map((x: any) => String(x || "")).filter(Boolean);
+            if (typeof singular === "string" && singular.trim()) return [singular.trim()];
+            return [""];
+          };
+          setContactInfoTelegrams(pickArr(v.telegrams, v.telegram));
+          setContactInfoWhatsapps(pickArr(v.whatsapps, v.whatsapp));
+          setContactInfoEmails(pickArr(v.emails, v.email));
           setContactInfoNote(v.note || "");
         }
       } catch {}
@@ -7124,10 +7129,11 @@ function AdminPanel() {
   const saveContactInfo = async () => {
     setSavingContactInfo(true);
     try {
+      const clean = (arr: string[]) => Array.from(new Set(arr.map(s => s.trim()).filter(Boolean)));
       await apiCall("manage-app", { action: "save_contact_info", value: {
-        telegram: contactInfoTelegram.trim(),
-        whatsapp: contactInfoWhatsapp.trim(),
-        email: contactInfoEmail.trim(),
+        telegrams: clean(contactInfoTelegrams),
+        whatsapps: clean(contactInfoWhatsapps),
+        emails: clean(contactInfoEmails),
         note: contactInfoNote.trim(),
       }});
       notify.success("Contact info saved");
@@ -7137,6 +7143,8 @@ function AdminPanel() {
       setSavingContactInfo(false);
     }
   };
+
+
 
   const [savingAdminSessionTimeout, setSavingAdminSessionTimeout] = useState(false);
   const [captchaEnabled, setCaptchaEnabled] = useState<boolean>(false);
