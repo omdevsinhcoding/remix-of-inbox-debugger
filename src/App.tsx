@@ -5150,6 +5150,13 @@ function ProfileSelectPage() {
 // ==================== ADMIN LOGIN ====================
 
 function AdminLoginPage() {
+  useRouteHead({
+    title: "Admin Sign-In — Netflix Mail",
+    description: "Restricted admin sign-in for Netflix Mail operators.",
+    ogTitle: "Admin Sign-In — Netflix Mail",
+    ogDescription: "Restricted admin sign-in for Netflix Mail operators.",
+    robots: "noindex, nofollow",
+  });
   // Remembered-username store. Key is versioned + isolated from any legacy
   // draft key that used to hold a password. What we persist:
   //   { u: <base64(username)>, t: <ms timestamp> }
