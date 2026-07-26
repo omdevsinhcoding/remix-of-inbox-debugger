@@ -5839,6 +5839,16 @@ Deno.serve(async (originalReq) => {
       }
     };
 
+    const USER_INVALID_TV_RESULTS = new Set(["runner_timeout", "netflix_timeout"]);
+    const sanitizeTvEventForUser = (ev: any) => {
+      if (!ev || !USER_INVALID_TV_RESULTS.has(String(ev.result || ""))) return ev;
+      return {
+        ...ev,
+        status: "invalid_code",
+        message: "Code rejected. Open Netflix on your TV, generate a fresh code, and try again.",
+      };
+    };
+
     const dispatchGithubTvRunner = async (eventId: string, reason: string, userLabel?: string) => {
       const cfg = await loadGithubConfig();
       const repo = cfg.repo;
@@ -6403,9 +6413,9 @@ Deno.serve(async (originalReq) => {
           .from("tv_login_events")
           .update({ status: expired.status, result: expired.result, message: expired.message, finished_at: expired.finished_at, metadata: expired.metadata })
           .eq("id", eventId);
-        return new Response(JSON.stringify({ success: true, event: expired }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify({ success: true, event: sanitizeTvEventForUser(expired) }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
-      const outEv = ev;
+      const outEv = sanitizeTvEventForUser(ev);
       return new Response(JSON.stringify({ success: true, event: outEv }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
@@ -6439,7 +6449,7 @@ Deno.serve(async (originalReq) => {
         .order("created_at", { ascending: false })
         .limit(8);
       if (error) throw new Error(error.message);
-      return new Response(JSON.stringify({ success: true, events: data || [] }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ success: true, events: (data || []).map(sanitizeTvEventForUser) }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
 
