@@ -2786,7 +2786,7 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
                         inputMode="numeric"
                         autoComplete="one-time-code"
                         maxLength={1}
-                        disabled={isTvActiveStatus(status)}
+                        disabled={isTvActiveStatus(status) || status === "no_cookies" || status === "cookies_expired"}
                         aria-label={`Digit ${i + 1}`}
                         className={`aspect-square w-full min-w-0 flex-1 text-center text-lg sm:text-2xl font-black rounded-xl bg-white/[0.04] border-2 text-white caret-[#e50914] outline-none transition-all
                           ${d ? "border-[#e50914] bg-[#e50914]/10 shadow-[0_0_20px_-4px_rgba(229,9,20,0.6)]" : "border-white/15"}
@@ -3213,7 +3213,7 @@ function TvSignInPage() {
                         inputMode="numeric"
                         autoComplete="one-time-code"
                         maxLength={1}
-                        disabled={isTvActiveStatus(status)}
+                        disabled={isTvActiveStatus(status) || status === "no_cookies" || status === "cookies_expired"}
                         aria-label={`Digit ${i + 1}`}
                         className={`aspect-square w-full min-w-0 flex-1 text-center text-2xl sm:text-3xl xl:text-5xl 2xl:text-6xl font-black rounded-xl sm:rounded-2xl bg-white border-2 text-slate-900 caret-rose-500 outline-none transition-all
                           ${d ? "border-rose-500 bg-rose-50 shadow-[0_8px_24px_-8px_rgba(229,9,20,0.4)]" : "border-slate-200"}
