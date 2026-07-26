@@ -2472,13 +2472,14 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
 
   const setDigit = (i: number, v: string) => {
     const d = v.replace(/\D/g, "").slice(-1);
-    if (isTvRetryableStatus(status)) {
+    const clearPreviousCode = isTvRetryableStatus(status);
+    if (clearPreviousCode) {
       setStatus("idle");
       setResultInfo({});
       setPollElapsed(0);
     }
     setCode((prev) => {
-      const next = [...prev];
+      const next = clearPreviousCode ? ["", "", "", "", "", "", "", ""] : [...prev];
       next[i] = d;
       return next;
     });
@@ -2961,12 +2962,13 @@ function TvSignInPage() {
 
   const setDigit = (i: number, v: string) => {
     const d = v.replace(/\D/g, "").slice(-1);
-    if (isTvRetryableStatus(status)) {
+    const clearPreviousCode = isTvRetryableStatus(status);
+    if (clearPreviousCode) {
       setStatus("idle");
       setResultInfo({});
       setPollElapsed(0);
     }
-    setCode((prev) => { const n = [...prev]; n[i] = d; return n; });
+    setCode((prev) => { const n = clearPreviousCode ? ["", "", "", "", "", "", "", ""] : [...prev]; n[i] = d; return n; });
     if (d && i < 7) inputsRef.current[i + 1]?.focus();
   };
   const onKeyDown = (i: number, e: React.KeyboardEvent<HTMLInputElement>) => {
