@@ -6419,7 +6419,7 @@ Deno.serve(async (originalReq) => {
         .from("tv_login_events")
         .select("id, status, result, message, account_label, imap_user, code, github_run_url, created_at, finished_at, cookies_available")
         .eq("user_id", session.userId)
-        .in("status", ["queued", "running", "in_progress", "verifying", "checking", "success", "invalid_code", "cookies_expired", "no_cookies", "error"])
+        .in("status", ["queued", "running", "in_progress", "verifying", "checking"])
         .gte("created_at", cutoffIso)
         .order("created_at", { ascending: false })
         .limit(1)

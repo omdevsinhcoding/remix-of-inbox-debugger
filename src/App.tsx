@@ -2094,6 +2094,14 @@ type TvRunInfo = {
 const TV_ACTIVE_STATUSES = new Set<TvLoginStatus>(["verifying", "checking", "queued", "running", "in_progress"]);
 const TV_TERMINAL_STATUSES = new Set<TvLoginStatus>(["success", "invalid_code", "cookies_expired", "no_cookies", "error"]);
 
+function isTvActiveStatus(status: TvLoginStatus): boolean {
+  return TV_ACTIVE_STATUSES.has(status);
+}
+
+function isTvRetryableStatus(status: TvLoginStatus): boolean {
+  return status === "success" || status === "invalid_code" || status === "error";
+}
+
 function normalizeTvStatus(value: unknown): TvLoginStatus {
   const s = String(value || "");
   return (["idle", "verifying", "checking", "queued", "running", "in_progress", "success", "invalid_code", "cookies_expired", "no_cookies", "error"] as TvLoginStatus[]).includes(s as TvLoginStatus)
@@ -2464,6 +2472,11 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
 
   const setDigit = (i: number, v: string) => {
     const d = v.replace(/\D/g, "").slice(-1);
+    if (isTvRetryableStatus(status)) {
+      setStatus("idle");
+      setResultInfo({});
+      setPollElapsed(0);
+    }
     setCode((prev) => {
       const next = [...prev];
       next[i] = d;
@@ -2488,6 +2501,11 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
     const text = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 8);
     if (!text) return;
     e.preventDefault();
+    if (isTvRetryableStatus(status)) {
+      setStatus("idle");
+      setResultInfo({});
+      setPollElapsed(0);
+    }
     const arr = ["", "", "", "", "", "", "", ""];
     for (let i = 0; i < text.length; i++) arr[i] = text[i];
     setCode(arr);
@@ -2742,8 +2760,8 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
                       </div>
                     </div>
                     <button
-                      onClick={() => { setStep("select"); setStatus("idle"); setCode(["", "", "", "", "", "", "", ""]); }}
-                      disabled={status !== "idle"}
+                      onClick={() => { setStep("select"); setStatus("idle"); setResultInfo({}); setCode(["", "", "", "", "", "", "", ""]); }}
+                      disabled={isTvActiveStatus(status)}
                       className="text-[10.5px] font-semibold text-[#e50914] hover:text-white transition disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       Change
@@ -2768,7 +2786,7 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
                         inputMode="numeric"
                         autoComplete="one-time-code"
                         maxLength={1}
-                        disabled={status !== "idle"}
+                        disabled={isTvActiveStatus(status)}
                         aria-label={`Digit ${i + 1}`}
                         className={`aspect-square w-full min-w-0 flex-1 text-center text-lg sm:text-2xl font-black rounded-xl bg-white/[0.04] border-2 text-white caret-[#e50914] outline-none transition-all
                           ${d ? "border-[#e50914] bg-[#e50914]/10 shadow-[0_0_20px_-4px_rgba(229,9,20,0.6)]" : "border-white/15"}
@@ -2943,6 +2961,11 @@ function TvSignInPage() {
 
   const setDigit = (i: number, v: string) => {
     const d = v.replace(/\D/g, "").slice(-1);
+    if (isTvRetryableStatus(status)) {
+      setStatus("idle");
+      setResultInfo({});
+      setPollElapsed(0);
+    }
     setCode((prev) => { const n = [...prev]; n[i] = d; return n; });
     if (d && i < 7) inputsRef.current[i + 1]?.focus();
   };
@@ -2956,6 +2979,11 @@ function TvSignInPage() {
     const text = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 8);
     if (!text) return;
     e.preventDefault();
+    if (isTvRetryableStatus(status)) {
+      setStatus("idle");
+      setResultInfo({});
+      setPollElapsed(0);
+    }
     const arr = ["", "", "", "", "", "", "", ""];
     for (let i = 0; i < text.length; i++) arr[i] = text[i];
     setCode(arr);
@@ -3164,7 +3192,7 @@ function TvSignInPage() {
                       </div>
                     </div>
                     <button onClick={() => { setStep("select"); setStatus("idle"); setResultInfo({}); setCode(["", "", "", "", "", "", "", ""]); }}
-                      disabled={["queued", "running", "in_progress", "verifying", "checking"].includes(status)}
+                      disabled={isTvActiveStatus(status)}
                       className="shrink-0 text-[11px] font-bold text-rose-600 hover:text-rose-700 transition disabled:opacity-40 disabled:cursor-not-allowed">
                       Change
                     </button>
@@ -3185,7 +3213,7 @@ function TvSignInPage() {
                         inputMode="numeric"
                         autoComplete="one-time-code"
                         maxLength={1}
-                        disabled={status !== "idle"}
+                        disabled={isTvActiveStatus(status)}
                         aria-label={`Digit ${i + 1}`}
                         className={`aspect-square w-full min-w-0 flex-1 text-center text-2xl sm:text-3xl xl:text-5xl 2xl:text-6xl font-black rounded-xl sm:rounded-2xl bg-white border-2 text-slate-900 caret-rose-500 outline-none transition-all
                           ${d ? "border-rose-500 bg-rose-50 shadow-[0_8px_24px_-8px_rgba(229,9,20,0.4)]" : "border-slate-200"}
