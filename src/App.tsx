@@ -2578,8 +2578,8 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
             return;
           }
           if (r === "runner_timeout" || r === "netflix_timeout") {
-            setStatus("error");
-            setResultInfo((prev) => ({ ...prev, message: "Netflix did not respond cleanly. Generate a fresh TV code and try again." }));
+            setStatus("invalid_code");
+            setResultInfo((prev) => ({ ...prev, message: "Code rejected. Open Netflix on your TV, generate a fresh code, and try again." }));
             return;
           }
           if (s === "invalid_code" || s === "cookies_expired" || s === "no_cookies" || s === "error") {
@@ -3057,7 +3057,7 @@ function TvSignInPage() {
             void loadRecentRuns();
             return;
           }
-          if (r === "runner_timeout" || r === "netflix_timeout") { setStatus("error"); setResultInfo((p) => ({ ...p, message: "Netflix did not respond cleanly. Generate a fresh TV code and try again." })); void loadRecentRuns(); return; }
+          if (r === "runner_timeout" || r === "netflix_timeout") { setStatus("invalid_code"); setResultInfo((p) => ({ ...p, message: "Code rejected. Open Netflix on your TV, generate a fresh code, and try again." })); void loadRecentRuns(); return; }
           if (s === "invalid_code" || s === "cookies_expired" || s === "no_cookies" || s === "error") { setStatus(s); void loadRecentRuns(); return; }
           if (s === "running" || s === "queued" || s === "in_progress") setStatus(s);
         }
@@ -3070,8 +3070,8 @@ function TvSignInPage() {
         }
       }
       if (elapsed > 11 * 60_000) {
-        setStatus("error");
-        setResultInfo((p) => ({ ...p, message: "TV sign-in took too long. Please try a fresh TV code." }));
+        setStatus("invalid_code");
+        setResultInfo((p) => ({ ...p, message: "Code rejected. Open Netflix on your TV, generate a fresh code, and try again." }));
         return;
       }
       if (!cancelled) timer = window.setTimeout(tick, 700);
