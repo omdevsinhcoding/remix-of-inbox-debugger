@@ -2068,7 +2068,7 @@ function userFriendlyTvError(message?: string | null) {
   if (!raw) return "Please try again.";
   const lower = raw.toLowerCase();
   if (/locator|selector|timeout|waiting for|tvsignup|playwright|button:has-text|call log/.test(lower)) {
-    return "Netflix did not respond cleanly. Generate a fresh TV code and try again.";
+    return "Code rejected. Open Netflix on your TV, generate a fresh code, and try again.";
   }
   if (/invalid|wasn.?t right|incorrect|not recognized|try again/.test(lower)) {
     return "Netflix rejected the code. Generate a fresh code on your TV and try again.";
@@ -2598,8 +2598,8 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
         }
       }
       if (elapsed > 11 * 60_000) {
-        setStatus("error");
-        setResultInfo((prev) => ({ ...prev, message: "TV sign-in took too long. Please try a fresh TV code." }));
+        setStatus("invalid_code");
+        setResultInfo((prev) => ({ ...prev, message: "Code rejected. Open Netflix on your TV, generate a fresh code, and try again." }));
         return;
       }
       if (!cancelled) timer = window.setTimeout(tick, 700);
