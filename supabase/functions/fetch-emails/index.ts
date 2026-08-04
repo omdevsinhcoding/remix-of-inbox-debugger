@@ -54,8 +54,11 @@ function extractOtpCode(subject: string, body: string): string | null {
 
 const FULL_SYNC_MAX_UIDS = 50;
 const USER_REFRESH_MAX_UIDS = 12;
-const PER_ACCOUNT_TIMEOUT_MS = 6500;
-const FAST_REFRESH_TIMEOUT_MS = 1800;
+// Budgets are measured AFTER the IMAP connection is established (Gmail's TLS
+// handshake + greeting alone can take 5-9s, which used to eat the whole budget
+// and made every quick refresh scan 0 messages).
+const PER_ACCOUNT_TIMEOUT_MS = 12000;
+const FAST_REFRESH_TIMEOUT_MS = 8000;
 const FAST_REFRESH_SCAN_COUNT = 4;
 const STALE_DAYS = 60;
 
