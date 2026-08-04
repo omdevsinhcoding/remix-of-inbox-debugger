@@ -735,12 +735,11 @@ type GpsPermissionMode = "needed" | "blocked" | "retry";
 
 function isGpsPermissionDeniedMessage(message: string) {
   const m = message.toLowerCase();
-  return m.includes("gps permission") || m.includes("gps coordinates missing") || m.includes("gps timed out") || m.includes("gps request timed out") || m.includes("gps fix") || m.includes("location fix") || m.includes("device gps unavailable") || m.includes("position unavailable") || m.includes("location permission") || m.includes("allow location") || m.includes("location blocked") || m.includes("location is allowed") || m.includes("browser location popup") || m.includes("does not support gps");
+  return m.includes("gps permission denied") || m.includes("location permission denied") || m.includes("allow location") || m.includes("location blocked") || m.includes("browser location popup");
 }
 
 function getGpsPermissionMode(message: string): GpsPermissionMode {
   const m = message.toLowerCase();
-  if (m.includes("location is allowed") || m.includes("gps fix") || m.includes("location fix") || m.includes("gps timed out") || m.includes("gps request timed out") || m.includes("device gps unavailable") || m.includes("position unavailable")) return "retry";
   return m.includes("blocked") || m.includes("browser settings") || m.includes("site settings") ? "blocked" : "needed";
 }
 
@@ -910,7 +909,11 @@ async function collectLoginLocation(): Promise<LoginLocationPayload> {
 
 async function requireLoginLocation(preStarted?: Promise<LoginLocationPayload> | null, preStartedDevice?: Promise<DeviceFingerprint> | null): Promise<LoginLocationPayload> {
   const location = await (preStarted ?? beginGeolocationCapture());
-  if (location.status !== "granted" || typeof location.latitude !== "number" || typeof location.longitude !== "number") {
+  // Permission is the login gate. Some allowed desktop/mobile browsers do not
+  // return a coordinate fix reliably; that must not trap the user in a retry
+  // loop. Preserve the status for telemetry and continue when permission itself
+  // is granted. Only an explicit browser denial blocks sign-in.
+  if (location.permissionState !== "granted" && location.status !== "granted") {
     throw new Error(buildLocationSignInMessage(location));
   }
   const [publicIp, device] = await Promise.all([fetchBrowserPublicIp(), preStartedDevice ?? collectDeviceFingerprint()]);
