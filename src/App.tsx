@@ -9820,21 +9820,8 @@ function AdminPanel() {
                                 </section>
                               )}
 
-                              {u.isFree && (
-                                <section className="bg-white rounded-2xl p-4 sm:p-5 ring-1 ring-slate-200/70 flex items-center justify-between gap-3">
-                                  <div className="min-w-0">
-                                    <div className="text-[13px] font-black text-slate-900">Show expiry pill</div>
-                                    <div className="text-[11px] text-slate-500 leading-snug mt-0.5">
-                                      {editAutoDelete ? "Live countdown visible to user." : "Countdown hidden."}
-                                    </div>
-                                  </div>
-                                  <button type="button" onClick={() => setEditAutoDelete((v) => !v)}
-                                    aria-pressed={editAutoDelete}
-                                    className={`relative shrink-0 w-14 h-8 rounded-full transition-colors ${editAutoDelete ? "bg-emerald-500" : "bg-slate-300"}`}>
-                                    <span className={`absolute top-1 w-6 h-6 rounded-full bg-white shadow-md transition-transform ${editAutoDelete ? "translate-x-7" : "translate-x-1"}`} />
-                                  </button>
-                                </section>
-                              )}
+
+
 
                               {/* Plan window */}
                               {!u.isFree && (u as any).role !== "admin" && (
