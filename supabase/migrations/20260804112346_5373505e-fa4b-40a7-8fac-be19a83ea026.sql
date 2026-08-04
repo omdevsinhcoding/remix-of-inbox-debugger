@@ -1,0 +1,1 @@
+DELETE FROM public.app_settings WHERE key = 'ipwho_alert';
