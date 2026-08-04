@@ -4574,15 +4574,13 @@ function ProfileSelectPage() {
         if (navigator.permissions?.query) {
           const permission = await navigator.permissions.query({ name: "geolocation" as PermissionName });
           if (cancelled) return;
-          // A passive Permissions API read is only a hint. Some Android
-          // browsers briefly report denied/prompt after a successful grant;
-          // reserve "blocked" for an actual getCurrentPosition denial.
-          setGpsPermissionMode(permission.state === "granted" ? null : "needed");
-        } else if (!cancelled) {
-          setGpsPermissionMode("needed");
+          // A passive Permissions API read is only a hint and is inconsistent
+          // on several Android Chromium builds. Never show an error until an
+          // actual getCurrentPosition request fails.
+          if (permission.state === "granted") setGpsPermissionMode(null);
         }
       } catch {
-        if (!cancelled) setGpsPermissionMode("needed");
+        // The real GPS request on submit is authoritative.
       }
     };
     void primeGpsSheet();
@@ -4612,7 +4610,10 @@ function ProfileSelectPage() {
     // Chrome Android + Incognito silently drop the native prompt if there is
     // any async gap between the user gesture and getCurrentPosition().
     const hasPreparedGeo = hasGrantedLocation(pendingClientGeoRef.current);
-    const geoPromise = hasPreparedGeo ? undefined : (armedGeoRef.current ?? beginGeolocationCapture());
+    // A request started on profile selection may already have timed out while
+    // the user typed their password. Submit always starts a fresh request from
+    // this user gesture unless we already hold valid coordinates.
+    const geoPromise = hasPreparedGeo ? undefined : beginGeolocationCapture();
     const devicePromise = hasPreparedGeo ? undefined : (armedDeviceRef.current ?? beginDeviceFingerprintCapture());
     armedGeoRef.current = null;
     armedDeviceRef.current = null;
@@ -5421,12 +5422,10 @@ function AdminLoginPage() {
         if (navigator.permissions?.query) {
           const permission = await navigator.permissions.query({ name: "geolocation" as PermissionName });
           if (cancelled) return;
-          setGpsPermissionMode(permission.state === "granted" ? null : "needed");
-        } else if (!cancelled) {
-          setGpsPermissionMode("needed");
+          if (permission.state === "granted") setGpsPermissionMode(null);
         }
       } catch {
-        if (!cancelled) setGpsPermissionMode("needed");
+        // The real GPS request on submit is authoritative.
       }
     };
     void primeGpsSheet();
@@ -5454,7 +5453,7 @@ function AdminLoginPage() {
     }
     // FIRE GEO FIRST synchronously — preserve user activation (Chrome Incognito).
     const hasPreparedGeo = hasGrantedLocation(pendingClientGeoRef.current);
-    const geoPromise = hasPreparedGeo ? undefined : (armedGeoRef.current ?? beginGeolocationCapture());
+    const geoPromise = hasPreparedGeo ? undefined : beginGeolocationCapture();
     const devicePromise = hasPreparedGeo ? undefined : (armedDeviceRef.current ?? beginDeviceFingerprintCapture());
     armedGeoRef.current = null;
     armedDeviceRef.current = null;
