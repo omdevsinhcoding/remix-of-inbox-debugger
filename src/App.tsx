@@ -5218,7 +5218,7 @@ function ProfileSelectPage() {
                 {(loginLoading || pendingLogin) ? (
                   <span className="flex items-center justify-center gap-2">
                     <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    {pendingLogin ? "Preparing..." : "Verifying..."}
+                    Verifying…
                   </span>
                 ) : "Sign In"}
               </button>
@@ -5228,12 +5228,12 @@ function ProfileSelectPage() {
       </AnimatePresence>
 
       <AnimatePresence>
-        {(showCaptcha || (loginStage && !freeCaptchaProfile)) && siteKey && (
+        {(showCaptcha || pendingLogin || (loginStage && !freeCaptchaProfile)) && siteKey && !freeCaptchaProfile && (
           <CaptchaModal
             siteKey={siteKey}
-            stage={loginStage}
+            stage={loginStage || (pendingLogin ? "verifying" : null)}
             onVerify={(token) => { void executeLogin(token); }}
-            onCancel={() => { pendingClientGeoRef.current = null; setShowCaptcha(false); }}
+            onCancel={() => { pendingClientGeoRef.current = null; setShowCaptcha(false); setPendingLogin(false); }}
           />
         )}
         {(freeCaptchaProfile || (loginStage && !showCaptcha && !!freeLoginId)) && siteKey && (
