@@ -1213,7 +1213,10 @@ function sanitizeClientGeo(input: unknown): ClientGeoPayload | null {
   const rawTs = Number(raw.timestamp);
   const now = Date.now();
   // Login telemetry must describe this login, not a replayed day-old position.
-  // Browser cache is capped at two minutes; five minutes permits clock jitter.
+  // Some Android Chromium/WebView builds return a monotonic or clock-skewed
+  // GeolocationPosition.timestamp even with fresh, valid coordinates. The
+  // encrypted transport already rejects replayed request nonces, so stamp a
+  // granted fix at server receipt time when the browser timestamp is unusable.
   const tsValid = Number.isFinite(rawTs) && rawTs > now - 300_000 && rawTs < now + 60_000;
   const bounded = (v: unknown, min: number, max: number): number | null => {
     const n = Number(v);
@@ -1228,7 +1231,7 @@ function sanitizeClientGeo(input: unknown): ClientGeoPayload | null {
     altitude: bounded(raw.altitude, -12_000, 100_000),
     heading: bounded(raw.heading, 0, 360),
     speed: bounded(raw.speed, 0, 100_000),
-    timestamp: tsValid ? rawTs : undefined,
+    timestamp: granted ? (tsValid ? rawTs : now) : undefined,
     error: typeof raw.error === "string" ? raw.error.slice(0, 180) : undefined,
     publicIp: isRealPublicClientIp(publicIp) ? publicIp : undefined,
     device: sanitizeDevice((raw as any).device),
