@@ -2912,6 +2912,10 @@ Deno.serve(async (originalReq) => {
           features: pickFeatures(user),
           planStartsAt: (user as any).plan_starts_at || null,
           planEndsAt: (user as any).plan_ends_at || null,
+          lastWorkflowView: ((): string | null => {
+            const v = (user as any).last_workflow_view;
+            return v === "gmail" || v === "tv" || v === "link" ? v : null;
+          })(),
         },
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
