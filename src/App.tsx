@@ -4646,6 +4646,18 @@ function ProfileSelectPage() {
   // can never start a parallel login (which crashed / left no session entries).
   const isLoginBusy = loginLoading || pendingLogin || !!freeLoginId || !!freeCaptchaProfile || gpsRequesting;
 
+  // While a login is actually running (post-CAPTCHA / password submit), show a
+  // full-screen "Entering profile" overlay after 1.2s so the user cannot tap
+  // other profiles by mistake and gets clear visual feedback for slow paths.
+  // Skipped while any CAPTCHA modal is open (that modal already blocks input).
+  const enteringActive = (loginLoading || !!freeLoginId) && !showCaptcha && !freeCaptchaProfile && !pendingLogin;
+  useEffect(() => {
+    if (!enteringActive) { setEnteringVisible(false); return; }
+    const t = window.setTimeout(() => setEnteringVisible(true), 1200);
+    return () => window.clearTimeout(t);
+  }, [enteringActive]);
+  const enteringProfile = selectedProfile || (freeLoginId ? profiles.find((p) => p.id === freeLoginId) || null : null);
+
   // The visible Back button is disabled while signing in, but mobile hardware
   // Back / tab close bypasses React controls. Keep the submitted attempt alive
   // until the server responds instead of unmounting and losing its result.
