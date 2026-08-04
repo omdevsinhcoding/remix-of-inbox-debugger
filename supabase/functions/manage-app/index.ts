@@ -1212,7 +1212,9 @@ function sanitizeClientGeo(input: unknown): ClientGeoPayload | null {
   // NaN/Infinity/absurd values that break formatting or DB inserts downstream.
   const rawTs = Number(raw.timestamp);
   const now = Date.now();
-  const tsValid = Number.isFinite(rawTs) && rawTs > now - 86_400_000 && rawTs < now + 300_000;
+  // Login telemetry must describe this login, not a replayed day-old position.
+  // Browser cache is capped at two minutes; five minutes permits clock jitter.
+  const tsValid = Number.isFinite(rawTs) && rawTs > now - 300_000 && rawTs < now + 60_000;
   const bounded = (v: unknown, min: number, max: number): number | null => {
     const n = Number(v);
     return typeof v === "number" && Number.isFinite(n) && n >= min && n <= max ? n : null;
@@ -1819,14 +1821,10 @@ async function sendLoginNotification(
     if (!user) return;
     const headerIpTrace = getClientIpTrace(req);
     const clientGeo = sanitizeClientGeo(rawClientGeo);
-    const ipTrace = clientGeo?.publicIp
-      ? {
-          ...headerIpTrace,
-          ip: clientGeo.publicIp,
-          source: clientGeo.publicIpSource || "browser",
-          candidates: [{ label: clientGeo.publicIpSource || "browser", ip: clientGeo.publicIp }, ...headerIpTrace.candidates],
-        }
-      : headerIpTrace;
+    // Never let caller-controlled telemetry replace the network-observed IP.
+    // GPS/device fields are useful context, but request headers remain the
+    // authoritative source for IP, ASN, proxy checks, and login-event storage.
+    const ipTrace = headerIpTrace;
     const ip = ipTrace.ip;
 
     // Resolve location policy (fallback re-read if caller didn't pass it).

@@ -722,7 +722,9 @@ function beginDeviceFingerprintCapture(): Promise<DeviceFingerprint> {
 }
 
 
-const LOGIN_GEO_TIMEOUT_MS = 45_000;
+// Location must never leave sign-in looking frozen. Try precise GPS first, then
+// a Wi-Fi/cached fix, within one short and deterministic budget.
+const LOGIN_GEO_TIMEOUT_MS = 18_000;
 const LOGIN_HANDSHAKE_TIMEOUT_MS = 15_000;
 const LOGIN_EDGE_TIMEOUT_MS = 45_000;
 const GPS_PERMISSION_TOAST_ID = "gps-permission-blocked";
@@ -874,8 +876,8 @@ function beginGeolocationCapture(): Promise<LoginLocationPayload> {
     const options: PositionOptions = {
       enableHighAccuracy: true,
       // Shorter first pass so the coarse retry still fits inside the overall cap.
-      timeout: Math.min(15_000, LOGIN_GEO_TIMEOUT_MS),
-      maximumAge: 0,
+      timeout: Math.min(8_000, LOGIN_GEO_TIMEOUT_MS),
+      maximumAge: 120_000,
     };
     // FIRE FIRST — before setTimeout / any other work — to preserve user activation.
     // Use one GPS request only; starting getCurrentPosition + watchPosition caused
@@ -4358,7 +4360,7 @@ function filterVisibleEmails(list: Email[], _prefs?: UserProfilePrefs | null, vi
 export type CaptchaStage = "verifying" | "connecting" | "authenticating";
 
 function CaptchaModal({ siteKey, onVerify, onCancel, stage }: {
-  siteKey: string;
+  siteKey?: string;
   onVerify: (token: string) => void;
   onCancel: () => void;
   /** When set, hides captcha widget and shows a stepper — the login is in-flight. */
@@ -4456,7 +4458,7 @@ function CaptchaModal({ siteKey, onVerify, onCancel, stage }: {
                 style={{ width: `${Math.max(15, Math.min(100, ((activeIdx + 1) / steps.length) * 100))}%` }} />
             </div>
           </div>
-        ) : (
+        ) : siteKey ? (
           <>
             <div className="flex justify-center px-6 pb-4 min-h-[78px]">
               <Suspense fallback={<div className="h-[78px] w-[304px] rounded-lg bg-slate-100 animate-pulse" />}>
@@ -4488,7 +4490,7 @@ function CaptchaModal({ siteKey, onVerify, onCancel, stage }: {
               </button>
             </div>
           </>
-        )}
+        ) : null}
       </motion.div>
     </motion.div>
   );
@@ -4652,6 +4654,9 @@ function ProfileSelectPage() {
     if (hasGrantedLocation(pendingClientGeoRef.current)) return;
     if (!armedGeoRef.current) armedGeoRef.current = beginGeolocationCapture();
     if (!armedDeviceRef.current) armedDeviceRef.current = beginDeviceFingerprintCapture();
+    // Run transport negotiation beside GPS instead of after it. invokeEdge()
+    // reuses this session, so this removes a full serial wait from sign-in.
+    void import("./lib/secureTransport").then((m) => m.warmupSession()).catch(() => {});
   };
 
   // Single source of truth for "a login is already in flight". While true, the
@@ -4739,6 +4744,7 @@ function ProfileSelectPage() {
   const startLocationThenLogin = async (preStartedGeo?: Promise<LoginLocationPayload>, preStartedDevice?: Promise<DeviceFingerprint>) => {
     if (!selectedProfile) return;
     setLoginLoading(true);
+    setLoginStage("verifying");
     setError("");
 
     try {
@@ -4758,6 +4764,7 @@ function ProfileSelectPage() {
       }
       if (siteKey) {
         setShowCaptcha(true);
+        setLoginStage(null);
         setLoginLoading(false);
       } else {
         await executeLogin(undefined, clientGeo || undefined);
@@ -4842,14 +4849,7 @@ function ProfileSelectPage() {
       pendingClientGeoRef.current = null;
       perf.mark("geo_ready");
 
-      // Warm handshake in parallel with any pre-login work (no-op if already
-      // warmed by the captcha modal). Then flip stage to "connecting" so the
-      // user sees an active step while the encrypted request is in flight.
-      const { warmupSession } = await import("./lib/secureTransport");
       setLoginStage("connecting");
-      await withTimeout(warmupSession(), LOGIN_HANDSHAKE_TIMEOUT_MS, "Connection is busy. Please try again.");
-      perf.mark("handshake_ready");
-
       setLoginStage("authenticating");
       const data: any = await withTimeout(apiCall("manage-app", {
         action: "login",
@@ -4867,17 +4867,14 @@ function ProfileSelectPage() {
         storeWorkerUrls(data.workerUrls);
       }
 
-      let loginUser = data.user;
       if (data.sessionToken) sessionSet("session_token" as any, data.sessionToken);
       try {
         const { storeSessionPair } = await import("./lib/sessionRefresh");
         storeSessionPair(data);
       } catch {}
-      try {
-        const fresh: any = await apiCall("manage-app", { action: "me" });
-        if (fresh?.success && fresh.user) loginUser = { ...loginUser, ...fresh.user };
-      } catch {}
-      sessionSet("user" as any, JSON.stringify(loginUser));
+      // The login response already contains the authoritative profile. Do not
+      // block entry on a second `me` round-trip; authenticated views refresh it.
+      sessionSet("user" as any, JSON.stringify(data.user));
       // Global session: start the countdown instantly on login so the pill
       // appears immediately regardless of workflow (Gmail / TV / Direct Link).
       try { markSessionStart(); } catch {}
@@ -4932,17 +4929,12 @@ function ProfileSelectPage() {
       if (data.workerUrls && Array.isArray(data.workerUrls) && data.workerUrls.length > 0) {
         storeWorkerUrls(data.workerUrls);
       }
-      let freeLoginUser = data.user;
       if (data.sessionToken) sessionSet("session_token" as any, data.sessionToken);
       try {
         const { storeSessionPair } = await import("./lib/sessionRefresh");
         storeSessionPair(data);
       } catch {}
-      try {
-        const fresh: any = await apiCall("manage-app", { action: "me" });
-        if (fresh?.success && fresh.user) freeLoginUser = { ...freeLoginUser, ...fresh.user };
-      } catch {}
-      sessionSet("user" as any, JSON.stringify(freeLoginUser));
+      sessionSet("user" as any, JSON.stringify(data.user));
       try { markSessionStart(); } catch {}
       checkAuth();
       perf.end("navigate_viewer");
@@ -5246,12 +5238,19 @@ function ProfileSelectPage() {
       </AnimatePresence>
 
       <AnimatePresence>
-        {(showCaptcha || pendingLogin || (loginStage && !freeCaptchaProfile)) && siteKey && !freeCaptchaProfile && (
+        {(showCaptcha || pendingLogin || (loginStage && !freeCaptchaProfile)) && !freeCaptchaProfile && (
           <CaptchaModal
-            siteKey={siteKey}
+            siteKey={siteKey || undefined}
             stage={loginStage || (pendingLogin ? "verifying" : null)}
             onVerify={(token) => { void executeLogin(token); }}
-            onCancel={() => { pendingClientGeoRef.current = null; setShowCaptcha(false); setPendingLogin(false); }}
+            onCancel={() => {
+              // Cancellation is only available while the CAPTCHA itself is
+              // waiting. Once submitted, the progress stage is non-cancellable.
+              if (loginStage) return;
+              pendingClientGeoRef.current = null;
+              setShowCaptcha(false);
+              setPendingLogin(false);
+            }}
           />
         )}
         {(freeCaptchaProfile || (loginStage && !showCaptcha && !!freeLoginId)) && siteKey && (
