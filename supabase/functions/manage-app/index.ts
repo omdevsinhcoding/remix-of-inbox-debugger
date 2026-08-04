@@ -4808,6 +4808,7 @@ Deno.serve(async (originalReq) => {
         return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
       const nowIso = new Date().toISOString();
+      for (const id of ids.slice(0, 200)) assertUuid(id, "notification id");
       const rows = ids.slice(0, 200).map((id: string) => ({ notification_id: id, user_id: session.userId, seen_at: nowIso }));
       const { error } = await supabase.from("notification_reads").upsert(rows, { onConflict: "notification_id,user_id" });
       if (error) throw error;
@@ -4858,7 +4859,8 @@ Deno.serve(async (originalReq) => {
     if (action === "log_notification_event") {
       const session = await requireSession(req);
       const { notification_id, event, meta } = params as { notification_id?: string; event?: string; meta?: any };
-      if (!notification_id || !event) throw new Error("notification_id and event required");
+      assertUuid(notification_id, "notification_id");
+      if (!event) throw new Error("event required");
       const allowed = ["delivered", "seen", "read", "clicked", "dismissed"];
       if (!allowed.includes(event)) throw new Error("invalid event");
       await supabase.from("notification_events").insert({ notification_id, user_id: session.userId, event, meta: meta || null });
