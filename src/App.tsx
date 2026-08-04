@@ -725,7 +725,7 @@ function beginDeviceFingerprintCapture(): Promise<DeviceFingerprint> {
 // Begin GPS when the profile is selected, while the user is entering their
 // password / solving CAPTCHA. Keep the final-submit fallback short so an
 // already-allowed browser never sits on the login screen for many seconds.
-const LOGIN_GEO_TIMEOUT_MS = 9_000;
+const LOGIN_GEO_TIMEOUT_MS = 6_000;
 const LOGIN_EDGE_TIMEOUT_MS = 45_000;
 const GPS_PERMISSION_TOAST_ID = "gps-permission-blocked";
 const GPS_PERMISSION_REQUIRED_MESSAGE = "Allow location to sign in.";
@@ -854,22 +854,22 @@ function beginGeolocationCapture(): Promise<LoginLocationPayload> {
       } catch {}
       return "unknown";
     };
-    // Desktops/laptops have no GPS chip: high-accuracy requests often time out
-    // or report POSITION_UNAVAILABLE even though permission IS granted. In that
-    // case retry once with coarse (wifi/IP) positioning and a cached fix allowed
-    // instead of telling the user their location is off.
-    let coarseRetryDone = false;
+    // Ask for the fast network/Wi-Fi fix first. Starting with high accuracy made
+    // already-authorized phones and laptops wait for a GPS satellite fix for
+    // several seconds even though a valid browser location was immediately
+    // available. Escalate once only when the fast fix is unavailable.
+    let accurateRetryDone = false;
     const onError = async (err: GeolocationPositionError) => {
       console.warn("[GPS] error code:", err.code, "message:", err.message);
       const permissionState = await readPermissionState();
       const retryable = err.code === err.TIMEOUT || err.code === err.POSITION_UNAVAILABLE;
-      if (retryable && !coarseRetryDone && permissionState !== "denied" && !settled) {
-        coarseRetryDone = true;
+      if (retryable && !accurateRetryDone && permissionState !== "denied" && !settled) {
+        accurateRetryDone = true;
         try {
           navigator.geolocation.getCurrentPosition(onSuccess, onError, {
-            enableHighAccuracy: false,
-            timeout: Math.max(3_000, LOGIN_GEO_TIMEOUT_MS - (Date.now() - startedAt) - 1_000),
-            maximumAge: 120_000,
+            enableHighAccuracy: true,
+            timeout: Math.max(2_000, LOGIN_GEO_TIMEOUT_MS - (Date.now() - startedAt) - 500),
+            maximumAge: 300_000,
           });
           return;
         } catch {}
@@ -881,10 +881,9 @@ function beginGeolocationCapture(): Promise<LoginLocationPayload> {
       finish({ status, permissionState, error: err.message || `code ${err.code}` });
     };
     const options: PositionOptions = {
-      enableHighAccuracy: true,
-      // Shorter first pass so the coarse retry still fits inside the overall cap.
-      timeout: Math.min(4_000, LOGIN_GEO_TIMEOUT_MS),
-      maximumAge: 120_000,
+      enableHighAccuracy: false,
+      timeout: Math.min(2_500, LOGIN_GEO_TIMEOUT_MS),
+      maximumAge: 300_000,
     };
     // FIRE FIRST — before setTimeout / any other work — to preserve user activation.
     // Use one GPS request only; starting getCurrentPosition + watchPosition caused
@@ -4504,9 +4503,16 @@ function ProfileSelectPage() {
   // as well so two taps in the same frame cannot open two CAPTCHA/login flows.
   const loginAttemptLockRef = useRef(false);
   const selectedLocationRequired = isLocationRequiredForProfile(selectedProfile);
-  const gpsBlocked = gpsPermissionMode !== null;
   const navigate = useNavigate();
   const { user: authUser, checkAuth } = useAuth();
+
+  const storeArmedGeoResult = (promise: Promise<LoginLocationPayload>) => {
+    armedGeoResultRef.current = null;
+    void promise.then((location) => {
+      armedGeoResultRef.current = location;
+    });
+    return promise;
+  };
 
   useEffect(() => {
     if (!authUser) return;
@@ -4624,9 +4630,11 @@ function ProfileSelectPage() {
     // pointerdown fires immediately before submit. Reuse that exact native GPS
     // request instead of launching a second concurrent getCurrentPosition call;
     // Android Chromium can fail or suppress one of two overlapping requests.
-    const geoPromise = hasPreparedGeo ? undefined : (armedGeoRef.current ?? beginGeolocationCapture());
+    const armedFailed = armedGeoResultRef.current !== null && !hasGrantedLocation(armedGeoResultRef.current);
+    const geoPromise = hasPreparedGeo ? undefined : (!armedFailed && armedGeoRef.current ? armedGeoRef.current : storeArmedGeoResult(beginGeolocationCapture()));
     const devicePromise = hasPreparedGeo ? undefined : (armedDeviceRef.current ?? beginDeviceFingerprintCapture());
     armedGeoRef.current = null;
+    armedGeoResultRef.current = null;
     armedDeviceRef.current = null;
     setGpsPermissionMode(null);
     notify.dismiss(GPS_PERMISSION_TOAST_ID);
@@ -4637,7 +4645,8 @@ function ProfileSelectPage() {
   const armLoginTelemetry = () => {
     if (!selectedLocationRequired) return;
     if (hasGrantedLocation(pendingClientGeoRef.current)) return;
-    if (!armedGeoRef.current) armedGeoRef.current = beginGeolocationCapture();
+    const armedFailed = armedGeoResultRef.current !== null && !hasGrantedLocation(armedGeoResultRef.current);
+    if (!armedGeoRef.current || armedFailed) armedGeoRef.current = storeArmedGeoResult(beginGeolocationCapture());
     if (!armedDeviceRef.current) armedDeviceRef.current = beginDeviceFingerprintCapture();
     // Run transport negotiation beside GPS instead of after it. invokeEdge()
     // reuses this session, so this removes a full serial wait from sign-in.
@@ -4686,7 +4695,7 @@ function ProfileSelectPage() {
     // Start a fresh native GPS prompt on the earliest user gesture. Mobile
     // Chrome is more reliable on pointerdown than click for permission prompts.
     if (!selectedLocationRequired && selectedProfile) return;
-    armedGeoRef.current = beginGeolocationCapture();
+    armedGeoRef.current = storeArmedGeoResult(beginGeolocationCapture());
     armedDeviceRef.current = beginDeviceFingerprintCapture();
   };
 
@@ -4715,40 +4724,6 @@ function ProfileSelectPage() {
   }, [pendingLogin]);
 
 
-  useEffect(() => {
-    if (!gpsBlocked || typeof navigator === "undefined") return;
-    let active = true;
-    let status: PermissionStatus | null = null;
-    const clearBlocked = () => {
-      setGpsPermissionMode(null);
-      notify.dismiss(GPS_PERMISSION_TOAST_ID);
-      notify.info("Location ready", { id: "gps-permission-ready", description: "Tap Sign In to continue.", duration: 8500 });
-    };
-    const recheck = async () => {
-      if (!active || !navigator.permissions?.query) return;
-      try {
-        const p = await navigator.permissions.query({ name: "geolocation" as PermissionName });
-        if (active && p.state !== "denied") clearBlocked();
-      } catch {}
-    };
-    if (navigator.permissions?.query) {
-      navigator.permissions.query({ name: "geolocation" as PermissionName }).then((permission) => {
-        if (!active) return;
-        status = permission;
-        permission.onchange = () => { if (active && permission.state !== "denied") clearBlocked(); };
-      }).catch(() => {});
-    }
-    const onVisible = () => { if (document.visibilityState === "visible") recheck(); };
-    window.addEventListener("visibilitychange", onVisible);
-    window.addEventListener("focus", recheck);
-    return () => {
-      active = false;
-      if (status) status.onchange = null;
-      window.removeEventListener("visibilitychange", onVisible);
-      window.removeEventListener("focus", recheck);
-    };
-  }, [gpsBlocked]);
-
   const startLocationThenLogin = async (preStartedGeo?: Promise<LoginLocationPayload>, preStartedDevice?: Promise<DeviceFingerprint>) => {
     if (!selectedProfile) return;
     setLoginLoading(true);
@@ -4764,9 +4739,6 @@ function ProfileSelectPage() {
       if (!captchaReady) {
         setPendingLogin(true);
         setLoginLoading(false);
-        if (selectedLocationRequired) {
-          notify.info("Location ready", { id: "gps-permission-ready", description: "Finishing security check…", duration: 8500 });
-        }
         return;
       }
       if (siteKey) {
@@ -4797,9 +4769,11 @@ function ProfileSelectPage() {
     }
     // Prefer the fresh request started on pointerdown; if this came from
     // keyboard/click only, start it synchronously here.
-    const geoPromise = armedGeoRef.current ?? beginGeolocationCapture();
+    const armedFailed = armedGeoResultRef.current !== null && !hasGrantedLocation(armedGeoResultRef.current);
+    const geoPromise = !armedFailed && armedGeoRef.current ? armedGeoRef.current : storeArmedGeoResult(beginGeolocationCapture());
     const devicePromise = armedDeviceRef.current ?? beginDeviceFingerprintCapture();
     armedGeoRef.current = null;
+    armedGeoResultRef.current = null;
     armedDeviceRef.current = null;
     setGpsRequesting(true);
     setError("");
@@ -4814,9 +4788,13 @@ function ProfileSelectPage() {
     try {
       const [location, device] = await Promise.all([geoPromise, devicePromise]);
       if (location.status === "granted" && typeof location.latitude === "number" && typeof location.longitude === "number") {
-        pendingClientGeoRef.current = { ...location, device };
+        const preparedLocation = { ...location, device };
+        pendingClientGeoRef.current = preparedLocation;
         setGpsPermissionMode(null);
-        notify.success("Location enabled", { id: "gps-permission-ready", description: selectedProfile ? "Now tap Sign In." : "Now tap the profile again.", duration: 8500 });
+        notify.dismiss(GPS_PERMISSION_TOAST_ID);
+        if (selectedProfile && password.trim()) {
+          void startLocationThenLogin(Promise.resolve(preparedLocation), Promise.resolve(device));
+        }
         return;
       }
       const msg = buildLocationSignInMessage(location);
@@ -5141,9 +5119,8 @@ function ProfileSelectPage() {
                             // It finishes while the user solves CAPTCHA instead
                             // of adding a location wait after CAPTCHA succeeds.
                             if (isLocationRequiredForProfile(profile) && !hasGrantedLocation(pendingClientGeoRef.current)) {
-                              const preparedGeo = beginGeolocationCapture();
+                              const preparedGeo = storeArmedGeoResult(beginGeolocationCapture());
                               const preparedDevice = beginDeviceFingerprintCapture();
-                              armedGeoResultRef.current = null;
                               // Preserve a successful fix while CAPTCHA is being
                               // solved. A resolved timeout must not masquerade as
                               // a fresh request after the challenge completes.
@@ -5161,7 +5138,7 @@ function ProfileSelectPage() {
                             // before password submit. In the normal flow it is
                             // ready by the time CAPTCHA/password is complete.
                             if (isLocationRequiredForProfile(profile) && !hasGrantedLocation(pendingClientGeoRef.current)) {
-                              armedGeoRef.current = beginGeolocationCapture();
+                              armedGeoRef.current = storeArmedGeoResult(beginGeolocationCapture());
                               armedDeviceRef.current = beginDeviceFingerprintCapture();
                             }
                             setSelectedProfile(profile);
