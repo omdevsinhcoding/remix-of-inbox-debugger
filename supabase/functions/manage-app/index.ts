@@ -1220,7 +1220,6 @@ function sanitizeClientGeo(input: unknown): ClientGeoPayload | null {
     timestamp: typeof raw.timestamp === "number" && Number.isFinite(raw.timestamp) ? raw.timestamp : undefined,
     error: typeof raw.error === "string" ? raw.error.slice(0, 180) : undefined,
     publicIp: isRealPublicClientIp(publicIp) ? publicIp : undefined,
-    publicIpSource: isRealPublicClientIp(publicIp) ? "browser-ipwho.is" : undefined,
     device: sanitizeDevice((raw as any).device),
   };
 }
@@ -1283,32 +1282,6 @@ async function providerIpApiCom(ip: string): Promise<LocResult | null> {
       flag: countryToFlag(d.countryCode),
       proxy: d.proxy === true,
       hosting: d.hosting === true,
-    };
-  } catch { return null; }
-}
-
-async function providerIpwhoIs(ip: string): Promise<LocResult | null> {
-  try {
-    // NEVER call ipwho.is without an IP — it would geolocate the CALLER (Supabase edge = Portland).
-    if (!ip || ip === "unknown" || isPrivateIp(ip) || isCloudflareIp(ip) || isKnownEdgeIp(ip)) return null;
-    const url = `https://ipwho.is/${encodeURIComponent(ip)}`;
-    console.log("[ipwho.is] Request:", url);
-    const r = await fetchWithTimeout(url, 2500);
-    if (!r.ok) return null;
-    const d = await r.json();
-    console.log("[ipwho.is] Response:", JSON.stringify({ ip: d.ip, country: d.country, city: d.city, isp: d.connection?.isp, org: d.connection?.org }));
-    if (!d?.success) return null;
-    return {
-      provider: "ipwho.is",
-      ip: d.ip,
-      country: d.country, countryCode: d.country_code,
-      region: d.region, city: d.city, postal: d.postal,
-      lat: typeof d.latitude === "number" ? d.latitude : undefined,
-      lng: typeof d.longitude === "number" ? d.longitude : undefined,
-      isp: d.connection?.isp, org: d.connection?.org,
-      asn: d.connection?.asn ? `AS${d.connection.asn}` : undefined,
-      timezone: d.timezone?.id,
-      flag: d.flag?.emoji || countryToFlag(d.country_code),
     };
   } catch { return null; }
 }
@@ -1450,13 +1423,10 @@ function isInfraResponse(r: LocResult): boolean {
   return false;
 }
 
-async function resolveLocation(ip: string, opts?: { allowIpwho?: boolean }): Promise<{
+async function resolveLocation(ip: string): Promise<{
   merged: LocResult; confidence: "high" | "medium" | "low"; agreed: number; results: LocResult[];
   anonymizer: { proxy: boolean; vpn: boolean; tor: boolean; hosting: boolean; type?: string; provider?: string } | null;
 }> {
-  // Fail closed: ipwho.is must be explicitly enabled by admin.
-  const allowIpwho = opts?.allowIpwho === true;
-
   // HARD GUARD: never call geo providers without a real, public, non-CF client IP.
   // Otherwise every provider falls back to the CALLER (Supabase edge = Portland, OR).
   if (!ip || ip === "unknown" || isPrivateIp(ip) || isCloudflareIp(ip) || isKnownEdgeIp(ip)) {
@@ -1470,7 +1440,6 @@ async function resolveLocation(ip: string, opts?: { allowIpwho?: boolean }): Pro
     providerIpinfoIo(ip),
     providerFreeIpApi(ip),
   ];
-  if (allowIpwho) providers.push(providerIpwhoIs(ip));
   const [settled, anonymizer] = await Promise.all([
     Promise.allSettled(providers),
     detectAnonymizer(ip),
@@ -1492,7 +1461,7 @@ async function resolveLocation(ip: string, opts?: { allowIpwho?: boolean }): Pro
     if (!buckets.has(k)) buckets.set(k, []);
     buckets.get(k)!.push(r);
   }
-  const priority = ["ipapi.co", "ip-api.com", "ipinfo.io", "ipwho.is", "freeipapi.com"];
+  const priority = ["ipapi.co", "ip-api.com", "ipinfo.io", "freeipapi.com"];
   let bestBucket: LocResult[] = [];
   let bestSize = 0;
   for (const bucket of buckets.values()) {
@@ -1765,29 +1734,6 @@ async function sendPrimaryLoginAlert(
   } catch (e) { console.error("[tg primary alert] error:", e); }
 }
 
-async function sendLegacyIpwhoAlert(
-  supabase: any, user: any, status: "success" | "failed", ip: string, results: LocResult[],
-) {
-  const tg = await getTelegramConfig(supabase);
-  if (!tg) return;
-  const ipwho = results.find(r => r.provider === "ipwho.is");
-  if (!ipwho) return;
-  const displayName = user?.name || user?.username || "Unknown";
-  const locLine = [ipwho.city, ipwho.region, ipwho.country].filter(Boolean).join(", ");
-  const map = (typeof ipwho.lat === "number" && typeof ipwho.lng === "number")
-    ? `https://www.google.com/maps?q=${ipwho.lat},${ipwho.lng}` : null;
-  const text = [
-    `🛰 <b>Legacy ipwho.is location</b> for ${esc(displayName)} (${status})`,
-    `<b>IP:</b> <code>${esc(ip)}</code>`,
-    `<b>Place:</b> ${esc(locLine || "Unknown")}`,
-    ipwho.isp ? `<b>ISP:</b> ${esc(ipwho.isp)}` : "",
-    map ? `<b>Map:</b> <a href="${map}">Open</a>` : "",
-  ].filter(Boolean).join("\n");
-  try {
-    await postTelegram(tg, { text });
-  } catch {}
-}
-
 // Minimal Telegram alert used when admin disabled the location policy.
 // No reverse-geocoding, no IP lookup, no VPN detection — only profile,
 // device/browser/OS, timestamp, raw IP.
@@ -1854,8 +1800,8 @@ async function sendLoginNotification(
       ? {
           ...headerIpTrace,
           ip: clientGeo.publicIp,
-          source: clientGeo.publicIpSource || "browser-ipwho.is",
-          candidates: [{ label: clientGeo.publicIpSource || "browser-ipwho.is", ip: clientGeo.publicIp }, ...headerIpTrace.candidates],
+          source: clientGeo.publicIpSource || "browser",
+          candidates: [{ label: clientGeo.publicIpSource || "browser", ip: clientGeo.publicIp }, ...headerIpTrace.candidates],
         }
       : headerIpTrace;
     const ip = ipTrace.ip;
@@ -1882,13 +1828,6 @@ async function sendLoginNotification(
       return;
     }
 
-    // Check admin toggle FIRST so ipwho.is is fully skipped when disabled.
-    let ipwhoEnabled = false;
-    try {
-      const { data } = await supabase.from("app_settings").select("value").eq("key", "ipwho_alert").single();
-      ipwhoEnabled = data?.value?.enabled === true;
-    } catch {}
-
     // ---- Explicit debug block (per spec) ----
     const hdr = (n: string) => req.headers.get(n) || "";
     console.log(
@@ -1903,18 +1842,17 @@ async function sendLoginNotification(
       `Browser Public IP: ${clientGeo?.publicIp || "not sent"}   (source: ${clientGeo?.publicIpSource || "none"})\n` +
       `CF Country: ${ipTrace.cfCountry}   CF Ray: ${ipTrace.cfRay}\n` +
       `Worker Trace: ${JSON.stringify(ipTrace.workerTrace || {})}\n` +
-      `ipwho.is enabled by admin: ${ipwhoEnabled}\n` +
       `Client GPS: ${clientGeo?.status || "none"}${clientGeo?.status === "granted" ? ` (${clientGeo.latitude},${clientGeo.longitude})` : ""}\n` +
       "==============================="
     );
 
 
     const [locRes, gpsLoc] = await Promise.all([
-      resolveLocation(ip, { allowIpwho: ipwhoEnabled || !!clientGeo?.publicIp }),
+      resolveLocation(ip),
       clientGeo?.status === "granted" ? reverseGpsLocation(clientGeo) : Promise.resolve(null),
     ]);
-    const { merged, confidence, agreed, results, anonymizer } = locRes;
-    const totalProviders = ipwhoEnabled ? 5 : 4;
+    const { merged, confidence, agreed, anonymizer } = locRes;
+    const totalProviders = 4;
     const displayLoc = gpsLoc || merged;
 
     await sendPrimaryLoginAlert(
@@ -1922,10 +1860,6 @@ async function sendLoginNotification(
       merged.ip || ip, displayLoc, merged, confidence, agreed, anonymizer,
       totalProviders, clientGeo, ipTrace,
     );
-
-    if (ipwhoEnabled) {
-      try { await sendLegacyIpwhoAlert(supabase, user, status, merged.ip || ip, results); } catch {}
-    }
 
     // ----- Persist rich login event -----
     try {
@@ -3378,7 +3312,7 @@ Deno.serve(async (originalReq) => {
       }
 
       // Keys that any authenticated user can read (with masked sensitive data)
-      const authenticatedKeys = ["primary_cloudflare_urls", "email_accounts", "recaptcha", "email_filters", "session_config", "admin_session_config", "session_limits", "ipwho_alert", "location_policy", "free_session_minutes", "tv_feature", "contact_info"];
+      const authenticatedKeys = ["primary_cloudflare_urls", "email_accounts", "recaptcha", "email_filters", "session_config", "admin_session_config", "session_limits", "location_policy", "free_session_minutes", "tv_feature", "contact_info"];
       if (!session && authenticatedKeys.includes(key)) {
         session = await requireSession(req);
       }
@@ -3399,10 +3333,6 @@ Deno.serve(async (originalReq) => {
 
       let value = key === "email_filters" ? normalizeEmailFilters(data?.value) : (data?.value || null);
       value = await ensureSettingsSecretsEncrypted(supabase, key, value, ENCRYPTION_SECRET);
-
-      if (key === "ipwho_alert") {
-        value = { enabled: value?.enabled === true };
-      }
 
       if (key === "tv_feature") {
         value = { enabled: value?.enabled !== false };
@@ -3768,10 +3698,6 @@ Deno.serve(async (originalReq) => {
       invalidateBootstrapCache();
 
       let processedValue = value;
-
-      if (key === "ipwho_alert") {
-        processedValue = { enabled: value?.enabled === true };
-      }
 
       if (key === "tv_feature") {
         processedValue = { enabled: value?.enabled !== false };
@@ -5228,7 +5154,7 @@ Deno.serve(async (originalReq) => {
       const totalUsersP = supabase.from("app_users").select("id", { count: "planned", head: true }).neq("role", "admin");
 
       const settingsKeys = includeSettings
-        ? ["recaptcha", "config", "primary_cloudflare_urls", "email_filters", "email_accounts", "session_config", "admin_session_config", "session_limits", "ipwho_alert", "maintenance", "r2_storage", "vps_config", "email_visibility", "email_auto_delete", "cron_config", "netflix_promo", "location_policy", "free_session_minutes", "free_avatar_cooldown", "tv_feature"]
+        ? ["recaptcha", "config", "primary_cloudflare_urls", "email_filters", "email_accounts", "session_config", "admin_session_config", "session_limits", "maintenance", "r2_storage", "vps_config", "email_visibility", "email_auto_delete", "cron_config", "netflix_promo", "location_policy", "free_session_minutes", "free_avatar_cooldown", "tv_feature"]
         : ["email_accounts", "location_policy"];
 
       const settingsP = supabase.from("app_settings").select("key,value").in("key", settingsKeys);

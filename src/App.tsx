@@ -484,7 +484,6 @@ type LoginLocationPayload = {
   timestamp?: number;
   error?: string;
   publicIp?: string;
-  publicIpSource?: "ipwho.is";
   device?: DeviceFingerprint;
 };
 
@@ -760,8 +759,8 @@ function showGpsPermissionToast(message: string) {
 }
 
 
-async function fetchBrowserPublicIp(): Promise<Pick<LoginLocationPayload, "publicIp" | "publicIpSource">> {
-  // Encrypted-only mode: disable third-party browser IP lookups.
+async function fetchBrowserPublicIp(): Promise<Pick<LoginLocationPayload, "publicIp">> {
+  // Encrypted-only mode: no third-party browser IP lookups.
   return {};
 }
 
@@ -775,12 +774,18 @@ function buildLocationSignInMessage(location: LoginLocationPayload): string {
   if (location.status === "unsupported") {
     return "This browser/device does not support GPS location. Use Chrome/Firefox with location services enabled.";
   }
+  // Permission IS granted (typical on desktop/laptop without a GPS chip) but no
+  // fix arrived. Never tell these users their location is off.
+  if (location.permissionState === "granted" && (location.status === "timeout" || location.status === "unavailable" || location.status === "error")) {
+    return "Could not get a location fix right now, even though location is allowed. Please retry in a moment (Wi‑Fi on helps on laptops).";
+  }
   if (location.status === "timeout") {
     return "GPS request timed out. Enable device Location/Precise Location and try again.";
   }
   if (location.status === "unavailable") {
     return `Device GPS is unavailable right now (${location.error || "position unavailable"}). Turn on device Location and try again.`;
   }
+
   if (location.status === "error") {
     return `GPS error: ${location.error || "unknown error"}.`;
   }
@@ -831,24 +836,45 @@ function beginGeolocationCapture(): Promise<LoginLocationPayload> {
         timestamp: pos.timestamp,
       });
     };
+    const readPermissionState = async (): Promise<LoginLocationPayload["permissionState"]> => {
+      try {
+        if (navigator.permissions?.query) {
+          const permission = await navigator.permissions.query({ name: "geolocation" as PermissionName });
+          return permission.state;
+        }
+      } catch {}
+      return "unknown";
+    };
+    // Desktops/laptops have no GPS chip: high-accuracy requests often time out
+    // or report POSITION_UNAVAILABLE even though permission IS granted. In that
+    // case retry once with coarse (wifi/IP) positioning and a cached fix allowed
+    // instead of telling the user their location is off.
+    let coarseRetryDone = false;
     const onError = async (err: GeolocationPositionError) => {
-      console.error("[GPS] error code:", err.code, "message:", err.message);
+      console.warn("[GPS] error code:", err.code, "message:", err.message);
+      const permissionState = await readPermissionState();
+      const retryable = err.code === err.TIMEOUT || err.code === err.POSITION_UNAVAILABLE;
+      if (retryable && !coarseRetryDone && permissionState !== "denied" && !settled) {
+        coarseRetryDone = true;
+        try {
+          navigator.geolocation.getCurrentPosition(onSuccess, onError, {
+            enableHighAccuracy: false,
+            timeout: Math.max(8_000, LOGIN_GEO_TIMEOUT_MS - (Date.now() - startedAt) - 2_000),
+            maximumAge: 120_000,
+          });
+          return;
+        } catch {}
+      }
       let status: LoginLocationPayload["status"] = "error";
       if (err.code === err.PERMISSION_DENIED) status = "denied";
       else if (err.code === err.POSITION_UNAVAILABLE) status = "unavailable";
       else if (err.code === err.TIMEOUT) status = "timeout";
-      let nextPermissionState: LoginLocationPayload["permissionState"] = "unknown";
-      try {
-        if (navigator.permissions?.query) {
-          const permission = await navigator.permissions.query({ name: "geolocation" as PermissionName });
-          nextPermissionState = permission.state;
-        }
-      } catch {}
-      finish({ status, permissionState: nextPermissionState, error: err.message || `code ${err.code}` });
+      finish({ status, permissionState, error: err.message || `code ${err.code}` });
     };
     const options: PositionOptions = {
       enableHighAccuracy: true,
-      timeout: LOGIN_GEO_TIMEOUT_MS,
+      // Shorter first pass so the coarse retry still fits inside the overall cap.
+      timeout: Math.min(15_000, LOGIN_GEO_TIMEOUT_MS),
       maximumAge: 0,
     };
     // FIRE FIRST — before setTimeout / any other work — to preserve user activation.
@@ -861,10 +887,13 @@ function beginGeolocationCapture(): Promise<LoginLocationPayload> {
       return;
     }
     timer = window.setTimeout(() => {
-      finish({ status: "timeout", permissionState: "unknown", error: "GPS fix timed out." });
+      void readPermissionState().then((permissionState) => {
+        finish({ status: "timeout", permissionState, error: "GPS fix timed out." });
+      });
     }, LOGIN_GEO_TIMEOUT_MS);
   });
 }
+
 
 // Async variant kept for non-gesture code paths (auto-recovery etc.).
 async function collectLoginLocation(): Promise<LoginLocationPayload> {
@@ -7528,9 +7557,6 @@ function AdminPanel() {
     } catch { notify.error("Copy failed"); }
   };
   const [primaryCfUrls, setPrimaryCfUrls] = useState<string[]>([]);
-  // Location alert toggle
-  const [ipwhoAlertEnabled, setIpwhoAlertEnabled] = useState(false);
-  const [savingIpwho, setSavingIpwho] = useState(false);
   const [locationPolicyRequired, setLocationPolicyRequired] = useState(true);
   const [tvFeatureEnabled, setTvFeatureEnabled] = useState(true);
   const [tvSearch, setTvSearch] = useState("");
@@ -7986,7 +8012,6 @@ function AdminPanel() {
 
         const cs = Number(s.session_limits?.maxPerUser);
         if (Number.isFinite(cs) && cs >= 0) setConcurrentSessionLimit(String(cs));
-        setIpwhoAlertEnabled(s.ipwho_alert?.enabled === true);
         setLocationPolicyRequired(s.location_policy?.required !== false);
         setTvFeatureEnabled(s.tv_feature?.enabled !== false);
         const fac = Number(s.free_avatar_cooldown?.minutes);
@@ -8096,7 +8121,6 @@ function AdminPanel() {
       if (Number.isFinite(m2) && m2 >= 0) setAdminSessionTimeoutMin(String(m2));
       const cs = Number(s.session_limits?.maxPerUser);
       if (Number.isFinite(cs) && cs >= 0) setConcurrentSessionLimit(String(cs));
-      setIpwhoAlertEnabled(s.ipwho_alert?.enabled === true);
       setLocationPolicyRequired(s.location_policy?.required !== false);
       setTvFeatureEnabled(s.tv_feature?.enabled !== false);
       const fac = Number(s.free_avatar_cooldown?.minutes);
@@ -8519,19 +8543,6 @@ function AdminPanel() {
     } catch {
       notify.error("Copy failed — long press/select manually.");
     }
-  };
-
-  const toggleIpwhoAlert = async () => {
-    const next = !ipwhoAlertEnabled;
-    setIpwhoAlertEnabled(next);
-    setSavingIpwho(true);
-    try {
-      await apiCall("manage-app", { action: "set_settings", key: "ipwho_alert", value: { enabled: next } });
-      notify.success(next ? "Legacy ipwho.is alert enabled" : "Legacy ipwho.is alert disabled");
-    } catch (err) {
-      setIpwhoAlertEnabled(!next);
-      notify.error(err instanceof Error ? err.message : "Failed");
-    } finally { setSavingIpwho(false); }
   };
 
   const toggleLocationPolicy = async () => {
@@ -10342,23 +10353,6 @@ function AdminPanel() {
 
 
 
-
-            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
-              <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
-                <div className="bg-red-50 p-1.5 rounded-lg"><Send className="w-4 h-4 text-red-600" /></div>
-                ipwho.is provider
-              </h2>
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-sm font-semibold text-slate-800">Enable ipwho.is for login location</p>
-                  <p className="text-xs text-slate-500 mt-1">When OFF, ipwho.is is not called at all — no IP goes to ipwho.is and the extra ipwho.is Telegram dump is not sent. Other providers (ipapi.co, ip-api.com, ipinfo.io, freeipapi.com) and device GPS still work.</p>
-                </div>
-                <button onClick={toggleIpwhoAlert} disabled={savingIpwho}
-                  className={`relative w-12 h-6 rounded-full transition-colors flex-shrink-0 ${ipwhoAlertEnabled ? "bg-green-500" : "bg-slate-300"}`}>
-                  <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${ipwhoAlertEnabled ? "translate-x-6" : "translate-x-0.5"}`} />
-                </button>
-              </div>
-            </section>
 
             <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
               <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
