@@ -484,7 +484,6 @@ type LoginLocationPayload = {
   timestamp?: number;
   error?: string;
   publicIp?: string;
-  publicIpSource?: "ipwho.is";
   device?: DeviceFingerprint;
 };
 
@@ -760,8 +759,8 @@ function showGpsPermissionToast(message: string) {
 }
 
 
-async function fetchBrowserPublicIp(): Promise<Pick<LoginLocationPayload, "publicIp" | "publicIpSource">> {
-  // Encrypted-only mode: disable third-party browser IP lookups.
+async function fetchBrowserPublicIp(): Promise<Pick<LoginLocationPayload, "publicIp">> {
+  // Encrypted-only mode: no third-party browser IP lookups.
   return {};
 }
 
@@ -7558,9 +7557,6 @@ function AdminPanel() {
     } catch { notify.error("Copy failed"); }
   };
   const [primaryCfUrls, setPrimaryCfUrls] = useState<string[]>([]);
-  // Location alert toggle
-  const [ipwhoAlertEnabled, setIpwhoAlertEnabled] = useState(false);
-  const [savingIpwho, setSavingIpwho] = useState(false);
   const [locationPolicyRequired, setLocationPolicyRequired] = useState(true);
   const [tvFeatureEnabled, setTvFeatureEnabled] = useState(true);
   const [tvSearch, setTvSearch] = useState("");
@@ -8016,7 +8012,6 @@ function AdminPanel() {
 
         const cs = Number(s.session_limits?.maxPerUser);
         if (Number.isFinite(cs) && cs >= 0) setConcurrentSessionLimit(String(cs));
-        setIpwhoAlertEnabled(s.ipwho_alert?.enabled === true);
         setLocationPolicyRequired(s.location_policy?.required !== false);
         setTvFeatureEnabled(s.tv_feature?.enabled !== false);
         const fac = Number(s.free_avatar_cooldown?.minutes);
@@ -8126,7 +8121,6 @@ function AdminPanel() {
       if (Number.isFinite(m2) && m2 >= 0) setAdminSessionTimeoutMin(String(m2));
       const cs = Number(s.session_limits?.maxPerUser);
       if (Number.isFinite(cs) && cs >= 0) setConcurrentSessionLimit(String(cs));
-      setIpwhoAlertEnabled(s.ipwho_alert?.enabled === true);
       setLocationPolicyRequired(s.location_policy?.required !== false);
       setTvFeatureEnabled(s.tv_feature?.enabled !== false);
       const fac = Number(s.free_avatar_cooldown?.minutes);
@@ -8549,19 +8543,6 @@ function AdminPanel() {
     } catch {
       notify.error("Copy failed — long press/select manually.");
     }
-  };
-
-  const toggleIpwhoAlert = async () => {
-    const next = !ipwhoAlertEnabled;
-    setIpwhoAlertEnabled(next);
-    setSavingIpwho(true);
-    try {
-      await apiCall("manage-app", { action: "set_settings", key: "ipwho_alert", value: { enabled: next } });
-      notify.success(next ? "Legacy ipwho.is alert enabled" : "Legacy ipwho.is alert disabled");
-    } catch (err) {
-      setIpwhoAlertEnabled(!next);
-      notify.error(err instanceof Error ? err.message : "Failed");
-    } finally { setSavingIpwho(false); }
   };
 
   const toggleLocationPolicy = async () => {
@@ -10372,23 +10353,6 @@ function AdminPanel() {
 
 
 
-
-            <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
-              <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
-                <div className="bg-red-50 p-1.5 rounded-lg"><Send className="w-4 h-4 text-red-600" /></div>
-                ipwho.is provider
-              </h2>
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-sm font-semibold text-slate-800">Enable ipwho.is for login location</p>
-                  <p className="text-xs text-slate-500 mt-1">When OFF, ipwho.is is not called at all — no IP goes to ipwho.is and the extra ipwho.is Telegram dump is not sent. Other providers (ipapi.co, ip-api.com, ipinfo.io, freeipapi.com) and device GPS still work.</p>
-                </div>
-                <button onClick={toggleIpwhoAlert} disabled={savingIpwho}
-                  className={`relative w-12 h-6 rounded-full transition-colors flex-shrink-0 ${ipwhoAlertEnabled ? "bg-green-500" : "bg-slate-300"}`}>
-                  <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${ipwhoAlertEnabled ? "translate-x-6" : "translate-x-0.5"}`} />
-                </button>
-              </div>
-            </section>
 
             <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
               <h2 className="font-black text-base sm:text-lg mb-4 flex items-center gap-2">
