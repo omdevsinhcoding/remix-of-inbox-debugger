@@ -757,7 +757,10 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
       const { error: upsertErr } = await supabase
         .from("cached_emails")
         .upsert(rows, { onConflict: "id", ignoreDuplicates: true });
-      if (upsertErr) { syncOk = false; console.error("[sync] Cache upsert error:", upsertErr); }
+      if (upsertErr) {
+        console.error("[sync] Cache upsert error:", upsertErr);
+        return { success: false, error: upsertErr.message, stats: syncStats, totalFetched: allEmails.length, inserted: 0 };
+      }
       inserted = rows.length;
     }
 
@@ -812,10 +815,8 @@ Deno.serve(async (originalReq) => {
   const secFetchSiteForTransport = originalReq.headers.get("sec-fetch-site") || "";
   const hasValidCronSecret = !!CRON_SHARED_SECRET_FOR_TRANSPORT && cronHeaderForTransport === CRON_SHARED_SECRET_FOR_TRANSPORT;
   const hasServiceRoleBearer = !!SERVICE_ROLE_FOR_TRANSPORT && authHeaderForTransport === `Bearer ${SERVICE_ROLE_FOR_TRANSPORT}`;
-  // Legacy pg_cron jobs in this project were created with the anon bearer but
-  // without x-cron-secret, so encrypted transport rejected them with 426 before
-  // the sync code ran. Accept only server-side plaintext here; the action gate
-  // below restricts it to mode=sync/source=cron and strips email contents.
+  // Trusted server proxies may send plaintext transport; scheduled sources are
+  // still rejected explicitly below because email ingestion is manual-only.
   const hasServerSideBearer = /^Bearer\s+\S+/i.test(authHeaderForTransport) && !secFetchSiteForTransport && originalReq.method === "POST";
   const serverLikeSessionProxy = !!sessionTokenForTransport && !secFetchSiteForTransport;
   const allowServerPlaintext = hasValidCronSecret || hasServiceRoleBearer || hasServerSideBearer || serverLikeSessionProxy;
