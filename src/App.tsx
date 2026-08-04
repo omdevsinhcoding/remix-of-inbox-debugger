@@ -4779,6 +4779,7 @@ function ProfileSelectPage() {
         notify.error(msg);
       }
       setLoginLoading(false);
+      setLoginStage(null);
     }
   };
 
