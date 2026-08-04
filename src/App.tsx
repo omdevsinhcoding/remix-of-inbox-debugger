@@ -4503,7 +4503,6 @@ function ProfileSelectPage() {
   // as well so two taps in the same frame cannot open two CAPTCHA/login flows.
   const loginAttemptLockRef = useRef(false);
   const selectedLocationRequired = isLocationRequiredForProfile(selectedProfile);
-  const gpsBlocked = gpsPermissionMode !== null;
   const navigate = useNavigate();
   const { user: authUser, checkAuth } = useAuth();
 
