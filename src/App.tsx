@@ -4495,6 +4495,9 @@ function ProfileSelectPage() {
   const pendingClientGeoRef = useRef<LoginLocationPayload | null>(null);
   const armedGeoRef = useRef<Promise<LoginLocationPayload> | null>(null);
   const armedDeviceRef = useRef<Promise<DeviceFingerprint> | null>(null);
+  // React state does not update until the next render. Keep an immediate lock
+  // as well so two taps in the same frame cannot open two CAPTCHA/login flows.
+  const loginAttemptLockRef = useRef(false);
   const selectedLocationRequired = isLocationRequiredForProfile(selectedProfile);
   const gpsBlocked = gpsPermissionMode !== null;
   const navigate = useNavigate();
@@ -4639,7 +4642,7 @@ function ProfileSelectPage() {
   // Single source of truth for "a login is already in flight". While true, the
   // profile grid, back button and captcha triggers are locked so a second tap
   // can never start a parallel login (which crashed / left no session entries).
-  const isLoginBusy = loginLoading || pendingLogin || !!freeLoginId || gpsRequesting;
+  const isLoginBusy = loginLoading || pendingLogin || !!freeLoginId || !!freeCaptchaProfile || gpsRequesting;
 
   // The visible Back button is disabled while signing in, but mobile hardware
   // Back / tab close bypasses React controls. Keep the submitted attempt alive
@@ -4890,6 +4893,7 @@ function ProfileSelectPage() {
   const executeFreeLogin = async (profile: UserData, captchaToken?: string) => {
     if (freeLoginId || loginLoading) return;
     if (siteKey && !captchaToken) {
+      loginAttemptLockRef.current = true;
       setError("");
       setFreeCaptchaProfile(profile);
       return;
@@ -4936,12 +4940,14 @@ function ProfileSelectPage() {
       }
     } finally {
       setFreeLoginId(null);
+      loginAttemptLockRef.current = false;
     }
   };
 
 
   const loginFreeProfile = async (profile: UserData) => {
-    if (freeLoginId || loginLoading || pendingLogin) return;
+    if (loginAttemptLockRef.current || freeLoginId || loginLoading || pendingLogin) return;
+    loginAttemptLockRef.current = true;
     // If admin has enabled reCAPTCHA globally, free profile entry also
     // requires the user to solve a captcha in a popup first.
     if (siteKey) {
@@ -4970,6 +4976,7 @@ function ProfileSelectPage() {
         notify.error(msg);
       } finally {
         setFreeLoginId(null);
+        if (!freeCaptchaProfile) loginAttemptLockRef.current = false;
       }
       return;
     }
@@ -5118,7 +5125,14 @@ function ProfileSelectPage() {
                             // It finishes while the user solves CAPTCHA instead
                             // of adding a location wait after CAPTCHA succeeds.
                             if (isLocationRequiredForProfile(profile)) {
-                              armedGeoRef.current = beginGeolocationCapture();
+                              const preparedGeo = beginGeolocationCapture();
+                              // Preserve a successful fix while CAPTCHA is being
+                              // solved. A resolved timeout must not masquerade as
+                              // a fresh request after the challenge completes.
+                              armedGeoRef.current = preparedGeo;
+                              void preparedGeo.then((location) => {
+                                if (hasGrantedLocation(location)) pendingClientGeoRef.current = location;
+                              });
                               armedDeviceRef.current = beginDeviceFingerprintCapture();
                             }
                             void loginFreeProfile(profile);
@@ -5253,9 +5267,20 @@ function ProfileSelectPage() {
             onVerify={(token) => {
               const p = freeCaptchaProfile;
               setFreeCaptchaProfile(null);
-              if (p) void executeFreeLogin(p, token);
+              if (p) {
+                // If the request primed before CAPTCHA did not produce a valid
+                // fix, discard it and request a current position now. This is
+                // especially important when CAPTCHA took longer than GPS timeout.
+                if (!hasGrantedLocation(pendingClientGeoRef.current)) armedGeoRef.current = null;
+                void executeFreeLogin(p, token);
+              }
             }}
-            onCancel={() => setFreeCaptchaProfile(null)}
+            onCancel={() => {
+              setFreeCaptchaProfile(null);
+              armedGeoRef.current = null;
+              armedDeviceRef.current = null;
+              loginAttemptLockRef.current = false;
+            }}
           />
         )}
       </AnimatePresence>
