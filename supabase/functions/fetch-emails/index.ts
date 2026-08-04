@@ -630,7 +630,7 @@ async function fetchFromAccount(
       lock.release();
     }
   } finally {
-    clearTimeout(timer);
+    if (timer !== undefined) clearTimeout(timer);
     if (quickRefresh) {
       try { (client as any).close?.(); } catch {}
       try { client.logout().catch(() => {}); } catch {}
