@@ -4494,7 +4494,11 @@ function ProfileSelectPage() {
   const [gpsPermissionMode, setGpsPermissionMode] = useState<GpsPermissionMode | null>(null);
   const pendingClientGeoRef = useRef<LoginLocationPayload | null>(null);
   const armedGeoRef = useRef<Promise<LoginLocationPayload> | null>(null);
+  const armedGeoResultRef = useRef<LoginLocationPayload | null>(null);
   const armedDeviceRef = useRef<Promise<DeviceFingerprint> | null>(null);
+  // React state does not update until the next render. Keep an immediate lock
+  // as well so two taps in the same frame cannot open two CAPTCHA/login flows.
+  const loginAttemptLockRef = useRef(false);
   const selectedLocationRequired = isLocationRequiredForProfile(selectedProfile);
   const gpsBlocked = gpsPermissionMode !== null;
   const navigate = useNavigate();
@@ -4639,7 +4643,7 @@ function ProfileSelectPage() {
   // Single source of truth for "a login is already in flight". While true, the
   // profile grid, back button and captcha triggers are locked so a second tap
   // can never start a parallel login (which crashed / left no session entries).
-  const isLoginBusy = loginLoading || pendingLogin || !!freeLoginId || gpsRequesting;
+  const isLoginBusy = loginLoading || pendingLogin || !!freeLoginId || !!freeCaptchaProfile || gpsRequesting;
 
   // The visible Back button is disabled while signing in, but mobile hardware
   // Back / tab close bypasses React controls. Keep the submitted attempt alive
@@ -4890,6 +4894,7 @@ function ProfileSelectPage() {
   const executeFreeLogin = async (profile: UserData, captchaToken?: string) => {
     if (freeLoginId || loginLoading) return;
     if (siteKey && !captchaToken) {
+      loginAttemptLockRef.current = true;
       setError("");
       setFreeCaptchaProfile(profile);
       return;
@@ -4936,12 +4941,14 @@ function ProfileSelectPage() {
       }
     } finally {
       setFreeLoginId(null);
+      loginAttemptLockRef.current = false;
     }
   };
 
 
   const loginFreeProfile = async (profile: UserData) => {
-    if (freeLoginId || loginLoading || pendingLogin) return;
+    if (loginAttemptLockRef.current || freeLoginId || loginLoading || pendingLogin) return;
+    loginAttemptLockRef.current = true;
     // If admin has enabled reCAPTCHA globally, free profile entry also
     // requires the user to solve a captcha in a popup first.
     if (siteKey) {
@@ -4970,6 +4977,7 @@ function ProfileSelectPage() {
         notify.error(msg);
       } finally {
         setFreeLoginId(null);
+        if (!siteKey) loginAttemptLockRef.current = false;
       }
       return;
     }
@@ -5108,7 +5116,7 @@ function ProfileSelectPage() {
                         onClick={() => {
                           // Hard lock: ignore taps on any other profile while a
                           // login (paid or free) is already in progress.
-                          if (isLoginBusy) {
+                          if (isLoginBusy || loginAttemptLockRef.current) {
                             try { notify.info("Sign-in in progress", { id: "login-busy", description: "Please keep this screen open." }); } catch {}
                             return;
                           }
@@ -5117,16 +5125,27 @@ function ProfileSelectPage() {
                             // required telemetry before opening that challenge.
                             // It finishes while the user solves CAPTCHA instead
                             // of adding a location wait after CAPTCHA succeeds.
-                            if (isLocationRequiredForProfile(profile)) {
-                              armedGeoRef.current = beginGeolocationCapture();
-                              armedDeviceRef.current = beginDeviceFingerprintCapture();
+                            if (isLocationRequiredForProfile(profile) && !hasGrantedLocation(pendingClientGeoRef.current)) {
+                              const preparedGeo = beginGeolocationCapture();
+                              const preparedDevice = beginDeviceFingerprintCapture();
+                              armedGeoResultRef.current = null;
+                              // Preserve a successful fix while CAPTCHA is being
+                              // solved. A resolved timeout must not masquerade as
+                              // a fresh request after the challenge completes.
+                              armedGeoRef.current = preparedGeo;
+                              armedDeviceRef.current = preparedDevice;
+                              void Promise.all([preparedGeo, preparedDevice]).then(([location, device]) => {
+                                armedGeoResultRef.current = location;
+                                if (hasGrantedLocation(location)) pendingClientGeoRef.current = { ...location, device };
+                              });
                             }
                             void loginFreeProfile(profile);
                           } else {
+                            loginAttemptLockRef.current = true;
                             // Use this profile-selection gesture to acquire GPS
                             // before password submit. In the normal flow it is
                             // ready by the time CAPTCHA/password is complete.
-                            if (isLocationRequiredForProfile(profile)) {
+                            if (isLocationRequiredForProfile(profile) && !hasGrantedLocation(pendingClientGeoRef.current)) {
                               armedGeoRef.current = beginGeolocationCapture();
                               armedDeviceRef.current = beginDeviceFingerprintCapture();
                             }
@@ -5187,7 +5206,7 @@ function ProfileSelectPage() {
           <motion.div key="password" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.3 }}
             className="relative z-10 w-full max-w-sm px-2 mt-16 sm:mt-24">
-            <button disabled={isLoginBusy} onClick={() => { if (isLoginBusy) return; setSelectedProfile(null); setPassword(""); setError(""); setGpsPermissionMode(null); notify.dismiss(GPS_PERMISSION_TOAST_ID); }}
+            <button disabled={isLoginBusy} onClick={() => { if (isLoginBusy) return; loginAttemptLockRef.current = false; setSelectedProfile(null); setPassword(""); setError(""); setGpsPermissionMode(null); notify.dismiss(GPS_PERMISSION_TOAST_ID); }}
               className="text-neutral-400 hover:text-white text-sm font-normal mb-8 flex items-center gap-1.5 transition-colors group disabled:opacity-40 disabled:cursor-not-allowed">
 
               <ArrowLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" /> Back
@@ -5253,9 +5272,24 @@ function ProfileSelectPage() {
             onVerify={(token) => {
               const p = freeCaptchaProfile;
               setFreeCaptchaProfile(null);
-              if (p) void executeFreeLogin(p, token);
+              if (p) {
+                // Keep a still-pending request: throwing it away here caused a
+                // second permission request after CAPTCHA. Only discard a request
+                // that has already settled unsuccessfully.
+                if (armedGeoResultRef.current && !hasGrantedLocation(armedGeoResultRef.current)) {
+                  armedGeoRef.current = null;
+                  armedGeoResultRef.current = null;
+                }
+                void executeFreeLogin(p, token);
+              }
             }}
-            onCancel={() => setFreeCaptchaProfile(null)}
+            onCancel={() => {
+              setFreeCaptchaProfile(null);
+              armedGeoRef.current = null;
+              armedGeoResultRef.current = null;
+              armedDeviceRef.current = null;
+              loginAttemptLockRef.current = false;
+            }}
           />
         )}
       </AnimatePresence>
