@@ -4918,8 +4918,10 @@ function ProfileSelectPage() {
     const perf = startPerfTimer("login.free");
     if (captchaToken) perf.mark("captcha_token_received");
     const locationRequired = isLocationRequiredForProfile(profile);
-    const geoPromise = locationRequired ? beginGeolocationCapture() : null;
-    const devicePromise = locationRequired ? beginDeviceFingerprintCapture() : null;
+    const geoPromise = locationRequired ? (armedGeoRef.current ?? beginGeolocationCapture()) : null;
+    const devicePromise = locationRequired ? (armedDeviceRef.current ?? beginDeviceFingerprintCapture()) : null;
+    armedGeoRef.current = null;
+    armedDeviceRef.current = null;
     setFreeLoginId(profile.id);
     setError("");
     try {
@@ -5132,6 +5134,14 @@ function ProfileSelectPage() {
                             return;
                           }
                           if (isFreeProfile) {
+                            // Free profiles show CAPTCHA immediately, so start
+                            // required telemetry before opening that challenge.
+                            // It finishes while the user solves CAPTCHA instead
+                            // of adding a location wait after CAPTCHA succeeds.
+                            if (isLocationRequiredForProfile(profile)) {
+                              armedGeoRef.current = beginGeolocationCapture();
+                              armedDeviceRef.current = beginDeviceFingerprintCapture();
+                            }
                             void loginFreeProfile(profile);
                           } else {
                             // Use this profile-selection gesture to acquire GPS
