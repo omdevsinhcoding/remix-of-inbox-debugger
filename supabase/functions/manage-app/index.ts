@@ -3312,7 +3312,7 @@ Deno.serve(async (originalReq) => {
       }
 
       // Keys that any authenticated user can read (with masked sensitive data)
-      const authenticatedKeys = ["primary_cloudflare_urls", "email_accounts", "recaptcha", "email_filters", "session_config", "admin_session_config", "session_limits", "ipwho_alert", "location_policy", "free_session_minutes", "tv_feature", "contact_info"];
+      const authenticatedKeys = ["primary_cloudflare_urls", "email_accounts", "recaptcha", "email_filters", "session_config", "admin_session_config", "session_limits", "location_policy", "free_session_minutes", "tv_feature", "contact_info"];
       if (!session && authenticatedKeys.includes(key)) {
         session = await requireSession(req);
       }
@@ -3333,10 +3333,6 @@ Deno.serve(async (originalReq) => {
 
       let value = key === "email_filters" ? normalizeEmailFilters(data?.value) : (data?.value || null);
       value = await ensureSettingsSecretsEncrypted(supabase, key, value, ENCRYPTION_SECRET);
-
-      if (key === "ipwho_alert") {
-        value = { enabled: value?.enabled === true };
-      }
 
       if (key === "tv_feature") {
         value = { enabled: value?.enabled !== false };
@@ -3702,10 +3698,6 @@ Deno.serve(async (originalReq) => {
       invalidateBootstrapCache();
 
       let processedValue = value;
-
-      if (key === "ipwho_alert") {
-        processedValue = { enabled: value?.enabled === true };
-      }
 
       if (key === "tv_feature") {
         processedValue = { enabled: value?.enabled !== false };
@@ -5162,7 +5154,7 @@ Deno.serve(async (originalReq) => {
       const totalUsersP = supabase.from("app_users").select("id", { count: "planned", head: true }).neq("role", "admin");
 
       const settingsKeys = includeSettings
-        ? ["recaptcha", "config", "primary_cloudflare_urls", "email_filters", "email_accounts", "session_config", "admin_session_config", "session_limits", "ipwho_alert", "maintenance", "r2_storage", "vps_config", "email_visibility", "email_auto_delete", "cron_config", "netflix_promo", "location_policy", "free_session_minutes", "free_avatar_cooldown", "tv_feature"]
+        ? ["recaptcha", "config", "primary_cloudflare_urls", "email_filters", "email_accounts", "session_config", "admin_session_config", "session_limits", "maintenance", "r2_storage", "vps_config", "email_visibility", "email_auto_delete", "cron_config", "netflix_promo", "location_policy", "free_session_minutes", "free_avatar_cooldown", "tv_feature"]
         : ["email_accounts", "location_policy"];
 
       const settingsP = supabase.from("app_settings").select("key,value").in("key", settingsKeys);
