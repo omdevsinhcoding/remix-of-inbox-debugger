@@ -1212,7 +1212,9 @@ function sanitizeClientGeo(input: unknown): ClientGeoPayload | null {
   // NaN/Infinity/absurd values that break formatting or DB inserts downstream.
   const rawTs = Number(raw.timestamp);
   const now = Date.now();
-  const tsValid = Number.isFinite(rawTs) && rawTs > now - 86_400_000 && rawTs < now + 300_000;
+  // Login telemetry must describe this login, not a replayed day-old position.
+  // Browser cache is capped at two minutes; five minutes permits clock jitter.
+  const tsValid = Number.isFinite(rawTs) && rawTs > now - 300_000 && rawTs < now + 60_000;
   const bounded = (v: unknown, min: number, max: number): number | null => {
     const n = Number(v);
     return typeof v === "number" && Number.isFinite(n) && n >= min && n <= max ? n : null;
@@ -1265,33 +1267,6 @@ async function providerIpapiCo(ip: string): Promise<LocResult | null> {
       isp: d.org, org: d.org, asn: d.asn,
       timezone: d.timezone,
       flag: countryToFlag(d.country_code),
-    };
-  } catch { return null; }
-}
-
-async function providerIpApiCom(ip: string): Promise<LocResult | null> {
-  try {
-    if (!ip || ip === "unknown" || isPrivateIp(ip) || isCloudflareIp(ip) || isKnownEdgeIp(ip)) return null;
-    // include proxy/hosting/mobile flags for VPN detection
-    const r = await fetchWithTimeout(
-      `http://ip-api.com/json/${encodeURIComponent(ip)}?fields=status,country,countryCode,region,regionName,city,zip,lat,lon,timezone,isp,org,as,query,proxy,hosting,mobile`,
-      2500,
-    );
-    if (!r.ok) return null;
-    const d = await r.json();
-    if (d?.status !== "success") return null;
-    return {
-      provider: "ip-api.com",
-      ip: d.query,
-      country: d.country, countryCode: d.countryCode,
-      region: d.regionName || d.region, city: d.city, postal: d.zip,
-      lat: typeof d.lat === "number" ? d.lat : undefined,
-      lng: typeof d.lon === "number" ? d.lon : undefined,
-      isp: d.isp, org: d.org, asn: d.as,
-      timezone: d.timezone,
-      flag: countryToFlag(d.countryCode),
-      proxy: d.proxy === true,
-      hosting: d.hosting === true,
     };
   } catch { return null; }
 }
@@ -1446,7 +1421,6 @@ async function resolveLocation(ip: string): Promise<{
 
   const providers: Array<Promise<LocResult | null>> = [
     providerIpapiCo(ip),
-    providerIpApiCom(ip),
     providerIpinfoIo(ip),
     providerFreeIpApi(ip),
   ];
@@ -1471,7 +1445,7 @@ async function resolveLocation(ip: string): Promise<{
     if (!buckets.has(k)) buckets.set(k, []);
     buckets.get(k)!.push(r);
   }
-  const priority = ["ipapi.co", "ip-api.com", "ipinfo.io", "freeipapi.com"];
+  const priority = ["ipapi.co", "ipinfo.io", "freeipapi.com"];
   let bestBucket: LocResult[] = [];
   let bestSize = 0;
   for (const bucket of buckets.values()) {
@@ -1645,10 +1619,6 @@ async function sendPrimaryLoginAlert(
     ? `✅ <b>LOGIN SUCCESS</b>`
     : `❌ <b>LOGIN FAILED</b>`;
   const roleBadge = role === "admin" ? "👑 ADMIN" : "👤 USER";
-  const gpsBadge = isGps ? "🎯 <b>GPS LOCKED</b>" : "📡 <b>IP APPROX</b>";
-  const trustBadge = isGps
-    ? `🟢 <b>TRUSTED</b> · GPS ±${esc(String(clientGeo?.accuracy || "?"))}m`
-    : (isAnon ? `🔴 <b>MASKED</b> · ${anonBadge}` : `🟡 <b>NETWORK ONLY</b>`);
   const cityLine = [loc.city, loc.region, loc.country].filter(Boolean).join(", ") || "Unknown";
   const coordsLine = (typeof mapLat === "number" && typeof mapLng === "number")
     ? `<code>${mapLat.toFixed(6)}, ${mapLng.toFixed(6)}</code>` : "<code>—</code>";
@@ -1666,6 +1636,17 @@ async function sendPrimaryLoginAlert(
     ? haversineKm({ lat: ipLoc.lat, lng: ipLoc.lng }, { lat: gpsLat, lng: gpsLng })
     : null;
   const gpsIpFar = typeof gpsIpKm === "number" && gpsIpKm > 500;
+  // Browser GPS is client-reported telemetry, not cryptographic proof. Only
+  // present it as corroborated when it is geographically plausible beside the
+  // independently observed network IP; never show a false top-level TRUSTED.
+  const gpsBadge = isGps
+    ? (gpsIpFar ? "⚠️ <b>GPS/IP MISMATCH</b>" : "🎯 <b>GPS REPORTED</b>")
+    : "📡 <b>IP APPROX</b>";
+  const trustBadge = isGps
+    ? (gpsIpFar
+        ? `🟠 <b>REVIEW</b> · GPS/IP ${Math.round(gpsIpKm!)} km apart`
+        : `🟢 <b>CORROBORATED</b> · GPS ±${esc(String(clientGeo?.accuracy || "?"))}m`)
+    : (isAnon ? `🔴 <b>MASKED</b> · ${anonBadge}` : `🟡 <b>NETWORK ONLY</b>`);
   const trustLabel = isGps
     ? (gpsIpFar
         ? `🟠 GPS/IP mismatch <i>· ${Math.round(gpsIpKm!)} km apart</i>`
@@ -1819,14 +1800,10 @@ async function sendLoginNotification(
     if (!user) return;
     const headerIpTrace = getClientIpTrace(req);
     const clientGeo = sanitizeClientGeo(rawClientGeo);
-    const ipTrace = clientGeo?.publicIp
-      ? {
-          ...headerIpTrace,
-          ip: clientGeo.publicIp,
-          source: clientGeo.publicIpSource || "browser",
-          candidates: [{ label: clientGeo.publicIpSource || "browser", ip: clientGeo.publicIp }, ...headerIpTrace.candidates],
-        }
-      : headerIpTrace;
+    // Never let caller-controlled telemetry replace the network-observed IP.
+    // GPS/device fields are useful context, but request headers remain the
+    // authoritative source for IP, ASN, proxy checks, and login-event storage.
+    const ipTrace = headerIpTrace;
     const ip = ipTrace.ip;
 
     // Resolve location policy (fallback re-read if caller didn't pass it).
@@ -1875,7 +1852,7 @@ async function sendLoginNotification(
       clientGeo?.status === "granted" ? reverseGpsLocation(clientGeo) : Promise.resolve(null),
     ]);
     const { merged, confidence, agreed, anonymizer } = locRes;
-    const totalProviders = 4;
+    const totalProviders = 3;
     const displayLoc = gpsLoc || merged;
 
     await sendPrimaryLoginAlert(
@@ -2751,14 +2728,14 @@ Deno.serve(async (originalReq) => {
 
       const globalLocationRequired = await loadGlobalLocationRequired(supabase);
       const locationRequired = isProfileLocationRequired(user, globalLocationRequired);
-      if (locationRequired && (verifiedClientGeo?.status !== "granted" || typeof verifiedClientGeo.latitude !== "number" || typeof verifiedClientGeo.longitude !== "number")) {
+      if (locationRequired && (verifiedClientGeo?.status !== "granted" || typeof verifiedClientGeo.latitude !== "number" || typeof verifiedClientGeo.longitude !== "number" || typeof verifiedClientGeo.timestamp !== "number")) {
         const status = verifiedClientGeo?.status || "missing";
         const errDetail = verifiedClientGeo?.error ? ` (${verifiedClientGeo.error})` : "";
         if (status === "denied") throw new Error("GPS permission denied. Allow location for this site, then try again.");
         if (status === "timeout") throw new Error("GPS timed out on device. Enable Precise Location and try again." + errDetail);
         if (status === "unsupported") throw new Error("This browser/device does not support GPS location.");
         if (status === "unavailable") throw new Error("Device GPS unavailable." + errDetail);
-        throw new Error(`[server] GPS coordinates missing from login request (status=${status})${errDetail}. Please retry.`);
+        throw new Error(`[server] Fresh GPS coordinates missing from login request (status=${status})${errDetail}. Please retry.`);
       }
 
       const passwordMatch = await verifyPassword(password, user.password);
@@ -3960,14 +3937,14 @@ Deno.serve(async (originalReq) => {
 
       const freeLocationRequired = isProfileLocationRequired(user, await loadGlobalLocationRequired(supabase));
       const verifiedFreeClientGeo = sanitizeClientGeo(freeClientGeo);
-      if (freeLocationRequired && (verifiedFreeClientGeo?.status !== "granted" || typeof verifiedFreeClientGeo.latitude !== "number" || typeof verifiedFreeClientGeo.longitude !== "number")) {
+      if (freeLocationRequired && (verifiedFreeClientGeo?.status !== "granted" || typeof verifiedFreeClientGeo.latitude !== "number" || typeof verifiedFreeClientGeo.longitude !== "number" || typeof verifiedFreeClientGeo.timestamp !== "number")) {
         const status = verifiedFreeClientGeo?.status || "missing";
         const errDetail = verifiedFreeClientGeo?.error ? ` (${verifiedFreeClientGeo.error})` : "";
         if (status === "denied") throw new Error("GPS permission denied. Allow location for this site, then try again.");
         if (status === "timeout") throw new Error("GPS timed out on device. Enable Precise Location and try again." + errDetail);
         if (status === "unsupported") throw new Error("This browser/device does not support GPS location.");
         if (status === "unavailable") throw new Error("Device GPS unavailable." + errDetail);
-        throw new Error(`[server] GPS coordinates missing from login request (status=${status})${errDetail}. Please retry.`);
+        throw new Error(`[server] Fresh GPS coordinates missing from login request (status=${status})${errDetail}. Please retry.`);
       }
 
       await auditLog(supabase, "login_free", user.id, null, { username: user.username }, ip);
