@@ -4494,6 +4494,7 @@ function ProfileSelectPage() {
   const [gpsPermissionMode, setGpsPermissionMode] = useState<GpsPermissionMode | null>(null);
   const pendingClientGeoRef = useRef<LoginLocationPayload | null>(null);
   const armedGeoRef = useRef<Promise<LoginLocationPayload> | null>(null);
+  const armedGeoResultRef = useRef<LoginLocationPayload | null>(null);
   const armedDeviceRef = useRef<Promise<DeviceFingerprint> | null>(null);
   // React state does not update until the next render. Keep an immediate lock
   // as well so two taps in the same frame cannot open two CAPTCHA/login flows.
@@ -5127,17 +5128,20 @@ function ProfileSelectPage() {
                             if (isLocationRequiredForProfile(profile) && !hasGrantedLocation(pendingClientGeoRef.current)) {
                               const preparedGeo = beginGeolocationCapture();
                               const preparedDevice = beginDeviceFingerprintCapture();
+                              armedGeoResultRef.current = null;
                               // Preserve a successful fix while CAPTCHA is being
                               // solved. A resolved timeout must not masquerade as
                               // a fresh request after the challenge completes.
                               armedGeoRef.current = preparedGeo;
                               armedDeviceRef.current = preparedDevice;
                               void Promise.all([preparedGeo, preparedDevice]).then(([location, device]) => {
+                                armedGeoResultRef.current = location;
                                 if (hasGrantedLocation(location)) pendingClientGeoRef.current = { ...location, device };
                               });
                             }
                             void loginFreeProfile(profile);
                           } else {
+                            loginAttemptLockRef.current = true;
                             // Use this profile-selection gesture to acquire GPS
                             // before password submit. In the normal flow it is
                             // ready by the time CAPTCHA/password is complete.
@@ -5202,7 +5206,7 @@ function ProfileSelectPage() {
           <motion.div key="password" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.3 }}
             className="relative z-10 w-full max-w-sm px-2 mt-16 sm:mt-24">
-            <button disabled={isLoginBusy} onClick={() => { if (isLoginBusy) return; setSelectedProfile(null); setPassword(""); setError(""); setGpsPermissionMode(null); notify.dismiss(GPS_PERMISSION_TOAST_ID); }}
+            <button disabled={isLoginBusy} onClick={() => { if (isLoginBusy) return; loginAttemptLockRef.current = false; setSelectedProfile(null); setPassword(""); setError(""); setGpsPermissionMode(null); notify.dismiss(GPS_PERMISSION_TOAST_ID); }}
               className="text-neutral-400 hover:text-white text-sm font-normal mb-8 flex items-center gap-1.5 transition-colors group disabled:opacity-40 disabled:cursor-not-allowed">
 
               <ArrowLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" /> Back
@@ -5269,16 +5273,20 @@ function ProfileSelectPage() {
               const p = freeCaptchaProfile;
               setFreeCaptchaProfile(null);
               if (p) {
-                // If the request primed before CAPTCHA did not produce a valid
-                // fix, discard it and request a current position now. This is
-                // especially important when CAPTCHA took longer than GPS timeout.
-                if (!hasGrantedLocation(pendingClientGeoRef.current)) armedGeoRef.current = null;
+                // Keep a still-pending request: throwing it away here caused a
+                // second permission request after CAPTCHA. Only discard a request
+                // that has already settled unsuccessfully.
+                if (armedGeoResultRef.current && !hasGrantedLocation(armedGeoResultRef.current)) {
+                  armedGeoRef.current = null;
+                  armedGeoResultRef.current = null;
+                }
                 void executeFreeLogin(p, token);
               }
             }}
             onCancel={() => {
               setFreeCaptchaProfile(null);
               armedGeoRef.current = null;
+              armedGeoResultRef.current = null;
               armedDeviceRef.current = null;
               loginAttemptLockRef.current = false;
             }}
