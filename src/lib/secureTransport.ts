@@ -65,8 +65,8 @@ function wait(ms: number): Promise<void> {
 
 // Hard network timeouts. Without these, a stalled connection (flaky mobile
 // network, hung edge cold start) leaves the UI spinning forever.
-const HANDSHAKE_TIMEOUT_MS = 15000;
-const REQUEST_TIMEOUT_MS = 30000;
+const HANDSHAKE_TIMEOUT_MS = 8000;
+const REQUEST_TIMEOUT_MS = 12000;
 
 async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
   const controller = new AbortController();
@@ -343,6 +343,15 @@ export async function invokeEdge(
     if (/handshake\s*429|rate limited/i.test(msg)) {
       resetSession();
       await wait(700 + Math.floor(Math.random() * 500));
+      try {
+        return await secureFetchJson(functionName, body, opts);
+      } catch (retryErr) {
+        throw cleanTransportError(retryErr);
+      }
+    }
+    if (/timed out/i.test(msg)) {
+      // One quick retry only — never cascade timeouts into minutes of waiting.
+      resetSession();
       try {
         return await secureFetchJson(functionName, body, opts);
       } catch (retryErr) {

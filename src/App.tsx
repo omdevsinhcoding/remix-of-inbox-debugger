@@ -1012,7 +1012,9 @@ async function apiCall(functionName: string, body: any) {
     if (t2) extraHeaders["X-Session-Token"] = t2;
   }
 
-  const isTransientEdgeError = (value: unknown) => /Secure connection|handshake|Failed to fetch|NetworkError|busy|timeout|temporar|unknown session|bad frame|non-binary|stale request|replay|origin mismatch/i.test(
+  // NOTE: timeouts are intentionally NOT transient here — secureTransport
+  // already retried them once. Retrying again stacked minutes of waiting.
+  const isTransientEdgeError = (value: unknown) => !/timed out/i.test(String((value as any)?.message || value || "")) && /Secure connection|handshake|Failed to fetch|NetworkError|busy|temporar|unknown session|bad frame|non-binary|stale request|replay|origin mismatch/i.test(
     value instanceof Error ? value.message : String(value || ""),
   );
 
