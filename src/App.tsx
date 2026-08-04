@@ -4625,6 +4625,13 @@ function ProfileSelectPage() {
     if (!armedDeviceRef.current) armedDeviceRef.current = beginDeviceFingerprintCapture();
   };
 
+  // Single source of truth for "a login is already in flight". While true, the
+  // profile grid, back button and captcha triggers are locked so a second tap
+  // can never start a parallel login (which crashed / left no session entries).
+  const isLoginBusy = loginLoading || pendingLogin || !!freeLoginId || gpsRequesting;
+
+
+
   const primeGpsFromPointer = () => {
     if (!selectedProfile || loginLoading || pendingLogin || !password.trim()) return;
     armLoginTelemetry();
