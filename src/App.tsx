@@ -1432,7 +1432,6 @@ function AutoPopupNotification() {
   const [dismissing, setDismissing] = useState(false);
   const seenRef = useRef<Set<string>>(getPoppedIds());
   const pausedRef = useRef(false);
-  const latestRef = useRef<AppNotification[]>([]);
 
   useEffect(() => {
     // This component can survive logout/profile switches. Reload the dedupe set
@@ -1459,7 +1458,6 @@ function AutoPopupNotification() {
     let alive = true;
     let unsub: (() => void) | null = null;
     const process = (list: AppNotification[]) => {
-      latestRef.current = list;
       if (pausedRef.current) return;
       const fresh = list.filter((n) =>
         !seenRef.current.has(n.id) &&
@@ -12515,7 +12513,7 @@ function ChangePasswordModal({ user, onDone, forced = false }: { user: UserData;
   useEffect(() => {
     if (!forced) return;
     window.dispatchEvent(new CustomEvent("notif:pausePopup"));
-    return () => window.dispatchEvent(new CustomEvent("notif:resumePopup"));
+    return () => { window.dispatchEvent(new CustomEvent("notif:resumePopup")); };
   }, [forced]);
 
   const handleSubmit = async (e: React.FormEvent) => {
