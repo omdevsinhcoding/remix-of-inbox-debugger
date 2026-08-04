@@ -1422,7 +1422,13 @@ function useNotifications() {
     invalidateNotifications();
   }, []);
 
-  return { items, setItems, loading, refresh };
+  const orderedItems = useMemo(() => [...items].sort((a, b) => {
+    const rank = ({ critical: 4, high: 3, normal: 2, low: 1 } as Record<string, number>);
+    const priorityDiff = (rank[b.priority || "normal"] || 2) - (rank[a.priority || "normal"] || 2);
+    return priorityDiff || new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+  }), [items]);
+
+  return { items: orderedItems, setItems, loading, refresh };
 }
 
 // ---------- Auto-popup: premium modal shown on first sight of a notification ----------
