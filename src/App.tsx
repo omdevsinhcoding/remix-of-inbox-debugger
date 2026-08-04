@@ -5115,7 +5115,7 @@ function ProfileSelectPage() {
                         onClick={() => {
                           // Hard lock: ignore taps on any other profile while a
                           // login (paid or free) is already in progress.
-                          if (isLoginBusy) {
+                          if (isLoginBusy || loginAttemptLockRef.current) {
                             try { notify.info("Sign-in in progress", { id: "login-busy", description: "Please keep this screen open." }); } catch {}
                             return;
                           }
