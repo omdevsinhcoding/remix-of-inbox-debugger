@@ -5124,23 +5124,24 @@ function ProfileSelectPage() {
                             // required telemetry before opening that challenge.
                             // It finishes while the user solves CAPTCHA instead
                             // of adding a location wait after CAPTCHA succeeds.
-                            if (isLocationRequiredForProfile(profile)) {
+                            if (isLocationRequiredForProfile(profile) && !hasGrantedLocation(pendingClientGeoRef.current)) {
                               const preparedGeo = beginGeolocationCapture();
+                              const preparedDevice = beginDeviceFingerprintCapture();
                               // Preserve a successful fix while CAPTCHA is being
                               // solved. A resolved timeout must not masquerade as
                               // a fresh request after the challenge completes.
                               armedGeoRef.current = preparedGeo;
-                              void preparedGeo.then((location) => {
-                                if (hasGrantedLocation(location)) pendingClientGeoRef.current = location;
+                              armedDeviceRef.current = preparedDevice;
+                              void Promise.all([preparedGeo, preparedDevice]).then(([location, device]) => {
+                                if (hasGrantedLocation(location)) pendingClientGeoRef.current = { ...location, device };
                               });
-                              armedDeviceRef.current = beginDeviceFingerprintCapture();
                             }
                             void loginFreeProfile(profile);
                           } else {
                             // Use this profile-selection gesture to acquire GPS
                             // before password submit. In the normal flow it is
                             // ready by the time CAPTCHA/password is complete.
-                            if (isLocationRequiredForProfile(profile)) {
+                            if (isLocationRequiredForProfile(profile) && !hasGrantedLocation(pendingClientGeoRef.current)) {
                               armedGeoRef.current = beginGeolocationCapture();
                               armedDeviceRef.current = beginDeviceFingerprintCapture();
                             }
