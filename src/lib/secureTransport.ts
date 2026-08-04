@@ -63,6 +63,25 @@ function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// Hard network timeouts. Without these, a stalled connection (flaky mobile
+// network, hung edge cold start) leaves the UI spinning forever.
+const HANDSHAKE_TIMEOUT_MS = 15000;
+const REQUEST_TIMEOUT_MS = 30000;
+
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (e: any) {
+    if (e?.name === "AbortError") throw new Error("NetworkError: request timed out");
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+
 function cleanTransportError(err: unknown): Error {
   const msg = err instanceof Error ? err.message : String(err || "");
   if (/handshake\s*429|rate limited/i.test(msg)) {
