@@ -776,10 +776,11 @@ function buildLocationSignInMessage(location: LoginLocationPayload): string {
   if (location.status === "unsupported") {
     return "This browser/device does not support GPS location. Use Chrome/Firefox with location services enabled.";
   }
-  // Permission IS granted (typical on desktop/laptop without a GPS chip) but no
-  // fix arrived. Never tell these users their location is off.
+  // Permission IS granted (typical in Incognito and on laptops without a GPS
+  // chip) but no coordinate fix arrived. This is an accepted login state and
+  // must never be surfaced as a blocking "not ready" error.
   if (location.permissionState === "granted" && (location.status === "timeout" || location.status === "unavailable" || location.status === "error")) {
-    return "Location is allowed, but the GPS fix is not ready. Keep device Location on and retry in a moment.";
+    return "Location permission is enabled.";
   }
   if (location.status === "timeout") {
     return "GPS request timed out. Enable device Location/Precise Location and try again.";
@@ -915,7 +916,11 @@ async function requireLoginLocation(preStarted?: Promise<LoginLocationPayload> |
 }
 
 function hasGrantedLocation(location: LoginLocationPayload | null | undefined): location is LoginLocationPayload {
-  return location?.status === "granted" && typeof location.latitude === "number" && typeof location.longitude === "number";
+  // Keep this predicate aligned with requireLoginLocation() and the backend:
+  // browser permission is the gate, coordinates are best-effort telemetry.
+  // Requiring latitude/longitude here caused Incognito to discard an accepted
+  // `permissionState: granted` timeout and launch another GPS request forever.
+  return location?.permissionState === "granted" || location?.status === "granted";
 }
 
 function GpsPermissionSheet({ mode, loading, onEnable, onPrimeEnable }: { mode: GpsPermissionMode | null; loading: boolean; onEnable: () => void; onPrimeEnable?: () => void }) {
@@ -4781,7 +4786,7 @@ function ProfileSelectPage() {
     }
     try {
       const [location, device] = await Promise.all([geoPromise, devicePromise]);
-      if (location.status === "granted" && typeof location.latitude === "number" && typeof location.longitude === "number") {
+      if (hasGrantedLocation(location)) {
         const preparedLocation = { ...location, device };
         pendingClientGeoRef.current = preparedLocation;
         setGpsPermissionMode(null);
@@ -5674,7 +5679,7 @@ function AdminLoginPage() {
     }
     try {
       const [location, device] = await Promise.all([geoPromise, devicePromise]);
-      if (location.status === "granted" && typeof location.latitude === "number" && typeof location.longitude === "number") {
+      if (hasGrantedLocation(location)) {
         pendingClientGeoRef.current = { ...location, device };
         setGpsPermissionMode(null);
         notify.success("Location enabled", { id: "gps-permission-ready", description: "Now tap Admin Sign In.", duration: 8500 });
