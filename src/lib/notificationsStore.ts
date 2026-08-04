@@ -24,6 +24,8 @@ let loading = false;
 let inflight = false;
 let currentUserId: string | null = null;
 let version = 0;
+let requestId = 0;
+let activeRequestId = 0;
 const listeners = new Set<Listener>();
 
 let pollTimer: number | null = null;
@@ -38,6 +40,8 @@ function emit() {
 export async function refreshNotifications(force = false): Promise<void> {
   if (inflight) return;
   inflight = true;
+  const runRequestId = ++requestId;
+  activeRequestId = runRequestId;
   const runVersion = version;
   const runUserId = currentUserId;
   const wasEmpty = items.length === 0;
@@ -55,9 +59,9 @@ export async function refreshNotifications(force = false): Promise<void> {
   } catch {
     // swallow — surface via empty state, never leave the spinner stuck.
   } finally {
-    // ALWAYS clear inflight + loading, even if the profile switched mid-flight.
-    // Previously the early-return here left `inflight=true` forever → new
-    // profile's bell spun with no new fetch ever firing.
+    // A request from the previous profile/session must never clear the state of
+    // a newer request. This was the remaining race behind an endless spinner.
+    if (runRequestId !== activeRequestId) return;
     inflight = false;
     if (loading) {
       loading = false;
@@ -74,6 +78,7 @@ export function resetNotifications(userId: string | null = null): void {
   etag = null;
   loading = false;
   inflight = false;
+  activeRequestId = ++requestId;
   emit();
 }
 

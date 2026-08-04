@@ -85,7 +85,7 @@ Deno.serve(async (req) => {
     const nowIso = new Date().toISOString();
 
     // ---- Etag pre-check ----
-    const [aggN, aggR] = await Promise.all([
+    const [aggN, aggR] = clientEtag ? await Promise.all([
       supabase
         .from("notifications")
         .select("id, created_at, expires_at, publish_at")
@@ -94,9 +94,9 @@ Deno.serve(async (req) => {
         .from("notification_reads")
         .select("read_at, seen_at, deleted_at, snoozed_until, dismissed_at, archived_at")
         .eq("user_id", session.userId),
-    ]);
+    ]) : [{ data: null, error: null }, { data: null, error: null }];
     let etagStr: string | null = null;
-    if (!aggN.error && !aggR.error) {
+    if (clientEtag && !aggN.error && !aggR.error) {
       let cn = 0;
       let mxN = 0;
       for (const n of aggN.data || []) {

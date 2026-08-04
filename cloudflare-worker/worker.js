@@ -99,6 +99,8 @@ async function hydrateSessionFromSupabase(env, token, request) {
   if (!token) return null;
   const key = supabaseKey(env);
   try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2000);
     const res = await fetch(`${supabaseUrl(env)}/functions/v1/manage-app`, {
       method: "POST",
       headers: {
@@ -109,7 +111,8 @@ async function hydrateSessionFromSupabase(env, token, request) {
         ...(request?.headers?.get("user-agent") ? { "User-Agent": request.headers.get("user-agent") } : {}),
       },
       body: JSON.stringify({ action: "me" }),
-    });
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timeout));
     if (!res.ok) return null;
     const data = await res.json().catch(() => null);
     const user = data?.user;
@@ -402,7 +405,7 @@ export default {
     // Cache buster called after any mark/read/delete write — invalidates
     // the user's KV entry so the next poll picks up the change immediately.
     if (url.pathname === "/api/notifications/invalidate" && request.method === "POST") {
-      return handleNotificationsInvalidate(env, session);
+      return handleNotificationsInvalidate(env, session, sessionToken);
     }
 
     // Public bootstrap — cached at the edge with ETag. This is the highest-
@@ -973,7 +976,7 @@ async function handleInboxHtml(request, env, _session, rawToken, ctx) {
 // ==================== Notifications cache ====================
 // Per-user KV cache in front of the notifications-list edge function.
 // TTL 60 s, invalidated on any mark_read / delete client-side write.
-const NOTIF_KEY_PREFIX = "notifs:v1:user:";
+const NOTIF_KEY_PREFIX = "notifs:v2:session:";
 const NOTIF_TTL_SECONDS = 60;
 
 function notifHeaders(extra = {}) {
@@ -1003,7 +1006,7 @@ async function handleNotificationsList(request, env, session, rawToken, ctx) {
   const clientEtag = typeof body?.if_etag === "string" ? body.if_etag : null;
 
   const kv = getKV(env);
-  const cacheKey = `${NOTIF_KEY_PREFIX}${session.userId}`;
+  const cacheKey = `${NOTIF_KEY_PREFIX}${session.userId}:${rawToken.slice(-24)}`;
 
   // ---- Cache lookup ----
   if (kv) {
@@ -1072,15 +1075,15 @@ async function handleNotificationsList(request, env, session, rawToken, ctx) {
   }
 }
 
-async function handleNotificationsInvalidate(env, session) {
+async function handleNotificationsInvalidate(env, session, rawToken) {
   if (!session?.userId) {
     return new Response(JSON.stringify({ success: false, error: "session required" }), {
       status: 401, headers: notifHeaders(),
     });
   }
   const primary = env.EMAIL_CACHE_V2 || env.EMAIL_CACHE;
-  if (primary) {
-    try { await primary.delete(`${NOTIF_KEY_PREFIX}${session.userId}`); } catch {}
+  if (primary && rawToken) {
+    try { await primary.delete(`${NOTIF_KEY_PREFIX}${session.userId}:${rawToken.slice(-24)}`); } catch {}
   }
   return new Response(JSON.stringify({ success: true }), { headers: notifHeaders() });
 }

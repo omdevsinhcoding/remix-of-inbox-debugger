@@ -1422,7 +1422,13 @@ function useNotifications() {
     invalidateNotifications();
   }, []);
 
-  return { items, setItems, loading, refresh };
+  const orderedItems = useMemo(() => [...items].sort((a, b) => {
+    const rank = ({ critical: 4, high: 3, normal: 2, low: 1 } as Record<string, number>);
+    const priorityDiff = (rank[b.priority || "normal"] || 2) - (rank[a.priority || "normal"] || 2);
+    return priorityDiff || new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+  }), [items]);
+
+  return { items: orderedItems, setItems, loading, refresh };
 }
 
 // ---------- Auto-popup: premium modal shown on first sight of a notification ----------
@@ -1431,22 +1437,43 @@ function AutoPopupNotification() {
   const [queue, setQueue] = useState<AppNotification[]>([]);
   const [dismissing, setDismissing] = useState(false);
   const seenRef = useRef<Set<string>>(getPoppedIds());
+  const pausedRef = useRef(false);
+
+  useEffect(() => {
+    // This component can survive logout/profile switches. Reload the dedupe set
+    // for the new signed-in session so one profile cannot suppress another.
+    seenRef.current = getPoppedIds();
+    setQueue([]);
+  }, [user?.id]);
+
+  useEffect(() => {
+    const pause = () => { pausedRef.current = true; };
+    const resume = () => {
+      pausedRef.current = false;
+      seenRef.current = getPoppedIds();
+      window.dispatchEvent(new CustomEvent("notif:refresh"));
+    };
+    window.addEventListener("notif:pausePopup", pause);
+    window.addEventListener("notif:resumePopup", resume);
+    return () => {
+      window.removeEventListener("notif:pausePopup", pause);
+      window.removeEventListener("notif:resumePopup", resume);
+    };
+  }, []);
 
   useEffect(() => {
     let alive = true;
     let unsub: (() => void) | null = null;
     const process = (list: AppNotification[]) => {
+      if (pausedRef.current) return;
       const fresh = list.filter((n) =>
         !seenRef.current.has(n.id) &&
         !n.read &&
         (!n.snoozed_until || new Date(n.snoozed_until) < new Date())
       );
       if (fresh.length) {
-        // Priority order (kid-friendly rule):
-        // 1) Security / password-reset notifications first (force to top).
-        // 2) Then admin announcements in FIFO order (oldest unseen first) —
-        //    so a brand-new user's first login shows the first admin message first.
-        // 3) Everything else after, newest first.
+        // Security/password notices come first. Within each category, honor the
+        // admin-selected priority, then created date/time for deterministic order.
         const rank = (n: AppNotification): number => {
           const cat = (n.category || "").toLowerCase();
           const sub = (n.sub_kind || "").toLowerCase();
@@ -1457,12 +1484,16 @@ function AutoPopupNotification() {
         fresh.sort((a, b) => {
           const ra = rank(a), rb = rank(b);
           if (ra !== rb) return ra - rb;
-          const cra = a.priority === "critical" ? 1 : 0, crb = b.priority === "critical" ? 1 : 0;
-          if (cra !== crb) return crb - cra;
+          const priorityRank = (value?: string | null) => ({ critical: 4, high: 3, normal: 2, low: 1 } as Record<string, number>)[value || "normal"] || 2;
+          const pa = priorityRank(a.priority), pb = priorityRank(b.priority);
+          if (pa !== pb) return pb - pa;
           const ta = new Date(a.created_at).getTime(), tb = new Date(b.created_at).getTime();
-          return ra === 1 ? ta - tb : tb - ta;
+          return ta - tb;
         });
-        setQueue((prev) => (prev.length ? prev : fresh.slice(0, 3)));
+        // Reconcile every fresh server snapshot instead of locking the first
+        // queue forever. This lets a security/critical notice created during
+        // password setup immediately move ahead of older lower-priority items.
+        setQueue(fresh.slice(0, 3));
       }
     };
     (async () => {
@@ -12489,6 +12520,12 @@ function ChangePasswordModal({ user, onDone, forced = false }: { user: UserData;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  useEffect(() => {
+    if (!forced) return;
+    window.dispatchEvent(new CustomEvent("notif:pausePopup"));
+    return () => { window.dispatchEvent(new CustomEvent("notif:resumePopup")); };
+  }, [forced]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
@@ -12506,7 +12543,12 @@ function ChangePasswordModal({ user, onDone, forced = false }: { user: UserData;
       stored.mustChangePassword = false;
       sessionSet("user" as any, JSON.stringify(stored));
       notify.success("Password changed successfully!");
+      // The forced-password modal intentionally blocks other overlays. Fetch now
+      // and let the notification popup render immediately after this modal closes.
+      const { resetNotifications, refreshNotifications } = await import("./lib/notificationsStore");
+      resetNotifications(user.id);
       onDone();
+      void refreshNotifications(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to change password");
     } finally {

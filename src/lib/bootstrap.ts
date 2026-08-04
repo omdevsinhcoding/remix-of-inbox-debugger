@@ -466,24 +466,25 @@ export async function adminDeleteNotificationForUser(notificationId: string, use
   await callManage("admin_delete_notification_for_user", { notification_id: notificationId, user_id: userId });
 }
 
-// Auto-popup dedupe: scoped per logged-in profile. A global key made newly-created
-// profiles skip the first notification if the same browser had already popped it.
+// Auto-popup dedupe is scoped to the signed-in session, not permanently to the
+// browser/profile. An unread notification may therefore surface on a later login,
+// while component remounts in the same login never replay it.
 const POPUP_SEEN_KEY = "notif_popup_seen_v1";
 
 function popupSeenKey(): string {
   try {
     const rawUser = sessionGet("user" as any);
     const userId = rawUser ? JSON.parse(rawUser)?.id : null;
-    if (userId) return `${POPUP_SEEN_KEY}:${userId}`;
     const token = sessionGet("session_token" as any);
-    if (token) return `${POPUP_SEEN_KEY}:token:${String(token).slice(0, 16)}`;
+    if (userId && token) return `${POPUP_SEEN_KEY}:${userId}:${String(token).slice(-16)}`;
+    if (userId) return `${POPUP_SEEN_KEY}:${userId}`;
   } catch {}
   return POPUP_SEEN_KEY;
 }
 
 export function getPoppedIds(): Set<string> {
   try {
-    const raw = localStorage.getItem(popupSeenKey());
+    const raw = sessionStorage.getItem(popupSeenKey());
     if (!raw) return new Set();
     const arr = JSON.parse(raw);
     return new Set(Array.isArray(arr) ? arr : []);
@@ -494,7 +495,7 @@ export function markPopped(id: string) {
     const s = getPoppedIds();
     s.add(id);
     const arr = Array.from(s).slice(-200);
-    localStorage.setItem(popupSeenKey(), JSON.stringify(arr));
+    sessionStorage.setItem(popupSeenKey(), JSON.stringify(arr));
   } catch {}
 }
 
