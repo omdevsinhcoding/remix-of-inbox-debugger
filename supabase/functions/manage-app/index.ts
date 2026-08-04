@@ -33,6 +33,17 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-session-token, x-pending-token, x-client-ip, x-crypto-session, x-accept-encoding, x-cron-secret",
 };
 
+// Strict UUID guard. Used before any id is interpolated into a PostgREST
+// filter string (e.g. `.or("target_user_id.eq.<id>")`) so a malformed value can
+// never widen a query's scope.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function assertUuid(value: unknown, label = "id"): string {
+  if (typeof value !== "string" || !UUID_RE.test(value)) throw new Error(`invalid ${label}`);
+  return value;
+}
+
+
+
 // Warm-instance memo for bootstrap_public. Deno edge instances stay warm for
 // ~15 min; 10-second TTL means at 5k concurrent users we serve most calls from
 // this in-memory cache, dropping DB reads + egress on the public bootstrap
@@ -2873,7 +2884,8 @@ Deno.serve(async (originalReq) => {
         const perUser = (user as any).session_limit;
         const maxPerUser = (perUser === null || perUser === undefined) ? globalLimit : Math.max(0, Math.floor(Number(perUser) || 0));
         if (maxPerUser > 0) {
-          const nowIso = new Date().toISOString();
+
+
           const { data: activeRows } = await supabase
             .from("app_sessions")
             .select("id, family_id, created_at")
@@ -4685,7 +4697,7 @@ Deno.serve(async (originalReq) => {
         supabase
           .from("notifications")
           .select("id, created_at, expires_at, publish_at")
-          .or(`audience.eq.all,target_user_id.eq.${session.userId}`),
+          .or(`audience.eq.all,target_user_id.eq.${assertUuid(session.userId, "session user")}`),
         supabase
           .from("notification_reads")
           .select("read_at, seen_at, deleted_at, snoozed_until, dismissed_at, archived_at")
@@ -4721,7 +4733,7 @@ Deno.serve(async (originalReq) => {
       const { data: notes, error: nErr } = await supabase
         .from("notifications")
         .select("id, title, body, description, body_markdown, image_url, category, priority, icon, platform_icon, kind, sub_kind, locked, show_frequency, mode, action_url, action_label, action2_url, action2_label, audience, target_user_id, created_at, expires_at, publish_at, group_key")
-        .or(`audience.eq.all,target_user_id.eq.${session.userId}`)
+        .or(`audience.eq.all,target_user_id.eq.${assertUuid(session.userId, "session user")}`)
         .order("created_at", { ascending: false })
         .limit(100);
       if (nErr) throw nErr;
@@ -4774,7 +4786,7 @@ Deno.serve(async (originalReq) => {
     if (action === "mark_notification_read") {
       const session = await requireSession(req);
       const { notification_id } = params as { notification_id?: string };
-      if (!notification_id) throw new Error("notification_id required");
+      assertUuid(notification_id, "notification_id");
       const nowIso = new Date().toISOString();
       const { error } = await supabase.from("notification_reads").upsert(
         { notification_id, user_id: session.userId, read_at: nowIso, seen_at: nowIso },
@@ -4796,6 +4808,7 @@ Deno.serve(async (originalReq) => {
         return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
       const nowIso = new Date().toISOString();
+      for (const id of ids.slice(0, 200)) assertUuid(id, "notification id");
       const rows = ids.slice(0, 200).map((id: string) => ({ notification_id: id, user_id: session.userId, seen_at: nowIso }));
       const { error } = await supabase.from("notification_reads").upsert(rows, { onConflict: "notification_id,user_id" });
       if (error) throw error;
@@ -4812,7 +4825,7 @@ Deno.serve(async (originalReq) => {
       const { data: notes } = await supabase
         .from("notifications")
         .select("id, expires_at")
-        .or(`audience.eq.all,target_user_id.eq.${session.userId}`);
+        .or(`audience.eq.all,target_user_id.eq.${assertUuid(session.userId, "session user")}`);
       const ids = (notes || []).filter((n: any) => !n.expires_at || n.expires_at > nowIso).map((n: any) => n.id);
       if (ids.length) {
         const rows = ids.map((id: string) => ({ notification_id: id, user_id: session.userId, read_at: nowIso, seen_at: nowIso }));
@@ -4831,7 +4844,7 @@ Deno.serve(async (originalReq) => {
     if (action === "user_delete_notification") {
       const session = await requireSession(req);
       const { notification_id } = params as { notification_id?: string };
-      if (!notification_id) throw new Error("notification_id required");
+      assertUuid(notification_id, "notification_id");
       const nowIso = new Date().toISOString();
       const { error } = await supabase.from("notification_reads").upsert(
         { notification_id, user_id: session.userId, deleted_at: nowIso, seen_at: nowIso },
@@ -4846,7 +4859,8 @@ Deno.serve(async (originalReq) => {
     if (action === "log_notification_event") {
       const session = await requireSession(req);
       const { notification_id, event, meta } = params as { notification_id?: string; event?: string; meta?: any };
-      if (!notification_id || !event) throw new Error("notification_id and event required");
+      assertUuid(notification_id, "notification_id");
+      if (!event) throw new Error("event required");
       const allowed = ["delivered", "seen", "read", "clicked", "dismissed"];
       if (!allowed.includes(event)) throw new Error("invalid event");
       await supabase.from("notification_events").insert({ notification_id, user_id: session.userId, event, meta: meta || null });
@@ -4929,7 +4943,7 @@ Deno.serve(async (originalReq) => {
     if (action === "admin_notification_recipients") {
       await requireAdmin(req);
       const { notification_id } = params as { notification_id?: string };
-      if (!notification_id) throw new Error("notification_id required");
+      assertUuid(notification_id, "notification_id");
       const { data: note, error: nErr } = await supabase
         .from("notifications")
         .select("id, audience, target_user_id")

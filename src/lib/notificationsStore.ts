@@ -61,8 +61,11 @@ export async function refreshNotifications(force = false): Promise<void> {
   } finally {
     // A request from the previous profile/session must never clear the state of
     // a newer request. This was the remaining race behind an endless spinner.
-    if (runRequestId !== activeRequestId) return;
+    // Always release the in-flight lock, even for a superseded request —
+    // returning early here previously could leave the store permanently
+    // locked, which is what showed as a never-ending notification spinner.
     inflight = false;
+    if (runRequestId !== activeRequestId) return;
     if (loading) {
       loading = false;
       emit();
