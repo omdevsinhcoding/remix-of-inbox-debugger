@@ -5266,7 +5266,7 @@ function ProfileSelectPage() {
       </AnimatePresence>
 
       <AnimatePresence>
-        {(showCaptcha || pendingLogin) && !freeCaptchaProfile && (
+        {(showCaptcha || pendingLogin) && !freeCaptchaProfile && siteKey && (
           <CaptchaModal
             siteKey={siteKey || undefined}
             onVerify={(token) => { void executeLogin(token); }}
