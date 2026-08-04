@@ -725,7 +725,6 @@ function beginDeviceFingerprintCapture(): Promise<DeviceFingerprint> {
 // Location must never leave sign-in looking frozen. Try precise GPS first, then
 // a Wi-Fi/cached fix, within one short and deterministic budget.
 const LOGIN_GEO_TIMEOUT_MS = 18_000;
-const LOGIN_HANDSHAKE_TIMEOUT_MS = 15_000;
 const LOGIN_EDGE_TIMEOUT_MS = 45_000;
 const GPS_PERMISSION_TOAST_ID = "gps-permission-blocked";
 const GPS_PERMISSION_REQUIRED_MESSAGE = "Allow location to sign in.";
@@ -4914,14 +4913,13 @@ function ProfileSelectPage() {
     const devicePromise = locationRequired ? beginDeviceFingerprintCapture() : null;
     setFreeLoginId(profile.id);
     setError("");
-    try { notify.info(`Entering ${profile.name || "Free Profile"}…`, { description: "Preparing your inbox" }); } catch {}
+    try { notify.info(`Signing in to ${profile.name || "Free Profile"}…`, { description: "Please keep this screen open." }); } catch {}
     try {
+      const transportWarmup = import("./lib/secureTransport").then((m) => m.warmupSession()).catch(() => {});
       const clientGeo = locationRequired ? await requireLoginLocation(geoPromise, devicePromise) : null;
+      await transportWarmup;
       perf.mark("geo_ready");
-      const { warmupSession } = await import("./lib/secureTransport");
       setLoginStage("connecting");
-      await withTimeout(warmupSession(), LOGIN_HANDSHAKE_TIMEOUT_MS, "Connection is busy. Please try again.");
-      perf.mark("handshake_ready");
       setLoginStage("authenticating");
       const data: any = await withTimeout(apiCall("manage-app", { action: "login_free", user_id: profile.id, clientGeo, captchaToken }), LOGIN_EDGE_TIMEOUT_MS, "Login took too long. Please try again.");
       perf.mark("manage_app_login_free_ok");
@@ -5124,9 +5122,9 @@ function ProfileSelectPage() {
                         type="button"
                         onClick={() => {
                           // Hard lock: ignore taps on any other profile while a
-                          // login (paid or free) is already being prepared.
+                          // login (paid or free) is already in progress.
                           if (isLoginBusy) {
-                            try { notify.info("Please wait…", { id: "login-busy", description: "Preparing your profile" }); } catch {}
+                            try { notify.info("Sign-in in progress", { id: "login-busy", description: "Please keep this screen open." }); } catch {}
                             return;
                           }
                           if (isFreeProfile) {
@@ -5480,6 +5478,7 @@ function AdminLoginPage() {
     if (hasGrantedLocation(pendingClientGeoRef.current)) return;
     if (!armedGeoRef.current) armedGeoRef.current = beginGeolocationCapture();
     if (!armedDeviceRef.current) armedDeviceRef.current = beginDeviceFingerprintCapture();
+    void import("./lib/secureTransport").then((m) => m.warmupSession()).catch(() => {});
   };
 
   const primeGpsFromPointer = () => {
@@ -5625,11 +5624,7 @@ function AdminLoginPage() {
       pendingClientGeoRef.current = null;
       perf.mark("geo_ready");
 
-      const { warmupSession } = await import("./lib/secureTransport");
       setLoginStage("connecting");
-      await withTimeout(warmupSession(), LOGIN_HANDSHAKE_TIMEOUT_MS, "Connection is busy. Please try again.");
-      perf.mark("handshake_ready");
-
       setLoginStage("authenticating");
       const data: any = await withTimeout(apiCall("manage-app", { action: "login", username, password, clientGeo, captchaToken }), LOGIN_EDGE_TIMEOUT_MS, "Login took too long. Please try again.");
       perf.mark("manage_app_login_ok");
@@ -5733,9 +5728,9 @@ function AdminLoginPage() {
       </motion.div>
 
       <AnimatePresence>
-        {(showCaptcha || loginStage) && siteKey && (
+        {(showCaptcha || loginStage) && (
           <CaptchaModal
-            siteKey={siteKey}
+            siteKey={siteKey || undefined}
             stage={loginStage}
             onVerify={(token) => { void executeLogin(token); }}
             onCancel={() => { pendingClientGeoRef.current = null; setShowCaptcha(false); }}
