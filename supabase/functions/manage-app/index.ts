@@ -2775,7 +2775,8 @@ Deno.serve(async (originalReq) => {
         }
       }
 
-      await auditLog(supabase, "login_success", user.id, null, { username, role: user.role }, ip);
+      const successAudit = auditLog(supabase, "login_success", user.id, null, { username, role: user.role }, ip);
+      (globalThis as any).EdgeRuntime?.waitUntil?.(successAudit) ?? successAudit.catch(() => {});
       if (user.role !== "admin") {
         ((globalThis as any).EdgeRuntime?.waitUntil?.(sendLoginNotification(supabase, req, user, "success", verifiedClientGeo, { locationRequired })) ?? sendLoginNotification(supabase, req, user, "success", verifiedClientGeo, { locationRequired }).catch(() => {}));
       }
@@ -2857,6 +2858,10 @@ Deno.serve(async (originalReq) => {
         console.warn("[login] session-limit enforcement skipped:", (e as any)?.message || e);
       }
 
+      // These independent reads run beside account normalization instead of
+      // serially extending the successful-login response path.
+      const workerUrlsPromise = loadWorkerUrls(supabase);
+      const tvFeaturePromise = loadTvFeatureEnabled(supabase);
       const normalizedAssignedAccounts = await normalizeAssignedAccounts(supabase, user.assigned_accounts);
       if (!normalizedAssignedAccountsEqual(normalizedAssignedAccounts, Array.isArray(user.assigned_accounts) ? user.assigned_accounts : null)) {
         await supabase.from("app_users").update({ assigned_accounts: normalizedAssignedAccounts }).eq("id", user.id);
@@ -2870,7 +2875,7 @@ Deno.serve(async (originalReq) => {
         assignedAccounts: normalizedAssignedAccounts,
       });
 
-      const workerUrls = await loadWorkerUrls(supabase);
+      const [workerUrls, tvFeatureEnabled] = await Promise.all([workerUrlsPromise, tvFeaturePromise]);
 
       return new Response(JSON.stringify({
         success: true,
@@ -2891,7 +2896,7 @@ Deno.serve(async (originalReq) => {
           autoDelete: (user as any).auto_delete !== false,
           locationRequired,
           tvOverride: user.tv_override === "on" || user.tv_override === "off" ? user.tv_override : null,
-          tvFeatureEnabled: await loadTvFeatureEnabled(supabase),
+          tvFeatureEnabled,
           features: pickFeatures(user),
           planStartsAt: (user as any).plan_starts_at || null,
           planEndsAt: (user as any).plan_ends_at || null,

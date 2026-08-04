@@ -722,9 +722,10 @@ function beginDeviceFingerprintCapture(): Promise<DeviceFingerprint> {
 }
 
 
-// Location must never leave sign-in looking frozen. Try precise GPS first, then
-// a Wi-Fi/cached fix, within one short and deterministic budget.
-const LOGIN_GEO_TIMEOUT_MS = 18_000;
+// Begin GPS when the profile is selected, while the user is entering their
+// password / solving CAPTCHA. Keep the final-submit fallback short so an
+// already-allowed browser never sits on the login screen for many seconds.
+const LOGIN_GEO_TIMEOUT_MS = 9_000;
 const LOGIN_EDGE_TIMEOUT_MS = 45_000;
 const GPS_PERMISSION_TOAST_ID = "gps-permission-blocked";
 const GPS_PERMISSION_REQUIRED_MESSAGE = "Allow location to sign in.";
@@ -860,7 +861,7 @@ function beginGeolocationCapture(): Promise<LoginLocationPayload> {
         try {
           navigator.geolocation.getCurrentPosition(onSuccess, onError, {
             enableHighAccuracy: false,
-            timeout: Math.max(8_000, LOGIN_GEO_TIMEOUT_MS - (Date.now() - startedAt) - 2_000),
+            timeout: Math.max(3_000, LOGIN_GEO_TIMEOUT_MS - (Date.now() - startedAt) - 1_000),
             maximumAge: 120_000,
           });
           return;
@@ -875,7 +876,7 @@ function beginGeolocationCapture(): Promise<LoginLocationPayload> {
     const options: PositionOptions = {
       enableHighAccuracy: true,
       // Shorter first pass so the coarse retry still fits inside the overall cap.
-      timeout: Math.min(8_000, LOGIN_GEO_TIMEOUT_MS),
+      timeout: Math.min(4_000, LOGIN_GEO_TIMEOUT_MS),
       maximumAge: 120_000,
     };
     // FIRE FIRST — before setTimeout / any other work — to preserve user activation.
@@ -4518,8 +4519,6 @@ function ProfileSelectPage() {
   const [pendingLogin, setPendingLogin] = useState(false);
   const [freeLoginId, setFreeLoginId] = useState<string | null>(null);
   const [freeCaptchaProfile, setFreeCaptchaProfile] = useState<UserData | null>(null);
-  // Progress stage shown by CaptchaModal after the user solves the captcha.
-  const [loginStage, setLoginStage] = useState<CaptchaStage | null>(null);
   const [gpsRequesting, setGpsRequesting] = useState(false);
   const [gpsPermissionMode, setGpsPermissionMode] = useState<GpsPermissionMode | null>(null);
   const pendingClientGeoRef = useRef<LoginLocationPayload | null>(null);
@@ -4710,7 +4709,6 @@ function ProfileSelectPage() {
       setPendingLogin(false);
       setLoginLoading(false);
       setShowCaptcha(false);
-      setLoginStage(null);
       const msg = "Security check could not load. Check your connection and tap Sign In again.";
       setError(msg);
       notify.error("Sign-in could not start", { id: "login-captcha-timeout", description: msg, duration: 9000 });
@@ -4756,7 +4754,6 @@ function ProfileSelectPage() {
   const startLocationThenLogin = async (preStartedGeo?: Promise<LoginLocationPayload>, preStartedDevice?: Promise<DeviceFingerprint>) => {
     if (!selectedProfile) return;
     setLoginLoading(true);
-    setLoginStage("verifying");
     setError("");
 
     try {
@@ -4776,7 +4773,6 @@ function ProfileSelectPage() {
       }
       if (siteKey) {
         setShowCaptcha(true);
-        setLoginStage(null);
         setLoginLoading(false);
       } else {
         await executeLogin(undefined, clientGeo || undefined);
@@ -4792,7 +4788,6 @@ function ProfileSelectPage() {
         notify.error(msg);
       }
       setLoginLoading(false);
-      setLoginStage(null);
     }
   };
 
@@ -4847,6 +4842,9 @@ function ProfileSelectPage() {
     if (!selectedProfile) return;
     if (loginLoading || freeLoginId) return;
     setLoginLoading(true);
+    // CAPTCHA is the only blocking overlay. Once solved, return to the profile
+    // immediately while the authenticated session response is finalized.
+    setShowCaptcha(false);
     setError("");
     const perf = startPerfTimer("login.user");
     if (captchaToken) perf.mark("captcha_token_received");
@@ -4862,8 +4860,6 @@ function ProfileSelectPage() {
       pendingClientGeoRef.current = null;
       perf.mark("geo_ready");
 
-      setLoginStage("connecting");
-      setLoginStage("authenticating");
       const data: any = await withTimeout(apiCall("manage-app", {
         action: "login",
         username: selectedProfile.username,
@@ -4908,7 +4904,6 @@ function ProfileSelectPage() {
       }
     } finally {
       setLoginLoading(false);
-      setLoginStage(null);
       setShowCaptcha(false);
     }
   };
@@ -4927,14 +4922,10 @@ function ProfileSelectPage() {
     const devicePromise = locationRequired ? beginDeviceFingerprintCapture() : null;
     setFreeLoginId(profile.id);
     setError("");
-    try { notify.info(`Signing in to ${profile.name || "Free Profile"}…`, { description: "Please keep this screen open." }); } catch {}
     try {
-      const transportWarmup = import("./lib/secureTransport").then((m) => m.warmupSession()).catch(() => {});
+      void import("./lib/secureTransport").then((m) => m.warmupSession()).catch(() => {});
       const clientGeo = locationRequired ? await requireLoginLocation(geoPromise, devicePromise) : null;
-      await transportWarmup;
       perf.mark("geo_ready");
-      setLoginStage("connecting");
-      setLoginStage("authenticating");
       const data: any = await withTimeout(apiCall("manage-app", { action: "login_free", user_id: profile.id, clientGeo, captchaToken }), LOGIN_EDGE_TIMEOUT_MS, "Login took too long. Please try again.");
       perf.mark("manage_app_login_free_ok");
       if (!data?.success) throw new Error(data?.error || "Failed to enter profile");
@@ -4964,7 +4955,6 @@ function ProfileSelectPage() {
       }
     } finally {
       setFreeLoginId(null);
-      setLoginStage(null);
     }
   };
 
@@ -5144,6 +5134,13 @@ function ProfileSelectPage() {
                           if (isFreeProfile) {
                             void loginFreeProfile(profile);
                           } else {
+                            // Use this profile-selection gesture to acquire GPS
+                            // before password submit. In the normal flow it is
+                            // ready by the time CAPTCHA/password is complete.
+                            if (isLocationRequiredForProfile(profile)) {
+                              armedGeoRef.current = beginGeolocationCapture();
+                              armedDeviceRef.current = beginDeviceFingerprintCapture();
+                            }
                             setSelectedProfile(profile);
                           }
                         }}
@@ -5250,25 +5247,20 @@ function ProfileSelectPage() {
       </AnimatePresence>
 
       <AnimatePresence>
-        {(showCaptcha || pendingLogin || (loginStage && !freeCaptchaProfile)) && !freeCaptchaProfile && (
+        {(showCaptcha || pendingLogin) && !freeCaptchaProfile && (
           <CaptchaModal
             siteKey={siteKey || undefined}
-            stage={loginStage || (pendingLogin ? "verifying" : null)}
             onVerify={(token) => { void executeLogin(token); }}
             onCancel={() => {
-              // Cancellation is only available while the CAPTCHA itself is
-              // waiting. Once submitted, the progress stage is non-cancellable.
-              if (loginStage) return;
               pendingClientGeoRef.current = null;
               setShowCaptcha(false);
               setPendingLogin(false);
             }}
           />
         )}
-        {(freeCaptchaProfile || (loginStage && !showCaptcha && !!freeLoginId)) && siteKey && (
+        {freeCaptchaProfile && siteKey && (
           <CaptchaModal
             siteKey={siteKey}
-            stage={loginStage}
             onVerify={(token) => {
               const p = freeCaptchaProfile;
               setFreeCaptchaProfile(null);
@@ -5357,7 +5349,6 @@ function AdminLoginPage() {
   const [siteKey, setSiteKey] = useState<string | null>(null);
   const [captchaReady, setCaptchaReady] = useState(false);
   const [showCaptcha, setShowCaptcha] = useState(false);
-  const [loginStage, setLoginStage] = useState<CaptchaStage | null>(null);
   const [gpsRequesting, setGpsRequesting] = useState(false);
   const [gpsPermissionMode, setGpsPermissionMode] = useState<GpsPermissionMode | null>(null);
   // Per-admin GPS policy: public bootstrap intentionally excludes admins, so
@@ -5626,6 +5617,7 @@ function AdminLoginPage() {
 
   const executeLogin = async (captchaToken?: string, preparedGeo?: LoginLocationPayload) => {
     setLoading(true);
+    setShowCaptcha(false);
     setError("");
     const perf = startPerfTimer("login.admin");
     if (captchaToken) perf.mark("captcha_token_received");
@@ -5638,8 +5630,6 @@ function AdminLoginPage() {
       pendingClientGeoRef.current = null;
       perf.mark("geo_ready");
 
-      setLoginStage("connecting");
-      setLoginStage("authenticating");
       const data: any = await withTimeout(apiCall("manage-app", { action: "login", username, password, clientGeo, captchaToken }), LOGIN_EDGE_TIMEOUT_MS, "Login took too long. Please try again.");
       perf.mark("manage_app_login_ok");
 
@@ -5679,7 +5669,6 @@ function AdminLoginPage() {
       }
     } finally {
       setLoading(false);
-      setLoginStage(null);
       setShowCaptcha(false);
     }
   };
@@ -5742,10 +5731,9 @@ function AdminLoginPage() {
       </motion.div>
 
       <AnimatePresence>
-        {(showCaptcha || loginStage) && (
+        {showCaptcha && (
           <CaptchaModal
             siteKey={siteKey || undefined}
-            stage={loginStage}
             onVerify={(token) => { void executeLogin(token); }}
             onCancel={() => { pendingClientGeoRef.current = null; setShowCaptcha(false); }}
           />
