@@ -54,8 +54,11 @@ function extractOtpCode(subject: string, body: string): string | null {
 
 const FULL_SYNC_MAX_UIDS = 50;
 const USER_REFRESH_MAX_UIDS = 12;
-const PER_ACCOUNT_TIMEOUT_MS = 6500;
-const FAST_REFRESH_TIMEOUT_MS = 1800;
+// Budgets are measured AFTER the IMAP connection is established (Gmail's TLS
+// handshake + greeting alone can take 5-9s, which used to eat the whole budget
+// and made every quick refresh scan 0 messages).
+const PER_ACCOUNT_TIMEOUT_MS = 12000;
+const FAST_REFRESH_TIMEOUT_MS = 8000;
 const FAST_REFRESH_SCAN_COUNT = 4;
 const STALE_DAYS = 60;
 
@@ -492,9 +495,9 @@ async function fetchFromAccount(
   let skipped = 0;
   let recipientSkipped = 0;
   let timedOut = false;
-  const startedAt = Date.now();
+  let startedAt = Date.now();
   const budgetMs = quickRefresh ? FAST_REFRESH_TIMEOUT_MS : PER_ACCOUNT_TIMEOUT_MS;
-  const timer = setTimeout(() => { timedOut = true; }, budgetMs);
+  let timer: number | undefined;
   const hasBudget = () => !timedOut && Date.now() - startedAt < budgetMs;
 
   const client = new ImapFlow({
@@ -503,13 +506,16 @@ async function fetchFromAccount(
     secure: true,
     auth: { user: imapUser, pass: imapPassword },
     logger: false,
-    socketTimeout: quickRefresh ? 1800 : 7000,
-    greetingTimeout: quickRefresh ? 1200 : 3000,
+    socketTimeout: quickRefresh ? 9000 : 14000,
+    greetingTimeout: quickRefresh ? 6000 : 8000,
   });
 
   try {
     await client.connect();
     console.log(`[${accountLabel}] IMAP connected to ${imapHost}`);
+    // Start the work budget only now — connect time must not count against it.
+    startedAt = Date.now();
+    timer = setTimeout(() => { timedOut = true; }, budgetMs) as unknown as number;
     const lock = await client.getMailboxLock("INBOX");
 
     try {
@@ -624,7 +630,7 @@ async function fetchFromAccount(
       lock.release();
     }
   } finally {
-    clearTimeout(timer);
+    if (timer !== undefined) clearTimeout(timer);
     if (quickRefresh) {
       try { (client as any).close?.(); } catch {}
       try { client.logout().catch(() => {}); } catch {}
