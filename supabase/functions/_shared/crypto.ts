@@ -234,11 +234,7 @@ export async function readRequest(
       if (typeof parsed.n !== "string" || parsed.n.length < 16) {
         throw new TransportError("bad nonce", 400);
       }
-      if (sess.origin_hash) {
-        if (typeof parsed.o !== "string" || parsed.o !== sess.origin_hash) {
-          throw new TransportError("origin mismatch", 403);
-        }
-      }
+      // Origin binding removed — any origin may use a handshake session.
       // Op#3: L3 fast-reject on in-isolate replay; DB is authoritative safety
       // net across isolates but fires async so hot path stays sub-millisecond.
       if (!noncePreCheck(sessionId, parsed.n)) {
@@ -391,8 +387,8 @@ export async function handleHandshake(req: Request): Promise<Response> {
   ));
   const serverPubRaw = new Uint8Array(await crypto.subtle.exportKey("raw", serverKp.publicKey));
 
-  const origin = req.headers.get("origin") || "";
-  const originHash = origin ? await sha256Hex(origin) : null;
+  // Origin whitelist removed — do not bind sessions to the requesting origin.
+  const originHash: string | null = null;
   const expiresAt = new Date(Date.now() + 15 * 60_000);
 
   const sb = admin();
