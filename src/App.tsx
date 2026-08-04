@@ -4778,6 +4778,7 @@ function ProfileSelectPage() {
 
   const executeLogin = async (captchaToken?: string, preparedGeo?: LoginLocationPayload) => {
     if (!selectedProfile) return;
+    if (loginLoading || freeLoginId) return;
     setLoginLoading(true);
     setError("");
     const perf = startPerfTimer("login.user");
@@ -4856,7 +4857,7 @@ function ProfileSelectPage() {
   };
 
   const executeFreeLogin = async (profile: UserData, captchaToken?: string) => {
-    if (freeLoginId) return;
+    if (freeLoginId || loginLoading) return;
     if (siteKey && !captchaToken) {
       setError("");
       setFreeCaptchaProfile(profile);
@@ -4918,7 +4919,7 @@ function ProfileSelectPage() {
 
 
   const loginFreeProfile = async (profile: UserData) => {
-    if (freeLoginId) return;
+    if (freeLoginId || loginLoading || pendingLogin) return;
     // If admin has enabled reCAPTCHA globally, free profile entry also
     // requires the user to solve a captcha in a popup first.
     if (siteKey) {
