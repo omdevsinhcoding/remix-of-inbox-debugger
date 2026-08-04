@@ -731,7 +731,7 @@ const GPS_PERMISSION_TOAST_ID = "gps-permission-blocked";
 const GPS_PERMISSION_REQUIRED_MESSAGE = "Allow location to sign in.";
 const GPS_PERMISSION_BLOCKED_MESSAGE = "Location blocked. Enable it in browser site settings.";
 
-type GpsPermissionMode = "needed" | "blocked" | "retry";
+type GpsPermissionMode = "needed" | "blocked";
 
 function isGpsPermissionDeniedMessage(message: string) {
   const m = message.toLowerCase();
@@ -749,12 +749,6 @@ function showGpsPermissionToast(message: string) {
     notify.error("Location blocked", {
       id: GPS_PERMISSION_TOAST_ID,
       description: "Reset Location in the browser site settings, then tap Enable Location again.",
-      duration: 9000,
-    });
-  } else if (mode === "retry") {
-    notify.error("Location allowed, GPS not ready", {
-      id: GPS_PERMISSION_TOAST_ID,
-      description: "Keep device Location on and tap Retry Location.",
       duration: 9000,
     });
   } else {
@@ -927,7 +921,6 @@ function hasGrantedLocation(location: LoginLocationPayload | null | undefined): 
 function GpsPermissionSheet({ mode, loading, onEnable, onPrimeEnable }: { mode: GpsPermissionMode | null; loading: boolean; onEnable: () => void; onPrimeEnable?: () => void }) {
   if (!mode) return null;
   const blocked = mode === "blocked";
-  const retry = mode === "retry";
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
@@ -941,11 +934,9 @@ function GpsPermissionSheet({ mode, loading, onEnable, onPrimeEnable }: { mode: 
           <AlertCircle className="h-5 w-5" />
         </span>
         <div className="min-w-0 flex-1">
-          <h3 className="text-[14px] font-bold leading-tight text-white">{retry ? "Location allowed — GPS not ready" : "Location permission required"}</h3>
+          <h3 className="text-[14px] font-bold leading-tight text-white">Location permission required</h3>
           <p className="mt-1 text-[12px] leading-relaxed text-white/78">
-            {retry
-              ? "Your browser permission is already allowed. Keep device Location on, then retry the GPS fix."
-              : blocked
+            {blocked
               ? "You blocked location earlier. Reset it below, then tap Enable Location to see the browser popup again."
               : "Tap Enable Location, then press Allow in the browser popup."}
           </p>
@@ -963,7 +954,7 @@ function GpsPermissionSheet({ mode, loading, onEnable, onPrimeEnable }: { mode: 
             disabled={loading}
             className="mt-3 inline-flex min-h-10 items-center justify-center rounded-lg bg-[#e50914] px-4 text-[13px] font-bold text-white transition active:scale-[0.98] disabled:opacity-55"
           >
-            {loading ? "Requesting..." : retry ? "Retry Location" : "Enable Location"}
+            {loading ? "Requesting..." : "Enable Location"}
           </button>
         </div>
       </div>
