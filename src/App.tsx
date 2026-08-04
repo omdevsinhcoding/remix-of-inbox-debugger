@@ -7033,7 +7033,7 @@ function CookiesTab({ emailAccounts }: { emailAccounts: any[] }) {
     const res: any = await apiCall("manage-app", { action: "admin_cookies_list" });
     return (Array.isArray(res?.items) ? res.items : []) as SavedCookieRow[];
   }, []);
-  const { data: savedRowsData, hasData: cookiesHasData, refreshing: cookiesRefreshing, refresh: refreshCookies } =
+  const { data: savedRowsData, hasData: cookiesHasData, refreshing: cookiesRefreshing, refresh: refreshCookies, setData: setSavedRows } =
     useAdminSlice<SavedCookieRow[]>(AdminSliceKeys.cookies, cookiesFetcher);
   const savedRows = savedRowsData || [];
   const loading = !cookiesHasData && cookiesRefreshing;
@@ -7065,7 +7065,7 @@ function CookiesTab({ emailAccounts }: { emailAccounts: any[] }) {
     try {
       const { cookies, format } = parseCookiesAuto(text, filename);
       if (!cookies.length) throw new Error("No cookies detected — expected JSON, Netscape cookies.txt, or 'name=value; …' header format");
-      await apiCall("manage-app", {
+      const response = await apiCall("manage-app", {
         action: "admin_cookies_save",
         imap_user: selected,
         label: selectedAcc?.label || selected,
@@ -7074,6 +7074,9 @@ function CookiesTab({ emailAccounts }: { emailAccounts: any[] }) {
         count: cookies.length,
         content: text,
       });
+      const saved = response?.item as SavedCookieRow | undefined;
+      if (!saved?.imap_user) throw new Error("Save was not confirmed by the server. Please retry.");
+      setSavedRows([saved, ...savedRows.filter((row) => row.imap_user.toLowerCase() !== saved.imap_user.toLowerCase())]);
       notify.success(`Saved ${cookies.length} cookie${cookies.length === 1 ? "" : "s"}`, {
         description: `${selected} • ${format.toUpperCase()}${savedByUser[selected.toLowerCase()] ? " (replaced previous)" : ""}`,
       });
@@ -7081,7 +7084,6 @@ function CookiesTab({ emailAccounts }: { emailAccounts: any[] }) {
       applyDraftText("");
       if (fileRef.current) fileRef.current.value = "";
       setSelected(null);
-      void refresh();
     } catch (e: any) {
       notify.error("Could not save cookies", { description: e?.message || String(e) });
     } finally {

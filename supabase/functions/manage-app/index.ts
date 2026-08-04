@@ -984,6 +984,12 @@ function postTelegramBg(tg: { botToken: string; chatId: string }, payload: Recor
   if (typeof wu === "function") wu(p); else void p;
 }
 
+function runInBackground(task: Promise<unknown>) {
+  const guarded = task.catch((e) => console.error("[background task] failed:", e));
+  const waitUntil = (globalThis as any).EdgeRuntime?.waitUntil;
+  if (typeof waitUntil === "function") waitUntil(guarded); else void guarded;
+}
+
 // --- Multi-provider IP geolocation (parallel, timeout-guarded) with VPN/proxy detection ---
 type LocResult = {
   provider: string;
@@ -5847,12 +5853,16 @@ Deno.serve(async (originalReq) => {
       if (!imapUser) throw new Error("imap_user required");
       if (!content) throw new Error("content required");
       if (content.length > 2 * 1024 * 1024) throw new Error("content too large (max 2 MB)");
-      const { error } = await supabase
+      const { data: saved, error } = await supabase
         .from("imap_cookies")
-        .upsert({ imap_user: imapUser, label, filename, format, count, content, updated_at: new Date().toISOString() }, { onConflict: "imap_user" });
+        .upsert({ imap_user: imapUser, label, filename, format, count, content, updated_at: new Date().toISOString() }, { onConflict: "imap_user" })
+        .select("imap_user, label, filename, format, count, updated_at")
+        .single();
       if (error) throw new Error(error.message);
-      await auditLog(supabase, "imap_cookies_saved", session.userId, null, { imap_user: imapUser, filename, format, count }, ip);
-      return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      // Audit logging is non-critical and must never delay or falsely fail a
+      // completed cookie write. Keep the isolate alive while it flushes.
+      runInBackground(auditLog(supabase, "imap_cookies_saved", session.userId, null, { imap_user: imapUser, filename, format, count }, ip));
+      return new Response(JSON.stringify({ success: true, item: saved }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     if (action === "admin_cookies_delete") {
