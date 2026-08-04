@@ -33,6 +33,17 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-session-token, x-pending-token, x-client-ip, x-crypto-session, x-accept-encoding, x-cron-secret",
 };
 
+// Strict UUID guard. Used before any id is interpolated into a PostgREST
+// filter string (e.g. `.or("target_user_id.eq.<id>")`) so a malformed value can
+// never widen a query's scope.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function assertUuid(value: unknown, label = "id"): string {
+  if (typeof value !== "string" || !UUID_RE.test(value)) throw new Error(`invalid ${label}`);
+  return value;
+}
+
+
+
 // Warm-instance memo for bootstrap_public. Deno edge instances stay warm for
 // ~15 min; 10-second TTL means at 5k concurrent users we serve most calls from
 // this in-memory cache, dropping DB reads + egress on the public bootstrap
