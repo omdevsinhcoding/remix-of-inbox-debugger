@@ -3980,6 +3980,7 @@ interface UserData {
   planEndsAt?: string | null;
   tvOverride?: "on" | "off" | null;
   tvFeatureEnabled?: boolean;
+  lastWorkflowView?: "gmail" | "tv" | "link" | null;
 }
 
 function adminUserFeatures(u: any): { gmail: boolean; tv: boolean; link: boolean } {
@@ -13275,11 +13276,17 @@ function EmailViewer() {
   const { view: workflowView, setChoice: setWorkflowViewRaw } = useWorkflowView(user, userFeatures);
   const setWorkflowView = useCallback((v: "gmail" | "tv" | "link") => {
     setWorkflowViewRaw(v);
+    // Keep the current tab/session cache in sync immediately. The server write
+    // remains authoritative, but returning to the chooser must not show stale UI.
+    try {
+      (user as any).lastWorkflowView = v;
+      const stored = JSON.parse(sessionGet("user" as any) || "{}");
+      sessionSet("user" as any, JSON.stringify({ ...stored, lastWorkflowView: v }));
+    } catch {}
     // Persist to the server so the choice follows the user across browsers/devices.
     // Fire-and-forget — a network hiccup should never block the UI transition.
     try {
       apiCall("manage-app", { action: "set_workflow_view", view: v })
-        .then(() => { try { (user as any).lastWorkflowView = v; } catch {} })
         .catch(() => {});
     } catch {}
   }, [setWorkflowViewRaw, user]);
