@@ -2884,8 +2884,7 @@ Deno.serve(async (originalReq) => {
         const perUser = (user as any).session_limit;
         const maxPerUser = (perUser === null || perUser === undefined) ? globalLimit : Math.max(0, Math.floor(Number(perUser) || 0));
         if (maxPerUser > 0) {
-      const nowIso = new Date().toISOString();
-      for (const id of ids.slice(0, 200)) assertUuid(id, "notification id");
+
 
           const { data: activeRows } = await supabase
             .from("app_sessions")
