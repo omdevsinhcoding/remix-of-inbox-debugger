@@ -387,8 +387,8 @@ export async function handleHandshake(req: Request): Promise<Response> {
   ));
   const serverPubRaw = new Uint8Array(await crypto.subtle.exportKey("raw", serverKp.publicKey));
 
-  const origin = req.headers.get("origin") || "";
-  const originHash = origin ? await sha256Hex(origin) : null;
+  // Origin whitelist removed — do not bind sessions to the requesting origin.
+  const originHash: string | null = null;
   const expiresAt = new Date(Date.now() + 15 * 60_000);
 
   const sb = admin();
