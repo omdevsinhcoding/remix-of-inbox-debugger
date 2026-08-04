@@ -4490,6 +4490,7 @@ function ProfileSelectPage() {
   const [pendingLogin, setPendingLogin] = useState(false);
   const [freeLoginId, setFreeLoginId] = useState<string | null>(null);
   const [freeCaptchaProfile, setFreeCaptchaProfile] = useState<UserData | null>(null);
+  const [enteringVisible, setEnteringVisible] = useState(false);
   const [gpsRequesting, setGpsRequesting] = useState(false);
   const [gpsPermissionMode, setGpsPermissionMode] = useState<GpsPermissionMode | null>(null);
   const pendingClientGeoRef = useRef<LoginLocationPayload | null>(null);
@@ -4644,6 +4645,18 @@ function ProfileSelectPage() {
   // profile grid, back button and captcha triggers are locked so a second tap
   // can never start a parallel login (which crashed / left no session entries).
   const isLoginBusy = loginLoading || pendingLogin || !!freeLoginId || !!freeCaptchaProfile || gpsRequesting;
+
+  // While a login is actually running (post-CAPTCHA / password submit), show a
+  // full-screen "Entering profile" overlay after 1.2s so the user cannot tap
+  // other profiles by mistake and gets clear visual feedback for slow paths.
+  // Skipped while any CAPTCHA modal is open (that modal already blocks input).
+  const enteringActive = (loginLoading || !!freeLoginId) && !showCaptcha && !freeCaptchaProfile && !pendingLogin;
+  useEffect(() => {
+    if (!enteringActive) { setEnteringVisible(false); return; }
+    const t = window.setTimeout(() => setEnteringVisible(true), 1200);
+    return () => window.clearTimeout(t);
+  }, [enteringActive]);
+  const enteringProfile = selectedProfile || (freeLoginId ? profiles.find((p) => p.id === freeLoginId) || null : null);
 
   // The visible Back button is disabled while signing in, but mobile hardware
   // Back / tab close bypasses React controls. Keep the submitted attempt alive
@@ -5291,6 +5304,77 @@ function ProfileSelectPage() {
               loginAttemptLockRef.current = false;
             }}
           />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {enteringVisible && (
+          <motion.div
+            key="entering-overlay"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.25 }}
+            className="fixed inset-0 z-[9998] flex items-center justify-center px-6"
+            style={{
+              background: "radial-gradient(ellipse at center, rgba(20,0,0,0.92) 0%, rgba(0,0,0,0.98) 70%)",
+              backdropFilter: "blur(6px)",
+              WebkitBackdropFilter: "blur(6px)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
+            aria-live="polite"
+            aria-busy="true"
+            role="status"
+          >
+            <motion.div
+              initial={{ scale: 0.85, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              transition={{ type: "spring", stiffness: 220, damping: 22 }}
+              className="flex flex-col items-center gap-6 text-center max-w-sm w-full"
+            >
+              <div className="relative">
+                <motion.div
+                  className="absolute inset-0 rounded-2xl"
+                  style={{ boxShadow: "0 0 60px 8px rgba(229,9,20,0.55)" }}
+                  animate={{ opacity: [0.4, 0.9, 0.4], scale: [1, 1.08, 1] }}
+                  transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
+                />
+                <div className="relative rounded-2xl overflow-hidden ring-2 ring-[#e50914]/70">
+                  {enteringProfile ? (
+                    <ProfileAvatar
+                      avatarId={getStableProfileAvatar(enteringProfile)}
+                      name={enteringProfile.name}
+                      className="w-28 h-28 sm:w-32 sm:h-32"
+                      fallbackColor="#e50914"
+                      eager
+                    />
+                  ) : (
+                    <div className="w-28 h-28 sm:w-32 sm:h-32 bg-[#e50914]/20" />
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <h2
+                  className="text-white text-2xl sm:text-3xl font-normal tracking-tight"
+                  style={{ fontFamily: '"Netflix Sans","Helvetica Neue",Arial,sans-serif' }}
+                >
+                  Entering {enteringProfile?.name || "profile"}…
+                </h2>
+                <p className="text-neutral-400 text-sm">Securing your session — please don't close this screen.</p>
+              </div>
+
+              <div className="relative w-56 h-1 rounded-full overflow-hidden bg-white/10">
+                <motion.div
+                  className="absolute inset-y-0 left-0 w-1/3 rounded-full"
+                  style={{ background: "linear-gradient(90deg,#e50914,#ff5c65,#e50914)" }}
+                  animate={{ x: ["-100%", "300%"] }}
+                  transition={{ duration: 1.3, repeat: Infinity, ease: "easeInOut" }}
+                />
+              </div>
+            </motion.div>
+          </motion.div>
         )}
       </AnimatePresence>
 
