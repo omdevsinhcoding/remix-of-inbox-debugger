@@ -1699,7 +1699,9 @@ async function sendPrimaryLoginAlert(
     (ipTrace?.cfCountry ? `CF country: ${ipTrace.cfCountry}\n` : "") +
     (ipTrace?.cfRay ? `CF ray: ${ipTrace.cfRay}\n` : "") +
     `GPS status: ${clientGeo?.status || "not sent"}` +
-    (clientGeo?.permissionState ? ` (permission ${clientGeo.permissionState})` : "");
+    (clientGeo?.permissionState ? ` (permission ${clientGeo.permissionState})` : "") +
+    (typeof gpsIpKm === "number" ? `\nGPS vs IP distance: ${Math.round(gpsIpKm)} km${gpsIpFar ? "  ⚠️ implausible" : ""}` : "");
+
 
   const text = [
     headline,
