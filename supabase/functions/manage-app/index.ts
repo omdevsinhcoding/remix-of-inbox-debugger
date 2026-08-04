@@ -1658,10 +1658,21 @@ async function sendPrimaryLoginAlert(
     ? `🟢  <b>SIGN-IN SUCCESS</b>`
     : `🔴  <b>SIGN-IN BLOCKED</b>`;
   const roleChip = role === "admin" ? "👑 Admin" : "👤 Member";
+  // GPS coords are client-supplied, so cross-check them against the IP-derived
+  // position. A large gap means the "GPS lock" cannot be trusted at face value
+  // (spoofed coords, or a VPN/relay on the network side).
+  const gpsIpKm = (isGps && typeof gpsLat === "number" && typeof gpsLng === "number"
+    && typeof ipLoc.lat === "number" && typeof ipLoc.lng === "number")
+    ? haversineKm({ lat: ipLoc.lat, lng: ipLoc.lng }, { lat: gpsLat, lng: gpsLng })
+    : null;
+  const gpsIpFar = typeof gpsIpKm === "number" && gpsIpKm > 500;
   const trustLabel = isGps
-    ? `🟢 Trusted <i>· GPS ±${esc(String(clientGeo?.accuracy || "?"))}m</i>`
+    ? (gpsIpFar
+        ? `🟠 GPS/IP mismatch <i>· ${Math.round(gpsIpKm!)} km apart</i>`
+        : `🟢 Trusted <i>· GPS ±${esc(String(clientGeo?.accuracy || "?"))}m</i>`)
     : (isAnon ? `🔴 Masked <i>· ${anonBadge}</i>` : `🟡 Network only`);
-  const sourceLabel = isGps ? "🎯 GPS Lock" : "📡 IP Approx";
+  const sourceLabel = isGps ? (gpsIpFar ? "🎯 GPS Lock ⚠️" : "🎯 GPS Lock") : "📡 IP Approx";
+
   const ispRaw = (ipLoc.isp || ipLoc.org || loc.isp || loc.org || "Unknown ISP").slice(0, 60);
   const asnRaw = ((ipLoc.asn || loc.asn) || "").toString().split(" ")[0] || "";
   const tzRaw = loc.timezone || clientGeo?.device?.timezone || "";
