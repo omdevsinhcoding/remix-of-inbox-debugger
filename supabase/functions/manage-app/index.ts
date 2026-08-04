@@ -4696,7 +4696,7 @@ Deno.serve(async (originalReq) => {
         supabase
           .from("notifications")
           .select("id, created_at, expires_at, publish_at")
-          .or(`audience.eq.all,target_user_id.eq.${session.userId}`),
+          .or(`audience.eq.all,target_user_id.eq.${assertUuid(session.userId, "session user")}`),
         supabase
           .from("notification_reads")
           .select("read_at, seen_at, deleted_at, snoozed_until, dismissed_at, archived_at")
@@ -4732,7 +4732,7 @@ Deno.serve(async (originalReq) => {
       const { data: notes, error: nErr } = await supabase
         .from("notifications")
         .select("id, title, body, description, body_markdown, image_url, category, priority, icon, platform_icon, kind, sub_kind, locked, show_frequency, mode, action_url, action_label, action2_url, action2_label, audience, target_user_id, created_at, expires_at, publish_at, group_key")
-        .or(`audience.eq.all,target_user_id.eq.${session.userId}`)
+        .or(`audience.eq.all,target_user_id.eq.${assertUuid(session.userId, "session user")}`)
         .order("created_at", { ascending: false })
         .limit(100);
       if (nErr) throw nErr;
@@ -4785,7 +4785,7 @@ Deno.serve(async (originalReq) => {
     if (action === "mark_notification_read") {
       const session = await requireSession(req);
       const { notification_id } = params as { notification_id?: string };
-      if (!notification_id) throw new Error("notification_id required");
+      assertUuid(notification_id, "notification_id");
       const nowIso = new Date().toISOString();
       const { error } = await supabase.from("notification_reads").upsert(
         { notification_id, user_id: session.userId, read_at: nowIso, seen_at: nowIso },
@@ -4823,7 +4823,7 @@ Deno.serve(async (originalReq) => {
       const { data: notes } = await supabase
         .from("notifications")
         .select("id, expires_at")
-        .or(`audience.eq.all,target_user_id.eq.${session.userId}`);
+        .or(`audience.eq.all,target_user_id.eq.${assertUuid(session.userId, "session user")}`);
       const ids = (notes || []).filter((n: any) => !n.expires_at || n.expires_at > nowIso).map((n: any) => n.id);
       if (ids.length) {
         const rows = ids.map((id: string) => ({ notification_id: id, user_id: session.userId, read_at: nowIso, seen_at: nowIso }));
@@ -4842,7 +4842,7 @@ Deno.serve(async (originalReq) => {
     if (action === "user_delete_notification") {
       const session = await requireSession(req);
       const { notification_id } = params as { notification_id?: string };
-      if (!notification_id) throw new Error("notification_id required");
+      assertUuid(notification_id, "notification_id");
       const nowIso = new Date().toISOString();
       const { error } = await supabase.from("notification_reads").upsert(
         { notification_id, user_id: session.userId, deleted_at: nowIso, seen_at: nowIso },
@@ -4940,7 +4940,7 @@ Deno.serve(async (originalReq) => {
     if (action === "admin_notification_recipients") {
       await requireAdmin(req);
       const { notification_id } = params as { notification_id?: string };
-      if (!notification_id) throw new Error("notification_id required");
+      assertUuid(notification_id, "notification_id");
       const { data: note, error: nErr } = await supabase
         .from("notifications")
         .select("id, audience, target_user_id")
