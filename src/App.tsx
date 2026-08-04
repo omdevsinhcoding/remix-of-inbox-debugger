@@ -1431,6 +1431,8 @@ function AutoPopupNotification() {
   const [queue, setQueue] = useState<AppNotification[]>([]);
   const [dismissing, setDismissing] = useState(false);
   const seenRef = useRef<Set<string>>(getPoppedIds());
+  const pausedRef = useRef(false);
+  const latestRef = useRef<AppNotification[]>([]);
 
   useEffect(() => {
     // This component can survive logout/profile switches. Reload the dedupe set
@@ -1440,9 +1442,25 @@ function AutoPopupNotification() {
   }, [user?.id]);
 
   useEffect(() => {
+    const pause = () => { pausedRef.current = true; };
+    const resume = () => {
+      pausedRef.current = false;
+      window.dispatchEvent(new CustomEvent("notif:refresh"));
+    };
+    window.addEventListener("notif:pausePopup", pause);
+    window.addEventListener("notif:resumePopup", resume);
+    return () => {
+      window.removeEventListener("notif:pausePopup", pause);
+      window.removeEventListener("notif:resumePopup", resume);
+    };
+  }, []);
+
+  useEffect(() => {
     let alive = true;
     let unsub: (() => void) | null = null;
     const process = (list: AppNotification[]) => {
+      latestRef.current = list;
+      if (pausedRef.current) return;
       const fresh = list.filter((n) =>
         !seenRef.current.has(n.id) &&
         !n.read &&
@@ -12493,6 +12511,12 @@ function ChangePasswordModal({ user, onDone, forced = false }: { user: UserData;
   const [confirmPass, setConfirmPass] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!forced) return;
+    window.dispatchEvent(new CustomEvent("notif:pausePopup"));
+    return () => window.dispatchEvent(new CustomEvent("notif:resumePopup"));
+  }, [forced]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
