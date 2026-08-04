@@ -64,30 +64,11 @@ const STALE_DAYS = 60;
 
 // ------- Durable job coordination (survives Deno isolate recycles) --------
 // Every knob below is a constant so ops can grep + tune in one place.
-const SYNC_JOB_NAME = "email-sync";
-const SYNC_LOCK_LEASE_SECONDS = 120;        // cron runs every 3min; 2min lease
 const STALE_CLEANUP_MIN_INTERVAL_MS = 6 * 60 * 60_000; // 6h floor per isolate
 const DEDUP_ID_LIMIT = 2000;                // keyset window, not offset
 
-// Try to grab the DB-backed lease. Returns false if another isolate holds it,
-// so overlapping cron ticks exit ~immediately (single SELECT to acquire fn).
-async function acquireLock(supabase: any, job: string, leaseSeconds: number): Promise<boolean> {
-  try {
-    const { data, error } = await supabase.rpc("acquire_sync_lock", {
-      _job: job, _lease_seconds: leaseSeconds,
-    });
-    if (error) { console.error(`[lock:${job}] rpc error`, error); return false; }
-    return data === true;
-  } catch (e) { console.error(`[lock:${job}] exception`, e); return false; }
-}
-async function releaseLock(supabase: any, job: string, ok: boolean): Promise<void> {
-  try { await supabase.rpc("release_sync_lock", { _job: job, _ok: ok }); }
-  catch (e) { console.error(`[lock:${job}] release failed`, e); }
-}
-
 const USER_SYNC_WINDOW_MS = 5_000;
 const userSyncHits = new Map<string, number>();
-let cronRepairLastAttempt = 0;
 
 type Session = { userId: string; username: string; role: "admin" | "user"; assignedAccounts?: string[] | null; exp?: number; impersonated?: boolean; adminId?: string | null };
 type Account = { label: string; host: string; port: number; user: string; password: string; recipientFilters?: string[] };
@@ -699,20 +680,6 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
   // every refresh uses mailparser/simpleParser so Netflix HTML is cached and displayed as-is.
   const quickRefresh = false;
 
-  // ---- Durable coordination: only ONE isolate does the heavy lift per cron tick.
-  // Was: in-memory __legacyBackfillDone/__lastStaleCleanupAt — useless because
-  // Deno isolates recycle every ~15s. Now stored in sync_state so overlapping
-  // ticks (or two accidental cron entries) exit ~free instead of double-scanning.
-  const cronLike = source === "cron" || source === "worker-cron" || source === "cron-warm";
-  if (cronLike) {
-    const got = await acquireLock(supabase, SYNC_JOB_NAME, SYNC_LOCK_LEASE_SECONDS);
-    if (!got) {
-      console.log("[sync] another run holds the lock; exiting");
-      return { success: true, skipped: "locked", stats: {}, totalFetched: 0, inserted: 0, emails: [] };
-    }
-  }
-  let syncOk = true;
-
   try {
     const accounts = await loadAccounts(supabase, secret, accountLabels);
     if (accounts.length === 0) {
@@ -765,7 +732,6 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
     if (accountErrors.length > 0 && accountErrors.length === accounts.length) {
       const combinedMsg = accountErrors.map(e => e.error).join(" | ");
       console.error("[sync] All accounts failed:", combinedMsg);
-      syncOk = false;
       return { success: false, error: combinedMsg, stats: syncStats, totalFetched: 0, inserted: 0 };
     }
 
@@ -791,7 +757,10 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
       const { error: upsertErr } = await supabase
         .from("cached_emails")
         .upsert(rows, { onConflict: "id", ignoreDuplicates: true });
-      if (upsertErr) { syncOk = false; console.error("[sync] Cache upsert error:", upsertErr); }
+      if (upsertErr) {
+        console.error("[sync] Cache upsert error:", upsertErr);
+        return { success: false, error: upsertErr.message, stats: syncStats, totalFetched: allEmails.length, inserted: 0 };
+      }
       inserted = rows.length;
     }
 
@@ -827,36 +796,8 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
     console.log(`[sync] Complete: ${allEmails.length} fetched/upserted across ${accounts.length} account(s)`);
     return response;
   } catch (e) {
-    syncOk = false;
     console.error("[sync] fatal", e);
     return { success: false, error: e instanceof Error ? e.message : String(e), stats: {}, totalFetched: 0, inserted: 0 };
-  } finally {
-    if (cronLike) await releaseLock(supabase, SYNC_JOB_NAME, syncOk);
-  }
-}
-
-async function repairCronScheduleIfNeeded(supabase: any, cronSecret: string) {
-  if (!cronSecret || Date.now() - cronRepairLastAttempt < 10 * 60_000) return;
-  cronRepairLastAttempt = Date.now();
-  try {
-    const { data: cfg } = await readSettingRow(supabase, "cron_config");
-    const interval = Math.max(1, Math.min(10, parseInt(String(cfg?.value?.interval || "1")) || 1));
-    const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-    try { await supabase.rpc("unschedule_email_sync"); } catch {}
-    const { error } = await supabase.rpc("schedule_email_sync", {
-      cron_expr: `*/${interval} * * * *`,
-      function_url: `${SUPABASE_URL}/functions/v1/fetch-emails`,
-      auth_key: cronSecret,
-    });
-    if (error) throw error;
-    // Only upsert when the stored value actually differs (avoid churn on every cron repair)
-    const prev = cfg?.value || {};
-    if (prev.active !== true || prev.interval !== interval) {
-      await supabase.from("app_settings").upsert({ key: "cron_config", value: { active: true, interval } }, { onConflict: "key" });
-      console.log(`[cron] Repaired schedule with secret header at */${interval} minute(s)`);
-    }
-  } catch (err) {
-    console.error("[cron] Repair failed:", err instanceof Error ? err.message : String(err));
   }
 }
 
@@ -874,10 +815,8 @@ Deno.serve(async (originalReq) => {
   const secFetchSiteForTransport = originalReq.headers.get("sec-fetch-site") || "";
   const hasValidCronSecret = !!CRON_SHARED_SECRET_FOR_TRANSPORT && cronHeaderForTransport === CRON_SHARED_SECRET_FOR_TRANSPORT;
   const hasServiceRoleBearer = !!SERVICE_ROLE_FOR_TRANSPORT && authHeaderForTransport === `Bearer ${SERVICE_ROLE_FOR_TRANSPORT}`;
-  // Legacy pg_cron jobs in this project were created with the anon bearer but
-  // without x-cron-secret, so encrypted transport rejected them with 426 before
-  // the sync code ran. Accept only server-side plaintext here; the action gate
-  // below restricts it to mode=sync/source=cron and strips email contents.
+  // Trusted server proxies may send plaintext transport; scheduled sources are
+  // still rejected explicitly below because email ingestion is manual-only.
   const hasServerSideBearer = /^Bearer\s+\S+/i.test(authHeaderForTransport) && !secFetchSiteForTransport && originalReq.method === "POST";
   const serverLikeSessionProxy = !!sessionTokenForTransport && !secFetchSiteForTransport;
   const allowServerPlaintext = hasValidCronSecret || hasServiceRoleBearer || hasServerSideBearer || serverLikeSessionProxy;
@@ -936,44 +875,26 @@ Deno.serve(async (originalReq) => {
     }
 
 
-    const isLegacyPgCron = !session && !isCronSecret && hasServerSideBearer && mode === "sync" && source === "cron";
-    const isCron = isCronSecret || isLegacyPgCron;
-    if (isLegacyPgCron) repairCronScheduleIfNeeded(supabase, CRON_SHARED_SECRET).catch(() => {});
+    const isCron = isCronSecret;
+
+    // Email ingestion is intentionally user-driven. Reject every scheduled
+    // source even if an old Cloudflare/Supabase schedule still calls us.
+    if (["cron", "worker-cron", "cron-warm"].includes(source)) {
+      return json({ success: false, error: "Automatic email sync is disabled; use manual refresh" }, 403);
+    }
 
     if (mode === "cron_status") {
       if (!session || session.role !== "admin") return json({ success: false, error: "Admin session required" }, 401);
-      try {
-        const { data, error } = await supabase.rpc("get_cron_status");
-        if (error) throw error;
-        return json(data);
-      } catch {
-        const { data: fallback } = await supabase.from("app_settings").select("value").eq("key", "cron_config").single();
-        return json({ active: fallback?.value?.active || false, interval: fallback?.value?.interval || 3, lastSync: null });
-      }
+      return json({ active: false, schedule: "", interval: 0, lastSync: null });
     }
 
     if (mode === "cron_toggle") {
       if (!session || session.role !== "admin") return json({ success: false, error: "Admin session required" }, 401);
-      const enabled = body.enabled === true;
-      const interval = parseInt(body.interval) || 3;
-      const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-      const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") || Deno.env.get("SUPABASE_PUBLISHABLE_KEY") || "";
-      if (!ANON_KEY) return json({ success: false, error: "SUPABASE_ANON_KEY is not configured" }, 500);
-      if (!CRON_SHARED_SECRET) return json({ success: false, error: "CRON_SHARED_SECRET is not configured" }, 500);
-
       try {
         try { await supabase.rpc("unschedule_email_sync"); } catch {}
-        if (enabled) {
-          const cronExpr = `*/${interval} * * * *`;
-          const { error: schedErr } = await supabase.rpc("schedule_email_sync", {
-            cron_expr: cronExpr,
-            function_url: `${SUPABASE_URL}/functions/v1/fetch-emails`,
-            auth_key: CRON_SHARED_SECRET,
-          });
-          if (schedErr) throw schedErr;
-        }
-        await supabase.from("app_settings").upsert({ key: "cron_config", value: { active: enabled, interval } }, { onConflict: "key" });
-        return json({ success: true, active: enabled, interval });
+        await supabase.from("app_settings").upsert({ key: "cron_config", value: { active: false, interval: 0 } }, { onConflict: "key" });
+        invalidateSetting("cron_config");
+        return json({ success: true, active: false, interval: 0, message: "Automatic email sync is disabled" });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error("[cron] Toggle error:", msg);

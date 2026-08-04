@@ -13284,7 +13284,9 @@ function EmailViewer() {
   const loadCachedEmailsDirect = useCallback(async (limit = 200): Promise<Email[]> => {
     const safeLimit = Math.max(1, Math.min(Number(limit) || 200, 1000));
     const started = performance.now();
-    const delta = await fetchListDelta({ since: 0, limit: safeLimit, baseline: true });
+    // Always bypass Cloudflare's list-delta cache here. This method runs after
+    // manual IMAP sync and must see the rows that were just committed.
+    const delta = await apiCall("manage-app", { action: "list_delta", since: 0, limit: safeLimit, baseline: true });
     const rows = Array.isArray(delta?.rows) ? delta.rows as Email[] : [];
     pushDiag({
       ts: Date.now(),
@@ -13307,7 +13309,7 @@ function EmailViewer() {
     setError(null);
     setLastUpdated(new Date());
     return merged;
-  }, [pushDiag, setEmails, emails, fetchListDelta]);
+  }, [pushDiag, setEmails, emails]);
 
   const loadCachedEmails = useCallback(async (opts?: { bust?: boolean; limit?: number }) => {
     const bust = !!opts?.bust;
