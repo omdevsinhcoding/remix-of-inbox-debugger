@@ -4663,6 +4663,19 @@ function ProfileSelectPage() {
   // can never start a parallel login (which crashed / left no session entries).
   const isLoginBusy = loginLoading || pendingLogin || !!freeLoginId || gpsRequesting;
 
+  // The visible Back button is disabled while signing in, but mobile hardware
+  // Back / tab close bypasses React controls. Keep the submitted attempt alive
+  // until the server responds instead of unmounting and losing its result.
+  useEffect(() => {
+    if (!isLoginBusy) return;
+    const protectInFlightLogin = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", protectInFlightLogin);
+    return () => window.removeEventListener("beforeunload", protectInFlightLogin);
+  }, [isLoginBusy]);
+
 
 
   const primeGpsFromPointer = () => {

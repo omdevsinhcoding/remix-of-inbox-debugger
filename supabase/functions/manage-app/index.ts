@@ -1271,33 +1271,6 @@ async function providerIpapiCo(ip: string): Promise<LocResult | null> {
   } catch { return null; }
 }
 
-async function providerIpApiCom(ip: string): Promise<LocResult | null> {
-  try {
-    if (!ip || ip === "unknown" || isPrivateIp(ip) || isCloudflareIp(ip) || isKnownEdgeIp(ip)) return null;
-    // include proxy/hosting/mobile flags for VPN detection
-    const r = await fetchWithTimeout(
-      `http://ip-api.com/json/${encodeURIComponent(ip)}?fields=status,country,countryCode,region,regionName,city,zip,lat,lon,timezone,isp,org,as,query,proxy,hosting,mobile`,
-      2500,
-    );
-    if (!r.ok) return null;
-    const d = await r.json();
-    if (d?.status !== "success") return null;
-    return {
-      provider: "ip-api.com",
-      ip: d.query,
-      country: d.country, countryCode: d.countryCode,
-      region: d.regionName || d.region, city: d.city, postal: d.zip,
-      lat: typeof d.lat === "number" ? d.lat : undefined,
-      lng: typeof d.lon === "number" ? d.lon : undefined,
-      isp: d.isp, org: d.org, asn: d.as,
-      timezone: d.timezone,
-      flag: countryToFlag(d.countryCode),
-      proxy: d.proxy === true,
-      hosting: d.hosting === true,
-    };
-  } catch { return null; }
-}
-
 async function providerIpinfoIo(ip: string): Promise<LocResult | null> {
   try {
     if (!ip || ip === "unknown" || isPrivateIp(ip) || isCloudflareIp(ip) || isKnownEdgeIp(ip)) return null;
@@ -1448,7 +1421,6 @@ async function resolveLocation(ip: string): Promise<{
 
   const providers: Array<Promise<LocResult | null>> = [
     providerIpapiCo(ip),
-    providerIpApiCom(ip),
     providerIpinfoIo(ip),
     providerFreeIpApi(ip),
   ];
@@ -1473,7 +1445,7 @@ async function resolveLocation(ip: string): Promise<{
     if (!buckets.has(k)) buckets.set(k, []);
     buckets.get(k)!.push(r);
   }
-  const priority = ["ipapi.co", "ip-api.com", "ipinfo.io", "freeipapi.com"];
+  const priority = ["ipapi.co", "ipinfo.io", "freeipapi.com"];
   let bestBucket: LocResult[] = [];
   let bestSize = 0;
   for (const bucket of buckets.values()) {
@@ -1647,10 +1619,6 @@ async function sendPrimaryLoginAlert(
     ? `✅ <b>LOGIN SUCCESS</b>`
     : `❌ <b>LOGIN FAILED</b>`;
   const roleBadge = role === "admin" ? "👑 ADMIN" : "👤 USER";
-  const gpsBadge = isGps ? "🎯 <b>GPS LOCKED</b>" : "📡 <b>IP APPROX</b>";
-  const trustBadge = isGps
-    ? `🟢 <b>TRUSTED</b> · GPS ±${esc(String(clientGeo?.accuracy || "?"))}m`
-    : (isAnon ? `🔴 <b>MASKED</b> · ${anonBadge}` : `🟡 <b>NETWORK ONLY</b>`);
   const cityLine = [loc.city, loc.region, loc.country].filter(Boolean).join(", ") || "Unknown";
   const coordsLine = (typeof mapLat === "number" && typeof mapLng === "number")
     ? `<code>${mapLat.toFixed(6)}, ${mapLng.toFixed(6)}</code>` : "<code>—</code>";
@@ -1668,6 +1636,17 @@ async function sendPrimaryLoginAlert(
     ? haversineKm({ lat: ipLoc.lat, lng: ipLoc.lng }, { lat: gpsLat, lng: gpsLng })
     : null;
   const gpsIpFar = typeof gpsIpKm === "number" && gpsIpKm > 500;
+  // Browser GPS is client-reported telemetry, not cryptographic proof. Only
+  // present it as corroborated when it is geographically plausible beside the
+  // independently observed network IP; never show a false top-level TRUSTED.
+  const gpsBadge = isGps
+    ? (gpsIpFar ? "⚠️ <b>GPS/IP MISMATCH</b>" : "🎯 <b>GPS REPORTED</b>")
+    : "📡 <b>IP APPROX</b>";
+  const trustBadge = isGps
+    ? (gpsIpFar
+        ? `🟠 <b>REVIEW</b> · GPS/IP ${Math.round(gpsIpKm!)} km apart`
+        : `🟢 <b>CORROBORATED</b> · GPS ±${esc(String(clientGeo?.accuracy || "?"))}m`)
+    : (isAnon ? `🔴 <b>MASKED</b> · ${anonBadge}` : `🟡 <b>NETWORK ONLY</b>`);
   const trustLabel = isGps
     ? (gpsIpFar
         ? `🟠 GPS/IP mismatch <i>· ${Math.round(gpsIpKm!)} km apart</i>`
@@ -1873,7 +1852,7 @@ async function sendLoginNotification(
       clientGeo?.status === "granted" ? reverseGpsLocation(clientGeo) : Promise.resolve(null),
     ]);
     const { merged, confidence, agreed, anonymizer } = locRes;
-    const totalProviders = 4;
+    const totalProviders = 3;
     const displayLoc = gpsLoc || merged;
 
     await sendPrimaryLoginAlert(
