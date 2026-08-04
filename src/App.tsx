@@ -4613,7 +4613,10 @@ function ProfileSelectPage() {
     // A request started on profile selection may already have timed out while
     // the user typed their password. Submit always starts a fresh request from
     // this user gesture unless we already hold valid coordinates.
-    const geoPromise = hasPreparedGeo ? undefined : beginGeolocationCapture();
+    // pointerdown fires immediately before submit. Reuse that exact native GPS
+    // request instead of launching a second concurrent getCurrentPosition call;
+    // Android Chromium can fail or suppress one of two overlapping requests.
+    const geoPromise = hasPreparedGeo ? undefined : (armedGeoRef.current ?? beginGeolocationCapture());
     const devicePromise = hasPreparedGeo ? undefined : (armedDeviceRef.current ?? beginDeviceFingerprintCapture());
     armedGeoRef.current = null;
     armedDeviceRef.current = null;
@@ -5453,7 +5456,10 @@ function AdminLoginPage() {
     }
     // FIRE GEO FIRST synchronously — preserve user activation (Chrome Incognito).
     const hasPreparedGeo = hasGrantedLocation(pendingClientGeoRef.current);
-    const geoPromise = hasPreparedGeo ? undefined : beginGeolocationCapture();
+    // Reuse the request primed by this button's pointerdown. Starting another
+    // request during submit races Chrome's geolocation provider and can turn an
+    // already-granted permission into a false missing-location error.
+    const geoPromise = hasPreparedGeo ? undefined : (armedGeoRef.current ?? beginGeolocationCapture());
     const devicePromise = hasPreparedGeo ? undefined : (armedDeviceRef.current ?? beginDeviceFingerprintCapture());
     armedGeoRef.current = null;
     armedDeviceRef.current = null;
