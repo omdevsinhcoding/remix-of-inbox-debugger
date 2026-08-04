@@ -1450,6 +1450,7 @@ function AutoPopupNotification() {
     const pause = () => { pausedRef.current = true; };
     const resume = () => {
       pausedRef.current = false;
+      seenRef.current = getPoppedIds();
       window.dispatchEvent(new CustomEvent("notif:refresh"));
     };
     window.addEventListener("notif:pausePopup", pause);
@@ -1489,7 +1490,10 @@ function AutoPopupNotification() {
           const ta = new Date(a.created_at).getTime(), tb = new Date(b.created_at).getTime();
           return ta - tb;
         });
-        setQueue((prev) => (prev.length ? prev : fresh.slice(0, 3)));
+        // Reconcile every fresh server snapshot instead of locking the first
+        // queue forever. This lets a security/critical notice created during
+        // password setup immediately move ahead of older lower-priority items.
+        setQueue(fresh.slice(0, 3));
       }
     };
     (async () => {
