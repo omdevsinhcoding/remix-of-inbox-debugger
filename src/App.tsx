@@ -7078,8 +7078,8 @@ function CookiesTab({ emailAccounts }: { emailAccounts: any[] }) {
       delete contentCache.current[selected.toLowerCase()];
       applyDraftText("");
       if (fileRef.current) fileRef.current.value = "";
-      await refresh();
       setSelected(null);
+      void refresh();
     } catch (e: any) {
       notify.error("Could not save cookies", { description: e?.message || String(e) });
     } finally {

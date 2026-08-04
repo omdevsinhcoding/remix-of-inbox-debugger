@@ -63,8 +63,30 @@ function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// Hard network timeouts. Without these, a stalled connection (flaky mobile
+// network, hung edge cold start) leaves the UI spinning forever.
+const HANDSHAKE_TIMEOUT_MS = 15000;
+const REQUEST_TIMEOUT_MS = 30000;
+
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (e: any) {
+    if (e?.name === "AbortError") throw new Error("NetworkError: request timed out");
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+
 function cleanTransportError(err: unknown): Error {
   const msg = err instanceof Error ? err.message : String(err || "");
+  if (/timed out/i.test(msg)) {
+    return new Error("Request timed out. Please check your connection and try again.");
+  }
   if (/handshake\s*429|rate limited/i.test(msg)) {
     return new Error("Security connection is busy. Please try again in a few seconds.");
   }
@@ -118,7 +140,7 @@ async function doHandshake(): Promise<Session> {
   let lastErr: unknown = null;
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
-      res = await fetch(`${fnBase()}/crypto-handshake`, {
+      res = await fetchWithTimeout(`${fnBase()}/crypto-handshake`, {
         method: "POST",
         headers: {
           "Content-Type": CT_BINARY,
@@ -126,7 +148,7 @@ async function doHandshake(): Promise<Session> {
           apikey: anonKey(),
         },
         body: req,
-      });
+      }, HANDSHAKE_TIMEOUT_MS);
       if (res.status !== 429 && res.status < 500) break;
     } catch (e) {
       lastErr = e;
@@ -259,11 +281,11 @@ export async function secureFetchJson(
   // gunzip and show the generic secure-connection toast.
   if (canGunzipResponse()) headers["x-accept-encoding"] = "gzip";
 
-  const res = await fetch(`${fnBase()}/${functionName}`, {
+  const res = await fetchWithTimeout(`${fnBase()}/${functionName}`, {
     method: "POST",
     headers,
     body: frame,
-  });
+  }, REQUEST_TIMEOUT_MS);
   const ct = (res.headers.get("content-type") || "").toLowerCase();
   if (!ct.includes(CT_BINARY)) {
     resetSession();
