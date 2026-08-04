@@ -775,12 +775,18 @@ function buildLocationSignInMessage(location: LoginLocationPayload): string {
   if (location.status === "unsupported") {
     return "This browser/device does not support GPS location. Use Chrome/Firefox with location services enabled.";
   }
+  // Permission IS granted (typical on desktop/laptop without a GPS chip) but no
+  // fix arrived. Never tell these users their location is off.
+  if (location.permissionState === "granted" && (location.status === "timeout" || location.status === "unavailable" || location.status === "error")) {
+    return "Could not get a location fix right now, even though location is allowed. Please retry in a moment (Wi‑Fi on helps on laptops).";
+  }
   if (location.status === "timeout") {
     return "GPS request timed out. Enable device Location/Precise Location and try again.";
   }
   if (location.status === "unavailable") {
     return `Device GPS is unavailable right now (${location.error || "position unavailable"}). Turn on device Location and try again.`;
   }
+
   if (location.status === "error") {
     return `GPS error: ${location.error || "unknown error"}.`;
   }
