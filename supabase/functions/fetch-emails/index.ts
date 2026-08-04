@@ -495,9 +495,9 @@ async function fetchFromAccount(
   let skipped = 0;
   let recipientSkipped = 0;
   let timedOut = false;
-  const startedAt = Date.now();
+  let startedAt = Date.now();
   const budgetMs = quickRefresh ? FAST_REFRESH_TIMEOUT_MS : PER_ACCOUNT_TIMEOUT_MS;
-  const timer = setTimeout(() => { timedOut = true; }, budgetMs);
+  let timer: number | undefined;
   const hasBudget = () => !timedOut && Date.now() - startedAt < budgetMs;
 
   const client = new ImapFlow({
@@ -506,13 +506,16 @@ async function fetchFromAccount(
     secure: true,
     auth: { user: imapUser, pass: imapPassword },
     logger: false,
-    socketTimeout: quickRefresh ? 1800 : 7000,
-    greetingTimeout: quickRefresh ? 1200 : 3000,
+    socketTimeout: quickRefresh ? 9000 : 14000,
+    greetingTimeout: quickRefresh ? 6000 : 8000,
   });
 
   try {
     await client.connect();
     console.log(`[${accountLabel}] IMAP connected to ${imapHost}`);
+    // Start the work budget only now — connect time must not count against it.
+    startedAt = Date.now();
+    timer = setTimeout(() => { timedOut = true; }, budgetMs) as unknown as number;
     const lock = await client.getMailboxLock("INBOX");
 
     try {
