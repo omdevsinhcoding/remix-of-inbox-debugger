@@ -5083,14 +5083,22 @@ function ProfileSelectPage() {
                         key={profile.id}
                         type="button"
                         onClick={() => {
+                          // Hard lock: ignore taps on any other profile while a
+                          // login (paid or free) is already being prepared.
+                          if (isLoginBusy) {
+                            try { notify.info("Please wait…", { id: "login-busy", description: "Preparing your profile" }); } catch {}
+                            return;
+                          }
                           if (isFreeProfile) {
                             void loginFreeProfile(profile);
                           } else {
                             setSelectedProfile(profile);
                           }
                         }}
-                        disabled={isFreeProfile && freeLoginId === profile.id}
-                        className="flex flex-col items-center gap-2 sm:gap-3 group focus:outline-none min-w-0 profile-item-in disabled:opacity-70"
+                        aria-busy={isLoginBusy && freeLoginId === profile.id}
+                        disabled={isLoginBusy}
+                        className="flex flex-col items-center gap-2 sm:gap-3 group focus:outline-none min-w-0 profile-item-in disabled:opacity-70 disabled:cursor-not-allowed"
+
                         style={{ animationDelay: d, ["--tile-delay" as any]: d }}
                       >
                         <div className="relative rounded-md overflow-hidden ring-0 group-hover:ring-2 group-hover:ring-white aspect-square w-full max-w-[140px] transform-gpu transition-transform duration-150 ease-out group-hover:scale-105 group-active:scale-95 will-change-transform">
