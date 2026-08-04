@@ -4510,7 +4510,6 @@ function ProfileSelectPage() {
     armedGeoResultRef.current = null;
     void promise.then((location) => {
       armedGeoResultRef.current = location;
-      if (hasGrantedLocation(location)) pendingClientGeoRef.current = location;
     });
     return promise;
   };
