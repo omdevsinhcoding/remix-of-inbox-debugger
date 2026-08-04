@@ -4976,7 +4976,7 @@ function ProfileSelectPage() {
         notify.error(msg);
       } finally {
         setFreeLoginId(null);
-        if (!freeCaptchaProfile) loginAttemptLockRef.current = false;
+        if (!siteKey) loginAttemptLockRef.current = false;
       }
       return;
     }
