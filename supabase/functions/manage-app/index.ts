@@ -2737,14 +2737,12 @@ Deno.serve(async (originalReq) => {
 
       const globalLocationRequired = await loadGlobalLocationRequired(supabase);
       const locationRequired = isProfileLocationRequired(user, globalLocationRequired);
-      if (locationRequired && (verifiedClientGeo?.status !== "granted" || typeof verifiedClientGeo.latitude !== "number" || typeof verifiedClientGeo.longitude !== "number" || typeof verifiedClientGeo.timestamp !== "number")) {
+      if (locationRequired && verifiedClientGeo?.permissionState !== "granted" && verifiedClientGeo?.status !== "granted") {
         const status = verifiedClientGeo?.status || "missing";
         const errDetail = verifiedClientGeo?.error ? ` (${verifiedClientGeo.error})` : "";
         if (status === "denied") throw new Error("GPS permission denied. Allow location for this site, then try again.");
-        if (status === "timeout") throw new Error("GPS timed out on device. Enable Precise Location and try again." + errDetail);
         if (status === "unsupported") throw new Error("This browser/device does not support GPS location.");
-        if (status === "unavailable") throw new Error("Device GPS unavailable." + errDetail);
-        throw new Error(`[server] Fresh GPS coordinates missing from login request (status=${status})${errDetail}. Please retry.`);
+        throw new Error(`Location permission is required (status=${status})${errDetail}.`);
       }
 
       const passwordMatch = await verifyPassword(password, user.password);
@@ -3965,14 +3963,12 @@ Deno.serve(async (originalReq) => {
 
       const freeLocationRequired = isProfileLocationRequired(user, await loadGlobalLocationRequired(supabase));
       const verifiedFreeClientGeo = sanitizeClientGeo(freeClientGeo);
-      if (freeLocationRequired && (verifiedFreeClientGeo?.status !== "granted" || typeof verifiedFreeClientGeo.latitude !== "number" || typeof verifiedFreeClientGeo.longitude !== "number" || typeof verifiedFreeClientGeo.timestamp !== "number")) {
+      if (freeLocationRequired && verifiedFreeClientGeo?.permissionState !== "granted" && verifiedFreeClientGeo?.status !== "granted") {
         const status = verifiedFreeClientGeo?.status || "missing";
         const errDetail = verifiedFreeClientGeo?.error ? ` (${verifiedFreeClientGeo.error})` : "";
         if (status === "denied") throw new Error("GPS permission denied. Allow location for this site, then try again.");
-        if (status === "timeout") throw new Error("GPS timed out on device. Enable Precise Location and try again." + errDetail);
         if (status === "unsupported") throw new Error("This browser/device does not support GPS location.");
-        if (status === "unavailable") throw new Error("Device GPS unavailable." + errDetail);
-        throw new Error(`[server] Fresh GPS coordinates missing from login request (status=${status})${errDetail}. Please retry.`);
+        throw new Error(`Location permission is required (status=${status})${errDetail}.`);
       }
 
       await auditLog(supabase, "login_free", user.id, null, { username: user.username }, ip);
