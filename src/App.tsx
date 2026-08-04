@@ -732,14 +732,16 @@ const GPS_PERMISSION_REQUIRED_MESSAGE = "Allow location to sign in.";
 const GPS_PERMISSION_BLOCKED_MESSAGE = "Location blocked. Enable it in browser site settings.";
 
 type GpsPermissionMode = "needed" | "blocked";
+type GpsPermissionMode = "needed" | "blocked" | "retry";
 
 function isGpsPermissionDeniedMessage(message: string) {
   const m = message.toLowerCase();
-  return m.includes("gps permission") || m.includes("gps coordinates missing") || m.includes("gps timed out") || m.includes("device gps unavailable") || m.includes("location permission") || m.includes("allow location") || m.includes("location blocked") || m.includes("browser location popup") || m.includes("does not support gps");
+  return m.includes("gps permission") || m.includes("gps coordinates missing") || m.includes("gps timed out") || m.includes("gps request timed out") || m.includes("gps fix") || m.includes("location fix") || m.includes("device gps unavailable") || m.includes("position unavailable") || m.includes("location permission") || m.includes("allow location") || m.includes("location blocked") || m.includes("location is allowed") || m.includes("browser location popup") || m.includes("does not support gps");
 }
 
 function getGpsPermissionMode(message: string): GpsPermissionMode {
   const m = message.toLowerCase();
+  if (m.includes("location is allowed") || m.includes("gps fix") || m.includes("location fix") || m.includes("gps timed out") || m.includes("gps request timed out") || m.includes("device gps unavailable") || m.includes("position unavailable")) return "retry";
   return m.includes("blocked") || m.includes("browser settings") || m.includes("site settings") ? "blocked" : "needed";
 }
 
@@ -749,6 +751,12 @@ function showGpsPermissionToast(message: string) {
     notify.error("Location blocked", {
       id: GPS_PERMISSION_TOAST_ID,
       description: "Reset Location in the browser site settings, then tap Enable Location again.",
+      duration: 9000,
+    });
+  } else if (mode === "retry") {
+    notify.error("Location allowed, GPS not ready", {
+      id: GPS_PERMISSION_TOAST_ID,
+      description: "Keep device Location on and tap Retry Location.",
       duration: 9000,
     });
   } else {
@@ -779,7 +787,7 @@ function buildLocationSignInMessage(location: LoginLocationPayload): string {
   // Permission IS granted (typical on desktop/laptop without a GPS chip) but no
   // fix arrived. Never tell these users their location is off.
   if (location.permissionState === "granted" && (location.status === "timeout" || location.status === "unavailable" || location.status === "error")) {
-    return "Could not get a location fix right now, even though location is allowed. Please retry in a moment (Wi‑Fi on helps on laptops).";
+    return "Location is allowed, but the GPS fix is not ready. Keep device Location on and retry in a moment.";
   }
   if (location.status === "timeout") {
     return "GPS request timed out. Enable device Location/Precise Location and try again.";
