@@ -831,24 +831,45 @@ function beginGeolocationCapture(): Promise<LoginLocationPayload> {
         timestamp: pos.timestamp,
       });
     };
+    const readPermissionState = async (): Promise<LoginLocationPayload["permissionState"]> => {
+      try {
+        if (navigator.permissions?.query) {
+          const permission = await navigator.permissions.query({ name: "geolocation" as PermissionName });
+          return permission.state;
+        }
+      } catch {}
+      return "unknown";
+    };
+    // Desktops/laptops have no GPS chip: high-accuracy requests often time out
+    // or report POSITION_UNAVAILABLE even though permission IS granted. In that
+    // case retry once with coarse (wifi/IP) positioning and a cached fix allowed
+    // instead of telling the user their location is off.
+    let coarseRetryDone = false;
     const onError = async (err: GeolocationPositionError) => {
-      console.error("[GPS] error code:", err.code, "message:", err.message);
+      console.warn("[GPS] error code:", err.code, "message:", err.message);
+      const permissionState = await readPermissionState();
+      const retryable = err.code === err.TIMEOUT || err.code === err.POSITION_UNAVAILABLE;
+      if (retryable && !coarseRetryDone && permissionState !== "denied" && !settled) {
+        coarseRetryDone = true;
+        try {
+          navigator.geolocation.getCurrentPosition(onSuccess, onError, {
+            enableHighAccuracy: false,
+            timeout: Math.max(8_000, LOGIN_GEO_TIMEOUT_MS - (Date.now() - startedAt) - 2_000),
+            maximumAge: 120_000,
+          });
+          return;
+        } catch {}
+      }
       let status: LoginLocationPayload["status"] = "error";
       if (err.code === err.PERMISSION_DENIED) status = "denied";
       else if (err.code === err.POSITION_UNAVAILABLE) status = "unavailable";
       else if (err.code === err.TIMEOUT) status = "timeout";
-      let nextPermissionState: LoginLocationPayload["permissionState"] = "unknown";
-      try {
-        if (navigator.permissions?.query) {
-          const permission = await navigator.permissions.query({ name: "geolocation" as PermissionName });
-          nextPermissionState = permission.state;
-        }
-      } catch {}
-      finish({ status, permissionState: nextPermissionState, error: err.message || `code ${err.code}` });
+      finish({ status, permissionState, error: err.message || `code ${err.code}` });
     };
     const options: PositionOptions = {
       enableHighAccuracy: true,
-      timeout: LOGIN_GEO_TIMEOUT_MS,
+      // Shorter first pass so the coarse retry still fits inside the overall cap.
+      timeout: Math.min(15_000, LOGIN_GEO_TIMEOUT_MS),
       maximumAge: 0,
     };
     // FIRE FIRST — before setTimeout / any other work — to preserve user activation.
@@ -861,10 +882,13 @@ function beginGeolocationCapture(): Promise<LoginLocationPayload> {
       return;
     }
     timer = window.setTimeout(() => {
-      finish({ status: "timeout", permissionState: "unknown", error: "GPS fix timed out." });
+      void readPermissionState().then((permissionState) => {
+        finish({ status: "timeout", permissionState, error: "GPS fix timed out." });
+      });
     }, LOGIN_GEO_TIMEOUT_MS);
   });
 }
+
 
 // Async variant kept for non-gesture code paths (auto-recovery etc.).
 async function collectLoginLocation(): Promise<LoginLocationPayload> {
