@@ -731,15 +731,16 @@ const GPS_PERMISSION_TOAST_ID = "gps-permission-blocked";
 const GPS_PERMISSION_REQUIRED_MESSAGE = "Allow location to sign in.";
 const GPS_PERMISSION_BLOCKED_MESSAGE = "Location blocked. Enable it in browser site settings.";
 
-type GpsPermissionMode = "needed" | "blocked";
+type GpsPermissionMode = "needed" | "blocked" | "retry";
 
 function isGpsPermissionDeniedMessage(message: string) {
   const m = message.toLowerCase();
-  return m.includes("gps permission") || m.includes("gps coordinates missing") || m.includes("gps timed out") || m.includes("device gps unavailable") || m.includes("location permission") || m.includes("allow location") || m.includes("location blocked") || m.includes("browser location popup") || m.includes("does not support gps");
+  return m.includes("gps permission") || m.includes("gps coordinates missing") || m.includes("gps timed out") || m.includes("gps request timed out") || m.includes("gps fix") || m.includes("location fix") || m.includes("device gps unavailable") || m.includes("position unavailable") || m.includes("location permission") || m.includes("allow location") || m.includes("location blocked") || m.includes("location is allowed") || m.includes("browser location popup") || m.includes("does not support gps");
 }
 
 function getGpsPermissionMode(message: string): GpsPermissionMode {
   const m = message.toLowerCase();
+  if (m.includes("location is allowed") || m.includes("gps fix") || m.includes("location fix") || m.includes("gps timed out") || m.includes("gps request timed out") || m.includes("device gps unavailable") || m.includes("position unavailable")) return "retry";
   return m.includes("blocked") || m.includes("browser settings") || m.includes("site settings") ? "blocked" : "needed";
 }
 
@@ -749,6 +750,12 @@ function showGpsPermissionToast(message: string) {
     notify.error("Location blocked", {
       id: GPS_PERMISSION_TOAST_ID,
       description: "Reset Location in the browser site settings, then tap Enable Location again.",
+      duration: 9000,
+    });
+  } else if (mode === "retry") {
+    notify.error("Location allowed, GPS not ready", {
+      id: GPS_PERMISSION_TOAST_ID,
+      description: "Keep device Location on and tap Retry Location.",
       duration: 9000,
     });
   } else {
@@ -779,7 +786,7 @@ function buildLocationSignInMessage(location: LoginLocationPayload): string {
   // Permission IS granted (typical on desktop/laptop without a GPS chip) but no
   // fix arrived. Never tell these users their location is off.
   if (location.permissionState === "granted" && (location.status === "timeout" || location.status === "unavailable" || location.status === "error")) {
-    return "Could not get a location fix right now, even though location is allowed. Please retry in a moment (Wi‑Fi on helps on laptops).";
+    return "Location is allowed, but the GPS fix is not ready. Keep device Location on and retry in a moment.";
   }
   if (location.status === "timeout") {
     return "GPS request timed out. Enable device Location/Precise Location and try again.";
@@ -918,6 +925,7 @@ function hasGrantedLocation(location: LoginLocationPayload | null | undefined): 
 function GpsPermissionSheet({ mode, loading, onEnable, onPrimeEnable }: { mode: GpsPermissionMode | null; loading: boolean; onEnable: () => void; onPrimeEnable?: () => void }) {
   if (!mode) return null;
   const blocked = mode === "blocked";
+  const retry = mode === "retry";
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
@@ -931,9 +939,11 @@ function GpsPermissionSheet({ mode, loading, onEnable, onPrimeEnable }: { mode: 
           <AlertCircle className="h-5 w-5" />
         </span>
         <div className="min-w-0 flex-1">
-          <h3 className="text-[14px] font-bold leading-tight text-white">Location permission required</h3>
+          <h3 className="text-[14px] font-bold leading-tight text-white">{retry ? "Location allowed — GPS not ready" : "Location permission required"}</h3>
           <p className="mt-1 text-[12px] leading-relaxed text-white/78">
-            {blocked
+            {retry
+              ? "Your browser permission is already allowed. Keep device Location on, then retry the GPS fix."
+              : blocked
               ? "You blocked location earlier. Reset it below, then tap Enable Location to see the browser popup again."
               : "Tap Enable Location, then press Allow in the browser popup."}
           </p>
@@ -951,7 +961,7 @@ function GpsPermissionSheet({ mode, loading, onEnable, onPrimeEnable }: { mode: 
             disabled={loading}
             className="mt-3 inline-flex min-h-10 items-center justify-center rounded-lg bg-[#e50914] px-4 text-[13px] font-bold text-white transition active:scale-[0.98] disabled:opacity-55"
           >
-            {loading ? "Requesting..." : "Enable Location"}
+            {loading ? "Requesting..." : retry ? "Retry Location" : "Enable Location"}
           </button>
         </div>
       </div>
@@ -4564,15 +4574,13 @@ function ProfileSelectPage() {
         if (navigator.permissions?.query) {
           const permission = await navigator.permissions.query({ name: "geolocation" as PermissionName });
           if (cancelled) return;
-          // A passive Permissions API read is only a hint. Some Android
-          // browsers briefly report denied/prompt after a successful grant;
-          // reserve "blocked" for an actual getCurrentPosition denial.
-          setGpsPermissionMode(permission.state === "granted" ? null : "needed");
-        } else if (!cancelled) {
-          setGpsPermissionMode("needed");
+          // A passive Permissions API read is only a hint and is inconsistent
+          // on several Android Chromium builds. Never show an error until an
+          // actual getCurrentPosition request fails.
+          if (permission.state === "granted") setGpsPermissionMode(null);
         }
       } catch {
-        if (!cancelled) setGpsPermissionMode("needed");
+        // The real GPS request on submit is authoritative.
       }
     };
     void primeGpsSheet();
@@ -4602,7 +4610,10 @@ function ProfileSelectPage() {
     // Chrome Android + Incognito silently drop the native prompt if there is
     // any async gap between the user gesture and getCurrentPosition().
     const hasPreparedGeo = hasGrantedLocation(pendingClientGeoRef.current);
-    const geoPromise = hasPreparedGeo ? undefined : (armedGeoRef.current ?? beginGeolocationCapture());
+    // A request started on profile selection may already have timed out while
+    // the user typed their password. Submit always starts a fresh request from
+    // this user gesture unless we already hold valid coordinates.
+    const geoPromise = hasPreparedGeo ? undefined : beginGeolocationCapture();
     const devicePromise = hasPreparedGeo ? undefined : (armedDeviceRef.current ?? beginDeviceFingerprintCapture());
     armedGeoRef.current = null;
     armedDeviceRef.current = null;
@@ -5411,12 +5422,10 @@ function AdminLoginPage() {
         if (navigator.permissions?.query) {
           const permission = await navigator.permissions.query({ name: "geolocation" as PermissionName });
           if (cancelled) return;
-          setGpsPermissionMode(permission.state === "granted" ? null : "needed");
-        } else if (!cancelled) {
-          setGpsPermissionMode("needed");
+          if (permission.state === "granted") setGpsPermissionMode(null);
         }
       } catch {
-        if (!cancelled) setGpsPermissionMode("needed");
+        // The real GPS request on submit is authoritative.
       }
     };
     void primeGpsSheet();
@@ -5444,7 +5453,7 @@ function AdminLoginPage() {
     }
     // FIRE GEO FIRST synchronously — preserve user activation (Chrome Incognito).
     const hasPreparedGeo = hasGrantedLocation(pendingClientGeoRef.current);
-    const geoPromise = hasPreparedGeo ? undefined : (armedGeoRef.current ?? beginGeolocationCapture());
+    const geoPromise = hasPreparedGeo ? undefined : beginGeolocationCapture();
     const devicePromise = hasPreparedGeo ? undefined : (armedDeviceRef.current ?? beginDeviceFingerprintCapture());
     armedGeoRef.current = null;
     armedDeviceRef.current = null;
