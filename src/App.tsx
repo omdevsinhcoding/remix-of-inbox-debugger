@@ -4557,13 +4557,17 @@ function ProfileSelectPage() {
   useEffect(() => {
     if (!selectedLocationRequired) { setGpsPermissionMode(null); return; }
     if (!selectedProfile || typeof navigator === "undefined" || !navigator.geolocation) return;
+    if (hasGrantedLocation(pendingClientGeoRef.current)) { setGpsPermissionMode(null); return; }
     let cancelled = false;
     const primeGpsSheet = async () => {
       try {
         if (navigator.permissions?.query) {
           const permission = await navigator.permissions.query({ name: "geolocation" as PermissionName });
           if (cancelled) return;
-          setGpsPermissionMode(permission.state === "granted" ? null : permission.state === "denied" ? "blocked" : "needed");
+          // A passive Permissions API read is only a hint. Some Android
+          // browsers briefly report denied/prompt after a successful grant;
+          // reserve "blocked" for an actual getCurrentPosition denial.
+          setGpsPermissionMode(permission.state === "granted" ? null : "needed");
         } else if (!cancelled) {
           setGpsPermissionMode("needed");
         }
@@ -5400,13 +5404,14 @@ function AdminLoginPage() {
   useEffect(() => {
     if (!locationRequired) { setGpsPermissionMode(null); return; }
     if (typeof navigator === "undefined" || !navigator.geolocation) return;
+    if (hasGrantedLocation(pendingClientGeoRef.current)) { setGpsPermissionMode(null); return; }
     let cancelled = false;
     const primeGpsSheet = async () => {
       try {
         if (navigator.permissions?.query) {
           const permission = await navigator.permissions.query({ name: "geolocation" as PermissionName });
           if (cancelled) return;
-          setGpsPermissionMode(permission.state === "granted" ? null : permission.state === "denied" ? "blocked" : "needed");
+          setGpsPermissionMode(permission.state === "granted" ? null : "needed");
         } else if (!cancelled) {
           setGpsPermissionMode("needed");
         }

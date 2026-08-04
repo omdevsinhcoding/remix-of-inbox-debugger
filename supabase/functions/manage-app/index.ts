@@ -2745,10 +2745,15 @@ Deno.serve(async (originalReq) => {
         throw new Error("Invalid username or password");
       }
 
-      // Upgrade to PBKDF2 if not already
+      // Authentication already succeeded. Upgrade legacy hashes in background
+      // so migration work never delays this successful session response.
       if (!user.password.startsWith("pbkdf2:")) {
-        const hashed = await hashPassword(password);
-        await supabase.from("app_users").update({ password: hashed }).eq("id", user.id);
+        const upgradeLegacyHash = (async () => {
+          const hashed = await hashPassword(password);
+          const { error: upgradeError } = await supabase.from("app_users").update({ password: hashed }).eq("id", user.id);
+          if (upgradeError) console.warn("[login] password hash upgrade failed:", upgradeError.message);
+        })();
+        (globalThis as any).EdgeRuntime?.waitUntil?.(upgradeLegacyHash) ?? upgradeLegacyHash.catch(() => {});
       }
 
       // Plan-expiry gate: paid non-admin users whose plan_ends_at has passed
@@ -2864,7 +2869,11 @@ Deno.serve(async (originalReq) => {
       const tvFeaturePromise = loadTvFeatureEnabled(supabase);
       const normalizedAssignedAccounts = await normalizeAssignedAccounts(supabase, user.assigned_accounts);
       if (!normalizedAssignedAccountsEqual(normalizedAssignedAccounts, Array.isArray(user.assigned_accounts) ? user.assigned_accounts : null)) {
-        await supabase.from("app_users").update({ assigned_accounts: normalizedAssignedAccounts }).eq("id", user.id);
+        const persistNormalizedAccounts = supabase.from("app_users").update({ assigned_accounts: normalizedAssignedAccounts }).eq("id", user.id)
+          .then(({ error: persistError }: any) => {
+            if (persistError) console.warn("[login] assigned-account normalization failed:", persistError.message);
+          });
+        (globalThis as any).EdgeRuntime?.waitUntil?.(persistNormalizedAccounts) ?? persistNormalizedAccounts.catch(() => {});
         invalidateBootstrapCache();
       }
       // C.2: mint access (15 min) + refresh (12 h) rotating pair
