@@ -3323,6 +3323,7 @@ Deno.serve(async (originalReq) => {
           tvOverride: user.tv_override === "on" || user.tv_override === "off" ? user.tv_override : null,
           tvFeatureEnabled: await loadTvFeatureEnabled(supabase),
           features: pickFeatures(user),
+          lastWorkflowView: user.last_workflow_view === "gmail" || user.last_workflow_view === "tv" || user.last_workflow_view === "link" ? user.last_workflow_view : null,
         },
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -4026,6 +4027,7 @@ Deno.serve(async (originalReq) => {
           features: pickFeatures(user),
           planStartsAt: (user as any).plan_starts_at || null,
           planEndsAt: (user as any).plan_ends_at || null,
+          lastWorkflowView: user.last_workflow_view === "gmail" || user.last_workflow_view === "tv" || user.last_workflow_view === "link" ? user.last_workflow_view : null,
         },
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -4078,6 +4080,7 @@ Deno.serve(async (originalReq) => {
           features: pickFeatures(targetUser),
           planStartsAt: (targetUser as any).plan_starts_at || null,
           planEndsAt: (targetUser as any).plan_ends_at || null,
+          lastWorkflowView: targetUser.last_workflow_view === "gmail" || targetUser.last_workflow_view === "tv" || targetUser.last_workflow_view === "link" ? targetUser.last_workflow_view : null,
           impersonated: true,
           adminId: session.userId,
         },
@@ -4176,6 +4179,7 @@ Deno.serve(async (originalReq) => {
           profilePrefs: publicProfilePrefs(adminUser.profile_prefs),
           profileAvatar: adminUser.profile_prefs?.avatarId || null,
           locationRequired: isProfileLocationRequired(adminUser, await loadGlobalLocationRequired(supabase)),
+          lastWorkflowView: adminUser.last_workflow_view === "gmail" || adminUser.last_workflow_view === "tv" || adminUser.last_workflow_view === "link" ? adminUser.last_workflow_view : null,
         },
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
