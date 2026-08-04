@@ -433,47 +433,6 @@ export default {
     return new Response("Not Found", { status: 404, headers: CORS_HEADERS });
   },
 
-  // Cron/scheduled handler — same as the uploaded worker: proxy sync to Supabase, then refresh KV.
-  async scheduled(event, env, ctx) {
-    console.log("[cron] Scheduled sync triggered at", new Date().toISOString());
-    try {
-      const headers = {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${supabaseKey(env)}`,
-        "apikey": supabaseKey(env),
-        ...(env.CRON_SHARED_SECRET ? { "X-Cron-Secret": env.CRON_SHARED_SECRET } : {}),
-      };
-
-      const res = await fetch(`${supabaseUrl(env)}/functions/v1/fetch-emails`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ mode: "sync", source: "cron" }),
-      });
-
-      if (!res.ok) {
-        const text = await res.text();
-        console.error("[cron] Sync failed:", res.status, text);
-        return;
-      }
-
-      const cacheRes = await fetch(`${supabaseUrl(env)}/functions/v1/fetch-emails`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ mode: "cache" }),
-      });
-
-      if (cacheRes.ok) {
-        const cacheData = await cacheRes.text();
-        await Promise.all([
-          kvPut(env, `${CACHE_KEY}:all`, cacheData),
-          kvPut(env, `${CACHE_TIMESTAMP_KEY}:all`, Date.now().toString()),
-        ]);
-        console.log("[cron] Cache updated successfully");
-      }
-    } catch (err) {
-      console.error("[cron] Error:", err);
-    }
-  },
 };
 
 function diagHeaders(extra = {}) {
