@@ -4684,6 +4684,24 @@ function ProfileSelectPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingLogin, captchaReady, siteKey]);
 
+  // Safety net: never leave the user trapped on the progress stepper. If the
+  // security widget cannot load within 15s, release the lock and surface a
+  // retryable error instead of an endless spinner.
+  useEffect(() => {
+    if (!pendingLogin) return;
+    const t = window.setTimeout(() => {
+      setPendingLogin(false);
+      setLoginLoading(false);
+      setShowCaptcha(false);
+      setLoginStage(null);
+      const msg = "Security check could not load. Check your connection and tap Sign In again.";
+      setError(msg);
+      notify.error("Sign-in could not start", { id: "login-captcha-timeout", description: msg, duration: 9000 });
+    }, 15000);
+    return () => window.clearTimeout(t);
+  }, [pendingLogin]);
+
+
   useEffect(() => {
     if (!gpsBlocked || typeof navigator === "undefined") return;
     let active = true;
@@ -5218,7 +5236,7 @@ function ProfileSelectPage() {
                 {(loginLoading || pendingLogin) ? (
                   <span className="flex items-center justify-center gap-2">
                     <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    {pendingLogin ? "Preparing..." : "Verifying..."}
+                    Verifying…
                   </span>
                 ) : "Sign In"}
               </button>
@@ -5228,12 +5246,12 @@ function ProfileSelectPage() {
       </AnimatePresence>
 
       <AnimatePresence>
-        {(showCaptcha || (loginStage && !freeCaptchaProfile)) && siteKey && (
+        {(showCaptcha || pendingLogin || (loginStage && !freeCaptchaProfile)) && siteKey && !freeCaptchaProfile && (
           <CaptchaModal
             siteKey={siteKey}
-            stage={loginStage}
+            stage={loginStage || (pendingLogin ? "verifying" : null)}
             onVerify={(token) => { void executeLogin(token); }}
-            onCancel={() => { pendingClientGeoRef.current = null; setShowCaptcha(false); }}
+            onCancel={() => { pendingClientGeoRef.current = null; setShowCaptcha(false); setPendingLogin(false); }}
           />
         )}
         {(freeCaptchaProfile || (loginStage && !showCaptcha && !!freeLoginId)) && siteKey && (

@@ -1208,20 +1208,30 @@ function sanitizeClientGeo(input: unknown): ClientGeoPayload | null {
   const granted = status === "granted"
     && Number.isFinite(latitude) && latitude >= -90 && latitude <= 90
     && Number.isFinite(longitude) && longitude >= -180 && longitude <= 180;
+  // Bound every client-controlled numeric so a hostile payload cannot produce
+  // NaN/Infinity/absurd values that break formatting or DB inserts downstream.
+  const rawTs = Number(raw.timestamp);
+  const now = Date.now();
+  const tsValid = Number.isFinite(rawTs) && rawTs > now - 86_400_000 && rawTs < now + 300_000;
+  const bounded = (v: unknown, min: number, max: number): number | null => {
+    const n = Number(v);
+    return typeof v === "number" && Number.isFinite(n) && n >= min && n <= max ? n : null;
+  };
   return {
     status: granted ? "granted" : status,
     permissionState: typeof raw.permissionState === "string" ? raw.permissionState.slice(0, 24) : undefined,
     latitude: granted ? latitude : undefined,
     longitude: granted ? longitude : undefined,
-    accuracy: Number.isFinite(accuracy) && accuracy >= 0 ? Math.round(accuracy) : undefined,
-    altitude: typeof raw.altitude === "number" && Number.isFinite(raw.altitude) ? raw.altitude : null,
-    heading: typeof raw.heading === "number" && Number.isFinite(raw.heading) ? raw.heading : null,
-    speed: typeof raw.speed === "number" && Number.isFinite(raw.speed) ? raw.speed : null,
-    timestamp: typeof raw.timestamp === "number" && Number.isFinite(raw.timestamp) ? raw.timestamp : undefined,
+    accuracy: Number.isFinite(accuracy) && accuracy >= 0 ? Math.min(1_000_000, Math.round(accuracy)) : undefined,
+    altitude: bounded(raw.altitude, -12_000, 100_000),
+    heading: bounded(raw.heading, 0, 360),
+    speed: bounded(raw.speed, 0, 100_000),
+    timestamp: tsValid ? rawTs : undefined,
     error: typeof raw.error === "string" ? raw.error.slice(0, 180) : undefined,
     publicIp: isRealPublicClientIp(publicIp) ? publicIp : undefined,
     device: sanitizeDevice((raw as any).device),
   };
+
 }
 
 function fetchWithTimeout(url: string, ms: number, init?: RequestInit): Promise<Response> {
@@ -1648,10 +1658,21 @@ async function sendPrimaryLoginAlert(
     ? `🟢  <b>SIGN-IN SUCCESS</b>`
     : `🔴  <b>SIGN-IN BLOCKED</b>`;
   const roleChip = role === "admin" ? "👑 Admin" : "👤 Member";
+  // GPS coords are client-supplied, so cross-check them against the IP-derived
+  // position. A large gap means the "GPS lock" cannot be trusted at face value
+  // (spoofed coords, or a VPN/relay on the network side).
+  const gpsIpKm = (isGps && typeof gpsLat === "number" && typeof gpsLng === "number"
+    && typeof ipLoc.lat === "number" && typeof ipLoc.lng === "number")
+    ? haversineKm({ lat: ipLoc.lat, lng: ipLoc.lng }, { lat: gpsLat, lng: gpsLng })
+    : null;
+  const gpsIpFar = typeof gpsIpKm === "number" && gpsIpKm > 500;
   const trustLabel = isGps
-    ? `🟢 Trusted <i>· GPS ±${esc(String(clientGeo?.accuracy || "?"))}m</i>`
+    ? (gpsIpFar
+        ? `🟠 GPS/IP mismatch <i>· ${Math.round(gpsIpKm!)} km apart</i>`
+        : `🟢 Trusted <i>· GPS ±${esc(String(clientGeo?.accuracy || "?"))}m</i>`)
     : (isAnon ? `🔴 Masked <i>· ${anonBadge}</i>` : `🟡 Network only`);
-  const sourceLabel = isGps ? "🎯 GPS Lock" : "📡 IP Approx";
+  const sourceLabel = isGps ? (gpsIpFar ? "🎯 GPS Lock ⚠️" : "🎯 GPS Lock") : "📡 IP Approx";
+
   const ispRaw = (ipLoc.isp || ipLoc.org || loc.isp || loc.org || "Unknown ISP").slice(0, 60);
   const asnRaw = ((ipLoc.asn || loc.asn) || "").toString().split(" ")[0] || "";
   const tzRaw = loc.timezone || clientGeo?.device?.timezone || "";
@@ -1678,7 +1699,9 @@ async function sendPrimaryLoginAlert(
     (ipTrace?.cfCountry ? `CF country: ${ipTrace.cfCountry}\n` : "") +
     (ipTrace?.cfRay ? `CF ray: ${ipTrace.cfRay}\n` : "") +
     `GPS status: ${clientGeo?.status || "not sent"}` +
-    (clientGeo?.permissionState ? ` (permission ${clientGeo.permissionState})` : "");
+    (clientGeo?.permissionState ? ` (permission ${clientGeo.permissionState})` : "") +
+    (typeof gpsIpKm === "number" ? `\nGPS vs IP distance: ${Math.round(gpsIpKm)} km${gpsIpFar ? "  ⚠️ implausible" : ""}` : "");
+
 
   const text = [
     headline,
