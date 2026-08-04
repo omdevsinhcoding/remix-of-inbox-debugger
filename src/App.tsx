@@ -4376,6 +4376,8 @@ function CaptchaModal({ siteKey, onVerify, onCancel }: {
   const [token, setToken] = useState<string | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [widgetReady, setWidgetReady] = useState(false);
+  const [slowLoad, setSlowLoad] = useState(false);
 
   // Warm the ECDH handshake in parallel while the user solves the captcha,
   // so we don't pay 400–1500ms of TLS+ECDH+HKDF after they click Continue.
@@ -4387,6 +4389,16 @@ function CaptchaModal({ siteKey, onVerify, onCancel }: {
     return () => { cancelled = true; };
   }, []);
 
+  // If the reCAPTCHA widget hasn't rendered within a reasonable window, stop
+  // showing an infinite skeleton and surface an actionable retry so the user
+  // isn't stuck staring at a "loading" placeholder forever.
+  useEffect(() => {
+    if (!siteKey || widgetReady || loadError) return;
+    const slow = window.setTimeout(() => setSlowLoad(true), 3500);
+    const fail = window.setTimeout(() => { if (!widgetReady) setLoadError(true); }, 12000);
+    return () => { window.clearTimeout(slow); window.clearTimeout(fail); };
+  }, [siteKey, widgetReady, loadError]);
+
 
   const submit = useCallback(() => {
     if (token && !submitting) {
@@ -4397,6 +4409,7 @@ function CaptchaModal({ siteKey, onVerify, onCancel }: {
 
   const handleToken = useCallback((nextToken: string | null) => {
     setLoadError(false);
+    setWidgetReady(true);
     setToken(nextToken);
     if (nextToken) {
       setSubmitting(true);
@@ -4439,14 +4452,21 @@ function CaptchaModal({ siteKey, onVerify, onCancel }: {
                   onChange={handleToken}
                   onExpired={() => setToken(null)}
                   onErrored={() => { setToken(null); setLoadError(true); }}
+                  asyncScriptOnLoad={() => setWidgetReady(true)}
                 />
               </Suspense>
             </div>
-            {loadError && (
-              <p className="px-6 pb-4 text-xs font-bold text-red-600 text-center">
-                CAPTCHA domain/key is not allowed for this site. Add this domain in Google reCAPTCHA settings, then refresh.
+            {!widgetReady && slowLoad && !loadError && (
+              <p className="px-6 pb-3 text-[11.5px] font-semibold text-slate-500 text-center">
+                Still loading security check… check your connection or disable ad-blockers for google.com/recaptcha.
               </p>
             )}
+            {loadError && (
+              <p className="px-6 pb-4 text-xs font-bold text-red-600 text-center">
+                CAPTCHA failed to load. Check your network / ad-blocker and try Cancel → Sign In again. If this persists the domain/key may not be allowed in Google reCAPTCHA settings.
+              </p>
+            )}
+
 
             <div className="flex border-t border-slate-100">
               <button onClick={onCancel}
