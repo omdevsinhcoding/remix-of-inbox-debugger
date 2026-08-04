@@ -234,11 +234,7 @@ export async function readRequest(
       if (typeof parsed.n !== "string" || parsed.n.length < 16) {
         throw new TransportError("bad nonce", 400);
       }
-      if (sess.origin_hash) {
-        if (typeof parsed.o !== "string" || parsed.o !== sess.origin_hash) {
-          throw new TransportError("origin mismatch", 403);
-        }
-      }
+      // Origin binding removed — any origin may use a handshake session.
       // Op#3: L3 fast-reject on in-isolate replay; DB is authoritative safety
       // net across isolates but fires async so hot path stays sub-millisecond.
       if (!noncePreCheck(sessionId, parsed.n)) {
