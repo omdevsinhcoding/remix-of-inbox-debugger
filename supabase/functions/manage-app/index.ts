@@ -4685,8 +4685,9 @@ Deno.serve(async (originalReq) => {
 
       const { data: notes, error: nErr } = await supabase
         .from("notifications")
-        .select("id, title, body, description, body_markdown, image_url, category, priority, icon, platform_icon, kind, sub_kind, locked, show_frequency, mode, action_url, action_label, action2_url, action2_label, audience, target_user_id, created_at, expires_at, publish_at, group_key")
+        .select("id, title, body, description, body_markdown, image_url, category, icon, platform_icon, kind, sub_kind, locked, show_frequency, mode, action_url, action_label, action2_url, action2_label, audience, target_user_id, created_at, updated_at, sort_order, expires_at, publish_at, group_key")
         .or(`audience.eq.all,target_user_id.eq.${assertUuid(session.userId, "session user")}`)
+        .order("sort_order", { ascending: true, nullsFirst: false })
         .order("created_at", { ascending: false })
         .limit(100);
       if (nErr) throw nErr;
@@ -4718,7 +4719,8 @@ Deno.serve(async (originalReq) => {
         .map((n: any) => ({
           id: n.id, title: n.title, body: n.body,
           description: n.description, body_markdown: n.body_markdown, image_url: n.image_url,
-          category: n.category, priority: n.priority, icon: n.icon,
+          category: n.category, icon: n.icon,
+          sort_order: n.sort_order ?? null, updated_at: n.updated_at || null,
           platform_icon: n.platform_icon, kind: n.kind, sub_kind: n.sub_kind,
           locked: !!n.locked, show_frequency: n.show_frequency, mode: n.mode,
           action_url: n.action_url, action_label: n.action_label,
@@ -4829,10 +4831,12 @@ Deno.serve(async (originalReq) => {
       if (!["all", "user"].includes(audience)) throw new Error("Invalid audience");
       if (audience === "user" && !p.target_user_id) throw new Error("target_user_id required for user audience");
       const category = ["announcement","update","security","maintenance","promo","billing"].includes(p.category) ? p.category : "announcement";
-      const priority = ["low","normal","high","critical"].includes(p.priority) ? p.priority : "normal";
       const kind = "flash";
       const mode = ["popup","silent","banner"].includes(p.mode) ? p.mode : "popup";
-      const show_frequency = ["once","always","session","daily"].includes(p.show_frequency) ? p.show_frequency : "once";
+      const show_frequency = p.show_frequency === "once" ? "once" : "session";
+      const sort_order = p.sort_order === null || p.sort_order === undefined || p.sort_order === ""
+        ? null
+        : Math.max(0, Math.min(9999, Number(p.sort_order) || 0));
       const platform_icon = p.platform_icon ? String(p.platform_icon).slice(0, 40) : null;
       const expires_at = p.expiresInDays && Number(p.expiresInDays) > 0
         ? new Date(Date.now() + Number(p.expiresInDays) * 86400_000).toISOString()
@@ -4844,7 +4848,7 @@ Deno.serve(async (originalReq) => {
         description: p.description ? String(p.description).slice(0, 8000) : null,
         body_markdown: null,
         image_url: p.image_url ? String(p.image_url).slice(0, 2048) : null,
-        category, priority, kind, mode, show_frequency, platform_icon,
+        category, kind, mode, show_frequency, platform_icon, sort_order,
         sub_kind: p.sub_kind ? String(p.sub_kind).slice(0, 40) : null,
         locked: !!p.locked,
         icon: p.icon ? String(p.icon).slice(0, 64) : null,
@@ -4864,7 +4868,7 @@ Deno.serve(async (originalReq) => {
 
       const { data, error } = await supabase.from("notifications").insert(row).select("id").single();
       if (error) throw error;
-      await auditLog(supabase, "notification_created", session.userId, data?.id || null, { audience, target_user_id: p.target_user_id, category, priority }, ip);
+      await auditLog(supabase, "notification_created", session.userId, data?.id || null, { audience, target_user_id: p.target_user_id, category }, ip);
       return new Response(JSON.stringify({ success: true, id: data?.id }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -4874,7 +4878,8 @@ Deno.serve(async (originalReq) => {
       await requireAdmin(req);
       const notesP = supabase
         .from("notifications")
-        .select("id, title, body, description, image_url, category, priority, icon, platform_icon, kind, sub_kind, locked, show_frequency, mode, action_url, action_label, action2_url, action2_label, audience, target_user_id, created_at, expires_at, publish_at, group_key, pinned")
+        .select("id, title, body, description, image_url, category, icon, platform_icon, kind, sub_kind, locked, show_frequency, mode, action_url, action_label, action2_url, action2_label, audience, target_user_id, created_at, updated_at, sort_order, expires_at, publish_at, group_key, pinned")
+        .order("sort_order", { ascending: true, nullsFirst: false })
         .order("created_at", { ascending: false })
         .limit(200);
       const totalUsersP = supabase.from("app_users").select("id", { count: "planned", head: true }).neq("role", "admin");
@@ -5002,8 +5007,12 @@ Deno.serve(async (originalReq) => {
       if ("platform_icon" in p) patch.platform_icon = p.platform_icon ? String(p.platform_icon).slice(0, 40) : null;
       if ("locked" in p) patch.locked = !!p.locked;
       if (p.category && ["announcement","update","security","maintenance","promo","billing"].includes(p.category)) patch.category = p.category;
-      if (p.priority && ["low","normal","high","critical"].includes(p.priority)) patch.priority = p.priority;
-      if (p.show_frequency && ["once","always","session","daily"].includes(p.show_frequency)) patch.show_frequency = p.show_frequency;
+      if (p.show_frequency) patch.show_frequency = p.show_frequency === "once" ? "once" : "session";
+      if ("sort_order" in p) {
+        patch.sort_order = p.sort_order === null || p.sort_order === undefined || p.sort_order === ""
+          ? null
+          : Math.max(0, Math.min(9999, Number(p.sort_order) || 0));
+      }
       if (p.mode && ["popup","silent","banner"].includes(p.mode)) patch.mode = p.mode;
       if (p.audience && ["all","user"].includes(p.audience)) patch.audience = p.audience;
       if ("target_user_id" in p) patch.target_user_id = p.target_user_id || null;
