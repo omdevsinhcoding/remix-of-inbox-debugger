@@ -4649,7 +4649,7 @@ Deno.serve(async (originalReq) => {
       const [aggN, aggR] = clientEtag ? await Promise.all([
         supabase
           .from("notifications")
-          .select("id, created_at, expires_at, publish_at")
+          .select("id, created_at, updated_at, sort_order, expires_at, publish_at")
           .or(`audience.eq.all,target_user_id.eq.${assertUuid(session.userId, "session user")}`),
         supabase
           .from("notification_reads")
@@ -4664,7 +4664,11 @@ Deno.serve(async (originalReq) => {
           if (n.expires_at && n.expires_at <= nowIso) continue;
           if (n.publish_at && n.publish_at > nowIso) continue;
           cn++;
-          const t = n.created_at ? new Date(n.created_at).getTime() : 0;
+          const t = Math.max(
+            n.created_at ? new Date(n.created_at).getTime() : 0,
+            (n as any).updated_at ? new Date((n as any).updated_at).getTime() : 0,
+            typeof (n as any).sort_order === "number" ? (n as any).sort_order : 0,
+          );
           if (t > mxN) mxN = t;
         }
         let mxR = 0;
