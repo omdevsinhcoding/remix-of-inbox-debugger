@@ -12,7 +12,7 @@ import { WorkflowChooser, ViewSwitcher, DirectLinkView, useWorkflowView, resolve
 
 import { supabase } from "./integrations/supabase/client";
 import { AVATAR_CATEGORIES, resolveAvatar, buildAvatarId, prettyName, getAvatarCategoryUrls } from "./lib/avatars";
-import { bootstrapFromSupabase, fastClearCookiesRedirect, revokeSessionInBackground, markSessionStart, readBootstrapCache, refreshBootstrap, patchBootstrapCacheUser, getEmailFilters, setEmailFilters as setEmailFiltersCache, getFreeAvatarCooldown, setFreeAvatarCooldown, markNotificationRead, markAllNotificationsRead, markNotificationSeen, deleteNotificationForMe, logNotificationEvent, getPoppedIds, markPopped, adminListRecipients, adminDeleteNotificationForUser, type EmailFilters, type AppNotification, type MaintenanceInfo, type NotificationRecipient } from "./lib/bootstrap";
+import { bootstrapFromSupabase, fastClearCookiesRedirect, revokeSessionInBackground, markSessionStart, readBootstrapCache, refreshBootstrap, patchBootstrapCacheUser, getEmailFilters, setEmailFilters as setEmailFiltersCache, getFreeAvatarCooldown, setFreeAvatarCooldown, markNotificationRead, markAllNotificationsRead, deleteNotificationForMe, hasPoppedNotif, markNotifPopped, compareNotifications, adminListRecipients, adminDeleteNotificationForUser, type EmailFilters, type AppNotification, type MaintenanceInfo, type NotificationRecipient } from "./lib/bootstrap";
 import MaintenanceScreen from "./components/MaintenanceScreen";
 import DateTimePicker from "./components/DateTimePicker";
 import { clearBrowserIdentityNow, sessionGet, sessionSet, sessionRemove, nukeBrowserIdentity } from "./lib/session";
@@ -1553,8 +1553,6 @@ function AutoPopupNotification() {
     if (!current) return;
     // hide session countdown while modal is open
     window.dispatchEvent(new CustomEvent("notif:open"));
-    logNotificationEvent(current.id, "delivered").catch(() => {});
-    markNotificationSeen([current.id]).catch(() => {});
     return () => { window.dispatchEvent(new CustomEvent("notif:close")); };
   }, [current?.id]);
 
@@ -1563,7 +1561,6 @@ function AutoPopupNotification() {
     setDismissing(true);
     markPopped(current.id);
     seenRef.current.add(current.id);
-    if (!opened) await logNotificationEvent(current.id, "dismissed").catch(() => {});
     setTimeout(() => {
       setDismissing(false);
       setQueue((q) => q.slice(1));
@@ -1678,7 +1675,7 @@ function AutoPopupNotification() {
                     href={current.action_url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    onClick={() => { logNotificationEvent(current.id, "clicked", { url: current.action_url }).catch(() => {}); markNotificationRead(current.id).catch(() => {}); dismiss(true); }}
+                    onClick={() => { markNotificationRead(current.id).catch(() => {}); dismiss(true); }}
                     className="flex-1 py-3 rounded-xl text-[14px] font-bold text-white bg-slate-900 hover:bg-slate-800 flex items-center justify-center gap-1.5 transition-colors"
                   >
                     {current.action_label} <ExternalLink className="w-3.5 h-3.5" />
@@ -1727,7 +1724,6 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
     window.dispatchEvent(new CustomEvent("notif:open"));
     // mark visible as seen
     const visibleIds = items.filter((n) => !n.seen).map((n) => n.id);
-    if (visibleIds.length) markNotificationSeen(visibleIds).catch(() => {});
     if (isMobile) {
       const prev = document.body.style.overflow;
       document.body.style.overflow = "hidden";
@@ -1968,14 +1964,12 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
           <div className="mt-6 flex flex-wrap gap-2">
             {detail.action_url && detail.action_label && !/snooze|archive|24h/i.test(detail.action_label) && (
               <a href={detail.action_url} target="_blank" rel="noopener noreferrer"
-                onClick={() => logNotificationEvent(detail.id, "clicked", { url: detail.action_url }).catch(() => {})}
                 className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-bold bg-slate-900 text-white hover:bg-slate-800 transition-colors">
                 {detail.action_label} <ExternalLink className="w-3.5 h-3.5" />
               </a>
             )}
             {detail.action2_url && detail.action2_label && !/snooze|archive|24h/i.test(detail.action2_label) && (
               <a href={detail.action2_url} target="_blank" rel="noopener noreferrer"
-                onClick={() => logNotificationEvent(detail.id, "clicked", { url: detail.action2_url, secondary: true }).catch(() => {})}
                 className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-semibold bg-slate-100 text-slate-900 hover:bg-slate-200 transition-colors">
                 {detail.action2_label}
               </a>
