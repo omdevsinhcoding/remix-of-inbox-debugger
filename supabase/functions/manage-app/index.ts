@@ -6427,20 +6427,25 @@ Deno.serve(async (originalReq) => {
       const ts = Number(p?.ts || 0);
       const sig = String(p?.sig || "").toLowerCase();
       const runnerToken = String(p?.runner_token || "").trim();
-      const key = (await loadGithubConfig()).hmacKey;
       if (!eventId) throw new Error("event_id required");
 
       let authed = false;
+      let runnerEvent: any = null;
       if (runnerToken) {
         const { data: tokenEvent } = await supabase
           .from("tv_login_events")
-          .select("metadata")
+          .select("id, code, imap_user, status, user_id, metadata")
           .eq("id", eventId)
           .maybeSingle();
+        runnerEvent = tokenEvent;
         const expectedHash = String((tokenEvent?.metadata as any)?.runnerTokenHash || "");
         authed = !!expectedHash && await sha256Hex(runnerToken) === expectedHash;
       }
       if (!authed) {
+        // Loading GitHub configuration can involve database/secret work. Only
+        // do it for the legacy HMAC runner; direct VPS jobs authenticate with
+        // their one-time token and must stay on the fast path.
+        const key = (await loadGithubConfig()).hmacKey;
         if (!key) throw new Error("Runner HMAC key not configured");
         if (!ts || Math.abs(Date.now() - ts) > 5 * 60 * 1000) throw new Error("Stale or missing timestamp");
         // HMAC over `${action}|${event_id}|${ts}` for fetch; for report include status+result
@@ -6454,28 +6459,40 @@ Deno.serve(async (originalReq) => {
       }
 
       if (action === "tv_login_fetch_job") {
-        const { data: ev, error: evErr } = await supabase
-          .from("tv_login_events")
-          .select("id, code, imap_user, status, user_id, metadata")
-          .eq("id", eventId)
-          .maybeSingle();
-        if (evErr) throw new Error(evErr.message);
+        // Direct-token authentication already fetched the complete event.
+        // Reuse it instead of making the same database round-trip twice.
+        let ev = runnerEvent;
+        if (!ev) {
+          const { data, error: evErr } = await supabase
+            .from("tv_login_events")
+            .select("id, code, imap_user, status, user_id, metadata")
+            .eq("id", eventId)
+            .maybeSingle();
+          if (evErr) throw new Error(evErr.message);
+          ev = data;
+        }
         if (!ev) throw new Error("Event not found");
         if (!ev.imap_user) throw new Error("No account bound to event");
         if (!new Set(["queued", "running", "in_progress"]).has(String(ev.status || ""))) throw new Error("Event is not runnable");
         console.log(`[tv_runner] fetch_job event=${eventId} status=${ev.status || "-"} imap=${ev.imap_user}`);
-        const { data: cookieRow } = await supabase
-          .from("imap_cookies")
-          .select("content, format")
-          .eq("imap_user", ev.imap_user)
-          .maybeSingle();
+        // Cookie lookup and running-state update are independent. Running them
+        // together removes another network round-trip from the direct VPS hot
+        // path without changing any timeout or Netflix timing budget.
+        const [{ data: cookieRow, error: cookieErr }, { error: runningErr }] = await Promise.all([
+          supabase
+            .from("imap_cookies")
+            .select("content, format")
+            .eq("imap_user", ev.imap_user)
+            .maybeSingle(),
+          supabase.from("tv_login_events").update({
+            status: "running",
+            github_run_url: String(p?.run_url || "") || null,
+            metadata: { ...((ev.metadata as any) || {}), runnerStartedAt: new Date().toISOString() },
+          }).eq("id", eventId),
+        ]);
+        if (cookieErr) throw new Error(cookieErr.message);
+        if (runningErr) throw new Error(runningErr.message);
         if (!cookieRow?.content) throw new Error("No cookies stored for account");
-        // Mark as running
-        await supabase.from("tv_login_events").update({
-          status: "running",
-          github_run_url: String(p?.run_url || "") || null,
-          metadata: { ...((ev.metadata as any) || {}), runnerStartedAt: new Date().toISOString() },
-        }).eq("id", eventId);
         return new Response(JSON.stringify({
           success: true,
           event_id: ev.id,
