@@ -15027,6 +15027,7 @@ function GlobalSessionOverlay() {
 
   useSessionTimeoutGuard(role, isLoggedIn && !isImpersonating && !isPendingAdmin);
 
+  if (authLoading || appLoading) return null;
   if (!isLoggedIn || isPendingAdmin) return null;
   if (typeof document === "undefined") return null;
   // Any popup/modal open → hide the pills entirely so they never sit on top of
