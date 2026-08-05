@@ -2532,20 +2532,32 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
   }, [resumeActiveTvLogin]);
 
   const setDigit = (i: number, v: string) => {
-    const d = v.replace(/\D/g, "").slice(-1);
+    const digits = v.replace(/\D/g, "");
     const clearPreviousCode = isTvRetryableStatus(status);
     if (clearPreviousCode) {
       setStatus("idle");
       setResultInfo({});
       setPollElapsed(0);
     }
+    // Multi-digit input (paste, SMS autofill, keyboard paste that fires as an
+    // input event instead of a paste event) spreads across the boxes.
+    if (digits.length > 1) {
+      const chunk = digits.slice(0, 8 - i);
+      setCode((prev) => {
+        const next = clearPreviousCode ? ["", "", "", "", "", "", "", ""] : [...prev];
+        for (let k = 0; k < chunk.length; k++) next[i + k] = chunk[k];
+        return next;
+      });
+      inputsRef.current[Math.min(i + chunk.length, 7)]?.focus();
+      return;
+    }
+    const d = digits.slice(-1);
     setCode((prev) => {
       const next = clearPreviousCode ? ["", "", "", "", "", "", "", ""] : [...prev];
       next[i] = d;
       return next;
     });
-    if (d && i < 7) inputsRef.current[i + 1]?.focus();
-  };
+    if (
 
   const onKeyDown = (i: number, e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Backspace" && !code[i] && i > 0) {
