@@ -1463,13 +1463,19 @@ function useNotifications() {
     invalidateNotifications();
   }, []);
 
-  const orderedItems = useMemo(() => [...items].sort((a, b) => {
-    const rank = ({ critical: 4, high: 3, normal: 2, low: 1 } as Record<string, number>);
-    const priorityDiff = (rank[b.priority || "normal"] || 2) - (rank[a.priority || "normal"] || 2);
-    return priorityDiff || new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
-  }), [items]);
+  // Display order is decided in the admin panel (Order field), newest first
+  // for anything without an explicit order.
+  const orderedItems = useMemo(() => [...items].sort(compareNotifications), [items]);
 
   return { items: orderedItems, setItems, loading, refresh };
+}
+
+// Password / security notices always come before regular announcements.
+function popupRank(n: AppNotification): number {
+  const cat = (n.category || "").toLowerCase();
+  const sub = (n.sub_kind || "").toLowerCase();
+  if (cat === "security" || sub.includes("password") || sub.includes("reset")) return 0;
+  return 1;
 }
 
 // ---------- Auto-popup: premium modal shown on first sight of a notification ----------
@@ -1477,13 +1483,13 @@ function AutoPopupNotification() {
   const { user } = useAuth();
   const [queue, setQueue] = useState<AppNotification[]>([]);
   const [dismissing, setDismissing] = useState(false);
-  const seenRef = useRef<Set<string>>(getPoppedIds());
+  const shownRef = useRef<Set<string>>(new Set());
   const pausedRef = useRef(false);
 
   useEffect(() => {
-    // This component can survive logout/profile switches. Reload the dedupe set
-    // for the new signed-in session so one profile cannot suppress another.
-    seenRef.current = getPoppedIds();
+    // This component can survive logout/profile switches — reset local state so
+    // one profile can never suppress another profile's popups.
+    shownRef.current = new Set();
     setQueue([]);
   }, [user?.id]);
 
@@ -1491,7 +1497,6 @@ function AutoPopupNotification() {
     const pause = () => { pausedRef.current = true; };
     const resume = () => {
       pausedRef.current = false;
-      seenRef.current = getPoppedIds();
       window.dispatchEvent(new CustomEvent("notif:refresh"));
     };
     window.addEventListener("notif:pausePopup", pause);
@@ -1507,34 +1512,23 @@ function AutoPopupNotification() {
     let unsub: (() => void) | null = null;
     const process = (list: AppNotification[]) => {
       if (pausedRef.current) return;
+      // Popup eligibility depends ONLY on the admin-set frequency rule:
+      //   "once"    → one time per profile, ever
+      //   "session" → once for every login session
+      // Read/seen state is intentionally not part of this decision, which is why
+      // older notifications no longer vanish silently.
       const fresh = list.filter((n) =>
-        !seenRef.current.has(n.id) &&
-        !n.read &&
-        (!n.snoozed_until || new Date(n.snoozed_until) < new Date())
+        (n.mode || "popup") !== "silent" &&
+        !shownRef.current.has(n.id) &&
+        !hasPoppedNotif(n)
       );
       if (fresh.length) {
-        // Security/password notices come first. Within each category, honor the
-        // admin-selected priority, then created date/time for deterministic order.
-        const rank = (n: AppNotification): number => {
-          const cat = (n.category || "").toLowerCase();
-          const sub = (n.sub_kind || "").toLowerCase();
-          if (cat === "security" || sub.includes("password") || sub.includes("reset")) return 0;
-          if (cat === "announcement" || cat === "update" || cat === "maintenance") return 1;
-          return 2;
-        };
         fresh.sort((a, b) => {
-          const ra = rank(a), rb = rank(b);
+          const ra = popupRank(a), rb = popupRank(b);
           if (ra !== rb) return ra - rb;
-          const priorityRank = (value?: string | null) => ({ critical: 4, high: 3, normal: 2, low: 1 } as Record<string, number>)[value || "normal"] || 2;
-          const pa = priorityRank(a.priority), pb = priorityRank(b.priority);
-          if (pa !== pb) return pb - pa;
-          const ta = new Date(a.created_at).getTime(), tb = new Date(b.created_at).getTime();
-          return ta - tb;
+          return compareNotifications(a, b);
         });
-        // Reconcile every fresh server snapshot instead of locking the first
-        // queue forever. This lets a security/critical notice created during
-        // password setup immediately move ahead of older lower-priority items.
-        setQueue(fresh.slice(0, 3));
+        setQueue(fresh.slice(0, 5));
       }
     };
     (async () => {
@@ -1559,13 +1553,14 @@ function AutoPopupNotification() {
   const dismiss = async (opened = false) => {
     if (!current) return;
     setDismissing(true);
-    markPopped(current.id);
-    seenRef.current.add(current.id);
+    markNotifPopped(current);
+    shownRef.current.add(current.id);
     setTimeout(() => {
       setDismissing(false);
       setQueue((q) => q.slice(1));
     }, 180);
   };
+
 
   const openInBell = () => {
     dismiss(true);
