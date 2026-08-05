@@ -3425,6 +3425,7 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
           onClick={() => setShowInfo(false)}
           role="dialog"
           aria-modal="true"
+          data-pill-dialog="true"
         >
           <div
             onClick={(e) => e.stopPropagation()}
@@ -3531,6 +3532,7 @@ function FreeExpiryPill({ userOverride }: { userOverride?: any } = {}) {
           onClick={() => setShowInfo(false)}
           role="dialog"
           aria-modal="true"
+          data-pill-dialog="true"
         >
           <div
             onClick={(e) => e.stopPropagation()}
@@ -3659,6 +3661,7 @@ function PlanEndsPill({ userOverride }: { userOverride?: any } = {}) {
           onClick={() => setShowInfo(false)}
           role="dialog"
           aria-modal="true"
+          data-pill-dialog="true"
         >
           <div
             onClick={(e) => e.stopPropagation()}
