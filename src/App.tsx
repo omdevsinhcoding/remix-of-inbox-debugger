@@ -13169,6 +13169,19 @@ function EmailViewer() {
   const [cpShow, setCpShow] = useState(false);
   const [cpBusy, setCpBusy] = useState(false);
   const canChangePassword = !!user.id && !user.isFree;
+  const openChangePassword = useCallback(() => {
+    // Hide the global pills in the same click frame, before React paints the
+    // password sheet. Do not wait for MutationObserver/modal detection.
+    document.body.setAttribute("data-app-modal-open", "password");
+    setShowChangePwd(true);
+  }, []);
+  const closeChangePassword = useCallback(() => {
+    document.body.removeAttribute("data-app-modal-open");
+    setShowChangePwd(false);
+  }, []);
+  useEffect(() => () => {
+    document.body.removeAttribute("data-app-modal-open");
+  }, []);
   const submitChangePassword = useCallback(async () => {
     if (!user.id) return;
     if (!cpCurrent.trim()) { notify.error("Enter your current password"); return; }
@@ -13179,11 +13192,11 @@ function EmailViewer() {
     try {
       await apiCall("manage-app", { action: "change_password", id: user.id, current_password: cpCurrent, new_password: cpNext });
       notify.success("Password changed successfully");
-      setCpCurrent(""); setCpNext(""); setCpConfirm(""); setShowChangePwd(false);
+      setCpCurrent(""); setCpNext(""); setCpConfirm(""); closeChangePassword();
     } catch (err) {
       notify.error(err instanceof Error ? err.message : "Failed to change password");
     } finally { setCpBusy(false); }
-  }, [user.id, cpCurrent, cpNext, cpConfirm]);
+  }, [user.id, cpCurrent, cpNext, cpConfirm, closeChangePassword]);
   const saveProfilePrefsLocally = useCallback((nextPrefs: UserProfilePrefs) => {
     setProfilePrefs(nextPrefs);
     try {
@@ -14185,7 +14198,7 @@ function EmailViewer() {
             )}
             {canChangePassword && (
               <button
-                onClick={() => setShowChangePwd(true)}
+                onClick={openChangePassword}
                 className="flex items-center justify-center w-9 h-9 bg-indigo-600 text-white rounded-full transition-all active:scale-95 hover:bg-indigo-700"
                 title="Change password"
                 aria-label="Change password"
@@ -14257,7 +14270,7 @@ function EmailViewer() {
             </button>
             {canChangePassword && (
               <button
-                onClick={() => setShowChangePwd(true)}
+                onClick={openChangePassword}
                 className="flex items-center justify-center w-10 h-10 bg-indigo-600 text-white rounded-full transition-all active:scale-95 hover:bg-indigo-700 shadow-sm"
                 title="Change password"
                 aria-label="Change password"
@@ -14448,8 +14461,8 @@ function EmailViewer() {
              aria-labelledby="change-password-title"
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             transition={{ duration: 0.18 }}
-            className="fixed inset-0 z-[70] bg-slate-950/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"
-            onClick={() => !cpBusy && setShowChangePwd(false)}
+            className="fixed inset-0 z-[11000] bg-slate-950/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"
+            onClick={() => !cpBusy && closeChangePassword()}
           >
             <motion.div
               initial={{ y: 40, opacity: 0, scale: 0.98 }}
@@ -14471,7 +14484,7 @@ function EmailViewer() {
                   </div>
                 </div>
                 <button
-                  onClick={() => !cpBusy && setShowChangePwd(false)}
+                  onClick={() => !cpBusy && closeChangePassword()}
                   className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-500"
                   aria-label="Close"
                 >
@@ -14530,7 +14543,7 @@ function EmailViewer() {
                 <div className="flex items-center gap-2 pt-2">
                   <button
                     type="button"
-                    onClick={() => !cpBusy && setShowChangePwd(false)}
+                    onClick={() => !cpBusy && closeChangePassword()}
                     className="flex-1 h-11 rounded-xl border border-slate-200 text-slate-700 font-semibold text-sm hover:bg-slate-50"
                     disabled={cpBusy}
                   >Cancel</button>
@@ -15038,11 +15051,11 @@ function GlobalSessionOverlay() {
   if (modalOpen) return null;
 
   return createPortal(
-    <>
+    <div className="global-session-pills contents">
       {!isImpersonating && <SessionCountdown role={role} />}
       {role === "user" && <FreeExpiryPill userOverride={effectiveUser} />}
       {role === "user" && <PlanEndsPill userOverride={effectiveUser} />}
-    </>,
+    </div>,
     document.body
   );
 }
