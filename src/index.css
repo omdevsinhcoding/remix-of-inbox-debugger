@@ -5,6 +5,13 @@
   --notification-indicator-ring: 0 0% 100%;
 }
 
+/* Modal launchers set this attribute in their click handler, so floating
+   session/plan pills disappear in the same frame instead of waiting for a
+   React effect or MutationObserver. */
+body[data-app-modal-open] .global-session-pills {
+  display: none !important;
+}
+
 /* Header notification signal — intentionally purple so it cannot be confused
    with the red workflow indicator, but same size, ring and a small blink. */
 .notification-attention-dot {
