@@ -14970,9 +14970,20 @@ function useAnyModalOpen() {
 }
 
 function GlobalSessionOverlay() {
-  const { user: authUser } = useAuth();
+  const { user: authUser, loading: authLoading } = useAuth();
   const location = useLocation();
   const modalOpen = useAnyModalOpen();
+  // Full-screen loaders (AppBootLoader) flag the body — pills must never float
+  // on top of a loading screen.
+  const [appLoading, setAppLoading] = useState(() => typeof document !== "undefined" && document.body.hasAttribute("data-app-loading"));
+  useEffect(() => {
+    const check = () => setAppLoading(document.body.hasAttribute("data-app-loading"));
+    check();
+    const observer = new MutationObserver(check);
+    observer.observe(document.body, { attributes: true, attributeFilter: ["data-app-loading"] });
+    return () => observer.disconnect();
+  }, []);
+
   const readSessionState = useCallback(() => {
     const token = sessionGet("session_token" as any);
     const storedUser = readStoredSessionUser();
