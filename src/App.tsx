@@ -13170,17 +13170,23 @@ function EmailViewer() {
   const [cpBusy, setCpBusy] = useState(false);
   const canChangePassword = !!user.id && !user.isFree;
   const openChangePassword = useCallback(() => {
-    // Hide the global pills in the same click frame, before React paints the
-    // password sheet. Do not wait for MutationObserver/modal detection.
+    // Use the same synchronous overlay lifecycle as the notification center.
+    // The global pill layer receives this before the password sheet is painted.
     document.body.setAttribute("data-app-modal-open", "password");
+    window.dispatchEvent(new CustomEvent("notif:open"));
     setShowChangePwd(true);
   }, []);
   const closeChangePassword = useCallback(() => {
-    document.body.removeAttribute("data-app-modal-open");
     setShowChangePwd(false);
+    // Keep the pills suppressed while AnimatePresence finishes the sheet exit.
+    window.setTimeout(() => {
+      document.body.removeAttribute("data-app-modal-open");
+      window.dispatchEvent(new CustomEvent("notif:close"));
+    }, 220);
   }, []);
   useEffect(() => () => {
     document.body.removeAttribute("data-app-modal-open");
+    window.dispatchEvent(new CustomEvent("notif:close"));
   }, []);
   const submitChangePassword = useCallback(async () => {
     if (!user.id) return;
@@ -14989,6 +14995,20 @@ function GlobalSessionOverlay() {
   const { user: authUser, loading: authLoading } = useAuth();
   const location = useLocation();
   const modalOpen = useAnyModalOpen();
+  // Notifications and every header-launched modal use this synchronous event
+  // channel. It hides the complete pill group in one React commit rather than
+  // allowing the independently ticking countdowns to disappear one by one.
+  const [overlayOpen, setOverlayOpen] = useState(false);
+  useEffect(() => {
+    const block = () => setOverlayOpen(true);
+    const unblock = () => setOverlayOpen(false);
+    window.addEventListener("notif:open", block);
+    window.addEventListener("notif:close", unblock);
+    return () => {
+      window.removeEventListener("notif:open", block);
+      window.removeEventListener("notif:close", unblock);
+    };
+  }, []);
   // Full-screen loaders (AppBootLoader) flag the body — pills must never float
   // on top of a loading screen.
   const [appLoading, setAppLoading] = useState(() => typeof document !== "undefined" && document.body.hasAttribute("data-app-loading"));
@@ -15043,7 +15063,7 @@ function GlobalSessionOverlay() {
 
   useSessionTimeoutGuard(role, isLoggedIn && !isImpersonating && !isPendingAdmin);
 
-  if (authLoading || appLoading) return null;
+  if (authLoading || appLoading || overlayOpen) return null;
   if (!isLoggedIn || isPendingAdmin) return null;
   if (typeof document === "undefined") return null;
   // Any popup/modal open → hide the pills entirely so they never sit on top of
