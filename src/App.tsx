@@ -14970,9 +14970,20 @@ function useAnyModalOpen() {
 }
 
 function GlobalSessionOverlay() {
-  const { user: authUser } = useAuth();
+  const { user: authUser, loading: authLoading } = useAuth();
   const location = useLocation();
   const modalOpen = useAnyModalOpen();
+  // Full-screen loaders (AppBootLoader) flag the body — pills must never float
+  // on top of a loading screen.
+  const [appLoading, setAppLoading] = useState(() => typeof document !== "undefined" && document.body.hasAttribute("data-app-loading"));
+  useEffect(() => {
+    const check = () => setAppLoading(document.body.hasAttribute("data-app-loading"));
+    check();
+    const observer = new MutationObserver(check);
+    observer.observe(document.body, { attributes: true, attributeFilter: ["data-app-loading"] });
+    return () => observer.disconnect();
+  }, []);
+
   const readSessionState = useCallback(() => {
     const token = sessionGet("session_token" as any);
     const storedUser = readStoredSessionUser();
@@ -15016,6 +15027,7 @@ function GlobalSessionOverlay() {
 
   useSessionTimeoutGuard(role, isLoggedIn && !isImpersonating && !isPendingAdmin);
 
+  if (authLoading || appLoading) return null;
   if (!isLoggedIn || isPendingAdmin) return null;
   if (typeof document === "undefined") return null;
   // Any popup/modal open → hide the pills entirely so they never sit on top of
@@ -15033,9 +15045,56 @@ function GlobalSessionOverlay() {
 }
 
 
+/**
+ * Full-screen branded loader used while auth/route state resolves.
+ * Mirrors the index.html boot shell + login screen styling so the
+ * transition from first paint to React is visually seamless.
+ * While mounted it flags <body data-app-loading> so the floating
+ * Session / Plan / Auto-delete pills stay hidden.
+ */
+function AppBootLoader({ label = "Preparing your inbox" }: { label?: string }) {
+  useEffect(() => {
+    document.body.setAttribute("data-app-loading", "1");
+    return () => { document.body.removeAttribute("data-app-loading"); };
+  }, []);
+  return (
+    <main
+      aria-label="Loading"
+      aria-busy="true"
+      className="min-h-screen flex items-center justify-center px-6 bg-slate-950"
+      style={{
+        background:
+          "radial-gradient(circle at 50% 30%, rgba(220,38,38,0.22), transparent 32rem), linear-gradient(180deg,#020617 0%,#0b0f1e 50%,#020617 100%)",
+      }}
+    >
+      <section className="grid justify-items-center gap-6 text-center">
+        <div className="relative grid h-[88px] w-[88px] place-items-center">
+          <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-red-500 border-r-red-500/30 animate-spin" />
+          <div className="grid h-16 w-16 place-items-center rounded-[20px] bg-gradient-to-br from-red-500 to-red-700 text-3xl font-black text-white shadow-[0_20px_60px_rgba(220,38,38,0.45)] animate-pulse">
+            N
+          </div>
+        </div>
+        <div className="space-y-1.5">
+          <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight text-white">Netflix Mail</h1>
+          <p className="text-[13px] font-medium tracking-wide text-slate-500">{label}</p>
+        </div>
+        <div className="flex items-center gap-1.5">
+          {[0, 1, 2].map((i) => (
+            <span
+              key={i}
+              className="h-1.5 w-1.5 rounded-full bg-red-500 animate-bounce"
+              style={{ animationDelay: `${i * 0.15}s` }}
+            />
+          ))}
+        </div>
+      </section>
+    </main>
+  );
+}
+
 const ProtectedRoute = ({ children, role }: { children: React.ReactNode; role: "admin" | "user" }) => {
   const { user, loading } = useAuth();
-  if (loading) return <div className="min-h-screen bg-slate-950 flex items-center justify-center"><div className="w-8 h-8 border-2 border-red-500 border-t-transparent rounded-full animate-spin" /></div>;
+  if (loading) return <AppBootLoader />;
   if (!user) return <Navigate to={role === "admin" ? "/admin" : "/"} />;
   if (role === "user" && (user as any)?.impersonated === true && window.location.pathname === "/viewer") return <Navigate to="/admin/viewer" replace />;
   if (role === "user" && user.role === "admin") return <Navigate to="/admin/dashboard" replace />;
@@ -15046,9 +15105,10 @@ const ProtectedRoute = ({ children, role }: { children: React.ReactNode; role: "
 const AdminUserViewRoute = ({ children }: { children: React.ReactNode }) => {
   const { user, loading } = useAuth();
   useSessionTimeoutGuard("user", false);
-  if (loading) return <div className="min-h-screen bg-slate-950 flex items-center justify-center"><div className="w-8 h-8 border-2 border-red-500 border-t-transparent rounded-full animate-spin" /></div>;
+  if (loading) return <AppBootLoader />;
   if (!user) return <Navigate to="/admin" replace />;
   if (user.role !== "user") return <Navigate to="/admin/dashboard" replace />;
   if ((user as any)?.impersonated !== true) return <Navigate to="/viewer" replace />;
   return <>{children}</>;
 };
+
