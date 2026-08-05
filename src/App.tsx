@@ -3425,6 +3425,7 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
           onClick={() => setShowInfo(false)}
           role="dialog"
           aria-modal="true"
+          data-pill-dialog="true"
         >
           <div
             onClick={(e) => e.stopPropagation()}
@@ -3531,6 +3532,7 @@ function FreeExpiryPill({ userOverride }: { userOverride?: any } = {}) {
           onClick={() => setShowInfo(false)}
           role="dialog"
           aria-modal="true"
+          data-pill-dialog="true"
         >
           <div
             onClick={(e) => e.stopPropagation()}
@@ -3659,6 +3661,7 @@ function PlanEndsPill({ userOverride }: { userOverride?: any } = {}) {
           onClick={() => setShowInfo(false)}
           role="dialog"
           aria-modal="true"
+          data-pill-dialog="true"
         >
           <div
             onClick={(e) => e.stopPropagation()}
@@ -14933,9 +14936,43 @@ export default function App() {
   );
 }
 
+// True whenever any app modal / dialog / bottom-sheet is open (excluding the
+// pills' own info popups). Used to hide the floating countdown pills so they
+// never overlap popup content.
+const MODAL_SELECTOR = '[role="dialog"]:not([data-pill-dialog]),[role="alertdialog"]:not([data-pill-dialog]),[aria-modal="true"]:not([data-pill-dialog])';
+function useAnyModalOpen() {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    const check = () => {
+      let found = false;
+      try {
+        document.querySelectorAll(MODAL_SELECTOR).forEach((el) => {
+          if (found) return;
+          const node = el as HTMLElement;
+          if (node.hidden) return;
+          const style = window.getComputedStyle(node);
+          if (style.display === "none" || style.visibility === "hidden") return;
+          found = true;
+        });
+      } catch {}
+      setOpen(found);
+    };
+    check();
+    const observer = new MutationObserver(check);
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["role", "aria-modal", "data-state", "hidden", "style"] });
+    const id = window.setInterval(check, 400);
+    return () => {
+      observer.disconnect();
+      window.clearInterval(id);
+    };
+  }, []);
+  return open;
+}
+
 function GlobalSessionOverlay() {
   const { user: authUser } = useAuth();
   const location = useLocation();
+  const modalOpen = useAnyModalOpen();
   const readSessionState = useCallback(() => {
     const token = sessionGet("session_token" as any);
     const storedUser = readStoredSessionUser();
@@ -14981,6 +15018,9 @@ function GlobalSessionOverlay() {
 
   if (!isLoggedIn || isPendingAdmin) return null;
   if (typeof document === "undefined") return null;
+  // Any popup/modal open → hide the pills entirely so they never sit on top of
+  // dialog content (the pills stay reachable once the popup closes).
+  if (modalOpen) return null;
 
   return createPortal(
     <>
