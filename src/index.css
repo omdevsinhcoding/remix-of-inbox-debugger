@@ -1,22 +1,22 @@
 @import "tailwindcss";
 
 :root {
-  --notification-indicator: 174 84% 45%;
+  --notification-indicator: 258 89% 66%;
   --notification-indicator-ring: 0 0% 100%;
 }
 
-/* Header notification signal — intentionally teal so it cannot be confused
-   with the red workflow indicator. */
+/* Header notification signal — intentionally purple so it cannot be confused
+   with the red workflow indicator, but same size and ring effect. */
 .notification-attention-dot {
   position: absolute;
   z-index: 2;
-  top: -5px;
-  right: -5px;
-  width: 13px;
-  height: 13px;
+  top: -2px;
+  right: -2px;
+  width: 10px;
+  height: 10px;
   border-radius: 9999px;
-  background: hsl(var(--notification-indicator));
-  box-shadow: 0 0 0 3px hsl(var(--notification-indicator-ring));
+  background: linear-gradient(135deg, hsl(258 89% 66%), hsl(270 67% 47%));
+  box-shadow: 0 0 0 2px hsl(var(--notification-indicator-ring));
   pointer-events: none;
 }
 
