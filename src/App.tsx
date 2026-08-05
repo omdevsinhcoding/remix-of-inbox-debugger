@@ -2532,13 +2532,26 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
   }, [resumeActiveTvLogin]);
 
   const setDigit = (i: number, v: string) => {
-    const d = v.replace(/\D/g, "").slice(-1);
+    const digits = v.replace(/\D/g, "");
     const clearPreviousCode = isTvRetryableStatus(status);
     if (clearPreviousCode) {
       setStatus("idle");
       setResultInfo({});
       setPollElapsed(0);
     }
+    // Multi-digit input (paste, SMS autofill, keyboard paste that fires as an
+    // input event instead of a paste event) spreads across the boxes.
+    if (digits.length > 1) {
+      const chunk = digits.slice(0, 8 - i);
+      setCode((prev) => {
+        const next = clearPreviousCode ? ["", "", "", "", "", "", "", ""] : [...prev];
+        for (let k = 0; k < chunk.length; k++) next[i + k] = chunk[k];
+        return next;
+      });
+      inputsRef.current[Math.min(i + chunk.length, 7)]?.focus();
+      return;
+    }
+    const d = digits.slice(-1);
     setCode((prev) => {
       const next = clearPreviousCode ? ["", "", "", "", "", "", "", ""] : [...prev];
       next[i] = d;
@@ -2847,7 +2860,7 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
                         onFocus={(e) => e.currentTarget.select()}
                         inputMode="numeric"
                         autoComplete="one-time-code"
-                        maxLength={1}
+                        maxLength={8}
                         disabled={isTvActiveStatus(status) || status === "no_cookies" || status === "cookies_expired"}
                         aria-label={`Digit ${i + 1}`}
                         className={`aspect-square w-full min-w-0 flex-1 text-center text-lg sm:text-2xl font-black rounded-xl bg-white/[0.04] border-2 text-white caret-[#e50914] outline-none transition-all
@@ -3022,13 +3035,24 @@ function TvSignInPage() {
   }, []);
 
   const setDigit = (i: number, v: string) => {
-    const d = v.replace(/\D/g, "").slice(-1);
+    const digits = v.replace(/\D/g, "");
     const clearPreviousCode = isTvRetryableStatus(status);
     if (clearPreviousCode) {
       setStatus("idle");
       setResultInfo({});
       setPollElapsed(0);
     }
+    if (digits.length > 1) {
+      const chunk = digits.slice(0, 8 - i);
+      setCode((prev) => {
+        const n = clearPreviousCode ? ["", "", "", "", "", "", "", ""] : [...prev];
+        for (let k = 0; k < chunk.length; k++) n[i + k] = chunk[k];
+        return n;
+      });
+      inputsRef.current[Math.min(i + chunk.length, 7)]?.focus();
+      return;
+    }
+    const d = digits.slice(-1);
     setCode((prev) => { const n = clearPreviousCode ? ["", "", "", "", "", "", "", ""] : [...prev]; n[i] = d; return n; });
     if (d && i < 7) inputsRef.current[i + 1]?.focus();
   };
@@ -3275,7 +3299,7 @@ function TvSignInPage() {
                         onFocus={(e) => e.currentTarget.select()}
                         inputMode="numeric"
                         autoComplete="one-time-code"
-                        maxLength={1}
+                        maxLength={8}
                         disabled={isTvActiveStatus(status) || status === "no_cookies" || status === "cookies_expired"}
                         aria-label={`Digit ${i + 1}`}
                         className={`aspect-square w-full min-w-0 flex-1 text-center text-2xl sm:text-3xl xl:text-5xl 2xl:text-6xl font-black rounded-xl sm:rounded-2xl bg-white border-2 text-slate-900 caret-rose-500 outline-none transition-all
