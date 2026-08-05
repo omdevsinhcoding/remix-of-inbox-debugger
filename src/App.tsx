@@ -2087,8 +2087,13 @@ function NotificationBell() {
 
   const active = items;
   const unread = active.filter((n) => !n.read).length;
-  // Distinct from the red workflow-switch dot: notifications blink violet.
-  const dotColor = "bg-violet-500";
+  // Session-frequency notifications always advertise themselves on each login;
+  // one-time notifications advertise until read. Keep this distinct from the
+  // red workflow-switch indicator.
+  const needsAttention = active.some((n) =>
+    (n.mode || "popup") !== "silent" &&
+    (String(n.show_frequency || "once") === "session" || !n.read)
+  );
 
   return (
     <>
@@ -2099,11 +2104,10 @@ function NotificationBell() {
         aria-label={`Notifications (${unread} unread)`}
       >
         <Bell className={`w-4 h-4 sm:w-5 sm:h-5 ${unread > 0 ? "animate-pulse" : ""}`} />
-        {unread > 0 && (
-          <>
-            <span className={`absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full animate-ping ${dotColor}`} />
-            <span className={`absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-white ${dotColor}`} />
-          </>
+        {needsAttention && (
+          <span className="notification-attention-dot" aria-hidden="true">
+            <span className="notification-attention-dot-ping" />
+          </span>
         )}
       </button>
       <NotificationCenter

@@ -1,5 +1,41 @@
 @import "tailwindcss";
 
+:root {
+  --notification-indicator: 174 84% 45%;
+  --notification-indicator-ring: 0 0% 100%;
+}
+
+/* Header notification signal — intentionally teal so it cannot be confused
+   with the red workflow indicator. */
+.notification-attention-dot {
+  position: absolute;
+  z-index: 2;
+  top: -5px;
+  right: -5px;
+  width: 13px;
+  height: 13px;
+  border-radius: 9999px;
+  background: hsl(var(--notification-indicator));
+  box-shadow: 0 0 0 3px hsl(var(--notification-indicator-ring));
+  pointer-events: none;
+}
+
+.notification-attention-dot-ping {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: inherit;
+  animation: notificationIndicatorPing 1.4s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+@keyframes notificationIndicatorPing {
+  70%, 100% { transform: scale(2.1); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .notification-attention-dot-ping { animation: none; }
+}
+
 /* Admin panel — force readable text on the light theme.
    Section wrapper class `admin-panel` scopes these rules so the dark
    user-facing pages are not affected. */
