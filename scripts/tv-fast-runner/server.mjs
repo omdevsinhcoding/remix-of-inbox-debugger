@@ -289,10 +289,22 @@ async function runTvJob(eventId, runnerToken) {
     }
     const count = await digitInputs.count();
     stage = "fill_code";
-    if (count >= 8) {
-      for (let i = 0; i < 8; i++) await digitInputs.nth(i).fill(code[i], { timeout: Math.min(800, remaining()) });
-    } else {
-      await digitInputs.first().fill(code, { timeout: Math.min(1000, remaining()) });
+    // Netflix auto-advances focus after each character, which makes
+    // per-input .fill() calls race the DOM (the next input is briefly
+    // not actionable). Focus the first input and type via keyboard so
+    // auto-advance is handled the same way a real remote/keyboard would.
+    try {
+      await digitInputs.first().focus({ timeout: Math.min(800, remaining()) });
+      await page.keyboard.type(code, { delay: 20 });
+    } catch {
+      // Fallback: single-input variant (some TV pages render one field).
+      if (count >= 8) {
+        for (let i = 0; i < 8; i++) {
+          await digitInputs.nth(i).fill(code[i], { timeout: Math.min(800, remaining()), force: true }).catch(() => {});
+        }
+      } else {
+        await digitInputs.first().fill(code, { timeout: Math.min(1000, remaining()), force: true });
+      }
     }
     mark.fill = elapsed();
 
