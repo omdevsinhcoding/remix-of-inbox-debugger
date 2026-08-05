@@ -1722,8 +1722,6 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
     if (!open) { setSelected(null); return; }
     if (initialId) setSelected(initialId);
     window.dispatchEvent(new CustomEvent("notif:open"));
-    // mark visible as seen
-    const visibleIds = items.filter((n) => !n.seen).map((n) => n.id);
     if (isMobile) {
       const prev = document.body.style.overflow;
       document.body.style.overflow = "hidden";
