@@ -37,6 +37,7 @@ const STARTED_AT = new Date().toISOString();
 
 const PORT = Number(process.env.PORT || 8788);
 const TV_REPORT_URL = process.env.TV_REPORT_URL;
+const TV_JOB_URL = process.env.TV_JOB_URL || TV_REPORT_URL.replace(/\/manage-app\/?$/, "/tv-runner-job");
 const ENV_MAX_MS = process.env.TV_LOGIN_MAX_MS;
 const MAX_MS = Math.max(12000, Math.min(30000, Number(ENV_MAX_MS || 24000)));
 const MAX_CONCURRENT = Math.max(1, Math.min(8, Number(process.env.TV_RUNNER_CONCURRENCY || 4)));
@@ -148,8 +149,8 @@ async function takeWarmContext() {
   return createWarmContext();
 }
 
-async function postManageApp(body, timeoutMs = 2500) {
-  const res = await fetch(TV_REPORT_URL, {
+async function postJson(url, body, timeoutMs = 2500) {
+  const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -158,9 +159,11 @@ async function postManageApp(body, timeoutMs = 2500) {
   const text = await res.text();
   let parsed = null;
   try { parsed = text ? JSON.parse(text) : null; } catch { parsed = { raw: text }; }
-  if (!res.ok || parsed?.success === false) throw new Error(`manage-app ${body.action} failed [${res.status}]: ${text.slice(0, 300)}`);
+  if (!res.ok || parsed?.success === false) throw new Error(`runner API ${body.action || "fetch_job"} failed [${res.status}]: ${text.slice(0, 300)}`);
   return parsed;
 }
+
+const postManageApp = (body, timeoutMs = 2500) => postJson(TV_REPORT_URL, body, timeoutMs);
 
 async function report(eventId, runnerToken, { status, result, message, screenshot_url = "" }) {
   await postManageApp({ action: "tv_login_report", event_id: eventId, runner_token: runnerToken, status, result, message, screenshot_url, run_url: "fast-runner" });
@@ -235,8 +238,9 @@ async function runTvJob(eventId, runnerToken) {
 
   try {
     stage = "fetch_job";
-    const job = await postManageApp(
-      { action: "tv_login_fetch_job", event_id: eventId, runner_token: runnerToken, run_url: "fast-runner" },
+    const job = await postJson(
+      TV_JOB_URL,
+      { event_id: eventId, runner_token: runnerToken },
       Math.min(4500, remaining()),
     );
     mark.fetch = elapsed();
