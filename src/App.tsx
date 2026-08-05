@@ -3035,13 +3035,24 @@ function TvSignInPage() {
   }, []);
 
   const setDigit = (i: number, v: string) => {
-    const d = v.replace(/\D/g, "").slice(-1);
+    const digits = v.replace(/\D/g, "");
     const clearPreviousCode = isTvRetryableStatus(status);
     if (clearPreviousCode) {
       setStatus("idle");
       setResultInfo({});
       setPollElapsed(0);
     }
+    if (digits.length > 1) {
+      const chunk = digits.slice(0, 8 - i);
+      setCode((prev) => {
+        const n = clearPreviousCode ? ["", "", "", "", "", "", "", ""] : [...prev];
+        for (let k = 0; k < chunk.length; k++) n[i + k] = chunk[k];
+        return n;
+      });
+      inputsRef.current[Math.min(i + chunk.length, 7)]?.focus();
+      return;
+    }
+    const d = digits.slice(-1);
     setCode((prev) => { const n = clearPreviousCode ? ["", "", "", "", "", "", "", ""] : [...prev]; n[i] = d; return n; });
     if (d && i < 7) inputsRef.current[i + 1]?.focus();
   };
