@@ -300,8 +300,11 @@ export type AppNotification = {
   kind?: "flash" | string;
   sub_kind?: string | null;
   locked?: boolean;
-  show_frequency?: "once" | "always" | "session" | "daily" | string | null;
+  show_frequency?: "once" | "session" | string | null;
   mode?: "popup" | "silent" | "banner" | string | null;
+  sort_order?: number | null;
+  updated_at?: string | null;
+
   action_url?: string | null;
   action_label?: string | null;
   action2_url?: string | null;
