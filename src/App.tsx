@@ -3413,7 +3413,7 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
         type="button"
         onClick={() => setShowInfo((v) => !v)}
         title="Tap for details"
-        className={`fixed z-[10001] right-3 sm:right-4 bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:bottom-4 h-7 sm:h-8 px-3 sm:px-3.5 rounded-full text-[11px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1.5 select-none active:scale-95 transition`}
+        className={`fixed z-30 right-3 sm:right-4 bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:bottom-4 h-7 sm:h-8 px-3 sm:px-3.5 rounded-full text-[11px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1.5 select-none active:scale-95 transition`}
       >
         <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" />
         {role === "admin" ? "Admin" : "Session"}: {pad(mm)}:{pad(ss)}
@@ -3520,7 +3520,7 @@ function FreeExpiryPill({ userOverride }: { userOverride?: any } = {}) {
         type="button"
         onClick={() => setShowInfo((v) => !v)}
         title="Tap for details"
-        className={`fixed z-[10001] right-3 sm:right-4 bottom-[calc(env(safe-area-inset-bottom)+0.75rem+2.25rem)] sm:bottom-[calc(1rem+2.5rem)] h-7 sm:h-8 px-3 sm:px-3.5 rounded-full text-[11px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1.5 select-none active:scale-95 transition`}
+        className={`fixed z-30 right-3 sm:right-4 bottom-[calc(env(safe-area-inset-bottom)+0.75rem+2.25rem)] sm:bottom-[calc(1rem+2.5rem)] h-7 sm:h-8 px-3 sm:px-3.5 rounded-full text-[11px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1.5 select-none active:scale-95 transition`}
       >
         <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" />
         Deletes in: {label}
@@ -3649,7 +3649,7 @@ function PlanEndsPill({ userOverride }: { userOverride?: any } = {}) {
         onClick={() => setShowInfo((v) => !v)}
         title={`Plan ends ${full}`}
         aria-label={`Plan ends in ${label}`}
-        className={`fixed z-[10001] right-3 sm:right-4 bottom-[calc(env(safe-area-inset-bottom)+0.75rem+2.75rem)] sm:bottom-[calc(1rem+3rem)] h-7 sm:h-8 px-3 sm:px-3.5 rounded-full text-[11px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1.5 select-none active:scale-95 transition tabular-nums`}
+        className={`fixed z-30 right-3 sm:right-4 bottom-[calc(env(safe-area-inset-bottom)+0.75rem+2.75rem)] sm:bottom-[calc(1rem+3rem)] h-7 sm:h-8 px-3 sm:px-3.5 rounded-full text-[11px] sm:text-xs font-semibold shadow-lg backdrop-blur ${cls} flex items-center gap-1.5 select-none active:scale-95 transition tabular-nums`}
       >
         <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" />
         Plan: {label}
@@ -13170,23 +13170,10 @@ function EmailViewer() {
   const [cpBusy, setCpBusy] = useState(false);
   const canChangePassword = !!user.id && !user.isFree;
   const openChangePassword = useCallback(() => {
-    // Use the same synchronous overlay lifecycle as the notification center.
-    // The global pill layer receives this before the password sheet is painted.
-    document.body.setAttribute("data-app-modal-open", "password");
-    window.dispatchEvent(new CustomEvent("notif:open"));
     setShowChangePwd(true);
   }, []);
   const closeChangePassword = useCallback(() => {
     setShowChangePwd(false);
-    // Keep the pills suppressed while AnimatePresence finishes the sheet exit.
-    window.setTimeout(() => {
-      document.body.removeAttribute("data-app-modal-open");
-      window.dispatchEvent(new CustomEvent("notif:close"));
-    }, 220);
-  }, []);
-  useEffect(() => () => {
-    document.body.removeAttribute("data-app-modal-open");
-    window.dispatchEvent(new CustomEvent("notif:close"));
   }, []);
   const submitChangePassword = useCallback(async () => {
     if (!user.id) return;
@@ -14994,21 +14981,6 @@ function useAnyModalOpen() {
 function GlobalSessionOverlay() {
   const { user: authUser, loading: authLoading } = useAuth();
   const location = useLocation();
-  const modalOpen = useAnyModalOpen();
-  // Notifications and every header-launched modal use this synchronous event
-  // channel. It hides the complete pill group in one React commit rather than
-  // allowing the independently ticking countdowns to disappear one by one.
-  const [overlayOpen, setOverlayOpen] = useState(false);
-  useEffect(() => {
-    const block = () => setOverlayOpen(true);
-    const unblock = () => setOverlayOpen(false);
-    window.addEventListener("notif:open", block);
-    window.addEventListener("notif:close", unblock);
-    return () => {
-      window.removeEventListener("notif:open", block);
-      window.removeEventListener("notif:close", unblock);
-    };
-  }, []);
   // Full-screen loaders (AppBootLoader) flag the body — pills must never float
   // on top of a loading screen.
   const [appLoading, setAppLoading] = useState(() => typeof document !== "undefined" && document.body.hasAttribute("data-app-loading"));
@@ -15063,13 +15035,9 @@ function GlobalSessionOverlay() {
 
   useSessionTimeoutGuard(role, isLoggedIn && !isImpersonating && !isPendingAdmin);
 
-  if (authLoading || appLoading || overlayOpen) return null;
+  if (authLoading || appLoading) return null;
   if (!isLoggedIn || isPendingAdmin) return null;
   if (typeof document === "undefined") return null;
-  // Any popup/modal open → hide the pills entirely so they never sit on top of
-  // dialog content (the pills stay reachable once the popup closes).
-  if (modalOpen) return null;
-
   return createPortal(
     <div className="global-session-pills contents">
       {!isImpersonating && <SessionCountdown role={role} />}
