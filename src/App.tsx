@@ -15018,6 +15018,9 @@ function GlobalSessionOverlay() {
 
   if (!isLoggedIn || isPendingAdmin) return null;
   if (typeof document === "undefined") return null;
+  // Any popup/modal open → hide the pills entirely so they never sit on top of
+  // dialog content (the pills stay reachable once the popup closes).
+  if (modalOpen) return null;
 
   return createPortal(
     <>
