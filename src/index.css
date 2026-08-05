@@ -6,7 +6,7 @@
 }
 
 /* Header notification signal — intentionally purple so it cannot be confused
-   with the red workflow indicator, but same size and ring effect. */
+   with the red workflow indicator, but same size, ring and a small blink. */
 .notification-attention-dot {
   position: absolute;
   z-index: 2;
@@ -25,16 +25,17 @@
   inset: 0;
   border-radius: inherit;
   background: inherit;
-  animation: notificationIndicatorPing 1.4s cubic-bezier(0, 0, 0.2, 1) infinite;
+  animation: notificationIndicatorPing 1.6s cubic-bezier(0, 0, 0.2, 1) infinite;
 }
 
 @keyframes notificationIndicatorPing {
-  70%, 100% { transform: scale(2.1); opacity: 0; }
+  75%, 100% { transform: scale(1.6); opacity: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .notification-attention-dot-ping { animation: none; }
 }
+
 
 /* Admin panel — force readable text on the light theme.
    Section wrapper class `admin-panel` scopes these rules so the dark

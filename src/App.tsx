@@ -2105,10 +2105,9 @@ function NotificationBell() {
       >
         <Bell className={`w-4 h-4 sm:w-5 sm:h-5 ${unread > 0 ? "animate-pulse" : ""}`} />
         {needsAttention && (
-          <span
-            aria-hidden
-            className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-white bg-gradient-to-br from-violet-500 to-purple-700"
-          />
+          <span aria-hidden className="notification-attention-dot">
+            <span className="notification-attention-dot-ping" />
+          </span>
         )}
       </button>
       <NotificationCenter
