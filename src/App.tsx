@@ -12721,7 +12721,7 @@ function ChangePasswordModal({ user, onDone, forced = false }: { user: UserData;
             <Key className="text-white w-6 h-6" />
           </div>
         </div>
-        <h2 className="text-xl font-black text-center text-slate-900 mb-1">
+        <h2 id="change-password-modal-title" className="text-xl font-black text-center text-slate-900 mb-1">
           {forced ? "Set Your Password" : "Change Password"}
         </h2>
         <p className="text-slate-500 text-center text-xs mb-6">
