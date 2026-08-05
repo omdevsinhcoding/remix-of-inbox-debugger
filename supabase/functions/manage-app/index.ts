@@ -6475,18 +6475,24 @@ Deno.serve(async (originalReq) => {
         if (!ev.imap_user) throw new Error("No account bound to event");
         if (!new Set(["queued", "running", "in_progress"]).has(String(ev.status || ""))) throw new Error("Event is not runnable");
         console.log(`[tv_runner] fetch_job event=${eventId} status=${ev.status || "-"} imap=${ev.imap_user}`);
-        const { data: cookieRow } = await supabase
-          .from("imap_cookies")
-          .select("content, format")
-          .eq("imap_user", ev.imap_user)
-          .maybeSingle();
+        // Cookie lookup and running-state update are independent. Running them
+        // together removes another network round-trip from the direct VPS hot
+        // path without changing any timeout or Netflix timing budget.
+        const [{ data: cookieRow, error: cookieErr }, { error: runningErr }] = await Promise.all([
+          supabase
+            .from("imap_cookies")
+            .select("content, format")
+            .eq("imap_user", ev.imap_user)
+            .maybeSingle(),
+          supabase.from("tv_login_events").update({
+            status: "running",
+            github_run_url: String(p?.run_url || "") || null,
+            metadata: { ...((ev.metadata as any) || {}), runnerStartedAt: new Date().toISOString() },
+          }).eq("id", eventId),
+        ]);
+        if (cookieErr) throw new Error(cookieErr.message);
+        if (runningErr) throw new Error(runningErr.message);
         if (!cookieRow?.content) throw new Error("No cookies stored for account");
-        // Mark as running
-        await supabase.from("tv_login_events").update({
-          status: "running",
-          github_run_url: String(p?.run_url || "") || null,
-          metadata: { ...((ev.metadata as any) || {}), runnerStartedAt: new Date().toISOString() },
-        }).eq("id", eventId);
         return new Response(JSON.stringify({
           success: true,
           event_id: ev.id,
