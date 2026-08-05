@@ -12713,7 +12713,7 @@ function ChangePasswordModal({ user, onDone, forced = false }: { user: UserData;
   };
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} role="dialog" aria-modal="true" aria-labelledby="change-password-modal-title" className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
       <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
         className="bg-white w-full max-w-sm rounded-2xl p-6 shadow-2xl">
         <div className="flex justify-center mb-4">
@@ -12721,7 +12721,7 @@ function ChangePasswordModal({ user, onDone, forced = false }: { user: UserData;
             <Key className="text-white w-6 h-6" />
           </div>
         </div>
-        <h2 className="text-xl font-black text-center text-slate-900 mb-1">
+        <h2 id="change-password-modal-title" className="text-xl font-black text-center text-slate-900 mb-1">
           {forced ? "Set Your Password" : "Change Password"}
         </h2>
         <p className="text-slate-500 text-center text-xs mb-6">
