@@ -17,6 +17,7 @@ import { listNotificationsWithEtag, type AppNotification } from "./bootstrap";
 type Listener = (items: AppNotification[], loading: boolean) => void;
 
 const POLL_INTERVAL_MS = 90_000;
+const CACHE_PREFIX = "notifications_snapshot_v1:";
 
 let items: AppNotification[] = [];
 let etag: string | null = null;
@@ -30,6 +31,23 @@ const listeners = new Set<Listener>();
 
 let pollTimer: number | null = null;
 let visibilityBound = false;
+
+function cacheKey(userId: string): string {
+  return `${CACHE_PREFIX}${userId}`;
+}
+
+function readCache(userId: string | null): AppNotification[] {
+  if (!userId || typeof localStorage === "undefined") return [];
+  try {
+    const parsed = JSON.parse(localStorage.getItem(cacheKey(userId)) || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch { return []; }
+}
+
+function writeCache(userId: string | null, next: AppNotification[]): void {
+  if (!userId || typeof localStorage === "undefined") return;
+  try { localStorage.setItem(cacheKey(userId), JSON.stringify(next.slice(0, 100))); } catch {}
+}
 
 function emit() {
   for (const fn of listeners) {
@@ -52,6 +70,7 @@ export async function refreshNotifications(force = false): Promise<void> {
     if (!res.unchanged) {
       items = res.notifications;
       etag = res.etag;
+      writeCache(currentUserId, items);
       emit();
     } else if (res.etag && res.etag !== etag) {
       etag = res.etag;
@@ -77,7 +96,8 @@ export async function refreshNotifications(force = false): Promise<void> {
 export function resetNotifications(userId: string | null = null): void {
   currentUserId = userId;
   version++;
-  items = [];
+  // Render the last server snapshot on the first dashboard frame, then refresh.
+  items = readCache(userId);
   etag = null;
   loading = false;
   inflight = false;
@@ -116,7 +136,7 @@ export function subscribeNotifications(fn: Listener, userId: string | null = nul
   startPollingIfNeeded();
   // Any first subscriber for the current profile triggers fetch; `inflight`
   // dedupes bell + auto-popup mounting together.
-  if (items.length === 0 && !inflight) {
+  if (!inflight) {
     void refreshNotifications(true);
   }
   return () => {

@@ -1524,7 +1524,17 @@ function AutoPopupNotification() {
           if (ra !== rb) return ra - rb;
           return compareNotifications(a, b);
         });
-        setQueue(fresh.slice(0, 5));
+        const next = fresh.slice(0, 5);
+        // Reserve at enqueue time. Both responsive headers stay mounted, and
+        // repeated store emissions must never enqueue the same popup twice.
+        next.forEach((n) => {
+          shownRef.current.add(n.id);
+          markNotifPopped(n);
+        });
+        setQueue((existing) => {
+          const queued = new Set(existing.map((n) => n.id));
+          return [...existing, ...next.filter((n) => !queued.has(n.id))];
+        });
       }
     };
     (async () => {
@@ -1549,8 +1559,6 @@ function AutoPopupNotification() {
   const dismiss = async (opened = false) => {
     if (!current) return;
     setDismissing(true);
-    markNotifPopped(current);
-    shownRef.current.add(current.id);
     setTimeout(() => {
       setDismissing(false);
       setQueue((q) => q.slice(1));
@@ -2106,7 +2114,6 @@ function NotificationBell() {
         loading={loading}
         onChange={refresh}
       />
-      <AutoPopupNotification />
     </>
   );
 }
@@ -13978,6 +13985,7 @@ function EmailViewer() {
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
+      <AutoPopupNotification />
       <h1 className="sr-only">Email Inbox — Netflix Mail</h1>
       {showChangePassword && (
         <ChangePasswordModal user={user} onDone={() => setShowChangePassword(false)} forced={forcedPasswordChange && showChangePassword} />
