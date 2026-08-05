@@ -24,7 +24,7 @@ import { execSync } from "node:child_process";
 // SERVER_VERSION is bumped whenever the on-wire /health schema, timeout
 // budget, or reporting protocol changes. If /health shows a version older
 // than this constant in the repo, the VPS is running a stale build.
-const SERVER_VERSION = "2026.08.05-7";
+const SERVER_VERSION = "2026.08.05-8";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 let PACKAGE_VERSION = "unknown";
@@ -300,11 +300,17 @@ async function runTvJob(eventId, runnerToken) {
     try {
       await digitInputs.first().focus({ timeout: Math.min(800, remaining()) });
       await page.keyboard.type(code, { delay: 20 });
+      const enteredCode = await digitInputs.evaluateAll((inputs) => inputs
+        .map((input) => input instanceof HTMLInputElement ? input.value : "")
+        .join("")
+        .replace(/\D/g, ""));
+      if (enteredCode !== code) throw new Error("keyboard_input_incomplete");
     } catch {
-      // Fallback: single-input variant (some TV pages render one field).
+      // Fallback for pages where synthetic keyboard events don't trigger
+      // Netflix's auto-advance logic reliably.
       if (count >= 8) {
         for (let i = 0; i < 8; i++) {
-          await digitInputs.nth(i).fill(code[i], { timeout: Math.min(800, remaining()), force: true }).catch(() => {});
+          await digitInputs.nth(i).fill(code[i], { timeout: Math.min(800, remaining()), force: true });
         }
       } else {
         await digitInputs.first().fill(code, { timeout: Math.min(1000, remaining()), force: true });
@@ -313,12 +319,24 @@ async function runTvJob(eventId, runnerToken) {
     mark.fill = elapsed();
 
     stage = "submit_code";
-    await page.waitForFunction(() => {
+    const submitReady = await page.waitForFunction(() => {
       const buttons = Array.from(document.querySelectorAll("button"));
       const btn = buttons.find((b) => /enter code|continue/i.test(b.textContent || "") || b.classList.contains("tvsignup-continue-button"));
-      return !!btn && !btn.disabled;
-    }, null, { timeout: Math.min(2500, remaining()) }).catch(() => {});
-    await page.locator('button.tvsignup-continue-button, button:has-text("Enter code"), button:has-text("Continue"), button:has-text("Sign In"), button:has-text("Submit")').first().click({ timeout: Math.min(1800, remaining()) });
+      if (!btn || btn.disabled) return false;
+      const rect = btn.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    }, null, { timeout: Math.min(2500, remaining()) }).then(() => true).catch(() => false);
+    if (!submitReady) throw new Error("submit_button_not_ready");
+    await page.evaluate(() => {
+      const buttons = Array.from(document.querySelectorAll("button"));
+      const btn = buttons.find((button) => {
+        const rect = button.getBoundingClientRect();
+        return !button.disabled && rect.width > 0 && rect.height > 0 &&
+          (/enter code|continue/i.test(button.textContent || "") || button.classList.contains("tvsignup-continue-button"));
+      });
+      if (!btn) throw new Error("submit_button_missing");
+      btn.click();
+    });
     mark.submit = elapsed();
 
     stage = "wait_netflix_result";
