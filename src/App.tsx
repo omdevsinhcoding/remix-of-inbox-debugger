@@ -2557,7 +2557,8 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
       next[i] = d;
       return next;
     });
-    if (
+    if (d && i < 7) inputsRef.current[i + 1]?.focus();
+  };
 
   const onKeyDown = (i: number, e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Backspace" && !code[i] && i > 0) {
