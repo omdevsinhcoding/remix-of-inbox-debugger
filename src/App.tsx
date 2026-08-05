@@ -7918,7 +7918,6 @@ function AdminPanel() {
   const [notifImageUrl, setNotifImageUrl] = useState("");
   const [notifImageUploading, setNotifImageUploading] = useState(false);
   const [notifCategory, setNotifCategory] = useState<"announcement" | "update" | "security" | "maintenance" | "promo" | "billing">("announcement");
-  const [notifPriority, setNotifPriority] = useState<"low" | "normal" | "high" | "critical">("normal");
   const [notifActionUrl, setNotifActionUrl] = useState("");
   const [notifActionLabel, setNotifActionLabel] = useState("");
   
@@ -7933,7 +7932,8 @@ function AdminPanel() {
     [platformSearch],
   );
   const [notifLocked, setNotifLocked] = useState(false);
-  const [notifShowFrequency, setNotifShowFrequency] = useState<"once" | "always" | "session" | "daily">("once");
+  const [notifShowFrequency, setNotifShowFrequency] = useState<"once" | "session">("session");
+  const [notifSortOrder, setNotifSortOrder] = useState<string>("");
   const [notifMode, setNotifMode] = useState<"popup" | "silent" | "banner">("popup");
   const [sendingNotif, setSendingNotif] = useState(false);
   const [editingNotif, setEditingNotif] = useState<any | null>(null);
@@ -8775,10 +8775,10 @@ function AdminPanel() {
         description: notifDescription.trim() || null,
         image_url: notifImageUrl.trim() || null,
         category: notifCategory,
-        priority: notifPriority,
         kind: "flash",
         mode: notifMode,
         show_frequency: notifShowFrequency,
+        sort_order: notifSortOrder.trim() === "" ? null : Number(notifSortOrder),
         platform_icon: resolvePlatformOption(notifPlatformIcon).id || null,
         sub_kind: notifTemplate || null,
         locked: notifLocked,
@@ -8792,7 +8792,7 @@ function AdminPanel() {
       setNotifTitle(""); setNotifBody(""); setNotifDescription(""); setNotifImageUrl("");
       setNotifActionUrl(""); setNotifActionLabel("");
       setNotifExpiresDays(""); setNotifPlatformIcon(""); setNotifTemplate("");
-      setNotifLocked(false);
+      setNotifLocked(false); setNotifSortOrder("");
       await reloadAdminNotifs();
     } catch (err) {
       notify.error(err instanceof Error ? err.message : "Failed to send");
@@ -8823,7 +8823,8 @@ function AdminPanel() {
         action_url: e.action_url?.trim() || null,
         platform_icon: resolvePlatformOption(e.platform_icon).id || null,
         locked: !!e.locked,
-        priority: e.priority || "normal",
+        show_frequency: e.show_frequency === "once" ? "once" : "session",
+        sort_order: e.sort_order === "" || e.sort_order === null || e.sort_order === undefined ? null : Number(e.sort_order),
         audience: e.audience || "all",
         target_user_id: e.audience === "user" ? (e.target_user_id || null) : null,
       });
@@ -8844,10 +8845,10 @@ function AdminPanel() {
     setNotifPlatformIcon(resolvePlatformOption(n.platform_icon).id || "");
     setNotifLocked(!!n.locked);
     setNotifCategory(n.category || "announcement");
-    setNotifPriority(n.priority || "normal");
     setNotifAudience(n.audience || "all");
     setNotifTargetUser(n.target_user_id || "");
-    setNotifShowFrequency(n.show_frequency || "once");
+    setNotifShowFrequency(n.show_frequency === "once" ? "once" : "session");
+    setNotifSortOrder(n.sort_order === null || n.sort_order === undefined ? "" : String(n.sort_order));
     setNotifMode(n.mode || "popup");
     notify.success("Copied to composer — edit and publish as new");
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -11311,17 +11312,19 @@ function AdminPanel() {
                         className="px-3.5 py-2 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-slate-900" />
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <select value={notifPriority} onChange={(e) => setNotifPriority(e.target.value as any)}
-                        className="px-3.5 py-2 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 font-medium capitalize focus:outline-none focus:border-slate-900">
-                        {(["low","normal","high","critical"] as const).map(p => <option key={p} value={p} className="capitalize">{p} priority</option>)}
-                      </select>
-                      <select value={notifShowFrequency} onChange={(e) => setNotifShowFrequency(e.target.value as any)}
-                        className="px-3.5 py-2 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 font-medium focus:outline-none focus:border-slate-900">
-                        <option value="once">Show once</option>
-                        <option value="session">Every session</option>
-                        <option value="daily">Once per day</option>
-                        <option value="always">Always until read</option>
-                      </select>
+                      <div>
+                        <label className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500 mb-1.5 block">Popup</label>
+                        <select value={notifShowFrequency} onChange={(e) => setNotifShowFrequency(e.target.value as any)}
+                          className="w-full px-3.5 py-2 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 font-medium focus:outline-none focus:border-slate-900">
+                          <option value="session">Every login session</option>
+                          <option value="once">Only one time</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500 mb-1.5 block">Order (1 = first)</label>
+                        <input value={notifSortOrder} onChange={(e) => setNotifSortOrder(e.target.value)} type="number" min="1" placeholder="Auto (newest first)"
+                          className="w-full px-3.5 py-2 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-slate-900" />
+                      </div>
                     </div>
                   </div>
                 </details>
@@ -11342,7 +11345,7 @@ function AdminPanel() {
                   <span className="text-[10px] text-slate-400">how users will see it</span>
                 </div>
                 <div className="rounded-2xl overflow-hidden mx-auto max-w-[400px] bg-white border border-slate-200 shadow-sm">
-                  <div className={`h-[3px] ${notifPriority === "critical" ? "bg-rose-500" : notifPriority === "high" ? "bg-amber-500" : notifPriority === "normal" ? "bg-sky-500" : "bg-slate-400"}`} />
+                  <div className="h-[3px] bg-slate-900" />
                   {notifImageUrl && (
                     <div className="aspect-[16/9] w-full bg-slate-100 overflow-hidden">
                       <img src={notifImageUrl} referrerPolicy="no-referrer" className="w-full h-full object-cover" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
@@ -11406,9 +11409,11 @@ function AdminPanel() {
                           </div>
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-1.5 mb-1 flex-wrap">
-                              <span className={`inline-flex items-center gap-1 text-[10px] font-semibold capitalize ${n.priority === "critical" ? "text-rose-600" : n.priority === "high" ? "text-amber-600" : n.priority === "normal" ? "text-sky-600" : "text-slate-500"}`}>
-                                <span className={`w-1.5 h-1.5 rounded-full ${n.priority === "critical" ? "bg-rose-500" : n.priority === "high" ? "bg-amber-500" : n.priority === "normal" ? "bg-sky-500" : "bg-slate-400"}`} />
-                                {n.priority || "low"}
+                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-900 text-white font-semibold">
+                                {typeof n.sort_order === "number" ? `Order ${n.sort_order}` : "Order auto"}
+                              </span>
+                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-100 font-medium">
+                                {n.show_frequency === "once" ? "Popup once" : "Popup every session"}
                               </span>
                               <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 capitalize font-medium">{n.category || "announcement"}</span>
                               <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${n.locked ? "bg-amber-50 text-amber-700 border border-amber-100" : "bg-emerald-50 text-emerald-700 border border-emerald-100"}`}>
@@ -11425,12 +11430,6 @@ function AdminPanel() {
                             </div>
                             <p className="font-bold text-[14.5px] text-slate-900 truncate">{n.title}</p>
                             <p className="text-[12.5px] text-slate-600 line-clamp-2 mt-0.5">{n.body}</p>
-                            <div className="flex items-center gap-3 mt-2 flex-wrap text-[11px]">
-                              <span className="inline-flex items-center gap-1 text-slate-600"><span className="font-bold">{n.seenCount || 0}</span> <span className="text-slate-400">seen</span></span>
-                              <span className="inline-flex items-center gap-1 text-emerald-700"><span className="font-bold">{n.readCount || 0}</span> <span className="text-slate-400">read</span></span>
-                              <span className="inline-flex items-center gap-1 text-sky-700"><span className="font-bold">{n.clickCount || 0}</span> <span className="text-slate-400">clicked</span></span>
-                              <span className="inline-flex items-center gap-1 text-rose-600"><span className="font-bold">{n.deletedCount || 0}</span> <span className="text-slate-400">deleted</span></span>
-                            </div>
                           </div>
                         </div>
                         <div className="flex items-center gap-1.5 mt-3 pt-3 border-t border-slate-100">
@@ -11497,10 +11496,11 @@ function AdminPanel() {
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1 block">Priority</label>
-                    <select value={editingNotif.priority || "normal"} onChange={(e) => setEditingNotif({ ...editingNotif, priority: e.target.value })}
-                      className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900 capitalize">
-                      {["low","normal","high","critical"].map(p => <option key={p} value={p} className="capitalize">{p}</option>)}
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1 block">Popup</label>
+                    <select value={editingNotif.show_frequency === "once" ? "once" : "session"} onChange={(e) => setEditingNotif({ ...editingNotif, show_frequency: e.target.value })}
+                      className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900">
+                      <option value="session">Every login session</option>
+                      <option value="once">Only one time</option>
                     </select>
                   </div>
                   <div>
@@ -11511,6 +11511,12 @@ function AdminPanel() {
                       <option value="user">Specific user</option>
                     </select>
                   </div>
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1 block">Order (1 = shows first)</label>
+                  <input type="number" min="1" value={editingNotif.sort_order ?? ""} placeholder="Auto (newest first)"
+                    onChange={(e) => setEditingNotif({ ...editingNotif, sort_order: e.target.value === "" ? null : Number(e.target.value) })}
+                    className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900" />
                 </div>
                 {editingNotif.audience === "user" && (
                   <select value={editingNotif.target_user_id || ""} onChange={(e) => setEditingNotif({ ...editingNotif, target_user_id: e.target.value })}
