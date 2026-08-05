@@ -493,12 +493,15 @@ function onceKey(): string {
 
 function sessionKey(): string {
   const uid = currentUserId();
-  let tail = "";
+  let sessionId = "";
   try {
-    const token = sessionGet("session_token" as any);
-    if (token) tail = String(token).slice(-16);
+    // Access tokens rotate during one login. Use the stable session family (or
+    // start timestamp) so a refresh cannot show the same popup a second time.
+    sessionId = sessionGet("session_family_id" as any)
+      || sessionGet("session_started_at" as any)
+      || "active";
   } catch {}
-  return `${POPUP_SESSION_KEY}:${uid || "anon"}:${tail}`;
+  return `${POPUP_SESSION_KEY}:${uid || "anon"}:${sessionId}`;
 }
 
 function readMap(store: Storage | undefined, key: string): Record<string, string> {

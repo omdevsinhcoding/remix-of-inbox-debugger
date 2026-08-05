@@ -141,7 +141,6 @@ Deno.serve(async (req) => {
     const ids = active.map((n: any) => n.id);
     const readSet = new Set<string>();
     const seenSet = new Set<string>();
-    const deletedSet = new Set<string>();
     const snoozeMap = new Map<string, string>();
     if (ids.length) {
       const { data: reads } = await supabase
@@ -152,13 +151,11 @@ Deno.serve(async (req) => {
       for (const r of reads || []) {
         if (r.read_at) readSet.add(r.notification_id);
         if (r.seen_at) seenSet.add(r.notification_id);
-        if (r.deleted_at) deletedSet.add(r.notification_id);
         if (r.snoozed_until) snoozeMap.set(r.notification_id, r.snoozed_until);
       }
     }
-    const payload = active
-      .filter((n: any) => !deletedSet.has(n.id))
-      .map((n: any) => ({
+    // Legacy delete rows no longer suppress active admin/global notifications.
+    const payload = active.map((n: any) => ({
         id: n.id, title: n.title, body: n.body,
         description: n.description, body_markdown: n.body_markdown, image_url: n.image_url,
         category: n.category, icon: n.icon,
