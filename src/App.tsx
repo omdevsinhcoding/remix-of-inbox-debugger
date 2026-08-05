@@ -14443,6 +14443,9 @@ function EmailViewer() {
         {showChangePwd && canChangePassword && (
           <motion.div
             key="cp-backdrop"
+             role="dialog"
+             aria-modal="true"
+             aria-labelledby="change-password-title"
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             transition={{ duration: 0.18 }}
             className="fixed inset-0 z-[70] bg-slate-950/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"
@@ -14463,7 +14466,7 @@ function EmailViewer() {
                     <KeyRound className="w-4.5 h-4.5 text-red-600" />
                   </div>
                   <div>
-                    <h3 className="text-base font-bold text-slate-900 leading-tight">Change password</h3>
+                    <h3 id="change-password-title" className="text-base font-bold text-slate-900 leading-tight">Change password</h3>
                     <p className="text-[11px] text-slate-500">Keep your account safe</p>
                   </div>
                 </div>
