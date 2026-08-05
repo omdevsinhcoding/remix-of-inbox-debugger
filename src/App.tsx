@@ -1409,12 +1409,8 @@ const CATEGORY_META: Record<string, { label: string; icon: any; color: string }>
   promo:        { label: "Offer",        icon: Tag,           color: "text-pink-300" },
   billing:      { label: "Billing",      icon: CreditCard,    color: "text-cyan-300" },
 };
-const PRIORITY_ACCENT: Record<string, string> = {
-  low: "bg-zinc-500",
-  normal: "bg-sky-500",
-  high: "bg-amber-500",
-  critical: "bg-rose-500",
-};
+// Single neutral accent — notification priority levels were removed on purpose.
+const NOTIF_ACCENT = "bg-slate-900";
 
 function categoryMeta(cat?: string | null) {
   return CATEGORY_META[cat || "announcement"] || CATEGORY_META.announcement;
@@ -1570,7 +1566,7 @@ function AutoPopupNotification() {
   if (!current || typeof document === "undefined") return null;
   const cat = categoryMeta(current.category);
   const CatIcon = cat.icon;
-  const accent = PRIORITY_ACCENT[current.priority || "normal"] || PRIORITY_ACCENT.normal;
+  const accent = NOTIF_ACCENT;
 
   return createPortal(
     <AnimatePresence>
@@ -1863,7 +1859,7 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
             {rows.map((n) => {
               const cat = categoryMeta(n.category);
               const CatIcon = cat.icon;
-              const accent = PRIORITY_ACCENT[n.priority || "normal"] || PRIORITY_ACCENT.normal;
+              const accent = NOTIF_ACCENT;
               return (
                 <li key={n.id} className="group relative">
                   <button
@@ -1921,7 +1917,7 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
   const Detail = detail && (() => {
     const cat = categoryMeta(detail.category);
     const CatIcon = cat.icon;
-    const accent = PRIORITY_ACCENT[detail.priority || "normal"] || PRIORITY_ACCENT.normal;
+    const accent = NOTIF_ACCENT;
     return (
       <div className="overflow-y-auto overscroll-contain flex-1 bg-white">
         {detail.image_url && (
@@ -2083,13 +2079,8 @@ function NotificationBell() {
 
   const active = items;
   const unread = active.filter((n) => !n.read).length;
-  const highestPriority = active.filter((n) => !n.read).reduce<string>((acc, n) => {
-    const rank = (p?: string) => ({ low: 1, normal: 2, high: 3, critical: 4 } as any)[p || "normal"] || 2;
-    return rank(n.priority) > rank(acc) ? (n.priority || "normal") : acc;
-  }, "normal");
-  const dotColor = highestPriority === "critical" ? "bg-rose-500"
-    : highestPriority === "high" ? "bg-amber-500"
-    : "bg-rose-500";
+  // Distinct from the red workflow-switch dot: notifications blink violet.
+  const dotColor = "bg-violet-500";
 
   return (
     <>
