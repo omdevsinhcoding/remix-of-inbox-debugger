@@ -300,8 +300,11 @@ export type AppNotification = {
   kind?: "flash" | string;
   sub_kind?: string | null;
   locked?: boolean;
-  show_frequency?: "once" | "always" | "session" | "daily" | string | null;
+  show_frequency?: "once" | "session" | string | null;
   mode?: "popup" | "silent" | "banner" | string | null;
+  sort_order?: number | null;
+  updated_at?: string | null;
+
   action_url?: string | null;
   action_label?: string | null;
   action2_url?: string | null;
@@ -466,38 +469,98 @@ export async function adminDeleteNotificationForUser(notificationId: string, use
   await callManage("admin_delete_notification_for_user", { notification_id: notificationId, user_id: userId });
 }
 
-// Auto-popup dedupe is scoped to the signed-in session, not permanently to the
-// browser/profile. An unread notification may therefore surface on a later login,
-// while component remounts in the same login never replay it.
-const POPUP_SEEN_KEY = "notif_popup_seen_v1";
+// ---------- Auto-popup frequency bookkeeping ----------
+// Two simple modes only:
+//   "once"    → popup shown a single time per profile (localStorage)
+//   "session" → popup shown once per login session (sessionStorage, keyed to token)
+// The stored value is the notification's edit stamp, so when an admin edits a
+// notification it counts as new content and pops again.
 
-function popupSeenKey(): string {
+const POPUP_ONCE_KEY = "notif_popup_once_v2";
+const POPUP_SESSION_KEY = "notif_popup_session_v2";
+
+function currentUserId(): string | null {
   try {
     const rawUser = sessionGet("user" as any);
-    const userId = rawUser ? JSON.parse(rawUser)?.id : null;
-    const token = sessionGet("session_token" as any);
-    if (userId && token) return `${POPUP_SEEN_KEY}:${userId}:${String(token).slice(-16)}`;
-    if (userId) return `${POPUP_SEEN_KEY}:${userId}`;
-  } catch {}
-  return POPUP_SEEN_KEY;
+    return rawUser ? JSON.parse(rawUser)?.id || null : null;
+  } catch { return null; }
 }
 
-export function getPoppedIds(): Set<string> {
-  try {
-    const raw = sessionStorage.getItem(popupSeenKey());
-    if (!raw) return new Set();
-    const arr = JSON.parse(raw);
-    return new Set(Array.isArray(arr) ? arr : []);
-  } catch { return new Set(); }
+function onceKey(): string {
+  const uid = currentUserId();
+  return uid ? `${POPUP_ONCE_KEY}:${uid}` : POPUP_ONCE_KEY;
 }
-export function markPopped(id: string) {
+
+function sessionKey(): string {
+  const uid = currentUserId();
+  let tail = "";
   try {
-    const s = getPoppedIds();
-    s.add(id);
-    const arr = Array.from(s).slice(-200);
-    sessionStorage.setItem(popupSeenKey(), JSON.stringify(arr));
+    const token = sessionGet("session_token" as any);
+    if (token) tail = String(token).slice(-16);
+  } catch {}
+  return `${POPUP_SESSION_KEY}:${uid || "anon"}:${tail}`;
+}
+
+function readMap(store: Storage | undefined, key: string): Record<string, string> {
+  try {
+    const raw = store?.getItem(key);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch { return {}; }
+}
+
+function writeMap(store: Storage | undefined, key: string, map: Record<string, string>) {
+  try {
+    const entries = Object.entries(map).slice(-300);
+    store?.setItem(key, JSON.stringify(Object.fromEntries(entries)));
   } catch {}
 }
+
+export function notifStamp(n: Pick<AppNotification, "updated_at" | "created_at">): string {
+  return String((n as any).updated_at || n.created_at || "");
+}
+
+function isSessionMode(n: AppNotification): boolean {
+  const f = String(n.show_frequency || "once");
+  return f === "session" || f === "always" || f === "daily";
+}
+
+/** Has this notification's popup already been shown under its own rule? */
+export function hasPoppedNotif(n: AppNotification): boolean {
+  const stamp = notifStamp(n);
+  if (isSessionMode(n)) {
+    return readMap(typeof sessionStorage === "undefined" ? undefined : sessionStorage, sessionKey())[n.id] === stamp;
+  }
+  return readMap(typeof localStorage === "undefined" ? undefined : localStorage, onceKey())[n.id] === stamp;
+}
+
+/** Record that the popup was shown (respecting once vs per-session scope). */
+export function markNotifPopped(n: AppNotification): void {
+  const stamp = notifStamp(n);
+  if (isSessionMode(n)) {
+    const store = typeof sessionStorage === "undefined" ? undefined : sessionStorage;
+    const key = sessionKey();
+    const map = readMap(store, key);
+    map[n.id] = stamp;
+    writeMap(store, key, map);
+    return;
+  }
+  const store = typeof localStorage === "undefined" ? undefined : localStorage;
+  const key = onceKey();
+  const map = readMap(store, key);
+  map[n.id] = stamp;
+  writeMap(store, key, map);
+}
+
+/** Admin-defined display order: explicit order first, then newest content. */
+export function compareNotifications(a: AppNotification, b: AppNotification): number {
+  const oa = typeof a.sort_order === "number" ? a.sort_order : Number.MAX_SAFE_INTEGER;
+  const ob = typeof b.sort_order === "number" ? b.sort_order : Number.MAX_SAFE_INTEGER;
+  if (oa !== ob) return oa - ob;
+  return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+}
+
 
 
 

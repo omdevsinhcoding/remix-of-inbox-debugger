@@ -12,7 +12,7 @@ import { WorkflowChooser, ViewSwitcher, DirectLinkView, useWorkflowView, resolve
 
 import { supabase } from "./integrations/supabase/client";
 import { AVATAR_CATEGORIES, resolveAvatar, buildAvatarId, prettyName, getAvatarCategoryUrls } from "./lib/avatars";
-import { bootstrapFromSupabase, fastClearCookiesRedirect, revokeSessionInBackground, markSessionStart, readBootstrapCache, refreshBootstrap, patchBootstrapCacheUser, getEmailFilters, setEmailFilters as setEmailFiltersCache, getFreeAvatarCooldown, setFreeAvatarCooldown, markNotificationRead, markAllNotificationsRead, markNotificationSeen, deleteNotificationForMe, logNotificationEvent, getPoppedIds, markPopped, adminListRecipients, adminDeleteNotificationForUser, type EmailFilters, type AppNotification, type MaintenanceInfo, type NotificationRecipient } from "./lib/bootstrap";
+import { bootstrapFromSupabase, fastClearCookiesRedirect, revokeSessionInBackground, markSessionStart, readBootstrapCache, refreshBootstrap, patchBootstrapCacheUser, getEmailFilters, setEmailFilters as setEmailFiltersCache, getFreeAvatarCooldown, setFreeAvatarCooldown, markNotificationRead, markAllNotificationsRead, deleteNotificationForMe, hasPoppedNotif, markNotifPopped, compareNotifications, adminListRecipients, adminDeleteNotificationForUser, type EmailFilters, type AppNotification, type MaintenanceInfo, type NotificationRecipient } from "./lib/bootstrap";
 import MaintenanceScreen from "./components/MaintenanceScreen";
 import DateTimePicker from "./components/DateTimePicker";
 import { clearBrowserIdentityNow, sessionGet, sessionSet, sessionRemove, nukeBrowserIdentity } from "./lib/session";
@@ -1409,12 +1409,8 @@ const CATEGORY_META: Record<string, { label: string; icon: any; color: string }>
   promo:        { label: "Offer",        icon: Tag,           color: "text-pink-300" },
   billing:      { label: "Billing",      icon: CreditCard,    color: "text-cyan-300" },
 };
-const PRIORITY_ACCENT: Record<string, string> = {
-  low: "bg-zinc-500",
-  normal: "bg-sky-500",
-  high: "bg-amber-500",
-  critical: "bg-rose-500",
-};
+// Single neutral accent — notification priority levels were removed on purpose.
+const NOTIF_ACCENT = "bg-slate-900";
 
 function categoryMeta(cat?: string | null) {
   return CATEGORY_META[cat || "announcement"] || CATEGORY_META.announcement;
@@ -1463,13 +1459,19 @@ function useNotifications() {
     invalidateNotifications();
   }, []);
 
-  const orderedItems = useMemo(() => [...items].sort((a, b) => {
-    const rank = ({ critical: 4, high: 3, normal: 2, low: 1 } as Record<string, number>);
-    const priorityDiff = (rank[b.priority || "normal"] || 2) - (rank[a.priority || "normal"] || 2);
-    return priorityDiff || new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
-  }), [items]);
+  // Display order is decided in the admin panel (Order field), newest first
+  // for anything without an explicit order.
+  const orderedItems = useMemo(() => [...items].sort(compareNotifications), [items]);
 
   return { items: orderedItems, setItems, loading, refresh };
+}
+
+// Password / security notices always come before regular announcements.
+function popupRank(n: AppNotification): number {
+  const cat = (n.category || "").toLowerCase();
+  const sub = (n.sub_kind || "").toLowerCase();
+  if (cat === "security" || sub.includes("password") || sub.includes("reset")) return 0;
+  return 1;
 }
 
 // ---------- Auto-popup: premium modal shown on first sight of a notification ----------
@@ -1477,13 +1479,13 @@ function AutoPopupNotification() {
   const { user } = useAuth();
   const [queue, setQueue] = useState<AppNotification[]>([]);
   const [dismissing, setDismissing] = useState(false);
-  const seenRef = useRef<Set<string>>(getPoppedIds());
+  const shownRef = useRef<Set<string>>(new Set());
   const pausedRef = useRef(false);
 
   useEffect(() => {
-    // This component can survive logout/profile switches. Reload the dedupe set
-    // for the new signed-in session so one profile cannot suppress another.
-    seenRef.current = getPoppedIds();
+    // This component can survive logout/profile switches — reset local state so
+    // one profile can never suppress another profile's popups.
+    shownRef.current = new Set();
     setQueue([]);
   }, [user?.id]);
 
@@ -1491,7 +1493,6 @@ function AutoPopupNotification() {
     const pause = () => { pausedRef.current = true; };
     const resume = () => {
       pausedRef.current = false;
-      seenRef.current = getPoppedIds();
       window.dispatchEvent(new CustomEvent("notif:refresh"));
     };
     window.addEventListener("notif:pausePopup", pause);
@@ -1507,34 +1508,23 @@ function AutoPopupNotification() {
     let unsub: (() => void) | null = null;
     const process = (list: AppNotification[]) => {
       if (pausedRef.current) return;
+      // Popup eligibility depends ONLY on the admin-set frequency rule:
+      //   "once"    → one time per profile, ever
+      //   "session" → once for every login session
+      // Read/seen state is intentionally not part of this decision, which is why
+      // older notifications no longer vanish silently.
       const fresh = list.filter((n) =>
-        !seenRef.current.has(n.id) &&
-        !n.read &&
-        (!n.snoozed_until || new Date(n.snoozed_until) < new Date())
+        (n.mode || "popup") !== "silent" &&
+        !shownRef.current.has(n.id) &&
+        !hasPoppedNotif(n)
       );
       if (fresh.length) {
-        // Security/password notices come first. Within each category, honor the
-        // admin-selected priority, then created date/time for deterministic order.
-        const rank = (n: AppNotification): number => {
-          const cat = (n.category || "").toLowerCase();
-          const sub = (n.sub_kind || "").toLowerCase();
-          if (cat === "security" || sub.includes("password") || sub.includes("reset")) return 0;
-          if (cat === "announcement" || cat === "update" || cat === "maintenance") return 1;
-          return 2;
-        };
         fresh.sort((a, b) => {
-          const ra = rank(a), rb = rank(b);
+          const ra = popupRank(a), rb = popupRank(b);
           if (ra !== rb) return ra - rb;
-          const priorityRank = (value?: string | null) => ({ critical: 4, high: 3, normal: 2, low: 1 } as Record<string, number>)[value || "normal"] || 2;
-          const pa = priorityRank(a.priority), pb = priorityRank(b.priority);
-          if (pa !== pb) return pb - pa;
-          const ta = new Date(a.created_at).getTime(), tb = new Date(b.created_at).getTime();
-          return ta - tb;
+          return compareNotifications(a, b);
         });
-        // Reconcile every fresh server snapshot instead of locking the first
-        // queue forever. This lets a security/critical notice created during
-        // password setup immediately move ahead of older lower-priority items.
-        setQueue(fresh.slice(0, 3));
+        setQueue(fresh.slice(0, 5));
       }
     };
     (async () => {
@@ -1553,22 +1543,20 @@ function AutoPopupNotification() {
     if (!current) return;
     // hide session countdown while modal is open
     window.dispatchEvent(new CustomEvent("notif:open"));
-    logNotificationEvent(current.id, "delivered").catch(() => {});
-    markNotificationSeen([current.id]).catch(() => {});
     return () => { window.dispatchEvent(new CustomEvent("notif:close")); };
   }, [current?.id]);
 
   const dismiss = async (opened = false) => {
     if (!current) return;
     setDismissing(true);
-    markPopped(current.id);
-    seenRef.current.add(current.id);
-    if (!opened) await logNotificationEvent(current.id, "dismissed").catch(() => {});
+    markNotifPopped(current);
+    shownRef.current.add(current.id);
     setTimeout(() => {
       setDismissing(false);
       setQueue((q) => q.slice(1));
     }, 180);
   };
+
 
   const openInBell = () => {
     dismiss(true);
@@ -1578,7 +1566,7 @@ function AutoPopupNotification() {
   if (!current || typeof document === "undefined") return null;
   const cat = categoryMeta(current.category);
   const CatIcon = cat.icon;
-  const accent = PRIORITY_ACCENT[current.priority || "normal"] || PRIORITY_ACCENT.normal;
+  const accent = NOTIF_ACCENT;
 
   return createPortal(
     <AnimatePresence>
@@ -1678,7 +1666,7 @@ function AutoPopupNotification() {
                     href={current.action_url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    onClick={() => { logNotificationEvent(current.id, "clicked", { url: current.action_url }).catch(() => {}); markNotificationRead(current.id).catch(() => {}); dismiss(true); }}
+                    onClick={() => { markNotificationRead(current.id).catch(() => {}); dismiss(true); }}
                     className="flex-1 py-3 rounded-xl text-[14px] font-bold text-white bg-slate-900 hover:bg-slate-800 flex items-center justify-center gap-1.5 transition-colors"
                   >
                     {current.action_label} <ExternalLink className="w-3.5 h-3.5" />
@@ -1725,9 +1713,6 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
     if (!open) { setSelected(null); return; }
     if (initialId) setSelected(initialId);
     window.dispatchEvent(new CustomEvent("notif:open"));
-    // mark visible as seen
-    const visibleIds = items.filter((n) => !n.seen).map((n) => n.id);
-    if (visibleIds.length) markNotificationSeen(visibleIds).catch(() => {});
     if (isMobile) {
       const prev = document.body.style.overflow;
       document.body.style.overflow = "hidden";
@@ -1874,7 +1859,7 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
             {rows.map((n) => {
               const cat = categoryMeta(n.category);
               const CatIcon = cat.icon;
-              const accent = PRIORITY_ACCENT[n.priority || "normal"] || PRIORITY_ACCENT.normal;
+              const accent = NOTIF_ACCENT;
               return (
                 <li key={n.id} className="group relative">
                   <button
@@ -1932,7 +1917,7 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
   const Detail = detail && (() => {
     const cat = categoryMeta(detail.category);
     const CatIcon = cat.icon;
-    const accent = PRIORITY_ACCENT[detail.priority || "normal"] || PRIORITY_ACCENT.normal;
+    const accent = NOTIF_ACCENT;
     return (
       <div className="overflow-y-auto overscroll-contain flex-1 bg-white">
         {detail.image_url && (
@@ -1968,14 +1953,12 @@ function NotificationCenter({ open, onClose, initialId, items, loading, onChange
           <div className="mt-6 flex flex-wrap gap-2">
             {detail.action_url && detail.action_label && !/snooze|archive|24h/i.test(detail.action_label) && (
               <a href={detail.action_url} target="_blank" rel="noopener noreferrer"
-                onClick={() => logNotificationEvent(detail.id, "clicked", { url: detail.action_url }).catch(() => {})}
                 className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-bold bg-slate-900 text-white hover:bg-slate-800 transition-colors">
                 {detail.action_label} <ExternalLink className="w-3.5 h-3.5" />
               </a>
             )}
             {detail.action2_url && detail.action2_label && !/snooze|archive|24h/i.test(detail.action2_label) && (
               <a href={detail.action2_url} target="_blank" rel="noopener noreferrer"
-                onClick={() => logNotificationEvent(detail.id, "clicked", { url: detail.action2_url, secondary: true }).catch(() => {})}
                 className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-semibold bg-slate-100 text-slate-900 hover:bg-slate-200 transition-colors">
                 {detail.action2_label}
               </a>
@@ -2096,13 +2079,8 @@ function NotificationBell() {
 
   const active = items;
   const unread = active.filter((n) => !n.read).length;
-  const highestPriority = active.filter((n) => !n.read).reduce<string>((acc, n) => {
-    const rank = (p?: string) => ({ low: 1, normal: 2, high: 3, critical: 4 } as any)[p || "normal"] || 2;
-    return rank(n.priority) > rank(acc) ? (n.priority || "normal") : acc;
-  }, "normal");
-  const dotColor = highestPriority === "critical" ? "bg-rose-500"
-    : highestPriority === "high" ? "bg-amber-500"
-    : "bg-rose-500";
+  // Distinct from the red workflow-switch dot: notifications blink violet.
+  const dotColor = "bg-violet-500";
 
   return (
     <>
@@ -7940,7 +7918,6 @@ function AdminPanel() {
   const [notifImageUrl, setNotifImageUrl] = useState("");
   const [notifImageUploading, setNotifImageUploading] = useState(false);
   const [notifCategory, setNotifCategory] = useState<"announcement" | "update" | "security" | "maintenance" | "promo" | "billing">("announcement");
-  const [notifPriority, setNotifPriority] = useState<"low" | "normal" | "high" | "critical">("normal");
   const [notifActionUrl, setNotifActionUrl] = useState("");
   const [notifActionLabel, setNotifActionLabel] = useState("");
   
@@ -7955,7 +7932,8 @@ function AdminPanel() {
     [platformSearch],
   );
   const [notifLocked, setNotifLocked] = useState(false);
-  const [notifShowFrequency, setNotifShowFrequency] = useState<"once" | "always" | "session" | "daily">("once");
+  const [notifShowFrequency, setNotifShowFrequency] = useState<"once" | "session">("session");
+  const [notifSortOrder, setNotifSortOrder] = useState<string>("");
   const [notifMode, setNotifMode] = useState<"popup" | "silent" | "banner">("popup");
   const [sendingNotif, setSendingNotif] = useState(false);
   const [editingNotif, setEditingNotif] = useState<any | null>(null);
@@ -8797,10 +8775,10 @@ function AdminPanel() {
         description: notifDescription.trim() || null,
         image_url: notifImageUrl.trim() || null,
         category: notifCategory,
-        priority: notifPriority,
         kind: "flash",
         mode: notifMode,
         show_frequency: notifShowFrequency,
+        sort_order: notifSortOrder.trim() === "" ? null : Number(notifSortOrder),
         platform_icon: resolvePlatformOption(notifPlatformIcon).id || null,
         sub_kind: notifTemplate || null,
         locked: notifLocked,
@@ -8814,7 +8792,7 @@ function AdminPanel() {
       setNotifTitle(""); setNotifBody(""); setNotifDescription(""); setNotifImageUrl("");
       setNotifActionUrl(""); setNotifActionLabel("");
       setNotifExpiresDays(""); setNotifPlatformIcon(""); setNotifTemplate("");
-      setNotifLocked(false);
+      setNotifLocked(false); setNotifSortOrder("");
       await reloadAdminNotifs();
     } catch (err) {
       notify.error(err instanceof Error ? err.message : "Failed to send");
@@ -8845,7 +8823,8 @@ function AdminPanel() {
         action_url: e.action_url?.trim() || null,
         platform_icon: resolvePlatformOption(e.platform_icon).id || null,
         locked: !!e.locked,
-        priority: e.priority || "normal",
+        show_frequency: e.show_frequency === "once" ? "once" : "session",
+        sort_order: e.sort_order === "" || e.sort_order === null || e.sort_order === undefined ? null : Number(e.sort_order),
         audience: e.audience || "all",
         target_user_id: e.audience === "user" ? (e.target_user_id || null) : null,
       });
@@ -8866,10 +8845,10 @@ function AdminPanel() {
     setNotifPlatformIcon(resolvePlatformOption(n.platform_icon).id || "");
     setNotifLocked(!!n.locked);
     setNotifCategory(n.category || "announcement");
-    setNotifPriority(n.priority || "normal");
     setNotifAudience(n.audience || "all");
     setNotifTargetUser(n.target_user_id || "");
-    setNotifShowFrequency(n.show_frequency || "once");
+    setNotifShowFrequency(n.show_frequency === "once" ? "once" : "session");
+    setNotifSortOrder(n.sort_order === null || n.sort_order === undefined ? "" : String(n.sort_order));
     setNotifMode(n.mode || "popup");
     notify.success("Copied to composer — edit and publish as new");
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -11333,17 +11312,19 @@ function AdminPanel() {
                         className="px-3.5 py-2 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-slate-900" />
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <select value={notifPriority} onChange={(e) => setNotifPriority(e.target.value as any)}
-                        className="px-3.5 py-2 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 font-medium capitalize focus:outline-none focus:border-slate-900">
-                        {(["low","normal","high","critical"] as const).map(p => <option key={p} value={p} className="capitalize">{p} priority</option>)}
-                      </select>
-                      <select value={notifShowFrequency} onChange={(e) => setNotifShowFrequency(e.target.value as any)}
-                        className="px-3.5 py-2 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 font-medium focus:outline-none focus:border-slate-900">
-                        <option value="once">Show once</option>
-                        <option value="session">Every session</option>
-                        <option value="daily">Once per day</option>
-                        <option value="always">Always until read</option>
-                      </select>
+                      <div>
+                        <label className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500 mb-1.5 block">Popup</label>
+                        <select value={notifShowFrequency} onChange={(e) => setNotifShowFrequency(e.target.value as any)}
+                          className="w-full px-3.5 py-2 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 font-medium focus:outline-none focus:border-slate-900">
+                          <option value="session">Every login session</option>
+                          <option value="once">Only one time</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500 mb-1.5 block">Order (1 = first)</label>
+                        <input value={notifSortOrder} onChange={(e) => setNotifSortOrder(e.target.value)} type="number" min="1" placeholder="Auto (newest first)"
+                          className="w-full px-3.5 py-2 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-slate-900" />
+                      </div>
                     </div>
                   </div>
                 </details>
@@ -11364,7 +11345,7 @@ function AdminPanel() {
                   <span className="text-[10px] text-slate-400">how users will see it</span>
                 </div>
                 <div className="rounded-2xl overflow-hidden mx-auto max-w-[400px] bg-white border border-slate-200 shadow-sm">
-                  <div className={`h-[3px] ${notifPriority === "critical" ? "bg-rose-500" : notifPriority === "high" ? "bg-amber-500" : notifPriority === "normal" ? "bg-sky-500" : "bg-slate-400"}`} />
+                  <div className="h-[3px] bg-slate-900" />
                   {notifImageUrl && (
                     <div className="aspect-[16/9] w-full bg-slate-100 overflow-hidden">
                       <img src={notifImageUrl} referrerPolicy="no-referrer" className="w-full h-full object-cover" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
@@ -11428,9 +11409,11 @@ function AdminPanel() {
                           </div>
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-1.5 mb-1 flex-wrap">
-                              <span className={`inline-flex items-center gap-1 text-[10px] font-semibold capitalize ${n.priority === "critical" ? "text-rose-600" : n.priority === "high" ? "text-amber-600" : n.priority === "normal" ? "text-sky-600" : "text-slate-500"}`}>
-                                <span className={`w-1.5 h-1.5 rounded-full ${n.priority === "critical" ? "bg-rose-500" : n.priority === "high" ? "bg-amber-500" : n.priority === "normal" ? "bg-sky-500" : "bg-slate-400"}`} />
-                                {n.priority || "low"}
+                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-900 text-white font-semibold">
+                                {typeof n.sort_order === "number" ? `Order ${n.sort_order}` : "Order auto"}
+                              </span>
+                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-100 font-medium">
+                                {n.show_frequency === "once" ? "Popup once" : "Popup every session"}
                               </span>
                               <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 capitalize font-medium">{n.category || "announcement"}</span>
                               <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${n.locked ? "bg-amber-50 text-amber-700 border border-amber-100" : "bg-emerald-50 text-emerald-700 border border-emerald-100"}`}>
@@ -11447,12 +11430,6 @@ function AdminPanel() {
                             </div>
                             <p className="font-bold text-[14.5px] text-slate-900 truncate">{n.title}</p>
                             <p className="text-[12.5px] text-slate-600 line-clamp-2 mt-0.5">{n.body}</p>
-                            <div className="flex items-center gap-3 mt-2 flex-wrap text-[11px]">
-                              <span className="inline-flex items-center gap-1 text-slate-600"><span className="font-bold">{n.seenCount || 0}</span> <span className="text-slate-400">seen</span></span>
-                              <span className="inline-flex items-center gap-1 text-emerald-700"><span className="font-bold">{n.readCount || 0}</span> <span className="text-slate-400">read</span></span>
-                              <span className="inline-flex items-center gap-1 text-sky-700"><span className="font-bold">{n.clickCount || 0}</span> <span className="text-slate-400">clicked</span></span>
-                              <span className="inline-flex items-center gap-1 text-rose-600"><span className="font-bold">{n.deletedCount || 0}</span> <span className="text-slate-400">deleted</span></span>
-                            </div>
                           </div>
                         </div>
                         <div className="flex items-center gap-1.5 mt-3 pt-3 border-t border-slate-100">
@@ -11519,10 +11496,11 @@ function AdminPanel() {
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1 block">Priority</label>
-                    <select value={editingNotif.priority || "normal"} onChange={(e) => setEditingNotif({ ...editingNotif, priority: e.target.value })}
-                      className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900 capitalize">
-                      {["low","normal","high","critical"].map(p => <option key={p} value={p} className="capitalize">{p}</option>)}
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1 block">Popup</label>
+                    <select value={editingNotif.show_frequency === "once" ? "once" : "session"} onChange={(e) => setEditingNotif({ ...editingNotif, show_frequency: e.target.value })}
+                      className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900">
+                      <option value="session">Every login session</option>
+                      <option value="once">Only one time</option>
                     </select>
                   </div>
                   <div>
@@ -11533,6 +11511,12 @@ function AdminPanel() {
                       <option value="user">Specific user</option>
                     </select>
                   </div>
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1 block">Order (1 = shows first)</label>
+                  <input type="number" min="1" value={editingNotif.sort_order ?? ""} placeholder="Auto (newest first)"
+                    onChange={(e) => setEditingNotif({ ...editingNotif, sort_order: e.target.value === "" ? null : Number(e.target.value) })}
+                    className="w-full px-3 py-2 border rounded-lg text-sm text-slate-900" />
                 </div>
                 {editingNotif.audience === "user" && (
                   <select value={editingNotif.target_user_id || ""} onChange={(e) => setEditingNotif({ ...editingNotif, target_user_id: e.target.value })}

@@ -88,7 +88,7 @@ Deno.serve(async (req) => {
     const [aggN, aggR] = clientEtag ? await Promise.all([
       supabase
         .from("notifications")
-        .select("id, created_at, expires_at, publish_at")
+        .select("id, created_at, updated_at, sort_order, expires_at, publish_at")
         .or(`audience.eq.all,target_user_id.eq.${session.userId}`),
       supabase
         .from("notification_reads")
@@ -103,7 +103,11 @@ Deno.serve(async (req) => {
         if (n.expires_at && n.expires_at <= nowIso) continue;
         if (n.publish_at && n.publish_at > nowIso) continue;
         cn++;
-        const t = n.created_at ? new Date(n.created_at).getTime() : 0;
+        const t = Math.max(
+          n.created_at ? new Date(n.created_at).getTime() : 0,
+          n.updated_at ? new Date(n.updated_at).getTime() : 0,
+          typeof n.sort_order === "number" ? n.sort_order : 0,
+        );
         if (t > mxN) mxN = t;
       }
       let mxR = 0;
@@ -122,8 +126,9 @@ Deno.serve(async (req) => {
 
     const { data: notes, error: nErr } = await supabase
       .from("notifications")
-      .select("id, title, body, description, body_markdown, image_url, category, priority, icon, platform_icon, kind, sub_kind, locked, show_frequency, mode, action_url, action_label, action2_url, action2_label, audience, target_user_id, created_at, expires_at, publish_at, group_key")
+      .select("id, title, body, description, body_markdown, image_url, category, icon, platform_icon, kind, sub_kind, locked, show_frequency, mode, action_url, action_label, action2_url, action2_label, audience, target_user_id, created_at, updated_at, sort_order, expires_at, publish_at, group_key")
       .or(`audience.eq.all,target_user_id.eq.${session.userId}`)
+      .order("sort_order", { ascending: true, nullsFirst: false })
       .order("created_at", { ascending: false })
       .limit(100);
     if (nErr) return json({ success: false, error: nErr.message }, 500);
@@ -156,7 +161,8 @@ Deno.serve(async (req) => {
       .map((n: any) => ({
         id: n.id, title: n.title, body: n.body,
         description: n.description, body_markdown: n.body_markdown, image_url: n.image_url,
-        category: n.category, priority: n.priority, icon: n.icon,
+        category: n.category, icon: n.icon,
+        sort_order: n.sort_order ?? null, updated_at: n.updated_at || null,
         platform_icon: n.platform_icon, kind: n.kind, sub_kind: n.sub_kind,
         locked: !!n.locked, show_frequency: n.show_frequency, mode: n.mode,
         action_url: n.action_url, action_label: n.action_label,
