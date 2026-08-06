@@ -83,6 +83,14 @@ const userSyncHits = new Map<string, number>();
 type Session = { userId: string; username: string; role: "admin" | "user"; assignedAccounts?: string[] | null; exp?: number; impersonated?: boolean; adminId?: string | null };
 type Account = { label: string; host: string; port: number; user: string; password: string; recipientFilters?: string[] };
 
+function selectLogicalAccount(toRaw: string | null | undefined, accounts: Account[]): Account | null {
+  // Explicit recipient assignments always win over a catch-all account that
+  // points at the same physical IMAP inbox.
+  const explicit = accounts.find((acc) => (acc.recipientFilters || []).length > 0 && recipientMatches(toRaw, acc.recipientFilters));
+  if (explicit) return explicit;
+  return accounts.find((acc) => (acc.recipientFilters || []).length === 0 && recipientMatches(toRaw, [])) || null;
+}
+
 function normalizeAccountLabels(raw: any, available: string[] = []): string[] {
   const allowed = Array.from(new Set(available.map((s) => String(s || "").trim()).filter(Boolean)));
   const out: string[] = [];
@@ -484,6 +492,7 @@ async function fetchFromAccount(
   maxMessages = FULL_SYNC_MAX_UIDS,
   quickRefresh = false,
   recipientFilters: string[] = [],
+  logicalAccounts: Account[] = [],
 ): Promise<{ emails: any[]; fetched: number; skipped: number; recipientSkipped: number }> {
   const emails: any[] = [];
   let skipped = 0;
@@ -586,10 +595,16 @@ async function fetchFromAccount(
       const uidsToCheck = candidates.slice(0, scanLimit);
       const uncachedUids: number[] = [];
       const fetchLimit = quickRefresh ? QUICK_REFRESH_CANDIDATE_UIDS : clampLimit(maxMessages, USER_REFRESH_MAX_UIDS, FULL_SYNC_MAX_UIDS);
+      const accountVariants = logicalAccounts.length > 0
+        ? logicalAccounts
+        : [{ label: accountLabel, host: imapHost, port: imapPort, user: imapUser, password: imapPassword, recipientFilters }];
       for (const uid of uidsToCheck) {
         const plainId = String(uid);
-        const prefixedId = `${accountLabel}:${uid}`;
-        if (cachedIds.has(plainId) || cachedIds.has(prefixedId)) {
+        // A physical inbox can represent several logical accounts. The UID is
+        // complete only when every possible logical label already has it;
+        // otherwise fetch it once and route it using the parsed recipient.
+        const cachedForEveryVariant = accountVariants.every((acc) => cachedIds.has(`${acc.label}:${uid}`));
+        if (cachedIds.has(plainId) || cachedForEveryVariant) {
           skipped++;
           // Do NOT stop at the first cached UID on a click refresh. A cached
           // newest UID used to end the scan instantly, so any mail that arrived
@@ -627,13 +642,14 @@ async function fetchFromAccount(
             continue;
           }
           const toText = parsed.to ? (Array.isArray(parsed.to) ? parsed.to[0]?.text : parsed.to.text) : undefined;
-          if (!recipientMatches(toText, recipientFilters)) {
+          const matchedAccount = selectLogicalAccount(toText, accountVariants);
+          if (!matchedAccount) {
             recipientSkipped++;
             console.log(`[${accountLabel}] Skipping UID ${uid}: recipient not allowed (${toText || "none"})`);
             continue;
           }
           const otpCode = extractOtpCode(subjectText, bodyText);
-          const stableId = `${accountLabel}:${uid}`;
+          const stableId = `${matchedAccount.label}:${uid}`;
 
           emails.push({
             id: stableId,
@@ -645,7 +661,7 @@ async function fetchFromAccount(
             otp: otpCode,
             preview: redactEmailsText(bodyText.length > 100 ? `${bodyText.substring(0, 100)}...` : bodyText),
             html: redactEmailsHtml(parsed.html || parsed.textAsHtml || `<pre>${bodyText}</pre>`),
-            account_label: accountLabel,
+            account_label: matchedAccount.label,
           });
         } catch (parseErr) {
           const errMsg = parseErr instanceof Error ? parseErr.message : String(parseErr);
@@ -752,10 +768,23 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
       .limit(DEDUP_ID_LIMIT);
     const cachedIds = new Set((cachedRows || []).map((r: any) => String(r.id)));
 
-    const settled = await Promise.allSettled(accounts.map(async (acc) => {
-      console.log(`[sync] Fetching ${acc.label} (${acc.user})`);
-      const result = await fetchFromAccount(acc.host, acc.port, acc.user, acc.password, acc.label, cachedIds, maxMessages, quickRefresh, acc.recipientFilters || []);
-      return { acc, result };
+    // Several logical accounts may share one Gmail inbox. Opening one parallel
+    // IMAP connection per logical label caused socket timeouts and let whichever
+    // label finished first own the UID. Fetch each physical inbox once, then
+    // route every message to the matching logical account by recipient.
+    const physicalGroups = Array.from(accounts.reduce((groups, acc) => {
+      const key = `${acc.host}\u0000${acc.port}\u0000${acc.user}\u0000${acc.password}`;
+      const group = groups.get(key) || [];
+      group.push(acc);
+      groups.set(key, group);
+      return groups;
+    }, new Map<string, Account[]>()).values());
+
+    const settled = await Promise.allSettled(physicalGroups.map(async (group) => {
+      const primary = group[0];
+      console.log(`[sync] Fetching ${group.map((acc) => acc.label).join(", ")} (${primary.user})`);
+      const result = await fetchFromAccount(primary.host, primary.port, primary.user, primary.password, primary.label, cachedIds, maxMessages, quickRefresh, [], group);
+      return { group, result };
     }));
 
     const allEmails: any[] = [];
@@ -763,20 +792,24 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
     const syncStats: Record<string, { fetched: number; skipped: number; recipientSkipped?: number; error?: string }> = {};
 
     settled.forEach((item, index) => {
-      const label = accounts[index]?.label || `Account ${index + 1}`;
+      const group = physicalGroups[index] || [];
+      const label = group.map((acc) => acc.label).join(", ") || `Account ${index + 1}`;
       if (item.status === "fulfilled") {
-        syncStats[label] = { fetched: item.value.result.fetched, skipped: item.value.result.skipped, recipientSkipped: item.value.result.recipientSkipped };
+        for (const acc of group) {
+          const fetched = item.value.result.emails.filter((email: any) => email.account_label === acc.label).length;
+          syncStats[acc.label] = { fetched, skipped: item.value.result.skipped, recipientSkipped: item.value.result.recipientSkipped };
+        }
         allEmails.push(...item.value.result.emails);
       } else {
         const errMsg = item.reason instanceof Error ? item.reason.message : String(item.reason);
         const isAuthError = /auth|login|invalid credentials|authenticationfailed/i.test(errMsg);
         const errorText = isAuthError ? `IMAP login failed for "${label}". Check email and app password.` : `Failed to connect to "${label}": ${errMsg}`;
-        syncStats[label] = { fetched: 0, skipped: 0, error: errorText };
+        for (const acc of group) syncStats[acc.label] = { fetched: 0, skipped: 0, error: errorText };
         accountErrors.push({ label, error: errorText });
       }
     });
 
-    if (accountErrors.length > 0 && accountErrors.length === accounts.length) {
+    if (accountErrors.length > 0 && accountErrors.length === physicalGroups.length) {
       const combinedMsg = accountErrors.map(e => e.error).join(" | ");
       console.error("[sync] All accounts failed:", combinedMsg);
       return { success: false, error: combinedMsg, stats: syncStats, totalFetched: 0, inserted: 0 };
