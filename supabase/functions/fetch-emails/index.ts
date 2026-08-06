@@ -573,7 +573,7 @@ async function fetchFromAccount(
       const scanLimit = quickRefresh ? Math.min(candidates.length, 250) : Math.min(Math.max(candidates.length, maxMessages * 3), 250);
       const uidsToCheck = candidates.slice(0, scanLimit);
       const uncachedUids: number[] = [];
-      const fetchLimit = quickRefresh ? USER_REFRESH_MAX_UIDS : clampLimit(maxMessages, USER_REFRESH_MAX_UIDS, FULL_SYNC_MAX_UIDS);
+      const fetchLimit = quickRefresh ? QUICK_REFRESH_MAX_UIDS : clampLimit(maxMessages, USER_REFRESH_MAX_UIDS, FULL_SYNC_MAX_UIDS);
       for (const uid of uidsToCheck) {
         const plainId = String(uid);
         const prefixedId = `${accountLabel}:${uid}`;
