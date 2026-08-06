@@ -57,9 +57,9 @@ const USER_REFRESH_MAX_UIDS = 12;
 // A manual refresh publishes the newly delivered, still-missing Netflix mails
 // (any category: sign-in, household, promo, device alerts). It walks a bounded
 // window of newest UIDs so mail that landed between two refreshes is not lost.
-const QUICK_REFRESH_CANDIDATE_UIDS = 12;
+const QUICK_REFRESH_CANDIDATE_UIDS = 50;
 // How many already-cached UIDs a click refresh may walk past before it stops.
-const QUICK_REFRESH_SKIP_WINDOW = 25;
+const QUICK_REFRESH_SKIP_WINDOW = 100;
 // A click refresh publishes the latest two eligible messages for every
 // assigned logical account. Shared Gmail inboxes may represent several labels,
 // so this quota must be enforced per label rather than per IMAP connection.
