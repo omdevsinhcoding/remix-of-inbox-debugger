@@ -513,6 +513,24 @@ async function fetchFromAccount(
       let householdPriorityUids: number[] = [];
       const totalMessages = (client.mailbox as any)?.exists || 0;
 
+      // Critical path FIRST: household approval messages must never be missed
+      // because a busy inbox spent the work budget scanning unrelated rows.
+      // One targeted search keeps the existing timeout unchanged.
+      if (quickRefresh && hasBudget()) {
+        const since = new Date();
+        since.setDate(since.getDate() - 7);
+        try {
+          const matches = await client.search({ subject: "household", since }, { uid: true });
+          householdPriorityUids = Array.from(new Set((matches || []) as number[])).sort((a, b) => b - a);
+          if (householdPriorityUids.length > 0) {
+            netflixUids.push(...householdPriorityUids);
+            console.log(`[${accountLabel}] Household search found ${householdPriorityUids.length}`);
+          }
+        } catch (searchErr) {
+          console.log(`[${accountLabel}] Household search failed:`, searchErr);
+        }
+      }
+
       // Fast path: newly delivered OTP emails are almost always in the newest inbox rows.
       // Fetching envelopes for the last few messages is much faster than a server-side IMAP search.
       if (totalMessages > 0 && hasBudget()) {
@@ -529,29 +547,6 @@ async function fetchFromAccount(
           }
         }
         if (netflixUids.length > 0) console.log(`[${accountLabel}] Latest inbox scan found ${netflixUids.length}`);
-      }
-
-      // Critical path: household approval messages must never be missed just
-      // because another Netflix message happened to be present in the newest
-      // envelope window. Search by subject on every manual refresh and merge
-      // those UIDs ahead of the general candidates.
-      if (quickRefresh && hasBudget()) {
-        const since = new Date();
-        since.setDate(since.getDate() - 7);
-        let householdUids: number[] = [];
-        try {
-          // One targeted server-side search keeps manual refresh inside its
-          // existing time budget while covering every Netflix subject variant.
-          householdUids = (await client.search({ subject: "household", since }, { uid: true }) || []) as number[];
-        } catch (searchErr) {
-          console.log(`[${accountLabel}] Household search failed:`, searchErr);
-        }
-        if (householdUids.length > 0) {
-          const uniqueHouseholdUids = Array.from(new Set(householdUids)).sort((a, b) => b - a);
-          householdPriorityUids = uniqueHouseholdUids;
-          netflixUids = [...uniqueHouseholdUids, ...netflixUids];
-          console.log(`[${accountLabel}] Household search found ${uniqueHouseholdUids.length}`);
-        }
       }
 
       // A broad search is unnecessary when the newest-envelope scan already
