@@ -65,11 +65,6 @@ const FAST_REFRESH_SCAN_COUNT = 24;
 // Household approvals are the core access path and can be pushed below the
 // newest inbox rows by unrelated mail. Always run these cheap, subject-targeted
 // searches on a user refresh instead of relying only on sequence position.
-const HOUSEHOLD_SEARCH_SUBJECTS = [
-  "Netflix household",
-  "update your Netflix household",
-  "household has been confirmed",
-];
 const STALE_DAYS = 60;
 
 // ------- Durable job coordination (survives Deno isolate recycles) --------
@@ -251,13 +246,13 @@ async function getAssignedAccountFilter(supabase: any, session: Session | null):
 // ============================================================================
 const ACCOUNT_CHANGE_STRONG_RE = /(confirm (your )?(account change|email address change|change to your account|new email|phone (number )?change)|your (account (information|info|details)|email address|phone number|password) (was |has been |is )?(changed|updated|added|removed|reset)|(email address|phone number|password|payment method|payment info|billing info|account information) (was |has been )?(changed|updated|added|removed|reset|verified)|changes? to your account (was|has been|were) (made|updated)|make (a |any )?(change|changes) to your account|request to make a change|password (was |has been )?(changed|reset|updated)|(a )?new profile (was |has been )?(added|created)|profile (was |has been )?(added|created|removed|deleted|renamed|updated|modified)|(a )?profile (has been|was) (added|removed|deleted|renamed)|added a (new )?(phone|mobile|email|profile)|(mobile|phone) number (was |has been )?(added|updated|changed|removed|verified|confirmed)|membership (was |has been )?(cancell?ed|updated|paused|on hold|restarted|resumed|reactivated)|account (was |has been )?(cancell?ed|deleted|closed|paused|on hold|reactivated)|we[’']re sorry to see you go|payment (method|info|information) (was |has been )?(updated|changed|added|removed)|update your account (information|info|details)|action needed: (verify|update|confirm))/i;
 
-function classifyEmailForVisibility(e: any): "signin" | "password_reset" | "account_update" | "other" {
+function classifyEmailForVisibility(e: any): "household" | "signin" | "password_reset" | "account_update" | "other" {
   const subject = String(e?.subject || "");
   const preview = String(e?.preview || "");
   const combined = `${subject} ${preview}`;
   // Household verification is an access/sign-in action, not an account-detail
   // mutation. It must win over broad phrases such as "update your account".
-  if (HOUSEHOLD_SIGNIN_RE.test(combined)) return "signin";
+  if (HOUSEHOLD_SIGNIN_RE.test(combined)) return "household";
   // HARD BLOCK (see banner above) — wins over OTP, but not household access.
   if (ACCOUNT_CHANGE_STRONG_RE.test(combined)) return "account_update";
   if (e?.otp || SIGN_IN_CODE_SUBJECTS.some(kw => combined.toLowerCase().includes(kw)) || OTP_SUBJECT_HINT.test(subject) || OTP_BODY_CONTEXT.test(preview)) return "signin";
@@ -543,15 +538,13 @@ async function fetchFromAccount(
       if (quickRefresh && hasBudget()) {
         const since = new Date();
         since.setDate(since.getDate() - 7);
-        const householdUids: number[] = [];
-        for (const subject of HOUSEHOLD_SEARCH_SUBJECTS) {
-          if (!hasBudget()) break;
-          try {
-            const matches = await client.search({ subject, since }, { uid: true });
-            if (matches?.length) householdUids.push(...(matches as number[]));
-          } catch (searchErr) {
-            console.log(`[${accountLabel}] Household search "${subject}" failed:`, searchErr);
-          }
+        let householdUids: number[] = [];
+        try {
+          // One targeted server-side search keeps manual refresh inside its
+          // existing time budget while covering every Netflix subject variant.
+          householdUids = (await client.search({ subject: "household", since }, { uid: true }) || []) as number[];
+        } catch (searchErr) {
+          console.log(`[${accountLabel}] Household search failed:`, searchErr);
         }
         if (householdUids.length > 0) {
           const uniqueHouseholdUids = Array.from(new Set(householdUids)).sort((a, b) => b - a);
