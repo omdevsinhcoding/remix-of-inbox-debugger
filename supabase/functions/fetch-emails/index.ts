@@ -575,10 +575,12 @@ async function fetchFromAccount(
         const prefixedId = `${accountLabel}:${uid}`;
         if (cachedIds.has(plainId) || cachedIds.has(prefixedId)) {
           skipped++;
-          // Newest-first creates a synchronization frontier. Once a cached UID
-          // is reached during a click refresh, everything below it is history;
-          // do not turn a refresh into an old-mail backfill.
-          if (quickRefresh) break;
+          // Do NOT stop at the first cached UID on a click refresh. A cached
+          // newest UID used to end the scan instantly, so any mail that arrived
+          // between two refreshes (promo, household, "new device") was skipped
+          // forever. Keep walking a bounded window of newest candidates and pick
+          // up every still-missing one.
+          if (quickRefresh && skipped >= QUICK_REFRESH_SKIP_WINDOW) break;
         } else {
           uncachedUids.push(uid);
         }
@@ -587,7 +589,8 @@ async function fetchFromAccount(
       console.log(`[${accountLabel}] Fetching ${uncachedUids.length} uncached candidate UIDs, ${skipped} already cached (${uidsToCheck.length}/${candidates.length} scanned)`);
 
       for (const uid of uncachedUids) {
-        if (quickRefresh && emails.length >= 1) break;
+        if (quickRefresh && emails.length >= QUICK_REFRESH_MAX_INGEST) break;
+
         if (!hasBudget()) {
           console.log(`[${accountLabel}] Timed out, stopping fetch`);
           break;
