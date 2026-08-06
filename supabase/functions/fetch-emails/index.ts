@@ -93,6 +93,17 @@ function selectLogicalAccount(toRaw: string | null | undefined, accounts: Accoun
   return accounts.find((acc) => (acc.recipientFilters || []).length === 0 && recipientMatches(toRaw, [])) || null;
 }
 
+function envelopeRecipients(envelope: any): string {
+  const recipients = [
+    ...(Array.isArray(envelope?.to) ? envelope.to : []),
+    ...(Array.isArray(envelope?.cc) ? envelope.cc : []),
+  ];
+  return recipients
+    .map((recipient: any) => String(recipient?.address || "").trim())
+    .filter(Boolean)
+    .join(", ");
+}
+
 function normalizeAccountLabels(raw: any, available: string[] = []): string[] {
   const allowed = Array.from(new Set(available.map((s) => String(s || "").trim()).filter(Boolean)));
   const out: string[] = [];
@@ -583,6 +594,26 @@ async function fetchFromAccount(
 
       netflixUids = Array.from(new Set(netflixUids)).sort((a, b) => b - a);
       newestUids = Array.from(new Set(newestUids)).sort((a, b) => b - a);
+
+      // Gmail can accept a message while this refresh is already running, after
+      // the first latest-envelope snapshot and sender SEARCH have completed.
+      // That message previously stayed invisible until the *next* button click.
+      // Re-read only the tiny inbox tail once, inside the same existing budget,
+      // so a delivery that lands during this request is included immediately.
+      if (quickRefresh && totalMessages > 0 && hasBudget()) {
+        const refreshedExists = Number((client.mailbox as any)?.exists || totalMessages);
+        const tailStart = Math.max(1, refreshedExists - (FAST_REFRESH_SCAN_COUNT - 1));
+        try {
+          for await (const message of client.fetch(`${tailStart}:*`, { envelope: true, uid: true })) {
+            if (!hasBudget()) break;
+            const fromAddr = message.envelope?.from?.[0]?.address?.toLowerCase() || "";
+            if (/@([a-z0-9-]+\.)*netflix\.com$/.test(fromAddr)) netflixUids.push(message.uid);
+          }
+          netflixUids = Array.from(new Set(netflixUids)).sort((a, b) => b - a);
+        } catch (tailErr) {
+          console.log(`[${accountLabel}] Final inbox-tail reconciliation failed:`, tailErr);
+        }
+      }
       // Only ever process confirmed Netflix UIDs. Never fall back to newestUids —
       // that fetched arbitrary third-party mail (Reddit, etc.) during quick refresh.
       // Strict delivery order: newest Netflix UID first, regardless of email
@@ -637,7 +668,7 @@ async function fetchFromAccount(
           const range = uncachedUids.slice(0, 60).join(",");
           for await (const msg of client.fetch(range, { envelope: true, uid: true }, { uid: true })) {
             if (!hasBudget()) break;
-            const toAddr = msg.envelope?.to?.[0]?.address || "";
+            const toAddr = envelopeRecipients(msg.envelope);
             if (selectLogicalAccount(toAddr, accountVariants)) owned.push(msg.uid);
             else foreign.push(msg.uid);
           }
