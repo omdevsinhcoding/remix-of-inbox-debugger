@@ -599,7 +599,7 @@ async function fetchFromAccount(
       // missing mail out forever.
       const scanLimit = quickRefresh ? Math.min(candidates.length, 250) : Math.min(Math.max(candidates.length, maxMessages * 3), 250);
       const uidsToCheck = candidates.slice(0, scanLimit);
-      const uncachedUids: number[] = [];
+      let uncachedUids: number[] = [];
       const fetchLimit = quickRefresh ? QUICK_REFRESH_CANDIDATE_UIDS : clampLimit(maxMessages, USER_REFRESH_MAX_UIDS, FULL_SYNC_MAX_UIDS);
       const accountVariants = logicalAccounts.length > 0
         ? logicalAccounts
@@ -623,12 +623,40 @@ async function fetchFromAccount(
         }
         if (uncachedUids.length >= fetchLimit) break;
       }
+
+      // Cheap recipient pre-screen (quick refresh only). Full body fetch +
+      // simpleParser costs ~1-2s per UID, so a backlog of Netflix mail that
+      // belongs to *other* logical accounts (shared Gmail inbox) used to burn
+      // the whole 8s budget before the user's own new mail was ever parsed —
+      // which is exactly why a second refresh was needed to see new mail.
+      // One bulk ENVELOPE command resolves ownership for all candidates.
+      if (quickRefresh && uncachedUids.length > 1 && hasBudget()) {
+        const owned: number[] = [];
+        const foreign: number[] = [];
+        try {
+          const range = uncachedUids.slice(0, 60).join(",");
+          for await (const msg of client.fetch(range, { envelope: true, uid: true }, { uid: true })) {
+            if (!hasBudget()) break;
+            const toAddr = msg.envelope?.to?.[0]?.address || "";
+            if (selectLogicalAccount(toAddr, accountVariants)) owned.push(msg.uid);
+            else foreign.push(msg.uid);
+          }
+          if (owned.length > 0 || foreign.length > 0) {
+            recipientSkipped += foreign.length;
+            uncachedUids = owned.sort((a, b) => b - a);
+            console.log(`[${accountLabel}] Envelope pre-screen: ${owned.length} owned, ${foreign.length} other-account UIDs skipped`);
+          }
+        } catch (screenErr) {
+          console.log(`[${accountLabel}] Envelope pre-screen failed:`, screenErr);
+        }
+      }
       console.log(`[${accountLabel}] Fetching ${uncachedUids.length} uncached candidate UIDs, ${skipped} already cached (${uidsToCheck.length}/${candidates.length} scanned)`);
 
       const eligibleByAccount = new Map(accountVariants.map((acc) => [acc.label, 0]));
       const allAccountQuotasFilled = () => accountVariants.every(
         (acc) => (eligibleByAccount.get(acc.label) || 0) >= QUICK_REFRESH_MAX_ELIGIBLE_PER_ACCOUNT,
       );
+
 
       for (const uid of uncachedUids) {
         if (quickRefresh && allAccountQuotasFilled()) break;
