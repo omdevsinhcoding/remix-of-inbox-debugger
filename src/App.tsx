@@ -305,10 +305,12 @@ const SESSION_CONFIG_KEY_FOR = (role: "admin" | "user") =>
 const SESSION_TIMEOUT_CACHE_KEY = (role: "admin" | "user") =>
   role === "admin" ? "admin_session_timeout_min" : "user_session_timeout_min";
 
-const DEFAULT_SESSION_TIMEOUT_MINUTES: Record<"admin" | "user", number> = {
-  admin: 60,
-  user: 5,
-};
+// NOTE: no hardcoded session length. The only source of truth is the
+// admin-configured `session_config` / `admin_session_config` value (cached in
+// sessionStorage for the tab) with the server-issued access-token expiry as
+// the fallback. A local default would show a different countdown on the
+// workflow-selection screen than inside a workflow.
+const SESSION_TIMEOUT_EVENT = "app:session-timeout-minutes";
 
 function readSessionNumber(key: "session_started_at" | "session_expires_at"): number {
   const value = Number(sessionGet(key as any) || "0");
@@ -333,19 +335,41 @@ function writeCachedTimeoutMinutes(role: "admin" | "user", minutes: number): voi
   try {
     if (Number.isFinite(minutes) && minutes > 0) {
       sessionSet(SESSION_TIMEOUT_CACHE_KEY(role) as any, String(Math.floor(minutes)));
+      try {
+        window.dispatchEvent(new CustomEvent(SESSION_TIMEOUT_EVENT, { detail: { role, minutes: Math.floor(minutes) } }));
+      } catch {}
     }
   } catch {}
+}
+
+// One shared in-flight fetch per role so the countdown pill and the timeout
+// guard never disagree (and never double-request the setting).
+const timeoutFetches: Partial<Record<"admin" | "user", Promise<number>>> = {};
+function loadSessionTimeoutMinutes(role: "admin" | "user"): Promise<number> {
+  if (!timeoutFetches[role]) {
+    timeoutFetches[role] = (async () => {
+      try {
+        const res = await apiCall("manage-app", { action: "get_settings", key: SESSION_CONFIG_KEY_FOR(role) });
+        const m = Number(res?.value?.timeoutMinutes) || 0;
+        if (m > 0) writeCachedTimeoutMinutes(role, m);
+        return m;
+      } catch {
+        return readCachedTimeoutMinutes(role);
+      } finally {
+        // allow a later refetch (e.g. admin changed the value) after this resolves
+        setTimeout(() => { delete timeoutFetches[role]; }, 30_000);
+      }
+    })();
+  }
+  return timeoutFetches[role]!;
 }
 
 function getSessionDeadline(role: "admin" | "user", minutes?: number): number {
   const started = readSessionNumber("session_started_at");
   const accessExpiresAt = readSessionNumber("session_expires_at");
   const explicit = Number.isFinite(Number(minutes)) && Number(minutes) > 0 ? Number(minutes) : 0;
-  // Prefer explicit (fresh from server) → cached configured → default. Using the
-  // default synchronously on remount would nuke long admin windows (e.g. 60min
-  // default vs 180min configured) as soon as elapsed exceeds 60min, before the
-  // async settings fetch had a chance to re-arm.
-  const configuredMinutes = explicit || readCachedTimeoutMinutes(role) || DEFAULT_SESSION_TIMEOUT_MINUTES[role];
+  // explicit (fresh from server) → cached configured → server access expiry.
+  const configuredMinutes = explicit || readCachedTimeoutMinutes(role);
   const configuredDeadline = started && configuredMinutes > 0 ? started + configuredMinutes * 60_000 : 0;
   return configuredDeadline || accessExpiresAt || 0;
 }
@@ -355,8 +379,9 @@ function getSessionTotalMinutes(role: "admin" | "user", minutes?: number): numbe
   const deadline = getSessionDeadline(role, minutes);
   if (started && deadline > started) return Math.max(1, Math.ceil((deadline - started) / 60_000));
   const explicit = Number.isFinite(Number(minutes)) && Number(minutes) > 0 ? Number(minutes) : 0;
-  return explicit || readCachedTimeoutMinutes(role) || DEFAULT_SESSION_TIMEOUT_MINUTES[role];
+  return explicit || readCachedTimeoutMinutes(role);
 }
+
 
 
 // --- Worker URL Types & Helpers ---
