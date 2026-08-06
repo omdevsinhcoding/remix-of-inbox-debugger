@@ -1,0 +1,1 @@
+DELETE FROM public.cached_emails WHERE id = 'Plan 6 Month G2:100055';
