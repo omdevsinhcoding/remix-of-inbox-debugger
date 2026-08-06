@@ -898,7 +898,10 @@ Deno.serve(async (originalReq) => {
     }
 
 
-    const isCron = isCronSecret;
+    // Service-role callers are trusted server-to-server maintenance clients.
+    // Scheduled sources are still rejected below, so this does not re-enable
+    // automatic syncing; it only permits explicit manual/probe sync requests.
+    const isCron = isCronSecret || hasServiceRoleBearer;
 
     // Email ingestion is intentionally user-driven. Reject every scheduled
     // source even if an old Cloudflare/Supabase schedule still calls us.
