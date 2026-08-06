@@ -205,13 +205,13 @@ const VIS_ACCOUNT_CHANGE_STRONG_RE = /(confirm (your )?(account change|email add
 // but MUST reach the user so they can complete verification.
 const VIS_HOUSEHOLD_RE = /(netflix household|your household|update your household|household has been confirmed|part of your (netflix )?household|watching on a tv|traveling|travelling|new device|new sign[\s-]?in|signed in on|is this you|confirm (this|your) device|approve (this|your) device|watch instead|yes,? this was me)/i;
 
-function emailVisibilityCategory(row: any): "signin" | "password_reset" | "account_update" | "other" {
+function emailVisibilityCategory(row: any): "household" | "signin" | "password_reset" | "account_update" | "other" {
   const subject = String(row?.subject || "");
   const preview = String(row?.preview || "");
   const combined = `${subject} ${preview}`;
   // 1. Household verification is an access/sign-in action. It must outrank
   //    broad account-update wording such as "update your account".
-  if (VIS_HOUSEHOLD_RE.test(combined)) return "signin";
+  if (VIS_HOUSEHOLD_RE.test(combined)) return "household";
   // 2. HARD-BLOCK zone (see banner above): any Netflix account-modification mail
   //    is classified as account_update and later hard-hidden from users. This
   //    runs BEFORE the OTP shortcut so "Confirm your account change with this
@@ -231,6 +231,9 @@ function shouldExposeEmailToUser(row: any, filters: EmailVisibilityFilters, _isF
   const hideSignin = filters.showSignInCodes === false;
   const hideReset = filters.showPasswordResets === false;
   const category = emailVisibilityCategory(row);
+  // Household approval is required to enter Netflix. It is never controlled
+  // by sign-in-code or account-update visibility preferences.
+  if (category === "household") return true;
   // ⚠️ HARD BLOCK — account-change mails are NEVER shown to users, regardless
   //    of any admin toggle. See banner above. DO NOT wire this to a filter.
   if (category === "account_update") return false;

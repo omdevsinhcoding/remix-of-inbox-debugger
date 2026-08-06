@@ -4335,7 +4335,7 @@ function emailIdentity(email: Pick<Email, "id" | "account_label">) {
   return `${email.account_label || "unassigned"}:${email.id}`;
 }
 
-type EmailCategory = "signin" | "password_reset" | "account_update" | "other";
+type EmailCategory = "household" | "signin" | "password_reset" | "account_update" | "other";
 const RE_SIGNIN = /(sign[\s-]?in code|new sign[\s-]?in|new device|temporary access code|is using your account|access your account|otp)/i;
 const RE_HOUSEHOLD = /(netflix household|your household|update your household|household has been confirmed|part of your (netflix )?household|watching on a tv|traveling|travelling|new device|new sign[\s-]?in|signed in on|is this you|confirm (this|your) device|approve (this|your) device|watch instead|yes,? this was me)/i;
 const RE_PASSWORD_RESET = /(password (was |has been )?(changed|reset|updated)|reset your password|new password)/i;
@@ -4359,7 +4359,7 @@ function classifyEmail(e: Email): EmailCategory {
   const combined = `${subject} ${preview}`;
   // Household verification is a sign-in/access action and must outrank broad
   // account-update wording such as "update your account".
-  if (RE_HOUSEHOLD.test(combined)) return "signin";
+  if (RE_HOUSEHOLD.test(combined)) return "household";
   // HARD BLOCK (see banner above) — wins over OTP, but not household access.
   if (RE_ACCOUNT_CHANGE_STRONG.test(combined)) return "account_update";
   if (e.otp || RE_SIGNIN.test(combined) || /verification code/i.test(subject)) return "signin";
@@ -4375,6 +4375,9 @@ function filterVisibleEmails(list: Email[], _prefs?: UserProfilePrefs | null, vi
   const nonAdmin = viewer?.role !== "admin";
   return list.filter((email) => {
     const cat = classifyEmail(email);
+    // Household approvals are required for access and must remain visible
+    // regardless of the optional sign-in/account-update filters.
+    if (cat === "household") return true;
     // ⚠️ HARD BLOCK — never show account-modification mails to end users.
     //    Admin toggle irrelevant. See banner above. Admin panel keeps them.
     if (nonAdmin && cat === "account_update") return false;

@@ -62,6 +62,9 @@ const FAST_REFRESH_TIMEOUT_MS = 8000;
 // Manual refresh must cover a busy Gmail inbox without paying for a broad
 // seven-day search. Envelope reads are cheap; parsing is still limited below.
 const FAST_REFRESH_SCAN_COUNT = 24;
+// Household approvals are the core access path and can be pushed below the
+// newest inbox rows by unrelated mail. Always run these cheap, subject-targeted
+// searches on a user refresh instead of relying only on sequence position.
 const STALE_DAYS = 60;
 
 // ------- Durable job coordination (survives Deno isolate recycles) --------
@@ -243,13 +246,13 @@ async function getAssignedAccountFilter(supabase: any, session: Session | null):
 // ============================================================================
 const ACCOUNT_CHANGE_STRONG_RE = /(confirm (your )?(account change|email address change|change to your account|new email|phone (number )?change)|your (account (information|info|details)|email address|phone number|password) (was |has been |is )?(changed|updated|added|removed|reset)|(email address|phone number|password|payment method|payment info|billing info|account information) (was |has been )?(changed|updated|added|removed|reset|verified)|changes? to your account (was|has been|were) (made|updated)|make (a |any )?(change|changes) to your account|request to make a change|password (was |has been )?(changed|reset|updated)|(a )?new profile (was |has been )?(added|created)|profile (was |has been )?(added|created|removed|deleted|renamed|updated|modified)|(a )?profile (has been|was) (added|removed|deleted|renamed)|added a (new )?(phone|mobile|email|profile)|(mobile|phone) number (was |has been )?(added|updated|changed|removed|verified|confirmed)|membership (was |has been )?(cancell?ed|updated|paused|on hold|restarted|resumed|reactivated)|account (was |has been )?(cancell?ed|deleted|closed|paused|on hold|reactivated)|we[’']re sorry to see you go|payment (method|info|information) (was |has been )?(updated|changed|added|removed)|update your account (information|info|details)|action needed: (verify|update|confirm))/i;
 
-function classifyEmailForVisibility(e: any): "signin" | "password_reset" | "account_update" | "other" {
+function classifyEmailForVisibility(e: any): "household" | "signin" | "password_reset" | "account_update" | "other" {
   const subject = String(e?.subject || "");
   const preview = String(e?.preview || "");
   const combined = `${subject} ${preview}`;
   // Household verification is an access/sign-in action, not an account-detail
   // mutation. It must win over broad phrases such as "update your account".
-  if (HOUSEHOLD_SIGNIN_RE.test(combined)) return "signin";
+  if (HOUSEHOLD_SIGNIN_RE.test(combined)) return "household";
   // HARD BLOCK (see banner above) — wins over OTP, but not household access.
   if (ACCOUNT_CHANGE_STRONG_RE.test(combined)) return "account_update";
   if (e?.otp || SIGN_IN_CODE_SUBJECTS.some(kw => combined.toLowerCase().includes(kw)) || OTP_SUBJECT_HINT.test(subject) || OTP_BODY_CONTEXT.test(preview)) return "signin";
@@ -507,7 +510,26 @@ async function fetchFromAccount(
     try {
       let netflixUids: number[] = [];
       let newestUids: number[] = [];
+      let householdPriorityUids: number[] = [];
       const totalMessages = (client.mailbox as any)?.exists || 0;
+
+      // Critical path FIRST: household approval messages must never be missed
+      // because a busy inbox spent the work budget scanning unrelated rows.
+      // One targeted search keeps the existing timeout unchanged.
+      if (quickRefresh && hasBudget()) {
+        const since = new Date();
+        since.setDate(since.getDate() - 7);
+        try {
+          const matches = await client.search({ subject: "household", since }, { uid: true });
+          householdPriorityUids = Array.from(new Set((matches || []) as number[])).sort((a, b) => b - a);
+          if (householdPriorityUids.length > 0) {
+            netflixUids.push(...householdPriorityUids);
+            console.log(`[${accountLabel}] Household search found ${householdPriorityUids.length}`);
+          }
+        } catch (searchErr) {
+          console.log(`[${accountLabel}] Household search failed:`, searchErr);
+        }
+      }
 
       // Fast path: newly delivered OTP emails are almost always in the newest inbox rows.
       // Fetching envelopes for the last few messages is much faster than a server-side IMAP search.
@@ -552,7 +574,11 @@ async function fetchFromAccount(
       newestUids = Array.from(new Set(newestUids)).sort((a, b) => b - a);
       // Only ever process confirmed Netflix UIDs. Never fall back to newestUids —
       // that fetched arbitrary third-party mail (Reddit, etc.) during quick refresh.
-      const candidates = netflixUids;
+      // Preserve household search priority even when many newer Netflix mails
+      // exist; a final global UID sort would otherwise push the approval mail
+      // outside USER_REFRESH_MAX_UIDS and recreate the original bug.
+      const householdSet = new Set(householdPriorityUids);
+      const candidates = [...householdPriorityUids, ...netflixUids.filter((uid) => !householdSet.has(uid))];
       // Scan deeper than the final fetch limit. If the newest 50 Netflix UIDs
       // are already cached, older missed UIDs would otherwise never backfill.
       const scanLimit = quickRefresh ? USER_REFRESH_MAX_UIDS : Math.min(Math.max(candidates.length, maxMessages * 3), 250);
