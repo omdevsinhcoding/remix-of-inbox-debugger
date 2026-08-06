@@ -13728,6 +13728,17 @@ function EmailViewer() {
         setEmails(merged);
         setError(null);
         setLastUpdated(new Date());
+      } else {
+        // The IMAP sync can finish server-side just after a mobile request's
+        // transport deadline. Re-read the authoritative cache before reporting
+        // a failure so a successfully inserted newest mail appears immediately.
+        const cachedAfterDeadline = await loadCachedEmailsDirect(200).catch(() => null);
+        if (cachedAfterDeadline) {
+          merged = cachedAfterDeadline;
+          setEmails(merged);
+          setError(null);
+          setLastUpdated(new Date());
+        }
       }
       const visible = filterVisibleEmails(merged, profilePrefs, user);
       const newCount = visible.filter((e) => !beforeIds.has(e.id)).length;
