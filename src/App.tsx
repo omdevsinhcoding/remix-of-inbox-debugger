@@ -8357,7 +8357,7 @@ function AdminPanel() {
         key: "session_config",
         value: { timeoutMinutes: m },
       });
-      setSessionTimeoutMin(String(m));
+      setSessionTimeoutMin(String(m)); writeCachedTimeoutMinutes("user", m);
       notify.success(m === 0 ? "Session timeout disabled" : `Session timeout set to ${m} min`);
     } catch (err) {
       notify.error(err instanceof Error ? err.message : "Failed to save session timeout");
@@ -8374,7 +8374,7 @@ function AdminPanel() {
         key: "admin_session_config",
         value: { timeoutMinutes: m },
       });
-      setAdminSessionTimeoutMin(String(m));
+      setAdminSessionTimeoutMin(String(m)); writeCachedTimeoutMinutes("admin", m);
       notify.success(m === 0 ? "Admin session timeout disabled" : `Admin auto-logout set to ${m} min`);
     } catch (err) {
       notify.error(err instanceof Error ? err.message : "Failed to save admin session timeout");
