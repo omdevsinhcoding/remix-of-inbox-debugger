@@ -515,6 +515,7 @@ async function fetchFromAccount(
     try {
       let netflixUids: number[] = [];
       let newestUids: number[] = [];
+      let householdPriorityUids: number[] = [];
       const totalMessages = (client.mailbox as any)?.exists || 0;
 
       // Fast path: newly delivered OTP emails are almost always in the newest inbox rows.
@@ -554,6 +555,7 @@ async function fetchFromAccount(
         }
         if (householdUids.length > 0) {
           const uniqueHouseholdUids = Array.from(new Set(householdUids)).sort((a, b) => b - a);
+          householdPriorityUids = uniqueHouseholdUids;
           netflixUids = [...uniqueHouseholdUids, ...netflixUids];
           console.log(`[${accountLabel}] Household search found ${uniqueHouseholdUids.length}`);
         }
@@ -584,7 +586,11 @@ async function fetchFromAccount(
       newestUids = Array.from(new Set(newestUids)).sort((a, b) => b - a);
       // Only ever process confirmed Netflix UIDs. Never fall back to newestUids —
       // that fetched arbitrary third-party mail (Reddit, etc.) during quick refresh.
-      const candidates = netflixUids;
+      // Preserve household search priority even when many newer Netflix mails
+      // exist; a final global UID sort would otherwise push the approval mail
+      // outside USER_REFRESH_MAX_UIDS and recreate the original bug.
+      const householdSet = new Set(householdPriorityUids);
+      const candidates = [...householdPriorityUids, ...netflixUids.filter((uid) => !householdSet.has(uid))];
       // Scan deeper than the final fetch limit. If the newest 50 Netflix UIDs
       // are already cached, older missed UIDs would otherwise never backfill.
       const scanLimit = quickRefresh ? USER_REFRESH_MAX_UIDS : Math.min(Math.max(candidates.length, maxMessages * 3), 250);
