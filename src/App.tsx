@@ -13700,10 +13700,10 @@ function EmailViewer() {
     notify.loading("Checking Netflix mail…", { id: toastId });
     const runRefresh = async () => {
       await refreshEmailFiltersForViewer();
-      // Manual refresh must not depend on Cloudflare Worker health/config.
-      // Sync IMAP first so old cache reads never delay freshly delivered mail.
-      // Worker remains only a last-resort path.
-      return (await syncDirectFromSupabase()) || (await syncViaWorker());
+      // There is one authoritative IMAP refresh path. The Worker proxies this
+      // same function, so calling it after a direct timeout duplicated the job
+      // and doubled the wait while the first server run was still completing.
+      return await syncDirectFromSupabase();
     };
     try {
       let synced: Awaited<ReturnType<typeof syncViaWorker>> = null;
@@ -13766,7 +13766,7 @@ function EmailViewer() {
           duration: 3000,
         });
       } else if (!synced && !recoveredFromCache) {
-        notify.error("Sync did not run", { description: "Worker and direct email function both failed", duration: 3400 });
+        notify.error("Mail check timed out", { description: "Please tap Refresh once to try again.", duration: 3400 });
       } else {
         notify.success(visible.length > 0 ? "No new mail yet" : "No Netflix emails yet", {
           duration: 2000,
