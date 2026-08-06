@@ -510,7 +510,6 @@ async function fetchFromAccount(
     try {
       let netflixUids: number[] = [];
       let newestUids: number[] = [];
-      let householdPriorityUids: number[] = [];
       const totalMessages = (client.mailbox as any)?.exists || 0;
 
       // Fast path: newly delivered OTP emails are almost always in the newest inbox rows.
@@ -531,28 +530,12 @@ async function fetchFromAccount(
         if (netflixUids.length > 0) console.log(`[${accountLabel}] Latest inbox scan found ${netflixUids.length}`);
       }
 
-      // Supplemental recovery runs only after newest mail has been inspected.
-      // It can backfill an older missed household message, but cannot reorder it
-      // ahead of newer Netflix mail.
-      if (quickRefresh && hasBudget()) {
-        const since = new Date();
-        since.setDate(since.getDate() - 7);
-        try {
-          const matches = await client.search({ subject: "household", since }, { uid: true });
-          householdPriorityUids = Array.from(new Set((matches || []) as number[]));
-          if (householdPriorityUids.length > 0) {
-            netflixUids.push(...householdPriorityUids);
-            console.log(`[${accountLabel}] Household recovery search found ${householdPriorityUids.length}`);
-          }
-        } catch (searchErr) {
-          console.log(`[${accountLabel}] Household recovery search failed:`, searchErr);
-        }
-      }
-
-      // A broad search is unnecessary when the newest-envelope scan already
-      // found Netflix messages. Keep it as a fallback for inboxes whose server
-      // ordering/category behavior hides Netflix from the newest sequence.
-      if ((!quickRefresh || netflixUids.length === 0) && hasBudget()) {
+      // Always reconcile against the sender search on manual refresh. The
+      // newest-envelope scan gives a fast result, while this catches a newly
+      // delivered Netflix mail that Gmail placed below unrelated/category rows.
+      // This is category-neutral: household, OTP, promo, and blocked account
+      // mails enter the same newest-first ingestion queue.
+      if (hasBudget()) {
         const since = new Date();
         since.setDate(since.getDate() - 7);
         for (const term of ["netflix.com", "netflix"]) {
@@ -578,7 +561,7 @@ async function fetchFromAccount(
       // category. Visibility filtering happens only after ingestion, so a
       // password/account-change email cannot make an older household message
       // appear ahead of a genuinely newer visible message.
-      const candidates = Array.from(new Set([...netflixUids, ...householdPriorityUids]))
+      const candidates = Array.from(new Set(netflixUids))
         .sort((a, b) => b - a);
       // Scan deeper than the final fetch limit. If the newest 50 Netflix UIDs
       // are already cached, older missed UIDs would otherwise never backfill.
