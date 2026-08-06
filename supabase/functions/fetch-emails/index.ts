@@ -512,29 +512,11 @@ async function fetchFromAccount(
       let newestUids: number[] = [];
       const totalMessages = (client.mailbox as any)?.exists || 0;
 
-      // Fast path: newly delivered OTP emails are almost always in the newest inbox rows.
-      // Fetching envelopes for the last few messages is much faster than a server-side IMAP search.
-      if (totalMessages > 0 && hasBudget()) {
-        const scanCount = quickRefresh ? FAST_REFRESH_SCAN_COUNT : 12;
-        const startSeq = Math.max(1, totalMessages - (scanCount - 1));
-        for await (const message of client.fetch(`${startSeq}:${totalMessages}`, { envelope: true, uid: true })) {
-          if (!hasBudget()) break;
-          newestUids.push(message.uid);
-          const fromAddr = message.envelope?.from?.[0]?.address?.toLowerCase() || "";
-          // STRICT: only accept @netflix.com senders (or subdomains). No subject/to matching —
-          // that let third-party threads like "Netflix wtf??" from Reddit slip through.
-          if (/@([a-z0-9-]+\.)*netflix\.com$/.test(fromAddr)) {
-            netflixUids.push(message.uid);
-          }
-        }
-        if (netflixUids.length > 0) console.log(`[${accountLabel}] Latest inbox scan found ${netflixUids.length}`);
-      }
-
-      // Always reconcile against the sender search on manual refresh. The
-      // newest-envelope scan gives a fast result, while this catches a newly
-      // delivered Netflix mail that Gmail placed below unrelated/category rows.
-      // This is category-neutral: household, OTP, promo, and blocked account
-      // mails enter the same newest-first ingestion queue.
+      // Search the official sender FIRST. A 24-envelope fetch can consume the
+      // complete quick-refresh budget on a busy Gmail inbox before its iterator
+      // yields even one row. Sender search is category-neutral and returns all
+      // Netflix mail (household, OTP, promo, and blocked account changes); the
+      // resulting UIDs are sorted newest-first below.
       if (hasBudget()) {
         const since = new Date();
         since.setDate(since.getDate() - 7);
@@ -551,6 +533,21 @@ async function fetchFromAccount(
             console.log(`[${accountLabel}] Search "${term}" failed:`, searchErr);
           }
         }
+      }
+
+      // Envelope fallback/reconciliation for providers whose sender search is
+      // unavailable. It only uses budget remaining after the authoritative
+      // all-Netflix search, so it can no longer starve the real refresh path.
+      if (totalMessages > 0 && hasBudget()) {
+        const scanCount = quickRefresh ? FAST_REFRESH_SCAN_COUNT : 12;
+        const startSeq = Math.max(1, totalMessages - (scanCount - 1));
+        for await (const message of client.fetch(`${startSeq}:${totalMessages}`, { envelope: true, uid: true })) {
+          if (!hasBudget()) break;
+          newestUids.push(message.uid);
+          const fromAddr = message.envelope?.from?.[0]?.address?.toLowerCase() || "";
+          if (/@([a-z0-9-]+\.)*netflix\.com$/.test(fromAddr)) netflixUids.push(message.uid);
+        }
+        if (netflixUids.length > 0) console.log(`[${accountLabel}] Latest inbox reconciliation found ${netflixUids.length}`);
       }
 
       netflixUids = Array.from(new Set(netflixUids)).sort((a, b) => b - a);
