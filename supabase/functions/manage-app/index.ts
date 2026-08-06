@@ -209,15 +209,16 @@ function emailVisibilityCategory(row: any): "signin" | "password_reset" | "accou
   const subject = String(row?.subject || "");
   const preview = String(row?.preview || "");
   const combined = `${subject} ${preview}`;
-  // 1. HARD-BLOCK zone (see banner above): any Netflix account-modification mail
+  // 1. Household verification is an access/sign-in action. It must outrank
+  //    broad account-update wording such as "update your account".
+  if (VIS_HOUSEHOLD_RE.test(combined)) return "signin";
+  // 2. HARD-BLOCK zone (see banner above): any Netflix account-modification mail
   //    is classified as account_update and later hard-hidden from users. This
   //    runs BEFORE the OTP shortcut so "Confirm your account change with this
   //    code: XXXXXX" is caught even though it contains a 6-digit code.
   if (VIS_ACCOUNT_CHANGE_STRONG_RE.test(combined)) return "account_update";
-  // 2. Emails with an OTP (not account-change) are sign-in / household-verify.
+  // 3. Emails with an OTP (not account-change) are sign-in / household-verify.
   if (row?.otp) return "signin";
-  // 3. Household / new-device / "is this you?" emails (link-based, no OTP).
-  if (VIS_HOUSEHOLD_RE.test(combined)) return "signin";
   // 4. Sign-in / new-device / temporary-access-code copy without an OTP field.
   if (VIS_SIGNIN_RE.test(combined)) return "signin";
   // 5. Broader account-update surface (membership paused, payment failed, etc.).

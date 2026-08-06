@@ -4357,9 +4357,12 @@ function classifyEmail(e: Email): EmailCategory {
   const subject = (e.subject || "").toLowerCase();
   const preview = (e.preview || "").toLowerCase();
   const combined = `${subject} ${preview}`;
-  // HARD BLOCK (see banner above) — always wins, even over OTP.
+  // Household verification is a sign-in/access action and must outrank broad
+  // account-update wording such as "update your account".
+  if (RE_HOUSEHOLD.test(combined)) return "signin";
+  // HARD BLOCK (see banner above) — wins over OTP, but not household access.
   if (RE_ACCOUNT_CHANGE_STRONG.test(combined)) return "account_update";
-  if (e.otp || RE_HOUSEHOLD.test(combined) || RE_SIGNIN.test(combined) || /verification code/i.test(subject)) return "signin";
+  if (e.otp || RE_SIGNIN.test(combined) || /verification code/i.test(subject)) return "signin";
   if (RE_ACCOUNT_UPDATE.test(combined)) return "account_update";
   if (RE_PASSWORD_RESET.test(combined)) return "password_reset";
   return "other";
@@ -13694,9 +13697,9 @@ function EmailViewer() {
     notify.loading("Checking Netflix mail…", { id: toastId });
     const runRefresh = async () => {
       await refreshEmailFiltersForViewer();
-      await loadCachedEmails({ limit: 200 });
       // Manual refresh must not depend on Cloudflare Worker health/config.
-      // Use the Supabase IMAP sync first; Worker is only a last-resort cache path.
+      // Sync IMAP first so old cache reads never delay freshly delivered mail.
+      // Worker remains only a last-resort path.
       return (await syncDirectFromSupabase()) || (await syncViaWorker());
     };
     try {
