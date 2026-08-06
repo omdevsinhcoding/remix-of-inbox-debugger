@@ -281,9 +281,11 @@ function classifyEmailForVisibility(e: any): "household" | "signin" | "password_
   if (HOUSEHOLD_SIGNIN_RE.test(combined)) return "household";
   // HARD BLOCK (see banner above) — wins over OTP, but not household access.
   if (ACCOUNT_CHANGE_STRONG_RE.test(combined)) return "account_update";
+  // Password reset/recovery messages frequently contain an OTP. Classify the
+  // purpose before the generic OTP rule so those codes never reach end users.
+  if (PASSWORD_RESET_SUBJECTS.some(kw => combined.toLowerCase().includes(kw))) return "password_reset";
   if (e?.otp || SIGN_IN_CODE_SUBJECTS.some(kw => combined.toLowerCase().includes(kw)) || OTP_SUBJECT_HINT.test(subject) || OTP_BODY_CONTEXT.test(preview)) return "signin";
   if (ACCOUNT_UPDATE_RE.test(combined)) return "account_update";
-  if (PASSWORD_RESET_SUBJECTS.some(kw => combined.toLowerCase().includes(kw))) return "password_reset";
   return "other";
 }
 

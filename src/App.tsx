@@ -13792,12 +13792,6 @@ function EmailViewer() {
           description: "Freshly delivered to your inbox",
           duration: 2600,
         });
-      } else if (synced && synced.inserted > 0) {
-        // Server saved new rows but our visible filter hid them (assigned-account scope, etc.)
-        notify.info(`${synced.inserted} new email${synced.inserted === 1 ? "" : "s"} synced`, {
-          description: "Not visible in this inbox view",
-          duration: 3000,
-        });
       } else if (!synced && !recoveredFromCache) {
         notify.error("Mail check timed out", { description: "Please tap Refresh once to try again.", duration: 3400 });
       } else {
