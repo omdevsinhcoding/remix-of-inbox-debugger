@@ -3367,7 +3367,7 @@ function TvSignInPage() {
 
 
 function SessionCountdown({ role }: { role: "admin" | "user" }) {
-  const [minutes, setMinutes] = useState<number>(() => DEFAULT_SESSION_TIMEOUT_MINUTES[role]);
+  const [minutes, setMinutes] = useState<number>(() => readCachedTimeoutMinutes(role));
   const [remainingMs, setRemainingMs] = useState<number>(() => {
     ensureSessionStarted();
     return Math.max(0, getSessionDeadline(role) - Date.now());
@@ -3376,15 +3376,21 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
 
   useEffect(() => {
     let cancelled = false;
+    const onMinutes = (e: Event) => {
+      const d: any = (e as CustomEvent).detail;
+      if (!cancelled && d?.role === role && Number(d?.minutes) > 0) setMinutes(Number(d.minutes));
+    };
+    window.addEventListener(SESSION_TIMEOUT_EVENT, onMinutes as any);
     (async () => {
-      try {
-        const res = await apiCall("manage-app", { action: "get_settings", key: SESSION_CONFIG_KEY_FOR(role) });
-        const m = Number(res?.value?.timeoutMinutes) || 0;
-        if (!cancelled && m > 0) setMinutes(m);
-      } catch {}
+      const m = await loadSessionTimeoutMinutes(role);
+      if (!cancelled && m > 0) setMinutes(m);
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      window.removeEventListener(SESSION_TIMEOUT_EVENT, onMinutes as any);
+    };
   }, [role]);
+
 
   useEffect(() => {
     warnedRef.current = false;
