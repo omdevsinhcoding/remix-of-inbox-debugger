@@ -55,20 +55,16 @@ function extractOtpCode(subject: string, body: string): string | null {
 const FULL_SYNC_MAX_UIDS = 50;
 const USER_REFRESH_MAX_UIDS = 12;
 // A manual refresh publishes at most one newly delivered, eligible Netflix mail.
-// We may inspect a small candidate window when newer mail belongs to another
-// recipient, but stop immediately after the first visible message is found.
+// A few candidates are allowed only so a newest message for another recipient
+// does not hide the newest eligible one.
 const QUICK_REFRESH_CANDIDATE_UIDS = 12;
 // Budgets are measured AFTER the IMAP connection is established (Gmail's TLS
 // handshake + greeting alone can take 5-9s, which used to eat the whole budget
 // and made every quick refresh scan 0 messages).
 const PER_ACCOUNT_TIMEOUT_MS = 12000;
 const FAST_REFRESH_TIMEOUT_MS = 8000;
-// Manual refresh must cover a busy Gmail inbox without paying for a broad
-// seven-day search. Envelope reads are cheap; parsing is still limited below.
+// Manual refresh must cover a busy Gmail inbox without parsing unrelated mail.
 const FAST_REFRESH_SCAN_COUNT = 24;
-// Household approvals are the core access path and can be pushed below the
-// newest inbox rows by unrelated mail. Always run these cheap, subject-targeted
-// searches on a user refresh instead of relying only on sequence position.
 const STALE_DAYS = 60;
 
 // ------- Durable job coordination (survives Deno isolate recycles) --------
@@ -577,8 +573,15 @@ async function fetchFromAccount(
       for (const uid of uidsToCheck) {
         const plainId = String(uid);
         const prefixedId = `${accountLabel}:${uid}`;
-        if (cachedIds.has(plainId) || cachedIds.has(prefixedId)) skipped++;
-        else uncachedUids.push(uid);
+        if (cachedIds.has(plainId) || cachedIds.has(prefixedId)) {
+          skipped++;
+          // Newest-first creates a synchronization frontier. Once a cached UID
+          // is reached during a click refresh, everything below it is history;
+          // do not turn a refresh into an old-mail backfill.
+          if (quickRefresh) break;
+        } else {
+          uncachedUids.push(uid);
+        }
         if (uncachedUids.length >= fetchLimit) break;
       }
       console.log(`[${accountLabel}] Fetching ${uncachedUids.length} uncached candidate UIDs, ${skipped} already cached (${uidsToCheck.length}/${candidates.length} scanned)`);
