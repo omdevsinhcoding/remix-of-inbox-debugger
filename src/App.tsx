@@ -13733,7 +13733,6 @@ function EmailViewer() {
     const toastId = "nf-refresh";
     notify.loading("Checking Netflix mail…", { id: toastId });
     const runRefresh = async () => {
-      await refreshEmailFiltersForViewer();
       // There is one authoritative IMAP refresh path. The Worker proxies this
       // same function, so calling it after a direct timeout duplicated the job
       // and doubled the wait while the first server run was still completing.

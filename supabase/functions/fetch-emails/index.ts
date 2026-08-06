@@ -69,7 +69,7 @@ const QUICK_REFRESH_MAX_INGEST = 3;
 const PER_ACCOUNT_TIMEOUT_MS = 12000;
 const FAST_REFRESH_TIMEOUT_MS = 8000;
 // Manual refresh must cover a busy Gmail inbox without parsing unrelated mail.
-const FAST_REFRESH_SCAN_COUNT = 24;
+const FAST_REFRESH_SCAN_COUNT = 8;
 const STALE_DAYS = 60;
 
 // ------- Durable job coordination (survives Deno isolate recycles) --------
@@ -517,12 +517,23 @@ async function fetchFromAccount(
       let newestUids: number[] = [];
       const totalMessages = (client.mailbox as any)?.exists || 0;
 
-      // Search the official sender FIRST. A 24-envelope fetch can consume the
-      // complete quick-refresh budget on a busy Gmail inbox before its iterator
-      // yields even one row. Sender search is category-neutral and returns all
-      // Netflix mail (household, OTP, promo, and blocked account changes); the
-      // resulting UIDs are sorted newest-first below.
-      if (hasBudget()) {
+      // A click refresh only needs the newest delivery. Fetch the last few
+      // envelopes in one IMAP command first; Gmail's seven-day sender SEARCH
+      // was taking ~4s by itself even when only one new message existed.
+      // Keep SEARCH as a fallback so a busy inbox cannot permanently hide a
+      // Netflix message just below this small latest-message window.
+      if (quickRefresh && totalMessages > 0 && hasBudget()) {
+        const startSeq = Math.max(1, totalMessages - (FAST_REFRESH_SCAN_COUNT - 1));
+        for await (const message of client.fetch(`${startSeq}:${totalMessages}`, { envelope: true, uid: true })) {
+          if (!hasBudget()) break;
+          newestUids.push(message.uid);
+          const fromAddr = message.envelope?.from?.[0]?.address?.toLowerCase() || "";
+          if (/@([a-z0-9-]+\.)*netflix\.com$/.test(fromAddr)) netflixUids.push(message.uid);
+        }
+        if (netflixUids.length > 0) console.log(`[${accountLabel}] Fast latest-envelope scan found ${netflixUids.length}`);
+      }
+
+      if (netflixUids.length === 0 && hasBudget()) {
         const since = new Date();
         since.setDate(since.getDate() - 7);
         for (const term of ["netflix.com", "netflix"]) {
@@ -544,7 +555,7 @@ async function fetchFromAccount(
       // unavailable. It only uses budget remaining after the authoritative
       // all-Netflix search, so it can no longer starve the real refresh path.
       if (netflixUids.length === 0 && totalMessages > 0 && hasBudget()) {
-        const scanCount = quickRefresh ? FAST_REFRESH_SCAN_COUNT : 12;
+        const scanCount = 12;
         const startSeq = Math.max(1, totalMessages - (scanCount - 1));
         for await (const message of client.fetch(`${startSeq}:${totalMessages}`, { envelope: true, uid: true })) {
           if (!hasBudget()) break;
@@ -806,19 +817,20 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
       inserted = rows.length;
     }
 
-    // Stale cleanup: authoritative path is the daily `email-cleanup` pg_cron
-    // job. This inline fallback fires at most once per 6h per warm isolate —
-    // just a safety net if the cron slot is disabled.
-    const nowMs = Date.now();
-    const last = (globalThis as any).__lastStaleCleanupAt || 0;
-    if (nowMs - last >= STALE_CLEANUP_MIN_INTERVAL_MS) {
-      (globalThis as any).__lastStaleCleanupAt = nowMs;
-      const cutoff = new Date();
-      cutoff.setDate(cutoff.getDate() - STALE_DAYS);
-      const { error: delErr } = await supabase
-        .from("cached_emails").delete()
-        .lt("date", cutoff.toISOString()).eq("destroyed", false);
-      if (delErr) console.error("[sync] Stale cleanup error:", delErr);
+    // Never run retention cleanup in the user-click refresh path. Deleting old
+    // rows is maintenance work and must not delay delivery of the newest mail.
+    if (!quickRefresh) {
+      const nowMs = Date.now();
+      const last = (globalThis as any).__lastStaleCleanupAt || 0;
+      if (nowMs - last >= STALE_CLEANUP_MIN_INTERVAL_MS) {
+        (globalThis as any).__lastStaleCleanupAt = nowMs;
+        const cutoff = new Date();
+        cutoff.setDate(cutoff.getDate() - STALE_DAYS);
+        const { error: delErr } = await supabase
+          .from("cached_emails").delete()
+          .lt("date", cutoff.toISOString()).eq("destroyed", false);
+        if (delErr) console.error("[sync] Stale cleanup error:", delErr);
+      }
     }
 
     const response: any = {
