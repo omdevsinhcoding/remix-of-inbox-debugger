@@ -1072,6 +1072,13 @@ async function apiCall(functionName: string, body: any) {
     if (data?.refreshToken || data?.expiresAt) {
       storeSessionPair(data);
     }
+    // Authoritative auto-logout length shipped with every login response —
+    // cached before first paint so the countdown never shows a guessed default.
+    if (Number(data?.sessionTimeoutMinutes) > 0) {
+      const r = data?.user?.role === "admin" ? "admin" : "user";
+      writeCachedTimeoutMinutes(r, Math.floor(Number(data.sessionTimeoutMinutes)));
+    }
+
     // Plan-expiry surface: any endpoint (login, me, ...) that returns
     // { success: false, error: "plan_finished", ... } is broadcast globally
     // so a friendly "Plan Finished" screen can render — regardless of caller.
