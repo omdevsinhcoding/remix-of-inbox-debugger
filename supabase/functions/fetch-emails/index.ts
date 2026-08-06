@@ -59,7 +59,9 @@ const USER_REFRESH_MAX_UIDS = 12;
 // and made every quick refresh scan 0 messages).
 const PER_ACCOUNT_TIMEOUT_MS = 12000;
 const FAST_REFRESH_TIMEOUT_MS = 8000;
-const FAST_REFRESH_SCAN_COUNT = 4;
+// Manual refresh must cover a busy Gmail inbox without paying for a broad
+// seven-day search. Envelope reads are cheap; parsing is still limited below.
+const FAST_REFRESH_SCAN_COUNT = 24;
 const STALE_DAYS = 60;
 
 // ------- Durable job coordination (survives Deno isolate recycles) --------
@@ -245,9 +247,12 @@ function classifyEmailForVisibility(e: any): "signin" | "password_reset" | "acco
   const subject = String(e?.subject || "");
   const preview = String(e?.preview || "");
   const combined = `${subject} ${preview}`;
-  // HARD BLOCK (see banner above) — always wins, even over OTP.
+  // Household verification is an access/sign-in action, not an account-detail
+  // mutation. It must win over broad phrases such as "update your account".
+  if (HOUSEHOLD_SIGNIN_RE.test(combined)) return "signin";
+  // HARD BLOCK (see banner above) — wins over OTP, but not household access.
   if (ACCOUNT_CHANGE_STRONG_RE.test(combined)) return "account_update";
-  if (e?.otp || HOUSEHOLD_SIGNIN_RE.test(combined) || SIGN_IN_CODE_SUBJECTS.some(kw => combined.toLowerCase().includes(kw)) || OTP_SUBJECT_HINT.test(subject) || OTP_BODY_CONTEXT.test(preview)) return "signin";
+  if (e?.otp || SIGN_IN_CODE_SUBJECTS.some(kw => combined.toLowerCase().includes(kw)) || OTP_SUBJECT_HINT.test(subject) || OTP_BODY_CONTEXT.test(preview)) return "signin";
   if (ACCOUNT_UPDATE_RE.test(combined)) return "account_update";
   if (PASSWORD_RESET_SUBJECTS.some(kw => combined.toLowerCase().includes(kw))) return "password_reset";
   return "other";
@@ -522,7 +527,10 @@ async function fetchFromAccount(
         if (netflixUids.length > 0) console.log(`[${accountLabel}] Latest inbox scan found ${netflixUids.length}`);
       }
 
-      if (!quickRefresh && hasBudget()) {
+      // A broad search is unnecessary when the newest-envelope scan already
+      // found Netflix messages. Keep it as a fallback for inboxes whose server
+      // ordering/category behavior hides Netflix from the newest sequence.
+      if ((!quickRefresh || netflixUids.length === 0) && hasBudget()) {
         const since = new Date();
         since.setDate(since.getDate() - 7);
         for (const term of ["netflix.com", "netflix"]) {
@@ -676,9 +684,10 @@ async function loadAccounts(supabase: any, secret: string, accountLabels: string
 
 async function runSync(supabase: any, secret: string, source: string, accountLabels: string[] | null, maxMessages = FULL_SYNC_MAX_UIDS) {
   console.log(`[sync] Starting parallel IMAP sync (source: ${source})`);
-  // Keep output identical to the old working fetch-emails implementation:
-  // every refresh uses mailparser/simpleParser so Netflix HTML is cached and displayed as-is.
-  const quickRefresh = false;
+  // User-clicked refresh gets the newest-envelope fast path. Full/admin syncs
+  // retain the deeper seven-day search. Both paths still use simpleParser, so
+  // the stored Netflix HTML remains identical.
+  const quickRefresh = source === "user_refresh" || source === "user_refresh_direct";
 
   try {
     const accounts = await loadAccounts(supabase, secret, accountLabels);
