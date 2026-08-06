@@ -537,7 +537,11 @@ async function fetchFromAccount(
     try {
       let netflixUids: number[] = [];
       let newestUids: number[] = [];
+      let fastNetflixUids: number[] = [];
       const totalMessages = (client.mailbox as any)?.exists || 0;
+      const accountVariants = logicalAccounts.length > 0
+        ? logicalAccounts
+        : [{ label: accountLabel, host: imapHost, port: imapPort, user: imapUser, password: imapPassword, recipientFilters }];
 
       // A click refresh only needs the newest delivery. Fetch the last few
       // envelopes in one IMAP command first; Gmail's seven-day sender SEARCH
@@ -552,6 +556,7 @@ async function fetchFromAccount(
           const fromAddr = message.envelope?.from?.[0]?.address?.toLowerCase() || "";
           if (/@([a-z0-9-]+\.)*netflix\.com$/.test(fromAddr)) netflixUids.push(message.uid);
         }
+        fastNetflixUids = [...netflixUids];
         if (netflixUids.length > 0) console.log(`[${accountLabel}] Fast latest-envelope scan found ${netflixUids.length}`);
       }
 
@@ -601,6 +606,17 @@ async function fetchFromAccount(
       // Re-read only the tiny inbox tail once, inside the same existing budget,
       // so a delivery that lands during this request is included immediately.
       if (quickRefresh && totalMessages > 0 && hasBudget()) {
+        const initialTailHasUncachedNetflix = fastNetflixUids.some((uid) => {
+          if (cachedIds.has(String(uid))) return false;
+          return !accountVariants.some((acc) => cachedIds.has(`${acc.label}:${uid}`));
+        });
+        // Gmail sometimes acknowledges delivery before exposing the new UID to
+        // IMAP. Only when the first tail had nothing new, give that same refresh
+        // a short indexing grace period. This stays within FAST_REFRESH_TIMEOUT_MS
+        // and replaces the user's second click; it does not extend the timeout.
+        if (!initialTailHasUncachedNetflix && hasBudget()) {
+          await new Promise((resolve) => setTimeout(resolve, 900));
+        }
         const refreshedExists = Number((client.mailbox as any)?.exists || totalMessages);
         const tailStart = Math.max(1, refreshedExists - (FAST_REFRESH_SCAN_COUNT - 1));
         try {
@@ -632,9 +648,6 @@ async function fetchFromAccount(
       const uidsToCheck = candidates.slice(0, scanLimit);
       let uncachedUids: number[] = [];
       const fetchLimit = quickRefresh ? QUICK_REFRESH_CANDIDATE_UIDS : clampLimit(maxMessages, USER_REFRESH_MAX_UIDS, FULL_SYNC_MAX_UIDS);
-      const accountVariants = logicalAccounts.length > 0
-        ? logicalAccounts
-        : [{ label: accountLabel, host: imapHost, port: imapPort, user: imapUser, password: imapPassword, recipientFilters }];
       for (const uid of uidsToCheck) {
         const plainId = String(uid);
         // One physical UID belongs to exactly one logical account after
