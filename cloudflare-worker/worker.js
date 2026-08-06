@@ -1192,11 +1192,9 @@ async function handleBootstrapPublic(request, env, ctx) {
 }
 
 // ==================== Inbox list_delta cache (Operation #2) ====================
-// Per-user KV cache in front of manage-app.list_delta. Cursor-based diffs
-// mean 99% of foreground polls return an empty {rows:[],removedIds:[]} body
-// served from KV within 30s. New mail arriving flips the cursor, so the next
-// poll misses cache and pulls the fresh diff; there is no coherency risk
-// beyond the 30-second TTL.
+// Per-user KV cache in front of manage-app.list_delta. Only baseline snapshots
+// are cached. A delta for cursor X is mutable: mail can arrive after an empty
+// response, so caching it would hide that mail until the TTL expires.
 const INBOX_KEY_PREFIX = "inbox:v1:user:";
 const INBOX_TTL_SECONDS = 30;
 
@@ -1231,7 +1229,8 @@ async function handleInboxList(request, env, session, rawToken, ctx) {
   const kv = getKV(env);
   const cacheKey = `${INBOX_KEY_PREFIX}${session.userId}:s${since}:b${baseline ? 1 : 0}:l${limit}`;
 
-  if (kv) {
+  const cacheable = baseline || since === 0;
+  if (kv && cacheable) {
     const raw = await kvGet(env, cacheKey);
     if (raw) {
       let cached = null;
@@ -1267,7 +1266,7 @@ async function handleInboxList(request, env, session, rawToken, ctx) {
     }
     let parsed = null;
     try { parsed = JSON.parse(text); } catch {}
-    if (kv && parsed?.success) {
+    if (kv && cacheable && parsed?.success) {
       const store = { body: text, at: Date.now() };
       const write = (async () => {
         try {
