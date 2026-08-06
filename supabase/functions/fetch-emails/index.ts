@@ -513,9 +513,9 @@ async function fetchFromAccount(
       let householdPriorityUids: number[] = [];
       const totalMessages = (client.mailbox as any)?.exists || 0;
 
-      // Critical path FIRST: household approval messages must never be missed
-      // because a busy inbox spent the work budget scanning unrelated rows.
-      // One targeted search keeps the existing timeout unchanged.
+      // Supplemental recovery search: this finds household messages that may
+      // sit below the newest envelope window. It must never change delivery
+      // order; all confirmed Netflix UIDs are globally sorted newest-first.
       if (quickRefresh && hasBudget()) {
         const since = new Date();
         since.setDate(since.getDate() - 7);
@@ -574,14 +574,19 @@ async function fetchFromAccount(
       newestUids = Array.from(new Set(newestUids)).sort((a, b) => b - a);
       // Only ever process confirmed Netflix UIDs. Never fall back to newestUids —
       // that fetched arbitrary third-party mail (Reddit, etc.) during quick refresh.
-      // Preserve household search priority even when many newer Netflix mails
-      // exist; a final global UID sort would otherwise push the approval mail
-      // outside USER_REFRESH_MAX_UIDS and recreate the original bug.
-      const householdSet = new Set(householdPriorityUids);
-      const candidates = [...householdPriorityUids, ...netflixUids.filter((uid) => !householdSet.has(uid))];
+      // Strict delivery order: newest Netflix UID first, regardless of email
+      // category. Visibility filtering happens only after ingestion, so a
+      // password/account-change email cannot make an older household message
+      // appear ahead of a genuinely newer visible message.
+      const candidates = Array.from(new Set([...netflixUids, ...householdPriorityUids]))
+        .sort((a, b) => b - a);
       // Scan deeper than the final fetch limit. If the newest 50 Netflix UIDs
       // are already cached, older missed UIDs would otherwise never backfill.
-      const scanLimit = quickRefresh ? USER_REFRESH_MAX_UIDS : Math.min(Math.max(candidates.length, maxMessages * 3), 250);
+      // Inspect the complete confirmed candidate set for cache membership, but
+      // parse at most USER_REFRESH_MAX_UIDS uncached messages. Previously only
+      // the first 12 candidates were checked, so cached rows could crowd a
+      // missing mail out forever.
+      const scanLimit = quickRefresh ? Math.min(candidates.length, 250) : Math.min(Math.max(candidates.length, maxMessages * 3), 250);
       const uidsToCheck = candidates.slice(0, scanLimit);
       const uncachedUids: number[] = [];
       const fetchLimit = quickRefresh ? USER_REFRESH_MAX_UIDS : clampLimit(maxMessages, USER_REFRESH_MAX_UIDS, FULL_SYNC_MAX_UIDS);
