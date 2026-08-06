@@ -13719,6 +13719,7 @@ function EmailViewer() {
         }
       }
       let merged: Email[] = emailsRef.current;
+      let recoveredFromCache = false;
       if (synced) {
         // fetch-emails returns only newly fetched rows. Repaint from the full
         // cached inbox after sync so a zero-new refresh never blanks the inbox.
@@ -13728,6 +13729,18 @@ function EmailViewer() {
         setEmails(merged);
         setError(null);
         setLastUpdated(new Date());
+      } else {
+        // The IMAP sync can finish server-side just after a mobile request's
+        // transport deadline. Re-read the authoritative cache before reporting
+        // a failure so a successfully inserted newest mail appears immediately.
+        const cachedAfterDeadline = await loadCachedEmailsDirect(200).catch(() => null);
+        if (cachedAfterDeadline) {
+          merged = cachedAfterDeadline;
+          recoveredFromCache = true;
+          setEmails(merged);
+          setError(null);
+          setLastUpdated(new Date());
+        }
       }
       const visible = filterVisibleEmails(merged, profilePrefs, user);
       const newCount = visible.filter((e) => !beforeIds.has(e.id)).length;
@@ -13752,7 +13765,7 @@ function EmailViewer() {
           description: "Not visible in this inbox view",
           duration: 3000,
         });
-      } else if (!synced) {
+      } else if (!synced && !recoveredFromCache) {
         notify.error("Sync did not run", { description: "Worker and direct email function both failed", duration: 3400 });
       } else {
         notify.success(visible.length > 0 ? "No new mail yet" : "No Netflix emails yet", {
