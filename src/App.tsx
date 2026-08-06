@@ -305,10 +305,12 @@ const SESSION_CONFIG_KEY_FOR = (role: "admin" | "user") =>
 const SESSION_TIMEOUT_CACHE_KEY = (role: "admin" | "user") =>
   role === "admin" ? "admin_session_timeout_min" : "user_session_timeout_min";
 
-const DEFAULT_SESSION_TIMEOUT_MINUTES: Record<"admin" | "user", number> = {
-  admin: 60,
-  user: 5,
-};
+// NOTE: no hardcoded session length. The only source of truth is the
+// admin-configured `session_config` / `admin_session_config` value (cached in
+// sessionStorage for the tab) with the server-issued access-token expiry as
+// the fallback. A local default would show a different countdown on the
+// workflow-selection screen than inside a workflow.
+const SESSION_TIMEOUT_EVENT = "app:session-timeout-minutes";
 
 function readSessionNumber(key: "session_started_at" | "session_expires_at"): number {
   const value = Number(sessionGet(key as any) || "0");
@@ -333,19 +335,41 @@ function writeCachedTimeoutMinutes(role: "admin" | "user", minutes: number): voi
   try {
     if (Number.isFinite(minutes) && minutes > 0) {
       sessionSet(SESSION_TIMEOUT_CACHE_KEY(role) as any, String(Math.floor(minutes)));
+      try {
+        window.dispatchEvent(new CustomEvent(SESSION_TIMEOUT_EVENT, { detail: { role, minutes: Math.floor(minutes) } }));
+      } catch {}
     }
   } catch {}
+}
+
+// One shared in-flight fetch per role so the countdown pill and the timeout
+// guard never disagree (and never double-request the setting).
+const timeoutFetches: Partial<Record<"admin" | "user", Promise<number>>> = {};
+function loadSessionTimeoutMinutes(role: "admin" | "user"): Promise<number> {
+  if (!timeoutFetches[role]) {
+    timeoutFetches[role] = (async () => {
+      try {
+        const res = await apiCall("manage-app", { action: "get_settings", key: SESSION_CONFIG_KEY_FOR(role) });
+        const m = Number(res?.value?.timeoutMinutes) || 0;
+        if (m > 0) writeCachedTimeoutMinutes(role, m);
+        return m;
+      } catch {
+        return readCachedTimeoutMinutes(role);
+      } finally {
+        // allow a later refetch (e.g. admin changed the value) after this resolves
+        setTimeout(() => { delete timeoutFetches[role]; }, 30_000);
+      }
+    })();
+  }
+  return timeoutFetches[role]!;
 }
 
 function getSessionDeadline(role: "admin" | "user", minutes?: number): number {
   const started = readSessionNumber("session_started_at");
   const accessExpiresAt = readSessionNumber("session_expires_at");
   const explicit = Number.isFinite(Number(minutes)) && Number(minutes) > 0 ? Number(minutes) : 0;
-  // Prefer explicit (fresh from server) → cached configured → default. Using the
-  // default synchronously on remount would nuke long admin windows (e.g. 60min
-  // default vs 180min configured) as soon as elapsed exceeds 60min, before the
-  // async settings fetch had a chance to re-arm.
-  const configuredMinutes = explicit || readCachedTimeoutMinutes(role) || DEFAULT_SESSION_TIMEOUT_MINUTES[role];
+  // explicit (fresh from server) → cached configured → server access expiry.
+  const configuredMinutes = explicit || readCachedTimeoutMinutes(role);
   const configuredDeadline = started && configuredMinutes > 0 ? started + configuredMinutes * 60_000 : 0;
   return configuredDeadline || accessExpiresAt || 0;
 }
@@ -355,8 +379,9 @@ function getSessionTotalMinutes(role: "admin" | "user", minutes?: number): numbe
   const deadline = getSessionDeadline(role, minutes);
   if (started && deadline > started) return Math.max(1, Math.ceil((deadline - started) / 60_000));
   const explicit = Number.isFinite(Number(minutes)) && Number(minutes) > 0 ? Number(minutes) : 0;
-  return explicit || readCachedTimeoutMinutes(role) || DEFAULT_SESSION_TIMEOUT_MINUTES[role];
+  return explicit || readCachedTimeoutMinutes(role);
 }
+
 
 
 // --- Worker URL Types & Helpers ---
@@ -1047,6 +1072,13 @@ async function apiCall(functionName: string, body: any) {
     if (data?.refreshToken || data?.expiresAt) {
       storeSessionPair(data);
     }
+    // Authoritative auto-logout length shipped with every login response —
+    // cached before first paint so the countdown never shows a guessed default.
+    if (Number(data?.sessionTimeoutMinutes) > 0) {
+      const r = data?.user?.role === "admin" ? "admin" : "user";
+      writeCachedTimeoutMinutes(r, Math.floor(Number(data.sessionTimeoutMinutes)));
+    }
+
     // Plan-expiry surface: any endpoint (login, me, ...) that returns
     // { success: false, error: "plan_finished", ... } is broadcast globally
     // so a friendly "Plan Finished" screen can render — regardless of caller.
@@ -1338,16 +1370,12 @@ function useSessionTimeoutGuard(role: "admin" | "user", enabled = true) {
     armForDeadline(getSessionDeadline(role));
 
     (async () => {
-      let minutes = 0;
-      try {
-        const res = await apiCall("manage-app", { action: "get_settings", key: SESSION_CONFIG_KEY_FOR(role) });
-        minutes = Number(res?.value?.timeoutMinutes) || 0;
-      } catch {}
+      const minutes = await loadSessionTimeoutMinutes(role);
       if (cancelled) return;
-      if (minutes > 0) writeCachedTimeoutMinutes(role, minutes);
       if (!minutes || minutes <= 0) return;
       armForDeadline(getSessionDeadline(role, minutes));
     })();
+
 
     return () => {
       cancelled = true;
@@ -3346,7 +3374,7 @@ function TvSignInPage() {
 
 
 function SessionCountdown({ role }: { role: "admin" | "user" }) {
-  const [minutes, setMinutes] = useState<number>(() => DEFAULT_SESSION_TIMEOUT_MINUTES[role]);
+  const [minutes, setMinutes] = useState<number>(() => readCachedTimeoutMinutes(role));
   const [remainingMs, setRemainingMs] = useState<number>(() => {
     ensureSessionStarted();
     return Math.max(0, getSessionDeadline(role) - Date.now());
@@ -3355,15 +3383,21 @@ function SessionCountdown({ role }: { role: "admin" | "user" }) {
 
   useEffect(() => {
     let cancelled = false;
+    const onMinutes = (e: Event) => {
+      const d: any = (e as CustomEvent).detail;
+      if (!cancelled && d?.role === role && Number(d?.minutes) > 0) setMinutes(Number(d.minutes));
+    };
+    window.addEventListener(SESSION_TIMEOUT_EVENT, onMinutes as any);
     (async () => {
-      try {
-        const res = await apiCall("manage-app", { action: "get_settings", key: SESSION_CONFIG_KEY_FOR(role) });
-        const m = Number(res?.value?.timeoutMinutes) || 0;
-        if (!cancelled && m > 0) setMinutes(m);
-      } catch {}
+      const m = await loadSessionTimeoutMinutes(role);
+      if (!cancelled && m > 0) setMinutes(m);
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      window.removeEventListener(SESSION_TIMEOUT_EVENT, onMinutes as any);
+    };
   }, [role]);
+
 
   useEffect(() => {
     warnedRef.current = false;
@@ -8330,7 +8364,7 @@ function AdminPanel() {
         key: "session_config",
         value: { timeoutMinutes: m },
       });
-      setSessionTimeoutMin(String(m));
+      setSessionTimeoutMin(String(m)); writeCachedTimeoutMinutes("user", m);
       notify.success(m === 0 ? "Session timeout disabled" : `Session timeout set to ${m} min`);
     } catch (err) {
       notify.error(err instanceof Error ? err.message : "Failed to save session timeout");
@@ -8347,7 +8381,7 @@ function AdminPanel() {
         key: "admin_session_config",
         value: { timeoutMinutes: m },
       });
-      setAdminSessionTimeoutMin(String(m));
+      setAdminSessionTimeoutMin(String(m)); writeCachedTimeoutMinutes("admin", m);
       notify.success(m === 0 ? "Admin session timeout disabled" : `Admin auto-logout set to ${m} min`);
     } catch (err) {
       notify.error(err instanceof Error ? err.message : "Failed to save admin session timeout");

@@ -2895,6 +2895,16 @@ Deno.serve(async (originalReq) => {
         assignedAccounts: normalizedAssignedAccounts,
       });
 
+      // Ship the admin-configured auto-logout length with the login response so
+      // the client countdown never has to guess a default before its settings
+      // fetch resolves (that guess was the "5 min vs configured 7 min" bug).
+      let sessionTimeoutMinutes = 0;
+      try {
+        const { data: cfgRow } = await readSettingRow(supabase, user.role === "admin" ? "admin_session_config" : "session_config");
+        const m = Number((cfgRow?.value as any)?.timeoutMinutes);
+        if (Number.isFinite(m) && m > 0) sessionTimeoutMinutes = Math.floor(m);
+      } catch {}
+
       const [workerUrls, tvFeatureEnabled] = await Promise.all([workerUrlsPromise, tvFeaturePromise]);
 
       return new Response(JSON.stringify({
@@ -2904,7 +2914,9 @@ Deno.serve(async (originalReq) => {
         refreshToken: pair.refreshToken,
         refreshExpiresAt: pair.refreshExpMs,
         sessionFamilyId: pair.familyId,
+        sessionTimeoutMinutes,
         workerUrls,
+
         user: {
           id: user.id, username: user.username, name: user.name, role: user.role,
           mustChangePassword: user.must_change_password,
@@ -3311,6 +3323,7 @@ Deno.serve(async (originalReq) => {
         refreshToken: pair.refreshToken,
         refreshExpiresAt: pair.refreshExpMs,
         sessionFamilyId: pair.familyId,
+        sessionTimeoutMinutes: Math.floor(adminSessionTtlMs / 60_000),
         workerUrls,
         user: {
           id: user.id,
@@ -4011,6 +4024,7 @@ Deno.serve(async (originalReq) => {
         refreshToken: pair.refreshToken,
         refreshExpiresAt: pair.refreshExpMs,
         sessionFamilyId: pair.familyId,
+        sessionTimeoutMinutes: freeMinutes,
         workerUrls,
         user: {
           id: user.id, username: user.username, name: user.name, role: user.role,
