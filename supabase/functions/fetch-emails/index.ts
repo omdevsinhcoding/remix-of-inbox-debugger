@@ -761,6 +761,10 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
     }
 
     allEmails.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    // A click means "check the latest mail", not backfill every account. Even
+    // when several IMAP accounts run in parallel, publish only the single newest
+    // eligible message across the whole assigned inbox.
+    if (quickRefresh && allEmails.length > 1) allEmails.splice(1);
 
     let inserted = 0;
     if (allEmails.length > 0) {
