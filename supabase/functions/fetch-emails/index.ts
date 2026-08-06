@@ -54,10 +54,15 @@ function extractOtpCode(subject: string, body: string): string | null {
 
 const FULL_SYNC_MAX_UIDS = 50;
 const USER_REFRESH_MAX_UIDS = 12;
-// A manual refresh publishes at most one newly delivered, eligible Netflix mail.
-// A few candidates are allowed only so a newest message for another recipient
-// does not hide the newest eligible one.
+// A manual refresh publishes the newly delivered, still-missing Netflix mails
+// (any category: sign-in, household, promo, device alerts). It walks a bounded
+// window of newest UIDs so mail that landed between two refreshes is not lost.
 const QUICK_REFRESH_CANDIDATE_UIDS = 12;
+// How many already-cached UIDs a click refresh may walk past before it stops.
+const QUICK_REFRESH_SKIP_WINDOW = 25;
+// How many new mails a single click refresh ingests (keeps it fast).
+const QUICK_REFRESH_MAX_INGEST = 3;
+
 // Budgets are measured AFTER the IMAP connection is established (Gmail's TLS
 // handshake + greeting alone can take 5-9s, which used to eat the whole budget
 // and made every quick refresh scan 0 messages).
@@ -575,10 +580,12 @@ async function fetchFromAccount(
         const prefixedId = `${accountLabel}:${uid}`;
         if (cachedIds.has(plainId) || cachedIds.has(prefixedId)) {
           skipped++;
-          // Newest-first creates a synchronization frontier. Once a cached UID
-          // is reached during a click refresh, everything below it is history;
-          // do not turn a refresh into an old-mail backfill.
-          if (quickRefresh) break;
+          // Do NOT stop at the first cached UID on a click refresh. A cached
+          // newest UID used to end the scan instantly, so any mail that arrived
+          // between two refreshes (promo, household, "new device") was skipped
+          // forever. Keep walking a bounded window of newest candidates and pick
+          // up every still-missing one.
+          if (quickRefresh && skipped >= QUICK_REFRESH_SKIP_WINDOW) break;
         } else {
           uncachedUids.push(uid);
         }
@@ -587,7 +594,8 @@ async function fetchFromAccount(
       console.log(`[${accountLabel}] Fetching ${uncachedUids.length} uncached candidate UIDs, ${skipped} already cached (${uidsToCheck.length}/${candidates.length} scanned)`);
 
       for (const uid of uncachedUids) {
-        if (quickRefresh && emails.length >= 1) break;
+        if (quickRefresh && emails.length >= QUICK_REFRESH_MAX_INGEST) break;
+
         if (!hasBudget()) {
           console.log(`[${accountLabel}] Timed out, stopping fetch`);
           break;
@@ -764,10 +772,12 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
     }
 
     allEmails.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    // A click means "check the latest mail", not backfill every account. Even
-    // when several IMAP accounts run in parallel, publish only the single newest
-    // eligible message across the whole assigned inbox.
-    if (quickRefresh && allEmails.length > 1) allEmails.splice(1);
+    // A click refresh publishes every newly delivered mail it found (bounded by
+    // QUICK_REFRESH_MAX_INGEST per account) — truncating to a single message used
+    // to permanently drop anything that arrived between two refreshes.
+    const quickPublishCap = QUICK_REFRESH_MAX_INGEST * Math.max(1, accounts.length);
+    if (quickRefresh && allEmails.length > quickPublishCap) allEmails.splice(quickPublishCap);
+
 
     let inserted = 0;
     if (allEmails.length > 0) {
