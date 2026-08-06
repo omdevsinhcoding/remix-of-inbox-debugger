@@ -4419,7 +4419,6 @@ function filterVisibleEmails(list: Email[], _prefs?: UserProfilePrefs | null, vi
     //    Admin toggle irrelevant. See banner above. Admin panel keeps them.
     if (nonAdmin && cat === "account_update") return false;
     if (nonAdmin && cat === "password_reset") return false;
-    if (nonAdmin && viewer?.isFree && cat !== "signin") return false;
     if (hideSignin && cat === "signin") return false;
     if (hideReset && cat === "other") return false;
     return true;

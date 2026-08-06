@@ -60,8 +60,10 @@ const USER_REFRESH_MAX_UIDS = 12;
 const QUICK_REFRESH_CANDIDATE_UIDS = 12;
 // How many already-cached UIDs a click refresh may walk past before it stops.
 const QUICK_REFRESH_SKIP_WINDOW = 25;
-// How many new mails a single click refresh ingests (keeps it fast).
-const QUICK_REFRESH_MAX_INGEST = 3;
+// A click refresh publishes the latest two eligible messages for every
+// assigned logical account. Shared Gmail inboxes may represent several labels,
+// so this quota must be enforced per label rather than per IMAP connection.
+const QUICK_REFRESH_MAX_ELIGIBLE_PER_ACCOUNT = 2;
 
 // Budgets are measured AFTER the IMAP connection is established (Gmail's TLS
 // handshake + greeting alone can take 5-9s, which used to eat the whole budget
@@ -542,7 +544,11 @@ async function fetchFromAccount(
         if (netflixUids.length > 0) console.log(`[${accountLabel}] Fast latest-envelope scan found ${netflixUids.length}`);
       }
 
-      if (netflixUids.length === 0 && hasBudget()) {
+      // The small envelope window is only a latency fast path. Always reconcile
+      // it with Gmail's sender search while budget remains: with several logical
+      // accounts in one inbox, the latest eight inbox rows may not contain two
+      // messages for every assigned recipient.
+      if (hasBudget()) {
         const since = new Date();
         since.setDate(since.getDate() - 7);
         for (const term of ["netflix.com", "netflix"]) {
@@ -600,11 +606,11 @@ async function fetchFromAccount(
         : [{ label: accountLabel, host: imapHost, port: imapPort, user: imapUser, password: imapPassword, recipientFilters }];
       for (const uid of uidsToCheck) {
         const plainId = String(uid);
-        // A physical inbox can represent several logical accounts. The UID is
-        // complete only when every possible logical label already has it;
-        // otherwise fetch it once and route it using the parsed recipient.
-        const cachedForEveryVariant = accountVariants.every((acc) => cachedIds.has(`${acc.label}:${uid}`));
-        if (cachedIds.has(plainId) || cachedForEveryVariant) {
+        // One physical UID belongs to exactly one logical account after
+        // recipient routing. If any variant already owns it, it is cached;
+        // requiring every label to own the same UID caused endless refetches.
+        const cachedForAnyVariant = accountVariants.some((acc) => cachedIds.has(`${acc.label}:${uid}`));
+        if (cachedIds.has(plainId) || cachedForAnyVariant) {
           skipped++;
           // Do NOT stop at the first cached UID on a click refresh. A cached
           // newest UID used to end the scan instantly, so any mail that arrived
@@ -619,8 +625,13 @@ async function fetchFromAccount(
       }
       console.log(`[${accountLabel}] Fetching ${uncachedUids.length} uncached candidate UIDs, ${skipped} already cached (${uidsToCheck.length}/${candidates.length} scanned)`);
 
+      const eligibleByAccount = new Map(accountVariants.map((acc) => [acc.label, 0]));
+      const allAccountQuotasFilled = () => accountVariants.every(
+        (acc) => (eligibleByAccount.get(acc.label) || 0) >= QUICK_REFRESH_MAX_ELIGIBLE_PER_ACCOUNT,
+      );
+
       for (const uid of uncachedUids) {
-        if (quickRefresh && emails.length >= QUICK_REFRESH_MAX_INGEST) break;
+        if (quickRefresh && allAccountQuotasFilled()) break;
 
         if (!hasBudget()) {
           console.log(`[${accountLabel}] Timed out, stopping fetch`);
@@ -651,7 +662,7 @@ async function fetchFromAccount(
           const otpCode = extractOtpCode(subjectText, bodyText);
           const stableId = `${matchedAccount.label}:${uid}`;
 
-          emails.push({
+          const email = {
             id: stableId,
             message_id: parsed.messageId || null,
             subject: parsed.subject || fullMsg.envelope?.subject || "",
@@ -662,7 +673,15 @@ async function fetchFromAccount(
             preview: redactEmailsText(bodyText.length > 100 ? `${bodyText.substring(0, 100)}...` : bodyText),
             html: redactEmailsHtml(parsed.html || parsed.textAsHtml || `<pre>${bodyText}</pre>`),
             account_label: matchedAccount.label,
-          });
+          };
+          const visibility = classifyEmailForVisibility(email);
+          const eligibleForUser = visibility !== "password_reset" && visibility !== "account_update";
+          if (!quickRefresh || !eligibleForUser || (eligibleByAccount.get(matchedAccount.label) || 0) < QUICK_REFRESH_MAX_ELIGIBLE_PER_ACCOUNT) {
+            emails.push(email);
+          }
+          if (eligibleForUser) {
+            eligibleByAccount.set(matchedAccount.label, (eligibleByAccount.get(matchedAccount.label) || 0) + 1);
+          }
         } catch (parseErr) {
           const errMsg = parseErr instanceof Error ? parseErr.message : String(parseErr);
           console.error(`[${accountLabel}] Fetch error UID ${uid}: ${errMsg}`);
@@ -816,11 +835,9 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
     }
 
     allEmails.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    // A click refresh publishes every newly delivered mail it found (bounded by
-    // QUICK_REFRESH_MAX_INGEST per account) — truncating to a single message used
-    // to permanently drop anything that arrived between two refreshes.
-    const quickPublishCap = QUICK_REFRESH_MAX_INGEST * Math.max(1, accounts.length);
-    if (quickRefresh && allEmails.length > quickPublishCap) allEmails.splice(quickPublishCap);
+    // fetchFromAccount already enforces two eligible rows per logical account.
+    // Do not apply a second global cap: it would let the busiest inbox crowd out
+    // the other accounts assigned to the same profile.
 
 
     let inserted = 0;
