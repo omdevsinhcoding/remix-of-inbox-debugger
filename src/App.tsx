@@ -13835,6 +13835,7 @@ function EmailViewer() {
   // ============================================================================
   const idbRef = useRef<Awaited<ReturnType<typeof openInboxDB>> | null>(null);
   const instantInboxRunKeyRef = useRef("");
+  const instantInboxGenerationRef = useRef(0);
   const instantInboxAccountKey = useMemo(
     () => refreshAccountLabels === undefined
       ? "unknown"
@@ -13842,6 +13843,8 @@ function EmailViewer() {
     [refreshAccountLabels],
   );
   useEffect(() => {
+    const generation = ++instantInboxGenerationRef.current;
+    const isCurrentRun = () => instantInboxGenerationRef.current === generation;
     // Hard-gate: no Gmail/IMAP work unless the user is in the Gmail workflow.
     // TV and Direct-Link views must never trigger list_delta, IDB paint,
     // worker refresh, or any fetch-emails call.
@@ -13854,8 +13857,10 @@ function EmailViewer() {
       (async () => {
         try {
           const db = await openInboxDB(user.id);
+          if (!isCurrentRun()) return;
           idbRef.current = db;
           const cached = await readLatestEmails(db, 200, undefined);
+          if (!isCurrentRun()) return;
           if (cached.length > 0) {
             setEmails(cached as unknown as Email[]);
             setLastUpdated(new Date());
@@ -13875,13 +13880,16 @@ function EmailViewer() {
       let db: Awaited<ReturnType<typeof openInboxDB>> | null = null;
       try {
         db = await openInboxDB(user.id);
+        if (!isCurrentRun()) return;
         idbRef.current = db;
         
         await purgeEmailsOutsideScope(db, refreshAccountLabels);
         await refreshEmailFiltersForViewer();
+        if (!isCurrentRun()) return;
 
         // ---- (1) Instant paint from IDB ----
         const cached = await readLatestEmails(db, 200, refreshAccountLabels);
+        if (!isCurrentRun()) return;
         
         if (cached.length > 0) {
           setEmails(cached as unknown as Email[]);
@@ -13900,6 +13908,7 @@ function EmailViewer() {
         const cursor = cached.length === 0 ? 0 : storedCursor;
         const started = performance.now();
         const delta = await fetchListDelta({ since: cursor, limit: cursor === 0 ? 1000 : 500 });
+        if (!isCurrentRun()) return;
         pushDiag({
           ts: Date.now(),
           kind: "sync",
@@ -13915,6 +13924,7 @@ function EmailViewer() {
         if (rows.length > 0 || removedIds.length > 0 || newCursor > cursor) {
           await writeDelta(db, { rows, removedIds, newCursor });
           const fresh = await readLatestEmails(db, 200, refreshAccountLabels);
+          if (!isCurrentRun()) return;
           
           if (fresh.length > 0) {
             setEmails(fresh as unknown as Email[]);
@@ -13934,7 +13944,7 @@ function EmailViewer() {
         pushDiag({ ts: Date.now(), kind: "cache", endpoint: "instant-inbox", error: msg });
       } finally {
         // Start the countdown only after the instant cache/delta load has had a chance to paint.
-        markInboxReady();
+        if (isCurrentRun()) markInboxReady();
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
