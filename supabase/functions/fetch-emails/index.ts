@@ -513,24 +513,6 @@ async function fetchFromAccount(
       let householdPriorityUids: number[] = [];
       const totalMessages = (client.mailbox as any)?.exists || 0;
 
-      // Supplemental recovery search: this finds household messages that may
-      // sit below the newest envelope window. It must never change delivery
-      // order; all confirmed Netflix UIDs are globally sorted newest-first.
-      if (quickRefresh && hasBudget()) {
-        const since = new Date();
-        since.setDate(since.getDate() - 7);
-        try {
-          const matches = await client.search({ subject: "household", since }, { uid: true });
-          householdPriorityUids = Array.from(new Set((matches || []) as number[])).sort((a, b) => b - a);
-          if (householdPriorityUids.length > 0) {
-            netflixUids.push(...householdPriorityUids);
-            console.log(`[${accountLabel}] Household search found ${householdPriorityUids.length}`);
-          }
-        } catch (searchErr) {
-          console.log(`[${accountLabel}] Household search failed:`, searchErr);
-        }
-      }
-
       // Fast path: newly delivered OTP emails are almost always in the newest inbox rows.
       // Fetching envelopes for the last few messages is much faster than a server-side IMAP search.
       if (totalMessages > 0 && hasBudget()) {
@@ -547,6 +529,24 @@ async function fetchFromAccount(
           }
         }
         if (netflixUids.length > 0) console.log(`[${accountLabel}] Latest inbox scan found ${netflixUids.length}`);
+      }
+
+      // Supplemental recovery runs only after newest mail has been inspected.
+      // It can backfill an older missed household message, but cannot reorder it
+      // ahead of newer Netflix mail.
+      if (quickRefresh && hasBudget()) {
+        const since = new Date();
+        since.setDate(since.getDate() - 7);
+        try {
+          const matches = await client.search({ subject: "household", since }, { uid: true });
+          householdPriorityUids = Array.from(new Set((matches || []) as number[]));
+          if (householdPriorityUids.length > 0) {
+            netflixUids.push(...householdPriorityUids);
+            console.log(`[${accountLabel}] Household recovery search found ${householdPriorityUids.length}`);
+          }
+        } catch (searchErr) {
+          console.log(`[${accountLabel}] Household recovery search failed:`, searchErr);
+        }
       }
 
       // A broad search is unnecessary when the newest-envelope scan already
