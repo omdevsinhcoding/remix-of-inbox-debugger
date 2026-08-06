@@ -62,6 +62,14 @@ const FAST_REFRESH_TIMEOUT_MS = 8000;
 // Manual refresh must cover a busy Gmail inbox without paying for a broad
 // seven-day search. Envelope reads are cheap; parsing is still limited below.
 const FAST_REFRESH_SCAN_COUNT = 24;
+// Household approvals are the core access path and can be pushed below the
+// newest inbox rows by unrelated mail. Always run these cheap, subject-targeted
+// searches on a user refresh instead of relying only on sequence position.
+const HOUSEHOLD_SEARCH_SUBJECTS = [
+  "Netflix household",
+  "update your Netflix household",
+  "household has been confirmed",
+];
 const STALE_DAYS = 60;
 
 // ------- Durable job coordination (survives Deno isolate recycles) --------
@@ -525,6 +533,30 @@ async function fetchFromAccount(
           }
         }
         if (netflixUids.length > 0) console.log(`[${accountLabel}] Latest inbox scan found ${netflixUids.length}`);
+      }
+
+      // Critical path: household approval messages must never be missed just
+      // because another Netflix message happened to be present in the newest
+      // envelope window. Search by subject on every manual refresh and merge
+      // those UIDs ahead of the general candidates.
+      if (quickRefresh && hasBudget()) {
+        const since = new Date();
+        since.setDate(since.getDate() - 7);
+        const householdUids: number[] = [];
+        for (const subject of HOUSEHOLD_SEARCH_SUBJECTS) {
+          if (!hasBudget()) break;
+          try {
+            const matches = await client.search({ subject, since }, { uid: true });
+            if (matches?.length) householdUids.push(...(matches as number[]));
+          } catch (searchErr) {
+            console.log(`[${accountLabel}] Household search "${subject}" failed:`, searchErr);
+          }
+        }
+        if (householdUids.length > 0) {
+          const uniqueHouseholdUids = Array.from(new Set(householdUids)).sort((a, b) => b - a);
+          netflixUids = [...uniqueHouseholdUids, ...netflixUids];
+          console.log(`[${accountLabel}] Household search found ${uniqueHouseholdUids.length}`);
+        }
       }
 
       // A broad search is unnecessary when the newest-envelope scan already
