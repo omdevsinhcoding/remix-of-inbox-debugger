@@ -1363,16 +1363,12 @@ function useSessionTimeoutGuard(role: "admin" | "user", enabled = true) {
     armForDeadline(getSessionDeadline(role));
 
     (async () => {
-      let minutes = 0;
-      try {
-        const res = await apiCall("manage-app", { action: "get_settings", key: SESSION_CONFIG_KEY_FOR(role) });
-        minutes = Number(res?.value?.timeoutMinutes) || 0;
-      } catch {}
+      const minutes = await loadSessionTimeoutMinutes(role);
       if (cancelled) return;
-      if (minutes > 0) writeCachedTimeoutMinutes(role, minutes);
       if (!minutes || minutes <= 0) return;
       armForDeadline(getSessionDeadline(role, minutes));
     })();
+
 
     return () => {
       cancelled = true;
