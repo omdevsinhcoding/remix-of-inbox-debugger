@@ -54,10 +54,15 @@ function extractOtpCode(subject: string, body: string): string | null {
 
 const FULL_SYNC_MAX_UIDS = 50;
 const USER_REFRESH_MAX_UIDS = 12;
-// A manual refresh publishes at most one newly delivered, eligible Netflix mail.
-// A few candidates are allowed only so a newest message for another recipient
-// does not hide the newest eligible one.
+// A manual refresh publishes the newly delivered, still-missing Netflix mails
+// (any category: sign-in, household, promo, device alerts). It walks a bounded
+// window of newest UIDs so mail that landed between two refreshes is not lost.
 const QUICK_REFRESH_CANDIDATE_UIDS = 12;
+// How many already-cached UIDs a click refresh may walk past before it stops.
+const QUICK_REFRESH_SKIP_WINDOW = 25;
+// How many new mails a single click refresh ingests (keeps it fast).
+const QUICK_REFRESH_MAX_INGEST = 3;
+
 // Budgets are measured AFTER the IMAP connection is established (Gmail's TLS
 // handshake + greeting alone can take 5-9s, which used to eat the whole budget
 // and made every quick refresh scan 0 messages).
