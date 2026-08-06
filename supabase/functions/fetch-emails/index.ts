@@ -54,6 +54,10 @@ function extractOtpCode(subject: string, body: string): string | null {
 
 const FULL_SYNC_MAX_UIDS = 50;
 const USER_REFRESH_MAX_UIDS = 12;
+// Manual refresh must only pull the newest mail(s), not a backlog of 8-9 older
+// messages. A tiny window (not 1) so a recipient-filtered newest UID still lets
+// the genuinely newest visible mail through in the same pass.
+const QUICK_REFRESH_MAX_UIDS = 2;
 // Budgets are measured AFTER the IMAP connection is established (Gmail's TLS
 // handshake + greeting alone can take 5-9s, which used to eat the whole budget
 // and made every quick refresh scan 0 messages).
@@ -569,7 +573,7 @@ async function fetchFromAccount(
       const scanLimit = quickRefresh ? Math.min(candidates.length, 250) : Math.min(Math.max(candidates.length, maxMessages * 3), 250);
       const uidsToCheck = candidates.slice(0, scanLimit);
       const uncachedUids: number[] = [];
-      const fetchLimit = quickRefresh ? USER_REFRESH_MAX_UIDS : clampLimit(maxMessages, USER_REFRESH_MAX_UIDS, FULL_SYNC_MAX_UIDS);
+      const fetchLimit = quickRefresh ? QUICK_REFRESH_MAX_UIDS : clampLimit(maxMessages, USER_REFRESH_MAX_UIDS, FULL_SYNC_MAX_UIDS);
       for (const uid of uidsToCheck) {
         const plainId = String(uid);
         const prefixedId = `${accountLabel}:${uid}`;
