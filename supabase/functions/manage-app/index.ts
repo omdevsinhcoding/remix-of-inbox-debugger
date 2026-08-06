@@ -3323,6 +3323,7 @@ Deno.serve(async (originalReq) => {
         refreshToken: pair.refreshToken,
         refreshExpiresAt: pair.refreshExpMs,
         sessionFamilyId: pair.familyId,
+        sessionTimeoutMinutes: Math.floor(adminSessionTtlMs / 60_000),
         workerUrls,
         user: {
           id: user.id,
