@@ -24,7 +24,7 @@ import { execSync } from "node:child_process";
 // SERVER_VERSION is bumped whenever the on-wire /health schema, timeout
 // budget, or reporting protocol changes. If /health shows a version older
 // than this constant in the repo, the VPS is running a stale build.
-const SERVER_VERSION = "2026.08.07-13";
+const SERVER_VERSION = "2026.08.05-8";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 let PACKAGE_VERSION = "unknown";
@@ -268,64 +268,21 @@ async function runTvJob(eventId, runnerToken) {
     });
 
     stage = "open_netflix_tv8";
-    // Start PIN detection as soon as Netflix commits the document. Waiting for
-    // DOMContentLoaded also waits on unrelated scripts even though the input is
-    // already usable, adding several seconds to otherwise successful attempts.
-    await page.goto("https://www.netflix.com/tv8", { waitUntil: "commit", timeout: Math.min(9000, remaining()) });
+    await page.goto("https://www.netflix.com/tv8", { waitUntil: "domcontentloaded", timeout: Math.min(9000, remaining()) });
     mark.nav = elapsed();
 
     stage = "wait_code_input";
-    // Netflix rotates TV code input markup; keep a broad, prioritized selector list.
-    const selectorSets = [
-      'input.pin-number-input',
-      'input[data-uia="pin-number-input"]',
-      'input[data-uia^="pin-number"]',
-      'input[aria-label*="PIN" i]',
-      'input[aria-label*="code" i]',
-      'input[maxlength="1"]',
-      'input[type="tel"][maxlength="1"]',
-      'input[type="number"][maxlength="1"]',
-      'input[type="text"][maxlength="1"]',
-      'input[autocomplete="one-time-code"]',
-      'input[autocomplete="off"][maxlength="1"]',
-      'input[inputmode="numeric"]',
-      'input[placeholder*="code" i]',
-      'input[placeholder*="PIN" i]',
-    ];
-    // Only target actionable fields. Netflix keeps hidden/transitioning inputs
-    // in the DOM; the previous broad locator counted those too, so its fallback
-    // could spend the whole attempt filling a hidden non-PIN field.
-    const combinedSelector = selectorSets.map((selector) => `${selector}:visible`).join(", ");
-    let digitInputs = page.locator(combinedSelector);
-    // One bounded wait only. Reloading with `networkidle` after this wait used
-    // to add another 6–11 seconds and could replace a page that was already
-    // mounting its PIN controls. A fresh context has no stale page to repair.
-    let hasCodeInput = await digitInputs.first().waitFor({ timeout: Math.min(6500, remaining()) }).then(() => true).catch(() => false);
-    if (!hasCodeInput) {
-      // Last resort: scan every input for code/PIN-like attributes.
-      const allInputs = await page.locator('input').all();
-      const digitLike = [];
-      for (const el of allInputs) {
-        const max = String(await el.getAttribute("maxlength").catch(() => "") || "");
-        const type = String(await el.getAttribute("type").catch(() => "") || "").toLowerCase();
-        const inputmode = String(await el.getAttribute("inputmode").catch(() => "") || "").toLowerCase();
-        const aria = String(await el.getAttribute("aria-label").catch(() => "") || "").toLowerCase();
-        const placeholder = String(await el.getAttribute("placeholder").catch(() => "") || "").toLowerCase();
-        if (max === "1" || type === "tel" || inputmode === "numeric" || aria.includes("pin") || aria.includes("code") || placeholder.includes("pin") || placeholder.includes("code")) {
-          digitLike.push(el);
-        }
-      }
-      if (digitLike.length >= 8) {
-        // Re-target with a stable single-digit selector that the page actually contains.
-        digitInputs = page.locator('input[maxlength="1"]:visible, input[type="tel"]:visible, input[inputmode="numeric"]:visible');
-        hasCodeInput = true;
-      }
+    const digitInputs = page.locator('input.pin-number-input, input[aria-label^="PIN entry input"], input[maxlength="1"], input[data-uia^="pin-number"], input[type="tel"][maxlength="1"]');
+    let hasCodeInput = await digitInputs.first().waitFor({ timeout: Math.min(7000, remaining()) }).then(() => true).catch(() => false);
+    if (!hasCodeInput && remaining() > 6000 && !/login|unsupportedbrowser/i.test(page.url())) {
+      await page.goto("https://www.netflix.com/tv8", { waitUntil: "domcontentloaded", timeout: Math.min(6000, remaining()) }).catch(() => {});
+      hasCodeInput = await digitInputs.first().waitFor({ timeout: Math.min(5000, remaining()) }).then(() => true).catch(() => false);
     }
     if (!hasCodeInput) {
       const bodyText = (await page.locator("body").innerText().catch(() => "")).toLowerCase();
       const url = page.url();
       const timing = `timing fetch=${mark.fetch}ms browser=${mark.browser}ms nav=${mark.nav}ms total=${elapsed()}ms`;
-      const looksExpired = /sign ?in|log ?in|password|email|expired|unsupported|not available|something went wrong|your account has been|verify/i.test(bodyText) || /login|unsupportedbrowser/i.test(url);
+      const looksExpired = /sign ?in|log ?in|password|email|expired|unsupported|not available|something went wrong/i.test(bodyText) || /login|unsupportedbrowser/i.test(url);
       await safeReport({
         status: looksExpired ? "cookies_expired" : "error",
         result: looksExpired ? "cookies_expired" : "no_code_input",
@@ -341,124 +298,60 @@ async function runTvJob(eventId, runnerToken) {
     // not actionable). Focus the first input and type via keyboard so
     // auto-advance is handled the same way a real remote/keyboard would.
     try {
-      await digitInputs.first().click({ timeout: Math.min(800, remaining()), force: true });
-      // insertText only emits an input event. Netflix enables Continue from its
-      // key-driven React state, so use real keyboard events for every digit.
-      await page.keyboard.type(code, { delay: 18 });
+      await digitInputs.first().focus({ timeout: Math.min(800, remaining()) });
+      await page.keyboard.type(code, { delay: 20 });
       const enteredCode = await digitInputs.evaluateAll((inputs) => inputs
-        .filter((input) => {
-          if (!(input instanceof HTMLInputElement)) return false;
-          const rect = input.getBoundingClientRect();
-          return rect.width > 0 && rect.height > 0;
-        })
-        .map((input) => input.value)
+        .map((input) => input instanceof HTMLInputElement ? input.value : "")
         .join("")
         .replace(/\D/g, ""));
       if (enteredCode !== code) throw new Error("keyboard_input_incomplete");
     } catch {
-      // Atomic fallback: update only the visible matched controls through the
-      // native setter and dispatch the events React listens for. This avoids
-      // eight serial Playwright actionability waits on Netflix's animated PIN
-      // boxes while preserving the site's own state/update flow.
-      const injected = await digitInputs.evaluateAll((inputs, value) => {
-        const visible = inputs.filter((input) => {
-          if (!(input instanceof HTMLInputElement)) return false;
-          const rect = input.getBoundingClientRect();
-          const style = getComputedStyle(input);
-          return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden" && !input.disabled && !input.readOnly;
-        });
-        if (visible.length === 0) return false;
-        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
-        if (!setter) return false;
-        const targets = visible.length >= 8 ? visible.slice(0, 8) : visible.slice(0, 1);
-        targets.forEach((input, index) => {
-          setter.call(input, targets.length === 1 ? value : value[index]);
-          input.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: targets.length === 1 ? value : value[index] }));
-          input.dispatchEvent(new Event("change", { bubbles: true }));
-        });
-        targets.at(-1)?.dispatchEvent(new Event("blur", { bubbles: true }));
-        return true;
-      }, code);
-      if (!injected) throw new Error(`pin_injection_failed_visible_count_${count}`);
+      // Fallback for pages where synthetic keyboard events don't trigger
+      // Netflix's auto-advance logic reliably.
+      if (count >= 8) {
+        for (let i = 0; i < 8; i++) {
+          await digitInputs.nth(i).fill(code[i], { timeout: Math.min(800, remaining()), force: true });
+        }
+      } else {
+        await digitInputs.first().fill(code, { timeout: Math.min(1000, remaining()), force: true });
+      }
     }
     mark.fill = elapsed();
 
     stage = "submit_code";
-    const findReadySubmit = () => page.evaluate(() => {
-      const candidates = Array.from(document.querySelectorAll('button, [role="button"], input[type="submit"]'));
-      const index = candidates.findIndex((element) => {
-        const rect = element.getBoundingClientRect();
-        const label = `${element.textContent || ""} ${element.getAttribute("value") || ""} ${element.getAttribute("aria-label") || ""} ${element.getAttribute("data-uia") || ""}`;
-        const isSubmit = /enter code|continue|submit|tvsignup.*continue/i.test(label) || element.getAttribute("type") === "submit";
-        const disabled = element instanceof HTMLButtonElement || element instanceof HTMLInputElement
-          ? element.disabled
-          : element.getAttribute("aria-disabled") === "true";
-        return isSubmit && !disabled && rect.width > 0 && rect.height > 0;
+    const submitReady = await page.waitForFunction(() => {
+      const buttons = Array.from(document.querySelectorAll("button"));
+      const btn = buttons.find((b) => /enter code|continue/i.test(b.textContent || "") || b.classList.contains("tvsignup-continue-button"));
+      if (!btn || btn.disabled) return false;
+      const rect = btn.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    }, null, { timeout: Math.min(2500, remaining()) }).then(() => true).catch(() => false);
+    if (!submitReady) throw new Error("submit_button_not_ready");
+    await page.evaluate(() => {
+      const buttons = Array.from(document.querySelectorAll("button"));
+      const btn = buttons.find((button) => {
+        const rect = button.getBoundingClientRect();
+        return !button.disabled && rect.width > 0 && rect.height > 0 &&
+          (/enter code|continue/i.test(button.textContent || "") || button.classList.contains("tvsignup-continue-button"));
       });
-      return index;
+      if (!btn) throw new Error("submit_button_missing");
+      btn.click();
     });
-    const submitDeadline = now() + Math.min(900, remaining());
-    let submitIndex = -1;
-    while (now() < submitDeadline && submitIndex < 0) {
-      submitIndex = await findReadySubmit().catch(() => -1);
-      if (submitIndex < 0) await page.waitForTimeout(60);
-    }
-    const triggerSubmit = async () => {
-      await page.evaluate(() => {
-        const candidates = Array.from(document.querySelectorAll('button, [role="button"], input[type="submit"]'));
-        const control = candidates.find((element) => {
-          const rect = element.getBoundingClientRect();
-          const label = `${element.textContent || ""} ${element.getAttribute("value") || ""} ${element.getAttribute("aria-label") || ""} ${element.getAttribute("data-uia") || ""}`;
-          const isSubmit = /enter code|continue|submit|tvsignup.*continue/i.test(label) || element.getAttribute("type") === "submit";
-          const disabled = element instanceof HTMLButtonElement || element instanceof HTMLInputElement
-            ? element.disabled
-            : element.getAttribute("aria-disabled") === "true";
-          return isSubmit && !disabled && rect.width > 0 && rect.height > 0;
-        });
-        if (control instanceof HTMLElement) {
-          control.click();
-          return;
-        }
-        const active = document.activeElement;
-        const form = active instanceof HTMLInputElement ? active.form : document.querySelector("form");
-        if (form instanceof HTMLFormElement) form.requestSubmit();
-      });
-      // Enter is a no-op after a successful button/form submission, and is the
-      // correct fallback for Netflix variants whose controls live outside a form.
-      if (submitIndex < 0) await page.keyboard.press("Enter");
-    };
-    await triggerSubmit();
     mark.submit = elapsed();
 
     stage = "wait_netflix_result";
     let bodyText = "";
-    const resultStarted = now();
-    const deadline = resultStarted + Math.min(5200, remaining());
-    let resubmitted = false;
-    const hasConfirmedTvSuccess = (text) => /(?:your |this )?(?:tv|device)\s+(?:is\s+|has\s+been\s+)?(?:now\s+)?(?:signed\s+in|activated|linked|connected)|(?:signed\s+in|activated|linked|connected)\s+(?:successfully\s+)?(?:to|on)\s+(?:your\s+)?(?:tv|device)|(?:success|all set)[!.\s-]+(?:your |this )?(?:tv|device)/i.test(text);
+    const deadline = now() + Math.min(9000, remaining());
     while (now() < deadline) {
-      await page.waitForTimeout(120);
+      await page.waitForTimeout(180);
       bodyText = (await page.locator("body").innerText().catch(() => "")).toLowerCase();
-      if (hasConfirmedTvSuccess(bodyText) || /invalid|incorrect|wrong|not recognized|try again|expired/i.test(bodyText)) break;
-      // If Netflix kept the same filled PIN UI for 1.8s, the first submit was
-      // swallowed by a React transition. Re-submit exactly once instead of
-      // waiting nine seconds and returning an ambiguous result.
-      if (!resubmitted && now() - resultStarted >= 1800) {
-        const stillFilled = await digitInputs.evaluateAll((inputs, expected) => inputs
-          .filter((input) => input instanceof HTMLInputElement && input.getBoundingClientRect().width > 0)
-          .map((input) => input.value).join("").replace(/\D/g, "") === expected, code).catch(() => false);
-        if (stillFilled) {
-          resubmitted = true;
-          submitIndex = await findReadySubmit().catch(() => -1);
-          await triggerSubmit();
-        }
-      }
+      if (/success|signed in|logged in|welcome|activated|linked|connected|invalid|incorrect|wrong|not recognized|try again|expired/i.test(bodyText)) break;
+      if (!/\/tv8/i.test(page.url())) break;
     }
     mark.result = elapsed();
 
     let status = "error", result = "unknown", message = "Unable to determine result from page";
-    const finalUrl = page.url();
-    if (hasConfirmedTvSuccess(bodyText)) {
+    if (/success|signed in|logged in|welcome|activated|linked|connected/i.test(bodyText) || !/\/tv8/i.test(page.url())) {
       status = "success"; result = "success"; message = "TV signed in successfully";
     } else if (/invalid|incorrect|wrong|couldn.?t|not recognized|try again/i.test(bodyText)) {
       status = "invalid_code"; result = "invalid_code"; message = "Netflix rejected the code";
