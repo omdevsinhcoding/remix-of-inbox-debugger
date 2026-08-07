@@ -3378,7 +3378,7 @@ Deno.serve(async (originalReq) => {
       // Default-deny settings access: only explicitly listed keys are readable.
       // This prevents newly-added secret settings (for example storage/API
       // credentials) from becoming public through this generic endpoint.
-      const publicKeys = ["maintenance"];
+      const publicKeys = ["maintenance", "developer_links"];
       if (!session && !publicKeys.includes(key)) {
         throw new Error("Settings key is not public");
       }
