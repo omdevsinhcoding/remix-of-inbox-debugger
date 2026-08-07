@@ -51,6 +51,7 @@ if (!TV_REPORT_URL) {
 
 let browser = null;
 let browserLaunchInFlight = null;
+let poolRefillInFlight = null;
 let browserRelaunchCount = 0;
 let lastRelaunchAt = null;
 const warmContexts = []; // pre-created BrowserContexts ready to accept cookies
@@ -128,16 +129,29 @@ async function createWarmContext() {
 }
 
 async function refillWarmPool() {
-  while (!shuttingDown && warmContexts.length < WARM_POOL_SIZE) {
-    try {
-      const ctx = await createWarmContext();
-      // Guard: if browser died between await and here, discard.
-      if (!browser || !browser.isConnected()) { try { await ctx.close(); } catch {} break; }
-      warmContexts.push(ctx);
-    } catch (e) {
-      console.error("[pool] refill failed", e instanceof Error ? e.message : e);
-      break;
+  if (poolRefillInFlight) return poolRefillInFlight;
+  poolRefillInFlight = (async () => {
+    while (!shuttingDown && warmContexts.length < WARM_POOL_SIZE) {
+      try {
+        const ctx = await createWarmContext();
+        // Guard against a dead browser or a target reached while this context
+        // was being created. Never allow parallel refills to overfill the pool.
+        if (!browser || !browser.isConnected() || warmContexts.length >= WARM_POOL_SIZE) {
+          try { await ctx.close(); } catch {}
+          if (!browser || !browser.isConnected()) break;
+          continue;
+        }
+        warmContexts.push(ctx);
+      } catch (e) {
+        console.error("[pool] refill failed", e instanceof Error ? e.message : e);
+        break;
+      }
     }
+  })();
+  try {
+    await poolRefillInFlight;
+  } finally {
+    poolRefillInFlight = null;
   }
 }
 
