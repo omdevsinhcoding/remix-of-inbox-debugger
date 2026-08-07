@@ -7653,7 +7653,7 @@ function AdminPanel() {
   type DevLinkRow = { id: string; label: string; url: string; role: string; description: string; avatar: string };
   const newDevRow = (): DevLinkRow => ({ id: `dev_${Math.random().toString(36).slice(2, 9)}`, label: "", url: "", role: "", description: "", avatar: "" });
   const [devLinks, setDevLinks] = useState<DevLinkRow[]>([]);
-  const [devButtonLabel, setDevButtonLabel] = useState("Developer");
+  const [devButtonLabel, setDevButtonLabel] = useState("Links");
   const [savingDevLinks, setSavingDevLinks] = useState(false);
   const loadDevLinksRef = useRef(false);
   useEffect(() => {
@@ -7687,19 +7687,19 @@ function AdminPanel() {
     });
   const saveDevLinks = async () => {
     const cleaned = devLinks
-      .map((r) => ({ ...r, url: r.url.trim(), label: r.label.trim() || "Developer" }))
+      .map((r) => ({ ...r, url: r.url.trim(), label: r.label.trim() || "Link" }))
       .filter((r) => /^https?:\/\//i.test(r.url));
     if (devLinks.some((r) => r.url.trim() && !/^https?:\/\//i.test(r.url.trim()))) {
-      notify.error("Every developer link must start with http:// or https://");
+      notify.error("Every link must start with http:// or https://");
       return;
     }
     setSavingDevLinks(true);
     try {
-      await apiCall("manage-app", { action: "save_developer_links", value: { links: cleaned, buttonLabel: devButtonLabel.trim() || "Developer" } });
-      notify.success(cleaned.length ? `Saved ${cleaned.length} developer link${cleaned.length > 1 ? "s" : ""}` : "Developer pill hidden (no links)");
+      await apiCall("manage-app", { action: "save_developer_links", value: { links: cleaned, buttonLabel: devButtonLabel.trim() || "Links" } });
+      notify.success(cleaned.length ? `Saved ${cleaned.length} link${cleaned.length > 1 ? "s" : ""}` : "Links pill hidden (no links)");
       try { await refreshBootstrap(); } catch {}
     } catch (err) {
-      notify.error(err instanceof Error ? err.message : "Failed to save developer links");
+      notify.error(err instanceof Error ? err.message : "Failed to save links");
     } finally {
       setSavingDevLinks(false);
     }
@@ -9356,7 +9356,7 @@ function AdminPanel() {
     { id: "security" as const, label: "Security", icon: ShieldCheck },
 
     { id: "emails" as const, label: "Email Accounts", icon: Server },
-    { id: "developer" as const, label: "Developer Links", icon: Code2 },
+    { id: "developer" as const, label: "Links", icon: Code2 },
     { id: "settings" as const, label: "Settings", icon: Settings },
     { id: "deploy" as const, label: "Deploy", icon: Server },
   ];
@@ -11936,22 +11936,22 @@ function AdminPanel() {
             <section className="bg-white p-5 sm:p-6 rounded-2xl border shadow-sm">
               <h2 className="font-black text-base sm:text-lg mb-1 flex items-center gap-2">
                 <div className="bg-red-50 p-1.5 rounded-lg"><Code2 className="w-4 h-4 text-red-600" /></div>
-                Developer Links
+                Links
               </h2>
               <p className="text-[11px] text-slate-500 mb-4">
-                Adds a glowing <b>Developer</b> pill to the user header. One link opens it directly — two or more open a dedicated showcase page at <code className="bg-slate-100 px-1 rounded">/developers</code>. Leave empty to hide the pill.
+                Adds a glowing <b>Links</b> pill to the user header — use it for developers, support, channels, or any other link. One link opens it directly — two or more open a dedicated links page at <code className="bg-slate-100 px-1 rounded">/developers</code>. Leave empty to hide the pill.
               </p>
 
               <div className="mb-5 max-w-xs">
                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5 ml-1">Pill label</label>
-                <input type="text" value={devButtonLabel} maxLength={24} placeholder="Developer"
+                <input type="text" value={devButtonLabel} maxLength={24} placeholder="Links"
                   onChange={(e) => setDevButtonLabel(e.target.value)}
                   className="w-full bg-slate-50 border rounded-xl p-3 outline-none focus:ring-2 focus:ring-red-500 text-sm" />
               </div>
 
               <div className="space-y-3">
                 {devLinks.length === 0 && (
-                  <p className="text-xs text-slate-400 border border-dashed rounded-xl p-4 text-center">No developer links yet.</p>
+                  <p className="text-xs text-slate-400 border border-dashed rounded-xl p-4 text-center">No links yet.</p>
                 )}
                 {devLinks.map((row, idx) => (
                   <div key={row.id} className="rounded-2xl border bg-slate-50/70 p-3 sm:p-4">
@@ -11973,10 +11973,10 @@ function AdminPanel() {
                       </div>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                      <input type="text" value={row.label} maxLength={60} placeholder="Name (e.g. Om Dev)"
+                      <input type="text" value={row.label} maxLength={60} placeholder="Name (e.g. Support)"
                         onChange={(e) => patchDevLink(idx, { label: e.target.value })}
                         className="bg-white border rounded-xl p-2.5 text-sm outline-none focus:ring-2 focus:ring-red-500" />
-                      <input type="text" value={row.role} maxLength={80} placeholder="Role (e.g. Founder / Backend)"
+                      <input type="text" value={row.role} maxLength={80} placeholder="Subtitle (e.g. Contact for issues)"
                         onChange={(e) => patchDevLink(idx, { role: e.target.value })}
                         className="bg-white border rounded-xl p-2.5 text-sm outline-none focus:ring-2 focus:ring-red-500" />
                       <input type="url" value={row.url} maxLength={600} placeholder="https://t.me/yourhandle"
@@ -11996,11 +11996,11 @@ function AdminPanel() {
               <div className="mt-4 flex flex-wrap items-center gap-2">
                 <button type="button" onClick={() => setDevLinks((rows) => (rows.length >= 24 ? rows : [...rows, newDevRow()]))}
                   className="h-10 px-4 rounded-xl border text-sm font-bold text-slate-700 hover:bg-slate-50 flex items-center gap-1.5">
-                  <Plus className="w-4 h-4" /> Add developer
+                  <Plus className="w-4 h-4" /> Add link
                 </button>
                 <button onClick={saveDevLinks} disabled={savingDevLinks}
                   className="h-10 px-5 rounded-xl bg-slate-900 text-white text-sm font-bold hover:bg-slate-800 active:scale-[0.98] transition disabled:opacity-50">
-                  {savingDevLinks ? "Saving…" : "Save Developer Links"}
+                  {savingDevLinks ? "Saving…" : "Save Links"}
                 </button>
                 <a href="/developers" target="_blank" rel="noreferrer"
                   className="h-10 px-4 rounded-xl border text-sm font-bold text-slate-600 hover:bg-slate-50 flex items-center gap-1.5">

@@ -20,7 +20,7 @@ export type BootstrapResult = { users: any[]; recaptcha: any; workerUrls: string
 // Module-level developer-links cache — read synchronously by the header pill so
 // the "Developer" button paints instantly from the bootstrap cache.
 let currentDeveloperLinks: DeveloperLink[] = [];
-let currentDeveloperButtonLabel = "Developer";
+let currentDeveloperButtonLabel = "Links";
 export function getDeveloperLinks(): DeveloperLink[] { return currentDeveloperLinks; }
 export function getDeveloperButtonLabel(): string { return currentDeveloperButtonLabel; }
 export function normalizeDeveloperLinks(value: any): DeveloperLink[] {
@@ -30,7 +30,7 @@ export function normalizeDeveloperLinks(value: any): DeveloperLink[] {
     .slice(0, 24)
     .map((l: any, i: number) => ({
       id: String(l.id || `dev_${i}`),
-      label: String(l.label || "Developer"),
+      label: String(l.label || "Link"),
       url: String(l.url).trim(),
       role: String(l.role || ""),
       description: String(l.description || ""),
@@ -39,7 +39,7 @@ export function normalizeDeveloperLinks(value: any): DeveloperLink[] {
 }
 export function setDeveloperLinks(links: any, buttonLabel?: any) {
   currentDeveloperLinks = normalizeDeveloperLinks(links);
-  currentDeveloperButtonLabel = (typeof buttonLabel === "string" && buttonLabel.trim()) ? buttonLabel.trim() : "Developer";
+  currentDeveloperButtonLabel = (typeof buttonLabel === "string" && buttonLabel.trim()) ? buttonLabel.trim() : "Links";
   try { window.dispatchEvent(new CustomEvent("app:developer-links")); } catch {}
 }
 
@@ -150,7 +150,7 @@ export function readBootstrapCache(): BootstrapResult | null {
     const contactInfo: ContactInfo = parsed.contactInfo && typeof parsed.contactInfo === "object"
       ? { telegram: String(parsed.contactInfo.telegram || ""), whatsapp: String(parsed.contactInfo.whatsapp || ""), email: String(parsed.contactInfo.email || ""), note: String(parsed.contactInfo.note || "") }
       : { telegram: "", whatsapp: "", email: "", note: "" };
-    const result = { users: sanitizeBootstrapUsers(parsed.users || []), recaptcha: parsed.recaptcha, workerUrls: parsed.workerUrls || [], emailFilters: DEFAULT_EMAIL_FILTERS, maintenance: parsed.maintenance, avatarBaseUrl: parsed.avatarBaseUrl || "", freeAvatarCooldown: parsed.freeAvatarCooldown || { minutes: 5, lastAt: null }, locationPolicy: { required: parsed.locationPolicy?.required !== false }, tvFeature: { enabled: parsed.tvFeature?.enabled !== false }, contactInfo, developerLinks: normalizeDeveloperLinks(parsed.developerLinks), developerButtonLabel: typeof parsed.developerButtonLabel === "string" ? parsed.developerButtonLabel : "Developer" };
+    const result = { users: sanitizeBootstrapUsers(parsed.users || []), recaptcha: parsed.recaptcha, workerUrls: parsed.workerUrls || [], emailFilters: DEFAULT_EMAIL_FILTERS, maintenance: parsed.maintenance, avatarBaseUrl: parsed.avatarBaseUrl || "", freeAvatarCooldown: parsed.freeAvatarCooldown || { minutes: 5, lastAt: null }, locationPolicy: { required: parsed.locationPolicy?.required !== false }, tvFeature: { enabled: parsed.tvFeature?.enabled !== false }, contactInfo, developerLinks: normalizeDeveloperLinks(parsed.developerLinks), developerButtonLabel: typeof parsed.developerButtonLabel === "string" ? parsed.developerButtonLabel : "Links" };
     setFreeAvatarCooldown(result.freeAvatarCooldown);
     setDeveloperLinks(result.developerLinks, result.developerButtonLabel);
     setAvatarBaseUrl(result.avatarBaseUrl);
@@ -260,7 +260,7 @@ export async function bootstrapFromSupabase(opts?: { force?: boolean }): Promise
     const contactInfo: ContactInfo = data.contactInfo && typeof data.contactInfo === "object"
       ? { telegram: String(data.contactInfo.telegram || ""), whatsapp: String(data.contactInfo.whatsapp || ""), email: String(data.contactInfo.email || ""), note: String(data.contactInfo.note || "") }
       : { telegram: "", whatsapp: "", email: "", note: "" };
-    const result: BootstrapResult = { users: sanitizeBootstrapUsers(data.users || []), recaptcha: data.recaptcha, workerUrls: data.workerUrls || [], emailFilters: normalizeEmailFilters(data.emailFilters), maintenance: data.maintenance || { enabled: false }, avatarBaseUrl: data.avatarBaseUrl || "", freeAvatarCooldown: data.freeAvatarCooldown || { minutes: 5, lastAt: null }, locationPolicy: { required: data.locationPolicy?.required !== false }, tvFeature: { enabled: data.tvFeature?.enabled !== false }, contactInfo, developerLinks: normalizeDeveloperLinks(data.developerLinks), developerButtonLabel: typeof data.developerButtonLabel === "string" ? data.developerButtonLabel : "Developer", serverNow: typeof data.serverNow === "string" ? data.serverNow : undefined };
+    const result: BootstrapResult = { users: sanitizeBootstrapUsers(data.users || []), recaptcha: data.recaptcha, workerUrls: data.workerUrls || [], emailFilters: normalizeEmailFilters(data.emailFilters), maintenance: data.maintenance || { enabled: false }, avatarBaseUrl: data.avatarBaseUrl || "", freeAvatarCooldown: data.freeAvatarCooldown || { minutes: 5, lastAt: null }, locationPolicy: { required: data.locationPolicy?.required !== false }, tvFeature: { enabled: data.tvFeature?.enabled !== false }, contactInfo, developerLinks: normalizeDeveloperLinks(data.developerLinks), developerButtonLabel: typeof data.developerButtonLabel === "string" ? data.developerButtonLabel : "Links", serverNow: typeof data.serverNow === "string" ? data.serverNow : undefined };
     setAvatarBaseUrl(result.avatarBaseUrl);
     setEmailFilters(result.emailFilters || DEFAULT_EMAIL_FILTERS);
     setDeveloperLinks(result.developerLinks, result.developerButtonLabel);
