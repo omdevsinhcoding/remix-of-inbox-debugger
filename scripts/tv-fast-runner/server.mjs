@@ -24,7 +24,7 @@ import { execSync } from "node:child_process";
 // SERVER_VERSION is bumped whenever the on-wire /health schema, timeout
 // budget, or reporting protocol changes. If /health shows a version older
 // than this constant in the repo, the VPS is running a stale build.
-const SERVER_VERSION = "2026.08.07-10";
+const SERVER_VERSION = "2026.08.07-11";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 let PACKAGE_VERSION = "unknown";
@@ -342,10 +342,17 @@ async function runTvJob(eventId, runnerToken) {
     // not actionable). Focus the first input and type via keyboard so
     // auto-advance is handled the same way a real remote/keyboard would.
     try {
-      await digitInputs.first().focus({ timeout: Math.min(800, remaining()) });
-      await page.keyboard.insertText(code);
+      await digitInputs.first().click({ timeout: Math.min(800, remaining()), force: true });
+      // insertText only emits an input event. Netflix enables Continue from its
+      // key-driven React state, so use real keyboard events for every digit.
+      await page.keyboard.type(code, { delay: 18 });
       const enteredCode = await digitInputs.evaluateAll((inputs) => inputs
-        .map((input) => input instanceof HTMLInputElement ? input.value : "")
+        .filter((input) => {
+          if (!(input instanceof HTMLInputElement)) return false;
+          const rect = input.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0;
+        })
+        .map((input) => input.value)
         .join("")
         .replace(/\D/g, ""));
       if (enteredCode !== code) throw new Error("keyboard_input_incomplete");
@@ -379,23 +386,38 @@ async function runTvJob(eventId, runnerToken) {
 
     stage = "submit_code";
     const submitReady = await page.waitForFunction(() => {
-      const buttons = Array.from(document.querySelectorAll("button"));
-      const btn = buttons.find((b) => /enter code|continue/i.test(b.textContent || "") || b.classList.contains("tvsignup-continue-button"));
-      if (!btn || btn.disabled) return false;
-      const rect = btn.getBoundingClientRect();
-      return rect.width > 0 && rect.height > 0;
-    }, null, { timeout: Math.min(2500, remaining()) }).then(() => true).catch(() => false);
-    if (!submitReady) throw new Error("submit_button_not_ready");
-    await page.evaluate(() => {
-      const buttons = Array.from(document.querySelectorAll("button"));
-      const btn = buttons.find((button) => {
-        const rect = button.getBoundingClientRect();
-        return !button.disabled && rect.width > 0 && rect.height > 0 &&
-          (/enter code|continue/i.test(button.textContent || "") || button.classList.contains("tvsignup-continue-button"));
+      const candidates = Array.from(document.querySelectorAll('button, [role="button"], input[type="submit"]'));
+      return candidates.some((element) => {
+        const rect = element.getBoundingClientRect();
+        const label = `${element.textContent || ""} ${element.getAttribute("value") || ""} ${element.getAttribute("aria-label") || ""} ${element.getAttribute("data-uia") || ""}`;
+        const isSubmit = /enter code|continue|submit|tvsignup.*continue/i.test(label) || element.getAttribute("type") === "submit";
+        const disabled = element instanceof HTMLButtonElement || element instanceof HTMLInputElement
+          ? element.disabled
+          : element.getAttribute("aria-disabled") === "true";
+        return isSubmit && !disabled && rect.width > 0 && rect.height > 0;
       });
-      if (!btn) throw new Error("submit_button_missing");
-      btn.click();
-    });
+    }, null, { timeout: Math.min(2200, remaining()) }).then(() => true).catch(() => false);
+    if (submitReady) {
+      await page.evaluate(() => {
+        const candidates = Array.from(document.querySelectorAll('button, [role="button"], input[type="submit"]'));
+        const control = candidates.find((element) => {
+          const rect = element.getBoundingClientRect();
+          const label = `${element.textContent || ""} ${element.getAttribute("value") || ""} ${element.getAttribute("aria-label") || ""} ${element.getAttribute("data-uia") || ""}`;
+          const isSubmit = /enter code|continue|submit|tvsignup.*continue/i.test(label) || element.getAttribute("type") === "submit";
+          const disabled = element instanceof HTMLButtonElement || element instanceof HTMLInputElement
+            ? element.disabled
+            : element.getAttribute("aria-disabled") === "true";
+          return isSubmit && !disabled && rect.width > 0 && rect.height > 0;
+        });
+        if (!(control instanceof HTMLElement)) throw new Error("submit_button_missing");
+        control.click();
+      });
+    } else {
+      // Netflix variants sometimes submit the PIN form without rendering a
+      // recognizable button. Enter follows the same native form path and does
+      // not spend another actionability timeout.
+      await page.keyboard.press("Enter");
+    }
     mark.submit = elapsed();
 
     stage = "wait_netflix_result";
