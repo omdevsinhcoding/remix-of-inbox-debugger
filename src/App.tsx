@@ -2850,6 +2850,19 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
                   <ShieldCheck className="w-3 h-3" />
                   <span>Account selection is required to continue</span>
                 </div>
+
+                {/* Retry notice */}
+                <div className="mt-4 rounded-xl bg-amber-500/10 border border-amber-500/20 px-3 py-3">
+                  <div className="flex items-start gap-2.5">
+                    <RefreshCw className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                    <div>
+                      <div className="text-[11.5px] font-bold text-amber-200">If something goes wrong, please retry</div>
+                      <div className="text-[10.5px] text-amber-200/70 mt-0.5 leading-relaxed">
+                        TV sign-in may need a fresh attempt if Netflix is slow. Just generate a new code on your TV and try again.
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             ) : (
               <>
