@@ -170,7 +170,7 @@ export default function DevelopersPage() {
                     <ExternalLink className="w-4 h-4 ml-auto text-slate-500 group-hover:text-white transition-colors" />
                   </div>
                   {link.description ? (
-                    <p className="relative mt-3 text-xs sm:text-sm text-slate-400 line-clamp-3">{link.description}</p>
+                    <p className="relative mt-3 text-xs sm:text-sm text-slate-400 whitespace-pre-line break-words">{link.description}</p>
                   ) : null}
                   
                 </motion.button>
