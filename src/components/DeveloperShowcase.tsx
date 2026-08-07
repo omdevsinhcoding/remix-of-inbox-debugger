@@ -36,12 +36,13 @@ function openExternal(url: string) {
 export function DeveloperPill({ className = "" }: { className?: string }) {
   const navigate = useNavigate();
   const { links, label } = useDeveloperLinks();
-  if (!links.length) return null;
 
   const onClick = useCallback(() => {
     if (links.length === 1) openExternal(links[0].url);
     else navigate("/developers", { state: { from: window.location.pathname + window.location.search } });
   }, [links, navigate]);
+
+  if (!links.length) return null;
 
   return (
     <motion.button
