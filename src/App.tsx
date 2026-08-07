@@ -2247,46 +2247,42 @@ function formatTvDuration(start?: string | null, end?: string | null): string {
 function TvRunDetails({ info, status, code, theme = "light" }: { info: TvRunInfo; status: TvLoginStatus; code?: string; theme?: "dark" | "light" }) {
   if (!info?.eventId && !info?.createdAt) return null;
   const dark = theme === "dark";
-  const terminal = TV_TERMINAL_STATUSES.has(status);
   const active = TV_ACTIVE_STATUSES.has(status);
   const tone = status === "success" ? "emerald" : active ? "rose" : status === "idle" ? "slate" : "amber";
   const shell = dark
-    ? "border-white/10 bg-white/[0.04] text-white"
-    : "border-slate-200 bg-slate-50/80 text-slate-900";
-  const muted = dark ? "text-white/55" : "text-slate-500";
+    ? "border-white/10 bg-gradient-to-br from-white/[0.06] to-white/[0.02] text-white"
+    : "border-slate-200/80 bg-gradient-to-br from-white to-slate-50 text-slate-900";
+  const muted = dark ? "text-white/50" : "text-slate-400";
   const value = dark ? "text-white" : "text-slate-900";
+  const cell = dark ? "bg-black/25 border border-white/5" : "bg-white border border-slate-100";
   const badge = tone === "emerald"
     ? dark ? "bg-emerald-500/15 text-emerald-200 border-emerald-400/25" : "bg-emerald-50 text-emerald-700 border-emerald-200"
     : tone === "rose"
       ? dark ? "bg-rose-500/15 text-rose-200 border-rose-400/25" : "bg-rose-50 text-rose-700 border-rose-200"
       : dark ? "bg-amber-500/15 text-amber-200 border-amber-400/25" : "bg-amber-50 text-amber-700 border-amber-200";
-  const label = status === "success" ? "Process completed" : active ? "Process running" : "Process ended";
+  const dot = tone === "emerald" ? "bg-emerald-500" : tone === "rose" ? "bg-rose-500 animate-pulse" : "bg-amber-500";
+  const label = status === "success" ? "Signed in" : active ? "In progress" : "Completed";
   return (
-    <div className={`mt-5 rounded-2xl border p-4 ${shell}`}>
+    <div className={`mt-5 rounded-3xl border p-4 shadow-sm ${shell}`}>
       <div className="flex items-center justify-between gap-3">
-        <div className={`text-[10px] uppercase tracking-[0.18em] font-black ${muted}`}>TV sign-in details</div>
-        <div className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-wider ${badge}`}>{label}</div>
+        <div className={`text-[10px] uppercase tracking-[0.18em] font-black ${muted}`}>TV sign-in</div>
+        <div className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-wider ${badge}`}>
+          <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />
+          {label}
+        </div>
       </div>
       <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] sm:text-xs">
-        <div className={`rounded-xl px-3 py-2 ${dark ? "bg-black/20" : "bg-white border border-slate-100"}`}>
+        <div className={`rounded-2xl px-3 py-2.5 ${cell}`}>
           <div className={muted}>Started</div>
           <div className={`mt-0.5 font-bold ${value}`}>{formatTvRunTime(info.createdAt)}</div>
         </div>
-        <div className={`rounded-xl px-3 py-2 ${dark ? "bg-black/20" : "bg-white border border-slate-100"}`}>
-          <div className={muted}>{terminal ? "Finished" : "Running for"}</div>
-          <div className={`mt-0.5 font-bold ${value}`}>{terminal ? formatTvRunTime(info.finishedAt) : formatTvDuration(info.createdAt, null)}</div>
-        </div>
-        <div className={`rounded-xl px-3 py-2 ${dark ? "bg-black/20" : "bg-white border border-slate-100"}`}>
-          <div className={muted}>Taken time</div>
-          <div className={`mt-0.5 font-bold ${value}`}>{formatTvDuration(info.createdAt, info.finishedAt)}</div>
-        </div>
-        <div className={`rounded-xl px-3 py-2 ${dark ? "bg-black/20" : "bg-white border border-slate-100"}`}>
+        <div className={`rounded-2xl px-3 py-2.5 ${cell}`}>
           <div className={muted}>Code</div>
-          <div className={`mt-0.5 font-bold tabular-nums ${value}`}>{code || "—"}</div>
+          <div className={`mt-0.5 font-bold tabular-nums tracking-wider ${value}`}>{code || "—"}</div>
         </div>
       </div>
       {(info.accountLabel || info.imapMasked) && (
-        <div className={`mt-2 rounded-xl px-3 py-2 text-[11px] sm:text-xs ${dark ? "bg-black/20" : "bg-white border border-slate-100"}`}>
+        <div className={`mt-2 rounded-2xl px-3 py-2.5 text-[11px] sm:text-xs ${cell}`}>
           <div className={muted}>Account</div>
           <div className={`mt-0.5 font-bold truncate ${value}`}>{info.imapMasked || info.accountLabel}{info.accountLabel && info.imapMasked ? ` · ${info.accountLabel}` : ""}</div>
         </div>
@@ -2294,6 +2290,38 @@ function TvRunDetails({ info, status, code, theme = "light" }: { info: TvRunInfo
     </div>
   );
 }
+
+const TV_RETRY_HINT = "If login doesn't work on the first try, retry once. Most temporary issues resolve automatically.";
+
+function TvRetryHintCard({ theme = "light", className = "" }: { theme?: "dark" | "light"; className?: string }) {
+  const dark = theme === "dark";
+  return (
+    <div
+      className={`${className} flex items-start gap-3 rounded-2xl border px-3.5 py-3 text-left shadow-sm ${
+        dark
+          ? "border-white/10 bg-gradient-to-r from-rose-500/10 via-white/[0.04] to-transparent"
+          : "border-rose-100 bg-gradient-to-r from-rose-50 via-white to-white"
+      }`}
+    >
+      <span
+        className={`mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-xl ${
+          dark ? "bg-rose-500/15 text-rose-200" : "bg-rose-100 text-rose-600"
+        }`}
+      >
+        <RefreshCw className="h-4 w-4" />
+      </span>
+      <div className="min-w-0">
+        <div className={`text-[10px] font-black uppercase tracking-[0.18em] ${dark ? "text-rose-200/80" : "text-rose-600"}`}>
+          Good to know
+        </div>
+        <p className={`mt-1 text-[11.5px] sm:text-xs leading-relaxed font-medium ${dark ? "text-white/70" : "text-slate-600"}`}>
+          {TV_RETRY_HINT}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 
 function TvRecentRuns({ events, onRefresh }: { events: any[]; onRefresh: () => void }) {
   if (!events.length) return null;
