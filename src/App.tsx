@@ -3366,6 +3366,21 @@ function TvSignInPage() {
           </div>
         </div>
 
+        {/* Retry helper — always visible on TV login page */}
+        <div className="mt-6 rounded-2xl bg-gradient-to-r from-slate-50 to-rose-50/60 border border-rose-100/80 px-5 py-4 shadow-[0_8px_30px_-12px_rgba(229,9,20,0.12)]">
+          <div className="flex items-start gap-3">
+            <div className="shrink-0 w-9 h-9 rounded-xl bg-white border border-rose-100 flex items-center justify-center shadow-sm">
+              <RefreshCw className="w-4 h-4 text-rose-600" />
+            </div>
+            <div>
+              <div className="text-sm font-bold text-slate-900">Experiencing an error?</div>
+              <div className="text-[12.5px] text-slate-600 mt-0.5 leading-relaxed">
+                Simply retry your login. Most issues are resolved automatically.
+              </div>
+            </div>
+          </div>
+        </div>
+
         <TvRecentRuns events={recentRuns} onRefresh={loadRecentRuns} />
       </div>
     </div>
