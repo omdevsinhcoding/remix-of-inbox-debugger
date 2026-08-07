@@ -53,7 +53,7 @@ export function DeveloperPill({ className = "" }: { className?: string }) {
       transition={{ duration: 0.35, ease: "easeOut", delay: 0.08 }}
       whileHover={{ scale: 1.04 }}
       whileTap={{ scale: 0.96 }}
-      aria-label={links.length > 1 ? "View developers" : `Open ${label}`}
+      aria-label={links.length > 1 ? "View links" : `Open ${label}`}
       className={`group relative inline-flex items-center gap-1.5 rounded-full pl-2 pr-3 py-[5px] sm:py-[6px] text-[10px] sm:text-[11px] font-extrabold tracking-[0.16em] uppercase whitespace-nowrap overflow-hidden ${className}`}
       style={{
         background: "linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0) 62%), #0b0b0b",
@@ -73,7 +73,7 @@ export function DeveloperPill({ className = "" }: { className?: string }) {
         style={{ boxShadow: "inset 0 0 18px rgba(229,9,20,0.22)" }}
       />
       <Code2 className="relative w-3 h-3 sm:w-3.5 sm:h-3.5 text-[#e50914]" style={{ filter: "drop-shadow(0 0 6px rgba(229,9,20,0.8))" }} />
-      <span className="relative">{label || "Developer"}</span>
+      <span className="relative">{label || "Links"}</span>
       {links.length > 1 && (
         <span className="relative ml-0.5 rounded-full bg-[#e50914]/20 border border-[#e50914]/40 px-1.5 text-[9px] leading-[14px] tracking-normal">
           {links.length}
@@ -83,7 +83,7 @@ export function DeveloperPill({ className = "" }: { className?: string }) {
   );
 }
 
-/** Dedicated showcase page used when the admin configured 2+ developer links. */
+/** Dedicated links page used when the admin configured 2+ links. */
 export default function DevelopersPage() {
   const navigate = useNavigate();
   const { links, label } = useDeveloperLinks();
@@ -132,7 +132,7 @@ export default function DevelopersPage() {
 
         {links.length === 0 ? (
           <div className="mt-10 rounded-2xl border border-white/10 bg-white/[0.03] p-6 text-sm text-slate-400">
-            No developer links published yet.
+            No links published yet.
           </div>
         ) : (
           <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
@@ -156,7 +156,7 @@ export default function DevelopersPage() {
                   />
                   <div className="relative flex items-center gap-3">
                     {link.avatar ? (
-                      <img src={link.avatar} alt={`${link.label} avatar`} loading="lazy"
+                      <img src={link.avatar} alt={`${link.label} icon`} loading="lazy"
                         className="w-11 h-11 rounded-xl object-cover border border-white/15" />
                     ) : (
                       <div className="w-11 h-11 rounded-xl grid place-items-center bg-gradient-to-br from-[#e50914] to-[#7f0a10] text-white font-black">
