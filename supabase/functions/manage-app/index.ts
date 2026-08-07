@@ -5849,9 +5849,18 @@ Deno.serve(async (originalReq) => {
         };
         const rawMessage = get("message") || get("event_message") || get("ui_message");
         const { main: mainMessage, timing } = splitTiming(rawMessage);
+        const msToSeconds = (ms: number) => {
+          const sec = ms / 1000;
+          return `${sec >= 10 ? sec.toFixed(1) : sec.toFixed(2)}s`;
+        };
         const timingRows = timing
-          ? timing.replace(/^timing\s*/i, "").split(/\s+/).filter(Boolean).map((part) => `<code>${escapeTgHtml(part)}</code>`)
+          ? timing.replace(/^timing\s*/i, "").split(/\s+/).filter(Boolean).map((part) => {
+              const m = part.match(/^([\w.-]+)=(\d+(?:\.\d+)?)ms$/i);
+              const pretty = m ? `${m[1]}=${msToSeconds(Number(m[2]))}` : part;
+              return `<code>${escapeTgHtml(pretty)}</code>`;
+            })
           : [];
+
         const parts = [
           `<b>${escapeTgHtml(titleMap[kind] || `TV Login — ${kind}`)}</b>`,
           section("📊 Result", [row("status"), row("result"), row("dispatch"), row("code_last4", "Code last 4")]),
