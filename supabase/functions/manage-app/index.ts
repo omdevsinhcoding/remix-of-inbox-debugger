@@ -3744,6 +3744,41 @@ Deno.serve(async (originalReq) => {
       });
     }
 
+    if (action === "save_developer_links") {
+      const session = await requireAdmin(req);
+      const raw = ((params as any)?.value && typeof (params as any).value === "object") ? (params as any).value : (params || {});
+      const trim = (v: any, max = 240) => typeof v === "string" ? v.trim().slice(0, max) : "";
+      const rawLinks = Array.isArray(raw.links) ? raw.links : [];
+      const links: any[] = [];
+      const seen = new Set<string>();
+      for (const item of rawLinks) {
+        if (!item || typeof item !== "object") continue;
+        const url = trim(item.url, 600);
+        if (!url || !/^https?:\/\//i.test(url)) continue;
+        if (seen.has(url)) continue;
+        seen.add(url);
+        links.push({
+          id: trim(item.id, 40) || `dev_${links.length}_${Date.now().toString(36)}`,
+          label: trim(item.label, 60) || "Developer",
+          url,
+          role: trim(item.role, 80),
+          description: trim(item.description, 240),
+          avatar: trim(item.avatar, 600),
+        });
+        if (links.length >= 24) break;
+      }
+      const value = { links, buttonLabel: trim(raw.buttonLabel, 24) || "Developer" };
+      const { error } = await supabase
+        .from("app_settings")
+        .upsert({ key: "developer_links", value }, { onConflict: "key" });
+      if (error) throw error;
+      invalidateBootstrapCache();
+      await auditLog(supabase, "settings_changed", session.userId, null, { key: "developer_links", count: links.length }, ip);
+      return new Response(JSON.stringify({ success: true, value }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
 
 
 
