@@ -24,7 +24,7 @@ import { execSync } from "node:child_process";
 // SERVER_VERSION is bumped whenever the on-wire /health schema, timeout
 // budget, or reporting protocol changes. If /health shows a version older
 // than this constant in the repo, the VPS is running a stale build.
-const SERVER_VERSION = "2026.08.07-9";
+const SERVER_VERSION = "2026.08.07-10";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 let PACKAGE_VERSION = "unknown";
@@ -289,7 +289,10 @@ async function runTvJob(eventId, runnerToken) {
       'input[placeholder*="code" i]',
       'input[placeholder*="PIN" i]',
     ];
-    const combinedSelector = selectorSets.join(", ");
+    // Only target actionable fields. Netflix keeps hidden/transitioning inputs
+    // in the DOM; the previous broad locator counted those too, so its fallback
+    // could spend the whole attempt filling a hidden non-PIN field.
+    const combinedSelector = selectorSets.map((selector) => `${selector}:visible`).join(", ");
     let digitInputs = page.locator(combinedSelector);
     let hasCodeInput = await digitInputs.first().waitFor({ timeout: Math.min(7000, remaining()) }).then(() => true).catch(() => false);
     if (!hasCodeInput && remaining() > 6000 && !/login|unsupportedbrowser/i.test(page.url())) {
@@ -312,7 +315,7 @@ async function runTvJob(eventId, runnerToken) {
       }
       if (digitLike.length >= 8) {
         // Re-target with a stable single-digit selector that the page actually contains.
-        digitInputs = page.locator('input[maxlength="1"], input[type="tel"], input[inputmode="numeric"]');
+        digitInputs = page.locator('input[maxlength="1"]:visible, input[type="tel"]:visible, input[inputmode="numeric"]:visible');
         hasCodeInput = true;
       }
     }
@@ -337,22 +340,37 @@ async function runTvJob(eventId, runnerToken) {
     // auto-advance is handled the same way a real remote/keyboard would.
     try {
       await digitInputs.first().focus({ timeout: Math.min(800, remaining()) });
-      await page.keyboard.type(code, { delay: 20 });
+      await page.keyboard.insertText(code);
       const enteredCode = await digitInputs.evaluateAll((inputs) => inputs
         .map((input) => input instanceof HTMLInputElement ? input.value : "")
         .join("")
         .replace(/\D/g, ""));
       if (enteredCode !== code) throw new Error("keyboard_input_incomplete");
     } catch {
-      // Fallback for pages where synthetic keyboard events don't trigger
-      // Netflix's auto-advance logic reliably.
-      if (count >= 8) {
-        for (let i = 0; i < 8; i++) {
-          await digitInputs.nth(i).fill(code[i], { timeout: Math.min(800, remaining()), force: true });
-        }
-      } else {
-        await digitInputs.first().fill(code, { timeout: Math.min(1000, remaining()), force: true });
-      }
+      // Atomic fallback: update only the visible matched controls through the
+      // native setter and dispatch the events React listens for. This avoids
+      // eight serial Playwright actionability waits on Netflix's animated PIN
+      // boxes while preserving the site's own state/update flow.
+      const injected = await digitInputs.evaluateAll((inputs, value) => {
+        const visible = inputs.filter((input) => {
+          if (!(input instanceof HTMLInputElement)) return false;
+          const rect = input.getBoundingClientRect();
+          const style = getComputedStyle(input);
+          return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden" && !input.disabled && !input.readOnly;
+        });
+        if (visible.length === 0) return false;
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+        if (!setter) return false;
+        const targets = visible.length >= 8 ? visible.slice(0, 8) : visible.slice(0, 1);
+        targets.forEach((input, index) => {
+          setter.call(input, targets.length === 1 ? value : value[index]);
+          input.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: targets.length === 1 ? value : value[index] }));
+          input.dispatchEvent(new Event("change", { bubbles: true }));
+        });
+        targets.at(-1)?.dispatchEvent(new Event("blur", { bubbles: true }));
+        return true;
+      }, code);
+      if (!injected) throw new Error(`pin_injection_failed_visible_count_${count}`);
     }
     mark.fill = elapsed();
 
