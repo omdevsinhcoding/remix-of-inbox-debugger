@@ -90,7 +90,7 @@ export default function DevelopersPage() {
 
   useEffect(() => {
     const prevTitle = document.title;
-    document.title = "Developers — Netflix Mail";
+    document.title = "Links — Netflix Mail";
     return () => { document.title = prevTitle; };
   }, []);
 
@@ -122,11 +122,11 @@ export default function DevelopersPage() {
           className="mt-6 sm:mt-8"
         >
           <span className="inline-flex items-center gap-1.5 rounded-full border border-[#e50914]/45 bg-[#e50914]/10 px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-[0.22em] text-[#ffd9dc]">
-            <Sparkles className="w-3 h-3" /> {label || "Developer"}
+            <Sparkles className="w-3 h-3" /> {label || "Links"}
           </span>
-          <h1 className="mt-3 text-2xl sm:text-4xl font-black tracking-tight">Meet the developers</h1>
+          <h1 className="mt-3 text-2xl sm:text-4xl font-black tracking-tight">Explore our links</h1>
           <p className="mt-2 text-sm sm:text-base text-slate-400 max-w-xl">
-            Official channels behind this project. Pick a profile to open it in a new tab.
+            Official channels, contacts, and resources. Pick one to open it in a new tab.
           </p>
         </motion.div>
 
