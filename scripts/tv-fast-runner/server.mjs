@@ -272,17 +272,55 @@ async function runTvJob(eventId, runnerToken) {
     mark.nav = elapsed();
 
     stage = "wait_code_input";
-    const digitInputs = page.locator('input.pin-number-input, input[aria-label^="PIN entry input"], input[maxlength="1"], input[data-uia^="pin-number"], input[type="tel"][maxlength="1"]');
+    // Netflix rotates TV code input markup; keep a broad, prioritized selector list.
+    const selectorSets = [
+      'input.pin-number-input',
+      'input[data-uia="pin-number-input"]',
+      'input[data-uia^="pin-number"]',
+      'input[aria-label*="PIN" i]',
+      'input[aria-label*="code" i]',
+      'input[maxlength="1"]',
+      'input[type="tel"][maxlength="1"]',
+      'input[type="number"][maxlength="1"]',
+      'input[type="text"][maxlength="1"]',
+      'input[autocomplete="one-time-code"]',
+      'input[autocomplete="off"][maxlength="1"]',
+      'input[inputmode="numeric"]',
+      'input[placeholder*="code" i]',
+      'input[placeholder*="PIN" i]',
+    ];
+    const combinedSelector = selectorSets.join(", ");
+    let digitInputs = page.locator(combinedSelector);
     let hasCodeInput = await digitInputs.first().waitFor({ timeout: Math.min(7000, remaining()) }).then(() => true).catch(() => false);
     if (!hasCodeInput && remaining() > 6000 && !/login|unsupportedbrowser/i.test(page.url())) {
-      await page.goto("https://www.netflix.com/tv8", { waitUntil: "domcontentloaded", timeout: Math.min(6000, remaining()) }).catch(() => {});
+      await page.goto("https://www.netflix.com/tv8", { waitUntil: "networkidle", timeout: Math.min(6000, remaining()) }).catch(() => {});
       hasCodeInput = await digitInputs.first().waitFor({ timeout: Math.min(5000, remaining()) }).then(() => true).catch(() => false);
+    }
+    if (!hasCodeInput) {
+      // Last resort: scan every input for code/PIN-like attributes.
+      const allInputs = await page.locator('input').all();
+      const digitLike = [];
+      for (const el of allInputs) {
+        const max = String(await el.getAttribute("maxlength").catch(() => "") || "");
+        const type = String(await el.getAttribute("type").catch(() => "") || "").toLowerCase();
+        const inputmode = String(await el.getAttribute("inputmode").catch(() => "") || "").toLowerCase();
+        const aria = String(await el.getAttribute("aria-label").catch(() => "") || "").toLowerCase();
+        const placeholder = String(await el.getAttribute("placeholder").catch(() => "") || "").toLowerCase();
+        if (max === "1" || type === "tel" || inputmode === "numeric" || aria.includes("pin") || aria.includes("code") || placeholder.includes("pin") || placeholder.includes("code")) {
+          digitLike.push(el);
+        }
+      }
+      if (digitLike.length >= 8) {
+        // Re-target with a stable single-digit selector that the page actually contains.
+        digitInputs = page.locator('input[maxlength="1"], input[type="tel"], input[inputmode="numeric"]');
+        hasCodeInput = true;
+      }
     }
     if (!hasCodeInput) {
       const bodyText = (await page.locator("body").innerText().catch(() => "")).toLowerCase();
       const url = page.url();
       const timing = `timing fetch=${mark.fetch}ms browser=${mark.browser}ms nav=${mark.nav}ms total=${elapsed()}ms`;
-      const looksExpired = /sign ?in|log ?in|password|email|expired|unsupported|not available|something went wrong/i.test(bodyText) || /login|unsupportedbrowser/i.test(url);
+      const looksExpired = /sign ?in|log ?in|password|email|expired|unsupported|not available|something went wrong|your account has been|verify/i.test(bodyText) || /login|unsupportedbrowser/i.test(url);
       await safeReport({
         status: looksExpired ? "cookies_expired" : "error",
         result: looksExpired ? "cookies_expired" : "no_code_input",
