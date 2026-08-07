@@ -172,7 +172,7 @@ export default function DevelopersPage() {
                   {link.description ? (
                     <p className="relative mt-3 text-xs sm:text-sm text-slate-400 line-clamp-3">{link.description}</p>
                   ) : null}
-                  <p className="relative mt-2 text-[11px] text-slate-500 truncate">{link.url.replace(/^https?:\/\//, "")}</p>
+                  
                 </motion.button>
               ))}
             </AnimatePresence>
