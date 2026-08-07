@@ -3255,7 +3255,10 @@ function TvSignInPage() {
             </span>
           </div>
           )}
+
+          <TvRetryHintCard className="mt-5 mx-auto max-w-md" />
         </div>
+
 
         {/* Card */}
         <div className="relative rounded-3xl bg-white border border-slate-200 shadow-[0_25px_60px_-25px_rgba(2,6,23,0.15)] overflow-hidden">
