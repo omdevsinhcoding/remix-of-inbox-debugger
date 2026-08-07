@@ -24,7 +24,7 @@ import { execSync } from "node:child_process";
 // SERVER_VERSION is bumped whenever the on-wire /health schema, timeout
 // budget, or reporting protocol changes. If /health shows a version older
 // than this constant in the repo, the VPS is running a stale build.
-const SERVER_VERSION = "2026.08.07-15";
+const SERVER_VERSION = "2026.08.07-16";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 let PACKAGE_VERSION = "unknown";
@@ -253,9 +253,10 @@ async function runTvJob(eventId, runnerToken) {
     // Warm context from the pool — no launch latency on the hot path.
     context = await takeWarmContext();
     mark.browser = elapsed();
-    // Start TV pairing in a clean browser context. Injecting account cookies
-    // before the code is submitted can bind Netflix's page session without
-    // completing the TV's pending pairing transaction.
+    stage = "inject_cookies";
+    // /tv8 is an authenticated account page: restore the selected Netflix
+    // session before opening it, then submit the TV's pending pairing code.
+    await context.addCookies(cookies);
     const page = await context.newPage();
     await page.route("**/*", (route) => {
       try {
@@ -339,20 +340,6 @@ async function runTvJob(eventId, runnerToken) {
       btn.click();
     });
     mark.submit = elapsed();
-
-    stage = "authenticate_pairing";
-    // Let Netflix create its code-specific transaction cookies/redirect first.
-    // Preserve those cookies while adding the selected account's authentication
-    // cookies, then reload the pending flow so Netflix completes the TV pairing.
-    await page.waitForTimeout(Math.min(600, remaining()));
-    const pairingCookies = await context.cookies("https://www.netflix.com");
-    const pairingCookieNames = new Set(pairingCookies.map((cookie) => cookie.name));
-    const essentialAuthCookie = /^(NetflixId|SecureNetflixId|profilesNewSession)$/i;
-    const accountCookies = cookies.filter((cookie) => essentialAuthCookie.test(cookie.name) || !pairingCookieNames.has(cookie.name));
-    await context.addCookies(accountCookies);
-    const pairingUrl = page.url();
-    await page.reload({ waitUntil: "commit", timeout: Math.min(4500, remaining()) })
-      .catch(() => page.goto(pairingUrl, { waitUntil: "commit", timeout: Math.min(3500, remaining()) }));
 
     stage = "wait_netflix_result";
     let bodyText = "";
