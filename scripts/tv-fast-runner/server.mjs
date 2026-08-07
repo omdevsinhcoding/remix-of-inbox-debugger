@@ -24,7 +24,7 @@ import { execSync } from "node:child_process";
 // SERVER_VERSION is bumped whenever the on-wire /health schema, timeout
 // budget, or reporting protocol changes. If /health shows a version older
 // than this constant in the repo, the VPS is running a stale build.
-const SERVER_VERSION = "2026.08.07-16";
+const SERVER_VERSION = "2026.08.07-17";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 let PACKAGE_VERSION = "unknown";
@@ -253,10 +253,6 @@ async function runTvJob(eventId, runnerToken) {
     // Warm context from the pool — no launch latency on the hot path.
     context = await takeWarmContext();
     mark.browser = elapsed();
-    stage = "inject_cookies";
-    // /tv8 is an authenticated account page: restore the selected Netflix
-    // session before opening it, then submit the TV's pending pairing code.
-    await context.addCookies(cookies);
     const page = await context.newPage();
     await page.route("**/*", (route) => {
       try {
@@ -319,6 +315,13 @@ async function runTvJob(eventId, runnerToken) {
       }
     }
     mark.fill = elapsed();
+
+    // Keep the pairing transaction in Netflix's expected order: first open
+    // /tv8 and enter the TV's pending code, then attach the selected account
+    // session before the submit request. BrowserContext cookies apply to the
+    // already-open page's subsequent requests, including the activation POST.
+    stage = "inject_cookies";
+    await context.addCookies(cookies);
 
     stage = "submit_code";
     const submitReady = await page.waitForFunction(() => {
