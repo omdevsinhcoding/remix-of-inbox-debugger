@@ -2798,7 +2798,10 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
                   Code
                 </span>
               </div>}
+
+              <TvRetryHintCard theme="dark" className="mt-4 w-full" />
             </div>
+
 
             {step === "select" ? (
               <div className="mt-5">
