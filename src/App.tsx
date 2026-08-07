@@ -2851,18 +2851,6 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
                   <span>Account selection is required to continue</span>
                 </div>
 
-                {/* Retry notice — always visible on TV sign-in */}
-                <div className="mt-4 rounded-xl bg-sky-500/10 border border-sky-500/20 px-3 py-3">
-                  <div className="flex items-start gap-2.5">
-                    <RefreshCw className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
-                    <div>
-                      <div className="text-[11.5px] font-bold text-sky-200">Experiencing an error?</div>
-                      <div className="text-[10.5px] text-sky-200/70 mt-0.5 leading-relaxed">
-                        Simply retry your login. Most issues are resolved automatically.
-                      </div>
-                    </div>
-                  </div>
-                </div>
               </div>
             ) : (
               <>
