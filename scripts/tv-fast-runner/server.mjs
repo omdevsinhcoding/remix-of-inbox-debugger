@@ -268,7 +268,10 @@ async function runTvJob(eventId, runnerToken) {
     });
 
     stage = "open_netflix_tv8";
-    await page.goto("https://www.netflix.com/tv8", { waitUntil: "domcontentloaded", timeout: Math.min(9000, remaining()) });
+    // Start PIN detection as soon as Netflix commits the document. Waiting for
+    // DOMContentLoaded also waits on unrelated scripts even though the input is
+    // already usable, adding several seconds to otherwise successful attempts.
+    await page.goto("https://www.netflix.com/tv8", { waitUntil: "commit", timeout: Math.min(9000, remaining()) });
     mark.nav = elapsed();
 
     stage = "wait_code_input";
