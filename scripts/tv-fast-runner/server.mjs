@@ -24,7 +24,7 @@ import { execSync } from "node:child_process";
 // SERVER_VERSION is bumped whenever the on-wire /health schema, timeout
 // budget, or reporting protocol changes. If /health shows a version older
 // than this constant in the repo, the VPS is running a stale build.
-const SERVER_VERSION = "2026.08.07-12";
+const SERVER_VERSION = "2026.08.07-13";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 let PACKAGE_VERSION = "unknown";
@@ -435,11 +435,11 @@ async function runTvJob(eventId, runnerToken) {
     const resultStarted = now();
     const deadline = resultStarted + Math.min(5200, remaining());
     let resubmitted = false;
+    const hasConfirmedTvSuccess = (text) => /(?:your |this )?(?:tv|device)\s+(?:is\s+|has\s+been\s+)?(?:now\s+)?(?:signed\s+in|activated|linked|connected)|(?:signed\s+in|activated|linked|connected)\s+(?:successfully\s+)?(?:to|on)\s+(?:your\s+)?(?:tv|device)|(?:success|all set)[!.\s-]+(?:your |this )?(?:tv|device)/i.test(text);
     while (now() < deadline) {
       await page.waitForTimeout(120);
       bodyText = (await page.locator("body").innerText().catch(() => "")).toLowerCase();
-      if (/success|signed in|logged in|welcome|activated|linked|connected|invalid|incorrect|wrong|not recognized|try again|expired/i.test(bodyText)) break;
-      if (!/\/tv8/i.test(page.url())) break;
+      if (hasConfirmedTvSuccess(bodyText) || /invalid|incorrect|wrong|not recognized|try again|expired/i.test(bodyText)) break;
       // If Netflix kept the same filled PIN UI for 1.8s, the first submit was
       // swallowed by a React transition. Re-submit exactly once instead of
       // waiting nine seconds and returning an ambiguous result.
@@ -458,7 +458,7 @@ async function runTvJob(eventId, runnerToken) {
 
     let status = "error", result = "unknown", message = "Unable to determine result from page";
     const finalUrl = page.url();
-    if (/success|signed in|logged in|welcome|activated|linked|connected/i.test(bodyText) || (!/\/tv8/i.test(finalUrl) && !/login|unsupportedbrowser/i.test(finalUrl))) {
+    if (hasConfirmedTvSuccess(bodyText)) {
       status = "success"; result = "success"; message = "TV signed in successfully";
     } else if (/invalid|incorrect|wrong|couldn.?t|not recognized|try again/i.test(bodyText)) {
       status = "invalid_code"; result = "invalid_code"; message = "Netflix rejected the code";
