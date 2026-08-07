@@ -2633,7 +2633,22 @@ Deno.serve(async (originalReq) => {
             note: typeof contactInfoRaw.note === "string" ? contactInfoRaw.note : "",
           }
         : { telegram: "", whatsapp: "", email: "", note: "" };
-      const basePayload: any = { success: true, users: mappedUsers, recaptcha, workerUrls, emailFilters, maintenance, avatarBaseUrl, locationPolicy: { required: globalLocationRequired }, freeAvatarCooldown, tvFeature, contactInfo };
+      const devLinksRaw: any = settings.get("developer_links");
+      const developerLinks = Array.isArray(devLinksRaw?.links)
+        ? devLinksRaw.links
+            .filter((l: any) => l && typeof l === "object" && typeof l.url === "string" && /^https?:\/\//i.test(l.url.trim()))
+            .slice(0, 24)
+            .map((l: any, i: number) => ({
+              id: String(l.id || `dev_${i}`),
+              label: String(l.label || "Developer").slice(0, 60),
+              url: String(l.url).trim().slice(0, 600),
+              role: String(l.role || "").slice(0, 80),
+              description: String(l.description || "").slice(0, 240),
+              avatar: String(l.avatar || "").slice(0, 600),
+            }))
+        : [];
+      const developerButtonLabel = String(devLinksRaw?.buttonLabel || "Developer").slice(0, 24);
+      const basePayload: any = { success: true, users: mappedUsers, recaptcha, workerUrls, emailFilters, maintenance, avatarBaseUrl, locationPolicy: { required: globalLocationRequired }, freeAvatarCooldown, tvFeature, contactInfo, developerLinks, developerButtonLabel };
       // Compute a stable etag from the content. 16 hex chars (~64 bits) is
       // enough uniqueness to catch any real content change without paying
       // for the full 64-char hash in every response header.
