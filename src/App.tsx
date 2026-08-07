@@ -2851,14 +2851,14 @@ function TvAutoLoginButton({ visible = true }: { visible?: boolean } = {}) {
                   <span>Account selection is required to continue</span>
                 </div>
 
-                {/* Retry notice */}
-                <div className="mt-4 rounded-xl bg-amber-500/10 border border-amber-500/20 px-3 py-3">
+                {/* Retry notice — always visible on TV sign-in */}
+                <div className="mt-4 rounded-xl bg-sky-500/10 border border-sky-500/20 px-3 py-3">
                   <div className="flex items-start gap-2.5">
-                    <RefreshCw className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                    <RefreshCw className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
                     <div>
-                      <div className="text-[11.5px] font-bold text-amber-200">If something goes wrong, please retry</div>
-                      <div className="text-[10.5px] text-amber-200/70 mt-0.5 leading-relaxed">
-                        TV sign-in may need a fresh attempt if Netflix is slow. Just generate a new code on your TV and try again.
+                      <div className="text-[11.5px] font-bold text-sky-200">Experiencing an error?</div>
+                      <div className="text-[10.5px] text-sky-200/70 mt-0.5 leading-relaxed">
+                        Simply retry your login. Most issues are resolved automatically.
                       </div>
                     </div>
                   </div>
