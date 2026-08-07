@@ -24,7 +24,7 @@ import { execSync } from "node:child_process";
 // SERVER_VERSION is bumped whenever the on-wire /health schema, timeout
 // budget, or reporting protocol changes. If /health shows a version older
 // than this constant in the repo, the VPS is running a stale build.
-const SERVER_VERSION = "2026.08.07-14";
+const SERVER_VERSION = "2026.08.07-16";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 let PACKAGE_VERSION = "unknown";
@@ -254,6 +254,8 @@ async function runTvJob(eventId, runnerToken) {
     context = await takeWarmContext();
     mark.browser = elapsed();
     stage = "inject_cookies";
+    // /tv8 is an authenticated account page: restore the selected Netflix
+    // session before opening it, then submit the TV's pending pairing code.
     await context.addCookies(cookies);
     const page = await context.newPage();
     await page.route("**/*", (route) => {
