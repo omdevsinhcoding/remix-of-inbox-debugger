@@ -297,17 +297,22 @@ async function runTvJob(eventId, runnerToken) {
       hasCodeInput = await digitInputs.first().waitFor({ timeout: Math.min(5000, remaining()) }).then(() => true).catch(() => false);
     }
     if (!hasCodeInput) {
-      // Last resort: find any single-digit input or a group of 8 inputs near a code prompt.
+      // Last resort: scan every input for code/PIN-like attributes.
       const allInputs = await page.locator('input').all();
-      const digitLike = allInputs.filter((el) => {
+      const digitLike = [];
+      for (const el of allInputs) {
         const max = String(await el.getAttribute("maxlength").catch(() => "") || "");
         const type = String(await el.getAttribute("type").catch(() => "") || "").toLowerCase();
         const inputmode = String(await el.getAttribute("inputmode").catch(() => "") || "").toLowerCase();
         const aria = String(await el.getAttribute("aria-label").catch(() => "") || "").toLowerCase();
-        return max === "1" || type === "tel" || inputmode === "numeric" || aria.includes("pin") || aria.includes("code");
-      });
+        const placeholder = String(await el.getAttribute("placeholder").catch(() => "") || "").toLowerCase();
+        if (max === "1" || type === "tel" || inputmode === "numeric" || aria.includes("pin") || aria.includes("code") || placeholder.includes("pin") || placeholder.includes("code")) {
+          digitLike.push(el);
+        }
+      }
       if (digitLike.length >= 8) {
-        digitInputs = page.locator('input').filter({ has: page.locator('xpath=..') }).filter((el) => el.getAttribute('maxlength') === '1' || el.getAttribute('type') === 'tel');
+        // Re-target with a stable single-digit selector that the page actually contains.
+        digitInputs = page.locator('input[maxlength="1"], input[type="tel"], input[inputmode="numeric"]');
         hasCodeInput = true;
       }
     }
