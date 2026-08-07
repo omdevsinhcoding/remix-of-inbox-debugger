@@ -2342,7 +2342,7 @@ function TvRecentRuns({ events, onRefresh }: { events: any[]; onRefresh: () => v
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between gap-2">
                   <div className="text-xs text-slate-700 truncate font-bold capitalize">{statusLabel(ev)}</div>
-                  <div className="text-[11px] text-slate-400 shrink-0">{formatTvDuration(ev.created_at, ev.finished_at)}</div>
+                  <div className="text-[11px] text-slate-400 shrink-0">{formatTvRunTime(ev.finished_at || ev.created_at)}</div>
                 </div>
                 <div className="text-[11px] text-slate-500 mt-0.5 truncate">{ev.imap_user ? maskTvEmail(String(ev.imap_user)) : ev.account_label || "TV sign-in"}</div>
                 <div className="text-[11px] text-slate-400 mt-0.5">Started <b>{formatTvRunTime(ev.created_at)}</b>{ev.finished_at ? <> · Finished <b>{formatTvRunTime(ev.finished_at)}</b></> : null}</div>
