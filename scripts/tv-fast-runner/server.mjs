@@ -24,7 +24,7 @@ import { execSync } from "node:child_process";
 // SERVER_VERSION is bumped whenever the on-wire /health schema, timeout
 // budget, or reporting protocol changes. If /health shows a version older
 // than this constant in the repo, the VPS is running a stale build.
-const SERVER_VERSION = "2026.08.05-8";
+const SERVER_VERSION = "2026.08.07-14";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 let PACKAGE_VERSION = "unknown";
@@ -268,7 +268,7 @@ async function runTvJob(eventId, runnerToken) {
     });
 
     stage = "open_netflix_tv8";
-    await page.goto("https://www.netflix.com/tv8", { waitUntil: "domcontentloaded", timeout: Math.min(9000, remaining()) });
+    await page.goto("https://www.netflix.com/tv8", { waitUntil: "commit", timeout: Math.min(9000, remaining()) });
     mark.nav = elapsed();
 
     stage = "wait_code_input";
@@ -341,17 +341,24 @@ async function runTvJob(eventId, runnerToken) {
 
     stage = "wait_netflix_result";
     let bodyText = "";
-    const deadline = now() + Math.min(9000, remaining());
+    let finalUrl = page.url();
+    const deadline = now() + Math.min(5200, remaining());
+    const isSuccessUrl = (url) => /\/tv\/out\/success(?:[/?#]|$)/i.test(url);
+    const hasConfirmedTvSuccess = (text) => /(?:your |this )?(?:tv|device)\s+(?:is\s+|has\s+been\s+)?(?:now\s+)?(?:signed\s+in|activated|linked|connected)|(?:signed\s+in|activated|linked|connected)\s+(?:successfully\s+)?(?:to|on)\s+(?:your\s+)?(?:tv|device)|(?:success|all set)[!.\s-]+(?:your |this )?(?:tv|device)/i.test(text);
     while (now() < deadline) {
-      await page.waitForTimeout(180);
+      await page.waitForTimeout(120);
       bodyText = (await page.locator("body").innerText().catch(() => "")).toLowerCase();
-      if (/success|signed in|logged in|welcome|activated|linked|connected|invalid|incorrect|wrong|not recognized|try again|expired/i.test(bodyText)) break;
-      if (!/\/tv8/i.test(page.url())) break;
+      finalUrl = page.url();
+      if (isSuccessUrl(finalUrl) || hasConfirmedTvSuccess(bodyText) || /invalid|incorrect|wrong|not recognized|try again|expired/i.test(bodyText)) break;
     }
+    // Re-read the settled page after a redirect. This prevents stale pre-redirect
+    // text from turning a login/error navigation into a false success report.
+    finalUrl = page.url();
+    bodyText = (await page.locator("body").innerText().catch(() => bodyText)).toLowerCase();
     mark.result = elapsed();
 
     let status = "error", result = "unknown", message = "Unable to determine result from page";
-    if (/success|signed in|logged in|welcome|activated|linked|connected/i.test(bodyText) || !/\/tv8/i.test(page.url())) {
+    if (isSuccessUrl(finalUrl) || hasConfirmedTvSuccess(bodyText)) {
       status = "success"; result = "success"; message = "TV signed in successfully";
     } else if (/invalid|incorrect|wrong|couldn.?t|not recognized|try again/i.test(bodyText)) {
       status = "invalid_code"; result = "invalid_code"; message = "Netflix rejected the code";
