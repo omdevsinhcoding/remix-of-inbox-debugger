@@ -2527,7 +2527,7 @@ Deno.serve(async (originalReq) => {
       const settingsP = supabase
         .from("app_settings")
         .select("key,value")
-        .in("key", ["recaptcha", "primary_cloudflare_urls", "email_filters", "maintenance", "r2_storage", "location_policy", "free_avatar_cooldown", "free_avatar_last_change", "tv_feature", "contact_info"]);
+        .in("key", ["recaptcha", "primary_cloudflare_urls", "email_filters", "maintenance", "r2_storage", "location_policy", "free_avatar_cooldown", "free_avatar_last_change", "tv_feature", "contact_info", "developer_links"]);
 
       const [{ data: users, error: usersErr }, { data: settingRows }] = await Promise.all([usersP, settingsP]);
       if (usersErr) throw usersErr;
@@ -2633,7 +2633,22 @@ Deno.serve(async (originalReq) => {
             note: typeof contactInfoRaw.note === "string" ? contactInfoRaw.note : "",
           }
         : { telegram: "", whatsapp: "", email: "", note: "" };
-      const basePayload: any = { success: true, users: mappedUsers, recaptcha, workerUrls, emailFilters, maintenance, avatarBaseUrl, locationPolicy: { required: globalLocationRequired }, freeAvatarCooldown, tvFeature, contactInfo };
+      const devLinksRaw: any = settings.get("developer_links");
+      const developerLinks = Array.isArray(devLinksRaw?.links)
+        ? devLinksRaw.links
+            .filter((l: any) => l && typeof l === "object" && typeof l.url === "string" && /^https?:\/\//i.test(l.url.trim()))
+            .slice(0, 24)
+            .map((l: any, i: number) => ({
+              id: String(l.id || `dev_${i}`),
+              label: String(l.label || "Developer").slice(0, 60),
+              url: String(l.url).trim().slice(0, 600),
+              role: String(l.role || "").slice(0, 80),
+              description: String(l.description || "").slice(0, 240),
+              avatar: String(l.avatar || "").slice(0, 600),
+            }))
+        : [];
+      const developerButtonLabel = String(devLinksRaw?.buttonLabel || "Developer").slice(0, 24);
+      const basePayload: any = { success: true, users: mappedUsers, recaptcha, workerUrls, emailFilters, maintenance, avatarBaseUrl, locationPolicy: { required: globalLocationRequired }, freeAvatarCooldown, tvFeature, contactInfo, developerLinks, developerButtonLabel };
       // Compute a stable etag from the content. 16 hex chars (~64 bits) is
       // enough uniqueness to catch any real content change without paying
       // for the full 64-char hash in every response header.
@@ -3355,7 +3370,7 @@ Deno.serve(async (originalReq) => {
       }
 
       // Keys that any authenticated user can read (with masked sensitive data)
-      const authenticatedKeys = ["primary_cloudflare_urls", "email_accounts", "recaptcha", "email_filters", "session_config", "admin_session_config", "session_limits", "location_policy", "free_session_minutes", "tv_feature", "contact_info"];
+      const authenticatedKeys = ["primary_cloudflare_urls", "email_accounts", "recaptcha", "email_filters", "session_config", "admin_session_config", "session_limits", "location_policy", "free_session_minutes", "tv_feature", "contact_info", "developer_links"];
       if (!session && authenticatedKeys.includes(key)) {
         session = await requireSession(req);
       }
@@ -3363,7 +3378,7 @@ Deno.serve(async (originalReq) => {
       // Default-deny settings access: only explicitly listed keys are readable.
       // This prevents newly-added secret settings (for example storage/API
       // credentials) from becoming public through this generic endpoint.
-      const publicKeys = ["maintenance"];
+      const publicKeys = ["maintenance", "developer_links"];
       if (!session && !publicKeys.includes(key)) {
         throw new Error("Settings key is not public");
       }
@@ -3724,6 +3739,41 @@ Deno.serve(async (originalReq) => {
       if (error) throw error;
       invalidateBootstrapCache();
       await auditLog(supabase, "settings_changed", session.userId, null, { key: "contact_info" }, ip);
+      return new Response(JSON.stringify({ success: true, value }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "save_developer_links") {
+      const session = await requireAdmin(req);
+      const raw = ((params as any)?.value && typeof (params as any).value === "object") ? (params as any).value : (params || {});
+      const trim = (v: any, max = 240) => typeof v === "string" ? v.trim().slice(0, max) : "";
+      const rawLinks = Array.isArray(raw.links) ? raw.links : [];
+      const links: any[] = [];
+      const seen = new Set<string>();
+      for (const item of rawLinks) {
+        if (!item || typeof item !== "object") continue;
+        const url = trim(item.url, 600);
+        if (!url || !/^https?:\/\//i.test(url)) continue;
+        if (seen.has(url)) continue;
+        seen.add(url);
+        links.push({
+          id: trim(item.id, 40) || `dev_${links.length}_${Date.now().toString(36)}`,
+          label: trim(item.label, 60) || "Developer",
+          url,
+          role: trim(item.role, 80),
+          description: trim(item.description, 240),
+          avatar: trim(item.avatar, 600),
+        });
+        if (links.length >= 24) break;
+      }
+      const value = { links, buttonLabel: trim(raw.buttonLabel, 24) || "Developer" };
+      const { error } = await supabase
+        .from("app_settings")
+        .upsert({ key: "developer_links", value }, { onConflict: "key" });
+      if (error) throw error;
+      invalidateBootstrapCache();
+      await auditLog(supabase, "settings_changed", session.userId, null, { key: "developer_links", count: links.length }, ip);
       return new Response(JSON.stringify({ success: true, value }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
