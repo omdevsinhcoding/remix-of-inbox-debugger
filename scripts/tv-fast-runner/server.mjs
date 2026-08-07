@@ -24,7 +24,7 @@ import { execSync } from "node:child_process";
 // SERVER_VERSION is bumped whenever the on-wire /health schema, timeout
 // budget, or reporting protocol changes. If /health shows a version older
 // than this constant in the repo, the VPS is running a stale build.
-const SERVER_VERSION = "2026.08.07-11";
+const SERVER_VERSION = "2026.08.07-12";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 let PACKAGE_VERSION = "unknown";
@@ -297,11 +297,10 @@ async function runTvJob(eventId, runnerToken) {
     // could spend the whole attempt filling a hidden non-PIN field.
     const combinedSelector = selectorSets.map((selector) => `${selector}:visible`).join(", ");
     let digitInputs = page.locator(combinedSelector);
-    let hasCodeInput = await digitInputs.first().waitFor({ timeout: Math.min(7000, remaining()) }).then(() => true).catch(() => false);
-    if (!hasCodeInput && remaining() > 6000 && !/login|unsupportedbrowser/i.test(page.url())) {
-      await page.goto("https://www.netflix.com/tv8", { waitUntil: "networkidle", timeout: Math.min(6000, remaining()) }).catch(() => {});
-      hasCodeInput = await digitInputs.first().waitFor({ timeout: Math.min(5000, remaining()) }).then(() => true).catch(() => false);
-    }
+    // One bounded wait only. Reloading with `networkidle` after this wait used
+    // to add another 6–11 seconds and could replace a page that was already
+    // mounting its PIN controls. A fresh context has no stale page to repair.
+    let hasCodeInput = await digitInputs.first().waitFor({ timeout: Math.min(6500, remaining()) }).then(() => true).catch(() => false);
     if (!hasCodeInput) {
       // Last resort: scan every input for code/PIN-like attributes.
       const allInputs = await page.locator('input').all();
@@ -385,9 +384,9 @@ async function runTvJob(eventId, runnerToken) {
     mark.fill = elapsed();
 
     stage = "submit_code";
-    const submitReady = await page.waitForFunction(() => {
+    const findReadySubmit = () => page.evaluate(() => {
       const candidates = Array.from(document.querySelectorAll('button, [role="button"], input[type="submit"]'));
-      return candidates.some((element) => {
+      const index = candidates.findIndex((element) => {
         const rect = element.getBoundingClientRect();
         const label = `${element.textContent || ""} ${element.getAttribute("value") || ""} ${element.getAttribute("aria-label") || ""} ${element.getAttribute("data-uia") || ""}`;
         const isSubmit = /enter code|continue|submit|tvsignup.*continue/i.test(label) || element.getAttribute("type") === "submit";
@@ -396,8 +395,15 @@ async function runTvJob(eventId, runnerToken) {
           : element.getAttribute("aria-disabled") === "true";
         return isSubmit && !disabled && rect.width > 0 && rect.height > 0;
       });
-    }, null, { timeout: Math.min(2200, remaining()) }).then(() => true).catch(() => false);
-    if (submitReady) {
+      return index;
+    });
+    const submitDeadline = now() + Math.min(900, remaining());
+    let submitIndex = -1;
+    while (now() < submitDeadline && submitIndex < 0) {
+      submitIndex = await findReadySubmit().catch(() => -1);
+      if (submitIndex < 0) await page.waitForTimeout(60);
+    }
+    const triggerSubmit = async () => {
       await page.evaluate(() => {
         const candidates = Array.from(document.querySelectorAll('button, [role="button"], input[type="submit"]'));
         const control = candidates.find((element) => {
@@ -409,30 +415,50 @@ async function runTvJob(eventId, runnerToken) {
             : element.getAttribute("aria-disabled") === "true";
           return isSubmit && !disabled && rect.width > 0 && rect.height > 0;
         });
-        if (!(control instanceof HTMLElement)) throw new Error("submit_button_missing");
-        control.click();
+        if (control instanceof HTMLElement) {
+          control.click();
+          return;
+        }
+        const active = document.activeElement;
+        const form = active instanceof HTMLInputElement ? active.form : document.querySelector("form");
+        if (form instanceof HTMLFormElement) form.requestSubmit();
       });
-    } else {
-      // Netflix variants sometimes submit the PIN form without rendering a
-      // recognizable button. Enter follows the same native form path and does
-      // not spend another actionability timeout.
-      await page.keyboard.press("Enter");
-    }
+      // Enter is a no-op after a successful button/form submission, and is the
+      // correct fallback for Netflix variants whose controls live outside a form.
+      if (submitIndex < 0) await page.keyboard.press("Enter");
+    };
+    await triggerSubmit();
     mark.submit = elapsed();
 
     stage = "wait_netflix_result";
     let bodyText = "";
-    const deadline = now() + Math.min(9000, remaining());
+    const resultStarted = now();
+    const deadline = resultStarted + Math.min(5200, remaining());
+    let resubmitted = false;
     while (now() < deadline) {
-      await page.waitForTimeout(180);
+      await page.waitForTimeout(120);
       bodyText = (await page.locator("body").innerText().catch(() => "")).toLowerCase();
       if (/success|signed in|logged in|welcome|activated|linked|connected|invalid|incorrect|wrong|not recognized|try again|expired/i.test(bodyText)) break;
       if (!/\/tv8/i.test(page.url())) break;
+      // If Netflix kept the same filled PIN UI for 1.8s, the first submit was
+      // swallowed by a React transition. Re-submit exactly once instead of
+      // waiting nine seconds and returning an ambiguous result.
+      if (!resubmitted && now() - resultStarted >= 1800) {
+        const stillFilled = await digitInputs.evaluateAll((inputs, expected) => inputs
+          .filter((input) => input instanceof HTMLInputElement && input.getBoundingClientRect().width > 0)
+          .map((input) => input.value).join("").replace(/\D/g, "") === expected, code).catch(() => false);
+        if (stillFilled) {
+          resubmitted = true;
+          submitIndex = await findReadySubmit().catch(() => -1);
+          await triggerSubmit();
+        }
+      }
     }
     mark.result = elapsed();
 
     let status = "error", result = "unknown", message = "Unable to determine result from page";
-    if (/success|signed in|logged in|welcome|activated|linked|connected/i.test(bodyText) || !/\/tv8/i.test(page.url())) {
+    const finalUrl = page.url();
+    if (/success|signed in|logged in|welcome|activated|linked|connected/i.test(bodyText) || (!/\/tv8/i.test(finalUrl) && !/login|unsupportedbrowser/i.test(finalUrl))) {
       status = "success"; result = "success"; message = "TV signed in successfully";
     } else if (/invalid|incorrect|wrong|couldn.?t|not recognized|try again/i.test(bodyText)) {
       status = "invalid_code"; result = "invalid_code"; message = "Netflix rejected the code";
