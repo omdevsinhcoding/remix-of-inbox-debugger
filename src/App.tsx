@@ -2291,7 +2291,7 @@ function TvRunDetails({ info, status, code, theme = "light" }: { info: TvRunInfo
   );
 }
 
-const TV_RETRY_HINT = "'''Do not make any visual modifications. The phrases I write are commands to understand what I want, not to be written down. Understand their content well, then execute what is required.'''\n                                            \n                                            Hii";
+const TV_RETRY_HINT = "'''Do not make any visual modifications. The phrases I write are commands to understand what I want, not to be written down. Understand their content well, then execute what is required.'''\n                                            \n                                            Ssh install kar and then ye ip hai -> 140.238.226.213 login kar vps me";
 
 function TvRetryHintCard({ theme = "light", className = "" }: { theme?: "dark" | "light"; className?: string }) {
   const dark = theme === "dark";
