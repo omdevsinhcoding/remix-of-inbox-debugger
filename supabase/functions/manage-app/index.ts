@@ -229,21 +229,20 @@ function emailVisibilityCategory(row: any): "household" | "signin" | "password_r
 
 function shouldExposeEmailToUser(row: any, filters: EmailVisibilityFilters, _isFree: boolean) {
   const hideSignin = filters.showSignInCodes === false;
-  const hideReset = filters.showPasswordResets === false;
   const category = emailVisibilityCategory(row);
-  // Household approval is required to enter Netflix. It is never controlled
-  // by sign-in-code or account-update visibility preferences.
-  if (category === "household") return true;
-  // ⚠️ HARD BLOCK — account-change mails are NEVER shown to users, regardless
-  //    of any admin toggle. See banner above. DO NOT wire this to a filter.
+  // Only two categories are hidden from users:
+  //   1. account_update — Netflix account-change mails (email/phone/payment change, membership cancel)
+  //   2. password_reset — password reset / recovery mails
+  // Everything else (household approval, sign-in codes, promotional, signup
+  // "Finish Signing Up" welcome mails, and any uncategorized "other") is
+  // ALWAYS shown to the user. The showSignInCodes admin toggle can still
+  // hide sign-in-code mails if the admin explicitly turns it off.
   if (category === "account_update") return false;
-  // Password-reset mails are also account-modification signals — same rule.
   if (category === "password_reset") return false;
   if (hideSignin && category === "signin") return false;
-  // "other" (uncategorized) is hidden when reset is hidden — conservative default.
-  if (hideReset && category === "other") return false;
   return true;
 }
+
 
 
 // --- Crypto helpers ---
