@@ -750,8 +750,13 @@ async function fetchFromAccount(
           };
           const visibility = classifyEmailForVisibility(email);
           const eligibleForUser = visibility !== "password_reset" && visibility !== "account_update";
-          if (!quickRefresh || !eligibleForUser || (eligibleByAccount.get(matchedAccount.label) || 0) < QUICK_REFRESH_MAX_ELIGIBLE_PER_ACCOUNT) {
-            emails.push(email);
+          
+          // User refresh: only include new mail that is NOT filtered.
+          // Full/admin sync: include everything (filters are applied at read-time).
+          if (!quickRefresh || eligibleForUser) {
+            if (!quickRefresh || (eligibleByAccount.get(matchedAccount.label) || 0) < QUICK_REFRESH_MAX_ELIGIBLE_PER_ACCOUNT) {
+              emails.push(email);
+            }
           }
           if (eligibleForUser) {
             eligibleByAccount.set(matchedAccount.label, (eligibleByAccount.get(matchedAccount.label) || 0) + 1);
