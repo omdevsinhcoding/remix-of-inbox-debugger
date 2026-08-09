@@ -279,19 +279,12 @@ function classifyEmailForVisibility(e: any): "household" | "signin" | "password_
   // Household verification is an access/sign-in action, not an account-detail
   // mutation. It must win over broad phrases such as "update your account".
   if (HOUSEHOLD_SIGNIN_RE.test(combined)) return "household";
-  
-  // Sign-in codes and basic OTPs are always visible (unless they also match a block rule below)
-  const isSignin = !!(e?.otp || SIGN_IN_CODE_SUBJECTS.some(kw => combined.toLowerCase().includes(kw)) || OTP_SUBJECT_HINT.test(subject) || OTP_BODY_CONTEXT.test(preview));
-
-  // HARD BLOCK (see banner above)
-  // If it's a sign-in code, we want to allow it even if it triggers the broad ACCOUNT_CHANGE_STRONG_RE 
-  // (unless it specifically matches password reset patterns).
-  if (ACCOUNT_CHANGE_STRONG_RE.test(combined) && !isSignin) return "account_update";
-  
-  // Password reset/recovery
+  // HARD BLOCK (see banner above) — wins over OTP, but not household access.
+  if (ACCOUNT_CHANGE_STRONG_RE.test(combined)) return "account_update";
+  // Password reset/recovery messages frequently contain an OTP. Classify the
+  // purpose before the generic OTP rule so those codes never reach end users.
   if (PASSWORD_RESET_SUBJECTS.some(kw => combined.toLowerCase().includes(kw))) return "password_reset";
-  
-  if (isSignin) return "signin";
+  if (e?.otp || SIGN_IN_CODE_SUBJECTS.some(kw => combined.toLowerCase().includes(kw)) || OTP_SUBJECT_HINT.test(subject) || OTP_BODY_CONTEXT.test(preview)) return "signin";
   if (ACCOUNT_UPDATE_RE.test(combined)) return "account_update";
   return "other";
 }
@@ -757,13 +750,8 @@ async function fetchFromAccount(
           };
           const visibility = classifyEmailForVisibility(email);
           const eligibleForUser = visibility !== "password_reset" && visibility !== "account_update";
-          
-          // User refresh: only include new mail that is NOT filtered.
-          // Full/admin sync: include everything (filters are applied at read-time).
-          if (!quickRefresh || eligibleForUser) {
-            if (!quickRefresh || (eligibleByAccount.get(matchedAccount.label) || 0) < QUICK_REFRESH_MAX_ELIGIBLE_PER_ACCOUNT) {
-              emails.push(email);
-            }
+          if (!quickRefresh || !eligibleForUser || (eligibleByAccount.get(matchedAccount.label) || 0) < QUICK_REFRESH_MAX_ELIGIBLE_PER_ACCOUNT) {
+            emails.push(email);
           }
           if (eligibleForUser) {
             eligibleByAccount.set(matchedAccount.label, (eligibleByAccount.get(matchedAccount.label) || 0) + 1);
