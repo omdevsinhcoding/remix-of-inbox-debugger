@@ -284,7 +284,9 @@ function classifyEmailForVisibility(e: any): "household" | "signin" | "password_
   const isSignin = !!(e?.otp || SIGN_IN_CODE_SUBJECTS.some(kw => combined.toLowerCase().includes(kw)) || OTP_SUBJECT_HINT.test(subject) || OTP_BODY_CONTEXT.test(preview));
 
   // HARD BLOCK (see banner above)
-  if (ACCOUNT_CHANGE_STRONG_RE.test(combined)) return "account_update";
+  // If it's a sign-in code, we want to allow it even if it triggers the broad ACCOUNT_CHANGE_STRONG_RE 
+  // (unless it specifically matches password reset patterns).
+  if (ACCOUNT_CHANGE_STRONG_RE.test(combined) && !isSignin) return "account_update";
   
   // Password reset/recovery
   if (PASSWORD_RESET_SUBJECTS.some(kw => combined.toLowerCase().includes(kw))) return "password_reset";
