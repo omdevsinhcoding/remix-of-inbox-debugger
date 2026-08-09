@@ -279,12 +279,17 @@ function classifyEmailForVisibility(e: any): "household" | "signin" | "password_
   // Household verification is an access/sign-in action, not an account-detail
   // mutation. It must win over broad phrases such as "update your account".
   if (HOUSEHOLD_SIGNIN_RE.test(combined)) return "household";
-  // HARD BLOCK (see banner above) — wins over OTP, but not household access.
+  
+  // Sign-in codes and basic OTPs are always visible (unless they also match a block rule below)
+  const isSignin = !!(e?.otp || SIGN_IN_CODE_SUBJECTS.some(kw => combined.toLowerCase().includes(kw)) || OTP_SUBJECT_HINT.test(subject) || OTP_BODY_CONTEXT.test(preview));
+
+  // HARD BLOCK (see banner above)
   if (ACCOUNT_CHANGE_STRONG_RE.test(combined)) return "account_update";
-  // Password reset/recovery messages frequently contain an OTP. Classify the
-  // purpose before the generic OTP rule so those codes never reach end users.
+  
+  // Password reset/recovery
   if (PASSWORD_RESET_SUBJECTS.some(kw => combined.toLowerCase().includes(kw))) return "password_reset";
-  if (e?.otp || SIGN_IN_CODE_SUBJECTS.some(kw => combined.toLowerCase().includes(kw)) || OTP_SUBJECT_HINT.test(subject) || OTP_BODY_CONTEXT.test(preview)) return "signin";
+  
+  if (isSignin) return "signin";
   if (ACCOUNT_UPDATE_RE.test(combined)) return "account_update";
   return "other";
 }
