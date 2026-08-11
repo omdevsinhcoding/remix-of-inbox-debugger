@@ -73,7 +73,7 @@ const QUICK_REFRESH_MAX_ELIGIBLE_PER_ACCOUNT = 25;
 const PER_ACCOUNT_TIMEOUT_MS = 12000;
 const FAST_REFRESH_TIMEOUT_MS = 8000;
 // Manual refresh must cover a busy Gmail inbox without parsing unrelated mail.
-const FAST_REFRESH_SCAN_COUNT = 8;
+const FAST_REFRESH_SCAN_COUNT = 20;
 const STALE_DAYS = 60;
 
 // ------- Durable job coordination (survives Deno isolate recycles) --------
