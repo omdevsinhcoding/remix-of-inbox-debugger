@@ -60,10 +60,12 @@ const USER_REFRESH_MAX_UIDS = 12;
 const QUICK_REFRESH_CANDIDATE_UIDS = 50;
 // How many already-cached UIDs a click refresh may walk past before it stops.
 const QUICK_REFRESH_SKIP_WINDOW = 100;
-// A click refresh publishes the latest two eligible messages for every
-// assigned logical account. Shared Gmail inboxes may represent several labels,
-// so this quota must be enforced per label rather than per IMAP connection.
-const QUICK_REFRESH_MAX_ELIGIBLE_PER_ACCOUNT = 2;
+// A click refresh publishes ALL newly delivered eligible messages per assigned
+// logical account (bounded only by QUICK_REFRESH_CANDIDATE_UIDS and the
+// per-account timeout). The old cap of 2 caused fresh household / device
+// mails to be dropped and only appear on the next cron cycle 5-7 min later.
+const QUICK_REFRESH_MAX_ELIGIBLE_PER_ACCOUNT = 25;
+
 
 // Budgets are measured AFTER the IMAP connection is established (Gmail's TLS
 // handshake + greeting alone can take 5-9s, which used to eat the whole budget
@@ -71,7 +73,7 @@ const QUICK_REFRESH_MAX_ELIGIBLE_PER_ACCOUNT = 2;
 const PER_ACCOUNT_TIMEOUT_MS = 12000;
 const FAST_REFRESH_TIMEOUT_MS = 8000;
 // Manual refresh must cover a busy Gmail inbox without parsing unrelated mail.
-const FAST_REFRESH_SCAN_COUNT = 8;
+const FAST_REFRESH_SCAN_COUNT = 20;
 const STALE_DAYS = 60;
 
 // ------- Durable job coordination (survives Deno isolate recycles) --------
