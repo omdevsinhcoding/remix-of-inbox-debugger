@@ -13715,11 +13715,24 @@ function EmailViewer() {
     // an explicit delete list. Never let a shorter/filtered baseline erase rows
     // already painted from IndexedDB; only delta removedIds may remove emails.
     const merged = currentEmails.length > 0 ? mergeEmailsById([rows, currentEmails]) : rows;
+    // Keep the per-user IndexedDB snapshot and cursor aligned with the direct
+    // post-refresh baseline. Otherwise navigation can repaint an older local
+    // snapshot and the one-shot delta effect will not run again for this scope.
+    if (user?.id && rows.length > 0) {
+      try {
+        const db = await openInboxDB(user.id);
+        const cachedRows = rows as unknown as CachedEmail[];
+        const newCursor = cachedRows.reduce((max, row) => Math.max(max, Number(row.modseq || 0)), 0);
+        await writeDelta(db, { rows: cachedRows, removedIds: [], newCursor });
+      } catch (cacheErr) {
+        pushDiag({ ts: Date.now(), kind: "cache", endpoint: "idb:post-refresh", error: cacheErr instanceof Error ? cacheErr.message : String(cacheErr) });
+      }
+    }
     setEmails(merged);
     setError(null);
     setLastUpdated(new Date());
     return merged;
-  }, [pushDiag, setEmails, emails]);
+  }, [pushDiag, setEmails, emails, user?.id]);
 
   const loadCachedEmails = useCallback(async (opts?: { bust?: boolean; limit?: number }) => {
     const bust = !!opts?.bust;

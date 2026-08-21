@@ -828,7 +828,12 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
       if (item.status === "fulfilled") {
         for (const acc of group) {
           const fetched = item.value.result.emails.filter((email: any) => email.account_label === acc.label).length;
-          syncStats[acc.label] = { fetched, skipped: item.value.result.skipped, recipientSkipped: item.value.result.recipientSkipped };
+          syncStats[acc.label] = {
+            fetched,
+            skipped: item.value.result.skipped,
+            recipientSkipped: item.value.result.recipientSkipped,
+            ...(item.value.result.timedOut ? { error: "Mail check reached its time limit; partial results were saved" } : {}),
+          };
         }
         allEmails.push(...item.value.result.emails);
       } else {
@@ -908,6 +913,10 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
       .filter(([, v]: any) => Number(v.recipientSkipped || 0) > 0)
       .map(([label, v]: any) => `${label}: ${v.recipientSkipped} Netflix email skipped by recipient filter`);
     if (recipientWarnings.length > 0) response.warnings = [...(response.warnings || []), ...recipientWarnings];
+    const timeoutWarnings = Object.entries(syncStats)
+      .filter(([, v]: any) => /time limit/i.test(String(v.error || "")))
+      .map(([label]) => `${label}: mail check reached its time limit; partial results were saved`);
+    if (timeoutWarnings.length > 0) response.warnings = [...(response.warnings || []), ...timeoutWarnings];
     if (Array.isArray(response.warnings) && response.warnings.length > 0) response.warning = response.warnings.join(" • ");
     console.log(`[sync] Complete: ${allEmails.length} fetched/upserted across ${accounts.length} account(s)`);
     return response;
