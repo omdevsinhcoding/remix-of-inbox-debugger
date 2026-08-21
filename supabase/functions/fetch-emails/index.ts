@@ -506,6 +506,7 @@ async function fetchFromAccount(
   imapPassword: string,
   accountLabel: string,
   cachedIds: Set<string>,
+  cachedMessageIds: Set<string>,
   maxMessages = FULL_SYNC_MAX_UIDS,
   quickRefresh = false,
   recipientFilters: string[] = [],
@@ -643,6 +644,11 @@ async function fetchFromAccount(
             recipientSkipped++;
             continue;
           }
+          const messageId = String(parsed.messageId || "").trim().toLowerCase();
+          if (messageId && cachedMessageIds.has(messageId)) {
+            skipped++;
+            continue;
+          }
           const email = {
             id: makeId(matchedAccount.label, uid),
             message_id: parsed.messageId || null,
@@ -659,6 +665,7 @@ async function fetchFromAccount(
           const eligibleForUser = visibility !== "password_reset" && visibility !== "account_update";
           if (!quickRefresh || !eligibleForUser || (eligibleByAccount.get(matchedAccount.label) || 0) < QUICK_REFRESH_MAX_ELIGIBLE_PER_ACCOUNT) {
             emails.push(email);
+            if (messageId) cachedMessageIds.add(messageId);
           }
           if (eligibleForUser) eligibleByAccount.set(matchedAccount.label, (eligibleByAccount.get(matchedAccount.label) || 0) + 1);
         } catch (parseErr) {
@@ -668,7 +675,7 @@ async function fetchFromAccount(
         }
       }
     } finally {
-      lock.release();
+      try { lock.release(); } catch {}
     }
   };
 
@@ -791,13 +798,16 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
     dedupCutoff.setDate(dedupCutoff.getDate() - STALE_DAYS);
     const { data: cachedRows } = await supabase
       .from("cached_emails")
-      .select("id")
+      .select("id, message_id")
       .eq("destroyed", false)
       .gte("date", dedupCutoff.toISOString())
       .order("date", { ascending: false })
       .order("id", { ascending: false })
       .limit(DEDUP_ID_LIMIT);
     const cachedIds = new Set((cachedRows || []).map((r: any) => String(r.id)));
+    const cachedMessageIds = new Set(
+      (cachedRows || []).map((r: any) => String(r.message_id || "").trim().toLowerCase()).filter(Boolean),
+    );
 
     // Several logical accounts may share one Gmail inbox. Opening one parallel
     // IMAP connection per logical label caused socket timeouts and let whichever
@@ -814,7 +824,7 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
     const settled = await Promise.allSettled(physicalGroups.map(async (group) => {
       const primary = group[0];
       console.log(`[sync] Fetching ${group.map((acc) => acc.label).join(", ")} (${primary.user})`);
-      const result = await fetchFromAccount(primary.host, primary.port, primary.user, primary.password, primary.label, cachedIds, maxMessages, quickRefresh, [], group);
+      const result = await fetchFromAccount(primary.host, primary.port, primary.user, primary.password, primary.label, cachedIds, cachedMessageIds, maxMessages, quickRefresh, [], group);
       return { group, result };
     }));
 
