@@ -695,7 +695,7 @@ async function fetchFromAccount(
     // Gmail labels can route Promotions/archived mail outside INBOX. If the
     // fast INBOX pass found nothing new, use the provider's special-use All Mail
     // mailbox as a bounded fallback within the same unchanged time budget.
-    if (quickRefresh && emails.length === 0 && hasBudget()) {
+    if (quickRefresh && hasBudget()) {
       try {
         const mailboxes = await client.list();
         const allMail = mailboxes.find((box: any) => box?.specialUse === "\\All")

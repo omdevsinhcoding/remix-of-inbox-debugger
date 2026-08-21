@@ -1057,7 +1057,7 @@ async function apiCall(functionName: string, body: any) {
         const t3 = getSessionToken();
         if (t3) extraHeaders["X-Session-Token"] = t3;
         data = await invokeEdge(functionName, body, { headers: extraHeaders });
-      } else if (isTransientEdgeError(err)) {
+      } else if (functionName !== "fetch-emails" && isTransientEdgeError(err)) {
         await new Promise((r) => setTimeout(r, 750));
         const t4 = getSessionToken();
         if (t4) extraHeaders["X-Session-Token"] = t4;
