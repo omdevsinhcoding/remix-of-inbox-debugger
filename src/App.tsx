@@ -1057,7 +1057,7 @@ async function apiCall(functionName: string, body: any) {
         const t3 = getSessionToken();
         if (t3) extraHeaders["X-Session-Token"] = t3;
         data = await invokeEdge(functionName, body, { headers: extraHeaders });
-      } else if (isTransientEdgeError(err)) {
+      } else if (functionName !== "fetch-emails" && isTransientEdgeError(err)) {
         await new Promise((r) => setTimeout(r, 750));
         const t4 = getSessionToken();
         if (t4) extraHeaders["X-Session-Token"] = t4;
@@ -13715,11 +13715,24 @@ function EmailViewer() {
     // an explicit delete list. Never let a shorter/filtered baseline erase rows
     // already painted from IndexedDB; only delta removedIds may remove emails.
     const merged = currentEmails.length > 0 ? mergeEmailsById([rows, currentEmails]) : rows;
+    // Keep the per-user IndexedDB snapshot and cursor aligned with the direct
+    // post-refresh baseline. Otherwise navigation can repaint an older local
+    // snapshot and the one-shot delta effect will not run again for this scope.
+    if (user?.id && rows.length > 0) {
+      try {
+        const db = await openInboxDB(user.id);
+        const cachedRows = rows as unknown as CachedEmail[];
+        const newCursor = cachedRows.reduce((max, row) => Math.max(max, Number(row.modseq || 0)), 0);
+        await writeDelta(db, { rows: cachedRows, removedIds: [], newCursor });
+      } catch (cacheErr) {
+        pushDiag({ ts: Date.now(), kind: "cache", endpoint: "idb:post-refresh", error: cacheErr instanceof Error ? cacheErr.message : String(cacheErr) });
+      }
+    }
     setEmails(merged);
     setError(null);
     setLastUpdated(new Date());
     return merged;
-  }, [pushDiag, setEmails, emails]);
+  }, [pushDiag, setEmails, emails, user?.id]);
 
   const loadCachedEmails = useCallback(async (opts?: { bust?: boolean; limit?: number }) => {
     const bust = !!opts?.bust;
@@ -13912,18 +13925,10 @@ function EmailViewer() {
       return await syncDirectFromSupabase();
     };
     try {
-      let synced: Awaited<ReturnType<typeof syncViaWorker>> = null;
-      try {
-        synced = await runRefresh();
-      } catch (transient) {
-        const tmsg = transient instanceof Error ? transient.message : String(transient);
-        if (/Secure connection|handshake|Failed to fetch|NetworkError|busy/i.test(tmsg)) {
-          await new Promise((r) => setTimeout(r, 700));
-          synced = await runRefresh();
-        } else {
-          throw transient;
-        }
-      }
+      // Exactly one IMAP sync per click. Replaying a timed-out request starts a
+      // second server job while the first may still be unwinding and can keep
+      // the UI busy far beyond the fixed transport deadline.
+      const synced: Awaited<ReturnType<typeof syncViaWorker>> = await runRefresh();
       let merged: Email[] = emailsRef.current;
       let recoveredFromCache = false;
       if (synced) {

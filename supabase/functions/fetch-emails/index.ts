@@ -506,11 +506,12 @@ async function fetchFromAccount(
   imapPassword: string,
   accountLabel: string,
   cachedIds: Set<string>,
+  cachedMessageIds: Set<string>,
   maxMessages = FULL_SYNC_MAX_UIDS,
   quickRefresh = false,
   recipientFilters: string[] = [],
   logicalAccounts: Account[] = [],
-): Promise<{ emails: any[]; fetched: number; skipped: number; recipientSkipped: number }> {
+): Promise<{ emails: any[]; fetched: number; skipped: number; recipientSkipped: number; timedOut: boolean }> {
   const emails: any[] = [];
   let skipped = 0;
   let recipientSkipped = 0;
@@ -530,141 +531,71 @@ async function fetchFromAccount(
     greetingTimeout: quickRefresh ? 6000 : 8000,
   });
 
-  try {
-    await client.connect();
-    console.log(`[${accountLabel}] IMAP connected to ${imapHost}`);
-    // Start the work budget only now — connect time must not count against it.
-    startedAt = Date.now();
-    timer = setTimeout(() => { timedOut = true; }, budgetMs) as unknown as number;
-    const lock = await client.getMailboxLock("INBOX");
+  const accountVariants = logicalAccounts.length > 0
+    ? logicalAccounts
+    : [{ label: accountLabel, host: imapHost, port: imapPort, user: imapUser, password: imapPassword, recipientFilters }];
 
+  const scanMailbox = async (mailboxPath: string, idNamespace = "", allowIndexingGrace = false) => {
+    if (!hasBudget()) return;
+    const lock = await client.getMailboxLock(mailboxPath);
     try {
-      let netflixUids: number[] = [];
-      let newestUids: number[] = [];
-      let fastNetflixUids: number[] = [];
-      const totalMessages = (client.mailbox as any)?.exists || 0;
-      const accountVariants = logicalAccounts.length > 0
-        ? logicalAccounts
-        : [{ label: accountLabel, host: imapHost, port: imapPort, user: imapUser, password: imapPassword, recipientFilters }];
+      const totalMessages = Number((client.mailbox as any)?.exists || 0);
+      if (totalMessages <= 0 || !hasBudget()) return;
 
-      // A click refresh only needs the newest delivery. Fetch the last few
-      // envelopes in one IMAP command first; Gmail's seven-day sender SEARCH
-      // was taking ~4s by itself even when only one new message existed.
-      // Keep SEARCH as a fallback so a busy inbox cannot permanently hide a
-      // Netflix message just below this small latest-message window.
-      if (quickRefresh && totalMessages > 0 && hasBudget()) {
+      const makeId = (label: string, uid: number) => `${label}:${idNamespace}${uid}`;
+      const isCached = (uid: number) => cachedIds.has(String(uid)) || accountVariants.some((acc) => cachedIds.has(makeId(acc.label, uid)));
+      let netflixUids: number[] = [];
+
+      // Fast path: inspect the newest envelopes in one command. If it finds an
+      // uncached Netflix delivery, skip the slower sender SEARCH entirely.
+      if (quickRefresh) {
         const startSeq = Math.max(1, totalMessages - (FAST_REFRESH_SCAN_COUNT - 1));
         for await (const message of client.fetch(`${startSeq}:${totalMessages}`, { envelope: true, uid: true })) {
           if (!hasBudget()) break;
-          newestUids.push(message.uid);
           const fromAddr = message.envelope?.from?.[0]?.address?.toLowerCase() || "";
           if (/@([a-z0-9-]+\.)*netflix\.com$/.test(fromAddr)) netflixUids.push(message.uid);
         }
-        fastNetflixUids = [...netflixUids];
-        if (netflixUids.length > 0) console.log(`[${accountLabel}] Fast latest-envelope scan found ${netflixUids.length}`);
       }
 
-      // The small envelope window is only a latency fast path. Always reconcile
-      // it with Gmail's sender search while budget remains: with several logical
-      // accounts in one inbox, the latest eight inbox rows may not contain two
-      // messages for every assigned recipient.
-      if (hasBudget()) {
+      let hasUncachedCandidate = netflixUids.some((uid) => !isCached(uid));
+      if (!hasUncachedCandidate && hasBudget()) {
         const since = new Date();
         since.setDate(since.getDate() - 7);
-        for (const term of ["netflix.com", "netflix"]) {
-          if (!hasBudget()) break;
-          try {
-            const searchResults = await client.search({ from: term, since }, { uid: true });
-            if (searchResults?.length > 0) {
-              netflixUids.push(...(searchResults as number[]));
-              console.log(`[${accountLabel}] Search "${term}" found ${netflixUids.length}`);
-              break;
-            }
-          } catch (searchErr) {
-            console.log(`[${accountLabel}] Search "${term}" failed:`, searchErr);
-          }
-        }
-      }
-
-      // Envelope fallback/reconciliation for providers whose sender search is
-      // unavailable. It only uses budget remaining after the authoritative
-      // all-Netflix search, so it can no longer starve the real refresh path.
-      if (netflixUids.length === 0 && totalMessages > 0 && hasBudget()) {
-        const scanCount = 12;
-        const startSeq = Math.max(1, totalMessages - (scanCount - 1));
-        for await (const message of client.fetch(`${startSeq}:${totalMessages}`, { envelope: true, uid: true })) {
-          if (!hasBudget()) break;
-          newestUids.push(message.uid);
-          const fromAddr = message.envelope?.from?.[0]?.address?.toLowerCase() || "";
-          if (/@([a-z0-9-]+\.)*netflix\.com$/.test(fromAddr)) netflixUids.push(message.uid);
-        }
-        if (netflixUids.length > 0) console.log(`[${accountLabel}] Latest inbox reconciliation found ${netflixUids.length}`);
-      }
-
-      netflixUids = Array.from(new Set(netflixUids)).sort((a, b) => b - a);
-      newestUids = Array.from(new Set(newestUids)).sort((a, b) => b - a);
-
-      // Gmail can accept a message while this refresh is already running, after
-      // the first latest-envelope snapshot and sender SEARCH have completed.
-      // That message previously stayed invisible until the *next* button click.
-      // Re-read only the tiny inbox tail once, inside the same existing budget,
-      // so a delivery that lands during this request is included immediately.
-      if (quickRefresh && totalMessages > 0 && hasBudget()) {
-        const initialTailHasUncachedNetflix = fastNetflixUids.some((uid) => {
-          if (cachedIds.has(String(uid))) return false;
-          return !accountVariants.some((acc) => cachedIds.has(`${acc.label}:${uid}`));
-        });
-        // Gmail sometimes acknowledges delivery before exposing the new UID to
-        // IMAP. Only when the first tail had nothing new, give that same refresh
-        // a short indexing grace period. This stays within FAST_REFRESH_TIMEOUT_MS
-        // and replaces the user's second click; it does not extend the timeout.
-        if (!initialTailHasUncachedNetflix && hasBudget()) {
-          await new Promise((resolve) => setTimeout(resolve, 900));
-        }
-        const refreshedExists = Number((client.mailbox as any)?.exists || totalMessages);
-        const tailStart = Math.max(1, refreshedExists - (FAST_REFRESH_SCAN_COUNT - 1));
         try {
-          for await (const message of client.fetch(`${tailStart}:*`, { envelope: true, uid: true })) {
-            if (!hasBudget()) break;
-            const fromAddr = message.envelope?.from?.[0]?.address?.toLowerCase() || "";
-            if (/@([a-z0-9-]+\.)*netflix\.com$/.test(fromAddr)) netflixUids.push(message.uid);
+          const found = await client.search({ from: "netflix.com", since }, { uid: true });
+          if (found?.length) netflixUids.push(...(found as number[]));
+        } catch (searchErr) {
+          console.log(`[${accountLabel}] ${mailboxPath} Netflix search failed:`, searchErr);
+        }
+        hasUncachedCandidate = netflixUids.some((uid) => !isCached(uid));
+      }
+
+      // Gmail can expose a just-delivered UID shortly after accepting the mail.
+      // Recheck once only on INBOX and only when there is still no new candidate.
+      if (quickRefresh && allowIndexingGrace && !hasUncachedCandidate && hasBudget()) {
+        await new Promise((resolve) => setTimeout(resolve, 900));
+        if (hasBudget()) {
+          const refreshedExists = Number((client.mailbox as any)?.exists || totalMessages);
+          const tailStart = Math.max(1, refreshedExists - (FAST_REFRESH_SCAN_COUNT - 1));
+          try {
+            for await (const message of client.fetch(`${tailStart}:*`, { envelope: true, uid: true })) {
+              if (!hasBudget()) break;
+              const fromAddr = message.envelope?.from?.[0]?.address?.toLowerCase() || "";
+              if (/@([a-z0-9-]+\.)*netflix\.com$/.test(fromAddr)) netflixUids.push(message.uid);
+            }
+          } catch (tailErr) {
+            console.log(`[${accountLabel}] Final ${mailboxPath} tail scan failed:`, tailErr);
           }
-          netflixUids = Array.from(new Set(netflixUids)).sort((a, b) => b - a);
-        } catch (tailErr) {
-          console.log(`[${accountLabel}] Final inbox-tail reconciliation failed:`, tailErr);
         }
       }
-      // Only ever process confirmed Netflix UIDs. Never fall back to newestUids —
-      // that fetched arbitrary third-party mail (Reddit, etc.) during quick refresh.
-      // Strict delivery order: newest Netflix UID first, regardless of email
-      // category. Visibility filtering happens only after ingestion, so a
-      // password/account-change email cannot make an older household message
-      // appear ahead of a genuinely newer visible message.
-      const candidates = Array.from(new Set(netflixUids))
-        .sort((a, b) => b - a);
-      // Scan deeper than the final fetch limit. If the newest 50 Netflix UIDs
-      // are already cached, older missed UIDs would otherwise never backfill.
-      // Inspect the complete confirmed candidate set for cache membership, but
-      // parse at most USER_REFRESH_MAX_UIDS uncached messages. Previously only
-      // the first 12 candidates were checked, so cached rows could crowd a
-      // missing mail out forever.
+
+      const candidates = Array.from(new Set(netflixUids)).sort((a, b) => b - a);
       const scanLimit = quickRefresh ? Math.min(candidates.length, 250) : Math.min(Math.max(candidates.length, maxMessages * 3), 250);
-      const uidsToCheck = candidates.slice(0, scanLimit);
-      let uncachedUids: number[] = [];
       const fetchLimit = quickRefresh ? QUICK_REFRESH_CANDIDATE_UIDS : clampLimit(maxMessages, USER_REFRESH_MAX_UIDS, FULL_SYNC_MAX_UIDS);
-      for (const uid of uidsToCheck) {
-        const plainId = String(uid);
-        // One physical UID belongs to exactly one logical account after
-        // recipient routing. If any variant already owns it, it is cached;
-        // requiring every label to own the same UID caused endless refetches.
-        const cachedForAnyVariant = accountVariants.some((acc) => cachedIds.has(`${acc.label}:${uid}`));
-        if (cachedIds.has(plainId) || cachedForAnyVariant) {
+      let uncachedUids: number[] = [];
+      for (const uid of candidates.slice(0, scanLimit)) {
+        if (isCached(uid)) {
           skipped++;
-          // Do NOT stop at the first cached UID on a click refresh. A cached
-          // newest UID used to end the scan instantly, so any mail that arrived
-          // between two refreshes (promo, household, "new device") was skipped
-          // forever. Keep walking a bounded window of newest candidates and pick
-          // up every still-missing one.
           if (quickRefresh && skipped >= QUICK_REFRESH_SKIP_WINDOW) break;
         } else {
           uncachedUids.push(uid);
@@ -672,18 +603,12 @@ async function fetchFromAccount(
         if (uncachedUids.length >= fetchLimit) break;
       }
 
-      // Cheap recipient pre-screen (quick refresh only). Full body fetch +
-      // simpleParser costs ~1-2s per UID, so a backlog of Netflix mail that
-      // belongs to *other* logical accounts (shared Gmail inbox) used to burn
-      // the whole 8s budget before the user's own new mail was ever parsed —
-      // which is exactly why a second refresh was needed to see new mail.
-      // One bulk ENVELOPE command resolves ownership for all candidates.
+      // Route a shared physical inbox by envelope before downloading bodies.
       if (quickRefresh && uncachedUids.length > 1 && hasBudget()) {
         const owned: number[] = [];
         const foreign: number[] = [];
         try {
-          const range = uncachedUids.slice(0, 60).join(",");
-          for await (const msg of client.fetch(range, { envelope: true, uid: true }, { uid: true })) {
+          for await (const msg of client.fetch(uncachedUids.slice(0, 60).join(","), { envelope: true, uid: true }, { uid: true })) {
             if (!hasBudget()) break;
             const toAddr = envelopeRecipients(msg.envelope);
             if (selectLogicalAccount(toAddr, accountVariants)) owned.push(msg.uid);
@@ -692,60 +617,46 @@ async function fetchFromAccount(
           if (owned.length > 0 || foreign.length > 0) {
             recipientSkipped += foreign.length;
             uncachedUids = owned.sort((a, b) => b - a);
-            console.log(`[${accountLabel}] Envelope pre-screen: ${owned.length} owned, ${foreign.length} other-account UIDs skipped`);
           }
         } catch (screenErr) {
-          console.log(`[${accountLabel}] Envelope pre-screen failed:`, screenErr);
+          console.log(`[${accountLabel}] ${mailboxPath} envelope pre-screen failed:`, screenErr);
         }
       }
-      console.log(`[${accountLabel}] Fetching ${uncachedUids.length} uncached candidate UIDs, ${skipped} already cached (${uidsToCheck.length}/${candidates.length} scanned)`);
 
       const eligibleByAccount = new Map(accountVariants.map((acc) => [acc.label, 0]));
       const allAccountQuotasFilled = () => accountVariants.every(
         (acc) => (eligibleByAccount.get(acc.label) || 0) >= QUICK_REFRESH_MAX_ELIGIBLE_PER_ACCOUNT,
       );
 
-
       for (const uid of uncachedUids) {
-        if (quickRefresh && allAccountQuotasFilled()) break;
-
-        if (!hasBudget()) {
-          console.log(`[${accountLabel}] Timed out, stopping fetch`);
-          break;
-        }
-
+        if (!hasBudget() || (quickRefresh && allAccountQuotasFilled())) break;
         try {
           const fullMsg = await client.fetchOne(uid, { source: true, envelope: true }, { uid: true });
           if (!fullMsg?.source) continue;
-
           const parsed = await simpleParser(fullMsg.source, { skipImageLinks: true, skipTextLinks: true });
           const bodyText = (parsed.text || "").trim();
           const subjectText = (parsed.subject || fullMsg.envelope?.subject || "").toString();
           const fromText = parsed.from?.text || "";
-          // Final gate — drop non-netflix senders. Promo/marketing mail is kept in cache
-          // and filtered at read-time based on the admin toggle.
-          if (!isNetflixFrom(fromText)) {
-            console.log(`[${accountLabel}] Skipping UID ${uid}: sender not @netflix.com (${fromText})`);
-            continue;
-          }
+          if (!isNetflixFrom(fromText)) continue;
           const toText = parsed.to ? (Array.isArray(parsed.to) ? parsed.to[0]?.text : parsed.to.text) : undefined;
           const matchedAccount = selectLogicalAccount(toText, accountVariants);
           if (!matchedAccount) {
             recipientSkipped++;
-            console.log(`[${accountLabel}] Skipping UID ${uid}: recipient not allowed (${toText || "none"})`);
             continue;
           }
-          const otpCode = extractOtpCode(subjectText, bodyText);
-          const stableId = `${matchedAccount.label}:${uid}`;
-
+          const messageId = String(parsed.messageId || "").trim().toLowerCase();
+          if (messageId && cachedMessageIds.has(messageId)) {
+            skipped++;
+            continue;
+          }
           const email = {
-            id: stableId,
+            id: makeId(matchedAccount.label, uid),
             message_id: parsed.messageId || null,
             subject: parsed.subject || fullMsg.envelope?.subject || "",
             from: parsed.from?.text || "Netflix",
             to: toText,
             date: parsed.date || new Date(),
-            otp: otpCode,
+            otp: extractOtpCode(subjectText, bodyText),
             preview: redactEmailsText(bodyText.length > 100 ? `${bodyText.substring(0, 100)}...` : bodyText),
             html: redactEmailsHtml(parsed.html || parsed.textAsHtml || `<pre>${bodyText}</pre>`),
             account_label: matchedAccount.label,
@@ -754,30 +665,62 @@ async function fetchFromAccount(
           const eligibleForUser = visibility !== "password_reset" && visibility !== "account_update";
           if (!quickRefresh || !eligibleForUser || (eligibleByAccount.get(matchedAccount.label) || 0) < QUICK_REFRESH_MAX_ELIGIBLE_PER_ACCOUNT) {
             emails.push(email);
+            if (messageId) cachedMessageIds.add(messageId);
           }
-          if (eligibleForUser) {
-            eligibleByAccount.set(matchedAccount.label, (eligibleByAccount.get(matchedAccount.label) || 0) + 1);
-          }
+          if (eligibleForUser) eligibleByAccount.set(matchedAccount.label, (eligibleByAccount.get(matchedAccount.label) || 0) + 1);
         } catch (parseErr) {
           const errMsg = parseErr instanceof Error ? parseErr.message : String(parseErr);
-          console.error(`[${accountLabel}] Fetch error UID ${uid}: ${errMsg}`);
+          console.error(`[${accountLabel}] ${mailboxPath} fetch error UID ${uid}: ${errMsg}`);
           if (/eof|closed|reset|tls|socket/i.test(errMsg)) break;
         }
       }
     } finally {
-      lock.release();
+      try { lock.release(); } catch {}
     }
+  };
+
+  try {
+    await client.connect();
+    console.log(`[${accountLabel}] IMAP connected to ${imapHost}`);
+    startedAt = Date.now();
+    // Closing the socket is intentional: a boolean timeout cannot interrupt a
+    // hung IMAP SEARCH/FETCH, which was leaving the browser loading for minutes.
+    timer = setTimeout(() => {
+      timedOut = true;
+      try { client.close(); } catch {}
+    }, budgetMs) as unknown as number;
+
+    await scanMailbox("INBOX", "", false);
+
+    // Gmail labels can route Promotions/archived mail outside INBOX. If the
+    // fast INBOX pass found nothing new, use the provider's special-use All Mail
+    // mailbox as a bounded fallback within the same unchanged time budget.
+    if (quickRefresh && hasBudget()) {
+      try {
+        const mailboxes = await client.list();
+        const allMail = mailboxes.find((box: any) => box?.specialUse === "\\All")
+          || mailboxes.find((box: any) => /(^|\/)all mail$/i.test(String(box?.path || "")));
+        const allMailPath = String((allMail as any)?.path || "");
+        if (allMailPath && allMailPath.toUpperCase() !== "INBOX") {
+          await scanMailbox(allMailPath, "all:", true);
+        } else if (hasBudget()) {
+          // Non-Gmail servers often expose no All Mail mailbox; retain the
+          // short indexing grace on INBOX without extending the deadline.
+          await scanMailbox("INBOX", "", true);
+        }
+      } catch (fallbackErr) {
+        if (!timedOut) console.log(`[${accountLabel}] All Mail fallback unavailable:`, fallbackErr);
+      }
+    }
+  } catch (err) {
+    if (!timedOut) throw err;
+    console.warn(`[${accountLabel}] IMAP refresh stopped at ${budgetMs}ms budget`);
   } finally {
     if (timer !== undefined) clearTimeout(timer);
-    if (quickRefresh) {
-      try { (client as any).close?.(); } catch {}
-      try { client.logout().catch(() => {}); } catch {}
-    } else {
-      try { await client.logout(); } catch {}
-    }
+    try { client.close(); } catch {}
   }
 
-  return { emails, fetched: emails.length, skipped, recipientSkipped };
+  return { emails, fetched: emails.length, skipped, recipientSkipped, timedOut };
 }
 
 async function loadAccounts(supabase: any, secret: string, accountLabels: string[] | null): Promise<Account[]> {
@@ -855,13 +798,16 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
     dedupCutoff.setDate(dedupCutoff.getDate() - STALE_DAYS);
     const { data: cachedRows } = await supabase
       .from("cached_emails")
-      .select("id")
+      .select("id, message_id")
       .eq("destroyed", false)
       .gte("date", dedupCutoff.toISOString())
       .order("date", { ascending: false })
       .order("id", { ascending: false })
       .limit(DEDUP_ID_LIMIT);
     const cachedIds = new Set((cachedRows || []).map((r: any) => String(r.id)));
+    const cachedMessageIds = new Set(
+      (cachedRows || []).map((r: any) => String(r.message_id || "").trim().toLowerCase()).filter(Boolean),
+    );
 
     // Several logical accounts may share one Gmail inbox. Opening one parallel
     // IMAP connection per logical label caused socket timeouts and let whichever
@@ -878,7 +824,7 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
     const settled = await Promise.allSettled(physicalGroups.map(async (group) => {
       const primary = group[0];
       console.log(`[sync] Fetching ${group.map((acc) => acc.label).join(", ")} (${primary.user})`);
-      const result = await fetchFromAccount(primary.host, primary.port, primary.user, primary.password, primary.label, cachedIds, maxMessages, quickRefresh, [], group);
+      const result = await fetchFromAccount(primary.host, primary.port, primary.user, primary.password, primary.label, cachedIds, cachedMessageIds, maxMessages, quickRefresh, [], group);
       return { group, result };
     }));
 
@@ -892,7 +838,12 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
       if (item.status === "fulfilled") {
         for (const acc of group) {
           const fetched = item.value.result.emails.filter((email: any) => email.account_label === acc.label).length;
-          syncStats[acc.label] = { fetched, skipped: item.value.result.skipped, recipientSkipped: item.value.result.recipientSkipped };
+          syncStats[acc.label] = {
+            fetched,
+            skipped: item.value.result.skipped,
+            recipientSkipped: item.value.result.recipientSkipped,
+            ...(item.value.result.timedOut ? { error: "Mail check reached its time limit; partial results were saved" } : {}),
+          };
         }
         allEmails.push(...item.value.result.emails);
       } else {
@@ -972,6 +923,10 @@ async function runSync(supabase: any, secret: string, source: string, accountLab
       .filter(([, v]: any) => Number(v.recipientSkipped || 0) > 0)
       .map(([label, v]: any) => `${label}: ${v.recipientSkipped} Netflix email skipped by recipient filter`);
     if (recipientWarnings.length > 0) response.warnings = [...(response.warnings || []), ...recipientWarnings];
+    const timeoutWarnings = Object.entries(syncStats)
+      .filter(([, v]: any) => /time limit/i.test(String(v.error || "")))
+      .map(([label]) => `${label}: mail check reached its time limit; partial results were saved`);
+    if (timeoutWarnings.length > 0) response.warnings = [...(response.warnings || []), ...timeoutWarnings];
     if (Array.isArray(response.warnings) && response.warnings.length > 0) response.warning = response.warnings.join(" • ");
     console.log(`[sync] Complete: ${allEmails.length} fetched/upserted across ${accounts.length} account(s)`);
     return response;

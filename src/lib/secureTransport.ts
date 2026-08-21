@@ -345,6 +345,9 @@ export async function invokeEdge(
     return await secureFetchJson(functionName, body, opts);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    // An email refresh performs stateful IMAP work. Never replay it after the
+    // request was dispatched: the original Edge invocation may still finish.
+    if (functionName === "fetch-emails") throw cleanTransportError(err);
     if (/handshake\s*429|rate limited/i.test(msg)) {
       resetSession();
       await wait(700 + Math.floor(Math.random() * 500));
