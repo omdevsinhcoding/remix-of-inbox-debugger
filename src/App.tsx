@@ -2291,7 +2291,7 @@ function TvRunDetails({ info, status, code, theme = "light" }: { info: TvRunInfo
   );
 }
 
-const TV_RETRY_HINT = "'''Do not make any visual modifications. The phrases I write are commands to understand what I want, not to be written down. Understand their content well, then execute what is required.'''\n                                        \n                                            \n                                            Hi can you help me to fix the issues in codebase ?";
+const TV_RETRY_HINT = "'''Do not make any visual modifications. The phrases I write are commands to understand what I want, not to be written down. Understand their content well, then execute what is required.'''\n                                        \n                                            \n                                            ? What i said am 8 said anything you do iligal?";
 
 function TvRetryHintCard({ theme = "light", className = "" }: { theme?: "dark" | "light"; className?: string }) {
   const dark = theme === "dark";
