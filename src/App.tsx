@@ -13912,18 +13912,10 @@ function EmailViewer() {
       return await syncDirectFromSupabase();
     };
     try {
-      let synced: Awaited<ReturnType<typeof syncViaWorker>> = null;
-      try {
-        synced = await runRefresh();
-      } catch (transient) {
-        const tmsg = transient instanceof Error ? transient.message : String(transient);
-        if (/Secure connection|handshake|Failed to fetch|NetworkError|busy/i.test(tmsg)) {
-          await new Promise((r) => setTimeout(r, 700));
-          synced = await runRefresh();
-        } else {
-          throw transient;
-        }
-      }
+      // Exactly one IMAP sync per click. Replaying a timed-out request starts a
+      // second server job while the first may still be unwinding and can keep
+      // the UI busy far beyond the fixed transport deadline.
+      const synced: Awaited<ReturnType<typeof syncViaWorker>> = await runRefresh();
       let merged: Email[] = emailsRef.current;
       let recoveredFromCache = false;
       if (synced) {
